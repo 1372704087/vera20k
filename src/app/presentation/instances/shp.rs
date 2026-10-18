@@ -208,6 +208,7 @@ pub(crate) fn build_shp_instances(
             local_owner.as_deref(),
             local_owner_id,
             &sim.fog,
+            &sim.house_alliances,
             ignore_visibility,
             sim.session.binary_frame,
             super::units::house_color_to_remap_row(hc),

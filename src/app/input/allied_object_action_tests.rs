@@ -42,7 +42,6 @@ fn object_pair(rules: &RuleSet, actor_kind: &str, relation: &str) -> (Simulation
             .entry(asker.into())
             .or_default()
             .insert(other.into());
-        sim.fog.alliances = sim.house_alliances.clone();
     }
     let actor = sim
         .spawn_object(actor_kind, "Americans", 10, 10, 0, rules)

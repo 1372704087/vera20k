@@ -92,9 +92,14 @@ pub fn launch(
         .clamp(0, i32::from(u16::MAX)) as u16;
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::RevealArea(coord, radius));
-    sim.fog.alliances = sim.house_alliances.clone();
     let config = sim.sight_reveal_config(Some(rules));
-    let viewers = vision::direct_reveal_viewers(&sim.fog, owner, &config, &sim.interner);
+    let viewers = vision::direct_reveal_viewers(
+        &sim.fog,
+        &sim.house_alliances,
+        owner,
+        &config,
+        &sim.interner,
+    );
     for final_pass in [false, true] {
         let _ = sim.reveal_area(
             &viewers,

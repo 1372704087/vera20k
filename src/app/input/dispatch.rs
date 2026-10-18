@@ -496,7 +496,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                             let fog_ref = if state.match_state.sandbox_full_visibility {
                                 None
                             } else {
-                                Some(&sim.fog)
+                                Some((&sim.fog, &sim.house_alliances))
                             };
                             let z = state.match_state.input.zoom_level;
                             let (min_x, min_y, max_x, max_y) = (
@@ -512,7 +512,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                         &screen_order,
                                         scope_order,
                                         &current_selection,
-                                        fog_ref,
+                                        fog_ref.map(|(fog, _)| fog),
                                         preferred_local_owner_name(state).as_deref(),
                                         min_x,
                                         min_y,
@@ -689,7 +689,7 @@ fn band_caught_drawn_object(
     let fog_ref = if state.match_state.sandbox_full_visibility {
         None
     } else {
-        Some(&sim.fog)
+        Some((&sim.fog, &sim.house_alliances))
     };
     crate::app::input::entity_pick::band_rect_contains_drawn_object(
         sim.entities(),
@@ -1460,7 +1460,8 @@ fn execute_type_select_tap(state: &mut AppState) {
             &state.match_state.input.selection_order,
             state.match_state.input.selection_order_pending,
         );
-        let fog = (!state.match_state.sandbox_full_visibility).then_some(&sim.fog);
+        let fog = (!state.match_state.sandbox_full_visibility)
+            .then_some((&sim.fog, &sim.house_alliances));
         compute_type_select_tap_with_playfield(
             sim.entities(),
             &screen_order,
@@ -4209,8 +4210,7 @@ mod control_group_tests {
                 std::collections::BTreeSet::from(["AMERICANS".to_owned()]),
             ),
         ]);
-        sim.house_alliances = alliances.clone();
-        sim.fog.alliances = alliances;
+        sim.house_alliances = alliances;
 
         // Body/status admission is the fixture subject. Supply no sustained
         // sight source: mark_visible below intentionally tests transient
@@ -4289,6 +4289,7 @@ mod control_group_tests {
 
         crate::sim::vision::apply_gap_generators(
             &mut sim.fog,
+            &sim.house_alliances,
             &[(gap_house, 12, 10, 5)],
             &sim.interner,
         );
@@ -4604,8 +4605,7 @@ mod control_group_tests {
                 std::collections::BTreeSet::from(["AMERICANS".to_owned()]),
             ),
         ]);
-        sim.house_alliances = allies.clone();
-        sim.fog.alliances = allies;
+        sim.house_alliances = allies;
 
         // Body/status admission is the fixture subject. Supply no sustained
         // sight source: mark_visible below intentionally tests transient
@@ -4654,6 +4654,7 @@ mod control_group_tests {
 
         crate::sim::vision::apply_gap_generators(
             &mut sim.fog,
+            &sim.house_alliances,
             &[(gap_owner, 10, 10, 5)],
             &sim.interner,
         );

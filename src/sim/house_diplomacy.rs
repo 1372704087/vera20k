@@ -4,9 +4,9 @@
 //! (`HouseClass+0x5788`) as a directed graph, `A -> {B}` when A's mask has
 //! B's bit; `HouseClass::Is_Ally` reads only the asking house's mask. This
 //! module writes it: the scenario's install, then MakeAlly and MakeEnemy,
-//! which Computer_Paranoid drives for the computer houses. Each write also
-//! refreshes the fog's copy (`FogState::alliances`, #581), so a later reader
-//! in the same frame sees it as native's single mask does.
+//! which Computer_Paranoid drives for the computer houses. It is the only
+//! graph: fog, fire and scan readers borrow it, so a later reader in the
+//! same frame sees each write as native's single mask does.
 //!
 //! Evidence: instruction reading of `HouseClass::Can_Ally @ 0x00501540`,
 //! `HouseClass::Make_Ally @ 0x004F9B70`, `HouseClass::Make_Enemy @
@@ -96,7 +96,6 @@ impl Simulation {
             })
             .collect();
         self.house_alliances = alliances;
-        self.fog.alliances = self.house_alliances.clone();
         for owner in changed {
             self.rebuild_house_spatial_threat(owner, rules);
         }
@@ -322,7 +321,7 @@ impl Simulation {
         live != friends
     }
 
-    /// Write `owner`'s ally bit for `other` and refresh the fog's copy.
+    /// Write `owner`'s ally bit for `other`.
     fn set_ally_bit(&mut self, owner: InternedId, other: InternedId, allied: bool) {
         let other_key = normalize_house_name(self.interner.resolve(other));
         let allies = self
@@ -334,7 +333,6 @@ impl Simulation {
         } else {
             allies.remove(&other_key);
         }
-        self.fog.alliances = self.house_alliances.clone();
     }
 }
 

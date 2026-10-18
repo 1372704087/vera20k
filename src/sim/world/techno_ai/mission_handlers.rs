@@ -449,17 +449,10 @@ pub(crate) fn dispatch_foot_mission(
             } else {
                 //52139A..5213EE: native GetCell/MapCell, Cell's site and
                 // fixed GetWeapon1. This lookup never substitutes the deck.
-                let coord = match sim.foot_navigation_coordinate(id) {
-                    Ok(coord) => coord,
-                    Err(_) => return bridge_changed,
-                };
-                let Some(terrain) = sim.resolved_terrain.as_ref() else {
+                let Some(at) = sim.own_map_cell(id) else {
                     return bridge_changed;
                 };
-                let cell =
-                    terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
-                let at = terrain.native_cell_coord(cell);
-                let target = crate::sim::combat::TargetKind::Cell(at.0 as u16, at.1 as u16);
+                let target = crate::sim::combat::TargetKind::Cell(at.0, at.1);
                 let actor = sim.substrate.entities.get(id).expect("deployed shim actor");
                 let Some(weapon) = crate::sim::combat::combat_weapon::resolve_weapon_index(
                     rules,
@@ -471,13 +464,10 @@ pub(crate) fn dispatch_foot_mission(
                 ) else {
                     return bridge_changed;
                 };
-                let below = sim
-                    .radiation
-                    .site_at((at.0 as u16, at.1 as u16))
-                    .is_none_or(|site| {
-                        crate::sim::radiation::RadiationState::current_site_level(site)
-                            < weapon.weapon.rad_level / 3
-                    });
+                let below = sim.radiation.site_at(at).is_none_or(|site| {
+                    crate::sim::radiation::RadiationState::current_site_level(site)
+                        < weapon.weapon.rad_level / 3
+                });
                 let mut fired = false;
                 if below {
                     //521411 setter precedes521426's fixed-index legality.
@@ -570,6 +560,18 @@ pub(crate) fn dispatch_foot_mission(
             let Ok(delay) = sim.infantry_mission_unload(id, rules, ctx.effects) else {
                 return bridge_changed;
             };
+            MissionHandlerEvaluation::cadence(delay)
+        }
+        // `UnitClass::Mission_Unload @ 0x0073D630` opens with its deploy-fire
+        // arm, which returns its own delay.
+        (EntityCategory::Unit, Some(MissionType::Unload))
+            if sim.substrate.entities.get(id).is_some_and(|entity| {
+                crate::sim::deploy::unit_fires_on_deploy(sim, entity, rules)
+            }) =>
+        {
+            let (delay, changed) =
+                sim.unit_deploy_fire_unload(id, rules, ctx.overlay_registry, ctx.effects);
+            bridge_changed |= changed;
             MissionHandlerEvaluation::cadence(delay)
         }
         // The transport branch of `UnitClass::Mission_Unload @ 0x0073D630`

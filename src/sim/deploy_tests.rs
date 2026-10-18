@@ -1892,3 +1892,50 @@ fn can_deploy_slash_unload_follows_each_class_arm() {
     }
     assert_eq!((can(&sim, yuri), can(&sim, gi)), (false, true));
 }
+
+/// The DEPLOY event admits a retail Chaos Drone (`[CAOS]`, `DeployFire=`)
+/// and queues Unload; `UnitClass::Mission_Unload`'s deploy-fire arm
+/// (`0x0073DCD3`) targets the drone's own cell and fires weapon 0
+/// (ChaosAttack) there, then keeps that Target and stays in Unload.
+#[test]
+fn a_chaos_drone_deploy_fires_its_weapon_at_its_own_cell() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &battle.rules;
+    let mut sim = Simulation::new();
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
+    let drone = sim
+        .spawn_object("CAOS", "YuriCountry", 10, 10, 64, rules)
+        .expect("the retail Chaos Drone builds");
+    assert!(sim.apply_command(
+        "YuriCountry",
+        &Command::DeployMcv { entity_id: drone },
+        Some(rules)
+    ));
+    let fired = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(drone)
+            .unwrap()
+            .rearm_timer
+            .duration()
+            > 0
+    };
+    for _ in 0..30 {
+        if fired(&sim) {
+            break;
+        }
+        sim.advance_tick(&[], Some(rules), Some(&grid), None, 33);
+    }
+    let entity = sim.substrate.entities.get(drone).unwrap();
+    assert!(fired(&sim), "the drone fired");
+    assert_eq!(
+        entity.attack_target.target(),
+        Some(TargetKind::Cell(10, 10))
+    );
+    assert_eq!(
+        entity.mission.current().known(),
+        Some(crate::sim::mission::MissionType::Unload)
+    );
+}

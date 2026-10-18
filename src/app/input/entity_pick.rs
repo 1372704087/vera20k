@@ -108,13 +108,10 @@ pub(crate) fn hover_target_at_point(
                 .map(|o| o.foundation.as_str())
                 .unwrap_or("1x1");
             if !click_hits_foundation(
-                world_x,
-                world_y,
+                (rx, ry),
                 entity.position.rx(),
                 entity.position.ry(),
                 foundation,
-                height_map,
-                bridge_cells,
             ) {
                 continue;
             }
@@ -1054,22 +1051,16 @@ fn building_covers_cell(
 /// The building occupies cells `(rx..rx+fw, ry..ry+fh)`. We convert the click
 /// to cell coords and check containment. This matches the original engine which
 /// uses the foundation footprint, not the visual sprite bounds.
+/// Whether `click_cell`, the clicked point's cell (`world_point_to_cell`),
+/// lies in the foundation at `entity_rx`/`entity_ry`. Callers resolve the
+/// point once for every structure they test.
 fn click_hits_foundation(
-    world_x: f32,
-    world_y: f32,
+    (click_rx, click_ry): (u16, u16),
     entity_rx: u16,
     entity_ry: u16,
     foundation: &str,
-    height_map: &std::collections::BTreeMap<(u16, u16), u8>,
-    bridge_cells: Option<&dyn TacticalBridgeLookup>,
 ) -> bool {
     let (fw, fh) = crate::rules::foundation::foundation_dimensions(foundation);
-    let (click_rx, click_ry) = crate::app::match_runtime::sim_tick::world_point_to_cell(
-        world_x,
-        world_y,
-        height_map,
-        bridge_cells,
-    );
     let crx = click_rx as i32;
     let cry = click_ry as i32;
     let brx = entity_rx as i32;
@@ -1143,6 +1134,12 @@ pub(crate) fn pick_entity_at_point(
 
     // Cell/foundation occupancy is consulted only when the tracked-anchor pass
     // found nothing. Preserve encounter order when a malformed overlap exists.
+    let click_cell = crate::app::match_runtime::sim_tick::world_point_to_cell(
+        world_x,
+        world_y,
+        height_map,
+        bridge_cells,
+    );
     entities.values().find_map(|entity| {
         if entity.category() != EntityCategory::Structure
             || !entity.lifecycle.object_alive()
@@ -1156,13 +1153,10 @@ pub(crate) fn pick_entity_at_point(
             .map(|o| o.foundation.as_str())
             .unwrap_or("1x1");
         click_hits_foundation(
-            world_x,
-            world_y,
+            click_cell,
             entity.position.rx(),
             entity.position.ry(),
             foundation,
-            height_map,
-            bridge_cells,
         )
         .then_some(entity.stable_id())
     })

@@ -16,27 +16,36 @@ pub(crate) fn map<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) 
     items.par_iter().map(&work).collect()
 }
 
-/// [`map`] that starts the items in `order`, a permutation of their indices,
-/// each on the next free worker, with the results in item order. Starting
-/// the costliest items first keeps the slowest from running alone at the end.
-pub(crate) fn map_in_order<T: Sync, R: Send>(
+/// [`map`] that starts the items in slice order, each on the next free
+/// worker, with the results in item order. Starting the costliest items
+/// first keeps the slowest from running alone at the end. `work` also gets
+/// what `before` read just before its item was taken: whatever earlier
+/// items publish with `Release` and `before` reads with `Acquire` comes
+/// only from items earlier in the slice.
+pub(crate) fn map_in_order<T: Sync, B, R: Send>(
     items: &[T],
-    order: &[usize],
-    work: impl Fn(&T) -> R + Sync,
+    before: impl Fn() -> B + Sync,
+    work: impl Fn(&T, B) -> R + Sync,
 ) -> Vec<R> {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    debug_assert_eq!(order.len(), items.len(), "the order lists every item");
     let next = AtomicUsize::new(0);
-    // A puller per worker takes the next item in `order` until none is
-    // left; one a busy worker never starts finds none left.
-    let pullers = rayon::current_num_threads().min(order.len());
+    // A puller per worker takes the next item until none is left; one a
+    // busy worker never starts finds none left. An item's publication
+    // happens before a later read that sees it, so its take precedes the
+    // reader's next take in `next`'s order.
+    let pullers = rayon::current_num_threads().min(items.len());
     let done: Vec<Vec<(usize, R)>> = (0..pullers)
         .into_par_iter()
         .with_max_len(1)
         .map(|_| {
             let mut done = Vec::new();
-            while let Some(&index) = order.get(next.fetch_add(1, Ordering::Relaxed)) {
-                done.push((index, work(&items[index])));
+            loop {
+                let seen = before();
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(item) = items.get(index) else {
+                    break;
+                };
+                done.push((index, work(item, seen)));
             }
             done
         })
@@ -47,7 +56,7 @@ pub(crate) fn map_in_order<T: Sync, R: Send>(
     }
     results
         .into_iter()
-        .map(|result| result.expect("the order lists every item"))
+        .map(|result| result.expect("every item is taken"))
         .collect()
 }
 
@@ -127,9 +136,8 @@ mod tests {
         );
         assert!(super::any_index(1000, |index| index == 999));
         assert!(!super::any_index(1000, |index| index >= 1000));
-        let backwards: Vec<usize> = (0..1000).rev().collect();
         assert_eq!(
-            super::map_in_order(&items, &backwards, |item| item * item),
+            super::map_in_order(&items, || (), |item, ()| item * item),
             squares
         );
     }

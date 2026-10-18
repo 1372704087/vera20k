@@ -834,6 +834,140 @@ fn a_pass_answers_at_most_its_cap_and_the_rest_wait() {
     assert_eq!(batch.next_turn, first + cap - 10);
 }
 
+/// An urgency-2 code-2 re-path, as a Foot past its blockage timer asks it.
+const URGENT: WaitingRequest = WaitingRequest::Code2Ladder { urgency: 2 };
+
+/// Eight infantrymen with routes across the arena, each answered alone.
+fn eight_ladders(rules: &RuleSet) -> (Simulation, Vec<u64>) {
+    let (mut sim, _) = arena(rules);
+    let ladders = (0..8u16)
+        .map(|i| {
+            let infantry = spawn(&mut sim, rules, "E1", (1, 3 + 3 * i));
+            send(&mut sim, rules, infantry, (30, 24 - 3 * i));
+            infantry
+        })
+        .collect();
+    sim.batch_path_searches();
+    (sim, ladders)
+}
+
+/// A pass answers its urgency-2 re-paths in their turn's order while the
+/// ones before stay under its budget of expansions; the rest register again
+/// at urgency 2 and go first at the next pass. Which ones it answers does not
+/// depend on the threads (one worker takes the re-paths past the budget only
+/// after it is spent, and skips them).
+#[test]
+fn a_pass_answers_urgency2_repaths_within_its_budget() {
+    let rules = rules();
+    let run = |threads: usize| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(threads)
+            .build()
+            .expect("a worker pool");
+        pool.install(|| {
+            let (mut sim, ladders) = eight_ladders(&rules);
+            let register = |sim: &mut Simulation, ids: &[u64]| {
+                for &id in ids {
+                    assert!(sim.defer_path_search(id, URGENT));
+                }
+            };
+            // Without a budget every re-path is answered; alone, each makes
+            // the expansions it makes in the batch.
+            register(&mut sim, &ladders);
+            sim.answer_path_searches_within(Some(&rules), None, u64::MAX);
+            assert_eq!(sim.path_batch.as_ref().unwrap().answered, ladders);
+            let grid = sim.path_grid_snapshot().unwrap();
+            let counts = sim.movement_pass_cache.current_blocker_plane();
+            let dummy = sim.resolved_terrain.as_ref().unwrap().shared_cell_dummy();
+            let alone: Vec<(Option<BatchedSearch>, u64)> = ladders
+                .iter()
+                .map(|&id| {
+                    count_search_steps(|| {
+                        dummy.detached(|| {
+                            sim.batched_search(id, URGENT, &rules, None, &grid, counts, None)
+                        })
+                    })
+                })
+                .collect();
+            assert!(
+                alone
+                    .iter()
+                    .all(|(answer, steps)| answer.is_some() && *steps > 0),
+                "every re-path searches"
+            );
+
+            // The first two stay under the budget and the third reaches it.
+            sim.finish_batched_path_searches();
+            register(&mut sim, &ladders);
+            let budget = alone[0].1 + alone[1].1 + 1;
+            sim.answer_path_searches_within(Some(&rules), None, budget);
+            let batch = sim.path_batch.as_ref().unwrap();
+            assert_eq!(batch.answered, ladders[..3]);
+            for (id, (answer, _)) in ladders.iter().zip(&alone).take(3) {
+                assert_eq!(batch.ready[id].answer, *answer, "{id}'s answer");
+            }
+            for &id in &ladders[3..] {
+                assert!(sim.defer_path_search(id, CODE2), "{id} registers again");
+                let pending = &sim.path_batch.as_ref().unwrap().pending;
+                assert_eq!(pending.last(), Some(&(id, URGENT)), "{id} keeps urgency 2");
+            }
+
+            // The next pass takes the left-out ones first, ahead of a lower
+            // id that registers anew, and answers the first whatever its
+            // budget.
+            sim.finish_batched_path_searches();
+            register(&mut sim, &ladders[..1]);
+            sim.answer_path_searches_within(Some(&rules), None, 1);
+            let batch = sim.path_batch.as_ref().unwrap();
+            assert_eq!(batch.answered, [ladders[3]]);
+            let waiting: Vec<_> = batch
+                .left_out_code2
+                .iter()
+                .map(|(&id, &u)| (id, u))
+                .collect();
+            let mut expected: Vec<_> = ladders[4..].iter().map(|&id| (id, 2)).collect();
+            expected.insert(0, (ladders[0], 2));
+            assert_eq!(waiting, expected);
+            (
+                ladders,
+                alone
+                    .into_iter()
+                    .map(|(_, steps)| steps)
+                    .collect::<Vec<_>>(),
+            )
+        })
+    };
+    assert_eq!(run(1), run(4));
+}
+
+/// Urgency-2 re-paths take their own turn: when the budget and the cap both
+/// bind, the cap's turn still moves past the registrations it took.
+#[test]
+fn the_urgency2_budget_leaves_the_caps_turn_alone() {
+    let rules = rules();
+    let (mut sim, ladders) = eight_ladders(&rules);
+    let cap = SEARCHES_PER_PASS as u64;
+    // Ids no object holds: each search finds no request to answer.
+    let (first, end) = (1_000_000, 1_000_000 + cap + 10);
+    for id in first..end {
+        assert!(sim.defer_path_search(id, WaitingRequest::NoQueue));
+    }
+    for &id in &ladders {
+        assert!(sim.defer_path_search(id, URGENT));
+    }
+    sim.answer_path_searches_within(Some(&rules), None, 1);
+    let batch = sim.path_batch.as_ref().unwrap();
+    assert_eq!(batch.next_turn, first + cap);
+    let answered: Vec<u64> = std::iter::once(ladders[0])
+        .chain(first..first + cap)
+        .collect();
+    assert_eq!(batch.answered, answered);
+    assert_eq!(
+        batch.left_out_code2.keys().copied().collect::<Vec<_>>(),
+        ladders[1..]
+    );
+}
+
 /// However the registrations change between passes, a Foot registered at
 /// every pass is taken within one sweep of the ids, from any turn.
 #[test]

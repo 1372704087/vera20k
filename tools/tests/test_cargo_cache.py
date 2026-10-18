@@ -921,6 +921,13 @@ class DebugDependencyTests(unittest.TestCase):
 
 
 class PolicyTests(unittest.TestCase):
+    def test_defaults_keep_a_twelve_gib_reserve(self):
+        with patch.dict(os.environ):
+            for key in ('VERA20K_CACHE_GIB', 'VERA20K_INCREMENTAL_GIB', 'VERA20K_MIN_FREE_GIB'):
+                os.environ.pop(key, None)
+            self.assertEqual(cache.CachePolicy.from_env(), cache.CachePolicy())
+            self.assertEqual(cache.CachePolicy().min_free_bytes, 12 * cache.GIB)
+
     def test_decimal_environment_and_cli_overrides_have_exact_integer_byte_values(self):
         with patch.dict(os.environ, {'VERA20K_CACHE_GIB': '1.5',
                                      'VERA20K_INCREMENTAL_GIB': '0',

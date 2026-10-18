@@ -540,20 +540,13 @@ fn unit_repair_branch_orders(
                 } else {
                     modifier
                 };
-                let payload = object_click_payload(
+                object_click_payload(
                     order_mode,
                     attack_modifier,
                     entity_can_attack_move(sim, Some(rules), id),
                     id,
                     target.stable_id,
-                );
-                match payload {
-                    Command::Attack {
-                        attacker_id,
-                        target_id,
-                    } => object_attack_order(attacker_id, target_id, true),
-                    payload => payload,
-                }
+                )
             }
             UnitRepairAction::Move => {
                 output.consumed = true;
@@ -629,10 +622,6 @@ fn attack_branch_orders(
                         target_rx,
                         target_ry,
                     },
-                    TargetKind::Entity(target_id) if force_fire => Command::ForceAttack {
-                        attacker_id: id,
-                        target_id,
-                    },
                     TargetKind::Entity(target_id) => Command::Attack {
                         attacker_id: id,
                         target_id,
@@ -681,9 +670,7 @@ fn order_voice_key(command: &Command) -> Option<&'static str> {
         Command::Move { .. } | Command::MoveToObject { .. } | Command::AttackMove { .. } => {
             Some("VoiceMove")
         }
-        Command::Attack { .. } | Command::ForceAttack { .. } | Command::ForceAttackCell { .. } => {
-            Some("VoiceAttack")
-        }
+        Command::Attack { .. } | Command::ForceAttackCell { .. } => Some("VoiceAttack"),
         Command::HarvestCell { .. } => Some("VoiceHarvest"),
         Command::CaptureBuilding { .. } => Some("VoiceCapture"),
         Command::MinerReturn { .. }
@@ -714,7 +701,6 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         | Command::UndeployBuilding { entity_id }
         | Command::Stop { entity_id } => Some(*entity_id),
         Command::Attack { attacker_id, .. }
-        | Command::ForceAttack { attacker_id, .. }
         | Command::ForceAttackCell { attacker_id, .. }
         | Command::PlantC4 { attacker_id, .. } => Some(*attacker_id),
         Command::EnterTransport { passenger_id, .. } => Some(*passenger_id),
@@ -773,9 +759,7 @@ fn emit_resolved_order_voice(state: &mut AppState, speaker_id: u64, queued: &[Co
     // before event encoding. A Move destination and the actor's old TarCom
     // are different owners; neither supplies this argument.
     let target = match &envelope.payload {
-        Command::Attack { target_id, .. } | Command::ForceAttack { target_id, .. } => {
-            Some(TargetKind::Entity(*target_id))
-        }
+        Command::Attack { target_id, .. } => Some(TargetKind::Entity(*target_id)),
         Command::ForceAttackCell {
             target_rx,
             target_ry,
@@ -1009,7 +993,7 @@ pub(crate) fn object_click_payload(
     target_id: u64,
 ) -> Command {
     if modifier == OrderModifier::ForceFire {
-        return Command::ForceAttack {
+        return Command::Attack {
             attacker_id,
             target_id,
         };
@@ -1051,7 +1035,7 @@ pub(crate) fn object_click_payload(
 ///
 /// RESIDUAL (#605): force fire orders the payload whatever the receiver.
 /// Trigger: Ctrl over an object with an unarmed receiver. Effect: VERA
-/// queues ForceAttack where native, whose attack rung admits an unarmed
+/// queues an Attack where native, whose attack rung admits an unarmed
 /// receiver under Ctrl too only as an `Infiltrate=` infantryman
 /// (`0x00700444..0x00700474`), selects the object or moves the receiver near
 /// it. Rare.
@@ -1771,7 +1755,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         queued.push(CommandEnvelope::new(
                             owner_id,
                             execute_tick,
-                            object_attack_order(attacker_id, target.stable_id, friendly),
+                            Command::Attack {
+                                attacker_id,
+                                target_id: target.stable_id,
+                            },
                         ));
                     }
                     selected_units.retain(|id| !engineers.contains(id));
@@ -2006,7 +1993,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         queued.push(CommandEnvelope::new(
                             owner_id,
                             execute_tick,
-                            object_attack_order(attacker_id, target.stable_id, true),
+                            Command::Attack {
+                                attacker_id,
+                                target_id: target.stable_id,
+                            },
                         ));
                     }
                     return finish_order(state, queued, speaker_id);
@@ -2558,23 +2548,6 @@ fn friendly_bomb_ivans(
                 ) == AttackAction::Attack
         })
         .collect()
-}
-
-/// Native Attack events have no alliance test. Friendly context actions
-/// (repair, defuse and Ivan) use the existing ForceAttack internal alias:
-/// the same mission/target receiver, with no persistent Ctrl/fire modifier.
-fn object_attack_order(attacker_id: u64, target_id: u64, friendly: bool) -> Command {
-    if friendly {
-        Command::ForceAttack {
-            attacker_id,
-            target_id,
-        }
-    } else {
-        Command::Attack {
-            attacker_id,
-            target_id,
-        }
-    }
 }
 
 /// `InfantryClass::What_Action_OnObject`'s Ivan arm
@@ -3697,7 +3670,7 @@ mod tests {
         );
         assert_eq!(
             object_click_payload(OrderMode::AttackMove, OrderModifier::ForceFire, true, 1, 2),
-            Command::ForceAttack {
+            Command::Attack {
                 attacker_id: 1,
                 target_id: 2,
             }
@@ -4156,8 +4129,8 @@ mod tests {
     }
 
     /// The click side of the bomb actions: an Engineer's DisarmBomb and a
-    /// Crazy Ivan's IvanBomb on a friend are Attack orders (ForceAttack past
-    /// VERA's alliance gate). An Ivan never attacks a bombed target, nor a
+    /// Crazy Ivan's IvanBomb on a friend are Attack orders. An Ivan never
+    /// attacks a bombed target, nor a
     /// friend his shot cannot hit (the rung's ILLEGAL test), where the cursor
     /// shows Select too.
     #[test]
@@ -4262,15 +4235,6 @@ mod tests {
         sim.bomb_list_update(&rules);
         sim.bomb_list_update(&rules);
         assert!(disarm_bomb_engineers(&sim, &rules, &[engineer], engineer, americans).is_empty());
-
-        assert!(matches!(
-            object_attack_order(engineer, own_tank, true),
-            Command::ForceAttack { .. }
-        ));
-        assert!(matches!(
-            object_attack_order(engineer, far_tank, false),
-            Command::Attack { .. }
-        ));
     }
     /// Supplies the ordinary object-route prerequisites, through production
     /// object constructors and the existing terrain/type authorities.

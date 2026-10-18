@@ -2406,7 +2406,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     target_ry: 10,
                 }
             } else {
-                Command::ForceAttack {
+                Command::Attack {
                     attacker_id: house,
                     target_id,
                 }

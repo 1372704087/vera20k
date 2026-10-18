@@ -618,7 +618,7 @@ python tools/render_depth_fixture.py target/stock-e1-feedback-removal.map --dama
 Copy the profile and set `launch.selected_map_file` to the generated map's
 absolute path; relative map names are searched in the retail install.
 
-The first ForceAttack admits ordinary damage; the later volley can remove the
+The first Attack admits ordinary damage; the later volley can remove the
 GI while its unbound `GIFear` event is playing. Inspect the actual health crossing,
 submission/start/completion contexts, null owner, physical sample and retirement.
 The `single` fixture variant supplies only the initial tank for a natural-end
@@ -1998,7 +1998,7 @@ while spent credits stayed at 2,600. Both complete compact receipts are about
 ## Repair-depot service observation
 
 [The depot profile](map_observation.depot-repair.example.json) uses stock
-Russia/Battle/AnyTown and ordinary Deploy, Build, ForceAttack, Stop,
+Russia/Battle/AnyTown and ordinary Deploy, Build, Attack, Stop,
 RepairAtDepot and SellBuilding commands. It damages one starting HTNK, spends
 the initial 5900 credits on prerequisites, stops the produced HARV before it
 harvests, orders repair, then sells the barracks to fund the retained occupant.
@@ -2025,7 +2025,7 @@ the profile to different inputs.
 
 [The Allied waiter profile](map_observation.depot-waiters.example.json) constructs
 a stock GADEPT through ordinary Queue/Place and damages three starting MTNKs
-through ForceAttack/Stop before repair orders. It starts with 20,000 credits;
+through Attack/Stop before repair orders. It starts with 20,000 credits;
 construction spends 6,100. One ordinary Move stages the third tank south of
 the pad before repair. All three repair from40 to300 HP in33 paid steps/66 credits
 each, release at6620/7250/7878 and leave the foundation by7903. The last tank is
@@ -2093,7 +2093,7 @@ not establish successful orders, native factory timing or whole-frame parity.
 
 [`map_observation.engineer-repair.example.json`](map_observation.engineer-repair.example.json)
 uses ordinary Battle/AnyTown orders to deploy the MCV, construct GAPOWR/GAPILE,
-deliver an ENGINEER, damage the power plant by MTNK ForceAttack, stop the tank,
+deliver an ENGINEER, damage the power plant by MTNK Attack, stop the tank,
 enable paid repair and send the Engineer through CaptureBuilding. The
 production receipt (`tools/spatial_oracle/engineer_repair.production.json`, in git at 1b1a8b43e) records the
 1650-step release capture and exact repeat: all fingerprints, complete observed
@@ -2165,7 +2165,7 @@ created by the AI MCV. Seal the final profile with those IDs and observed timing
 
 These IDs and timings illustrate syntax; obtain actual values from the production
 probes. Command payloads are the existing Rust serde `Command`, with no separate
-order translator. Supported orders are Move, Stop, Attack, ForceAttack, Guard,
+order translator. Supported orders are Move, Stop, Attack, Guard,
 DeployMcv, ForceAttackCell, QueueProduction, PlaceReadyBuilding and
 CaptureBuilding (the resolved Engineer repair/capture mission), ToggleRepair,
 EnterTransport, UnloadPassengers, RepairAtDepot and SellBuilding. RepairAtDepot

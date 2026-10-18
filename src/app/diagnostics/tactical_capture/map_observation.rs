@@ -661,7 +661,6 @@ impl MapCaptureProfile {
                         | Command::Move { .. }
                         | Command::Stop { .. }
                         | Command::Attack { .. }
-                        | Command::ForceAttack { .. }
                         | Command::Guard { .. }
                         | Command::DeployMcv { .. }
                         | Command::SetRally { .. }

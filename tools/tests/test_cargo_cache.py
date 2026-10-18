@@ -840,6 +840,45 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(automatic(), 5)
         self.assertFalse(kept.exists())
 
+    def older_executable(self):
+        """An older and a newer core test executable; the newer one shares an object."""
+        objects = {name: self.write(f'debug/deps/{name}.rcgu.o', age=age)
+                   for name, age in (('old', 100), ('shared', 100), ('new', 300))}
+        older = self.write('debug/deps/vera20k_core-0123456789abcdef',
+                           content=b'\xcf\xfa\xed\xfeolder', age=200)
+        newer = self.write('debug/deps/vera20k_core-fedcba9876543210',
+                           content=b'\xcf\xfa\xed\xfenewer', age=400)
+        names = {older: {objects['old'], objects['shared']}, newer: {objects['new'], objects['shared']}}
+        return older, newer, objects, lambda binary: names.get(binary, set())
+
+    def test_older_executable_and_objects_only_it_names_are_removed(self):
+        older, newer, objects, dependencies = self.older_executable()
+        result = self.trim(dependencies=dependencies)
+        self.assertEqual(result['state'], 'trimmed', result)
+        self.assertEqual(result['superseded_executables'], [str(older)])
+        self.assertFalse(older.exists())
+        self.assertFalse(objects['old'].exists())
+        for path in (newer, objects['new'], objects['shared']):
+            self.assertTrue(path.exists(), path)
+
+    def test_executable_object_is_never_removed_ahead_of_it(self):
+        older, _, objects, dependencies = self.older_executable()
+        total = self.trim(dry_run=True, dependencies=dependencies)['cache_allocated_bytes']
+        result = self.trim(cache.CachePolicy(total - 1, 1 << 40, 0), dependencies=dependencies)
+        # The older object sorts after the executable naming it; one removal meets the budget.
+        self.assertEqual(result['removed_files'], [str(older)], result)
+        self.assertTrue(objects['old'].exists())
+
+    def test_running_checkout_keeps_its_older_executables(self):
+        older, _, objects, dependencies = self.older_executable()
+        # Its run may still execute a recorded test executable after Cargo.
+        with cargo_run.file_lock(self.store / 'checkouts' / f'{self.namespace}.lock', time.monotonic() + 5):
+            result = self.trim(dependencies=dependencies)
+        self.assertEqual(result['superseded_executables'], [], result)
+        self.assertEqual(result['removed_files'], [])
+        self.assertTrue(older.exists())
+        self.assertTrue(objects['old'].exists())
+
     def test_under_budget_never_invokes_expensive_dependency_inspection(self):
         self.label()
         orphan = self.write('debug/deps/orphan.rcgu.o')

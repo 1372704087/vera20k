@@ -73,8 +73,8 @@ pub(crate) struct Drain {
     draining_me: Option<u64>,
     /// `TechnoClass+0x1D4 DrainAnim`: the drainer's `DrainAnimationType=`
     /// anim ([`attach_drain_anim`]), un-initialized by every native break of
-    /// the link. Persisted; the anim itself is hashed with the anims.
-    #[serde(default)]
+    /// the link. Persisted (v422); not hashed, since the anim and its owner
+    /// are hashed with the anims.
     anim: Option<crate::sim::anim_class::AnimId>,
 }
 
@@ -87,6 +87,20 @@ impl Drain {
     /// The object draining this one.
     pub(crate) fn draining_me(&self) -> Option<u64> {
         self.draining_me
+    }
+
+    /// The drainer's DrainAnim.
+    pub(crate) fn anim(&self) -> Option<crate::sim::anim_class::AnimId> {
+        self.anim
+    }
+
+    /// The anim's own expiry clears the matching `+0x1D4`: its owner
+    /// callback (`0x00710427..0x0071042F`) and PointerExpired
+    /// (`0x00707930..0x00707938`).
+    pub(crate) fn expire_anim(&mut self, anim: crate::sim::anim_class::AnimId) {
+        if self.anim == Some(anim) {
+            self.anim = None;
+        }
     }
 }
 
@@ -299,6 +313,23 @@ pub(crate) fn install_drain_link(sim: &mut Simulation, drainer_id: u64, victim_i
     true
 }
 
+/// A fixture's drain link pair, without Install_Drain_Link's cell gate.
+#[cfg(any(test, feature = "test-support"))]
+pub(crate) fn link_for_test(sim: &mut Simulation, drainer_id: u64, victim_id: u64) {
+    sim.substrate
+        .entities
+        .get_mut(drainer_id)
+        .unwrap()
+        .drain
+        .target = Some(victim_id);
+    sim.substrate
+        .entities
+        .get_mut(victim_id)
+        .unwrap()
+        .drain
+        .draining_me = Some(drainer_id);
+}
+
 /// Install_Drain_Link's anim (`0x0070FDC2..0x0070FE14`): an AnimClass of
 /// `[CombatDamage] DrainAnimationType=` at the drainer's GetCoords (vt+0x48),
 /// no delay, one loop, flags `0x600`, no Z adjust, forward, which
@@ -372,8 +403,12 @@ pub(crate) fn stop_drain(sim: &mut Simulation, drainer_id: u64, rules: Option<&R
 }
 
 /// `TechnoClass::PointerExpired @ 0x0070785F..0x0070792A` and the death arm
-/// of `TechnoClass::ReceiveDamage @ 0x0070206A..0x00702102`: an expiring
-/// object drops both halves of any drain link it is part of.
+/// of `TechnoClass::ReceiveDamage @ 0x0070206A..0x00702102`: an expiring or
+/// dying object drops both halves of any drain link it is part of, the
+/// drainer's DrainAnim first on each side. The killing hit reaches it through
+/// its Destroy's Detach_All broadcast (`0x005F5280`, the receiver's
+/// `object_destroy_callback`), in the same ReceiveDamage and before any draw
+/// the death arm makes, so a falling wreck no longer drains or shows its ray.
 pub(crate) fn clear_drain_links_on_expiry(
     sim: &mut Simulation,
     expired_id: u64,

@@ -75,6 +75,27 @@ fn holds_what_rebinds_on_every_reached_pass() {
     );
 }
 
+/// AnimType ReadINI reads `SpawnsParticle=` from the Anim's ART section with
+/// no default (`0x00428716`), skips an empty read and hands any other name to
+/// the same ParticleType factory (`0x00428730` -> `0x00645430`): `none`
+/// allocates a ParticleType named `none`; `<none>` allocates nothing.
+#[test]
+fn spawns_particle_allocates_through_the_particle_factory() {
+    let processed = RulesLayerStack::new(IniFile::from_str(
+        "[Animations]\n0=NAMED\n1=NULLED\n2=EMPTY\n",
+    ))
+    .process_with_fixed_art(&IniFile::from_str(
+        "[NAMED]\nSpawnsParticle=none\n[NULLED]\nSpawnsParticle=<none>\n\
+         [EMPTY]\nSpawnsParticle=\n",
+    ))
+    .unwrap();
+    let particles = processed
+        .ini()
+        .section("Particles")
+        .expect("SpawnsParticle=none allocates a ParticleType");
+    assert_eq!(particles.registry_ids(), ["none"]);
+}
+
 /// BuildingType's ToOverlay read finds its fixed ART section by ObjectType+1F8
 /// (`0x004610DE`), the 25-byte Image buffer: a longer Image names the section
 /// of its first 24 bytes.

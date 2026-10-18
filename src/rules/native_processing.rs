@@ -2684,12 +2684,13 @@ impl RulesPassProcessor {
                 }
                 let _ =
                     self.resolve_scalar_from(section, "Warhead", RulesTypeFamily::Warhead, 0x80);
-                let _ = self.resolve_scalar_from(
-                    section,
-                    "SpawnsParticle",
-                    RulesTypeFamily::Particle,
-                    0x20,
-                );
+                // ReadString with no default (0x00428716) skips an empty
+                // read; any other name goes to ParticleType's factory
+                // (0x00428730), which answers nothing only for `<none>`.
+                let spawns_particle = section.read_string("SpawnsParticle", "", 0x20);
+                if !spawns_particle.is_empty() {
+                    let _ = self.find_or_allocate_particle(&spawns_particle);
+                }
             }
             index += 1;
         }

@@ -38,6 +38,14 @@ fn install(sim: &mut Simulation, rules: &RuleSet, value: i32) -> usize {
     sim.trigger_runtime.tag(tag).unwrap().triggers[0]
 }
 
+/// `TechnoClass::Init_Managers` (`0x006F41FE..0x006F4271`) dresses a
+/// PermaDisguise spy in its owner side's Rules disguise from construction.
+/// Cases about the current player's side fallback take that identity off.
+fn without_stored_disguise(sim: &mut Simulation, actor: u64) {
+    let entity = sim.substrate.entities.get_mut(actor).unwrap();
+    entity.disguise.as_mut().unwrap().clear_unit();
+}
+
 fn rng(sim: &Simulation) -> [String; 3] {
     [
         sim.scenario_rng.native_state_hex(),
@@ -52,6 +60,7 @@ fn forced_defaults_and_makeup_kit_copy_use_the_same_retained_type_owner() {
     let actor = sim
         .spawn_object("SPY", "House0", 15, 15, 0, &rules)
         .unwrap();
+    without_stored_disguise(&mut sim, actor);
     for (side, name) in [
         (Some(0), "E1"),
         (Some(1), "E2"),
@@ -149,6 +158,8 @@ fn spy_type_event_uses_forced_identity_side_fallback_and_native_persistence_gate
             disguise.acquire(0, Some(typ), None);
             disguise.receive_damage_reveal(0, 1, EntityCategory::Infantry);
             assert!(!disguise.is_disguised(), "GetDisguise(1) ignores the flag");
+        } else {
+            without_stored_disguise(&mut sim, actor);
         }
         let mut persistence = prior;
         let before = rng(&sim);
@@ -213,12 +224,14 @@ fn spy_type_event_uses_forced_identity_side_fallback_and_native_persistence_gate
 #[test]
 fn agent_arrival_delivers_cell_spy_event_after_snapshot_and_cleans_up_one_shot() {
     let (mut sim, rules, registry, houses) = fixture();
-    sim.session.current_house = Some(houses[1]); // side1, not the spy owner's side0.
+    // The current player is side 1, but the spy wears its owner's side-0
+    // disguise (E1) from construction, and GetDisguise(1) answers that.
+    sim.session.current_house = Some(houses[1]);
     let actor = sim
         .spawn_object("SPY", "House0", 15, 15, 0, &rules)
         .unwrap();
     let value = rules
-        .type_array_index(crate::rules::object_type::ObjectCategory::Infantry, "E2")
+        .type_array_index(crate::rules::object_type::ObjectCategory::Infantry, "E1")
         .unwrap();
     let live = install(&mut sim, &rules, value);
     let saved = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "Spy CellTag", 0);

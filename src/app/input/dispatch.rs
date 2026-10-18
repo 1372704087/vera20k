@@ -2794,12 +2794,8 @@ fn deployer_is_deployed(
 /// The deploy key's per-object order for an object it admits: each
 /// class's Unload mission (vt+0x374(9), `0x00730D15`). The command's
 /// historical `DeployMcv` wire name also carries a SimpleDeployer toggle.
-///
-/// RESIDUAL: a Unit admitted only for `DeployFire=` gets no order: its
-/// Unload arm, which fires weapon 0 at its own cell
-/// (`UnitClass::Mission_Unload @ 0x0073DCD3`), is not ported. Trigger: the
-/// deploy key on a retail Chaos Drone (`[CAOS]`). Effect: it releases no
-/// gas. A bunkered unit, the other such case, cannot be selected.
+/// A Unit admitted for a tank-bunker link alone gets none, but a bunkered
+/// unit cannot be selected.
 fn deploy_key_command(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -2819,7 +2815,10 @@ fn deploy_key_command(
             super::transport_orders::unload_command(entity, obj, local_owner).or_else(|| {
                 let object = obj?;
                 (super::context_order::is_simple_deploy_unit(entity, object)
-                    || object.deploys_into.is_some())
+                    || object.deploys_into.is_some()
+                    || rules.is_some_and(|rules| {
+                        crate::sim::deploy::unit_fires_on_deploy(sim, entity, rules)
+                    }))
                 .then_some(Command::DeployMcv { entity_id })
             })
         }
@@ -3215,11 +3214,11 @@ mod deploy_key_tests {
     #[test]
     fn simple_deployer_key_preserves_infantry_and_loaded_transport_actions() {
         let rules = RuleSet::from_ini(&IniFile::from_str(
-            "[VehicleTypes]\n0=HELI\n1=TRANSPORT\n2=PLAIN\n\
+            "[VehicleTypes]\n0=HELI\n1=TRANSPORT\n2=PLAIN\n3=FIRER\n\
              [AircraftTypes]\n0=AIRCRAFT\n[InfantryTypes]\n0=GI\n\
              [HELI]\nIsSimpleDeployer=yes\n\
              [TRANSPORT]\nIsSimpleDeployer=yes\nPassengers=5\n\
-             [PLAIN]\nDeployer=yes\n\
+             [PLAIN]\nDeployer=yes\n[FIRER]\nDeployFire=yes\n\
              [AIRCRAFT]\nIsSimpleDeployer=yes\n\
              [GI]\nIsSimpleDeployer=yes\nDeployFire=yes\nDeployer=yes\n",
         ))
@@ -3232,6 +3231,7 @@ mod deploy_key_tests {
         let heli = spawn("HELI");
         let transport = spawn("TRANSPORT");
         let plain = spawn("PLAIN");
+        let firer = spawn("FIRER");
         let aircraft = spawn("AIRCRAFT");
         let infantry = spawn("GI");
         let mut cargo = PassengerCargo::new(5, 0);
@@ -3264,6 +3264,12 @@ mod deploy_key_tests {
         assert_eq!(
             deploy_key_command(&sim, Some(&rules), plain, sim.session.current_house),
             None
+        );
+        // A `DeployFire=` Unit takes the DEPLOY event (Mission_Unload's
+        // deploy-fire arm, `0x0073DCD3`).
+        assert_eq!(
+            deploy_key_command(&sim, Some(&rules), firer, sim.session.current_house),
+            Some(Command::DeployMcv { entity_id: firer })
         );
         sim.entities_mut()
             .get_mut(heli)

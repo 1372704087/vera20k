@@ -2275,6 +2275,13 @@ pub(super) fn self_deploy_is_blocked(
 ///
 /// A Unit's deploy or unload self action also needs CanDeploySlashUnload
 /// (`0x0073FFEA`); its refusal answers NoDeploy ([`self_deploy_is_refused`]).
+///
+/// RESIDUAL: Unit What_Action's other NoDeploy tests are not ported: a
+/// DeploysInto unit's placement check (`0x0073FEAD..0x0073FFA6`) and a
+/// loaded transport's first-passenger land-speed and height checks
+/// (`0x00740078..0x007400EB`). Trigger: hovering such a unit over itself on
+/// a site it cannot use. Effect: the cursor offers Deploy; the order is then
+/// refused by its receiver.
 pub(super) fn self_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,

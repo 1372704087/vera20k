@@ -1823,14 +1823,15 @@ fn a_transport_may_not_unload_on_or_beside_a_bridge_on_human_water_or_in_a_build
 #[test]
 fn can_deploy_slash_unload_follows_each_class_arm() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=MCV\n1=TANK\n2=FIRER\n\
+        "[VehicleTypes]\n0=MCV\n1=TANK\n2=FIRER\n3=REFINER\n\
          [InfantryTypes]\n0=YURI\n1=GI\n2=E2\n\
          [AircraftTypes]\n0=JET\n1=CARRIER\n\
-         [BuildingTypes]\n0=YARD\n\
+         [BuildingTypes]\n0=YARD\n1=REFINERY\n\
          [MCV]\nDeploysInto=YARD\n[TANK]\nStrength=100\n[FIRER]\nDeployFire=yes\n\
          [YURI]\nDeployer=yes\nUndeployDelay=150\n[GI]\nDeployer=yes\n[E2]\nStrength=100\n\
          [JET]\nStrength=100\n[CARRIER]\nPassengers=2\n\
-         [YARD]\nConstructionYard=yes\nUndeploysInto=MCV\n",
+         [YARD]\nConstructionYard=yes\nUndeploysInto=MCV\n\
+         [REFINER]\nDeploysInto=REFINERY\n[REFINERY]\nStrength=100\n",
     ))
     .expect("deploy rules");
     let mut sim = Simulation::new();
@@ -1838,8 +1839,8 @@ fn can_deploy_slash_unload_follows_each_class_arm() {
         sim.spawn_object(type_id, "Americans", rx, 5, 0, &rules)
             .expect("the fixture builds")
     };
-    let [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard] = [
-        "MCV", "TANK", "FIRER", "YURI", "GI", "E2", "JET", "CARRIER", "YARD",
+    let [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner] = [
+        "MCV", "TANK", "FIRER", "YURI", "GI", "E2", "JET", "CARRIER", "YARD", "REFINER",
     ]
     .map(|type_id| {
         let rx = 2 + 3 * sim.substrate.entities.len() as u16;
@@ -1847,8 +1848,10 @@ fn can_deploy_slash_unload_follows_each_class_arm() {
     });
     let can = |sim: &Simulation, id| sim.can_deploy_slash_unload(id, &rules);
     assert_eq!(
-        [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard].map(|id| can(&sim, id)),
-        [true, false, true, true, true, false, false, true, false]
+        [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner].map(|id| can(&sim, id)),
+        [
+            true, false, true, true, true, false, false, true, false, true
+        ]
     );
 
     // A parasite bars any DeploysInto unit; mind control one whose
@@ -1864,6 +1867,10 @@ fn can_deploy_slash_unload_follows_each_class_arm() {
     entity(&mut sim, mcv).mind_control =
         crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
     assert!(!can(&sim, mcv));
+    // A mind-controlled unit deploying into anything else may.
+    entity(&mut sim, refiner).mind_control =
+        crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
+    assert!(can(&sim, refiner));
 
     // `UndeployDelay=` refuses while deployed, in Doing 31, or rearming.
     let frame = sim.session.binary_frame as i32;

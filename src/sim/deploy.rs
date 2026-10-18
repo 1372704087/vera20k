@@ -199,36 +199,26 @@ impl Simulation {
                 if entity.on_bridge() {
                     return false;
                 }
-                if let Some(terrain) = terrain {
-                    let flags = |x: i32, y: i32| {
-                        terrain
-                            .native_fixed_cell_index(x as i16, y as i16)
-                            .map(|index| terrain.cells()[index].bridge_facts.raw_flags)
-                    };
-                    let (x, y) = (i32::from(rx), i32::from(ry));
-                    if let Some(own) = terrain.native_fixed_cell_index(rx as i16, ry as i16) {
-                        let near_deck =
-                            std::iter::once(Some(terrain.cells()[own].bridge_facts.raw_flags))
-                                .chain([4, 0, 2, 6].map(|direction| {
-                                    let (dx, dy) =
-                                        crate::util::direction::DIRECTION_DELTAS[direction];
-                                    flags(x + dx, y + dy)
-                                }))
-                                .flatten()
-                                .any(|flags| {
-                                    flags & crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL != 0
-                                });
-                        if near_deck {
-                            return false;
-                        }
-                        if self
+                if let Some(terrain) = terrain
+                    && let Some(own) = terrain.native_fixed_cell_index(rx as i16, ry as i16)
+                {
+                    let cell = |index: usize| &terrain.cells()[index];
+                    let (x, y) = (rx as i16, ry as i16);
+                    let near_deck = std::iter::once(Some(own))
+                        .chain([4, 0, 2, 6].map(|direction| {
+                            let (dx, dy) = crate::util::direction::DIRECTION_DELTAS[direction];
+                            terrain.native_fixed_cell_index(x + dx as i16, y + dy as i16)
+                        }))
+                        .flatten()
+                        .any(|index| cell(index).bridge_facts.has_structural_bridge());
+                    if near_deck
+                        || (self
                             .houses
                             .get(&entity.owner())
                             .is_some_and(|house| house.is_human)
-                            && terrain.cells()[own].yr_cell_land_type == LandType::Water.as_index()
-                        {
-                            return false;
-                        }
+                            && cell(own).yr_cell_land_type == LandType::Water.as_index())
+                    {
+                        return false;
                     }
                 }
                 !self
@@ -241,19 +231,18 @@ impl Simulation {
             }
             EntityCategory::Structure => false,
             EntityCategory::Infantry => {
-                if object.undeploy_delay > -1 {
-                    let doing = entity
-                        .mission_leaf
-                        .as_infantry()
-                        .map_or(-1, |leaf| leaf.doing());
-                    if (27..=31).contains(&doing)
+                if object.undeploy_delay > -1
+                    && (entity.infantry_deploy_doing()
+                        || entity
+                            .mission_leaf
+                            .as_infantry()
+                            .is_some_and(|leaf| leaf.doing() == 31)
                         || entity
                             .rearm_timer
                             .remaining(self.session.binary_frame as i32)
-                            != 0
-                    {
-                        return false;
-                    }
+                            != 0)
+                {
+                    return false;
                 }
                 object.deployer
             }

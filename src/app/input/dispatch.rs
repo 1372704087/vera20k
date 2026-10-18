@@ -2795,9 +2795,11 @@ fn deployer_is_deployed(
 /// class's Unload mission (vt+0x374(9), `0x00730D15`). The command's
 /// historical `DeployMcv` wire name also carries a SimpleDeployer toggle.
 ///
-/// RESIDUAL: a Unit admitted only for `DeployFire=` or a tank-bunker link
-/// gets no order. Dormant in retail: no Unit sets `DeployFire=` without
-/// `IsSimpleDeployer=`, and a bunkered unit cannot be selected.
+/// RESIDUAL: a Unit admitted only for `DeployFire=` gets no order: its
+/// Unload arm, which fires weapon 0 at its own cell
+/// (`UnitClass::Mission_Unload @ 0x0073DCD3`), is not ported. Trigger: the
+/// deploy key on a retail Chaos Drone (`[CAOS]`). Effect: it releases no
+/// gas. A bunkered unit, the other such case, cannot be selected.
 fn deploy_key_command(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -3280,8 +3282,7 @@ mod deploy_key_tests {
     }
 
     /// A building never passes CanDeploySlashUnload (`0x00465D30`), so the
-    /// deploy key does not undeploy a construction yard; one with occupants
-    /// selected first still unloads them.
+    /// deploy key does not undeploy a construction yard.
     #[test]
     fn the_deploy_key_does_not_undeploy_a_construction_yard() {
         let rules = RuleSet::from_ini(&IniFile::from_str(

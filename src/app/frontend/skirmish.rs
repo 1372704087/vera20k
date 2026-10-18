@@ -741,11 +741,16 @@ mod tests {
     fn current_house_collision_preserves_launch_label_and_distinct_colors() {
         for (handle, expected_key) in [
             ("Neutral", "Player"),
+            (" Neutral ", "Player"),
             ("SPECIAL", "Player"),
+            (" Special ", "Player"),
             ("computer1", "Player"),
+            (" Computer1 ", "Player"),
             ("Computer2", "Computer2"),
+            (" Computer2 ", " Computer2 "),
             ("Computer01", "Computer01"),
             ("Commander", "Commander"),
+            (" Commander ", " Commander "),
         ] {
             let mut session = test_session();
             session.player_name = handle.to_string();
@@ -777,9 +782,11 @@ mod tests {
             "Computer1"
         );
         let mut two_ai = test_session();
-        two_ai.player_name = "cOmPuTeR2".to_string();
         two_ai.opponents.push(two_ai.opponents[0].clone());
-        assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        for handle in ["cOmPuTeR2", " Computer2 "] {
+            two_ai.player_name = handle.to_owned();
+            assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        }
     }
 
     /// gamemd-derived: active YR `ScenarioClass__Gather_Start_Positions

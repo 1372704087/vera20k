@@ -187,7 +187,7 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
                 .passenger_role
                 .cargo_mut()
                 .unwrap()
-                .board_forced(id, 1);
+                .board_forced_chain(&[(id, 1)]);
         }
     }
     production::begin_selling(sim, rules, refinery, false);

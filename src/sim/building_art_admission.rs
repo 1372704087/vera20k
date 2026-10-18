@@ -306,15 +306,13 @@ mod tests {
             .get_mut(passenger)
             .unwrap()
             .passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(id, false);
-        assert!(
-            sim.entities_mut()
-                .get_mut(id)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(passenger, 1)
-        );
+        sim.entities_mut()
+            .get_mut(id)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(passenger, 1)]);
         tick(&mut sim, &rules);
         let occupied = sim.entities().get(id).unwrap().building_art.anim_slots[4].unwrap();
         assert!(sim.anim(empty).is_none());

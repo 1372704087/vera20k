@@ -566,7 +566,7 @@ mod tests {
         aircraft.body_facing.snap(0x8000, 0);
         aircraft.install_ammo_for_test(Some(TechnoAmmo::new(4)));
         let mut cargo = PassengerCargo::new(8, 0);
-        cargo.board_forced(passenger_id, 1);
+        cargo.board_forced_chain(&[(passenger_id, 1)]);
         aircraft.passenger_role = PassengerRole::transport(cargo);
         sim.substrate.entities.insert(aircraft);
 
@@ -1300,7 +1300,7 @@ mod tests {
             .cargo_mut()
             .unwrap();
         cargo_hold.clear_contents();
-        cargo_hold.board_forced(missing_passenger_id, 1);
+        cargo_hold.board_forced_chain(&[(missing_passenger_id, 1)]);
 
         let mut peer = GameEntity::test_default(peer_id, "E1", "Americans", 11, 10);
         peer.set_owner_for_test(sim.interner.intern("Americans"));

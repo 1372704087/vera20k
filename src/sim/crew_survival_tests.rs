@@ -617,7 +617,7 @@ fn load_absorbed(sim: &mut Simulation, rules: &RuleSet, building: u64, count: us
                 .passenger_role
                 .cargo_mut()
                 .unwrap();
-            cargo.board_forced(id, 1);
+            cargo.board_forced_chain(&[(id, 1)]);
             id
         })
         .collect()
@@ -1070,7 +1070,7 @@ fn load_passengers(
             .passenger_role
             .cargo_mut()
             .expect("a transport");
-        assert!(cargo.board(id, 1));
+        cargo.board_forced_chain(&[(id, 1)]);
     }
     passengers
 }

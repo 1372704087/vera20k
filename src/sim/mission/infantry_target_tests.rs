@@ -301,7 +301,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
                     assert!(object.open_topped);
                     let mut cargo =
                         PassengerCargo::new(object.passengers.max(0) as u32, object.size_limit);
-                    assert!(cargo.board(1, rules.object("E1").unwrap().size));
+                    cargo.board_forced_chain(&[(1, rules.object("E1").unwrap().size)]);
                     let mut transport = GameEntity::new_at_frame_zero_for_test(
                         4,
                         10,

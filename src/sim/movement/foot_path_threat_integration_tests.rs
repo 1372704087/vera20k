@@ -25,7 +25,7 @@ fn request_move(
         crate::sim::world::FrameEffects::default(),
     )
     .unwrap();
-    let destination = cell_centre((goal.0 as i16, goal.1 as i16));
+    let destination = DriveCoord::cell(goal.0, goal.1, 0);
     let request = FootPathRequest::track(
         &sim.substrate.entities,
         mover,

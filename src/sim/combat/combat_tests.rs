@@ -1840,7 +1840,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
     let mut store = EntityStore::new();
 
     let mut cargo = crate::sim::passenger::PassengerCargo::new(2, 1);
-    assert!(cargo.board(2, 1));
+    cargo.board_forced_chain(&[(2, 1)]);
     let mut carrier = make_entity(1, "MTNK", 5, 5, 0);
     carrier.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     store.insert(carrier);
@@ -3133,7 +3133,7 @@ fn gsi_04_07_a_garrison_retaliates_with_its_occupants_weapon() {
         crate::sim::passenger::PassengerRole::inside_for_test(GATE_VICTIM, false);
     sim.substrate.entities.insert(occupant);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
-    assert!(cargo.board(occupant_id, 1));
+    cargo.board_forced_chain(&[(occupant_id, 1)]);
     sim.substrate
         .entities
         .get_mut(GATE_VICTIM)
@@ -6098,7 +6098,7 @@ fn garrison_fire_keeps_occupant_anim_and_sound_path() {
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
     building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
-    assert!(cargo.board(1, 1));
+    cargo.board_forced_chain(&[(1, 1)]);
     building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     store.insert(building);
     let mut occupant = make_infantry_entity(1, "E1", 5, 5, 125);
@@ -10258,7 +10258,7 @@ fn gsi_08_05_a_garrison_shot_takes_the_f32_occupy_multiplier() {
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
     building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
-    assert!(cargo.board(1, 1));
+    cargo.board_forced_chain(&[(1, 1)]);
     building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     store.insert(building);
     let mut occupant = make_infantry_entity(1, "E1", 5, 5, 125);
@@ -10387,8 +10387,8 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
     building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
-    assert!(cargo.board(1, 1));
-    assert!(cargo.board(3, 1));
+    cargo.board_forced_chain(&[(1, 1)]);
+    cargo.board_forced_chain(&[(3, 1)]);
     building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     store.insert(building);
     for id in [1, 3] {
@@ -10443,8 +10443,8 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
     building.set_category_for_test(EntityCategory::Structure);
     let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1);
-    assert!(cargo.board(1, 1));
-    assert!(cargo.board(3, 1));
+    cargo.board_forced_chain(&[(1, 1)]);
+    cargo.board_forced_chain(&[(3, 1)]);
     building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     store.insert(building);
     // Whichever occupant sits at index 0 shoots with the quick gun; the one

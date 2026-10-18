@@ -20,7 +20,7 @@ use crate::rules::locomotor_type::{LocomotorKind, MovementZone};
 use crate::rules::mission_data::MissionType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_kernel::{native_xy_distance, native_xyz_distance};
+use crate::sim::cell_kernel::{cell_center, native_xy_distance, native_xyz_distance};
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::components::DriveCoord;
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
@@ -301,22 +301,6 @@ pub(super) fn chebyshev(a: (i16, i16), b: (i16, i16)) -> i32 {
     (i32::from(a.0) - i32::from(b.0))
         .abs()
         .max((i32::from(a.1) - i32::from(b.1)).abs())
-}
-
-/// A packed cell's centre at Z 0 ([`cell_center`](crate::sim::cell_kernel::cell_center)).
-pub(super) fn cell_centre(cell: (i16, i16)) -> DriveCoord {
-    let point = crate::sim::cell_kernel::cell_center(
-        crate::sim::cell_kernel::CellCoordinate {
-            x: i32::from(cell.0),
-            y: i32::from(cell.1),
-        },
-        0,
-    );
-    DriveCoord {
-        x: point.x,
-        y: point.y,
-        z: point.z,
-    }
 }
 
 /// Table 0x007E8BF0, indexed by `Type+0x5B4` at 0x4D3AC3 and 0x4D3D25: the
@@ -914,7 +898,7 @@ impl Simulation {
             return Ok(destination);
         };
         self.redirect_find_path_destination(id, near, rules, registry, frame_effects)?;
-        Ok(cell_centre(near))
+        Ok(DriveCoord::from(cell_center(near.into(), 0)))
     }
 
     /// The cell [`Self::find_path_goal_for_answer`] retargets the search to,
@@ -954,7 +938,7 @@ impl Simulation {
                 };
                 //0x4D3944..0x4D3A2B: |+48 coordinate - target centre| with z.
                 let coord = ground_pose::position_world_coord(&actor.position);
-                let centre = cell_centre(target);
+                let centre = cell_center(target.into(), 0);
                 let distance =
                     native_xyz_distance(coord.x - centre.x, coord.y - centre.y, coord.z - centre.z);
                 //0x4D3A9B: dist <= that distance keeps the target. IsTrain (+C94)
@@ -968,7 +952,7 @@ impl Simulation {
                 };
                 //0x4D3BDD..0x4D3C3D: the FNPC cell must lie closer to the target
                 //than the actor does (both x87 lepton distances, ftol).
-                let near_centre = cell_centre(near);
+                let near_centre = cell_center(near.into(), 0);
                 let between =
                     native_xy_distance(centre.x - near_centre.x, centre.y - near_centre.y);
                 if between >= distance {
@@ -1318,7 +1302,8 @@ impl Simulation {
             self.resolved_terrain.as_ref(),
             Some((rules, &self.interner)),
         )?;
-        self.foot_path_zone_precheck(id, cell_centre(coord_cell(coord)), rules)
+        let centre = DriveCoord::from(cell_center(coord_cell(coord).into(), 0));
+        self.foot_path_zone_precheck(id, centre, rules)
     }
 
     /// Original Foot+2CC4D3810. Its MZ==-1 and Cell(0,0) exits precede
@@ -1469,7 +1454,7 @@ mod tests {
                 MovementLayer::Ground,
             ));
             sim.zone_grid = Some(zones);
-            let goal = cell_centre((goal_cell.0 as i16, goal_cell.1 as i16));
+            let goal = DriveCoord::cell(goal_cell.0, goal_cell.1, 0);
             let request =
                 FootPathRequest::track(&sim.substrate.entities, id, goal, 0, sim.playfield_bounds)
                     .unwrap();

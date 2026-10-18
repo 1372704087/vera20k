@@ -223,11 +223,38 @@ impl OwnerVisibility {
         self.publish_knowledge(index);
     }
 
+    /// `cell`'s index when it and its eight neighbours are real cells at
+    /// their own coordinates inside this grid: their lookups then neither
+    /// miss nor stamp the Dummy, so their visibility cells are plain indices
+    /// ([`crate::map::resolved_terrain::ResolvedTerrainGrid::interior_cells`]).
+    fn interior_index(
+        &self,
+        cell: (u16, u16),
+        cells: Option<&NativeCellQuery<'_>>,
+    ) -> Option<usize> {
+        let (x, y) = (u32::from(cell.0), u32::from(cell.1));
+        if x == 0 || y == 0 || x + 1 >= u32::from(self.width) || y + 1 >= u32::from(self.height) {
+            return None;
+        }
+        if let Some(cells) = cells
+            && !cells
+                .terrain()
+                .interior_cells()
+                .is_some_and(|interior| interior.contains(cell))
+        {
+            return None;
+        }
+        Some(usize::from(cell.1) * usize::from(self.width) + usize::from(cell.0))
+    }
+
     fn visibility_cell(
         &self,
         cell: (u16, u16),
         cells: Option<&NativeCellQuery<'_>>,
     ) -> VisibilityCell {
+        if let Some(index) = self.interior_index(cell, cells) {
+            return VisibilityCell::Real(index);
+        }
         let coord = match cells {
             Some(cells) => match cells.lookup((cell.0 as i16, cell.1 as i16)) {
                 NativeCellIdentity::Real(identity) => {
@@ -615,20 +642,33 @@ impl FogState {
         let Some(vis) = self.by_owner.get(&viewer) else {
             return -2;
         };
-        let center = vis.visibility_cell(cell, native_cells);
+        let interior = vis.interior_index(cell, native_cells);
+        let center = match interior {
+            Some(index) => VisibilityCell::Real(index),
+            None => vis.visibility_cell(cell, native_cells),
+        };
         let (ground, cache) = vis.map_cell_parts(center);
         let (any, eligible) = edge_frame_gates(ground, cache, fog_channel);
         let fallback = if any { -1 } else { -2 };
         if !eligible {
             return fallback;
         }
+        let width = vis.width as isize;
         let mut mask = 0u8;
         for ((dx, dy), bit) in ROW_NEIGHBORS.into_iter().zip(EDGE_FRAME_BITS) {
-            let neighbor = (
-                (cell.0 as i16).wrapping_add(dx) as u16,
-                (cell.1 as i16).wrapping_add(dy) as u16,
-            );
-            let key = vis.visibility_cell(neighbor, native_cells);
+            // An interior cell's neighbours are the cells beside it in the grid.
+            let key = match interior {
+                Some(index) => VisibilityCell::Real(
+                    index.wrapping_add_signed(isize::from(dy) * width + isize::from(dx)),
+                ),
+                None => vis.visibility_cell(
+                    (
+                        (cell.0 as i16).wrapping_add(dx) as u16,
+                        (cell.1 as i16).wrapping_add(dy) as u16,
+                    ),
+                    native_cells,
+                ),
+            };
             let (ground, cache) = vis.map_cell_parts(key);
             let set = if fog_channel {
                 cache.initialized

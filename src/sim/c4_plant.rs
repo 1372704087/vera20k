@@ -251,7 +251,7 @@ impl Simulation {
             }
             let (flash, fuse) = (rules.c4_flash_frames(), rules.c4_delay_frames());
             if let Some(target) = self.substrate.entities.get_mut(building) {
-                target.flash_building(flash);
+                target.flash_base(flash);
                 target.pending_c4_detonation.plant(frame as i32, fuse, id);
             }
         }

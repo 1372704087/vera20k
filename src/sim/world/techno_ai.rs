@@ -1904,7 +1904,7 @@ fn unit_techno_bracket(
     // `UnitClass::AI @ 0x007361A9..0x007361E9`: a draining Floating Disc
     // re-checks the building under it every 16th frame and drops the link
     // when it has drifted off (after FootClass::AI in the native order).
-    crate::sim::credit_income::drain_unit_ai_step(sim, id);
+    crate::sim::credit_income::drain_unit_ai_step(sim, id, rules);
     // Passive / opportunity target acquisition sits between mission dispatch
     // and the second IsAlive guard, before the object's own locomotion.
     passive_acquire_step(sim, id, rules, ctx);

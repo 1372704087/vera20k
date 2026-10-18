@@ -8,10 +8,12 @@
 //! it is read as a filtered view ([`Simulation::house_absorbers`]).
 use super::*;
 use crate::rules::ruleset::HouseCostFactors;
-use crate::sim::components::DriveCoord;
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::find_nearby_cell::{
     NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
 };
+use crate::sim::mission::authority::EntityReadyInputProvider;
+use crate::sim::mission::{MissionId, MissionType};
 use crate::util::native_x87::NativeF32Bits;
 
 type CostFactors = [NativeF32Bits; 5];
@@ -333,6 +335,94 @@ impl crate::sim::house_state::HouseState {
 }
 
 impl Simulation {
+    /// `HouseClass::MoveGroundForcesToBase @ 0x0050C920`, which a computer
+    /// House's Construction Yard deploy calls (`UnitClass::Deploy` at
+    /// `0x00739926`, after the House's AI latches and before the MCV's slave
+    /// transfer and UnInit). One Foot 4x4 nearby-cell search from the base
+    /// origin, moved one cell south-east, becomes the destination of every
+    /// eligible Techno; the class setters and locomotors own the travel.
+    pub(super) fn move_ground_forces_to_base(
+        &mut self,
+        owner: InternedId,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        // 0x0050C924 reads TechnoClass::Array's count before the search; the
+        // walk re-reads each slot (0x0050C9D5).
+        let count = self.substrate.entities.techno_registry_len();
+        let Some(origin) = self.houses.get(&owner).map(HouseState::base_origin) else {
+            return;
+        };
+        // 0x0050C966..0x0050C999: Foot, no zone, Normal, 4x4, bridges
+        // allowed, no target cell. An empty result ends the call
+        // (0x0050C9A7..0x0050C9BC); the offset (0x0050C9C2, 0x0050C9C7)
+        // follows that test.
+        let Some((x, y)) = self
+            .find_plain_passable_cell(
+                (i32::from(origin.0), i32::from(origin.1)),
+                SpeedType::Foot,
+                None,
+                crate::rules::locomotor_type::MovementZone::Normal,
+                (4, 4),
+            )
+            .filter(|&cell| cell != (0, 0))
+        else {
+            return;
+        };
+        let destination = NavTargetRef::cell(x.wrapping_add(1), y.wrapping_add(1));
+        let move_mission = MissionId::from_known(MissionType::Move);
+        for index in 0..count {
+            let Some(id) = self.substrate.entities.techno_registry_at(index) else {
+                continue;
+            };
+            let Some(entity) = self.substrate.entities.get(id) else {
+                continue;
+            };
+            // 0x0050C9E6..0x0050CA3E: the House's own Technos, except
+            // Buildings, Aircraft and types that deploy into a Construction
+            // Yard. There is no health, limbo, Team, naval or mission filter.
+            if entity.owner() != owner
+                || matches!(
+                    entity.category(),
+                    EntityCategory::Structure | EntityCategory::Aircraft
+                )
+                || crate::sim::mcv_deploy::deploys_into(self, entity, rules)
+                    .is_some_and(|target| target.construction_yard)
+            {
+                continue;
+            }
+            // 0x0050CA40..0x0050CA7B re-reads the base origin for each one.
+            if self
+                .houses
+                .get(&owner)
+                .is_none_or(|house| house.base_origin() == (0, 0))
+            {
+                continue;
+            }
+            // Assign_Destination(cell, 1) (vt+0x480, 0x0050CA93), a plain
+            // archive clear (0x0070C610 at 0x0050CA9D), then
+            // Queue_Mission(Move, 0) (vt+0x1E8, 0x0050CAAA) without commencing.
+            let _ = self.assign_destination_represented(
+                id,
+                Some(destination),
+                Some(rules),
+                registry,
+                frame_effects,
+            );
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity.set_archive_target(None);
+            }
+            let _ = self.mission_queue_exact(
+                id,
+                move_mission,
+                0,
+                self.session.binary_frame,
+                &EntityReadyInputProvider,
+            );
+        }
+    }
+
     /// `HouseClass::Which_Zone @ 0x004FFB20` answering -1 for `owner`: `coord`
     /// is the empty coordinate (`0x00A8EFF8`, all zero) or lies more than four
     /// base radii (`+0x5498`) from the base cell's GetCoords (`0x00486840` on

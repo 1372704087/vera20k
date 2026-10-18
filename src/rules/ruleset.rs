@@ -777,6 +777,10 @@ pub struct GeneralRules {
     pub attack_cursor_on_disguise: bool,
     /// `[General] DefaultMirageDisguises=` selection pool, in source order.
     pub default_mirage_disguises: Vec<String>,
+    /// General AlliedDisguise/SovietDisguise/ThirdDisguise, retained by the
+    /// native scalar reader66FB94..66FBEB. Infantry GetDisguise522640 uses
+    /// the current player's side, independently of the actor's owner.
+    pub(crate) infantry_disguises: [Option<String>; 3],
     /// General SecretInfantry/SecretUnits/SecretBuildings, retained native identities.
     secret_lab_choices: [Vec<String>; 3],
     /// `[General] InfantryBlinkDisguiseTime=` reveal duration in frames.
@@ -2281,6 +2285,7 @@ impl Default for GeneralRules {
             ],
             attack_cursor_on_disguise: false,
             default_mirage_disguises: Vec::new(),
+            infantry_disguises: Default::default(),
             secret_lab_choices: Default::default(),
             infantry_blink_disguise_time: 0,
             tree_targeting: false,
@@ -3317,6 +3322,7 @@ impl GeneralRules {
             // Filled from the native ordered TerrainType list owner after
             // processing, including allocation/none-token/retention semantics.
             default_mirage_disguises: Vec::new(),
+            infantry_disguises: Default::default(),
             secret_lab_choices: Default::default(),
             // Rules671D80: signed ReadInt, constructor665650 defaults0.
             infantry_blink_disguise_time: general.read_int("InfantryBlinkDisguiseTime", 0),
@@ -4120,6 +4126,7 @@ impl RuleSet {
         rules.general.anim_to_infantry = processed.anim_to_infantry().to_vec();
         rules.general.secret_lab_choices = processed.secret_lab_choices().clone();
         rules.general.default_mirage_disguises = processed.default_mirage_disguises().to_vec();
+        rules.general.infantry_disguises = processed.infantry_disguises().clone();
         rules.bridge_rules.explosions = processed.bridge_explosions().to_vec();
         rules.general.gravity = processed.gravity();
         rules.general.wind_direction = processed.wind_direction();
@@ -5538,7 +5545,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v20".hash(&mut hasher);
+        b"rules-simulation-config-v21".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5587,6 +5594,7 @@ impl RuleSet {
             self.general.drop_zone_radius.hash(&mut hasher);
         }
         self.general.default_mirage_disguises.hash(&mut hasher);
+        self.general.infantry_disguises.hash(&mut hasher);
         if self
             .general
             .secret_lab_choices

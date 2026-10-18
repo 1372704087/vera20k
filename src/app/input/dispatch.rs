@@ -1169,12 +1169,6 @@ pub(crate) fn apply_sidebar_action(state: &mut AppState, action: SidebarAction) 
     }
 }
 
-/// Toggle the unit-inspector debug overlay.
-///
-/// Beyond flipping `state.diag.debug_unit_inspector`, this allocates per-entity
-/// debug logs on enable and frees them on disable, and sets the sim flag
-/// `debug_event_logging`. Called by both the X hotkey and the dev overlay
-/// checkbox so the two paths cannot drift.
 /// Explain every terrain cell that draws as black, and say which cause is responsible.
 ///
 /// A cell renders black for exactly two reasons, and they need completely different
@@ -1273,34 +1267,11 @@ pub(crate) fn report_black_cell_causes(state: &mut AppState) {
     }
 }
 
-#[cfg(feature = "dev-overlays")]
-pub(crate) fn toggle_unit_inspector(state: &mut AppState) {
-    state.diag.debug_unit_inspector = !state.diag.debug_unit_inspector;
-    if let Some(sim) = state
-        .match_state
-        .sim_runtime
-        .as_mut()
-        .map(|rt| &mut rt.simulation)
-    {
-        // F10: sim owns the write; the app only requests the toggle.
-        sim.set_debug_event_logging(state.diag.debug_unit_inspector);
-        log::info!(
-            "Debug unit inspector: {}",
-            if state.diag.debug_unit_inspector {
-                "ON"
-            } else {
-                "OFF"
-            }
-        );
-    }
-}
-
 /// Toggle the PathGrid / terrain-cost debug overlay.
 ///
 /// Beyond flipping `state.diag.debug_show_pathgrid`, this resets the per-overlay
 /// SpeedType override to None when the overlay turns off, so reopening
-/// the overlay defaults back to "auto from selected unit". Called by both
-/// the F9/P hotkey and the dev overlay checkbox.
+/// the overlay defaults back to "auto from selected unit".
 #[cfg(feature = "dev-overlays")]
 pub(crate) fn toggle_pathgrid_overlay(state: &mut AppState) {
     state.diag.debug_show_pathgrid = !state.diag.debug_show_pathgrid;
@@ -1335,7 +1306,7 @@ pub(crate) fn toggle_foot_path_overlay(state: &mut AppState) {
     );
 }
 
-/// Toggle debug pause (J hotkey / dev overlay).
+/// Toggle debug pause (J hotkey).
 ///
 /// On resume, local frame admission is re-anchored so elapsed modal time
 /// cannot cause a catch-up frame.
@@ -1755,14 +1726,6 @@ fn handle_options_hotkey(state: &mut AppState) {
 #[cfg(feature = "dev-overlays")]
 fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCode) {
     match code {
-        // The hotkey-help overlay is VERA-only and used to sit on bare F1, which
-        // stock YR binds to the first camera bookmark. Moved onto the dev chord,
-        // which stock binds nothing to.
-        #[cfg(feature = "dev-ui")]
-        KeyCode::F1 => {
-            state.match_state.match_presentation.show_hotkey_help =
-                !state.match_state.match_presentation.show_hotkey_help;
-        }
         KeyCode::KeyM => {
             crate::app::persistence::commands::quicksave(state);
         }
@@ -1844,9 +1807,6 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         }
         KeyCode::F8 => {
             report_black_cell_causes(state);
-        }
-        KeyCode::KeyX => {
-            toggle_unit_inspector(state);
         }
         KeyCode::KeyJ => {
             toggle_debug_pause(state);

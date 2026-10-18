@@ -1529,7 +1529,8 @@ impl Simulation {
         for id in removed {
             self.release_object_sight_with_context(id, context);
         }
-        // Each owner's viewers are asked once (`vision::RevealViewers`).
+        // Each owner's viewers are asked once until the ally graph changes
+        // (`vision::RevealViewers`).
         self.reveal_viewers.begin();
         let mut admissions = vision::SourceAdmissions::default();
         //IDs alone cross callbacks. Requery the live object at every turn.

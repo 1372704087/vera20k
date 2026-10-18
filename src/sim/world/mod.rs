@@ -1128,7 +1128,8 @@ pub struct Simulation {
     pub fog: FogState,
     /// Each house's ally mask (`HouseClass+0x5788`) as a directed graph,
     /// written by `sim::house_diplomacy`: the scenario's install, then
-    /// MakeAlly and MakeEnemy.
+    /// MakeAlly and MakeEnemy. A write during the object or fog pass must
+    /// also forget [`Self::reveal_viewers`], as those writers do.
     pub house_alliances: HouseAllianceMap,
     /// Object substrate — the active-object order plus the monotonic id and
     /// enter-order counters. The single owner the lifecycle contract

@@ -755,6 +755,8 @@ impl Simulation {
                 .collect();
             self.fog.by_owner.defer(kept);
         }
+        // The pass's sight walks ask each owner's viewers once until the ally
+        // graph changes (`vision::RevealViewers`).
         self.reveal_viewers.begin();
         let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;

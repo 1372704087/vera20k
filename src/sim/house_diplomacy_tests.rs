@@ -227,9 +227,10 @@ fn make_ally_drops_the_targets_on_the_new_ally() {
     );
 }
 
-/// Within a pass the remembered reveal viewers (`vision::RevealViewers`)
-/// follow the ally graph's writers: MakeAlly and MakeEnemy change them at
-/// once. Debug builds also check each remembered answer against a fresh one.
+/// Within a pass the remembered reveal viewers (`vision::RevealViewers`),
+/// direct and allied, follow the ally graph's writers: MakeAlly and MakeEnemy
+/// change them at once. Debug builds also check each remembered answer
+/// against a fresh one.
 #[test]
 fn ally_writes_reach_the_remembered_reveal_viewers() {
     let rules = rules();
@@ -248,22 +249,25 @@ fn ally_writes_reach_the_remembered_reveal_viewers() {
     }
     let config = crate::sim::vision::VisionConfig::default();
     let viewers = |sim: &mut Simulation| {
-        sim.reveal_viewers
-            .direct(
-                &sim.fog,
-                &sim.house_alliances,
-                ids[1],
-                &config,
-                &sim.interner,
-            )
-            .to_vec()
+        let direct = sim.reveal_viewers.direct(
+            &sim.fog,
+            &sim.house_alliances,
+            ids[1],
+            &config,
+            &sim.interner,
+        );
+        let allied =
+            sim.reveal_viewers
+                .allied(&sim.fog, &sim.house_alliances, ids[1], &sim.interner);
+        (direct.to_vec(), allied.to_vec())
     };
+    let (alone, with_ally) = (vec![ids[1]], vec![ids[1], ids[2]]);
     sim.reveal_viewers.begin();
-    assert_eq!(viewers(&mut sim), [ids[1]]);
+    assert_eq!(viewers(&mut sim), (alone.clone(), alone.clone()));
     sim.make_ally(ids[1], ids[2], &rules, None, FrameEffects::default());
-    assert_eq!(viewers(&mut sim), [ids[1], ids[2]]);
+    assert_eq!(viewers(&mut sim), (with_ally.clone(), with_ally));
     sim.make_enemy(ids[1], ids[2], &rules);
-    assert_eq!(viewers(&mut sim), [ids[1]]);
+    assert_eq!(viewers(&mut sim), (alone.clone(), alone));
     sim.reveal_viewers.end();
 }
 

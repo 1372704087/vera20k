@@ -11,12 +11,14 @@ use crate::sim::intern::{InternedId, StringInterner};
 /// Each owner's [`super::direct_reveal_viewers`] and [`super::allied_viewers`],
 /// remembered from [`Self::begin`] to [`Self::end`], which bracket the object
 /// pass and the fog pass. An answer depends on the owner, the planes, the ally
-/// graph, `AllyReveal=` and the interned names. Planes and names only grow, so
-/// their counts key the answers, with `AllyReveal=` beside each direct one; the
-/// ally graph's writers (`install_house_alliances`, `set_ally_bit`) forget
-/// them. Outside the bracket every ask computes afresh, so a graph written
-/// between passes needs no forgetting. Debug builds check each remembered
-/// answer against a fresh one. Never saved or hashed.
+/// graph, `AllyReveal=` and the interned names. Inside the bracket planes and
+/// names only grow (`Planes` has no remove, and the fog pass replaces planes
+/// before its `begin`), so their counts key the answers, with `AllyReveal=`
+/// beside each direct one; the ally graph's writers (`install_house_alliances`,
+/// `set_ally_bit`) forget them. Outside the bracket every ask computes afresh,
+/// so a graph written between passes needs no forgetting. Callers pass the
+/// Simulation's own fog, alliances and interner. Debug builds check each
+/// remembered answer against a fresh one. Never saved or hashed.
 #[derive(Debug, Default)]
 pub(crate) struct RevealViewers {
     remembering: bool,
@@ -29,6 +31,7 @@ pub(crate) struct RevealViewers {
 impl RevealViewers {
     /// Start remembering, from no answers.
     pub(crate) fn begin(&mut self) {
+        debug_assert!(!self.remembering, "one pass remembers at a time");
         self.forget();
         self.remembering = true;
     }

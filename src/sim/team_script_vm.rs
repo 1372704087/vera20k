@@ -1528,6 +1528,8 @@ pub(crate) fn join_team_for_test(
 }
 
 #[cfg(test)]
+mod firesale_retail_tests;
+#[cfg(test)]
 mod oracle_tests;
 #[cfg(test)]
 mod path_threat_input_tests;

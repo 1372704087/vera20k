@@ -389,8 +389,15 @@ pub(crate) fn place_production_with_overlays(
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         };
-        if !wall_placement::stamp_wall_with_autofill(sim, rules, registry, obj, (rx, ry), owner_id)
-        {
+        if !wall_placement::stamp_wall_with_autofill(
+            sim,
+            rules,
+            registry,
+            obj,
+            (rx, ry),
+            owner_id,
+            effects,
+        ) {
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         }

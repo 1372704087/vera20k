@@ -47,9 +47,9 @@ mod gap_generator;
 pub(crate) use gap_generator::GapGeneratorRuntime;
 pub(crate) use gap_generator::LastOperational;
 mod house_base;
-mod house_defeat;
 #[cfg(test)]
 mod house_cheer_tests;
+mod house_defeat;
 pub(crate) use house_defeat::HouseBlowupSubset;
 mod ion_blast;
 pub(crate) use house_base::HouseBaseState;
@@ -5133,7 +5133,9 @@ impl Simulation {
         // FootClass::ChangeOwner @ 0x004DBED0 removes from the deposited old
         // owner and adds to the new owner before later readers observe it.
         if let Some(rules) = rules {
-            self.transfer_sensor_before_owner_change_with_rules(stable_id, new_owner, rules);
+            self.transfer_sensor_before_owner_change_with_rules(
+                stable_id, new_owner, rules, registry,
+            );
         } else {
             self.transfer_sensor_before_owner_change(stable_id, new_owner);
         }

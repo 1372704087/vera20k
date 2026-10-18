@@ -2258,6 +2258,104 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
 
     @staticmethod
+    def cloak_state_with_runtime():
+        timer = {'start_frame': 17, 'duration': 5, 'remaining': 4}
+        return dict(state_i32=1, progress_i32=0, cloaking_stages_i32=9,
+                    voxel=True, no_shadow=False,
+                    runtime={'in_playfield': True, 'step_delta_i32': 1, 'step_speed_i32': 5,
+                             'step_timer': dict(timer), 'recloak_delay': dict(timer, duration=0, remaining=0)})
+
+    def test_cloak_runtime_opt_in_reuses_fire_and_preserves_sealed_projection(self):
+        self.scripted_profile()
+        self.profile['observe_cloak'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            actors[0].update(cloak=self.cloak_state_with_runtime(), fire=self.fire_state())
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertTrue(all(frame['actors'][0]['cloak'] == self.cloak_state_with_runtime()
+                            and frame['actors'][0]['fire'] == self.fire_state()
+                            and 'bombs' not in frame
+                            for frame in report['capture']['observations']['frames']))
+        actor = dict(self.actor(), cloak=self.cloak_state_with_runtime(), fire=self.fire_state())
+        observation._actor(actor, 'actor', cloak=True, bombs=True)
+        for missing in ('cloak', 'fire'):
+            row = dict(actor)
+            del row[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValidationError):
+                observation._actor(row, 'actor', cloak=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        observation._actor(dict(actor, cloak=None), 'actor', cloak=True)
+
+    def test_cloak_runtime_profile_presence_and_old_policy_compatibility(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_cloak=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_cloak=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_cloak=value))
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_cloak=True), {}, **prior)
+        self.profile['observe_cloak'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            old = self.cloak_state_with_runtime()
+            del old['runtime']
+            actors[0]['cloak'] = old
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('runtime' not in frame['actors'][0]['cloak']
+                            and 'fire' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_cloak_runtime_shape_and_signed_timer_inputs_are_strict(self):
+        observation._cloak(self.cloak_state_with_runtime(), 'cloak', runtime=True)
+        for key, value in (('in_playfield', 1), ('step_speed_i32', True),
+                           ('step_delta_i32', 1 << 31), ('step_timer', None),
+                           ('recloak_delay', {'start_frame': 0, 'duration': 1, 'remaining': True})):
+            row = self.cloak_state_with_runtime()
+            row['runtime'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._cloak(row, 'cloak', runtime=True)
+        for key in ('runtime', 'step_timer'):
+            row = self.cloak_state_with_runtime()
+            if key == 'runtime':
+                del row[key]
+            else:
+                del row['runtime'][key]
+            with self.subTest(missing=key), self.assertRaises(ValidationError):
+                observation._cloak(row, 'cloak', runtime=True)
+        row = self.cloak_state_with_runtime()
+        row['runtime']['step_delta_i32'] = -(1 << 31)
+        row['runtime']['step_timer'] = {'start_frame': -(1 << 31), 'duration': (1 << 31) - 1,
+                                        'remaining': -1}
+        observation._cloak(row, 'cloak', runtime=True)
+
+    def test_cloak_runtime_uses_shared_sample_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_cloak=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), cloak=self.cloak_state_with_runtime(), fire=self.fire_state())]
+        # One actor, one House and one immutable cloak-runtime row.
+        for budget, status in ((2, 'INVALID'), (3, 'VALID')):
+            self.output = self.root / f'cloak-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
+
+    @staticmethod
     def action_line_inputs():
         # Schema fixture only; native coordinate values come from the original
         # executable, never this portable fake-child receipt.

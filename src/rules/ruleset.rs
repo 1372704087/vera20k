@@ -786,6 +786,7 @@ pub struct GeneralRules {
     pub cloaking_stages: i32,
     /// `[General] CloakDelay=` converted from minutes with native truncation
     /// toward zero (`ftol(minutes * 900)`). Stock `.02` becomes 18 frames.
+    /// Rules66716C..667172 seeds0; ReadGeneral670AEB..670B0C retains it.
     pub cloak_delay_frames: i32,
     /// `[AudioVisual] CloakSound=` resolved by the app audio registry when a
     /// cloak transition requests positional playback. Stock YR binds
@@ -2260,7 +2261,7 @@ impl Default for GeneralRules {
             condition_yellow: 0.5,
             condition_red: 0.5,
             cloaking_stages: 9,
-            cloak_delay_frames: 18,
+            cloak_delay_frames: 0,
             cloak_sound: None,
             leave_bio_reactor_sound: None,
             enter_bio_reactor_sound: None,
@@ -3310,7 +3311,7 @@ impl GeneralRules {
             condition_yellow: condition_yellow_native,
             condition_red: condition_red_native,
             cloaking_stages: general.read_int("CloakingStages", 9),
-            cloak_delay_frames: (general.read_double("CloakDelay", 0.02) * 900.0)
+            cloak_delay_frames: (general.read_double("CloakDelay", 0.0) * 900.0)
                 .trunc()
                 .clamp(i32::MIN as f64, i32::MAX as f64) as i32,
             // RulesClass::ReadAudioVisual @ 0x006691E0 resolves CloakSound into
@@ -7284,7 +7285,11 @@ SpawnCount=3
     fn cloak_global_defaults_and_native_minute_conversion_parse() {
         let defaults = GeneralRules::default();
         assert_eq!(defaults.cloaking_stages, 9);
-        assert_eq!(defaults.cloak_delay_frames, 18);
+        assert_eq!(defaults.cloak_delay_frames, 0);
+        assert_eq!(
+            GeneralRules::from_ini(&IniFile::from_str("[General]\n")).cloak_delay_frames,
+            defaults.cloak_delay_frames,
+        );
         assert_eq!(defaults.cloak_sound, None);
         assert_eq!(defaults.leave_bio_reactor_sound, None);
         assert_eq!(defaults.enter_bio_reactor_sound, None);

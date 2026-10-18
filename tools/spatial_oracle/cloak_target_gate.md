@@ -72,7 +72,7 @@ original executable, selected map and source dependency closure before running.
 Do not use `RA2_DIR`. `VERA20K_CLOAK_MAP` has no fallback.
 
 The current C28 production layer is the unchanged physical map at
-`/Users/halvor/Documents/vera20k-dev/techno-active-retail/C28-cloak-range-production-controls/discovery-v1/ordinary-sub-cloak.map`.
+`~/Documents/vera20k-dev/techno-active-retail/C28-cloak-range-production-controls/discovery-v1/ordinary-sub-cloak.map`.
 The consumed fixture is its byte-identical copy at
 `tools/spatial_oracle/cloak_target_gate/ordinary-sub-cloak.map`, installed by
 the chain owner. Its identity belongs in generated input records and scratch receipts;
@@ -84,13 +84,13 @@ From the owned checkout, after the owner authorizes a coordinated freeze:
 
 ```sh
 env -u RA2_DIR PYTHONPATH=. \
-  VERA20K_GAMEMD_EXE='/Users/halvor/Documents/vera20k-dev/game/Command and Conquer Red Alert II/gamemd.exe' \
-  VERA20K_PROJECTILE_RENDER_ASSETS='/Users/halvor/Documents/vera20k-dev/class-parity/shrapnel-inputs' \
+  VERA20K_GAMEMD_EXE="$HOME/Documents/vera20k-dev/game/Command and Conquer Red Alert II/gamemd.exe" \
+  VERA20K_PROJECTILE_RENDER_ASSETS="$HOME/Documents/vera20k-dev/class-parity/shrapnel-inputs" \
   VERA20K_CLOAK_MAP="$PWD/tools/spatial_oracle/cloak_target_gate/ordinary-sub-cloak.map" \
-  VERA20K_NATIVE_FAILURE_DIR='/Users/halvor/Documents/vera20k-dev/techno-active-retail/C28-cloak-native-v1/failures' \
-  /Users/halvor/Documents/vera20k-dev/.venv/bin/python -B \
+  VERA20K_NATIVE_FAILURE_DIR="$HOME/Documents/vera20k-dev/techno-active-retail/C28-cloak-native-v1/failures" \
+  "$HOME/Documents/vera20k-dev/.venv/bin/python" -B \
   -m tools.spatial_oracle.cloak_target_gate --write \
-  --output /Users/halvor/Documents/vera20k-dev/techno-active-retail/C28-cloak-native-v1/cloak_target_gate.json
+  --output "$HOME/Documents/vera20k-dev/techno-active-retail/C28-cloak-native-v1/cloak_target_gate.json"
 ```
 
 Run the same command in an independent process with `--check` replacing

@@ -3670,13 +3670,31 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
         "coordinate restamps preserve the dummy's live non-coordinate fields",
     );
 
+    // Update_Wave puts the owner's GetFLH first (0x00762D15..0x00762D52), so
+    // UpdateCells walks out from the firer's corner: the first AI's two
+    // samples stay in its cell and look nothing up.
     sim.visit_combat_tail(0, &rules, None, crate::sim::world::FrameEffects::default());
     let wave = sim.waves.get(wave_id).expect("Wave survives first live AI");
     assert_eq!(wave.lifetime, 99);
     assert_eq!(wave.target.z, 674);
+    assert!(wave.recorded_cells.is_empty());
+    assert_eq!(process_dummy.snapshot().coord, (-1, 7));
+    // The second AI's third sample enters (0, 1), off this empty map.
+    sim.visit_combat_tail(0, &rules, None, crate::sim::world::FrameEffects::default());
+    let wave = sim
+        .waves
+        .get(wave_id)
+        .expect("Wave survives second live AI");
+    assert_eq!(wave.lifetime, 98);
+    assert_eq!(
+        wave.recorded_cells,
+        [crate::sim::wave::WaveRecordedCell {
+            identity: crate::sim::wave::WaveCellIdentity::SharedDummy,
+        }]
+    );
     assert_eq!(
         process_dummy.snapshot().coord,
-        (0, 6),
+        (0, 1),
         "UpdateCells keeps the shared identity but leaves the final miss restamp live",
     );
 }
@@ -3849,8 +3867,10 @@ fn sonic_fire_registers_immediately_but_later_techno_fires_before_wave_tail_ai()
     let sonic_endpoint_id = sim
         .spawn_object("TARGET", "Russians", 6, 0, 0, &rules)
         .expect("Sonic endpoint");
+    // Update_Wave walks out from the Dolphin's GetFLH (0x00762D15..0x00762D52);
+    // its first AI's samples at 0.05 and 0.10 record only (1, 0).
     let wave_receiver_id = sim
-        .spawn_object("TARGET", "Russians", 5, 0, 0, &rules)
+        .spawn_object("TARGET", "Russians", 1, 0, 0, &rules)
         .expect("cell-list Wave receiver");
     let later_target_id = sim
         .spawn_object("TARGET", "Russians", 2, 2, 0, &rules)
@@ -4004,8 +4024,9 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
     let dolphin_id = sim
         .spawn_object("DLPH", "Americans", 1, 0, 64, &rules)
         .expect("bridge Dolphin");
+    // The Wave walks out from the Dolphin's GetFLH; its first AI records (2, 0).
     let receiver_id = sim
-        .spawn_object("TARGET", "Russians", 5, 0, 0, &rules)
+        .spawn_object("TARGET", "Russians", 2, 0, 0, &rules)
         .expect("bridge receiver");
     for id in [dolphin_id, receiver_id] {
         sim.remove_entity_occupancy(id);
@@ -4101,7 +4122,7 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
             .health
             .current(),
         90,
-        "Wave Z 674 meets the level-2 equality threshold 624 and walks AltObject",
+        "B4 Z 624, the Dolphin's deck GetFLH, meets the level-2 threshold 624 and walks AltObject",
     );
 }
 

@@ -1512,8 +1512,10 @@ starts America/Battle against a Yuri computer opponent (`Computer1`, Easy) with 
 rules and assets on an [authored map](map_observation/examples/ai_psychic_dominator.map):
 the Psychic Dominator fixture's terrain with the computer's pre-placed YAPPET at (46,42)
 and two GAPOWR, observer MTNK at (43,53), (44,54) and (45,55) and a fourth at (52,62),
-and no commands. The observer's starting MCV stays undeployed at its start (59,33), as in
-the [Spy Plane observation](#computer-spy-plane-observation). MTNK is the only observed
+and no commands. The observer's starting MCV stays undeployed at its start (59,33). A
+deploy on its own would empty the observer's base cell, as gamemd's does (see the
+[Spy Plane observation](#computer-spy-plane-observation)), but AI_Fire_PsyDom
+(`0x0050A150`) aims at Foot units and reads no base cell. MTNK is the only observed
 type, and the profile observes no Super rows, for the sample budget. The loader looks a
 relative map name up in the retail root: run a profile copy whose
 `launch.selected_map_file` is the tracked map's absolute path.
@@ -1532,20 +1534,31 @@ reaches All_To_Hunt, and no whole-run timing or pixel equivalence with gamemd is
 starts Russia/Battle against a Russia computer opponent (`Computer1`, Easy) with stock
 rules and assets on an [authored map](map_observation/examples/ai_spy_plane.map): the
 computer nuclear-missile fixture with the computer's NARADR in place of its NAMISL,
-beside its two NAPOWR, and no commands. The observer owns only its starting SMCV, which
-stays undeployed at its start (59,33). Once a human House deploys, the computer reads its
-base cell as (0,0): spy planes and paradrops then aim at (31,30), and zone-tested teams
-never form. The build before native owner names does the same. Undeployed, the base
-centre stays the start cell the launch assigns. Observing only `Computer1`, with SPYP and
-NACNST as the types, keeps the Super rows within the sample budget. The loader looks a
-relative map name up in the retail root: run a profile copy whose
-`launch.selected_map_file` is the tracked map's absolute path.
+beside its two NAPOWR. The observer builds its base the native way: `DeployMcv` at step 0
+deploys its starting SMCV at (59,33) into the NACNST at (58,32), present from step 14, and
+`QueueProduction` at step 70 and `PlaceReadyBuilding` at step 500 place a NAPOWR at
+(62,32) at step 501.
+
+The power plant gives the observer its base cell. Building Unlimbo recalculates its
+House's base centre (`0x00440D07`, `HouseClass::Recalc_Base_Center @ 0x004FD150`, which
+stores the empty cell before averaging) before the building joins the House's building
+list (`0x00441553`), and UnitClass::Deploy skips Set_Starting_Cell for a House a human
+controls (`0x0073985B..0x00739862`). A human's deploy on its own therefore empties the
+start cell the launch assigned until the House's next building counts the yard. This
+order is native behavior established by reading the instructions, without a native run;
+`sim::deploy_tests` holds VERA's regression test. A copy of this profile that only
+deploys sends its spy plane to (31,30), and a copy of the
+[Iron Curtain profile](#computer-iron-curtain-observation) that only deploys forms no
+team by step 8000. Observing only `Computer1`, with SPYP and NACNST as the types, keeps
+the Super rows within the sample budget. The loader looks a relative map name up in the
+retail root: run a profile copy whose `launch.selected_map_file` is the tracked map's
+absolute path.
 
 The computer's SpyPlaneSpecial is granted on the first step (charge start 0, 3600 frames)
-and is ready from step 3601. Its Strategy tick fires it at frame 3609 (the charge restarts
-there), and one SPYP appears at step 3610 at (50,85), on the computer's South edge. It
-flies toward (62,35), AI_GroundRallyPoint's cell near the observer's start, turns to
-Overfly at step 3947 at (61,37), flies on and is last seen at step 4075 at (66,19).
+and is ready from step 3601. Its Strategy tick fires it at frame 3707 (the charge restarts
+there), and one SPYP appears at step 3708 at (70,65). It flies toward (63,38),
+AI_GroundRallyPoint's cell beside the observer's yard, turns to Overfly at step 3885 at
+(64,40), flies on and is last seen at step 4104 at (56,9).
 These are Rust production observations: the chain's native comparisons are the
 `tools.superweapon_oracle` `spy_plane_launch`, `send_spy_planes`, `spyplane_missions`,
 `aircraft_leave_map` and `ai_*` rows, and no whole-run timing or pixel equivalence with
@@ -1557,22 +1570,24 @@ gamemd is claimed.
 starts Russia/Battle against a Russia computer opponent (`Computer1`, Easy) with stock
 rules and assets on an [authored map](map_observation/examples/ai_paradrop.map): the
 computer Spy Plane fixture with the computer's CAAIRP at (42,38) and its two NAPOWR at
-(40,44) and (46,42), and no commands. The observer's starting SMCV stays undeployed, as
-in the Spy Plane observation. Observing only `Computer1`, with PDPLANE and E2 as the
-types, keeps the Super rows within the sample budget. Run a profile copy whose
-`launch.selected_map_file` is the tracked map's absolute path.
+(40,44) and (46,42). The observer deploys and builds as in the Spy Plane observation, its
+NAPOWR at (62,32) giving it a base cell at its NACNST at (58,32). Observing only
+`Computer1`, with PDPLANE and E2 as the types, keeps the Super rows within the sample
+budget. Run a profile copy whose `launch.selected_map_file` is the tracked map's absolute
+path.
 
 The computer's ParaDropSpecial is granted on the first step (charge start 0, 3600 frames)
-and is ready from step 3601. Its Strategy tick fires it at frame 3609 (the charge restarts
-there) at (62,35), AI_GroundRallyPoint's cell near the observer's start
+and is ready from step 3601. Its Strategy tick fires it at frame 3707 (the charge restarts
+there) at (63,38), AI_GroundRallyPoint's cell beside the observer's yard
 (`superweapon/ai_fire.rs`), and one PDPLANE carrying nine E2 (`SovParaDropNum=`) appears
-at step 3610 at (87,48). It turns to Overfly at step 3779 at (65,37), drops the
-conscripts, each with Hunt queued, its house being a computer's, queues Retreat at step
-3825 at (59,34) and is last seen at step 4100 at (84,50). The conscripts set off hunting
-from step 4282. These are Rust production observations: the chain's native comparisons
-are the `tools.superweapon_oracle` `paradrop_launch`, `send_paradrop_planes`,
-`paradrop_missions`, `drop_payload`, `spawn_parachuted` and `ai_*` rows, and no
-whole-run timing or pixel equivalence with gamemd is claimed.
+at step 3708 at (70,65). It turns to Overfly at step 3877 at (64,41), drops the
+conscripts between (63,41) and (62,36), each with Hunt queued, its house being a
+computer's, queues Retreat at step 3923 at (62,35) and is last seen at step 4153 at
+(84,50). The conscripts set off hunting from step 4381. These are Rust production
+observations: the chain's native comparisons are the `tools.superweapon_oracle`
+`paradrop_launch`, `send_paradrop_planes`, `paradrop_missions`, `drop_payload`,
+`spawn_parachuted` and `ai_*` rows, and no whole-run timing or pixel equivalence with
+gamemd is claimed.
 
 ## Computer Iron Curtain observation
 
@@ -1580,28 +1595,28 @@ whole-run timing or pixel equivalence with gamemd is claimed.
 starts Russia/Battle against a Russia computer opponent (`Computer1`, Easy) with stock
 rules and assets on an [authored map](map_observation/examples/ai_iron_curtain.map): the
 computer's pre-placed NAIRON at (55,62), NAPOWR at (66,56) and (66,52), NAWEAP at (56,56)
-and six HTNK at (50..52,58..59) near its start (62,62); no commands. The HTNK lines end
-`1,1`, the two recruit flags (`Techno+0x421`/`+0x422`): with `0,0` no Autocreate team may
-take them. The observer owns only its starting SMCV, at its start (37,37) far from the
-computer's tanks, because the AI triggers' zone test reads the enemy's base centre. It
-stays undeployed, as in the [Spy Plane observation](#computer-spy-plane-observation):
-after a deploy no team forms. HTNK is the only observed type, and the profile observes no
-Super rows, for the sample budget. The loader looks a relative map name up in the retail
-root: run a profile copy whose `launch.selected_map_file` is the tracked map's absolute
-path.
+and six HTNK at (50..52,58..59) near its start (62,62). The HTNK lines end `1,1`, the two
+recruit flags (`Techno+0x421`/`+0x422`): with `0,0` no Autocreate team may take them. The
+observer starts at (37,37), far from the computer's tanks, and builds as in the
+[Spy Plane observation](#computer-spy-plane-observation): `DeployMcv` at step 0 gives it
+the NACNST at (36,36), and `QueueProduction` at step 70 and `PlaceReadyBuilding` at step
+500 the NAPOWR at (40,36) at step 501. The AI triggers' zone test reads the enemy's base
+cell, which the deploy alone would leave empty, so no team forms without the power
+plant. HTNK is the only observed type, and the profile observes no Super rows, for the
+sample budget. The loader looks a relative map name up in the retail root: run a profile
+copy whose `launch.selected_map_file` is the tracked map's absolute path.
 
 The computer's IronCurtainSpecial is granted on the first step (charge start 0, 4500
 frames) and is ready from step 4501, as a copy ending at step 7530 shows when it observes
-only `Computer1`'s Super rows and an absent type. The team pass at frame 7175 picks one of
-the two retail Easy Iron Curtain triggers, which share weight 5000. This run takes Soviet
-Iron Curtain Easy (`0D2769BC-G`): two HTNK (`2 Rhinos`) with the `Soviet Iron Curtain
-Factories` script, while the other four stay home (the authored-yard fixture, on the build
-before native owner names, drew the six-Rhino Soviet Iron Curtain trigger). The two leave
-at step 7180 for (52,50) (script action 53), and at frame 7290 the house fires its Iron
-Curtain at the team's centre (action 55; the charge restarts there). The team then attacks
-the observer's MCV (actor 15) from step 7295 and destroys it at 7905. Ten frames into the
-curtain each HTNK draws its tint number from the Scenario stream
-(`TechnoClass::UpdateIronTint`). These are Rust production observations: the chain's
+only `Computer1`'s Super rows and an absent type. Of the two retail Easy Iron Curtain
+triggers, which share weight 5000, this run takes Soviet Iron Curtain Easy (`0D2769BC-G`):
+two HTNK (`2 Rhinos`) with the `Soviet Iron Curtain Factories` script, while the other four
+stay home. The two leave at step 7180 for (53,54) (script action 53), and at frame 7418 the
+house fires its Iron Curtain at (54,54), the team's centre (action 55; the charge restarts
+there). From step 7420 the team attacks the observer's NACNST (actor 20), and it is still
+attacking at the last step, 8000. Ten frames into the curtain each HTNK draws its tint
+number from the Scenario stream (`TechnoClass::UpdateIronTint`). These are Rust
+production observations: the chain's
 native comparisons are the `tools.superweapon_oracle` `team_super_actions`,
 `iron_curtain_launch`, `curtain_overrides` and `iron_tint` rows, and no whole-run timing
 or pixel equivalence with gamemd is claimed.

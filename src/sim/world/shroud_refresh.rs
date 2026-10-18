@@ -1491,22 +1491,22 @@ impl Simulation {
             .fog
             .begin_sight_frame(&self.substrate.entities, self.path_grid.as_deref());
         let context = UninitContext::new(rules, None);
-        let removed: Vec<_> = self
+        // Admissions sort by source, so each source's ids come in a row.
+        let mut removed: Vec<_> = self
             .fog
             .sight_admissions
             .iter()
             .filter(|(_, source)| source.latched)
             .map(|(&(id, _), _)| id)
-            .filter(|&id| {
-                !self
-                    .substrate
-                    .entities
-                    .get(id)
-                    .is_some_and(|entity| vision::holds_sight(entity, config))
-            })
-            .collect::<std::collections::BTreeSet<_>>()
-            .into_iter()
             .collect();
+        removed.dedup();
+        removed.retain(|&id| {
+            !self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| vision::holds_sight(entity, config))
+        });
         for id in removed {
             self.release_object_sight_with_context(id, context);
         }
@@ -1516,6 +1516,7 @@ impl Simulation {
         // the ally graph: a growth or a walk forgets the answers.
         let mut viewers_of = std::collections::BTreeMap::new();
         let mut asked_with = (self.fog.by_owner.len(), self.interner.len());
+        let mut admissions = vision::SourceAdmissions::default();
         //IDs alone cross callbacks. Requery the live object at every turn.
         for id in self.substrate.entities.keys_sorted() {
             let Some(entity) = self
@@ -1527,7 +1528,9 @@ impl Simulation {
                 continue;
             };
             let owner = entity.owner();
-            if self.fog.source_cache_is_inactive(id, owner) {
+            // Nothing below changes the admissions before the cover test.
+            self.fog.read_source_admissions(id, &mut admissions);
+            if admissions.cache_is_inactive(owner) {
                 continue;
             }
             let inputs = (self.fog.by_owner.len(), self.interner.len());
@@ -1555,7 +1558,7 @@ impl Simulation {
                 ),
                 "an owner's remembered reveal viewers are current"
             );
-            if vision::retained_sight_covers(&self.fog, id, owner, viewers) {
+            if admissions.retained_cover(owner, viewers) {
                 if viewers.iter().any(|viewer| untracked.contains(viewer)) {
                     self.fog.mark_retained_sight(id);
                 }

@@ -217,10 +217,8 @@ directly to `main`. Publication requires user/goal authority; PRs target `main`.
 Integrate promptly when authorized. Owners resolve conflicts and revalidate.
 Preserve unique/local data; use `sync` for complex cleanup.
 
-Claude sessions load this contract from `<main-checkout>`, so keep its `main` current:
-after each fetch, fast-forward it (`git -C <main-checkout> merge --ff-only origin/main`)
-when it is on `main` with no tracked changes and no Cargo build or test runs from it.
-Never reset, stash, rebase or switch it; when a condition fails, leave it and say so.
+After each fetch, fast-forward `<main-checkout>` (`merge --ff-only origin/main`) when it is on
+`main` without tracked changes or a Cargo run; sessions load this contract from it.
 
 Choose validation appropriate to the change, considering native fidelity, connected
 production behavior and protection against regressions.

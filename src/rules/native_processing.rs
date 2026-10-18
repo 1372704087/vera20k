@@ -1216,6 +1216,8 @@ pub(crate) struct NativeRulesRegistryState {
 
 impl Default for NativeRulesRegistryState {
     fn default() -> Self {
+        // RulesClass constructor values; `GeneralRules::default` owns them.
+        let general = crate::rules::ruleset::GeneralRules::default();
         Self {
             families: HashMap::new(),
             techno_type_order: Vec::new(),
@@ -1227,26 +1229,22 @@ impl Default for NativeRulesRegistryState {
             // Rules665650: literal doubles, before AudioVisual authored reads.
             rules_ambient_change_rate: NativeF64Bits::from_bits(0x3fc9_9999_9999_999a),
             rules_ambient_change_step: NativeF64Bits::from_bits(0x3fb9_9999_9999_999a),
-            rules_difficulty_rows: crate::rules::ruleset::GeneralRules::default().difficulty_rows,
-            // RulesClass665650 initializes +16B8 before any AudioVisual read.
-            rules_gravity: 3,
-            rules_wind_direction: -1,
-            rules_missile_rot_var: 0.25,
-            rules_safety_altitude: 500,
-            // RulesClass ctor666163/66616D initializes +7B8/+7BC.
-            rules_parachute_max_fall_rate: -3,
-            rules_no_parachute_max_fall_rate: -100,
+            rules_difficulty_rows: general.difficulty_rows,
+            rules_gravity: general.gravity,
+            rules_wind_direction: general.wind_direction(),
+            rules_missile_rot_var: general.missile_rot_var,
+            rules_safety_altitude: general.safety_altitude,
+            rules_parachute_max_fall_rate: general.parachute_max_fall_rate,
+            rules_no_parachute_max_fall_rate: general.no_parachute_max_fall_rate,
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
             rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
-            rules_line_trail_override: [0; 3],
-            // Rules665650 clears +1866/+1867/+1868 at66785E/667864/66786A.
-            rules_chrono_beam_color: [0; 3],
+            rules_line_trail_override: general.line_trail_color_override,
+            rules_chrono_beam_color: general.chrono_beam_color,
             rules_prism_support: PrismSupportRules::default(),
-            rules_patrol_scan_minutes: crate::rules::ruleset::GeneralRules::default()
-                .patrol_scan_minutes,
+            rules_patrol_scan_minutes: general.patrol_scan_minutes,
             rules_prism_type: None,
             rules_drop_zone_anim: None,
-            rules_drop_zone_radius: 1024,
+            rules_drop_zone_radius: general.drop_zone_radius,
             rules_prerequisite_proc_alternate: None,
             rules_prerequisite_lists: Default::default(),
             rules_building_types: GeneralBuildingTypes::default(),
@@ -2294,7 +2292,7 @@ impl RulesPassProcessor {
                 // PrismType's reader (`0x0067BCE0`, called at `0x00671144`),
                 // the gate/WallTower reads (`0x0066F450..0x0066F583`) and the
                 // power plant reads (`0x0066F692..0x0066F781`) do the same
-                // through BuildingType's FindOrAllocate, and
+                // through BuildingType's FindOrAllocate (`0x004653C0`), and
                 // PrerequisiteProcAlternate (`0x0066F787..0x0066F7C9`) through
                 // UnitType's (`0x007480D0`).
                 if let Some(resolved) = self.resolve_scalar_from(section, key, family, 0x80) {

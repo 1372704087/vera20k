@@ -259,7 +259,10 @@ impl Simulation {
             );
             // 0x006F41FE..0x006F4271: a CanDisguise=/PermaDisguise= type (stock
             // SPY) starts disguised as its owner, wearing the Rules disguise
-            // of the owner's side (House+0x1E8: 0, 1, else Third).
+            // of the owner's side (House+0x1E8: 0, 1, else Third). Native has
+            // no owner guard; a Techno without a represented house is a
+            // fixture case. Rust never re-runs this InitFromType tail (Unit
+            // slot +0x24 can); only retail [SPY], an Infantry, sets the keys.
             if obj.can_disguise
                 && obj.perma_disguise
                 && let Some(side) = self.houses.get(&ge.owner()).map(|h| h.side_index)

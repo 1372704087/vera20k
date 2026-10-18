@@ -84,3 +84,39 @@ fn a_perma_disguised_spy_starts_wearing_its_sides_rules_disguise() {
         "CanDisguise without PermaDisguise starts undisguised"
     );
 }
+
+/// Retail RULESMD through the production reader: [SPY] sets both keys,
+/// [General] names E1/E2/INIT, and [MGTK] is CanDisguise only.
+#[test]
+fn a_retail_spy_starts_disguised_as_its_sides_infantry() {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
+        assert!(!crate::rules::retail_ini_fixture::require_retail_ini());
+        return;
+    };
+    let spy = rules.object("SPY").expect("retail SPY");
+    assert!(spy.can_disguise && spy.perma_disguise);
+    let mgtk = rules.object("MGTK").expect("retail MGTK");
+    assert!(mgtk.can_disguise && !mgtk.perma_disguise);
+    let general = &rules.general;
+    assert_eq!(
+        [
+            general.allied_disguise.as_deref(),
+            general.soviet_disguise.as_deref(),
+            general.third_disguise.as_deref(),
+        ],
+        [Some("E1"), Some("E2"), Some("INIT")]
+    );
+    let mut sim = Simulation::with_seed(3);
+    let id = sim.interner.intern("Russians");
+    sim.houses
+        .insert(id, HouseState::new(id, 1, None, false, 0, 10));
+    sim.session.house_order.push(id);
+    let spy = sim
+        .spawn_object_at_height("SPY", "Russians", 10, 10, 0, 0, &rules)
+        .expect("SPY spawns");
+    let disguise = sim.substrate.entities.get(spy).unwrap().disguise.clone();
+    assert_eq!(
+        disguise.and_then(|d| d.type_id()),
+        Some(sim.interner.intern("E2"))
+    );
+}

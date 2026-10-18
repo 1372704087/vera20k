@@ -112,7 +112,7 @@ mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
 mod trigger_explosion;
-mod trigger_nuke;
+mod trigger_strikes;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
 #[cfg(any(test, feature = "test-support"))]
@@ -225,6 +225,7 @@ use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::animation;
 use crate::sim::bridge_state::BridgeRuntimeState;
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::command::CommandEnvelope;
 use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
@@ -927,6 +928,7 @@ impl SimSoundEvent {
 
 /// The firer's own facing at the authoritative fire tick (the muzzle is
 /// `SimFireEvent::fire_coord`).
+#[cfg(any(test, feature = "test-support"))]
 #[derive(Debug, Clone)]
 pub struct FireOriginSnapshot {
     pub facing: u8,
@@ -940,12 +942,15 @@ pub struct SimFireEvent {
     /// Stable ID of the entity that fired.
     pub attacker_id: u64,
     /// Which weapon slot was used (Primary or Secondary).
+    #[cfg(any(test, feature = "test-support"))]
     pub weapon_slot: WeaponSlot,
     /// Selected weapon section id.
     pub weapon_id: InternedId,
     /// Firing object's facing at the fire tick.
+    #[cfg(any(test, feature = "test-support"))]
     pub facing: u8,
     /// Source facts from the fire tick, before burst/cooldown updates.
+    #[cfg(any(test, feature = "test-support"))]
     pub origin_snapshot: FireOriginSnapshot,
     /// What was fired at — entity stable ID or ground cell coord.
     /// For projectile trajectory: Entity → look up entity position; Cell →
@@ -3696,6 +3701,7 @@ impl Simulation {
     }
 
     /// Intern a string, returning its InternedId.
+    #[cfg(any(test, feature = "test-support"))]
     #[inline]
     pub fn intern(&mut self, s: &str) -> crate::sim::intern::InternedId {
         self.interner.intern(s)
@@ -5098,7 +5104,7 @@ impl Simulation {
             // `ReReveal(0, 0, 0, 0)` (`0x00448BD9`) releases the old owner's
             // sight only: what a `RevealToAll=` opening showed the current
             // house stays.
-            self.remove_building_gap_before_limbo(stable_id);
+            self.remove_building_gap(stable_id);
             self.release_object_sight_with_context(stable_id, UninitContext::new(rules, None));
             // Original4483A6 clears PrimaryFactory before the old-house
             //teardown.448C69 initializes it after the delegated owner swap.

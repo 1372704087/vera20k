@@ -52,8 +52,9 @@ pub struct TileIds {
     pub paved_roads: i32,
     pub paved_road_ends: i32,
     pub medians: i32,
-    /// The theater owner's immutable resolved cliff/waterfall data. Family
-    /// decisions use TheaterCliffRanges directly, without a second classifier.
+    /// The generator's only copy of the theater owner's resolved
+    /// cliff/waterfall ranges. Family decisions use TheaterCliffRanges
+    /// directly, without a second classifier.
     pub cliffs: TheaterCliffRanges,
 }
 

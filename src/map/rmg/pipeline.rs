@@ -16,8 +16,6 @@
 //! `lat_fixup` calls; they are RNG-free, so the one that matters observably is
 //! the post-patch pass that produces the sand-LAT tiles the rock pass needs.
 
-use crate::map::theater::TheaterCliffRanges;
-
 use super::grid::RmgGrid;
 use super::phases::adjacency;
 use super::phases::blob::BlobCtx;
@@ -58,7 +56,6 @@ pub const STANDARD_START_QUOTA: i32 = 4;
 pub struct PipelineInputs<'a> {
     pub ids: &'a TileIds,
     pub blocks: &'a dyn TileBlocks,
-    pub cliff: &'a TheaterCliffRanges,
     /// The `[TileSet] Morphable=` predicate for the corner engine.
     pub morphable: &'a dyn Fn(i32) -> bool,
     /// Per-land-type "wheel speed <= 1%" flags for the zone classifier.
@@ -390,7 +387,7 @@ pub fn run_pipeline(
             gauss: &mut *gauss,
             rng: &mut *rng,
         };
-        hills::run(&mut ctx, &args, inputs.cliff, inputs.morphable);
+        hills::run(&mut ctx, &args, inputs.morphable);
     }
     observe(Stage::Hills, grid, &waypoints);
 
@@ -521,7 +518,6 @@ mod tests {
     fn inputs<'a>(
         identity: &'a TileIds,
         blocks: &'a OneByOne,
-        cliff: &'a TheaterCliffRanges,
         morphable: &'a dyn Fn(i32) -> bool,
         map_type: i32,
         theater: i32,
@@ -530,7 +526,6 @@ mod tests {
         PipelineInputs {
             ids: identity,
             blocks,
-            cliff,
             morphable,
             wheel_impassable: [false; LAND_TYPES],
             tech_types,
@@ -575,10 +570,9 @@ mod tests {
         let mut gauss = Gaussian::default();
         let identity = ids();
         let blocks = one_by_one();
-        let cliff = TheaterCliffRanges::default();
         let morphable = |_tile: i32| false;
         let ins = inputs(
-            &identity, &blocks, &cliff, &morphable, map_type, theater, tech_types,
+            &identity, &blocks, &morphable, map_type, theater, tech_types,
         );
         let output = run_pipeline(
             &mut grid,

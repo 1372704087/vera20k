@@ -68,7 +68,8 @@ fn set_cheats(state: &mut AppState, flags: CheatFlags) {
         sim.set_cheats(crate::sim::cheats::Cheats::switches(&flags));
         log::info!(
             "Trainer: money {} target {} · power {} · instant build {} · \
-             invincible {} · damage x{} · all tech {} · tech boost {} · shroud {}",
+             invincible {} · damage x{} · all tech {} · tech boost {} · \
+             build anywhere {} · shroud {}",
             flags.infinite_money,
             flags.money_target,
             flags.infinite_power,
@@ -77,6 +78,7 @@ fn set_cheats(state: &mut AppState, flags: CheatFlags) {
             flags.damage_scale,
             flags.tech_all,
             flags.tech_boost,
+            flags.build_anywhere,
             if flags.reveal_map { "off" } else { "on" },
         );
         was_revealed != flags.reveal_map

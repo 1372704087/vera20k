@@ -13,9 +13,9 @@
 //!   the invulnerability refresh and the one-shot actions. These are cheap and
 //!   need no ordering beyond "before anything reads the affected state".
 //! * **Inline**, read by the system that owns the value: production cadence,
-//!   the power assessment and the damage receiver. Those read
-//!   [`Simulation::cheats`] directly rather than waiting for a pass, so the
-//!   switch takes effect in the frame it is turned on.
+//!   the power assessment, the placement admission and the damage receiver.
+//!   Those read [`Simulation::cheats`] directly rather than waiting for a
+//!   pass, so the switch takes effect in the frame it is turned on.
 
 use crate::sim::intern::InternedId;
 
@@ -64,6 +64,11 @@ pub struct Cheats {
     /// The tech-level cap is lifted for the owner, but the prerequisites are
     /// still asked — the difference between this and [`Self::tech_all`].
     pub tech_boost: bool,
+    /// The owner's buildings stand anywhere: the proximity ring around a
+    /// base does not apply, and the ground itself (land type, slope, water,
+    /// overlay) never refuses them. The foundation still has to be empty and
+    /// inside the playfield, so nothing lands on another structure.
+    pub build_anywhere: bool,
     /// The map is drawn without shroud (`sandbox_full_visibility`).
     pub reveal_map: bool,
     /// The house the switches apply to. `None` until the app names one; the
@@ -103,6 +108,10 @@ pub struct CheatFlags {
     /// have to be on the map. This is what "build beyond your tech level"
     /// means, as distinct from the all-tech switch above.
     pub tech_boost: bool,
+    /// The owner's buildings stand anywhere: no proximity ring, and the
+    /// ground never refuses them. The footprint still has to be empty and
+    /// inside the playfield.
+    pub build_anywhere: bool,
 }
 
 impl Cheats {
@@ -120,6 +129,7 @@ impl Cheats {
             reveal_map: flags.reveal_map,
             tech_all: flags.tech_all,
             tech_boost: flags.tech_boost,
+            build_anywhere: flags.build_anywhere,
             owner: None,
             power_forced: false,
             pending: 0,
@@ -135,6 +145,7 @@ impl Cheats {
             && self.damage_scale <= 1
             && !self.tech_all
             && !self.tech_boost
+            && !self.build_anywhere
             && !self.reveal_map
             && self.pending == 0
     }
@@ -360,6 +371,16 @@ mod tests {
         assert_eq!(cheats.take_pending(), action::HEAL_ALL);
         assert_eq!(cheats.take_pending(), 0, "the queue clears");
         assert!(!cheats.is_idle(), "the switch itself is still on");
+    }
+
+    #[test]
+    fn the_panel_can_switch_build_anywhere_on_and_off() {
+        let on = Cheats::switches(&CheatFlags { build_anywhere: true, ..Default::default() });
+        assert!(on.build_anywhere);
+        assert!(!on.is_idle(), "build-anywhere is a switch like the others");
+        let off = Cheats::switches(&CheatFlags::default());
+        assert!(!off.build_anywhere);
+        assert!(off.is_idle());
     }
 
     #[test]

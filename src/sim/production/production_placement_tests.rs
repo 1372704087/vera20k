@@ -2888,6 +2888,67 @@ fn base_normal_false_structures_do_not_extend_build_area() {
 }
 
 #[test]
+fn the_trainers_build_anywhere_switch_lifts_the_proximity_ring() {
+    let rules = placement_radius_rules();
+    let mut sim = placement_sim();
+    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
+    // A second house's yard, so a house the switch does not name still has a
+    // provider to be measured against.
+    spawn_structure(&mut sim, &rules, 2, "Russians", "GACNST", 12, 12);
+    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
+    let mut cheats = crate::sim::cheats::Cheats::switches(&crate::sim::cheats::CheatFlags {
+        build_anywhere: true,
+        ..Default::default()
+    });
+    cheats.owner = sim.interner.get("Americans");
+    sim.set_cheats(cheats);
+
+    let object = rules.object("GAPOWR").expect("fixture type");
+    // GACNST's Adjacent=6 reaches at most x=18 from its yard at (10,10), so
+    // (40,40) is far outside every ring on the map.
+    assert!(crate::sim::production::is_within_build_area(
+        &sim, &rules, "Americans", object, 40, 40
+    ));
+    assert!(!crate::sim::production::is_within_build_area(
+        &sim, &rules, "Russians", object, 40, 40
+    ));
+    assert!(
+        crate::sim::production::is_within_build_area(&sim, &rules, "Russians", object, 14, 12),
+        "the ring itself is untouched for a house the switch does not name"
+    );
+
+    let preview = placement_preview_for_owner_with_overlays(
+        &sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        40,
+        40,
+        None,
+    )
+    .expect("preview should exist");
+    assert!(preview.valid, "the far site is admitted: {:?}", preview.reason);
+    assert!(preview.in_build_area);
+    assert!(preview.reason.is_none());
+    assert!(
+        preview.cells.iter().all(|cell| cell.valid),
+        "the per-cell draw agrees with the admission"
+    );
+
+    assert!(place_production_with_overlays(
+        &mut sim,
+        &rules,
+        "Americans",
+        ProductionPlacement::Building {
+            type_id: "GAPOWR",
+            cell: (40, 40)
+        },
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+}
+
+#[test]
 fn build_off_ally_enabled_accepts_allied_eligible_provider() {
     let mut sim = placement_sim();
     let rules = build_off_ally_rules();

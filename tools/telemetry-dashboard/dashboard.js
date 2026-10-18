@@ -1936,6 +1936,7 @@ const CHEAT_SWITCHES = [
     "infinite_money",
     "infinite_power",
     "instant_build",
+    "build_anywhere",
     "invincible",
     "reveal_map",
     "tech_all",

@@ -64,7 +64,9 @@ use crate::sim::world::Simulation;
 /// v18: `cheats.tech_all` — the tech gates are bypassed for the named house.
 /// v19: `cheats.tech_boost` — only the tech-level cap is lifted, so the house
 /// builds past its level while the prerequisites still apply.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 19;
+/// v20: `cheats.build_anywhere` — the named house's buildings stand anywhere:
+/// no proximity ring, and the ground itself never refuses them.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 20;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -389,6 +391,10 @@ pub struct CheatReport {
     pub reveal_map: bool,
     pub tech_all: bool,
     pub tech_boost: bool,
+    /// The house's buildings stand anywhere: the proximity ring around a base
+    /// does not apply and the ground never refuses them. The footprint still
+    /// has to be empty and inside the playfield.
+    pub build_anywhere: bool,
     /// The house the switches act on, resolved. Present from the first frame
     /// a switch is on; the panel shows it so "who is this helping" is never a
     /// guess.
@@ -574,6 +580,7 @@ impl Simulation {
                 reveal_map: self.cheats.reveal_map,
                 tech_all: self.cheats.tech_all,
                 tech_boost: self.cheats.tech_boost,
+                build_anywhere: self.cheats.build_anywhere,
                 owner: self.cheats.owner.map(|owner| self.interner.resolve(owner).to_string()),
                 power_forced: self.cheats.power_forced,
             },

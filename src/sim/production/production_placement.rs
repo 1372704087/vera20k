@@ -664,6 +664,9 @@ fn evaluate_building_placement(
 
 /// Read-only Display4A8EB0 proximity query, shared by preview and the fresh
 /// LeftUp event gate. Production owns provider lifecycle and adjacency policy.
+/// The trainer's build-anywhere switch lifts the whole ring for the placing
+/// house; every other house — and the computer's own placement — still
+/// answers the proximity query as before.
 pub fn is_within_build_area(
     sim: &Simulation,
     rules: &RuleSet,
@@ -672,6 +675,14 @@ pub fn is_within_build_area(
     rx: u16,
     ry: u16,
 ) -> bool {
+    if sim.cheats.build_anywhere
+        && sim
+            .interner
+            .get(owner)
+            .is_some_and(|owner_id| sim.cheats.applies_to(owner_id))
+    {
+        return true;
+    }
     let (width, height) = foundation_dimensions(&obj.foundation);
     let placed_adjacent = obj.adjacent;
     if placed_adjacent < 0 {

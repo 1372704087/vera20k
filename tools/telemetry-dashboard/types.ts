@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 19;
+export const SCHEMA_VERSION = 20;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -202,6 +202,9 @@ export interface CheatReport {
   reveal_map: boolean;
   tech_all: boolean;
   tech_boost: boolean;
+  /** Buildings stand anywhere: no proximity ring, and the ground never
+   *  refuses them. The footprint still has to be empty (schema v20). */
+  build_anywhere: boolean;
   /** The house the switches act on, resolved; null before they are used. */
   owner: string | null;
   /** True while the power switch is overriding a real deficit. */

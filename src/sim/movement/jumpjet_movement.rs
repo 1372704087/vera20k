@@ -465,8 +465,6 @@ struct WorldOrderHost<'a> {
     sim: &'a mut Simulation,
     id: u64,
     rules: Option<&'a crate::rules::ruleset::RuleSet>,
-    path_grid: Option<std::sync::Arc<crate::sim::pathfinding::PathGrid>>,
-    radius_cap: u16,
 }
 
 impl WorldOrderHost<'_> {
@@ -489,31 +487,17 @@ impl WorldOrderHost<'_> {
         passability: crate::sim::find_nearby_cell::PassabilityArgs,
         allow_bridge_cells: bool,
     ) -> Option<(i16, i16)> {
-        use crate::sim::find_nearby_cell::*;
-        find_nearby_passable_cell(
-            (i32::from(seed.0), i32::from(seed.1)),
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.sim.substrate.raw_cell_occupation),
-                passability,
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: self.radius_cap,
-                target_cell: None,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(self.terrain()),
-                overlay_grid: self.sim.overlay_grid.as_ref(),
-                occupancy: Some(&self.sim.substrate.occupancy),
-                entities: Some(&self.sim.substrate.entities),
-                zone_grid: self.sim.zone_grid.as_ref(),
-                playfield_bounds: self.sim.playfield_bounds,
-            },
-            self.sim.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0))
-        .map(|(x, y)| (x as i16, y as i16))
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint};
+        self.sim
+            .nearby_passable_cell(
+                (i32::from(seed.0), i32::from(seed.1)),
+                NearbyArgs {
+                    allow_bridge_cells,
+                    ..NearbyArgs::plain(passability, NearbyFootprint::SINGLE)
+                },
+            )
+            .filter(|cell| *cell != (0, 0))
+            .map(|(x, y)| (x as i16, y as i16))
     }
     fn cell_identity(&self, xy: [i32; 2]) -> crate::map::cell_index::NativeCellIdentity {
         self.terrain()
@@ -667,20 +651,10 @@ impl Simulation {
         rules: Option<&crate::rules::ruleset::RuleSet>,
         order: impl FnOnce(&mut JumpjetRuntime, &mut WorldOrderHost<'_>) -> R,
     ) -> Option<R> {
-        let path_grid = self.path_grid_snapshot();
-        let size = self
-            .map_size_diamond()
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
+        self.map_size_diamond()?;
         self.resolved_terrain.as_ref()?;
-        let radius_cap = crate::sim::find_nearby_cell::map_owned_radius_cap(size.0, size.1);
         self.with_jumpjet_process(id, |runtime, sim| {
-            let mut host = WorldOrderHost {
-                sim,
-                id,
-                rules,
-                path_grid,
-                radius_cap,
-            };
+            let mut host = WorldOrderHost { sim, id, rules };
             order(runtime, &mut host)
         })
     }

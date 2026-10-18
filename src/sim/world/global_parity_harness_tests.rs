@@ -665,7 +665,7 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // Two causes move this pin at once. First, #1946: main had already drifted
 // from the pinned 0x9762_01C6_BA92_703C to 0x08FA_C33A_C7FF_04FD (measured at
 // 988084688) with every tripwire above green; that cause is not established
-// here. Second, Snapshot418 drops the Drive/Ship head-to and handoff
+// here. Second, Snapshot419 drops the Drive/Ship head-to and handoff
 // occupation footprints, which only the removed vehicle-occupation index read
 // and every retained Drive/Ship runtime's fold hashed. A temporary control
 // feeding the hasher the two empty fields each surviving Drive held gave

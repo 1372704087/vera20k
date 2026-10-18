@@ -370,7 +370,7 @@ const MIN_DISTINCT_DECK_CELLS: usize = 6;
 // keeps its separate replay, gameplay and absolute RNG expectations.
 // The synthetic vehicle omits Crusher/SpeedType and now retains Wheel in
 // its locomotor/rules hash. Geometry, crossing ticks and RNG pins are unchanged.
-// Snapshot418 drops the Drive/Ship head-to and handoff occupation
+// Snapshot419 drops the Drive/Ship head-to and handoff occupation
 // footprints, which only the removed vehicle-occupation index read and every
 // retained Drive/Ship runtime's fold hashed. Hash composition only: a
 // temporary control feeding the hasher the two empty fields the arrived tank

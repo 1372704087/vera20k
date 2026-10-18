@@ -359,7 +359,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // a schema or RNG change. It is not a native whole-world golden.
 // The synthetic vehicle's absent Crusher/SpeedType now resolves to Wheel.
 // Its retained locomotor/rules hash changes; mission and RNG pins do not.
-// Snapshot418 drops the Drive/Ship head-to and handoff occupation
+// Snapshot419 drops the Drive/Ship head-to and handoff occupation
 // footprints, which only the removed vehicle-occupation index read and every
 // retained Drive/Ship runtime's fold hashed. Hash composition only: a
 // temporary control feeding the hasher what those fields held at the end

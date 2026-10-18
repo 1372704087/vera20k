@@ -6,7 +6,7 @@
 //!   `threat_posed` (acquisition), `in_range` and `line_of_fire` (the range
 //!   gate), `combat_weapon` (weapon choice), and
 //!   `fire_error` and `fire_error_world` (legality).
-//! - Firing: `world_fire` (FireAt and the combat tick), `projectile_delivery`
+//! - Firing: `world_fire` (each class's FireAt visit and its commit), `projectile_delivery`
 //!   (the shot's BulletType facts and the Bullet's admission), `aim_coord`,
 //!   `fire_coord`, `burst`, `rof`, `gattling`, `inviso_scatter`, `laser`,
 //!   `electric_bolt` and `parasite`.
@@ -309,13 +309,6 @@ pub fn armor_index(armor: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Aircraft retain their existing phased Mission_Attack delivery. Other
-/// class FireAt callers enter the live receiver inside their own Logic visit.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct FireRequests {
-    pub aircraft: std::collections::BTreeSet<u64>,
-}
-
 /// Call-local arguments of Building Update's two native FireAt sites.
 /// This value is delivered immediately; no future-shot queue retains it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -338,25 +331,20 @@ impl BuildingShot {
     }
 }
 
-/// Ordinary fire prelude plus one consuming deferred-consequence packet.
-/// The frame admits bullets and applies facing before committing the packet at
-/// its existing post-SpawnManager boundary.
+/// What the receiver fixture's combat pass (`world_fire::tick_combat`) did:
+/// its observations plus one consuming deferred-consequence packet.
+#[cfg(test)]
 pub struct CombatTickResult {
     /// Test adapter observations of actual inline AnimStore construction.
-    #[cfg(test)]
     pub(crate) fixture_anims: Vec<receiver_fixture::ConstructedAnimObservation>,
     /// Test observations of bullets already admitted through production owners.
-    #[cfg(any(test, feature = "test-support"))]
     pub projectile_spawns: Vec<ProjectileSpawn>,
-    /// Facing observations for component combat fixtures. Production Unit
-    /// facing commits within that Unit's live Logic slot.
-    pub unit_facing: Vec<UnitFacingUpdate>,
     pub(crate) consequences: crate::sim::world::damage_consequences::DamageConsequences,
 }
 
-/// Transient outputs shared by live object fire and the remaining class hosts.
-/// The fire body and inline receiver boundary collect through one handle;
-/// each host consumes its deliveries after committing per-firer effects.
+/// Transient outputs of one firer's fire visit. The fire body and inline
+/// receiver boundary collect through one handle; each host consumes its
+/// deliveries after committing per-firer effects.
 /// Never stored on `Simulation`, serialized or hashed. Hosts destructure all
 /// fields so adding an output requires an explicit delivery decision.
 #[derive(Default)]

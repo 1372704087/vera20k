@@ -127,8 +127,7 @@ fn unit_authoritative_fire_kills_target_via_advance_tick() {
 // --- S3 per-object facing-destination tests (read in the P2 window) ---
 
 /// Call `tick_combat_with_fog` directly (mirrors the combat_tests direct-call
-/// pattern) so `result.unit_facing` — a transient emit consumed by the world
-/// apply site — is observable.
+/// pattern) so the shot's fire events are observable.
 fn run_combat_direct(
     sim: &mut Simulation,
     rules: &RuleSet,

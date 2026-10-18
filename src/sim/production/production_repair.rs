@@ -32,14 +32,6 @@
 //!   (`0x00454260`); VERA does not keep it.
 //! - Presentation: the repair step's redraw byte (`+0x80`, from
 //!   `BuildingClass::GetCurrentFrame 0x0043EF90`).
-//! - Combat order: native fire and its damage land inside each attacker's
-//!   own LogicVector visit, VERA's in the combat phase after the object
-//!   pass. Trigger: a repairing building under fire. Effect: a hit landing
-//!   before the building's visit natively lands after its repair step in
-//!   VERA, so within the frame the step reads the pre-hit health and a
-//!   building killed that frame has still paid for its step. Frequency: every
-//!   repair step of a building under fire. Risk: the owner's credits and the
-//!   frame a kill lands; the fire order is the combat pass's own mechanism.
 //! - ToggleRepair's sounds and EVA play only for the owner's local player
 //!   (the app's `audible_to` gate), which is `IsHumanPlayer` outside
 //!   campaigns; in a campaign it reads `+0x1EC`/`+0x1ED` instead (dormant

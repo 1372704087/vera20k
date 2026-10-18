@@ -453,13 +453,6 @@ impl Simulation {
     /// the death arm's, and its death sequence or removal overwrites the Doing
     /// and cell-entry byte they write.
     ///
-    /// Infantry fire and direct mission FireAt now commit in the shooter's
-    /// Logic visit. RESIDUAL (other firing lanes): a shot still delivered by
-    /// the frame-end combat pass after every object's turn can engage the
-    /// Rocketeer's crash latch one frame after native when that shooter was
-    /// ahead in Logic order. The fall and landing's Scenario draws then move
-    /// by a frame. Frequency follows kills through those deferred lanes.
-    ///
     /// Each exact-zero callback in the fall reaches the shared immediate
     /// RecordKill702D40 owner again. Retained attribution does not suppress a
     /// later native callback or defer its House statistics until UnInit.

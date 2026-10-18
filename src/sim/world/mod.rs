@@ -1182,18 +1182,6 @@ pub struct Simulation {
     /// immediately after the movement call returns.
     #[serde(skip)]
     pub(crate) pending_lifecycle_requests: Vec<LifecycleRequest>,
-    /// Aircraft strike requests retained by the existing aircraft receiver.
-    /// Building, Unit and Infantry FireAt commit within their live slots.
-    #[serde(skip)]
-    pub(crate) fire_requests: crate::sim::combat::FireRequests,
-    /// BulletClass AI results produced in mixed Logic order and consumed at
-    /// the existing combat receiver seam later in this master frame.
-    #[serde(skip)]
-    pub(crate) pending_projectile_detonations: Vec<crate::sim::projectile::ProjectileDetonation>,
-    /// WaveClass AI damage requests produced in mixed Logic order and consumed
-    /// at the established wave-damage receiver seam later in this frame.
-    #[serde(skip)]
-    pub(crate) pending_wave_damage_requests: Vec<crate::sim::wave::WaveDamageRequest>,
     /// Internal order proof; release builds carry no ledger or recording branch.
     #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
@@ -1344,8 +1332,9 @@ pub struct Simulation {
     /// entries at init, mutated by combat death-handling at runtime.
     pub smudge_grid: Option<crate::sim::smudge_grid::SmudgeGrid>,
     /// Per-cell radiation field + site registry. Detonations of RadLevel>0
-    /// weapons feed it during the combat phase; sites decay in their own
-    /// post-combat step; foot units take periodic damage from their cell.
+    /// weapons feed it as their damage commits; sites decay before the object
+    /// pass (`RadiationState::tick_decay`); foot units take periodic damage
+    /// from their cell.
     #[serde(default)]
     pub radiation: crate::sim::radiation::RadiationState,
     /// `BombListClass`: the carriers of live Crazy Ivan bombs (each record
@@ -2074,6 +2063,9 @@ impl Simulation {
         }
     }
 
+    /// The receiver fixture's combat pass over this world
+    /// ([`crate::sim::combat::world_fire::tick_combat`]).
+    #[cfg(test)]
     fn tick_combat_with_fatal_lifecycle(
         &mut self,
         rules: &RuleSet,
@@ -2081,7 +2073,6 @@ impl Simulation {
         tick_ms: u32,
         logic_order: &[u64],
         fire_suppressed: &BTreeSet<u64>,
-        fire_requests: &crate::sim::combat::FireRequests,
         projectile_detonations: &[crate::sim::projectile::ProjectileDetonation],
         frame_effects: FrameEffects<'_>,
     ) -> crate::sim::combat::CombatTickResult {
@@ -2095,7 +2086,6 @@ impl Simulation {
             tick_ms,
             logic_order,
             fire_suppressed,
-            fire_requests,
             projectile_detonations,
         );
         result.consequences.finish_navigation(run.finish());
@@ -2294,21 +2284,18 @@ impl Simulation {
         }
     }
 
-    /// Compatibility continuation for emissions from the remaining global
-    /// combat hosts. Live Unit/Infantry firing uses the main object pass.
-    /// FireAt appends each bullet, muzzle anim and wave to
-    /// the Logic vector as it fires, and `LogicClass::PerTickUpdate` re-reads
-    /// the vector's length after every AI call (`0x0055B613`), so those objects
-    /// take their first AI later in the same pass, in append order; an Inviso
-    /// bullet detonates on that visit. Anything they append in turn (explosion
-    /// anims) follows. A detonated bullet leaves the vector
-    /// (`LogicClass::Remove @ 0x0055BAE0`), which shifts the next entry into
-    /// its slot, and the cursor moves past it: that entry waits a frame.
-    ///
-    /// RESIDUAL: a Techno created in this global-tail window (a crew survivor
-    /// or spawned aircraft) still takes its first AI next frame. This tail
-    /// visits only non-Techno objects; the remaining global hosts must migrate
-    /// to their original live slots to close that same-frame lifecycle.
+    /// Visit the non-Techno Logic objects from `first_tail_id` on, for
+    /// fixtures that run without the live object pass (the receiver fixture's
+    /// combat pass, a bullet's flight frames). FireAt appends each bullet,
+    /// muzzle anim and wave to the Logic vector as it fires, and
+    /// `LogicClass::PerTickUpdate` re-reads the vector's length after every AI
+    /// call (`0x0055B613`), so those objects take their first AI later in the
+    /// same pass, in append order; an Inviso bullet detonates on that visit.
+    /// Anything they append in turn (explosion anims) follows. A detonated
+    /// bullet leaves the vector (`LogicClass::Remove @ 0x0055BAE0`), which
+    /// shifts the next entry into its slot, and the cursor moves past it: that
+    /// entry waits a frame. Production firers append inside the live pass.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn visit_combat_tail(
         &mut self,
         first_tail_id: u64,
@@ -3413,9 +3400,6 @@ impl Simulation {
             frame_overlay_removals: Vec::new(),
             terminal_score_snapshot: None,
             pending_lifecycle_requests: Vec::new(),
-            fire_requests: Default::default(),
-            pending_projectile_detonations: Vec::new(),
-            pending_wave_damage_requests: Vec::new(),
             #[cfg(any(test, feature = "test-support"))]
             lifecycle_test_events: Vec::new(),
             #[cfg(test)]
@@ -6875,8 +6859,6 @@ impl Simulation {
         // A failed earlier frame never reached collection; drop its value.
         self.frame_sync_checksum = None;
         self.combat_light_requests.clear();
-        self.pending_projectile_detonations.clear();
-        self.pending_wave_damage_requests.clear();
         let animation_sequences = rules.map(RuleSet::animation_sequences);
         // The wrapping native frame counter is committed LATE (end of this fn,
         // beside self.session.tick) so every phase sees the same pre-increment
@@ -6978,20 +6960,14 @@ impl Simulation {
         // before advancing its cursor; later phases need only these outcomes.
         #[cfg(any(test, feature = "test-support"))]
         self.trace_master_frame_rung(MasterFrameTestRung::LogicVector);
-        // Receipts are frame-local: an aborted earlier frame must not leak one.
-        self.fire_requests = Default::default();
         let object_pass = self.advance_live_object_pass(rules, overlay_registry, effects)?;
         let ownership_changed = object_pass.ownership_changed();
         spawned_entities |= std::mem::take(&mut self.mission_spawned_entities);
         let movement_stats = object_pass.movement;
         destroyed_structure |= object_pass.destroyed_structure;
         bridge_state_changed |= object_pass.bridge_state_changed;
-        let tube_turn_owned_ids = object_pass.tube_turn_owned_ids;
         //Gate Open runs in Building Mission AI; factory clearance runs in
         //the arriving Unit's Per_Cell_Process before Ready/Commence.
-        // Aircraft missions retain their existing deferred receiver. Building
-        // shots already finished in their own dynamic Logic slots.
-        let fire_requests = std::mem::take(&mut self.fire_requests);
 
         // Wake anims under moving units on water (native gate and cadence in
         // `spawn_wakes_for_frame`).
@@ -7001,63 +6977,35 @@ impl Simulation {
 
         // --- Phase 3: Vision refresh ---
         // DEPENDS ON: movement (positions updated), spawn (new entities need LOS).
-        // PRODUCES: fog state used by combat targeting (phase 5).
+        // PRODUCES: fog state for the later phases and the next frame.
         let vision_config = self.sight_reveal_config(rules);
         self.refresh_fog(&vision_config, rules);
 
         if let Some(rules) = rules {
-            // --- Phase 5: Combat + Turret rotation ---
-            // DEPENDS ON: vision/fog (targeting uses fog state), power (cloaking).
-            // Buildings, Units and Infantry fired in their own live slots.
-            // Units also committed Facing_Update after paid movement. This
-            // tail hosts the remaining classes;
-            // PRODUCES: damage, deaths, bridge damage, fire events. Ordered
-            // ReceiveDamage retaliation is committed inline.
-            // Engineer repair, capture and consumption, and a C4 plant, occur
-            // synchronously at Walk's completed step in the object pass; a
-            // charge goes off in its building's own Update visit.
-            // Preserve live-object order among the remaining class requests.
-            // Foot fire and its same-pass Bullet visits have already completed.
-            let logic_order = self.live_object_order_snapshot();
-            // BulletClass/WaveClass AI already ran at each object's mixed
-            // LogicClass slot. Keep their established receiver boundary here.
-            let projectile_detonations = std::mem::take(&mut self.pending_projectile_detonations);
-            let sonic_damage_requests = std::mem::take(&mut self.pending_wave_damage_requests);
-            // Rules-less fixture dispatch is the only producer of this
-            // compatibility buffer. If a caller supplies Rules later in the
-            // same frame, retain the live one-receiver-at-a-time contract.
-            for request in sonic_damage_requests {
-                self.commit_logic_wave_damage_request(rules, overlay_registry, &request, effects);
-            }
-            let first_tail_id = self.substrate.next_stable_object_id;
-            let combat_result = self.tick_combat_with_fatal_lifecycle(
-                rules,
-                overlay_registry,
-                tick_ms,
-                &logic_order,
-                &tube_turn_owned_ids,
-                &fire_requests,
-                &projectile_detonations,
-                effects,
-            );
-            bridge_state_changed |=
-                self.visit_combat_tail(first_tail_id, rules, overlay_registry, effects);
-            // Unit facing already committed immediately after that Unit's
-            // FireAt, before this frame's next live Logic object. Each
-            // SpawnManager ran in its owner's TechnoClass::AI slot.
-            let receipt = combat_result
-                .consequences
-                .commit(self, rules, overlay_registry, effects);
-            destroyed_structure |= receipt.structure_destroyed;
-            bridge_state_changed |= receipt.bridge_state_changed;
-
-            // No end-of-Phase-5 drain: combat-killed structures/voxels stay in
-            // the Dying window through the Phase 5.5-8.5 consumers and are freed
-            // only by the single end-of-tick drain (gamemd's one ProcessPending-
-            // Delete). Those consumers (production speed/factory-spawn scans,
-            // repairs, retaliation, miner, aircraft) are dying-gated. Combat
-            // post-processing above still reads the dead ids while resolvable
-            // (count decrement, owner snapshot) — that runs before this point.
+            // Every class fired in its own live Logic slot (an aircraft in its
+            // Mission_Attack dispatch), and each Bullet and Wave committed its
+            // damage in its own slot: no combat phase follows the object pass.
+            // Killed structures/voxels stay in the Dying window through the
+            // consumers below and are freed only by the single end-of-tick
+            // drain (gamemd's one ProcessPendingDelete). Those consumers
+            // (production speed/factory-spawn scans, repairs, retaliation,
+            // miner, aircraft) are dying-gated.
+            //
+            // Publish what the pass left pending. Every Foot turn ends with a
+            // fire commit, and every damage commit publishes the overlay
+            // Recalcs recorded so far (`finish_terrain_navigation_changes`),
+            // so this catches only those recorded after the pass's last
+            // commit. Live-fire commits leave smudge dirt (a cliff collapse's
+            // cleared slots) to this flush.
+            // RESIDUAL: native completes each Recalc inside its producer's
+            // Logic slot (`publish_tiberium_cells`). Trigger: an overlay
+            // Recalc whose producer does not publish it, made in a Building
+            // or non-Techno turn. Effect: until the next commit (or this
+            // call), path searches read the old cell. Frequency: rare; a
+            // harvest, a crate pickup and a destroyed wall happen in a Foot
+            // turn or a damage commit.
+            self.finish_terrain_navigation_changes(rules, &[]);
+            self.flush_smudge_dirty();
             // --- Phase 6: Passengers ---
             // Retaliation is not a phase: every receiver issues its Mission
             // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`).

@@ -1,5 +1,6 @@
-//! Original-instruction witnesses for the retained release lifecycle. These
-//! tests do not certify the still-unwired Mission_Attack emission/navigation.
+//! Original-instruction witnesses for the aircraft release lifecycle: the
+//! pending ammo charge, its debit on Commence, and a strike that releases
+//! nothing.
 
 use super::tick_aircraft_missions;
 use crate::map::entities::EntityCategory;
@@ -170,8 +171,12 @@ fn aircraft_pending_charge_is_hashed_and_init_does_not_clear_it() {
     assert_eq!(entity.mission_leaf.as_aircraft().unwrap().action_latch(), 0);
 }
 
+/// A strike whose GetFireError fails releases nothing. This Orca has no
+/// weapon (native GetFireError answers CANT, `0x006FC31C`), so state 4 takes
+/// its default arm (`0x00418544`): a loaded aircraft that does not strafe
+/// moves on to state 5.
 #[test]
-fn aircraft_mission_request_does_not_invent_a_successful_release() {
+fn failed_strike_fire_error_releases_nothing() {
     let input = serde_json::json!({"ammo":1,"pending":false,"latch_6d2":false});
     let (mut sim, rules) = fixture(&input);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
@@ -179,12 +184,10 @@ fn aircraft_mission_request_does_not_invent_a_successful_release() {
     entity
         .attack_target
         .set_for_test(Some(TargetKind::Cell(10, 9)));
-    for _ in 0..4 {
-        tick_aircraft_missions(&mut sim, &rules);
-        let entity = sim.substrate.entities.get(1).unwrap();
-        assert_eq!(entity.ammo().unwrap().current(), 1);
-        assert!(!entity.ammo().unwrap().release_pending());
-        assert_eq!(crate::sim::aircraft::attack_state(entity), Some(4));
-        assert!(entity.attack_target.target().is_some());
-    }
+    tick_aircraft_missions(&mut sim, &rules);
+    let entity = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(entity.ammo().unwrap().current(), 1);
+    assert!(!entity.ammo().unwrap().release_pending());
+    assert_eq!(crate::sim::aircraft::attack_state(entity), Some(5));
+    assert!(entity.attack_target.target().is_some());
 }

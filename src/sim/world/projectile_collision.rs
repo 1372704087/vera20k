@@ -932,10 +932,6 @@ mod tests {
                 sim.substrate.entities.get(target).unwrap().health.current() < health,
                 "existing receiver commits the hit"
             );
-            assert!(
-                sim.pending_projectile_detonations.is_empty(),
-                "detonation commits once in its Logic visit"
-            );
         }
     }
 
@@ -1649,10 +1645,6 @@ mod tests {
                     .overlay_data,
                 if detonate { 0x10 } else { 0 }
             );
-            assert!(
-                runtime.simulation.pending_projectile_detonations.is_empty(),
-                "damage commits in the normal runtime Logic slot"
-            );
             if !detonate {
                 assert_eq!(
                     runtime.simulation.projectiles.get(100).unwrap().position.z,
@@ -1859,7 +1851,6 @@ mod tests {
                     "native final cell coordinate reaches synchronous wall damage"
                 );
             }
-            assert!(resumed.simulation.pending_projectile_detonations.is_empty());
         }
     }
 
@@ -2272,7 +2263,6 @@ mod tests {
                     .as_slice(),
                 expected_bits.as_slice()
             );
-            assert!(runtime.simulation.pending_projectile_detonations.is_empty());
         }
     }
 
@@ -2336,7 +2326,6 @@ mod tests {
             0x10,
             "final target coordinate receives damage immediately"
         );
-        assert!(runtime.simulation.pending_projectile_detonations.is_empty());
     }
 
     #[test]
@@ -2395,7 +2384,6 @@ mod tests {
                 .overlay_data,
             0x10
         );
-        assert!(runtime.simulation.pending_projectile_detonations.is_empty());
     }
 
     #[test]

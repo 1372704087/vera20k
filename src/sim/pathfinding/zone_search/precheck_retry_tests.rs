@@ -226,6 +226,47 @@ fn a_split_zone_on_a_one_zone_route_runs_the_plain_search() {
     // refused wall and its one-zone route clears the hierarchy.
     let map = Map::new(8, 8, |_, _| true);
     let wall: Vec<_> = (0..6).flat_map(|y| [(3, y), (4, y)]).collect();
+    let foot = Foot {
+        grid: &map.grid,
+        refused: &wall,
+    };
+    let counts = BlockerNeighborCounts::new(8, 8);
+    let hierarchy = map.hierarchy();
+    let precheck = CorridorPrecheck {
+        zone_grid: &map.zones,
+        hierarchy,
+        level0_zones: hierarchy.level(0).expect("level 0"),
+        blocker_neighbor_counts: &counts,
+        start_zone: map.zone(0, (1, 1)),
+        goal_zone: map.zone(0, (6, 1)),
+        movement_zone: MovementZone::Normal,
+        threat_coefficient: NativeF64Bits::POSITIVE_ZERO,
+    };
+    let corridor = precheck
+        .run(&ZonePrecheckExclusions::default(), &foot, (1, 1))
+        .expect("a precheck")
+        .expect("a corridor");
+    let first = find_layered_path_marker(
+        &map.grid,
+        (1, 1),
+        MovementLayer::Ground,
+        (6, 1),
+        Some(corridor.gate()),
+        Some(&map.terrain),
+        None,
+        MoverSearchFacts {
+            urgency: 0,
+            foot_entry: &foot,
+        },
+    );
+    assert_eq!(first, Err(PathSearchFailure::CellSearchExhausted));
+    let usable = update_hierarchical_edges(
+        &map.retry_inputs(&foot),
+        &corridor.routes,
+        corridor.progress.get().cell,
+        &mut ZonePrecheckExclusions::default(),
+    );
+    assert_eq!(usable, Ok(false), "the split clears +0x38");
     let route = map
         .search((1, 1), (6, 1), &wall)
         .expect("the plain search routes");

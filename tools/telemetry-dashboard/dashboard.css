@@ -1056,7 +1056,10 @@
 
   .cards {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(330px, 1fr));
+    /* `min(300px, 100%)` rather than a bare 300px: on a viewport narrower
+       than the track's floor, auto-fit would still emit one 300px column and
+       overflow the page sideways. */
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
     gap: 10px;
     align-content: start;
     /* The card stack is the scroller: the detail grid caps this row to the
@@ -1078,11 +1081,13 @@
   .tag.passive { color: var(--dim); border-color: var(--line); }
   .tag.dead { color: var(--red); border-color: rgba(255, 90, 110, 0.5); }
 
-  .card-econ { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
-  .card-econ .big { flex: none; }
+  .card-econ { display: flex; align-items: flex-end; gap: 12px; margin-bottom: 10px; min-width: 0; }
+  .card-econ .big { flex: none; min-width: 0; }
   .card-econ .big .value {
     font-size: 26px; font-weight: 600; line-height: 1.1;
     font-variant-numeric: tabular-nums;
+    /* A five-figure balance must not widen the card: it ellipsizes. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     color: #eafcff; text-shadow: 0 0 14px rgba(40, 220, 255, 0.55);
   }
   .card-econ .big .label { font-size: 10px; color: var(--dim); letter-spacing: 0.14em; text-transform: uppercase; }
@@ -1100,14 +1105,22 @@
     display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 2px 14px; margin-bottom: 6px; flex: none;
   }
-  .stat-grid > div { display: flex; align-items: baseline; gap: 8px; }
-  .stat-grid .k { color: var(--dim); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; }
-  .stat-grid b { color: #cfe9f7; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .stat-grid > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+  .stat-grid .k {
+    color: var(--dim); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase;
+    flex: none;
+  }
+  /* The value keeps the column's floor: a long figure ellipsizes instead of
+     widening the cell, which is what used to push the last card off-screen. */
+  .stat-grid b {
+    color: #cfe9f7; font-weight: 600; font-variant-numeric: tabular-nums;
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
 
   .comp-bar { display: flex; height: 10px; background: rgba(0, 30, 60, 0.6); border: 1px solid var(--line); flex: none; }
   .comp-bar .seg { height: 100%; }
-  .comp-legend { display: flex; gap: 10px; flex-wrap: wrap; margin: 5px 0 0; color: var(--dim); font-size: 10.5px; }
-  .comp-legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .comp-legend { display: flex; gap: 10px; flex-wrap: wrap; min-width: 0; margin: 5px 0 0; color: var(--dim); font-size: 10.5px; }
+  .comp-legend span { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
   .comp-legend i { width: 7px; height: 7px; display: inline-block; }
 
   /* The roster list moved into the house modal. What the card keeps is one
@@ -1116,7 +1129,10 @@
      list in a box the page cannot reach. */
   .roster-peek {
     display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-    width: 100%; text-align: left;
+    /* Not `width: 100%`: that would make the flex container claim the card's
+       full width before its chips had a chance to wrap, and the card then
+       sizes to the longest unwrapped row. Let it be a block that wraps. */
+    width: auto; min-width: 0; text-align: left;
     margin-top: 2px; padding: 6px 8px;
     background: rgba(0, 40, 70, 0.28);
     border: 1px solid var(--line);
@@ -1126,21 +1142,34 @@
   .roster-peek .peek-chip {
     display: inline-flex; align-items: baseline; gap: 4px;
     font-size: 11px; color: #a9d8ee;
+    /* A chip is allowed to be squeezed before it wraps away entirely. */
+    min-width: 0;
   }
-  .roster-peek .peek-chip i { width: 6px; height: 6px; display: inline-block; align-self: center; }
+  .roster-peek .peek-chip i { width: 6px; height: 6px; display: inline-block; align-self: center; flex: none; }
   .roster-peek .peek-chip b {
     font-family: ui-monospace, Consolas, monospace; font-weight: 500;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 92px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 92px; min-width: 0;
   }
   .roster-peek .peek-chip em {
-    font-style: normal; font-variant-numeric: tabular-nums; color: var(--cyan);
+    font-style: normal; font-variant-numeric: tabular-nums; color: var(--cyan); flex: none;
   }
   .roster-peek .peek-more {
-    margin-left: auto; font-size: 10px; color: var(--dim); white-space: nowrap;
+    margin-left: auto; font-size: 10px; color: var(--dim);
+    /* Wraps with the chips rather than pushing the line wider. */
+    white-space: normal; text-align: right;
   }
   .roster-peek .peek-empty { font-size: 11.5px; color: var(--dim); }
 
-  .house-card { cursor: pointer; }
+  .house-card {
+    /* Grid items default to `min-width: auto`, so a card whose content
+       refuses to shrink (a nowrap chip row, a long type name) pushes its
+       column wider than the track and the whole row overflows the viewport —
+       the last column is simply cut off. `min-width: 0` lets the card be the
+       track's width again, and its own children ellipsis or wrap inside it. */
+    min-width: 0;
+    cursor: pointer;
+  }
   .house-card:hover { border-color: var(--line-strong); }
   .house-card:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
 

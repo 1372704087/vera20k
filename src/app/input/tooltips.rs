@@ -910,7 +910,12 @@ mod tests {
         );
         // Gap6FB3B8 clears the same native bit8 that Display4AE5D0 reads.
         // Its canonical knowledge decision must win over the legacy cache.
-        crate::sim::vision::apply_gap_generators(&mut fog, &[(other, 20, 20, 2)], &interner);
+        crate::sim::vision::apply_gap_generators(
+            &mut fog,
+            &Default::default(),
+            &[(other, 20, 20, 2)],
+            &interner,
+        );
         assert!(!fog.is_cell_revealed(viewer, 20, 20));
         assert_eq!(
             tactical_cell_tip_text(&fog, &terrain, viewer, point, false, str::to_owned),

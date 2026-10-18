@@ -480,7 +480,7 @@ impl Simulation {
         let los = combat::line_of_fire::LineOfFireInputs {
             overlay_grid: self.overlay_grid.as_ref(),
             overlay_registry: registry,
-            alliances: Some(&self.fog.alliances),
+            alliances: Some(&self.house_alliances),
         };
         let can_fire = if let Some(identity) = identity {
             in_range::cell_target_in_range(
@@ -1059,7 +1059,7 @@ impl Simulation {
             &combat::line_of_fire::LineOfFireInputs {
                 overlay_grid: self.overlay_grid.as_ref(),
                 overlay_registry: registry,
-                alliances: Some(&self.fog.alliances),
+                alliances: Some(&self.house_alliances),
             },
         );
         // The ftol'd distance is an integer: under 307.2 is at most 307.

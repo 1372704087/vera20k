@@ -215,8 +215,7 @@ fn test_minimap_entity_visible_for_allied_owner() {
     alliances.insert("AMERICANS".to_string(), allied_names.clone());
     alliances.insert("BRITISH".to_string(), allied_names);
 
-    let mut fog = FogState::new(64, 64);
-    fog.alliances = alliances;
+    let fog = FogState::new(64, 64);
     let pos = Position::new(
         10,
         12,
@@ -228,6 +227,7 @@ fn test_minimap_entity_visible_for_allied_owner() {
     assert!(minimap_entity_visible(
         test_intern("Americans"),
         &fog,
+        &alliances,
         &pos,
         test_intern("British"),
     ));
@@ -734,6 +734,7 @@ fn radar_pixel_shroud_exception_distinguishes_local_pointer_from_singleplayer_hu
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         false,
         Some(&rules),
@@ -746,6 +747,7 @@ fn radar_pixel_shroud_exception_distinguishes_local_pointer_from_singleplayer_hu
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         true,
         Some(&rules),
@@ -765,13 +767,15 @@ fn radar_pixel_radar_invisible_precedes_radar_visible_but_alliance_restores() {
         y: 0,
     };
     let rules = radar_gate_rules("RadarInvisible=yes\nRadarVisible=yes");
-    let mut fog = FogState::default();
+    let fog = FogState::default();
+    let mut alliances = HouseAllianceMap::default();
     assert!(!radar_pixel_candidate_eligible(
         entry,
         &entities,
         &houses,
         Some(local),
         &fog,
+        &alliances,
         true,
         true,
         Some(&rules),
@@ -780,15 +784,20 @@ fn radar_pixel_radar_invisible_precedes_radar_visible_but_alliance_restores() {
     ));
 
     let allies = BTreeSet::from(["LOCAL".to_string(), "ENEMY".to_string()]);
-    fog.alliances.insert("LOCAL".to_string(), allies.clone());
-    fog.alliances.insert("ENEMY".to_string(), allies);
-    assert!(fog.is_friendly_id(local, enemy, &interner));
+    alliances.insert("LOCAL".to_string(), allies.clone());
+    alliances.insert("ENEMY".to_string(), allies);
+    assert!(crate::map::houses::are_houses_friendly(
+        &alliances,
+        interner.resolve(local),
+        interner.resolve(enemy),
+    ));
     assert!(radar_pixel_candidate_eligible(
         entry,
         &entities,
         &houses,
         Some(local),
         &fog,
+        &alliances,
         true,
         true,
         Some(&rules),
@@ -817,6 +826,7 @@ fn radar_pixel_insignificant_passive_owner_requires_radar_visible() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         true,
         true,
         Some(&hidden),
@@ -829,6 +839,7 @@ fn radar_pixel_insignificant_passive_owner_requires_radar_visible() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         true,
         true,
         Some(&restored),
@@ -856,6 +867,7 @@ fn radar_pixel_fogged_but_explored_cell_passes_render_gate_without_gap_proxy() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         true,
         Some(&radar_gate_rules("")),

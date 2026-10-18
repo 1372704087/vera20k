@@ -697,7 +697,7 @@ impl ScanContext<'_> {
     }
 
     fn alliances(&self) -> Option<&HouseAllianceMap> {
-        self.fog.map(|fog| &fog.alliances)
+        self.los.alliances
     }
 
     /// `HouseClass::Is_Ally_ByObject` asked by the scanner's house
@@ -2434,7 +2434,7 @@ fn probe_is_illegal(
         world,
         rules: ctx.rules,
         overlay_registry: ctx.los.overlay_registry,
-        fog: ctx.fog.map(FogState::fire_view),
+        fog: ctx.fog.map(|fog| fog.fire_view(&world.house_alliances)),
         firer,
         obj: ctx.attacker_obj,
         target: Some(super::TargetKind::Entity(candidate.stable_id())),

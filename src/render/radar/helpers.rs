@@ -397,12 +397,16 @@ pub(super) fn parse_foundation_size(foundation: &str) -> (u32, u32) {
 pub(super) fn minimap_entity_visible(
     local_owner: InternedId,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     pos: &crate::sim::components::Position,
     owner: InternedId,
 ) -> bool {
     let interner = crate::sim::intern::test_interner();
-    fog.is_friendly_id(local_owner, owner, &interner)
-        || fog.is_cell_revealed(local_owner, pos.rx(), pos.ry())
+    crate::map::houses::are_houses_friendly(
+        alliances,
+        interner.resolve(local_owner),
+        interner.resolve(owner),
+    ) || fog.is_cell_revealed(local_owner, pos.rx(), pos.ry())
 }
 
 /// Default minimap screen rectangle (bottom-left corner with margin).

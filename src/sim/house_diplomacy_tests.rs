@@ -97,7 +97,6 @@ fn computer_paranoid_allies_the_computers_against_the_human() {
         assert!(sim.houses[passive].grudge_scores.is_empty());
         assert_eq!(sim.houses[passive].enemy_house, None);
     }
-    assert_eq!(sim.fog.alliances, sim.house_alliances);
 
     // A second call allies no one anew and angers each computer again.
     paranoid(&mut sim, &rules);
@@ -257,7 +256,6 @@ fn make_enemy_angers_before_it_breaks_both_sides() {
     assert_eq!(sim.houses[&first].grudge_scores.get(&second), Some(&1));
     assert_eq!(sim.houses[&first].enemy_house, None);
     assert!(sim.houses[&second].grudge_scores.is_empty());
-    assert_eq!(sim.fog.alliances, sim.house_alliances);
 
     sim.make_enemy(first, second, &rules);
     assert_eq!(sim.houses[&first].grudge_scores.get(&second), Some(&2));

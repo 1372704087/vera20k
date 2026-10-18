@@ -1201,11 +1201,12 @@ impl Simulation {
         let target_entity = target_id.and_then(|id| self.substrate.entities.get(id));
         let target_infantry =
             target_entity.is_some_and(|target| target.category() == EntityCategory::Infantry);
-        // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected,
-        // locally controlled firer jumping an Infantry target.
+        // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected firer
+        // of a human player's house (IsHumanPlayer 0x0050B6F0, 0x006FF786)
+        // jumping an Infantry target.
         let reselect = object.reselect_if_limboed
             && entity.selection.is_selected()
-            && self.session.current_house == Some(entity.owner())
+            && self.house_is_human_player(entity.owner())
             && target_infantry;
         if reselect {
             self.substrate

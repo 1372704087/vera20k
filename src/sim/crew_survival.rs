@@ -78,14 +78,10 @@
 //!     PlayerControl (`+0x1ED`). Trigger: a selected unit of a
 //!     player-controlled allied campaign house dying. Effect: its escapees
 //!     and crewman stay unselected. Frequency: rare.
-//!   - VERA's Select sets the flag only. `TechnoClass::Select @ 0x006FBFA0`
-//!     also runs ObjectClass::Select's gates (`0x005F4520`), the object's
-//!     tag event 0x21 and the selection list add (`0x00637840`). For the
-//!     local player's objects it also plays the select response (vtable
-//!     `+0x360`, behind `[0x00822CF2]`). Trigger: every selected escapee
-//!     and crewman. Effect: no select voice, and no tag event (VERA has no
-//!     object tags). Frequency: whenever the player's selected transport or
-//!     vehicle dies. Risk: presentation only.
+//!   - The escapees' and crewman's Select ([`Simulation::techno_select`])
+//!     leaves out its planning-node add (`0x00637840`). Trigger: a selected
+//!     transport or crewed vehicle dying while a planning path is built.
+//!     Effect: they do not join that planning node. Frequency: rare.
 //!   - A foreign open-topped escapee's Assign_Target(NULL) runs
 //!     `InfantryClass::Assign_Target`'s head (`0x0051B203..0x0051B24F`).
 //!     The head clears the fire latch `+0x68D`, then forces Deployed,

@@ -25,7 +25,7 @@ use crate::util::direction_tables::CELL_DELTAS;
 use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, chop_sum_f32, sqrt_approx_f32,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 #[cfg(any(test, feature = "test-support"))]
 use std::collections::BTreeSet;
 
@@ -124,11 +124,27 @@ fn with_pathfind_workspace<R>(
     })
 }
 
+thread_local! {
+    /// The expansions this thread's searches ([`astar_search`]) have made,
+    /// for [`count_search_steps`].
+    static SEARCH_STEPS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// `work`'s result and the expansions the searches it ran on this thread
+/// made. VERA-only: the path batch measures its searches' work by it. Work
+/// that waits on the worker pool may run other items on this thread, whose
+/// searches would count too.
+pub(crate) fn count_search_steps<R>(work: impl FnOnce() -> R) -> (R, u64) {
+    let before = SEARCH_STEPS.with(Cell::get);
+    let result = work();
+    (result, SEARCH_STEPS.with(Cell::get) - before)
+}
+
 /// The expansions a search may make. `AStar_main_loop` takes its limit as an
 /// argument and resolves a negative one to `0xFFF7` (`0x00429D51..0x00429D59`);
 /// both callers (`0x004CBC1E`, `0x00504D9B`) pass -1. The loop tests it
 /// before each node's goal test (`0x00429D6D..0x00429D79`).
-const MAX_SEARCH_NODES: u32 = 0xFFF7;
+pub(crate) const MAX_SEARCH_NODES: u32 = 0xFFF7;
 
 /// A route found after exactly this many expansions is refused (`CMP
 /// ECX,0x2710` at `0x0042A3E2`), whether at the goal or at the blocked-goal
@@ -793,8 +809,10 @@ pub fn astar_search(
     let h = grid.height() as usize;
     let total_cells = w * h;
 
+    // The expansions made so far, `[ESP+0x28]`.
+    let mut expanded: u32 = 0;
     // Persistent A* scratch reused across calls; see `PathfindWorkspace`.
-    with_pathfind_workspace(total_cells, |ws| {
+    let found = with_pathfind_workspace(total_cells, |ws| {
         let PathfindWorkspace {
             ref mut ground,
             ref mut bridge,
@@ -827,8 +845,6 @@ pub fn astar_search(
             height: start_descriptor.height,
             on_bridge: start_on_bridge,
         };
-        // The expansions made so far, `[ESP+0x28]`.
-        let mut expanded: u32 = 0;
         // `[ESP+0x13]` (`0x00429D2F..0x00429D4C`): the Foot is a Unit whose
         // type is `Passive=`.
         let passive_unit = options.foot_entry.is_passive_unit();
@@ -1159,7 +1175,9 @@ pub fn astar_search(
             tail.on_bridge,
             w,
         ))
-    })
+    });
+    SEARCH_STEPS.with(|steps| steps.set(steps.get() + u64::from(expanded)));
+    found
 }
 
 /// `AStar_compute_edge_cost`'s class bases, the binary32 table at `0x0081870C`

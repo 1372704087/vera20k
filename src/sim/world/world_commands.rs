@@ -1534,6 +1534,7 @@ impl Simulation {
                         // the building's target is not run through
                         // BuildingClass::SetTarget with the event's token.
                         // Risk: low; Mission_Unload empties it either way.
+                        // The self-click's flash of its own token is kept.
                         if !self.order_actor_admits(*transport_id) {
                             return false;
                         }
@@ -1544,6 +1545,11 @@ impl Simulation {
                             None,
                             rules,
                             frame_effects,
+                        );
+                        self.flash_order_object(
+                            *transport_id,
+                            Some(combat::TargetKind::Entity(*transport_id)),
+                            None,
                         );
                         true
                     }
@@ -1896,6 +1902,11 @@ impl Simulation {
                 if self.duplicate_enter_is_noop(*unit_id, *bunker_id) {
                     return true;
                 }
+                self.flash_order_object(
+                    *unit_id,
+                    None,
+                    Some(combat::TargetKind::Entity(*bunker_id)),
+                );
                 // Rules-gated weapon/Bunkerable check (the bus stays rules-free).
                 if !crate::sim::docking::bunker_link::can_auto_deploy_here(self, *unit_id, rules) {
                     return false;
@@ -2291,6 +2302,38 @@ impl Simulation {
         })
     }
 
+    /// The MEGAMISSION event's flash (`0x004C7385..0x004C739F`): vt+0x148
+    /// Flash(7) ([`Self::flash_object`]) on one object when the current
+    /// player (A83D4C) is allied with the ordering object
+    /// (`HouseClass::IsAlliedWith(ObjectClass*) @ 0x004F9A90`: its owner, or
+    /// a bit of the player's ally mask). `0x004C7225..0x004C727E` picks that
+    /// object: As_Object of a present destination token, else of the target
+    /// token, so a Cell destination flashes nothing. It runs after the
+    /// actor/token refusals and the repeated-Enter exit, before the setters.
+    fn flash_order_object(
+        &mut self,
+        actor_id: u64,
+        target: Option<combat::TargetKind>,
+        destination: Option<combat::TargetKind>,
+    ) {
+        let Some(combat::TargetKind::Entity(flashed)) = destination.or(target) else {
+            return;
+        };
+        let Some(player) = self.session.current_house else {
+            return;
+        };
+        if self.substrate.entities.get(actor_id).is_some_and(|actor| {
+            combat::combat_weapon::is_ally_by_object(
+                Some(&self.house_alliances),
+                &self.interner,
+                player,
+                actor.owner(),
+            )
+        }) {
+            self.flash_object(flashed, 7);
+        }
+    }
+
     /// The MEGAMISSION event's arm (`EventClass::Execute`,
     /// `0x004C71F6..0x004C74BA`) and its one port. Move, Attack (Ctrl and
     /// Cell clicks included), attack-move (mission 29), Area Guard, a vehicle
@@ -2339,14 +2382,8 @@ impl Simulation {
     /// queued form: a Shift-click still builds an ordinary MegaMission
     /// (walk_first_path.json `gi_reissue`).
     ///
-    /// RESIDUAL: before Assign_Target_Command, the event flashes its object
-    /// (the destination, else the target) for 7 frames when the local
-    /// player is allied with the ordering object (`0x004C7385..0x004C739F`,
-    /// vt+0x148). Whether it runs depends on the viewer, so it cannot write
-    /// the simulation's flash countdown
-    /// ([`crate::sim::game_entity::GameEntity::flash_building`]); nothing
-    /// presents it. Trigger: every order on an object. Effect: the
-    /// clicked object does not blink. Risk: presentation only.
+    /// Before the setters the event flashes one object
+    /// ([`Self::flash_order_object`]).
     fn apply_megamission_command(
         &mut self,
         entity_id: u64,
@@ -2390,6 +2427,7 @@ impl Simulation {
             rules,
             frame_effects,
         );
+        self.flash_order_object(entity_id, target, destination);
         // The setters take what the tokens resolve to.
         let (target, destination) = (
             self.resolve_event_token(target),

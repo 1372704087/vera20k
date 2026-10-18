@@ -227,7 +227,7 @@ pub fn toggle_repair(
             // disguise/countdown owner, not a separate repair flash timer.
             // Original call arguments: building_repair.json toggle events.
             if owner_is_player {
-                entity.flash_building(7);
+                entity.flash_base(7);
             }
             sim.sound_events.push(SimSoundEvent::Repairing { owner });
         }

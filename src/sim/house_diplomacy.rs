@@ -96,6 +96,7 @@ impl Simulation {
             })
             .collect();
         self.house_alliances = alliances;
+        self.reveal_viewers.forget();
         for owner in changed {
             self.rebuild_house_spatial_threat(owner, rules);
         }
@@ -343,6 +344,7 @@ impl Simulation {
         } else {
             allies.remove(&other_key);
         }
+        self.reveal_viewers.forget();
     }
 }
 

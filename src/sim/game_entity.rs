@@ -216,8 +216,8 @@ pub struct GameEntity {
     /// from, and the rank last announced. `combat::veterancy` owns it.
     #[serde(default)]
     pub veterancy: crate::sim::combat::veterancy::Veterancy,
-    /// The flash countdown (`TechnoClass+0xF0`) the elite promotion, a
-    /// building's Flash and team script action 50 seed. `sim::flashing` owns
+    /// The flash countdown (`TechnoClass+0xF0`) the elite promotion, vt+0x148
+    /// Flash and team script action 50 seed. `sim::flashing` owns
     /// it.
     #[serde(default)]
     pub flashing: crate::sim::flashing::Flashing,
@@ -1301,14 +1301,16 @@ impl GameEntity {
             .set(unlimbo_barrel_target(fire_angle), frame);
     }
 
-    /// `BuildingClass::Flash` (vt+0x148, `0x00456E00`) for `frames`. Its
-    /// Techno body (`0x006F9DD0`) starts the flash countdown (`+0xF0`) unless
-    /// the object is disguised to the player: a building's IsDisguisedTo
-    /// (vt+0xC8, `0x0041C020`) answers its own disguise flag (`+0x1D8`) and
-    /// its GetDisguiseHouse (vt+0xD0, `0x0041BE70`) none. The redraw flag
-    /// (`+0x80`) and the relit slot anims are presentation, which the draws
-    /// derive from the countdown (`app::presentation::lighting`).
-    pub(crate) fn flash_building(&mut self, frames: i32) {
+    /// vt+0x148 `Flash(frames)` for a building or aircraft, whose
+    /// IsDisguisedTo (vt+0xC8, `0x0041C020`) answers the object's own
+    /// disguise flag (`+0x1D8`) and GetDisguiseHouse (vt+0xD0, `0x0041BE70`)
+    /// none, whoever asks. `TechnoClass::Flash @ 0x006F9DD0` then starts the
+    /// flash countdown (`+0xF0`) unless that flag is up. A building's
+    /// `0x00456E00` adds the redraw flag (`+0x80`) and relit slot anims,
+    /// presentation the draws derive from the countdown
+    /// (`app::presentation::lighting`). Foot objects go through
+    /// [`crate::sim::world::Simulation::flash_object`].
+    pub(crate) fn flash_base(&mut self, frames: i32) {
         if !self
             .disguise
             .as_ref()

@@ -64,9 +64,12 @@ impl super::object_health::ObjectHealthHost for ReceiverHealthHost<'_, '_, '_> {
         let context =
             UninitContext::new(Some(self.rules), self.registry).with_effects(self.effects);
         match callback {
-            //456E00 is redraw/parent notification. Its visual body is outside
-            //this represented receiver boundary, not a retained damaged-art latch.
-            HealthCallback::Changed => {}
+            //5F5486: a heal that changed Strength calls vt+148 Flash(7).
+            HealthCallback::Changed => {
+                if self.execute_world_callbacks {
+                    self.world.flash_object(id, 7);
+                }
+            }
             HealthCallback::Tag { kind, with_source } => {
                 if self.execute_world_callbacks
                     && super::world_receiver::callbacks_enabled(self.world)

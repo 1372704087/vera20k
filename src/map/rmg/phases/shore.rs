@@ -512,13 +512,15 @@ pub(super) struct BlockPlacement {
 }
 
 /// Native AL and caller-owned out-bool are separate result channels. Shore
-/// selection consumes only admission; cliff selection accepts either channel.
+/// selection consumes only admission, cliff selection accepts either channel
+/// and BuildRiverBridge reads neither.
 pub(super) struct PlacementResult {
     pub complete: bool,
     pub admitted: bool,
 }
 
-/// Shared selected-TMP placement, original gamemd.exe `0x0057B440..0x0057B78D`.
+/// Shared selected-TMP placement, original gamemd.exe `0x0057B440..0x0057B78D`,
+/// for the shore tiler, the cliff selector and BuildRiverBridge's waterfalls.
 /// Source: original instruction audit and executable controls in
 /// `tools/rmg_oracle/cliff_materialization.py`. Writes tile, subtile and height;
 /// unlike unconditional `5A6C10`, this function never writes Cell+11C (slope).

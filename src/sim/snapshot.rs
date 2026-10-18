@@ -1127,7 +1127,9 @@ use crate::sim::world::Simulation;
 // passes. Older records lack this field and use the wrong vehicle defaults.
 // 412 -> 413: retained Super one-time and provider-loss/hold flags.
 // 413 -> 414: retain the global GasCloudSys reference and Particle CC/D0/D4 motion words.
-const SNAPSHOT_VERSION: u32 = 414;
+// 414 -> 415: a path batch's code-2 re-paths keep the urgency they
+// registered at, and the batch keeps those a capped pass left out.
+const SNAPSHOT_VERSION: u32 = 415;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4846,7 +4848,8 @@ mod tests {
         // 411 -> 412: retained vehicle SpeedType in processed Rules.
         // 412 -> 413: retained Super one-time and provider-loss/hold flags.
         // 413 -> 414: global GasCloudSys reference and Particle motion words.
-        assert_eq!(super::SNAPSHOT_VERSION, 414);
+        // 414 -> 415: path-batch code-2 re-path urgencies.
+        assert_eq!(super::SNAPSHOT_VERSION, 415);
     }
 
     #[test]

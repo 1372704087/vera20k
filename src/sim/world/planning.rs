@@ -938,9 +938,10 @@ impl Simulation {
         self.planning.nodes.get(id)
     }
 
-    /// The members `TechnoClass::PlayPlanningSelectionVoices @ 0x00637840`
-    /// walks after `actor`'s Select (`0x006FC020`): its tail node's members
-    /// in encounter order (node `+0x4`, `+0x10`), whatever their owner.
+    /// The members that 0x00637840 (Ghidra's "PlayPlanningSelectionVoices")
+    /// Selects after `actor`'s Select (`0x006FC020`): its tail node's members
+    /// in encounter order (node `+0x4`, `+0x10`), whatever their owner. The
+    /// voices come from those members' own Selects.
     pub fn planning_tail_members(&self, actor: u64) -> Vec<u64> {
         self.planning_tail_node(actor)
             .map(|node| node.live_members.values().copied().collect())

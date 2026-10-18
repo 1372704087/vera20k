@@ -2238,7 +2238,10 @@ fn resolve_selection_mutation(
         // mode it Selects (vt+0x14C) each unselected member of the object's
         // tail node; its AC4CF6 guard keeps those Selects from expanding.
         // They run before the band-box callback clears the voice latch
-        // (0x004AC2FB), so they speak with their Select.
+        // (0x004AC2FB), so they speak with their Select. Residual: members
+        // pass only `can_select_object`, not 6FBFA0's +0x41B/IsHumanPlayer
+        // gate or 5F4520's cross-owner Unselect_All (0x005F45AF..0x005F45F8);
+        // that differs only for another human player's plan.
         if planning_active {
             for member in sim.planning_tail_members(id) {
                 select(member, &mut ordered, &mut successful_adds);
@@ -2562,6 +2565,20 @@ mod item83_selection_order_tests {
         assert_eq!(effects.successful_adds, vec![44, 42, 43]);
         assert_eq!(effects.first_select_adds, 1);
         assert_eq!(resolve(vec![], vec![42], false).successful_adds, vec![42]);
+        // An already-selected pick makes no Select call, so no expansion.
+        let effects = resolve_selection_mutation(
+            &sim,
+            None,
+            vec![42],
+            None,
+            false,
+            true,
+            &SelectionMutation {
+                select: vec![42],
+                ..Default::default()
+            },
+        );
+        assert!(effects.successful_adds.is_empty());
     }
 }
 

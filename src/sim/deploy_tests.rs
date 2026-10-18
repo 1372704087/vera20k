@@ -1060,46 +1060,6 @@ fn conyard_redeploy_runtime_rejects_non_human_owner() {
 }
 
 #[test]
-fn conyard_redeploy_ui_hides_while_building_queue_busy() {
-    let rules = make_mcv_rules();
-    let mut sim = Simulation::new();
-    add_house(&mut sim, "Americans", true);
-    let yard = sim
-        .spawn_object("GACNST", "Americans", 19, 21, 0, &rules)
-        .expect("spawn ConYard");
-
-    assert!(sim.should_show_undeploy_building_command(yard, &rules));
-    let owner = sim.interner.get("Americans").unwrap();
-    let type_id = sim.interner.intern("GAPOWR");
-    // P5d: arm a Building build in the registry (the queue-of-record) so the
-    // production-busy gate sees an active Building factory. This deliberately
-    // bypasses producer validation because the minimal fixture has no Factory
-    // flag, but it must still model StartProduction's held Techno constructor.
-    let started = sim.production.factories.test_enqueue_kernel(
-        owner,
-        crate::sim::production::ProductionCategory::Building,
-        type_id,
-        1,
-        0,
-    );
-    assert!(started);
-    crate::sim::production::construct_active_factory_fixture(
-        &mut sim,
-        &rules,
-        owner,
-        crate::sim::production::ProductionCategory::Building,
-        type_id,
-    )
-    .expect("low-level fixture constructs at StartProduction");
-
-    assert!(!sim.should_show_undeploy_building_command(yard, &rules));
-    assert!(
-        sim.can_undeploy_building_runtime(yard, &rules),
-        "production-busy is a UI visibility gate, not the runtime CanUndeployMCV core gate"
-    );
-}
-
-#[test]
 fn mcv_redeploy_option_does_not_gate_non_conyard_undeploys_into() {
     let ini = IniFile::from_str(
         "\
@@ -1786,4 +1746,149 @@ fn synchronized_deploy_queues_unload_before_handler_action_and_sound() {
         sim.sound_events.as_slice(),
         [SimSoundEvent::EntityDeployed { .. }]
     ));
+}
+
+/// CanDeploySlashUnload (`0x00700D50`) for the transport fixture at
+/// (20, 22): `mutate` edits each terrain cell before the query.
+fn transport_may_unload(
+    human: bool,
+    building: Option<&str>,
+    mutate: impl Fn(&mut ResolvedTerrainCell, (u16, u16)),
+    prepare: impl FnOnce(&mut GameEntity),
+) -> bool {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=LCRF\n[BuildingTypes]\n0=SHED\n1=BUNK\n\
+         [LCRF]\nPassengers=5\n[SHED]\nStrength=100\n[BUNK]\nStrength=100\nBunker=yes\n",
+    ))
+    .expect("transport rules");
+    let mut sim = Simulation::new();
+    let owner = sim.interner.intern("Americans");
+    sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10),
+    );
+    if let Some(building) = building {
+        sim.spawn_object(building, "Americans", 20, 22, 0, &rules)
+            .expect("the building builds");
+    }
+    let id = sim
+        .spawn_object("LCRF", "Americans", 20, 22, 0, &rules)
+        .expect("the transport builds");
+    prepare(sim.substrate.entities.get_mut(id).unwrap());
+    sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(32, 32, |rx, ry| {
+        let mut cell = crate::map::resolved_terrain::test_tiberium_cell(rx, ry);
+        mutate(&mut cell, (rx, ry));
+        cell
+    }));
+    sim.can_deploy_slash_unload(id, &rules)
+}
+
+/// The transport arm (`Passengers=` above 0, `0x00700EEC..0x007010BB`):
+/// refused on a bridge, beside a bridge deck (own cell or a N/S/E/W
+/// neighbour, not a diagonal), on Water when its owner is human, and in a
+/// building's cell unless the building is a `Bunker=`.
+#[test]
+fn a_transport_may_not_unload_on_or_beside_a_bridge_on_human_water_or_in_a_building() {
+    let deck_at = |at: (u16, u16)| {
+        move |cell: &mut ResolvedTerrainCell, here: (u16, u16)| {
+            if here == at {
+                cell.bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
+            }
+        }
+    };
+    let water = |cell: &mut ResolvedTerrainCell, here: (u16, u16)| {
+        if here == (20, 22) {
+            cell.yr_cell_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
+        }
+    };
+    let plain = |_: &mut ResolvedTerrainCell, _: (u16, u16)| {};
+    assert!(transport_may_unload(true, None, plain, |_| {}));
+    assert!(!transport_may_unload(true, None, plain, |e| e.set_on_bridge(true)));
+    for at in [(20, 22), (20, 21), (20, 23), (19, 22), (21, 22)] {
+        assert!(
+            !transport_may_unload(true, None, deck_at(at), |_| {}),
+            "{at:?}"
+        );
+    }
+    assert!(transport_may_unload(true, None, deck_at((21, 21)), |_| {}));
+    assert!(!transport_may_unload(true, None, water, |_| {}));
+    assert!(transport_may_unload(false, None, water, |_| {}));
+    assert!(!transport_may_unload(true, Some("SHED"), plain, |_| {}));
+    assert!(transport_may_unload(true, Some("BUNK"), plain, |_| {}));
+}
+
+/// The Unit arm's capability and DeploysInto tests, the Infantry
+/// `UndeployDelay=` and `Deployer=` tests, and the Building and Aircraft
+/// arms of CanDeploySlashUnload (`0x00700D50`).
+#[test]
+fn can_deploy_slash_unload_follows_each_class_arm() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=MCV\n1=TANK\n2=FIRER\n3=REFINER\n\
+         [InfantryTypes]\n0=YURI\n1=GI\n2=E2\n\
+         [AircraftTypes]\n0=JET\n1=CARRIER\n\
+         [BuildingTypes]\n0=YARD\n1=REFINERY\n\
+         [MCV]\nDeploysInto=YARD\n[TANK]\nStrength=100\n[FIRER]\nDeployFire=yes\n\
+         [YURI]\nDeployer=yes\nUndeployDelay=150\n[GI]\nDeployer=yes\n[E2]\nStrength=100\n\
+         [JET]\nStrength=100\n[CARRIER]\nPassengers=2\n\
+         [YARD]\nConstructionYard=yes\nUndeploysInto=MCV\n\
+         [REFINER]\nDeploysInto=REFINERY\n[REFINERY]\nStrength=100\n",
+    ))
+    .expect("deploy rules");
+    let mut sim = Simulation::new();
+    let spawn = |sim: &mut Simulation, type_id: &str, rx: u16| {
+        sim.spawn_object(type_id, "Americans", rx, 5, 0, &rules)
+            .expect("the fixture builds")
+    };
+    let [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner] = [
+        "MCV", "TANK", "FIRER", "YURI", "GI", "E2", "JET", "CARRIER", "YARD", "REFINER",
+    ]
+    .map(|type_id| {
+        let rx = 2 + 3 * sim.substrate.entities.len() as u16;
+        spawn(&mut sim, type_id, rx)
+    });
+    let can = |sim: &Simulation, id| sim.can_deploy_slash_unload(id, &rules);
+    assert_eq!(
+        [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner].map(|id| can(&sim, id)),
+        [
+            true, false, true, true, true, false, false, true, false, true
+        ]
+    );
+
+    // A parasite bars any DeploysInto unit; mind control one whose
+    // DeploysInto is a construction yard.
+    fn entity(sim: &mut Simulation, id: u64) -> &mut GameEntity {
+        sim.substrate.entities.get_mut(id).unwrap()
+    }
+    entity(&mut sim, mcv)
+        .parasite
+        .set_eater_for_test(Some(tank));
+    assert!(!can(&sim, mcv));
+    entity(&mut sim, mcv).parasite.set_eater_for_test(None);
+    entity(&mut sim, mcv).mind_control =
+        crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
+    assert!(!can(&sim, mcv));
+    // A mind-controlled unit deploying into anything else may.
+    entity(&mut sim, refiner).mind_control =
+        crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
+    assert!(can(&sim, refiner));
+
+    // `UndeployDelay=` refuses while deployed, in Doing 31, or rearming.
+    let frame = sim.session.binary_frame as i32;
+    for doing in [28, 31] {
+        for id in [yuri, gi] {
+            entity(&mut sim, id)
+                .mission_leaf
+                .set_infantry_doing_verified(doing)
+                .unwrap();
+        }
+        assert_eq!((can(&sim, yuri), can(&sim, gi)), (false, true), "{doing}");
+    }
+    for id in [yuri, gi] {
+        let soldier = entity(&mut sim, id);
+        soldier.mission_leaf.set_infantry_doing_verified(0).unwrap();
+        soldier
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(frame, 40));
+    }
+    assert_eq!((can(&sim, yuri), can(&sim, gi)), (false, true));
 }

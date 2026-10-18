@@ -31,7 +31,7 @@ use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::{GameEntity, GeneratedTechnoInit, TechnoConstructorInit};
 use crate::sim::intern::InternedId;
-use crate::sim::production::{self, ProductionCategory};
+use crate::sim::production;
 use crate::sim::vision::MAX_SIGHT_RANGE;
 use crate::util::fixed_math::SimFixed;
 
@@ -2012,21 +2012,17 @@ impl Simulation {
         if source.death.is_dying() || source.lifecycle.in_limbo() {
             return false;
         }
-        // Deploy asks CanDeploySlashUnload (vslot +0x314, 0x00700D50) first
-        // (0x007393CC); its DeploysInto arm refuses a unit a parasite is
-        // eating (0x00700EB4..0x00700EBC) and, when DeploysInto is a
-        // `ConstructionYard=` building, a mind-controlled one (+0x2C0,
-        // 0x00700EC6..0x00700ED8), and that refusal clears Unit+0x68C
-        // (0x00739AA7). The predicate's other arms are not represented here.
-        let stolen_mcv = source.mind_control.controller().is_some()
-            && crate::sim::mcv_deploy::deploys_into(self, source, rules)
-                .is_some_and(|yard| yard.construction_yard);
-        if source.parasite.eater().is_some() || stolen_mcv {
+        // Deploy asks CanDeploySlashUnload (vslot +0x314) first (0x007393CC);
+        // its refusal clears Unit+0x68C (0x00739AA7).
+        if !self.can_deploy_slash_unload(stable_id, rules) {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                 entity.mcv_deploy_pending.clear();
             }
             return false;
         }
+        let Some(source) = self.substrate.entities.get(stable_id) else {
+            return false;
+        };
         if source.navigation.nav_com().is_some()
             || crate::sim::movement::motion_query::is_moving(source) == Some(true)
         {
@@ -2644,19 +2640,6 @@ impl Simulation {
         );
     }
 
-    pub fn should_show_undeploy_building_command(&self, stable_id: u64, rules: &RuleSet) -> bool {
-        let Some(entity) = self.substrate.entities.get(stable_id) else {
-            return false;
-        };
-        let Some(obj) = self.object_type(entity.type_ref(), rules) else {
-            return false;
-        };
-        if obj.construction_yard && self.owner_has_building_production_busy(entity.owner()) {
-            return false;
-        }
-        self.can_undeploy_building_runtime(stable_id, rules)
-    }
-
     pub(crate) fn can_undeploy_building_runtime(&self, stable_id: u64, rules: &RuleSet) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
@@ -2696,15 +2679,6 @@ impl Simulation {
         self.houses
             .get(&entity.owner())
             .is_some_and(|house| house.is_human)
-    }
-
-    fn owner_has_building_production_busy(&self, owner: crate::sim::intern::InternedId) -> bool {
-        // P5d: the registry is the queue-of-record. Busy = an active Building build held OR
-        // a non-empty Building tail.
-        self.production
-            .factories
-            .view(owner, ProductionCategory::Building)
-            .is_some_and(|v| v.object.is_some() || !v.queue.is_empty())
     }
 }
 

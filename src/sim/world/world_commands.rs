@@ -1116,8 +1116,10 @@ impl Simulation {
                 }
                 crate::sim::deploy::issue_order(self, *entity_id, rules, frame_effects)
             }
-            // Legacy targetless deploy-key order. The cell-click path sends
-            // SetRally followed by SellBuilding, preserving native event1E/16.
+            // Legacy targetless order: no client sends it since the deploy key
+            // refuses buildings (CanDeploySlashUnload), but recorded commands
+            // keep it. The cell-click path sends SetRally followed by
+            // SellBuilding, preserving native event1E/16.
             Command::UndeployBuilding { entity_id } => {
                 let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
@@ -1128,8 +1130,9 @@ impl Simulation {
             // The synchronized self-deploy order is the Unload MEGAMISSION
             // (see the transport arm of `UnloadPassengers`); the concrete
             // Infantry51F6E0 handler selects Doing27/31 on the object's visit.
-            // CanDeploy700D50's UI tube-neighborhood gate484AE0 is a separate
-            // required query; it is not invented by this event receiver.
+            // CanDeploySlashUnload (`0x00700D50`) is the sender's admission
+            // (deploy key, `Simulation::can_deploy_slash_unload`), not this
+            // receiver's.
             Command::ToggleInfantryDeploy { entity_id } => {
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;

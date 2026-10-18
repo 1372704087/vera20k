@@ -2272,6 +2272,16 @@ pub(super) fn self_deploy_is_blocked(
 /// Shared self-action admission for click and hover. Transport cargo,
 /// factory primary and simple deployment keep their existing owners; the
 /// blocked Infantry/empty-transport suffix is self_deploy_is_blocked.
+///
+/// A Unit's deploy or unload self action also needs CanDeploySlashUnload
+/// (`0x0073FFEA`); its refusal answers NoDeploy ([`self_deploy_is_refused`]).
+///
+/// RESIDUAL: Unit What_Action's other NoDeploy tests are not ported: a
+/// DeploysInto unit's placement check (`0x0073FEAD..0x0073FFA6`) and a
+/// loaded transport's first-passenger land-speed and height checks
+/// (`0x00740078..0x007400EB`). Trigger: hovering such a unit over itself on
+/// a site it cannot use. Effect: the cursor offers Deploy; the order is then
+/// refused by its receiver.
 pub(super) fn self_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2280,6 +2290,41 @@ pub(super) fn self_click_command(
     hover: Option<&HoverTargetKindWithId>,
 ) -> Option<Command> {
     let target = hover?;
+    self_action(sim, rules, local_owner, selected_ids, target)
+        .filter(|_| !unit_refuses_deploy(sim, rules, target.stable_id))
+}
+
+/// Unit What_Action's NoDeploy answer (`0x0073FFF4`) for a self action that
+/// CanDeploySlashUnload refuses.
+pub(super) fn self_deploy_is_refused(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    local_owner: InternedId,
+    selected_ids: &[u64],
+    target: &HoverTargetKindWithId,
+) -> bool {
+    unit_refuses_deploy(sim, rules, target.stable_id)
+        && self_action(sim, rules, local_owner, selected_ids, target).is_some()
+}
+
+fn unit_refuses_deploy(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    id: u64,
+) -> bool {
+    sim.entities()
+        .get(id)
+        .is_some_and(|entity| entity.category() == EntityCategory::Unit)
+        && !sim.can_deploy_slash_unload(id, rules)
+}
+
+fn self_action(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    local_owner: InternedId,
+    selected_ids: &[u64],
+    target: &HoverTargetKindWithId,
+) -> Option<Command> {
     if selected_ids != [target.stable_id] {
         return None;
     }
@@ -2316,14 +2361,7 @@ pub(super) fn self_click_command(
             entity_id: target.stable_id,
         });
     }
-    if obj.is_some_and(|object| is_simple_deploy_unit(entity, object)) {
-        return sim
-            .can_simple_deploy(target.stable_id, rules)
-            .then_some(Command::DeployMcv {
-                entity_id: target.stable_id,
-            });
-    }
-    obj.is_some_and(|o| o.deploys_into.is_some() || o.deployer)
+    obj.is_some_and(|o| is_simple_deploy_unit(entity, o) || o.deploys_into.is_some() || o.deployer)
         .then_some(Command::DeployMcv {
             entity_id: target.stable_id,
         })
@@ -4353,6 +4391,60 @@ mod tests {
             })
         );
         assert_eq!(cursor, crate::app::types::CursorFeedbackKind::Deploy);
+    }
+
+    /// Unit What_Action asks CanDeploySlashUnload of a loaded transport's
+    /// self action (`0x0073FFEA`); on a bridge it refuses and the cursor
+    /// answers NoDeploy (`0x0073FFF4`).
+    #[test]
+    fn a_loaded_transport_on_a_bridge_offers_no_deploy() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[VehicleTypes]\n0=IFV\n[IFV]\nStrength=200\nPassengers=1\n",
+            ))
+            .expect("transport input rules");
+        let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        let owner = sim.interner.intern("Americans");
+        sim.session.current_house = Some(owner);
+        let ifv = sim
+            .spawn_object_limbo_at_height("IFV", "Americans", 10, 10, 0, 0, &rules)
+            .expect("transport builds");
+        let mut cargo = crate::sim::passenger::PassengerCargo::new(1, 0);
+        cargo.board_forced_chain(&[(99, 1)]);
+        sim.entities_mut().get_mut(ifv).unwrap().passenger_role =
+            crate::sim::passenger::PassengerRole::transport(cargo);
+        let hover = HoverTargetKindWithId {
+            kind: HoverTargetKind::FriendlyUnit,
+            stable_id: ifv,
+        };
+        let probe = |sim: &Simulation| {
+            (
+                self_click_command(sim, &rules, owner, &[ifv], Some(&hover)),
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    sim,
+                    &[ifv],
+                    Some(ifv),
+                    &hover,
+                    Some(&rules),
+                    None,
+                    crate::app::input::context_order::OrderModifier::Normal,
+                    false,
+                ),
+            )
+        };
+        assert_eq!(
+            probe(&sim),
+            (
+                Some(Command::UnloadPassengers { transport_id: ifv }),
+                crate::app::types::CursorFeedbackKind::Deploy
+            )
+        );
+        sim.entities_mut().get_mut(ifv).unwrap().set_on_bridge(true);
+        assert_eq!(
+            probe(&sim),
+            (None, crate::app::types::CursorFeedbackKind::NoDeploy)
+        );
     }
 
     /// Retail SCHP has IsSimpleDeployer without DeploysInto/Deployer. Native

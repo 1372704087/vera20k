@@ -75,8 +75,16 @@ fn resolve_hut_orders(
             repairable_span
         ))
     );
-    let feedback =
-        capability_cursor_for_hover(sim, &original_selection, best, &hover, Some(rules), None);
+    let feedback = capability_cursor_for_hover(
+        sim,
+        &original_selection,
+        best,
+        &hover,
+        Some(rules),
+        None,
+        crate::app::input::context_order::OrderModifier::Normal,
+        false,
+    );
     // The executed caller proves identical action for self/allied/hostile.
     // Check every relation golden, avoiding an invented expected-action formula.
     let mut action = None;

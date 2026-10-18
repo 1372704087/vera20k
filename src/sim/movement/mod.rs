@@ -186,11 +186,10 @@ pub(super) struct MoverSnapshot {
     pub movement_zone: MovementZone,
     pub omni_crusher: bool,
     pub regular_crusher: bool,
-    pub on_bridge: bool,
     pub locomotor: Option<locomotor::LocomotorState>,
     /// Native AStar hierarchy admission reads the stored TechnoClass+0x3D5
-    /// byte. False under live MapClass authority bypasses hierarchy and uses
-    /// flat A*; headless fixtures without authority retain hierarchy.
+    /// byte. False under live MapClass authority bypasses hierarchy and runs
+    /// the plain cell A*; headless fixtures without authority retain hierarchy.
     pub allow_zone_hierarchy: bool,
 }
 

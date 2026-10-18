@@ -1217,9 +1217,8 @@ fn test_blocked_repath_preserves_locomotor_destination_beyond_segment_end() {
     assert_eq!(route.last(), Some(&(24, 2)));
 }
 
-/// Build a minimal Drive LocomotorState for layered-pathfinding tests. Required
-/// because the layered A* branch in find_move_path is only entered when the
-/// mover has a Drive/Walk locomotor; `test_default` leaves locomotor=None.
+/// Build a minimal Drive LocomotorState for Drive movement tests;
+/// `test_default` leaves locomotor=None.
 fn make_drive_loco_for_test() -> crate::sim::movement::locomotor::LocomotorState {
     crate::sim::movement::locomotor::LocomotorState::for_test_kind(
         crate::rules::locomotor_type::LocomotorKind::Drive,

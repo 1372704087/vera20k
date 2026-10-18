@@ -112,7 +112,7 @@ mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
 mod trigger_explosion;
-mod trigger_nuke;
+mod trigger_strikes;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
 #[cfg(any(test, feature = "test-support"))]
@@ -5104,7 +5104,7 @@ impl Simulation {
             // `ReReveal(0, 0, 0, 0)` (`0x00448BD9`) releases the old owner's
             // sight only: what a `RevealToAll=` opening showed the current
             // house stays.
-            self.remove_building_gap_before_limbo(stable_id);
+            self.remove_building_gap(stable_id);
             self.release_object_sight_with_context(stable_id, UninitContext::new(rules, None));
             // Original4483A6 clears PrimaryFactory before the old-house
             //teardown.448C69 initializes it after the delegated owner swap.

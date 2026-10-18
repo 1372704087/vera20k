@@ -480,6 +480,9 @@ pub struct GameEntity {
     /// the Grand_Opening guard. `sim::building_art` owns it.
     #[serde(default)]
     pub building_art: crate::sim::building_art::BuildingArt,
+    /// Independent Building+660, owned by sim::building_power.
+    #[serde(default)]
+    pub(crate) building_online: crate::sim::building_power::BuildingOnline,
     /// Building+66C charger pointers and +661 weapon latch, owned by
     /// `sim::tesla_charging` independently of House power accounting.
     #[serde(default)]
@@ -1478,6 +1481,7 @@ impl GameEntity {
             building_sale: None,
             ai_placement_timer: Default::default(),
             building_art: Default::default(),
+            building_online: Default::default(),
             tesla_charge: Default::default(),
             tesla_charger: Default::default(),
             building_last_operational: Default::default(),

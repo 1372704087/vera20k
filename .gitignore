@@ -82,3 +82,7 @@ node_modules/
 
 # generated match reports (the engine writes these per match)
 tools/telemetry-dashboard/reports/
+
+# local map harness: imports map3d.js by relative path, so it has to sit in
+# the web root to run same-origin. Scratch, not a shipped dashboard file.
+tools/telemetry-dashboard/map-harness.html

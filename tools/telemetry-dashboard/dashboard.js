@@ -113,11 +113,23 @@ function renderSwitches(debug) {
         hint.textContent = overlays ? "" : t("sw.noMatch");
 }
 // ---------------------------------------------------------------- map
+/** Latched once WebGL proves unavailable, so a retry on every snapshot does not
+ *  rebuild a renderer that cannot work or append the notice repeatedly. */
+let map3dUnavailable = false;
 function ensureMap3D() {
+    if (map3d || map3dUnavailable)
+        return map3d;
+    const canvas = document.getElementById("map3d");
+    if (!canvas)
+        return null;
+    const callouts = document.getElementById("map-callouts");
+    map3d = createMap3D(canvas, callouts);
     if (!map3d) {
-        const canvas = document.getElementById("map3d");
-        if (canvas)
-            map3d = createMap3D(canvas);
+        map3dUnavailable = true;
+        const note = document.createElement("div");
+        note.className = "map-fallback";
+        note.textContent = t("map.noWebGL");
+        canvas.parentElement?.append(note);
     }
     return map3d;
 }
@@ -486,10 +498,16 @@ function drawPie(canvasId, legendId, slices, total) {
     const size = 132;
     const center = size / 2;
     const radius = size / 2 - 2;
+    /** A ring rather than a full disc: the hollow centre carries the headline
+     *  number, and a band shows a 6% wedge beside an 80% one far better than two
+     *  wedges sharing a point at the middle. */
+    const inner = radius * 0.58;
+    /** Angular gap between wedges, applied only where the wedge is wide enough to
+     *  spare it, so a sliver is never eaten by its own separator. */
+    const gap = 1.8;
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("viewBox", `0 0 ${size} ${size}`);
-    /** `scale` shrinks the radius: the wedge outline uses 1, the in-slice label
-     *  sits well inside it. */
+    /** `scale` shrinks the radius: 1 is the outer arc, `inner / radius` the hole. */
     const polar = (degrees, scale = 1) => {
         const radians = (degrees * Math.PI) / 180;
         const reach = radius * scale;
@@ -497,19 +515,28 @@ function drawPie(canvasId, legendId, slices, total) {
     };
     let angle = -90;
     let drew = false;
+    let dominant = 0;
     for (const slice of slices) {
         if (slice.ms <= 0 || total <= 0)
             continue;
         drew = true;
         const fraction = Math.min(1, slice.ms / total);
+        dominant = Math.max(dominant, fraction);
         const sweep = fraction * 360;
-        const [x0, y0] = polar(angle);
-        const [x1, y1] = polar(angle + sweep);
+        const pad = sweep > gap * 3 ? gap / 2 : 0;
+        const a0 = angle + pad;
+        const a1 = angle + sweep - pad;
+        const arc = a1 - a0 > 180 ? 1 : 0;
+        const [ox0, oy0] = polar(a0);
+        const [ox1, oy1] = polar(a1);
+        const [ix1, iy1] = polar(a1, inner / radius);
+        const [ix0, iy0] = polar(a0, inner / radius);
         const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-        path.setAttribute("d", `M ${center} ${center} L ${x0} ${y0} A ${radius} ${radius} 0 ${sweep > 180 ? 1 : 0} 1 ${x1} ${y1} Z`);
+        path.setAttribute("d", `M ${ox0} ${oy0} A ${radius} ${radius} 0 ${arc} 1 ${ox1} ${oy1}` +
+            ` L ${ix1} ${iy1} A ${inner} ${inner} 0 ${arc} 0 ${ix0} ${iy0} Z`);
         path.setAttribute("fill", slice.color);
-        path.setAttribute("stroke", "rgba(3, 10, 20, 0.85)");
-        path.setAttribute("stroke-width", "1");
+        path.setAttribute("stroke", "rgba(4, 8, 20, 0.5)");
+        path.setAttribute("stroke-width", "0.6");
         const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
         title.textContent = `${t(slice.key)} ${fmt(slice.ms, 2)} ms`;
         path.append(title);
@@ -517,22 +544,39 @@ function drawPie(canvasId, legendId, slices, total) {
         // Only label wedges wide enough to hold the text: a sliver's label would
         // spill across its neighbours, and the legend already carries the number.
         if (fraction >= 0.05) {
-            // 0.62 of the radius puts the text on the wedge's own midline, fully
-            // inside the arc — at the arc itself half of it hangs outside the pie.
-            const [lx, ly] = polar(angle + sweep / 2, 0.62);
+            // The band's own midline, so the text sits inside the wedge it names.
+            const [lx, ly] = polar((a0 + a1) / 2, (inner / radius + 1) / 2);
             const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
             label.setAttribute("x", String(lx.toFixed(2)));
             label.setAttribute("y", String(ly.toFixed(2)));
             label.setAttribute("text-anchor", "middle");
             label.setAttribute("dominant-baseline", "central");
-            label.setAttribute("font-size", "11");
+            label.setAttribute("font-size", "10.5");
             label.setAttribute("font-weight", "600");
             label.setAttribute("fill", "#ffffff");
+            // A dark halo rather than a colour gamble: the wedge palette comes from
+            // the engine, so both a pale and a saturated fill must stay readable.
+            label.setAttribute("stroke", "rgba(4, 8, 20, 0.6)");
+            label.setAttribute("stroke-width", "2.6");
+            label.setAttribute("paint-order", "stroke");
             label.setAttribute("pointer-events", "none");
             label.textContent = `${fmt(fraction * 100, 0)}%`;
             svg.append(label);
         }
         angle += sweep;
+    }
+    if (drew) {
+        // The hole answers the question this panel exists for — what dominates the
+        // frame. Milliseconds and the per-phase split are already in the caption and
+        // the legend, so only the share goes here.
+        const head = document.createElementNS("http://www.w3.org/2000/svg", "text");
+        head.setAttribute("x", String(center));
+        head.setAttribute("y", String(center));
+        head.setAttribute("text-anchor", "middle");
+        head.setAttribute("dominant-baseline", "central");
+        head.setAttribute("class", "pie-dominant");
+        head.textContent = `${fmt(dominant * 100, 0)}%`;
+        svg.append(head);
     }
     // An empty pie would still be a 200px box on the report wall; leave the
     // container empty instead so the panel collapses to its text.
@@ -756,6 +800,31 @@ function renderPhaseTable(table, profile, render, simTotal, frameTotal) {
         scroller.scrollTop = scrollTop;
 }
 const EXPORT_FONT = "'Microsoft YaHei', 'PingFang SC', 'Segoe UI', sans-serif";
+/** One design token off `:root`, or the fallback it was introduced with. */
+function token(name, fallback) {
+    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return value || fallback;
+}
+/** `#rrggbb` at reduced strength — canvas has no `color-mix()` to soften a token. */
+function soften(color, alpha) {
+    const hex = /^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(color);
+    if (!hex)
+        return color;
+    const [r, g, b] = [1, 2, 3].map((group) => parseInt(hex[group], 16));
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+function exportPalette() {
+    return {
+        top: token("--bg-hi", "#101d3e"),
+        bottom: token("--bg", "#070b18"),
+        title: token("--title", "#9fd8ff"),
+        strong: token("--strong", "#f0f6ff"),
+        ink: token("--text", "#dce7f8"),
+        dim: token("--dim", "#8ea6c6"),
+        accent: token("--cyan", "#6fb7ff"),
+        violet: token("--blue", "#a884ff"),
+    };
+}
 /** Read the rendered ledger back out of the DOM. Both the standalone snapshot
  *  and the full report draw from this, so they can never list different rows. */
 function readLedgerRows() {
@@ -810,9 +879,10 @@ function buildPhaseLedgerCanvas() {
         return null;
     ctx.scale(dpr, dpr);
     ctx.textBaseline = "middle";
+    const pal = exportPalette();
     const background = ctx.createLinearGradient(0, 0, 0, height);
-    background.addColorStop(0, "#07182c");
-    background.addColorStop(1, "#040b16");
+    background.addColorStop(0, pal.top);
+    background.addColorStop(1, pal.bottom);
     ctx.fillStyle = background;
     ctx.fillRect(0, 0, width, height);
     const rule = (y, color, weight = 1) => {
@@ -825,14 +895,14 @@ function buildPhaseLedgerCanvas() {
     };
     // Title block: what this is, and which tick it was measured on.
     ctx.textAlign = "left";
-    ctx.fillStyle = "#7fe8ff";
+    ctx.fillStyle = pal.title;
     ctx.font = `600 15px ${EXPORT_FONT}`;
     ctx.fillText(t("rep.phases"), pad, 24);
-    ctx.fillStyle = "#5f89a6";
+    ctx.fillStyle = pal.dim;
     ctx.font = `11.5px ${EXPORT_FONT}`;
     ctx.fillText(`${t("rep.tickNow")} ${thousands(lastSnapshot?.tick ?? 0)} · ${t("rep.phaseHint")}`, pad, 43);
     let y = titleH;
-    ctx.fillStyle = "#6fb6d6";
+    ctx.fillStyle = pal.dim;
     ctx.font = `600 10px ${EXPORT_FONT}`;
     ctx.textAlign = "left";
     ctx.fillText(t("th.phase"), pad, y + headH / 2);
@@ -841,46 +911,53 @@ function buildPhaseLedgerCanvas() {
     ctx.fillText(t("th.shareSim").toUpperCase(), simRight, y + headH / 2);
     ctx.fillText(t("th.shareFrame").toUpperCase(), frameRight, y + headH / 2);
     y += headH;
-    rule(y, "rgba(0, 190, 255, 0.38)");
+    rule(y, soften(pal.accent, 0.34));
     for (const row of rows) {
         const h = row.group ? groupH : rowH;
         const mid = y + h / 2;
         if (row.group) {
             // Group header: a rule above and the label sitting on the lower edge.
-            rule(y, "rgba(0, 190, 255, 0.28)");
+            rule(y, soften(pal.accent, 0.24));
             ctx.textAlign = "left";
-            ctx.fillStyle = "#6fb6d6";
+            ctx.fillStyle = pal.dim;
             ctx.font = `600 11px ${EXPORT_FONT}`;
             ctx.fillText(row.name, pad, y + groupH - 8);
             y += h;
             continue;
         }
         // No minimum width: a phase at 0.01 % should leave no bar rather than a
-        // row of identical 2 px stubs.
+        // row of identical 2 px stubs. The fill matches `.ph-fill` in the wall.
         const barWidth = (row.bar / 100) * barW;
         if (barWidth >= 1) {
             const barPaint = ctx.createLinearGradient(barX, 0, barX + barW, 0);
-            barPaint.addColorStop(0, "rgba(40, 240, 255, 0.34)");
-            barPaint.addColorStop(1, "rgba(10, 134, 255, 0.12)");
+            barPaint.addColorStop(0, soften(pal.accent, 0.5));
+            barPaint.addColorStop(1, soften(pal.violet, 0.22));
             ctx.fillStyle = barPaint;
-            ctx.fillRect(barX, y + 4, barWidth, h - 8);
+            if (typeof ctx.roundRect === "function") {
+                ctx.beginPath();
+                ctx.roundRect(barX, y + 4, barWidth, h - 8, 3);
+                ctx.fill();
+            }
+            else {
+                ctx.fillRect(barX, y + 4, barWidth, h - 8);
+            }
         }
         ctx.textAlign = "left";
         ctx.font = `${row.foot ? "600 " : ""}12px ${EXPORT_FONT}`;
-        ctx.fillStyle = row.foot ? "#e8f6ff" : "#cfe9f7";
+        ctx.fillStyle = row.foot ? pal.strong : pal.ink;
         ctx.fillText(row.name, pad, mid);
         ctx.textAlign = "right";
-        ctx.fillStyle = row.foot ? "#ffffff" : "#e8f6ff";
+        ctx.fillStyle = row.foot ? pal.strong : pal.ink;
         ctx.fillText(row.ms, msRight, mid);
-        ctx.fillStyle = "#5f89a6";
+        ctx.fillStyle = pal.dim;
         ctx.fillText(row.sim, simRight, mid);
         ctx.fillText(row.frame, frameRight, mid);
-        rule(y + h, row.foot ? "rgba(0, 190, 255, 0.30)" : "rgba(0, 190, 255, 0.09)");
+        rule(y + h, soften(pal.accent, row.foot ? 0.28 : 0.09));
         y += h;
     }
     ctx.textAlign = "left";
     ctx.font = `11px ${EXPORT_FONT}`;
-    ctx.fillStyle = "#41596e";
+    ctx.fillStyle = soften(pal.dim, 0.8);
     ctx.fillText(`VERA20k · schema v${SCHEMA_VERSION} · ${new Date().toLocaleString()}`, pad, y + noteH / 2 + 2);
     return canvas;
 }
@@ -1935,24 +2012,19 @@ function renderHouseModal() {
                 head.className = "roster-group";
                 const label = squad.team_type ??
                     (squad.task_force ? squad.task_force : t("dp.squadUnnamed", { n: squad.id }));
+                // The forming/suspended flag belongs on the team's own line, at the
+                // right. As a row beneath the header it read as a separate entry, and
+                // its 10.5px amber was easy to miss against the roster.
+                const flag = squad.suspended
+                    ? t("prod.suspended")
+                    : !squad.formed
+                        ? t("dp.squadForming")
+                        : "";
                 head.innerHTML =
                     `<span>${label}</span>` +
+                        (flag ? `<i class="squad-flag">${flag}</i>` : "") +
                         `<em>${squad.members}</em>`;
                 squads.append(head);
-                // The composition is what says what the team is actually made of; the
-                // step and the flags say why it may be standing still.
-                if (squad.suspended) {
-                    const note = document.createElement("li");
-                    note.className = "squad-note";
-                    note.textContent = t("prod.suspended");
-                    squads.append(note);
-                }
-                else if (!squad.formed) {
-                    const note = document.createElement("li");
-                    note.className = "squad-note";
-                    note.textContent = t("dp.squadForming");
-                    squads.append(note);
-                }
                 for (const entry of squad.composition) {
                     const row = document.createElement("li");
                     const count = document.createElement("span");
@@ -2132,6 +2204,15 @@ function setupViews() {
     }
     document.getElementById("make-report")?.addEventListener("click", () => openShotPreview("report"));
     document.getElementById("export-phases")?.addEventListener("click", () => openShotPreview("ledger"));
+    // The map already answers the wheel and a drag; these exist because a trackpad
+    // user has no way to discover how to get back to the framing it started in.
+    document
+        .getElementById("map-zoom-in")
+        ?.addEventListener("click", () => ensureMap3D()?.zoomBy(1.25));
+    document
+        .getElementById("map-zoom-out")
+        ?.addEventListener("click", () => ensureMap3D()?.zoomBy(1 / 1.25));
+    document.getElementById("map-zoom-reset")?.addEventListener("click", () => ensureMap3D()?.resetView());
     document.getElementById("shot-close")?.addEventListener("click", closeShot);
     document.getElementById("shot-copy")?.addEventListener("click", () => void copyShot());
     document.getElementById("shot-save")?.addEventListener("click", saveShot);
@@ -2594,6 +2675,11 @@ function connect() {
         sampleHouseEconomy(snapshot);
         if (currentView === "detail")
             renderDetailCards(snapshot);
+        // The modal repaints on its own, not through `renderDetail`: that path only
+        // runs on a view switch or a resize, which froze the production gauges and
+        // the squad list until the modal was reopened. It self-guards on an open
+        // modal, so this costs nothing while none is showing.
+        renderHouseModal();
         ensureMap3D()?.draw(snapshot);
         drawMapLegend(snapshot);
         if (snapshot.timing) {

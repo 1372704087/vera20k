@@ -51,7 +51,13 @@ const en: Record<string, string> = {
   "chart.budget": "budget {ms}ms",
 
   "sec.map": "battlefield",
-  "map.hint": "drag rotate · wheel zoom · cyan marker = cursor cell",
+  "map.hint": "drag rotate · wheel zoom · pink marker = cursor cell",
+  "map.base": "base",
+  "map.moving": "moving",
+  "map.standby": "standby",
+  "map.pathBlocked": "path blocked",
+  "map.steps": "{n} steps left",
+  "map.noWebGL": "no WebGL — the 3D battlefield cannot be drawn in this browser",
 
   "sec.terrain": "terrain debug",
   "terr.noData": "no debug data",
@@ -363,7 +369,13 @@ const zh: Record<string, string> = {
   "chart.budget": "预算 {ms}ms",
 
   "sec.map": "战场总览",
-  "map.hint": "拖动旋转 · 滚轮缩放 · 青色标记 = 光标格",
+  "map.hint": "拖动旋转 · 滚轮缩放 · 粉色标记 = 光标格",
+  "map.base": "主基地",
+  "map.moving": "移动中",
+  "map.standby": "待命",
+  "map.pathBlocked": "寻路受阻",
+  "map.steps": "余 {n} 步",
+  "map.noWebGL": "无 WebGL —— 此浏览器无法绘制 3D 战场",
 
   "sec.terrain": "地形调试",
   "terr.noData": "无调试数据",
@@ -676,7 +688,13 @@ const de: Record<string, string> = {
   "chart.budget": "Budget {ms}ms",
 
   "sec.map": "Schlachtfeld",
-  "map.hint": "Ziehen = drehen · Rad = zoomen · Cyan = Cursorzelle",
+  "map.hint": "Ziehen = drehen · Rad = zoomen · Rosa = Cursorzelle",
+  "map.base": "Basis",
+  "map.moving": "in Bewegung",
+  "map.standby": "bereit",
+  "map.pathBlocked": "Pfad blockiert",
+  "map.steps": "noch {n} Schritte",
+  "map.noWebGL": "kein WebGL – das 3D-Schlachtfeld kann hier nicht gezeichnet werden",
 
   "sec.terrain": "Terrain-Debug",
   "terr.noData": "keine Debug-Daten",
@@ -989,7 +1007,13 @@ const fr: Record<string, string> = {
 
   "sec.map": "champ de bataille",
   "map.hint":
-    "glisser = pivoter · molette = zoom · marqueur cyan = cellule du curseur",
+    "glisser = pivoter · molette = zoom · marqueur rose = cellule du curseur",
+  "map.base": "base",
+  "map.moving": "en déplacement",
+  "map.standby": "en veille",
+  "map.pathBlocked": "chemin bloqué",
+  "map.steps": "{n} pas restants",
+  "map.noWebGL": "pas de WebGL – le champ de bataille 3D ne peut pas être dessiné ici",
 
   "sec.terrain": "débogage terrain",
   "terr.noData": "aucune donnée de débogage",

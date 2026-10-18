@@ -13,8 +13,10 @@
 <link rel="stylesheet" href="./dashboard.css">
 </head>
 <body data-view="wall">
-<div class="bg-grid"></div>
-<div class="scanlines"></div>
+<!-- Backdrop: a live star field the panels fly through, plus the band of sky it
+     crosses. Both take no input and sit behind every panel. -->
+<canvas id="starfield" aria-hidden="true"></canvas>
+<div class="nebula" aria-hidden="true"></div>
 
 <header>
   <!-- Brand block: mark, title, and the small Latin subtitle that sits beside
@@ -117,9 +119,23 @@
 
   <section class="panel" id="battlefield">
     <h2 data-i18n="sec.map">battlefield</h2>
-    <canvas id="map3d"></canvas>
-    <div id="map-legend" class="legend"></div>
-    <div class="hint" data-i18n="map.hint">drag rotate · wheel zoom · cyan marker = cursor cell</div>
+    <!-- The stage wraps the canvas so the callout overlay shares its exact box:
+         the chips are positioned from a projection into the canvas' own
+         client rectangle, so any offset here would misplace every one of them. -->
+    <div id="map-stage">
+      <canvas id="map3d"></canvas>
+      <div id="map-callouts" aria-hidden="true"></div>
+      <!-- The house colour key and the drag hint float over the scene, so they
+           live inside the stage: it is the box the canvas actually occupies, and
+           absolute offsets from the panel would land them on the heading. -->
+      <div id="map-legend" class="legend"></div>
+      <div class="hint" data-i18n="map.hint">drag rotate · wheel zoom · pink marker = cursor cell</div>
+      <div class="map-zoom">
+        <button id="map-zoom-in" class="map-zoom-btn" type="button" aria-label="zoom in">+</button>
+        <button id="map-zoom-out" class="map-zoom-btn" type="button" aria-label="zoom out">−</button>
+        <button id="map-zoom-reset" class="map-zoom-btn" type="button" aria-label="reset view">⟲</button>
+      </div>
+    </div>
   </section>
 
   <section class="panel" id="terrain-panel">
@@ -446,6 +462,7 @@
 <script type="importmap">
   { "imports": { "three": "./vendor/three.module.js" } }
 </script>
+<script type="module" src="./starfield.js"></script>
 <script type="module" src="./dashboard.js"></script>
 </body>
 </html>

@@ -349,7 +349,7 @@ fn flank(ctx: &mut BlobCtx<'_>, x: i32, y: i32, region: i32) {
 /// every ok-flag on this path, so an incomplete waterfall stamp still
 /// counts as placed.
 fn stamp_waterfall_pieces(ctx: &mut BlobCtx<'_>, args: &BridgeArgs, _layout: &Layout) {
-    let base = ctx.ids.special.waterfalls[args.heading_dir / 2];
+    let base = ctx.ids.cliffs.waterfall_bases()[args.heading_dir / 2];
     if base < 0 {
         // No waterfall set in this theater: nothing to stamp. The placement
         // itself stands, exactly as if every stamp had refused.
@@ -485,16 +485,16 @@ pub(crate) fn jump(heading_dir: usize) -> (i32, i32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::map::resolved_terrain::ResolvedTerrainGrid;
     use crate::map::rmg::grid::RmgGrid;
-    use crate::map::rmg::{RmgConstructionTrace, emit};
     use crate::map::rmg::options::RmgOptions;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock, TileBlocks};
     use crate::map::rmg::rng::RmgRng;
     use crate::map::rmg::scratch::RmgScratch;
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::tiles::{TILE_UNASSIGNED, TileIds};
     use crate::map::rmg::x87::Gaussian;
-    use crate::map::resolved_terrain::ResolvedTerrainGrid;
+    use crate::map::rmg::{RmgConstructionTrace, emit};
+    use crate::map::theater::TheaterCliffRanges;
 
     struct OneByOne(TileBlock);
     impl TileBlocks for OneByOne {
@@ -528,9 +528,15 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         };
-        ids.special.waterfalls = [600, 610, 620, 630];
+        ids.cliffs = TheaterCliffRanges {
+            waterfall_north: Some(600),
+            waterfall_east: Some(610),
+            waterfall_south: Some(620),
+            waterfall_west: Some(630),
+            ..TheaterCliffRanges::default()
+        };
         for (x, y) in grid.native_cells().collect::<Vec<_>>() {
             grid.get_mut(x, y).expect("native cell").tile = ids.clear;
         }
@@ -640,7 +646,10 @@ mod tests {
         // CellClass bridge flags, Tube topology, structures, or constructors.
         let run = || {
             let (mut grid, mut scratch, ids, mut blocks) = harness();
-            blocks.0.subtiles[0].as_mut().expect("one-by-one subtile").slope = 1;
+            blocks.0.subtiles[0]
+                .as_mut()
+                .expect("one-by-one subtile")
+                .slope = 1;
             let cells_before: Vec<_> = grid
                 .native_cells()
                 .map(|coord @ (x, y)| (coord, *grid.get(x, y).expect("native cell")))
@@ -648,7 +657,13 @@ mod tests {
             let topology_before: Vec<_> = cells_before
                 .iter()
                 .map(|(coord, cell)| {
-                    (*coord, cell.overlay, cell.density, cell.occupied, cell.start_marker)
+                    (
+                        *coord,
+                        cell.overlay,
+                        cell.density,
+                        cell.occupied,
+                        cell.start_marker,
+                    )
                 })
                 .collect();
             let scratch_before = scratch.cells().to_vec();
@@ -712,7 +727,11 @@ mod tests {
                     .any(|((_, before), (_, after))| before.level != after.level),
                 "successful waterfall construction changes terrain levels"
             );
-            assert_ne!(scratch.cells(), scratch_before.as_slice(), "scratch state changes");
+            assert_ne!(
+                scratch.cells(),
+                scratch_before.as_slice(),
+                "scratch state changes"
+            );
             assert!(
                 cells_after
                     .iter()
@@ -723,7 +742,13 @@ mod tests {
             let topology_after: Vec<_> = cells_after
                 .iter()
                 .map(|(coord, cell)| {
-                    (*coord, cell.overlay, cell.density, cell.occupied, cell.start_marker)
+                    (
+                        *coord,
+                        cell.overlay,
+                        cell.density,
+                        cell.occupied,
+                        cell.start_marker,
+                    )
                 })
                 .collect();
             assert_eq!(
@@ -731,14 +756,16 @@ mod tests {
                 "waterfall terrain cannot write overlay/data, occupancy, or start markers"
             );
             assert_eq!(construction_trace, construction_trace_before);
-            assert!(structures.is_empty(), "waterfall terrain constructs no buildings");
+            assert!(
+                structures.is_empty(),
+                "waterfall terrain constructs no buildings"
+            );
 
             let mut map = emit::empty_map_file(&RmgOptions::default(), 34, 42);
             emit::populate(&mut map, &grid, &[], &structures, &[]);
             assert!(map.overlays.is_empty(), "no emitted OverlayPack entries");
             assert!(
-                !map
-                    .overlay_data_pack()
+                !map.overlay_data_pack()
                     .expect("new RMG map retains raw overlay data")
                     .is_present(),
                 "no emitted OverlayDataPack"
@@ -747,7 +774,10 @@ mod tests {
             assert!(map.explicit_tubes.is_empty(), "no explicit Tube topology");
 
             let resolved = ResolvedTerrainGrid::build_generated_materialized_for_test(&map);
-            assert!(resolved.tube_facts().is_empty(), "no synthesized low-deck tubes");
+            assert!(
+                resolved.tube_facts().is_empty(),
+                "no synthesized low-deck tubes"
+            );
             assert!(
                 resolved
                     .iter()
@@ -770,7 +800,10 @@ mod tests {
 
         let first = run();
         let second = run();
-        assert_eq!(first, second, "fixed input repeats output and MapGen continuation");
+        assert_eq!(
+            first, second,
+            "fixed input repeats output and MapGen continuation"
+        );
     }
 
     #[test]

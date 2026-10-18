@@ -87,8 +87,7 @@ pub fn water_seed(
     for (x, y) in grid.native_cells().collect::<Vec<_>>() {
         let cell = *grid.get(x, y).expect("native cell");
         let is_shore = ids.is_shore_piece(cell.tile);
-        let is_obstacle =
-            !is_shore && cliff.is_special_terrain_tile(cell.tile as u16, cell.sub_tile);
+        let is_obstacle = !is_shore && cliff.is_special_terrain_tile(cell.tile, cell.sub_tile);
         if !is_shore && !is_obstacle {
             continue;
         }
@@ -253,7 +252,7 @@ fn draw(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
@@ -276,7 +275,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 

@@ -11,6 +11,8 @@ pub mod bridge;
 pub mod bridge_deck;
 pub mod carve;
 pub mod carve_driver;
+pub(super) mod cliff_materialization;
+pub(super) mod cliff_variants;
 pub mod connector;
 pub mod green_spread;
 pub mod hills;
@@ -55,3 +57,6 @@ impl CellRef {
         }
     }
 }
+
+#[cfg(test)]
+mod cliff_native_tests;

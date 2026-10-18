@@ -59,8 +59,8 @@ pub struct RmgGrid {
     /// cell for every invalid lookup, writing the requested coordinate into
     /// it first — so out-of-band accesses alias each other, and a phase that
     /// paints the fallback affects every later out-of-band read. Its tile
-    /// starts at 0 (zero-initialised static), which the clear-tile test
-    /// accepts.
+    /// starts at FFFF through the original Cell constructor; the clear-tile
+    /// predicate accepts that unassigned identity as well as tile zero.
     border: GridCell,
     border_coord: (i16, i16),
 }
@@ -72,8 +72,12 @@ impl RmgGrid {
             diamond_min,
             diamond_max,
             cells: vec![GridCell::default(); width * width],
+            // Original Cell constructor47BC11 writesFFFF, not zero;
+            // startup565060 and Resize5670F2 construct the shared Dummy.
+            // RMG599E70 resets only allocated iterator cells. Native input
+            // observation: tools/rmg_oracle/cliff_materialization.py.
             border: GridCell {
-                tile: 0,
+                tile: super::tiles::TILE_UNASSIGNED,
                 level: 0,
                 ..GridCell::default()
             },
@@ -331,7 +335,11 @@ mod tests {
     #[test]
     fn out_of_band_lookups_share_the_border_cell() {
         let mut grid = RmgGrid::new(16, 4, 12);
-        assert_eq!(grid.cell_native(0, 0).tile, 0, "border starts clear");
+        assert_eq!(
+            grid.cell_native(0, 0).tile,
+            0xFFFF,
+            "native constructed border starts unassigned"
+        );
         assert_eq!(grid.border_coord(), (0, 0));
         grid.cell_native_mut(15, 15).tile = 99;
         assert_eq!(grid.border_coord(), (15, 15), "lookup stamps the coord");

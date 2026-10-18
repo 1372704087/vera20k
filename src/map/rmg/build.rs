@@ -286,7 +286,7 @@ mod tests {
     use crate::map::rmg::RmgConstructionOutcome;
     use crate::map::rmg::STAGE_ORDER;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::terrain_rules::LandType;
 
@@ -351,7 +351,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 

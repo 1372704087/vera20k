@@ -36,8 +36,8 @@ use super::phases::trees::{TreeArgs, TreeCtx};
 use super::phases::water::{PlayableRect, WaterArgs};
 use super::phases::zones::{self, ZoneKind, ZoneParams};
 use super::phases::{
-    green_spread, hills, lat_fixup, lat_patches, regions, rocks, starts, tech_buildings, tiberium,
-    trees, water, water_finalize,
+    cliff_materialization, cliff_variants, green_spread, hills, lat_fixup, lat_patches, regions,
+    rocks, starts, tech_buildings, tiberium, trees, water, water_finalize,
 };
 use super::preview::Playfield;
 use super::rng::RmgRng;
@@ -259,6 +259,20 @@ pub fn run_pipeline(
                 &mut construction_trace,
             );
         }
+        // Original Generate598D6E..598D82: after connectors, jitter the
+        // ridge edges, repair/materialize faces, then restamp registered
+        // cliff variants. Generate ignores the materializer's refusal result
+        // and still performs the variant pass; partial writes remain live.
+        cliff_materialization::jitter(grid, scratch, inputs.ids, rng);
+        let _ =
+            cliff_materialization::materialize(grid, scratch, inputs.ids, inputs.blocks, rng, -1);
+        cliff_variants::run(
+            grid,
+            scratch,
+            inputs.blocks,
+            rng,
+            inputs.ids.cliffs.cliff_set.map_or(-1, i32::from),
+        );
     }
     observe(Stage::IslandPasses, grid, &waypoints);
 
@@ -458,8 +472,8 @@ mod tests {
     use super::*;
     use crate::map::rmg::options::RmgOptions;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::{RmgConstructionOutcome, RmgConstructionPhase};
+    use crate::map::theater::TheaterCliffRanges;
 
     /// A `TileBlocks` provider that returns a 1x1 block for every tile — the
     /// same synthetic the water/shore phase tests use.
@@ -500,7 +514,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 

@@ -87,7 +87,7 @@ fn append_clear_neighbors(
 mod tests {
     use super::*;
 
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     /// Minimal identity table: green base 100, green LAT 110, everything else
     /// far away so no accidental range overlaps.
@@ -112,7 +112,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 

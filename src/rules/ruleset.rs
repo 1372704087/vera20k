@@ -632,6 +632,11 @@ pub struct GeneralRules {
     /// Rules+1863, AudioVisual66B77D ReadColorRGB. Any nonzero channel
     /// replaces ObjectType ART LineTrailColor on trail construction.
     pub line_trail_color_override: [u8; 3],
+    /// Rules+1866, AudioVisual66B7A7 ReadColorRGB. SpawnRadBeam6FD752
+    /// copies this RGB for an admitted Temporal weapon's mode1 beam.
+    /// Constructor66785E/667864/66786A initializes all three bytes to zero.
+    /// Original controls: tools/procedural_drawing_oracle/chrono_beam.md.
+    pub chrono_beam_color: [u8; 3],
     /// Default cruise altitude for Fly-locomotor aircraft (FlightLevel= in [General]).
     /// Fallback 500 leptons matches the engine constructor default; retail
     /// rulesmd.ini always supplies its own (1500), so the fallback only fires
@@ -2191,6 +2196,7 @@ impl Default for GeneralRules {
             missile_rot_var: 0.25,
             safety_altitude: 500,
             line_trail_color_override: [0; 3],
+            chrono_beam_color: [0; 3],
             flight_level: 500,
             attacking_aircraft_sight_range: 5,
             display_cruise_height: 400, // Rules constructor665C3A
@@ -3237,6 +3243,11 @@ impl GeneralRules {
                 defaults.line_trail_color_override,
                 None,
             ),
+            chrono_beam_color: audio_visual.read_color_rgb(
+                "ChronoBeamColor",
+                defaults.chrono_beam_color,
+                None,
+            ),
             flight_level: general.read_int("FlightLevel", 500),
             attacking_aircraft_sight_range: general.read_int(
                 "AttackingAircraftSightRange",
@@ -4126,6 +4137,7 @@ impl RuleSet {
             rules.general.safety_altitude,
             rules.general.line_trail_color_override,
         ) = processed.projectile_rule_controls();
+        rules.general.chrono_beam_color = processed.chrono_beam_color();
         (
             rules.general.parachute_max_fall_rate,
             rules.general.no_parachute_max_fall_rate,
@@ -5546,6 +5558,7 @@ impl RuleSet {
         self.general.missile_rot_var.to_bits().hash(&mut hasher);
         self.general.safety_altitude.hash(&mut hasher);
         self.general.line_trail_color_override.hash(&mut hasher);
+        self.general.chrono_beam_color.hash(&mut hasher);
         self.general.lightning_warhead.hash(&mut hasher);
         self.general.weather_con_bolt_explosion.hash(&mut hasher);
         self.general.weapon_nullify_anim.hash(&mut hasher);

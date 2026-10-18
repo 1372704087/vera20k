@@ -659,7 +659,7 @@ pub enum LifecycleOutput {
     /// Copied LaserDraw54FE60 birth; no source/target pointer to detach.
     LaserCreated(crate::sim::combat::laser::LaserBirth),
     ElectricBoltCreated(crate::sim::combat::electric_bolt::ElectricBoltBirth),
-    /// SpawnRadBeam6FD620 mode0 copies endpoints into a Tactical-lived effect.
+    /// SpawnRadBeam6FD620 modes0/1 copy endpoints into a Tactical-lived effect.
     RadiationBeamCreated(crate::sim::combat::radiation_beam::RadiationBeamBirth),
     /// ObjectUnlimbo5F517A/5F5207 constructs and attaches a presentation trail.
     LineTrailConstructed {

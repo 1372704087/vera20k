@@ -2132,6 +2132,7 @@ fn apply_selection_mutation(
     let SelectionMutationEffects {
         ordered,
         successful_adds,
+        first_select_adds,
         follow_target,
         native_selection_mode_reset,
     } = resolve_selection_mutation(
@@ -2140,6 +2141,7 @@ fn apply_selection_mutation(
         current,
         state.match_state.input.follow_target,
         state.armed_building_type().is_some(),
+        state.match_state.input.planning.active(),
         &mutation,
     );
     state.match_state.input.follow_target = follow_target;
@@ -2157,6 +2159,7 @@ fn apply_selection_mutation(
         voice_policy,
         state.match_state.input.selection_voice_enabled,
         &successful_adds,
+        first_select_adds,
     ) {
         emit_selection_voice(state, *id);
     }
@@ -2180,6 +2183,9 @@ fn apply_selection_mutation(
 struct SelectionMutationEffects {
     ordered: Vec<u64>,
     successful_adds: Vec<u64>,
+    /// The adds made by the first successful Select call, its planning
+    /// expansion included.
+    first_select_adds: usize,
     follow_target: Option<u64>,
     native_selection_mode_reset: bool,
 }
@@ -2190,6 +2196,7 @@ fn resolve_selection_mutation(
     current: Vec<u64>,
     mut follow_target: Option<u64>,
     placement_armed: bool,
+    planning_active: bool,
     mutation: &SelectionMutation,
 ) -> SelectionMutationEffects {
     let deselected: HashSet<_> = mutation.deselect.iter().copied().collect();
@@ -2212,18 +2219,42 @@ fn resolve_selection_mutation(
         .collect();
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut successful_adds = Vec::new();
-    for &id in &mutation.select {
+    let mut first_select_adds = 0;
+    let mut select = |id: u64, ordered: &mut VecDeque<u64>, adds: &mut Vec<u64>| {
         if placement_armed || members.contains(&id) || !sim.can_select_object(id, rules) {
-            continue;
+            return false;
         }
         members.insert(id);
-        successful_adds.push(id);
+        adds.push(id);
+        insert_selected_id(ordered, id, sim, rules);
+        true
+    };
+    for &id in &mutation.select {
+        if !select(id, &mut ordered, &mut successful_adds) {
+            continue;
+        }
         native_selection_mode_reset = true;
-        insert_selected_id(&mut ordered, id, sim, rules);
+        // TechnoClass::Select ends with 0x00637840 (0x006FC020): in planning
+        // mode it Selects (vt+0x14C) each unselected member of the object's
+        // tail node; its AC4CF6 guard keeps those Selects from expanding.
+        // They run before the band-box callback clears the voice latch
+        // (0x004AC2FB), so they speak with their Select. Residual: members
+        // pass only `can_select_object`, not 6FBFA0's +0x41B/IsHumanPlayer
+        // gate or 5F4520's cross-owner Unselect_All (0x005F45AF..0x005F45F8);
+        // that differs only for another human player's plan.
+        if planning_active {
+            for member in sim.planning_tail_members(id) {
+                select(member, &mut ordered, &mut successful_adds);
+            }
+        }
+        if first_select_adds == 0 {
+            first_select_adds = successful_adds.len();
+        }
     }
     SelectionMutationEffects {
         ordered: ordered.into(),
         successful_adds,
+        first_select_adds,
         follow_target,
         native_selection_mode_reset,
     }
@@ -2262,12 +2293,15 @@ fn selection_voice_recipients(
     policy: SelectionVoicePolicy,
     voice_enabled: bool,
     successful_adds: &[u64],
+    first_select_adds: usize,
 ) -> &[u64] {
     if !voice_enabled || policy == SelectionVoicePolicy::Suppressed {
         return &[];
     }
     match policy {
-        SelectionVoicePolicy::FirstAdded => &successful_adds[..successful_adds.len().min(1)],
+        SelectionVoicePolicy::FirstAdded => {
+            &successful_adds[..successful_adds.len().min(first_select_adds)]
+        }
         SelectionVoicePolicy::EveryAdded => successful_adds,
         SelectionVoicePolicy::Suppressed => &[],
     }
@@ -2388,7 +2422,7 @@ mod item83_selection_order_tests {
         }
         let candidate_order = [2, 1];
         let mut emitted = |policy| {
-            selection_voice_recipients(policy, true, &candidate_order)
+            selection_voice_recipients(policy, true, &candidate_order, 1)
                 .iter()
                 .filter_map(|id| {
                     crate::app::match_runtime::sound_dispatch::selection_voice_event(
@@ -2451,6 +2485,100 @@ mod item83_selection_order_tests {
             !target_lines.is_selected_action_active(35),
             "a later TypeSelect tap preserves rather than restarts the existing timer"
         );
+    }
+
+    #[test]
+    fn a_planning_select_adds_the_tail_node_members_who_speak_with_it() {
+        use super::{SelectionMutation, SelectionVoicePolicy, resolve_selection_mutation};
+        use crate::sim::command::Command;
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        let kind = sim.interner.intern("TESTUNIT");
+        sim.houses.insert(
+            local,
+            crate::sim::house_state::HouseState::new(local, 0, None, false, 0, 10),
+        );
+        sim.session.house_order = vec![local];
+        for id in [42, 43, 44] {
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                id,
+                1,
+                1,
+                0,
+                0,
+                local,
+                Health::new(100),
+                kind,
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            );
+            entity.lifecycle.set_in_limbo_for_test(false);
+            sim.substrate.entities.insert(entity);
+        }
+        // Same-frame planned moves to one cell share the tail node.
+        for id in [42, 43] {
+            let record = sim
+                .encode_planning_order_record(
+                    local,
+                    &Command::Move {
+                        entity_id: id,
+                        target_rx: 5,
+                        target_ry: 7,
+                    },
+                )
+                .unwrap();
+            let command = sim.decode_native_command_record(&record, 0).unwrap();
+            assert!(sim.apply_command("Local", &command.payload, None));
+        }
+        assert_eq!(sim.planning_tail_members(42), vec![42, 43]);
+        let resolve = |current: Vec<u64>, select: Vec<u64>, planning| {
+            resolve_selection_mutation(
+                &sim,
+                None,
+                current,
+                None,
+                false,
+                planning,
+                &SelectionMutation {
+                    clear: true,
+                    select,
+                    ..Default::default()
+                },
+            )
+        };
+        let effects = resolve(vec![], vec![42], true);
+        assert_eq!(effects.successful_adds, vec![42, 43]);
+        assert_eq!(effects.first_select_adds, 2);
+        assert_eq!(
+            selection_voice_recipients(
+                SelectionVoicePolicy::FirstAdded,
+                true,
+                &effects.successful_adds,
+                effects.first_select_adds,
+            ),
+            [42, 43]
+        );
+        // A later band-box pick's expansion runs after the latch clear.
+        let effects = resolve(vec![], vec![44, 42], true);
+        assert_eq!(effects.successful_adds, vec![44, 42, 43]);
+        assert_eq!(effects.first_select_adds, 1);
+        assert_eq!(resolve(vec![], vec![42], false).successful_adds, vec![42]);
+        // An already-selected pick makes no Select call, so no expansion.
+        let effects = resolve_selection_mutation(
+            &sim,
+            None,
+            vec![42],
+            None,
+            false,
+            true,
+            &SelectionMutation {
+                select: vec![42],
+                ..Default::default()
+            },
+        );
+        assert!(effects.successful_adds.is_empty());
     }
 }
 

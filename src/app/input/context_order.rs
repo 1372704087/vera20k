@@ -1415,6 +1415,18 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             &state.match_state.match_presentation.height_map,
             crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
         );
+        // Techno700082 -> Action8 precedes Infantry/Unit class actions.
+        // Let the selection consumer handle Shift over a visible object;
+        // bare ground still reaches its immediate Move. Berserk-only groups
+        // keep their native base-action-zero route below.
+        if modifier == OrderModifier::Shift
+            && !selected_ids.is_empty()
+            && hover
+                .as_ref()
+                .is_some_and(|target| target.kind != HoverTargetKind::HiddenEnemy)
+        {
+            return false;
+        }
         let cell_is_shrouded = crate::app::presentation::instances::cell_visibility_for_local_owner(
             Some(owner_id),
             Some(&sim.fog),

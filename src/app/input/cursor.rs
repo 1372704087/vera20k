@@ -524,7 +524,11 @@ pub(super) fn capability_cursor_for_hover(
 ) -> CursorFeedbackKind {
     use super::context_order::OrderModifier;
     use crate::map::entities::EntityCategory;
-    if modifier == OrderModifier::Shift {
+    if modifier == OrderModifier::Shift
+        && !best_id
+            .and_then(|id| sim.entities().get(id))
+            .is_some_and(|actor| actor.berserk.is_active())
+    {
         return CursorFeedbackKind::Select;
     }
 
@@ -561,6 +565,7 @@ pub(super) fn capability_cursor_for_hover(
     if selected == [hover.stable_id]
         && let (Some(rules), Some(entity)) = (rules, hovered_entity)
         && sim.session.current_house == Some(entity.owner())
+        && !entity.berserk.is_active()
     {
         if super::context_order::self_click_command(
             sim,

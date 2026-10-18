@@ -1110,25 +1110,81 @@
   .comp-legend span { display: inline-flex; align-items: center; gap: 5px; }
   .comp-legend i { width: 7px; height: 7px; display: inline-block; }
 
-  .roster {
-    flex: none;
-    list-style: none; margin: 0; padding: 0;
-    /* Fixed, not max-height: roster length changes as houses build, and a
-       growing list would push the cards grid around. */
-    height: 190px; overflow-y: auto;
+  /* The roster list moved into the house modal. What the card keeps is one
+     clickable line: the top types and a "open" affordance. Nothing here
+     scrolls, so a short viewport shortens the card instead of trapping the
+     list in a box the page cannot reach. */
+  .roster-peek {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    width: 100%; text-align: left;
+    margin-top: 2px; padding: 6px 8px;
+    background: rgba(0, 40, 70, 0.28);
+    border: 1px solid var(--line);
+    color: inherit; font: inherit; cursor: pointer;
   }
-  .roster li {
+  .roster-peek:hover { border-color: var(--line-strong); background: rgba(0, 60, 100, 0.4); }
+  .roster-peek .peek-chip {
+    display: inline-flex; align-items: baseline; gap: 4px;
+    font-size: 11px; color: #a9d8ee;
+  }
+  .roster-peek .peek-chip i { width: 6px; height: 6px; display: inline-block; align-self: center; }
+  .roster-peek .peek-chip b {
+    font-family: ui-monospace, Consolas, monospace; font-weight: 500;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 92px;
+  }
+  .roster-peek .peek-chip em {
+    font-style: normal; font-variant-numeric: tabular-nums; color: var(--cyan);
+  }
+  .roster-peek .peek-more {
+    margin-left: auto; font-size: 10px; color: var(--dim); white-space: nowrap;
+  }
+  .roster-peek .peek-empty { font-size: 11.5px; color: var(--dim); }
+
+  .house-card { cursor: pointer; }
+  .house-card:hover { border-color: var(--line-strong); }
+  .house-card:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
+
+  .house-modal-card { max-width: min(94vw, 760px); }
+  .house-modal-card header { align-items: center; }
+  .house-modal-card .tags { display: flex; gap: 6px; }
+  .house-modal-body { display: flex; flex-direction: column; gap: 10px; }
+  .house-modal-econ { display: flex; align-items: center; gap: 14px; }
+  .house-modal-econ .spark { flex: none; width: 200px; height: 46px; }
+  .house-modal-econ .stat-grid { flex: 1; }
+  .house-modal-power { margin: 0; }
+
+  /* The modal's list is the one place the full roster is readable: it scrolls
+     on its own, with the card's height no longer in the way. */
+  .house-modal .roster {
+    list-style: none; margin: 0; padding: 0;
+    max-height: min(46vh, 420px); overflow-y: auto;
+  }
+  .house-modal .roster li {
     display: flex; align-items: baseline; gap: 8px;
     padding: 2px 0; font-size: 11.5px;
     border-bottom: 1px dashed rgba(0, 190, 255, 0.10);
   }
-  .roster .cnt {
-    flex: none; width: 30px; text-align: right;
+  .house-modal .roster .roster-group {
+    position: sticky; top: 0; z-index: 1;
+    background: linear-gradient(180deg, #08192c, #071627);
+    border-bottom: 1px solid var(--line); gap: 6px;
+    padding: 5px 0 4px;
+  }
+  .house-modal .roster .roster-group i { width: 7px; height: 7px; display: inline-block; }
+  .house-modal .roster .roster-group span {
+    color: #7fe8ff; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+  }
+  .house-modal .roster .roster-group em {
+    margin-left: auto; font-style: normal; font-variant-numeric: tabular-nums;
+    color: var(--dim); font-size: 10.5px;
+  }
+  .house-modal .roster .cnt {
+    flex: none; width: 34px; text-align: right;
     font-variant-numeric: tabular-nums; color: var(--cyan);
     text-shadow: 0 0 8px rgba(40, 240, 255, 0.4);
   }
-  .roster .tname {
+  .house-modal .roster .tname {
     flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     font-family: ui-monospace, Consolas, monospace; color: #a9d8ee;
   }
-  .roster .cat { flex: none; font-size: 10px; color: var(--dim); }
+  .house-modal .roster .empty { color: var(--dim); border-bottom: 0; }

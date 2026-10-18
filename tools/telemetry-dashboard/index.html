@@ -277,6 +277,27 @@
   </div>
 </div>
 
+<div id="house-modal" class="shot-modal house-modal" hidden>
+  <div class="shot-card house-modal-card" role="dialog" aria-modal="true" aria-label="house detail">
+    <header>
+      <i id="house-modal-dot" class="house-dot"></i>
+      <h3 id="house-modal-title">house</h3>
+      <span id="house-modal-tags" class="tags"></span>
+      <button id="house-modal-close" class="shot-x" type="button" aria-label="close">✕</button>
+    </header>
+    <div class="shot-body house-modal-body">
+      <div class="house-modal-econ">
+        <canvas id="house-modal-spark" class="spark"></canvas>
+        <div id="house-modal-stats" class="stat-grid"></div>
+      </div>
+      <div id="house-modal-bar" class="comp-bar"></div>
+      <p id="house-modal-power" class="note house-modal-power"></p>
+      <ul id="house-modal-roster" class="roster"></ul>
+      <p id="house-modal-note" class="note"></p>
+    </div>
+  </div>
+</div>
+
 <div id="menu" class="menu" aria-hidden="true">
   <div class="menu-panel" role="dialog" aria-label="debug menu">
     <div class="menu-head">

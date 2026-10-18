@@ -1598,10 +1598,18 @@ function buildDetailCard(house) {
     const rosterTitle = document.createElement("div");
     rosterTitle.className = "sub";
     rosterTitle.textContent = t("dp.roster");
-    const roster = document.createElement("ul");
-    roster.className = "roster";
-    root.append(head, econ, stats, forceTitle, bar, compLegend, rosterTitle, roster);
-    return { root, dot, tags, credits, delta, spark, stats, bar, compLegend, roster };
+    // The full list lives in the click-through modal. What stays on the card is
+    // one line of evidence that there is something to open: the top types as
+    // chips, and the roster length, so a house that fields many types reads as
+    // "worth opening" without anyone having to discover the scroll box first.
+    const rosterPeek = document.createElement("button");
+    rosterPeek.type = "button";
+    rosterPeek.className = "roster-peek";
+    root.append(head, econ, stats, forceTitle, bar, compLegend, rosterTitle, rosterPeek);
+    root.tabIndex = 0;
+    root.setAttribute("role", "button");
+    root.title = t("dp.openDetail");
+    return { root, dot, tags, credits, delta, spark, stats, bar, compLegend, rosterPeek };
 }
 function renderDetailCards(snapshot) {
     const container = document.getElementById("cards");
@@ -1618,6 +1626,20 @@ function renderDetailCards(snapshot) {
         container.textContent = "";
         for (const house of houses) {
             const view = buildDetailCard(house);
+            // The whole card is the target, and the roster line inside it is a real
+            // button — so it also works by keyboard, and the peek line keeps the
+            // same affordance for anyone who looks for it first.
+            view.root.addEventListener("click", () => openHouseModal(house.name));
+            view.root.addEventListener("keydown", (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    openHouseModal(house.name);
+                }
+            });
+            view.rosterPeek.addEventListener("click", (event) => {
+                event.stopPropagation();
+                openHouseModal(house.name);
+            });
             container.append(view.root);
             views.set(house.name, view);
         }
@@ -1639,7 +1661,7 @@ function renderDetailCards(snapshot) {
                 stats: root.querySelector(".stat-grid"),
                 bar: root.querySelector(".comp-bar"),
                 compLegend: root.querySelector(".comp-legend"),
-                roster: root.querySelector(".roster"),
+                rosterPeek: root.querySelector(".roster-peek"),
             });
         });
     }
@@ -1702,39 +1724,219 @@ function renderDetailCards(snapshot) {
             .filter(([key]) => house.counts[key] > 0)
             .map(([key, css]) => `<span><i style="background:${css}"></i>${t(detailCategoryKey(key === "infantry" ? "Infantry" : key === "unit" ? "Unit" : key === "aircraft" ? "Aircraft" : "Structure"))} ${house.counts[key]}</span>`)
             .join("");
-        view.roster.textContent = "";
+        // One line of evidence, not the list itself: the full roster is a click
+        // away in the house modal, where the whole list can scroll.
+        view.rosterPeek.textContent = "";
+        if (house.roster.length === 0) {
+            const empty = document.createElement("span");
+            empty.className = "peek-empty";
+            empty.textContent = t("dp.none");
+            view.rosterPeek.append(empty);
+        }
+        else {
+            // The wire caps the roster at TELEMETRY_MAX_ROSTER types, so "N types"
+            // is the reported length; the engine truncates the tail, it does not
+            // page it, and the modal is where that cap becomes visible.
+            for (const entry of house.roster.slice(0, HOUSE_PEEK_TYPES)) {
+                const chip = document.createElement("span");
+                chip.className = "peek-chip";
+                const dot = document.createElement("i");
+                dot.style.background = DETAIL_CATEGORY_COLOR[entry.category] ?? DETAIL_ORPHAN_COLOR;
+                const name = document.createElement("b");
+                name.textContent = entry.type_name;
+                const count = document.createElement("em");
+                count.textContent = fmt(entry.count, 0);
+                chip.append(dot, name, count);
+                chip.title = `${entry.type_name} · ${t(detailCategoryKey(entry.category))}`;
+                view.rosterPeek.append(chip);
+            }
+            const more = document.createElement("span");
+            more.className = "peek-more";
+            const hidden = house.roster.length - HOUSE_PEEK_TYPES;
+            more.textContent =
+                hidden > 0
+                    ? `${t("dp.peekMore", { n: hidden })}`
+                    : t("dp.peekOpen");
+            view.rosterPeek.append(more);
+        }
+        drawSparkline(view.spark, history, color);
+    }
+    // A change of house set rebuilds the cards; the open modal follows the same
+    // key, so it closes rather than showing a house that is no longer listed.
+    if (houseModalName && !keys.includes(houseModalName))
+        closeHouseModal();
+}
+/** How many roster types the card line shows before it counts the rest. */
+const HOUSE_PEEK_TYPES = 3;
+/** The house the detail modal is showing, or null when it is closed. */
+let houseModalName = null;
+/**
+ * Open the house detail modal. The card is the only entry point, and the
+ * content is rebuilt from the snapshot rather than cloned from the card, so
+ * the modal can hold what the card has no room for: the whole roster, the
+ * power reading and the per-category totals.
+ */
+function openHouseModal(name) {
+    const snapshot = lastSnapshot;
+    const house = snapshot?.houses.find((row) => row.name === name);
+    const modal = document.getElementById("house-modal");
+    if (!snapshot || !house || !modal)
+        return;
+    houseModalName = name;
+    renderHouseModal();
+    modal.hidden = false;
+}
+function closeHouseModal() {
+    const modal = document.getElementById("house-modal");
+    if (modal)
+        modal.hidden = true;
+    houseModalName = null;
+}
+/** Repaint the open modal from the live snapshot. Cheap; runs on every frame
+ *  the snapshot arrives, which is what makes the modal a live view rather
+ *  than a snapshot of the click. */
+function renderHouseModal() {
+    if (!houseModalName)
+        return;
+    const snapshot = lastSnapshot;
+    const house = snapshot?.houses.find((row) => row.name === houseModalName);
+    if (!snapshot || !house)
+        return;
+    const color = houseCss(house);
+    const dot = document.getElementById("house-modal-dot");
+    if (dot) {
+        dot.style.background = color;
+        dot.style.boxShadow = `0 0 10px ${color}`;
+    }
+    const title = document.getElementById("house-modal-title");
+    if (title)
+        title.textContent = house.name;
+    const badges = [
+        house.is_human
+            ? `<span class="tag human">${t("tag.human")}</span>`
+            : `<span class="tag ai ${house.difficulty}">${t(`diff.${house.difficulty}`)}</span>`,
+    ];
+    if (isPassiveHouse(house))
+        badges.push(`<span class="tag passive">${t("dp.passive")}</span>`);
+    if (house.defeated)
+        badges.push(`<span class="tag dead">${t("dp.defeated")}</span>`);
+    const tags = document.getElementById("house-modal-tags");
+    if (tags)
+        tags.innerHTML = badges.join(" ");
+    // The economy strip and the composition bar are the same drawings the card
+    // makes, so the modal cannot quote a different number than the card does.
+    const stats = document.getElementById("house-modal-stats");
+    if (stats) {
+        const powerState = house.low_power
+            ? t("cheat.powerLow")
+            : t("cheat.powerOk");
+        const cells = [
+            [t("dp.credits"), fmt(house.credits, 0)],
+            [t("dp.spent"), fmt(house.spent, 0)],
+            [t("dp.score"), fmt(house.score, 0)],
+            [t("cheat.power"), `${thousands(house.power_output)} / ${thousands(house.power_drain)}`],
+            [t("dp.units"), fmt(detailTotal(house.counts), 0)],
+            [t("dp.base"), house.base_center ? `${house.base_center[0]}, ${house.base_center[1]}` : "-"],
+            [t("dp.side"), sideName(house)],
+            [t("hdr.tick"), thousands(snapshot.tick)],
+        ];
+        stats.innerHTML = cells
+            .map(([key, value]) => `<div><span class="k">${key}</span><b>${value}</b></div>`)
+            .join("");
+        const power = document.getElementById("house-modal-power");
+        if (power)
+            power.textContent = powerState;
+    }
+    const total = Math.max(1, detailTotal(house.counts));
+    const bar = document.getElementById("house-modal-bar");
+    if (bar) {
+        bar.textContent = "";
+        const segments = [
+            ["infantry", DETAIL_CATEGORY_COLOR.Infantry],
+            ["unit", DETAIL_CATEGORY_COLOR.Unit],
+            ["aircraft", DETAIL_CATEGORY_COLOR.Aircraft],
+            ["structure", DETAIL_CATEGORY_COLOR.Structure],
+        ];
+        for (const [key, css] of segments) {
+            if (house.counts[key] === 0)
+                continue;
+            const seg = document.createElement("span");
+            seg.className = "seg";
+            seg.style.width = `${(house.counts[key] / total) * 100}%`;
+            seg.style.background = css;
+            bar.append(seg);
+        }
+    }
+    // The whole roster, grouped by category so a long list reads as four short
+    // blocks instead of one sorted column. The engine caps the list at 16 types;
+    // saying so here is better than letting a reader assume 16 is the whole
+    // army.
+    const list = document.getElementById("house-modal-roster");
+    if (list) {
+        list.textContent = "";
         if (house.roster.length === 0) {
             const empty = document.createElement("li");
             empty.className = "empty";
             empty.textContent = t("dp.none");
-            view.roster.append(empty);
+            list.append(empty);
         }
         else {
+            const groups = new Map();
             for (const entry of house.roster) {
-                const row = document.createElement("li");
-                const count = document.createElement("span");
-                count.className = "cnt";
-                count.textContent = fmt(entry.count, 0);
-                const type = document.createElement("span");
-                type.className = "tname";
-                type.textContent = entry.type_name;
-                type.title = entry.type_name;
-                const category = document.createElement("span");
-                category.className = "cat";
-                category.style.color = DETAIL_CATEGORY_COLOR[entry.category] ?? "var(--dim)";
-                category.textContent = t(detailCategoryKey(entry.category));
-                row.append(count, type, category);
-                view.roster.append(row);
+                const bucket = groups.get(entry.category);
+                if (bucket)
+                    bucket.push(entry);
+                else
+                    groups.set(entry.category, [entry]);
+            }
+            for (const [category, entries] of groups) {
+                const head = document.createElement("li");
+                head.className = "roster-group";
+                head.innerHTML =
+                    `<i style="background:${DETAIL_CATEGORY_COLOR[category] ?? DETAIL_ORPHAN_COLOR}"></i>` +
+                        `<span>${t(detailCategoryKey(category))}</span>` +
+                        `<em>${entries.reduce((sum, entry) => sum + entry.count, 0)}</em>`;
+                list.append(head);
+                for (const entry of entries) {
+                    const row = document.createElement("li");
+                    const count = document.createElement("span");
+                    count.className = "cnt";
+                    count.textContent = fmt(entry.count, 0);
+                    const type = document.createElement("span");
+                    type.className = "tname";
+                    type.textContent = entry.type_name;
+                    type.title = entry.type_name;
+                    row.append(count, type);
+                    list.append(row);
+                }
             }
         }
-        drawSparkline(view.spark, history, color);
+        const note = document.getElementById("house-modal-note");
+        if (note) {
+            const types = house.roster.length;
+            note.textContent =
+                types >= TELEMETRY_ROSTER_CAP
+                    ? t("dp.rosterCapped", { n: types })
+                    : t("dp.rosterFull", { n: types });
+        }
+    }
+    const spark = document.getElementById("house-modal-spark");
+    if (spark) {
+        const history = houseHistories.get(house.name)?.credits ?? [];
+        drawSparkline(spark, history, color);
     }
 }
+/** The engine's per-house roster ceiling (`TELEMETRY_MAX_ROSTER`). Mirrored
+ *  here because the modal has to say when a house is sitting at the cap. */
+const TELEMETRY_ROSTER_CAP = 16;
 /** Full detail-wall refresh. Drawing only — `onmessage` owns the sampling,
  *  so a switch-time redraw never injects a phantom history point. */
 function renderDetail(snapshot) {
     drawEconomyChart(snapshot);
     renderDetailCards(snapshot);
+    // An open house modal is a live view, not a picture of the click: it repaints
+    // from the same snapshot the cards just drew.
+    renderHouseModal();
 }
 /** Header tabs: show one wall, hide the others. A switch into the detail view
  *  redraws immediately — its canvases were zero-sized while hidden. A switch
@@ -1794,8 +1996,20 @@ function setupViews() {
         if (event.target === event.currentTarget)
             closeShot();
     });
+    document.getElementById("house-modal-close")?.addEventListener("click", closeHouseModal);
+    document.getElementById("house-modal")?.addEventListener("click", (event) => {
+        if (event.target === event.currentTarget)
+            closeHouseModal();
+    });
     window.addEventListener("keydown", (event) => {
-        if (event.key === "Escape")
+        if (event.key !== "Escape")
+            return;
+        // Both dialogs are modal, so the topmost one is the only one Escape
+        // should close — otherwise Escape behind the house detail would also drop
+        // the screenshot preview underneath it.
+        if (houseModalName)
+            closeHouseModal();
+        else
             closeShot();
     });
 }
@@ -2320,6 +2534,7 @@ onLocaleChange(() => {
     detailCardKeys = [];
     if (currentView === "detail" && lastSnapshot)
         renderDetailCards(lastSnapshot);
+    renderHouseModal();
     if (currentView === "report")
         renderReportSoon();
     if (!lastSnapshot)

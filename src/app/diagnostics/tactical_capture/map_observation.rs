@@ -661,7 +661,6 @@ impl MapCaptureProfile {
                         | Command::Move { .. }
                         | Command::Stop { .. }
                         | Command::Attack { .. }
-                        | Command::ForceAttack { .. }
                         | Command::Guard { .. }
                         | Command::DeployMcv { .. }
                         | Command::SetRally { .. }
@@ -6960,7 +6959,7 @@ mod tests {
         );
         assert_eq!(
             attack.resolve(&sim, &rules).unwrap().0,
-            Command::ForceAttack {
+            Command::Attack {
                 attacker_id: 93,
                 target_id: 71
             }

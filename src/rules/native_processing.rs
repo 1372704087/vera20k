@@ -10,9 +10,10 @@ use crate::rules::crate_rules::{CrateRules, CrateRulesAccumulator};
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
+use crate::rules::locomotor_type::SpeedType;
 
 use crate::rules::missile_spawn::MissileSpawnRules;
-use crate::rules::object_type::{InfantryPips, ObjectCategory};
+use crate::rules::object_type::{InfantryInfiltration, InfantryPips, ObjectCategory};
 use crate::rules::powerups::{PowerupTable, PowerupsAccumulator};
 use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequisites};
 use crate::rules::projectile_type::ProjectileArtState;
@@ -563,6 +564,18 @@ impl ProcessedRulesLayers {
             .map(|member| (member.native_stored_id.as_str(), &member.unit_shp))
     }
 
+    /// UnitType+67C after the last admitted Rules body; an unread type keeps
+    /// constructor -1. Missing sections and missing SpeedType keys differ.
+    pub(crate) fn unit_speed_type_states(&self) -> impl Iterator<Item = (&str, SpeedType)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Vehicle)
+            .into_iter()
+            .flatten()
+            .map(|member| (member.native_stored_id.as_str(), member.unit_speed_type))
+    }
+
     /// TechnoType +810/+814 state after the reached generic and FV readers.
     /// The FV pairs have literal defaults and overlapping writes, so merged
     /// source keys cannot reconstruct this process-resident result.
@@ -606,6 +619,25 @@ impl ProcessedRulesLayers {
             .into_iter()
             .flatten()
             .map(|member| (member.native_stored_id.as_str(), member.infantry_pips))
+    }
+
+    /// Infantry52466E's postprocessed flags, including a prior role's latch
+    /// when a later pass omits Infiltrate while clearing the role itself.
+    pub(crate) fn infantry_infiltration_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, InfantryInfiltration)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Infantry)
+            .into_iter()
+            .flatten()
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    member.infantry_infiltration,
+                )
+            })
     }
 
     /// Native715320 recopies the turret controls on every reached rules pass.
@@ -1555,6 +1587,8 @@ struct ProcessedType {
     secret_lab: crate::rules::secret_lab::SecretLabRules,
     /// Unit ctor747167..7471B2 and reached fixed-ART reader7477C1..747AAE.
     unit_shp: crate::rules::shp_vehicle_sequence::UnitShpReadState,
+    /// Unit7470D7 ctor -1 and7476D3..74770B retained default/read sequence.
+    unit_speed_type: SpeedType,
     /// TechnoType ctor71136F/711781, generic flag read71287E and FV pair
     /// reads747BBD..747E90, retained across every reached Rules pass.
     gunner_turrets: GunnerTurrets,
@@ -1562,6 +1596,8 @@ struct ProcessedType {
     /// Missing type sections skip the whole reader; missing keys do not.
     #[serde(default)]
     infantry_pips: InfantryPips,
+    #[serde(default)]
+    infantry_infiltration: InfantryInfiltration,
     recoil: crate::rules::recoil::RecoilConfig,
     airstrike: crate::rules::airstrike::AirstrikeSettings,
     /// TechnoType constructor711134 and current-default ReadInt7147B4.
@@ -1606,8 +1642,10 @@ impl ProcessedType {
             building_target_coord_offset: [0; 3],
             secret_lab: Default::default(),
             unit_shp: Default::default(),
+            unit_speed_type: SpeedType::Invalid,
             gunner_turrets: GunnerTurrets::default(),
             infantry_pips: InfantryPips::default(),
+            infantry_infiltration: InfantryInfiltration::default(),
             recoil: crate::rules::recoil::RecoilConfig::default(),
             airstrike: crate::rules::airstrike::AirstrikeSettings::default(),
             radial_fire_segments: 0,
@@ -2544,9 +2582,9 @@ impl RulesPassProcessor {
                         family.object_category().expect("TechnoType family"),
                     );
                 if family == RulesTypeFamily::Infantry {
-                    self.families.get_mut(&family).unwrap()[index]
-                        .infantry_pips
-                        .apply_pass(&raw);
+                    let member = &mut self.families.get_mut(&family).unwrap()[index];
+                    member.infantry_pips.apply_pass(&raw);
+                    member.infantry_infiltration.apply_pass(&raw);
                 }
                 match family {
                     RulesTypeFamily::Building => {
@@ -2617,6 +2655,10 @@ impl RulesPassProcessor {
                         );
                     }
                     RulesTypeFamily::Vehicle => {
+                        let member = &mut self.families.get_mut(&family).unwrap()[index];
+                        member.unit_speed_type = member
+                            .unit_speed_type
+                            .read_vehicle_pass(&raw, effective.read_bool("Crusher", false));
                         // Object5F933B retains the Image buffer+1F8; Unit7477C1
                         // uses that section without a type-name fallback. The
                         // existing reached-body projection retains Image/Turret

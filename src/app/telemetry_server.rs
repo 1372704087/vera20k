@@ -22,6 +22,9 @@
 //!   malformed JSON, oversized frames) is ignored or closes that client.
 //! - **Stop is polled.** The listener is nonblocking and the accept loop
 //!   sleeps [`ACCEPT_POLL`], so `Drop` joins the thread within one poll.
+//! - **Loopback by default.** Nobody authenticates to this port, so binding it
+//!   to a non-loopback address needs `VERA_TELEMETRY_ALLOW_REMOTE`; see
+//!   [`check_public_bind`].
 //!
 //! ## Dependency rules
 //! - Part of the app layer; depends on `sim::telemetry` types, the
@@ -155,7 +158,12 @@ pub struct TelemetryServer {
 
 impl TelemetryServer {
     /// Bind `addr` and serve the dashboard files from `web_root`.
+    ///
+    /// A non-loopback `addr` is refused unless [`ENV_ALLOW_REMOTE`] is set; see
+    /// [`check_public_bind`]. Both entry points come through here, so neither
+    /// can forget the policy.
     pub fn start(addr: SocketAddr, web_root: PathBuf) -> std::io::Result<Self> {
+        check_public_bind(addr, std::env::var_os(ENV_ALLOW_REMOTE).is_some())?;
         let listener = TcpListener::bind(addr)?;
         let bound = listener.local_addr()?;
         listener.set_nonblocking(true)?;
@@ -557,21 +565,58 @@ pub const ENV_ADDR: &str = "VERA_TELEMETRY_ADDR";
 /// The environment variable naming the dashboard directory. Defaults to
 /// `tools/telemetry-dashboard` (run from the repo root).
 pub const ENV_WEB_ROOT: &str = "VERA_TELEMETRY_WEB";
+/// Setting this (to any value) allows a bind that is not loopback.
+pub const ENV_ALLOW_REMOTE: &str = "VERA_TELEMETRY_ALLOW_REMOTE";
 /// Default dashboard directory, relative to the working directory.
 pub const DEFAULT_WEB_ROOT: &str = "tools/telemetry-dashboard";
 
+/// Refuse a non-loopback bind unless the operator opted in.
+///
+/// The server authenticates nobody and hands out every file under its web
+/// root, and the end-of-match report writes into `<web root>/reports/` — so a
+/// LAN bind publishes the dashboard, the live snapshot stream and every stored
+/// report to that whole network. Watching from another machine is a real
+/// workflow, so it stays available behind this flag rather than being cut off.
+///
+/// Pure so both entry points and the test reach it without touching the
+/// environment or opening a socket.
+fn check_public_bind(addr: SocketAddr, allow_remote: bool) -> std::io::Result<()> {
+    if addr.ip().is_loopback() || allow_remote {
+        return Ok(());
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::PermissionDenied,
+        format!(
+            "{addr} is not a loopback address. The dashboard authenticates nobody and serves \
+             every file under its web root, including the reports written to \
+             <web root>/reports/. Set {ENV_ALLOW_REMOTE}=1 to bind it anyway."
+        ),
+    ))
+}
+
+/// Resolve a `VERA_TELEMETRY_ADDR` value: either a full `ip:port` or a bare IP,
+/// in which case [`DEFAULT_PORT`] is used.
+fn resolve_bind(raw: &str) -> Result<SocketAddr, String> {
+    if let Ok(addr) = raw.parse::<SocketAddr>() {
+        return Ok(addr);
+    }
+    raw.parse::<IpAddr>()
+        .map(|ip| SocketAddr::new(ip, DEFAULT_PORT))
+        .map_err(|error| {
+            format!("{ENV_ADDR}={raw} is neither an ip:port pair nor a bare ip: {error}")
+        })
+}
+
 /// Start a server from the environment, if `VERA_TELEMETRY_ADDR` is set.
+///
+/// A value that is set but unusable is reported as an error rather than
+/// returning `None`: the operator asked for a dashboard, and silently starting
+/// no server leaves them with nothing to debug.
 pub fn start_from_env() -> Option<Result<TelemetryServer, String>> {
     let raw = std::env::var(ENV_ADDR).ok()?;
-    let addr: SocketAddr = match raw.parse() {
+    let addr = match resolve_bind(&raw) {
         Ok(addr) => addr,
-        Err(_) => {
-            let ip: IpAddr = raw
-                .parse()
-                .map_err(|error| format!("{ENV_ADDR}={raw} is not an address: {error}"))
-                .ok()?;
-            SocketAddr::new(ip, DEFAULT_PORT)
-        }
+        Err(error) => return Some(Err(error)),
     };
     let web_root = std::env::var_os(ENV_WEB_ROOT)
         .map(PathBuf::from)
@@ -596,6 +641,35 @@ mod tests {
             websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
             "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
         );
+    }
+
+    #[test]
+    fn public_bind_needs_the_opt_in() {
+        let loopback: SocketAddr = "127.0.0.1:9741".parse().unwrap();
+        let any: SocketAddr = "0.0.0.0:9741".parse().unwrap();
+        let lan: SocketAddr = "192.168.1.20:9741".parse().unwrap();
+        assert!(check_public_bind(loopback, false).is_ok());
+        assert!(check_public_bind("[::1]:9741".parse().unwrap(), false).is_ok());
+        let refused = check_public_bind(any, false).unwrap_err();
+        assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
+        // The refusal has to name the way through, not just say no.
+        assert!(refused.to_string().contains(ENV_ALLOW_REMOTE));
+        assert!(check_public_bind(any, true).is_ok());
+        assert!(check_public_bind(lan, true).is_ok());
+    }
+
+    #[test]
+    fn bind_address_accepts_a_bare_ip_and_reports_a_bad_one() {
+        assert_eq!(resolve_bind("127.0.0.1").unwrap().port(), DEFAULT_PORT);
+        assert_eq!(
+            resolve_bind("10.0.0.5:1234").unwrap(),
+            "10.0.0.5:1234".parse::<SocketAddr>().unwrap()
+        );
+        // Set-but-unusable must surface as an error: the caller starts no
+        // server either way, and a silent one is undebuggable.
+        assert!(resolve_bind("localhost").is_err());
+        assert!(resolve_bind("").is_err());
+        assert!(resolve_bind("127.0.0.1:99999").is_err());
     }
 
     #[test]

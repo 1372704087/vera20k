@@ -302,7 +302,7 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
             # buildings, so this stock Tech Machine Shop starts as the
             # computer's, an ordinary engineer capture target. The capture
             # grants its new owner the retail UnitsGainSelfHeal ability. A
-            # friendly tank then admits bounded ForceAttack/Stop damage
+            # friendly tank then admits bounded Attack/Stop damage
             # followed by recovery; no health/weapon/heal tuning is overridden.
             # The removal variant uses the ordinary map health fraction to
             # let stock damage destroy this native Unsellable=yes building.
@@ -359,7 +359,7 @@ def build_fixture(*, walls_only: bool = False, cliff_back: bool = False,
             structures = [f'0=Computer,GAPOWR,256,{plant_cell[0]},{plant_cell[1]},0,None,0,0,1,0,0,None,None,None,0,0']
         if damage_feedback:
             # Full-health stock E1 crosses the real health threshold under
-            # ordinary friendly ForceAttack. Additional stock tanks permit
+            # ordinary friendly Attack. Additional stock tanks permit
             # removal while its unbound GIFear event is still playing.
             positions = [(C, C)]
             if damage_feedback == 'removal':

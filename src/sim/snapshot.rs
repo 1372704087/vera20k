@@ -1118,7 +1118,10 @@ use crate::sim::world::Simulation;
 // 407 -> 408: a saved Wave's endpoints, corners and direction follow
 // FireAt's constructor order and GetFLH, and its fades keep double precision.
 // 408 -> 409: retain ordered DropZoneAnim/DropZoneRadius in saved Rules resources.
-const SNAPSHOT_VERSION: u32 = 409;
+// 409 -> 410: Command::ForceAttack is gone (it was the Attack event under a
+// second name), which renumbers the later Command variants in pending
+// CommandEnvelope payloads.
+const SNAPSHOT_VERSION: u32 = 410;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4821,7 +4824,8 @@ mod tests {
         // 406 -> 407: the fog's copy of the ally graph is gone.
         // 407 -> 408: Wave geometry follows FireAt's constructor order.
         // 408 -> 409: ordered DropZone inputs in saved Rules resources.
-        assert_eq!(super::SNAPSHOT_VERSION, 409);
+        // 409 -> 410: Command::ForceAttack is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 410);
     }
 
     #[test]

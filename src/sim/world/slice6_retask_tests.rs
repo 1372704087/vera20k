@@ -419,7 +419,7 @@ fn replay_hash_stable_through_slice6() {
         ),
         (
             7,
-            Command::ForceAttack {
+            Command::Attack {
                 attacker_id: 1,
                 target_id: 2,
             },

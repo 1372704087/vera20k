@@ -100,12 +100,10 @@ cargo run --release --bin vera20k
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="ادعم VERA20k عبر PayPal" height="40"></a>
 
-جميع التبرعات مخصّصة للمساهمين، وتُوزَّع وفقًا
-[لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger). وهذه نية حسنة فحسب،
-وليست التزامًا قانونيًا: التبرع هبة، ولا يكتسب أحد بموجبه أي حق قانوني في المطالبة، لا تجاه
-المشروع ولا القائمين عليه ولا تركاتهم أو ورثتهم.
+تُوزَّع جميع التبرعات المستلمة على
+المساهمين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
 
-عند إجراء الدفعات، تُرسل إلى المساهمين عبر PayPal أو UnionPay (الصين) أو Alipay أو Vipps أو التحويل البنكي SEPA
+تُرسل الدفعات إلى المساهمين عبر PayPal أو UnionPay (الصين) أو Alipay أو Vipps أو التحويل البنكي SEPA
 أو Bitcoin.
 
 ## شكر ومعلومات قانونية

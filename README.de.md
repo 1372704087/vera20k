@@ -100,13 +100,11 @@ Diskutiert wird auf [Discord](https://discord.gg/kmjRUn5m5F) und in der QQ-Grupp
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Unterstütze VERA20k über PayPal" height="40"></a>
 
-Alle Spenden sind für die Mitwirkenden gedacht und werden gemäß dem
-[TIBTRE-Beitragsverzeichnis](https://github.com/YuriPlanet/tibtre-ledger) verteilt. Das ist
-ausschließlich eine Absicht in gutem Glauben, keine rechtliche Verpflichtung: Eine Spende ist
-ein Geschenk, und niemand erwirbt daraus einen Rechtsanspruch – weder gegen das Projekt noch
-gegen seine Maintainer oder deren Nachlass oder Erben.
+Alle eingegangenen Spenden werden
+gemäß dem [TIBTRE-Beitragsverzeichnis](https://github.com/YuriPlanet/tibtre-ledger) an
+Mitwirkende verteilt.
 
-Auszahlungen erfolgen, wenn sie stattfinden, über PayPal, UnionPay (China), Alipay, Vipps,
+Auszahlungen an Mitwirkende erfolgen über PayPal, UnionPay (China), Alipay, Vipps,
 SEPA-Überweisung oder Bitcoin.
 
 ## Danksagung und Rechtliches

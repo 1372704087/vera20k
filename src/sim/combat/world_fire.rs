@@ -1,11 +1,12 @@
 //! World-owned synchronous FireAt execution: fire admission, emission and
-//! bookkeeping, and the combat tick that visits each firer. The receivers it
-//! reaches stay in `world_receiver`.
+//! bookkeeping for each firer's own visit. The receivers it reaches stay in
+//! `world_receiver`.
 
 use super::world_receiver::{
-    ReceiverRun, callbacks_enabled, commit_area, commit_projectile_detonations_inline,
-    commit_smudges, fog_enabled, radiation_enabled, sound_enabled,
+    ReceiverRun, callbacks_enabled, commit_area, commit_smudges, fog_enabled, sound_enabled,
 };
+#[cfg(test)]
+use super::world_receiver::{commit_projectile_detonations_inline, radiation_enabled};
 use super::*;
 use crate::sim::world::techno_ai_cloak::emit_configured_cloak_sound;
 use crate::sim::world::{FrameEffects, Simulation};
@@ -414,14 +415,9 @@ fn admit_attacker_fire<'r>(
         // A delayed shot is dropped on any refusal (`0x004504D7`); an ordinary
         // one's codes were acted on by Mission_Attack (`0x0044B728`).
         EntityCategory::Structure => {}
-        // Mission_Attack's strike states act on their codes in
-        // `aircraft_release`; an aircraft reaches this only outside such a
-        // visit, where code 9 surfaces as state 4's arm (`0x0041834C`) does.
-        EntityCategory::Aircraft => {
-            if code == fire_error::FireError::Cloaked {
-                uncloak_to_fire(world, rules, obj, snap.stable_id, sound_enabled);
-            }
-        }
+        // An aircraft fires only in Mission_Attack's strike states, which act
+        // on their codes in `aircraft_release`.
+        EntityCategory::Aircraft => {}
     }
     reach.code = Some(code);
     if code != fire_error::FireError::Ok {
@@ -588,15 +584,6 @@ fn unit_reaches_fire_update(world: &Simulation, id: u64) -> bool {
     world.substrate.entities.get(id).is_some_and(|entity| {
         entity.category() == EntityCategory::Unit && entity.is_ai_alive() && !entity.is_warped_out()
     })
-}
-
-/// Non-Unit fire hosts require Health: a Building's delayed fire,
-/// an Infantry's fire and an Aircraft's attack mission do not run for a
-/// Health-0 wreck. Units use their own live-slot IsAlive guard above.
-/// An Aircraft's Mission_Attack runs behind `MissionClass::AI` (`0x005B3060`)'s
-/// IsAlive (`+0x90`, `0x005B306C`) and Health (`+0x6C`, `0x005B30A7`) gates.
-fn attacker_reaches_fire(entity: &crate::sim::game_entity::GameEntity) -> bool {
-    entity.is_alive() && !entity.death.is_dying()
 }
 
 /// `Fire_At_Target`'s ILLEGAL arm (Unit `0x00736E7E`, Infantry `0x00520721`):
@@ -2188,6 +2175,9 @@ pub enum FireVisit {
         target: TargetKind,
         weapon_index: i32,
     },
+    /// Aircraft Mission_Attack's strike states 4..9 (`0x00417FE0`), whose
+    /// shots each commit their own receiver transaction.
+    AircraftStrike(u64),
 }
 
 /// `InfantryClass::Fire_At_Target`'s tail (`0x00520A57..0x00520AC7`), on the
@@ -2247,6 +2237,12 @@ pub(crate) fn visit_fire(
     emit: &mut CombatEmit,
     pings: &mut Vec<UnderAttackEvent>,
 ) {
+    if let FireVisit::AircraftStrike(id) = visit {
+        // Each FireAt of the strike commits its own transaction, so no outer
+        // boundary wraps the visit.
+        aircraft_release::visit(world, run, rules, overlay_registry, id, emit, pings);
+        return;
+    }
     let boundary = FireCommitBoundary::capture(emit);
     let remove_start = emit.remove_attack.len();
     let mut unit_tail = None;
@@ -2393,6 +2389,8 @@ pub(crate) fn visit_fire(
                 );
             }
         }
+        // Visited above, before the boundary.
+        FireVisit::AircraftStrike(_) => {}
     }
     boundary.commit(world, run, rules, overlay_registry, emit, pings);
     for removed in emit.remove_attack.drain(remove_start..) {
@@ -2448,14 +2446,14 @@ pub(crate) fn visit_fire(
                 &world.interner,
                 binary_frame,
             );
-            #[cfg(test)]
-            if world.receiver_fixture.is_some() {
-                emit.unit_facing.push(facing);
-            }
         }
     }
 }
 
+/// The receiver fixture's combat pass: supplied detonations, then each Unit
+/// and Infantry fire visit in live order. Production fires every class in its
+/// own Logic slot and commits each Bullet in its own slot.
+#[cfg(test)]
 pub(crate) fn tick_combat(
     world: &mut Simulation,
     run: &mut ReceiverRun,
@@ -2464,28 +2462,15 @@ pub(crate) fn tick_combat(
     tick_ms: u32,
     live_order: &[u64],
     fire_suppressed: &BTreeSet<u64>,
-    fire_requests: &super::FireRequests,
     projectile_detonations: &[ProjectileDetonation],
 ) -> CombatTickResult {
     let sound_enabled = sound_enabled(world);
-
     let binary_frame = world.session.binary_frame;
-    // The aircraft release visits ask GetFireError of the fog as this phase
-    // began; its detonations and strikes can move the sensor counts. Only
-    // what GetFireError reads is copied.
-    let fog_enabled = fog_enabled(world);
-    let fog_copy = (fog_enabled && !fire_requests.aircraft.is_empty())
-        .then(|| world.fog.fire_copy(&world.house_alliances));
-    let fog = fog_copy.as_ref().map(crate::sim::vision::FireFogCopy::view);
-    let active_wave_owners: BTreeSet<_> = world.active_wave_links.keys().copied().collect();
 
     if tick_ms == 0 {
         return CombatTickResult {
-            #[cfg(test)]
             fixture_anims: Vec::new(),
-            #[cfg(any(test, feature = "test-support"))]
             projectile_spawns: Vec::new(),
-            unit_facing: Vec::new(),
             consequences: crate::sim::world::damage_consequences::DamageConsequences::ordinary(
                 DeathEffects::default(),
                 Vec::new(),
@@ -2495,10 +2480,9 @@ pub(crate) fn tick_combat(
         };
     }
 
-    // Completed prior-frame bullets physically advanced before this frame's
-    // object AI/fire walk. Each detonation commits ReceiveDamage and any
-    // recursive death weapon before the next detonation or attacker reads
-    // wall, target, health, or RNG state.
+    // Each detonation commits ReceiveDamage and any recursive death weapon
+    // before the next detonation or attacker reads wall, target, health, or
+    // RNG state.
     let mut emit = CombatEmit::default();
     let mut under_attack_events = Vec::new();
     commit_projectile_detonations_inline(
@@ -2511,174 +2495,53 @@ pub(crate) fn tick_combat(
         &mut under_attack_events,
     );
 
-    let keys: Vec<u64> = world.substrate.entities.keys_sorted();
-
-    // Infantry Guard521320 owns radiation self-fire inside its class visit.
-    // There is no late global target synthesizer after all Infantry firing.
-
-    // Phase 1: snapshot all attackers.
-    let mut snapshots: Vec<AttackerSnapshot> = Vec::new();
-    for &id in &keys {
-        // TubeMovement owns this object's complete AI turn.  The active state
-        // may already have cleared on finalization, so the world host carries
-        // the entry-time suppression set into this phased combat adapter.
-        if fire_suppressed.contains(&id) {
-            continue;
-        }
-        // Entity field-reads move into `build_attacker_snapshot` (pure) below.
-        let entity = match world.substrate.entities.get(id) {
-            Some(e) => e,
-            None => continue,
-        };
-        // Buildings, Units and Infantry already fired in their live Logic slots.
-        // Component fixtures below invoke that same slot without a world pass.
-        if matches!(
-            entity.category(),
-            EntityCategory::Structure | EntityCategory::Unit | EntityCategory::Infantry
-        ) {
-            continue;
-        }
-        // A closed transport's passengers left the logic walk; an
-        // open-topped transport's riders stay in it and fire from inside
-        // (`SetInOpenTransport @ 0x00710470`).
-        if entity.passenger_role.is_inside_transport() && !entity.passenger_role.in_open_transport()
-        {
-            continue;
-        }
-        // Every Infantry already fired at its own51BF59 slot. This also
-        // excludes newly born actors that never received an AI visit; the
-        // legacy batch cannot grant them an extra end-of-frame firing turn.
-        if entity.category() == EntityCategory::Infantry || !attacker_reaches_fire(entity) {
-            continue;
-        }
-        // An aircraft fires only in the Mission_Attack strike visit its
-        // dispatch asked for (FireAt in states 4..9, `0x0041832E`), which
-        // opens with its own prefix: AircraftClass::AI has no fire slot of
-        // its own, and its other missions fire nothing.
-        let requested = fire_requests.aircraft.contains(&id);
-        if entity.category() == EntityCategory::Aircraft && !requested {
-            continue;
-        }
-        let Some(attack_target) = shot_target(entity, None) else {
-            continue;
-        };
-        snapshots.push(build_attacker_snapshot(entity, attack_target, None));
-    }
-    // The remaining class hosts retain their existing phase order. Foot firers
-    // have no production entry here: their complete slot ran in the live pass.
     let live_index: std::collections::HashMap<u64, usize> = live_order
         .iter()
         .enumerate()
         .map(|(i, &id)| (id, i))
         .collect();
-    enum Visit {
-        Attacker(AttackerSnapshot),
-        #[cfg(any(test, feature = "test-support"))]
-        Foot(u64),
-    }
-    let mut visits: Vec<_> = snapshots.into_iter().map(Visit::Attacker).collect();
-    #[cfg(test)]
+    let mut visits: Vec<u64> = Vec::new();
     if world.receiver_fixture.is_some() {
-        visits.extend(keys.iter().copied().filter_map(|id| {
-            (!fire_suppressed.contains(&id)
-                && world.substrate.entities.get(id).is_some_and(|actor| {
-                    matches!(
-                        actor.category(),
-                        EntityCategory::Unit | EntityCategory::Infantry
-                    ) && actor.is_ai_alive()
-                        && !actor.lifecycle.in_limbo()
-                }))
-            .then_some(Visit::Foot(id))
-        }));
+        visits.extend(
+            world
+                .substrate
+                .entities
+                .keys_sorted()
+                .into_iter()
+                .filter(|&id| {
+                    !fire_suppressed.contains(&id)
+                        && world.substrate.entities.get(id).is_some_and(|actor| {
+                            matches!(
+                                actor.category(),
+                                EntityCategory::Unit | EntityCategory::Infantry
+                            ) && actor.is_ai_alive()
+                                && !actor.lifecycle.in_limbo()
+                        })
+                }),
+        );
     }
-    visits.sort_by_key(|visit| {
-        let id = match visit {
-            Visit::Attacker(snap) => snap.stable_id,
-            #[cfg(any(test, feature = "test-support"))]
-            Visit::Foot(id) => *id,
-        };
-        (live_index.get(&id).copied().unwrap_or(usize::MAX), id)
-    });
-    for visit in visits {
-        // `Visit::Foot` exists only in test builds.
-        #[cfg_attr(
-            not(any(test, feature = "test-support")),
-            expect(clippy::infallible_destructuring_match)
-        )]
-        let snap = match visit {
-            Visit::Attacker(snap) => snap,
-            #[cfg(any(test, feature = "test-support"))]
-            Visit::Foot(id) => {
-                let actor = world.substrate.entities.get_mut(id).unwrap();
-                let visit = if actor.category() == EntityCategory::Unit {
-                    FireVisit::UnitTarget(id)
-                } else {
-                    if actor.mission_leaf.as_infantry().is_none() {
-                        actor.mission_leaf =
-                            crate::sim::mission::MissionLeafState::for_entity_category(
-                                EntityCategory::Infantry,
-                            );
-                    }
-                    FireVisit::InfantryTarget(id)
-                };
-                visit_fire(
-                    world,
-                    run,
-                    visit,
-                    rules,
-                    overlay_registry,
-                    &mut emit,
-                    &mut under_attack_events,
-                );
-                continue;
-            }
-        };
-        let Some(live_attack) = world
-            .substrate
-            .entities
-            .get(snap.stable_id)
-            .filter(|entity| attacker_reaches_fire(entity))
-            .and_then(|entity| shot_target(entity, snap.building_shot))
-        else {
-            continue;
-        };
-        let mut live_snap = snap;
-        live_snap.target = live_attack;
-
-        if fire_requests.aircraft.contains(&live_snap.stable_id) {
-            aircraft_release::visit(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                &live_snap,
-                fog,
-                binary_frame,
-                &mut emit,
-                &mut under_attack_events,
-            );
+    visits.sort_by_key(|&id| (live_index.get(&id).copied().unwrap_or(usize::MAX), id));
+    for id in visits {
+        let actor = world.substrate.entities.get_mut(id).unwrap();
+        let visit = if actor.category() == EntityCategory::Unit {
+            FireVisit::UnitTarget(id)
         } else {
-            let boundary = FireCommitBoundary::capture(&emit);
-            resolve_attacker_fire(
-                world,
-                rules,
-                overlay_registry,
-                &live_snap,
-                fog_enabled,
-                binary_frame,
-                active_wave_owners.contains(&live_snap.stable_id),
-                &mut emit,
-                run.effects(),
-            );
-            boundary.commit(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                &mut emit,
-                &mut under_attack_events,
-            );
-        }
+            if actor.mission_leaf.as_infantry().is_none() {
+                actor.mission_leaf = crate::sim::mission::MissionLeafState::for_entity_category(
+                    EntityCategory::Infantry,
+                );
+            }
+            FireVisit::InfantryTarget(id)
+        };
+        visit_fire(
+            world,
+            run,
+            visit,
+            rules,
+            overlay_registry,
+            &mut emit,
+            &mut under_attack_events,
+        );
     }
     // Every projectile, missile and live-order attack receiver has committed.
     // Periodic radiation belongs to each Foot AI, before its locomotor.
@@ -2688,16 +2551,14 @@ pub(crate) fn tick_combat(
         damage_events,
         mut remove_attack,
         fire_events,
-        unit_facing,
+        unit_facing: _,
         spawn_target_updates: _,
         drain_links: _,
     } = emit;
 
-    // Phase 3: the burst step and rearm were written in each shot's FireAt
-    // emission.
     // Fixture-supplied detonations can still carry pending site creation.
     // Production Bullet transactions install their sites synchronously through
-    // DamageConsequences. Neither path applies a second, global damage sweep.
+    // DamageConsequences.
     if radiation_enabled(world) {
         for det in effects.rad_detonations.drain(..) {
             world.radiation.apply_detonation(
@@ -2711,7 +2572,7 @@ pub(crate) fn tick_combat(
         }
     }
 
-    // Phase 5: clear finished attackers' targets.
+    // Clear finished attackers' targets.
     remove_attack.sort_unstable();
     remove_attack.dedup();
     for &attacker_id in &remove_attack {
@@ -2747,11 +2608,8 @@ pub(crate) fn tick_combat(
     }
 
     CombatTickResult {
-        #[cfg(test)]
         fixture_anims: Vec::new(),
-        #[cfg(any(test, feature = "test-support"))]
         projectile_spawns: Vec::new(),
-        unit_facing,
         consequences: crate::sim::world::damage_consequences::DamageConsequences::ordinary(
             effects,
             under_attack_events,

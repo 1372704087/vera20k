@@ -104,22 +104,12 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     (sim, rules)
 }
 
-fn dispatch(sim: &mut Simulation, rules: &RuleSet) -> CombatTickResult {
-    let requests = crate::sim::combat::FireRequests {
-        aircraft: crate::sim::aircraft::tick_aircraft_missions(sim, rules),
-    };
-    let mut run = ReceiverRun::default();
-    tick_combat(
-        sim,
-        &mut run,
-        rules,
-        None,
-        100,
-        &[1],
-        &BTreeSet::new(),
-        &requests,
-        &[],
-    )
+/// Dispatches every aircraft once; a strike fires inside its dispatch.
+/// Returns the FireAt events the strikes emitted.
+fn dispatch(sim: &mut Simulation, rules: &RuleSet) -> Vec<SimFireEvent> {
+    let before = sim.fire_events.len();
+    crate::sim::aircraft::tick_aircraft_missions(sim, rules);
+    sim.fire_events.split_off(before)
 }
 
 #[test]
@@ -272,7 +262,7 @@ fn aircraft_release_control_matches_316_original_mission_suffixes() {
             .iter()
             .filter(|event| event["call"] == "fire")
             .count();
-        assert_eq!(result.consequences.fire_events().len(), calls, "{row}");
+        assert_eq!(result.len(), calls, "{row}");
         assert_eq!(entity.weapon_burst.index(), 0, "{row}");
     }
 }
@@ -289,12 +279,7 @@ fn aircraft_request_preserves_rearm_and_state3_does_not_fire_early() {
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Attack),
             3,
         );
-    assert!(
-        dispatch(&mut sim, &rules)
-            .consequences
-            .fire_events()
-            .is_empty()
-    );
+    assert!(dispatch(&mut sim, &rules).is_empty());
     let frame = sim.session.binary_frame as i32;
     sim.substrate
         .entities
@@ -302,12 +287,7 @@ fn aircraft_request_preserves_rearm_and_state3_does_not_fire_early() {
         .unwrap()
         .rearm_timer
         .set_for_test(crate::sim::timer::CdTimer::started(frame, 4));
-    assert!(
-        dispatch(&mut sim, &rules)
-            .consequences
-            .fire_events()
-            .is_empty()
-    );
+    assert!(dispatch(&mut sim, &rules).is_empty());
     // The request leaves the object's own reload running.
     assert_eq!(
         sim.substrate
@@ -333,7 +313,7 @@ fn aircraft_request_preserves_rearm_and_state3_does_not_fire_early() {
 fn aircraft_release_uses_raw_burst_above_byte_width_and_one_ammo_charge() {
     let (mut sim, rules) = fixture(&serde_json::json!({"burst":257,"fighter":true}));
     let result = dispatch(&mut sim, &rules);
-    assert_eq!(result.consequences.fire_events().len(), 257);
+    assert_eq!(result.len(), 257);
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(entity.ammo().unwrap().current(), 2);
     assert_eq!(entity.weapon_burst.index(), 0);
@@ -369,10 +349,7 @@ fn aircraft_release_snapshot_retains_burst_pending_and_mission_delay() {
         .weapon_burst
         .complete_shot(3);
     assert_ne!(before, sim.state_hash());
-    assert_eq!(
-        dispatch(&mut sim, &rules).consequences.fire_events().len(),
-        3
-    );
+    assert_eq!(dispatch(&mut sim, &rules).len(), 3);
     assert_eq!(
         sim.substrate.entities.get(1).unwrap().weapon_burst.index(),
         1
@@ -407,6 +384,40 @@ fn aircraft_release_runs_through_advance_tick() {
     assert_eq!(crate::sim::aircraft::attack_state(entity), Some(1));
 }
 
+/// A strike fires in the aircraft's own Logic slot: `MissionClass::AI`
+/// (`0x005B3060`) runs Mission_Attack inside `FootClass::AI @ 0x004DA530`,
+/// before the next LogicVector object's AI. A Unit later in the vector fires
+/// after it in the same pass. VERA used to run every strike after the pass.
+#[test]
+fn a_strike_fires_before_a_later_unit_in_the_same_pass() {
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1,
+        "fighter": true,
+        "extra_ini": "[VehicleTypes]\n0=TANK\n[TANK]\nStrength=300\nSpeed=4\nPrimary=Gun\n",
+    }));
+    let mut tank = GameEntity::test_default(3, "TANK", "Americans", 12, 10);
+    tank.set_owner_for_test(sim.interner.intern("Americans"));
+    tank.set_type_ref_for_test(sim.interner.intern("TANK"));
+    tank.set_category_for_test(EntityCategory::Unit);
+    tank.body_facing = FacingClass::new(0, 5);
+    tank.locomotor = Some(LocomotorState::from_object_type(
+        rules.object("TANK").unwrap(),
+        0,
+    ));
+    tank.attack_target
+        .set_for_test(Some(TargetKind::Cell(12, 9)));
+    sim.substrate.entities.insert(tank);
+    sim.substrate.next_stable_object_id = 4;
+    sim.set_logic_order_for_test(vec![1, 3]);
+    sim.advance_tick(&[], Some(&rules), None, None, 67);
+    let shooters: Vec<u64> = sim
+        .fire_events
+        .iter()
+        .map(|event| event.attacker_id)
+        .collect();
+    assert_eq!(shooters, vec![1, 3]);
+}
+
 #[test]
 fn aircraft_secondary_arc_ignores_homing_and_omnifire_but_fighter_bypasses_it() {
     // Aircraft41AA22..41AA6A always reads SecondaryFacing, with inclusive0x800.
@@ -421,7 +432,7 @@ fn aircraft_secondary_arc_ignores_homing_and_omnifire_but_fighter_bypasses_it() 
                 Some(FacingClass::new(delta, 5));
             let result = dispatch(&mut sim, &rules);
             assert_eq!(
-                result.consequences.fire_events().len(),
+                result.len(),
                 usize::from(fighter || delta != 0x801),
                 "fighter={fighter} delta={delta}"
             );
@@ -443,7 +454,7 @@ fn a_strafer_drops_five_bombs_on_one_pass() {
     let mut states = vec![4u8];
     for frame in 0..400u32 {
         sim.session.binary_frame = frame;
-        let fired = dispatch(&mut sim, &rules).consequences.fire_events().len();
+        let fired = dispatch(&mut sim, &rules).len();
         if fired > 0 {
             bombs.push((frame, fired));
         }
@@ -490,24 +501,14 @@ fn a_fighter_out_of_range_cycles_back_to_its_search() {
         .unwrap()
         .attack_target
         .set_for_test(Some(TargetKind::Cell(10, 60)));
-    assert!(
-        dispatch(&mut sim, &rules)
-            .consequences
-            .fire_events()
-            .is_empty()
-    );
+    assert!(dispatch(&mut sim, &rules).is_empty());
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(crate::sim::aircraft::attack_state(entity), Some(5));
     assert_eq!(entity.mission.dispatch_timer().delay(), 1);
 
     let before = sim.scenario_rng.clone();
     sim.session.binary_frame = 1;
-    assert!(
-        dispatch(&mut sim, &rules)
-            .consequences
-            .fire_events()
-            .is_empty()
-    );
+    assert!(dispatch(&mut sim, &rules).is_empty());
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(crate::sim::aircraft::attack_state(entity), Some(1));
     let mut expected = before;
@@ -564,7 +565,7 @@ fn a_strafers_bomb_leaves_at_its_weapon_speed_toward_the_target() {
 fn an_aircraft_carrying_a_passenger_drops_it_instead_of_firing() {
     let (mut sim, rules) = fixture(&serde_json::json!({"burst": 1, "passenger": true}));
     let result = dispatch(&mut sim, &rules);
-    assert!(result.consequences.fire_events().is_empty(), "no shot");
+    assert!(result.is_empty(), "no shot");
     assert!(sim.projectiles.is_empty(), "no bullet");
     let aircraft = sim.substrate.entities.get(1).unwrap();
     assert!(aircraft.passenger_role.cargo().unwrap().is_empty());
@@ -624,7 +625,7 @@ fn a_human_aircraft_shooting_over_shroud_maps_the_cells_around_it() {
             crate::sim::house_state::HouseState::new(americans, 0, None, human, 0, 10),
         );
         let result = dispatch(&mut sim, &rules);
-        assert_eq!(result.consequences.fire_events().len(), 1, "one shot");
+        assert_eq!(result.len(), 1, "one shot");
         let mapped = |rx, ry| sim.fog.is_ground_unshrouded(americans, rx, ry);
         assert_eq!(mapped(3, 3), human, "the raised centre, human {human}");
         assert_eq!(mapped(5, 3), human, "radius 2, human {human}");
@@ -647,7 +648,7 @@ fn a_kamikaze_missile_is_removed_after_its_shot() {
     );
     assert!(sim.kamikaze.contains(1));
     let result = dispatch(&mut sim, &rules);
-    assert_eq!(result.consequences.fire_events().len(), 1, "it fires");
+    assert_eq!(result.len(), 1, "it fires");
     let missile = sim.substrate.entities.get(1).unwrap();
     assert!(!missile.lifecycle.object_alive(), "UnInit");
     assert!(sim.substrate.pending_delete.contains_object(&1));
@@ -680,7 +681,7 @@ fn an_aircraft_strike_scatters_the_target_cell_away_from_the_aircraft() {
         .mission
         .set_current_for_test(MissionId::from_known(MissionType::Guard), 0);
     let result = dispatch(&mut sim, &rules);
-    assert_eq!(result.consequences.fire_events().len(), 1, "one shot");
+    assert_eq!(result.len(), 1, "one shot");
     let tank = sim.substrate.entities.get(tank).unwrap();
     assert!(
         matches!(

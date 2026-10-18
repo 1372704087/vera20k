@@ -5813,10 +5813,6 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
             if hits_target { 0x10 } else { 0 },
             "only a still-live JumpJet firer converts overshoot mode2 to the target-location mode1 snap"
         );
-        assert!(
-            runtime.simulation.pending_projectile_detonations.is_empty(),
-            "production commits in the Bullet slot, with no test-only pending handoff"
-        );
     }
 }
 
@@ -6391,7 +6387,6 @@ fn gsi_05_04_ground_source_and_target_retarget_before_removal_without_expiry() {
 
     let _ = crate::sim::cell_rect::get_cellclass_fallback(sim.resolved_terrain.as_ref(), 20, -1);
     assert!(sim.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert_eq!(
         sim.projectiles.get(projectile_id).unwrap().target,
@@ -6502,7 +6497,6 @@ fn gsi_04_01_cell_target_uses_live_structural_bit() {
     // The actual Bullet visit consumes the live Cell target coordinate. Being
     // stationary at that target is not an admission: old height is 416, above
     // both native tail gates (4677D3: <208; 467B68: <10).
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert_eq!(sim.projectiles.get(projectile_id).unwrap().position, center);
 }
 
@@ -6563,7 +6557,6 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
         100,
         &logic_order,
         &std::collections::BTreeSet::new(),
-        &Default::default(),
         &[detonation],
         crate::sim::world::FrameEffects::default(),
     );
@@ -6699,7 +6692,6 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         100,
         &logic_order,
         &std::collections::BTreeSet::new(),
-        &Default::default(),
         &[detonation],
         crate::sim::world::FrameEffects::default(),
     );
@@ -6926,7 +6918,6 @@ fn gsi_05_04_high_flying_source_and_target_become_explicit_null() {
         ProjectileTarget::None
     );
     assert!(restored.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
-    assert!(restored.pending_projectile_detonations.is_empty());
     let advanced = restored.projectiles.get(projectile_id).unwrap();
     assert_eq!(advanced.target, ProjectileTarget::None);
     let expected_velocity: [u64; 3] = std::array::from_fn(|i| {
@@ -7362,7 +7353,6 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         sim.substrate.pending_delete.object_ids(),
         vec![victim_id, projectile_id]
     );
-    assert!(sim.pending_projectile_detonations.is_empty());
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
 
@@ -7478,7 +7468,6 @@ fn gsi_01_05_terminal_wave_damages_once_before_single_current_removal() {
             .ai_counter(),
         1
     );
-    assert!(sim.pending_wave_damage_requests.is_empty());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![wave_id]);
     assert_eq!(
         sim.live_object_order_snapshot(),
@@ -7531,7 +7520,6 @@ fn terminal_type_zero_wave_with_empty_recorded_vector_has_no_damage_area_tail() 
 
     assert_eq!(sim.scenario_rng.logical_state(), expected_rng);
     assert!(!sim.active_wave_links.contains_key(&firer_id));
-    assert!(sim.pending_wave_damage_requests.is_empty());
     assert!(sim.dynamic_terrain_cells.is_empty());
     assert!(sim.radar_terrain_dirty_cells.is_empty());
     assert!(sim.tactical_dirty_cells.is_empty());
@@ -8519,7 +8507,6 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         sim.substrate.pending_delete.object_ids(),
         vec![building_id, wave_id]
     );
-    assert!(sim.pending_wave_damage_requests.is_empty());
 }
 
 #[test]

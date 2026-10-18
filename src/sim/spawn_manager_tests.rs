@@ -840,9 +840,9 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
     let _state10 = pick();
     let (rx, ry) = pick().expect("the playfield has an edge");
 
-    let fires =
+    let strike =
         crate::sim::aircraft::dispatch_mission(&mut sim, missile, &rules, Default::default());
-    assert!(!fires);
+    assert!(strike.is_none());
     let entity = sim.substrate.entities.get(missile).unwrap();
     assert_eq!(
         entity.mission.current(),

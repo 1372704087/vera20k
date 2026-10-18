@@ -231,6 +231,7 @@ pub(super) fn resolve_receive_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+    cheats: &crate::sim::cheats::Cheats,
 ) -> Option<ResolvedReceiveDamage> {
     let distance_leptons = event.distance_leptons;
     let receiver_flags = event.receiver_flags;
@@ -261,6 +262,18 @@ pub(super) fn resolve_receive_damage(
             event.damage,
             receiver_flags.ignore_defenses,
         )
+    };
+    // Trainer "one-hit kill": scale what the cheating house deals. The
+    // multiplier acts on the packet the receiver would have seen today, and
+    // only on positive damage — a heal or a repair stays a heal, and a zero
+    // stays zero. `saturating_mul` keeps a 65535x switch from wrapping into a
+    // heal.
+    let receiver_input = if receiver_input > 0
+        && source_house.is_some_and(|owner| cheats.applies_to(owner))
+    {
+        receiver_input.saturating_mul(cheats.damage_multiplier())
+    } else {
+        receiver_input
     };
 
     let allied = |asker: InternedId, other: InternedId| {
@@ -406,6 +419,7 @@ pub(crate) fn wave_post_object_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+    cheats: &crate::sim::cheats::Cheats,
 ) -> Option<i32> {
     resolve_receive_damage(
         event,
@@ -417,6 +431,7 @@ pub(crate) fn wave_post_object_damage(
         scenario_no_damage,
         current_tick,
         terrain,
+        cheats,
     )
     .and_then(|resolved| resolved.outcome.post_object_damage)
 }

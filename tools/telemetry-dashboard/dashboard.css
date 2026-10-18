@@ -610,7 +610,8 @@
   body[data-view="wall"] main:not(#wall),
   body[data-view="detail"] main:not(#detail),
   body[data-view="report"] main:not(#report),
-  body[data-view="logs"] main:not(#logs) { display: none; }
+  body[data-view="logs"] main:not(#logs),
+  body[data-view="cheats"] main:not(#cheats) { display: none; }
 
   /* ===================================================== player detail wall */
   main.detail {
@@ -837,6 +838,146 @@
   .log-row.lv2 { background: rgba(255, 182, 72, 0.04); }
   .log-row.lv4 .lv, .log-row.lv4 .msg { color: #7fa8bf; }
   .log-row.lv5 .lv, .log-row.lv5 .msg { color: #5b7b90; }
+
+  /* ====================================================== trainer panel */
+  main.cheats {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    padding: 10px 12px 12px;
+    min-height: 0;
+    overflow-y: auto;
+    align-content: start;
+  }
+  main.cheats .panel { min-height: 0; }
+  .cheat-owner {
+    font-size: 10.5px;
+    font-weight: 400;
+    letter-spacing: 0.04em;
+    color: var(--cyan);
+    text-transform: none;
+    opacity: 0.8;
+  }
+  .cheat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 10px;
+    margin-top: 10px;
+  }
+  .cheat-card {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding: 10px 12px 12px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: linear-gradient(180deg, rgba(0, 60, 120, 0.18), rgba(0, 20, 40, 0.28));
+  }
+  .cheat-card h3 {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+  .cheat-card h3::before {
+    content: "";
+    width: 3px; height: 9px;
+    background: var(--cyan);
+    box-shadow: 0 0 6px var(--cyan);
+    transform: skewX(-18deg);
+  }
+  .cheat-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .cheat-label { white-space: nowrap; }
+  .cheat-note {
+    margin: -2px 0 2px;
+    font-size: 10.5px;
+    line-height: 1.35;
+    color: var(--dim);
+  }
+  .cheat-num {
+    width: 96px;
+    padding: 2px 6px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: rgba(0, 30, 60, 0.55);
+    color: var(--text);
+    font: inherit;
+    font-size: 11.5px;
+    text-align: right;
+  }
+  .cheat-num:focus { outline: none; border-color: var(--line-strong); }
+  /* A switch, not a checkbox: the track carries the state, the knob slides. */
+  .cheat-switch {
+    appearance: none;
+    position: relative;
+    width: 34px; height: 16px;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: rgba(0, 20, 40, 0.7);
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+    flex: none;
+  }
+  .cheat-switch::after {
+    content: "";
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: #4c6b80;
+    transition: transform 120ms ease, background 120ms ease;
+  }
+  .cheat-switch:checked {
+    border-color: var(--cyan);
+    background: rgba(0, 140, 220, 0.32);
+  }
+  .cheat-switch:checked::after {
+    transform: translateX(18px);
+    /* The track is already cyan: the knob has to be the light one or the
+       switch reads as a solid pill. */
+    background: #eafcff;
+    box-shadow: 0 0 6px rgba(40, 240, 255, 0.8);
+  }
+  .cheat-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+  .cheat-btn {
+    flex: 1 1 auto;
+    padding: 4px 10px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: rgba(0, 40, 80, 0.4);
+    color: var(--dim);
+    font: inherit;
+    font-size: 11.5px;
+    cursor: pointer;
+    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .cheat-btn:hover { color: var(--text); border-color: var(--line-strong); }
+  .cheat-btn:active { background: rgba(0, 140, 255, 0.25); }
+  .cheat-presets { display: flex; gap: 5px; flex-wrap: wrap; }
+  .cheat-chip {
+    flex: 1 1 auto;
+    padding: 2px 6px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--dim);
+    font: inherit;
+    font-size: 10.5px;
+    cursor: pointer;
+  }
+  .cheat-chip:hover { color: var(--cyan); border-color: var(--line-strong); }
+  .cheat-chip.on { color: #04101c; background: var(--cyan); border-color: var(--cyan); }
 
   /* ------------------------------------------------ cost-panel pagination */
   /* The cost panel carries two readings that share a column but not a shape:

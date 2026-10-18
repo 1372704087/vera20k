@@ -1747,17 +1747,23 @@ function setupViews() {
         document.getElementById("view-wall")?.classList.toggle("on", view === "wall");
         document.getElementById("view-detail")?.classList.toggle("on", view === "detail");
         document.getElementById("view-report")?.classList.toggle("on", view === "report");
+        document.getElementById("view-logs")?.classList.toggle("on", view === "logs");
+        document.getElementById("view-cheats")?.classList.toggle("on", view === "cheats");
         if (view === "detail" && lastSnapshot)
             renderDetail(lastSnapshot);
         if (view === "report")
             renderReport();
         if (view === "logs")
             rebuildLogView();
+        if (view === "cheats")
+            syncCheats(lastSnapshot?.cheats);
     };
     document.getElementById("view-wall")?.addEventListener("click", () => show("wall"));
     document.getElementById("view-detail")?.addEventListener("click", () => show("detail"));
     document.getElementById("view-report")?.addEventListener("click", () => show("report"));
     document.getElementById("view-logs")?.addEventListener("click", () => show("logs"));
+    document.getElementById("view-cheats")?.addEventListener("click", () => show("cheats"));
+    bindCheats();
     document.getElementById("log-pause")?.addEventListener("click", toggleLogPause);
     document.getElementById("log-clear")?.addEventListener("click", clearLogs);
     document.getElementById("log-follow")?.addEventListener("change", (event) => {
@@ -1928,6 +1934,117 @@ function clearLogs() {
         marker.textContent = "";
     rebuildLogView();
 }
+// ------------------------------------------------------------ trainer panel
+/** The switches the panel owns, in the order the engine names them. */
+const CHEAT_SWITCHES = [
+    "infinite_money",
+    "infinite_power",
+    "instant_build",
+    "invincible",
+    "reveal_map",
+];
+function cheatInput(selector) {
+    return document.querySelector(selector);
+}
+function cheatChecked(name) {
+    return cheatInput(`input[data-cheat="${name}"]`)?.checked ?? false;
+}
+/**
+ * Read the panel. Built from the DOM, not a cached object: the engine echoes
+ * its own values back on every snapshot, and a cached copy would send stale
+ * numbers the moment one field was clamped on arrival.
+ */
+function currentCheatFlags() {
+    const money = Number(cheatInput("#cheat-money")?.value ?? 0);
+    const damage = Number(cheatInput("#cheat-damage")?.value ?? 1);
+    const flags = {};
+    for (const name of CHEAT_SWITCHES)
+        flags[name] = cheatChecked(name);
+    flags.money_target = Math.max(0, Math.min(9_999_999, Math.round(money) || 0));
+    flags.damage_scale = Math.max(1, Math.min(65_535, Math.round(damage) || 1));
+    return flags;
+}
+function sendCheats() {
+    sendCommand({ cmd: "set_cheats", flags: currentCheatFlags() });
+    markCheatChip();
+}
+/** Highlight the preset that matches the current multiplier. */
+function markCheatChip() {
+    const value = Number(cheatInput("#cheat-damage")?.value ?? 1);
+    document.querySelectorAll(".cheat-chip").forEach((chip) => {
+        chip.classList.toggle("on", Number(chip.dataset.scale) === value);
+    });
+}
+/** Take the engine's values (authoritative) and show them. */
+function syncCheats(report) {
+    if (!report)
+        return;
+    for (const name of CHEAT_SWITCHES) {
+        const input = cheatInput(`input[data-cheat="${name}"]`);
+        if (input)
+            input.checked = report[name];
+    }
+    const money = cheatInput("#cheat-money");
+    // A zero floor is the engine's "unset"; keeping the panel's default avoids
+    // showing a field the user never typed into.
+    if (money && document.activeElement !== money && report.money_target > 0) {
+        money.value = String(report.money_target);
+    }
+    const damage = cheatInput("#cheat-damage");
+    if (damage && document.activeElement !== damage) {
+        damage.value = String(report.damage_scale);
+    }
+    const owner = document.getElementById("cheat-owner");
+    if (owner) {
+        if (!report.owner) {
+            owner.textContent = "";
+        }
+        else {
+            // Show the wallet beside the house: the money switch's effect is the
+            // thing a reader checks first, and this saves a trip to the wall.
+            const house = lastSnapshot?.houses.find((row) => row.name === report.owner);
+            const wallet = house ? ` · ${t("cheat.wallet")} ${thousands(house.credits)}` : "";
+            owner.textContent = `${t("cheat.owner")} ${report.owner}${wallet}`;
+        }
+    }
+    markCheatChip();
+}
+function bindCheats() {
+    for (const name of CHEAT_SWITCHES) {
+        cheatInput(`input[data-cheat="${name}"]`)?.addEventListener("change", sendCheats);
+    }
+    // `change`, not `input`: a number field fires per keystroke and every send
+    // re-asserts every switch.
+    cheatInput("#cheat-money")?.addEventListener("change", sendCheats);
+    cheatInput("#cheat-damage")?.addEventListener("change", sendCheats);
+    document.querySelectorAll(".cheat-chip").forEach((chip) => {
+        chip.addEventListener("click", () => {
+            const damage = cheatInput("#cheat-damage");
+            if (damage)
+                damage.value = chip.dataset.scale ?? "1";
+            sendCheats();
+        });
+    });
+    const act = (id, action) => {
+        document
+            .getElementById(id)
+            ?.addEventListener("click", () => sendCommand({ cmd: "cheat_action", action }));
+    };
+    act("cheat-heal", "heal_all");
+    act("cheat-veteran", "veteran_all");
+    act("cheat-supers", "superweapons_ready");
+    document.getElementById("cheat-reset")?.addEventListener("click", () => {
+        for (const name of CHEAT_SWITCHES) {
+            const input = cheatInput(`input[data-cheat="${name}"]`);
+            if (input)
+                input.checked = false;
+        }
+        const damage = cheatInput("#cheat-damage");
+        if (damage)
+            damage.value = "1";
+        sendCheats();
+    });
+}
 /** The stream arrives ~11×/s. Rebuilding a forty-row table that often reads as
  *  flicker rather than as live data, so the wall redraws at most four times a
  *  second and coalesces whatever arrived in between. */
@@ -2090,6 +2207,7 @@ function connect() {
         }
         lastSnapshot = snapshot;
         acceptLogs(snapshot.logs);
+        syncCheats(snapshot.cheats);
         setStatus(true);
         // The detail view's history must keep flowing while the data wall shows,
         // or its charts restart at every switch.

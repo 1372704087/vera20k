@@ -746,6 +746,7 @@ pub(crate) fn commit_entities(
             scenario_no_damage,
             current_tick,
             world.resolved_terrain.as_ref(),
+            &world.cheats,
         );
         if let Some(effect) = receiver_outcome.and_then(|resolved| resolved.invulnerability_impact)
         {

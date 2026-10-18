@@ -2,7 +2,7 @@
  * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
  */
 
-export const SCHEMA_VERSION = 15;
+export const SCHEMA_VERSION = 16;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -188,6 +188,19 @@ export interface RenderTimingReport {
   other_ms: number;
 }
 
+/** The dashboard trainer's switches, as the engine reports them (schema v16). */
+export interface CheatReport {
+  infinite_money: boolean;
+  money_target: number;
+  infinite_power: boolean;
+  instant_build: boolean;
+  invincible: boolean;
+  damage_scale: number;
+  reveal_map: boolean;
+  /** The house the switches act on, resolved; null before they are used. */
+  owner: string | null;
+}
+
 /** One log record on the wire (schema v15). */
 export interface LogRecord {
   seq: number;
@@ -220,4 +233,5 @@ export interface TelemetrySnapshot {
   profile: FrameProfileReport | null;
   render: RenderTimingReport | null;
   logs: LogBatch | null;
+  cheats: CheatReport;
 }

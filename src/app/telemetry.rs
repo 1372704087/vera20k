@@ -23,6 +23,43 @@ pub enum DebugCommand {
     CycleSpeedType { forward: bool },
     /// Advance one sim tick while debug-paused (`{"cmd":"frame_step"}`).
     FrameStep,
+    /// Replace the trainer switchboard (`{"cmd":"set_cheats","flags":{…}}`).
+    /// The panel always sends the whole block, so the message is idempotent
+    /// and two windows cannot half-apply a change.
+    SetCheats { flags: CheatFlags },
+    /// Fire a one-shot trainer action (`{"cmd":"cheat_action","action":"…"}`).
+    CheatAction { action: CheatAction },
+}
+
+/// The trainer switches as they cross the wire.
+///
+/// Every field is `#[serde(default)]`: a panel that has not been updated yet
+/// sends only the switches it knows, and the ones it omits read as "off"
+/// rather than failing the whole command.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CheatFlags {
+    pub infinite_money: bool,
+    /// Wallet floor the money switch holds. Clamped at zero on arrival.
+    pub money_target: i32,
+    pub infinite_power: bool,
+    pub instant_build: bool,
+    pub invincible: bool,
+    /// Damage multiplier; 0 and 1 both mean "no change".
+    pub damage_scale: u16,
+    pub reveal_map: bool,
+}
+
+/// The trainer buttons that act once instead of staying on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheatAction {
+    /// Restore every owned object to its `Strength=`.
+    HealAll,
+    /// Promote every owned combat object to elite.
+    VeteranAll,
+    /// Charge every granted Super the house owns.
+    SuperweaponsReady,
 }
 
 /// The overlays the dashboard may switch (the Ctrl+Shift chord's targets).

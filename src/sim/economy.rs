@@ -98,6 +98,13 @@ impl Economy {
         self.credits = self.credits.wrapping_add(amount);
     }
 
+    /// Overwrite the balance. No native writer does this — `+0x30C` moves by
+    /// `Add_Credits` and `Spend_Money` only — so the sole caller is the
+    /// dashboard's money cheat, which has to hold a floor.
+    pub(crate) fn set_credits(&mut self, credits: i32) {
+        self.credits = credits;
+    }
+
     /// `HouseClass::Spend_Money @ 0x004F9790`. An amount the balance covers
     /// (signed `<=`) comes off it; otherwise the whole balance, even a
     /// negative one, is taken and zeroed, and the rest would drain the silos

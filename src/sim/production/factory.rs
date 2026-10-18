@@ -1385,6 +1385,53 @@ impl FactoryRegistry {
         }
     }
 
+    /// Trainer "instant build": drive every in-flight build to completion.
+    ///
+    /// The same per-step charge `step_all` runs, without the native cadence
+    /// gate, so the wallet is debited exactly what the build costs and a
+    /// factory that cannot pay still stalls — an unaffordable build is not
+    /// made free by this switch. The object stays attached and suspended on
+    /// reaching 54; delivery is still the normal later slice's job, which
+    /// keeps placement, voice and queue advancing identical to a build that
+    /// finished at its natural pace.
+    pub(super) fn cheat_complete(
+        &mut self,
+        houses: &mut BTreeMap<InternedId, crate::sim::house_state::HouseState>,
+        frame: u32,
+        owner: InternedId,
+    ) {
+        let order: Vec<FactoryHolder> = self
+            .holders_insertion_ordered()
+            .into_iter()
+            .map(|(holder, _)| holder)
+            .collect();
+        for holder in order {
+            let Some(f) = self.factories.get_mut(&holder) else {
+                continue;
+            };
+            if f.object.is_none() || f.suspended || f.owner != owner {
+                continue;
+            }
+            let factory_owner = f.owner;
+            let Some(house) = houses.get_mut(&factory_owner) else {
+                continue;
+            };
+            for _ in 0..PRODUCTION_STEPS {
+                if f.progress >= PRODUCTION_STEPS {
+                    break;
+                }
+                f.on_hold = false;
+                if !matches!(f.advance_one_step(&mut house.economy), StepOutcome::Stepped) {
+                    break;
+                }
+            }
+            if f.progress >= PRODUCTION_STEPS {
+                f.step_rate_frames = 0;
+                f.step_timer.start(frame as i32, 0);
+            }
+        }
+    }
+
     /// The ABANDON / ABANDON_ALL events for `type_id` in (owner, category):
     /// `HouseClass::Abandon_Production @ 0x004FAA10`. A single abandon removes
     /// the first queued copy and stops there (`0x004FAAEE`, `0x004FAB29`); with

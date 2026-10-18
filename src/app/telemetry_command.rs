@@ -8,7 +8,7 @@
 //! same one-shot advance the `.` hotkey requests.
 
 use crate::app::state::AppState;
-use crate::app::telemetry::{DebugCommand, DebugSwitch};
+use crate::app::telemetry::{CheatAction, CheatFlags, DebugCommand, DebugSwitch};
 
 /// Drain pending browser commands and apply them (once per frame).
 pub(crate) fn drain_and_apply(state: &mut AppState) {
@@ -24,6 +24,12 @@ pub(crate) fn drain_and_apply(state: &mut AppState) {
         return;
     }
     for command in commands {
+        // The trainer is not a dev overlay: it writes simulation state the
+        // shipping build also has, so it is handled before the feature gate
+        // and works in every build that serves the dashboard.
+        if handle_trainer(state, command) {
+            continue;
+        }
         apply(state, command);
     }
     // Echo the new switch state immediately. The tick-driven publish would
@@ -31,6 +37,80 @@ pub(crate) fn drain_and_apply(state: &mut AppState) {
     // advancing — exactly the case where the user is clicking them from
     // another window (an unfocused game freezes the runtime).
     crate::app::telemetry_capture::publish_now(state);
+}
+
+/// Apply the trainer switches, returning `false` for commands that are not
+/// trainer commands.
+fn handle_trainer(state: &mut AppState, command: DebugCommand) -> bool {
+    match command {
+        DebugCommand::SetCheats { flags } => {
+            set_cheats(state, flags);
+            true
+        }
+        DebugCommand::CheatAction { action } => {
+            run_cheat_action(state, action);
+            true
+        }
+        _ => false,
+    }
+}
+
+/// Replace the switchboard. Sent whole every time, so this is a pure
+/// assignment plus the one side effect the simulation cannot see on its own:
+/// the shroud override is an app-level flag.
+fn set_cheats(state: &mut AppState, flags: CheatFlags) {
+    let reveal_changed = {
+        let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
+            return;
+        };
+        let sim = &mut runtime.simulation;
+        let was_revealed = sim.cheats.reveal_map;
+        sim.set_cheats(crate::sim::cheats::Cheats::switches(
+            flags.infinite_money,
+            flags.money_target.max(0),
+            flags.infinite_power,
+            flags.instant_build,
+            flags.invincible,
+            flags.damage_scale,
+            flags.reveal_map,
+        ));
+        log::info!(
+            "Trainer: money {} target {} · power {} · instant build {} · \
+             invincible {} · damage x{} · shroud {}",
+            flags.infinite_money,
+            flags.money_target,
+            flags.infinite_power,
+            flags.instant_build,
+            flags.invincible,
+            flags.damage_scale,
+            if flags.reveal_map { "off" } else { "on" },
+        );
+        was_revealed != flags.reveal_map
+    };
+    if reveal_changed {
+        state.match_state.sandbox_full_visibility = flags.reveal_map;
+    }
+}
+
+/// Run a one-shot trainer button now, not on the next tick: a paused match
+/// still has to answer "heal my units".
+fn run_cheat_action(state: &mut AppState, action: CheatAction) {
+    use crate::sim::cheats::action as cheat_action;
+    // `rules` and `simulation` are disjoint fields of the same runtime, so the
+    // borrow checker lets the action read one and write the other.
+    let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
+        return;
+    };
+    let bit = match action {
+        CheatAction::HealAll => cheat_action::HEAL_ALL,
+        CheatAction::VeteranAll => cheat_action::VETERAN_ALL,
+        CheatAction::SuperweaponsReady => cheat_action::SUPERWEAPONS_READY,
+    };
+    let sim = &mut runtime.simulation;
+    sim.cheats.request(bit);
+    let rules = &runtime.resources.rules;
+    sim.apply_cheats(Some(rules));
+    log::info!("Trainer: ran {:?}", action);
 }
 
 #[cfg(feature = "dev-overlays")]
@@ -96,6 +176,9 @@ fn apply(state: &mut AppState, command: DebugCommand) {
                 state.diag.debug_frame_step_requested = true;
             }
         }
+        // Handled by `handle_trainer` before the feature gate; listed so the
+        // match stays exhaustive.
+        DebugCommand::SetCheats { .. } | DebugCommand::CheatAction { .. } => {}
     }
 }
 

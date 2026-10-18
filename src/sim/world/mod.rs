@@ -1396,6 +1396,12 @@ pub struct Simulation {
     /// Deterministic iteration via nested BTreeMap.
     pub super_weapons:
         BTreeMap<InternedId, BTreeMap<InternedId, crate::sim::superweapon::SuperWeaponInstance>>,
+    /// The dashboard trainer's switches. Debug only: skipped by serde, never
+    /// hashed, and inert at its default — a match that never opens the panel
+    /// is byte-for-byte the match that existed before this field. See
+    /// `sim::cheats`.
+    #[serde(skip, default)]
+    pub cheats: crate::sim::cheats::Cheats,
     /// The Lightning Storm's globals (one at a time).
     pub lightning_storm: crate::sim::superweapon::lightning_storm::LightningStorm,
     /// The Psychic Dominator's globals (one at a time).
@@ -2512,6 +2518,7 @@ impl Simulation {
                                         scenario_no_damage,
                                         current_tick,
                                         self.resolved_terrain.as_ref(),
+                                        &self.cheats,
                                     )
                                 };
                             if let Some(value) = post_object_damage {
@@ -3396,6 +3403,7 @@ impl Simulation {
             load_objects: LoadObjectLifecycle::default(),
             fog: FogState::default(),
             house_alliances: HouseAllianceMap::default(),
+            cheats: crate::sim::cheats::Cheats::default(),
             substrate: ObjectSubstrate::new(),
             lifecycle_outputs: Vec::new(),
             unit_voice_visit_interest: Default::default(),
@@ -4927,6 +4935,15 @@ impl Simulation {
             &self.interner,
             self.session.binary_frame,
         );
+        // Trainer "infinite power": report full output so every consumer of
+        // the ratio (factory rates, radar, unit movement on low power) behaves
+        // as if the base were fully powered. Applied after the assessment so
+        // the dirty pass cannot overwrite it, and whether or not one ran.
+        if self.cheats.infinite_power && self.cheats.applies_to(owner) {
+            let state = self.power_states.entry(owner).or_default();
+            state.total_output = state.total_output.max(state.total_drain.max(1));
+            state.is_low_power = false;
+        }
         if assessed {
             production::refresh_factory_rates_for_house(self, rules, owner);
             // Power508DD5 compares the old/current ratio;508DDB invokes the
@@ -6954,6 +6971,10 @@ impl Simulation {
         trigger_inputs: Option<TriggerInputs<'_>>,
         effects: FrameEffects<'_>,
     ) -> Result<MasterFrameOutput, FrameAdvanceError> {
+        // Trainer switches first: money, invulnerability and the queued
+        // one-shots all have to land before anything in this frame reads
+        // their state. Idle switches cost one branch.
+        self.apply_cheats(rules);
         // Frame-phase accounting for the end-of-match report. One clock read per
         // subsystem boundary below; every stamp sits on a boundary the comments
         // already document, so the ledger means what it says. `prev` is the

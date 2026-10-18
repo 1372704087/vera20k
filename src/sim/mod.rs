@@ -36,6 +36,7 @@ pub mod building_construction;
 pub(crate) mod building_entry;
 pub(crate) mod c4_plant;
 pub mod capture_manager;
+pub mod cheats; // dashboard trainer switches (debug only: never saved or hashed)
 pub mod cloak_disguise;
 pub mod command;
 pub mod components;

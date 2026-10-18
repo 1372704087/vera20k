@@ -287,6 +287,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
             world.session.no_damage,
             u64::from(world.session.binary_frame),
             world.resolved_terrain.as_ref(),
+            &crate::sim::cheats::Cheats::default(),
         )
         .unwrap();
         assert_eq!(

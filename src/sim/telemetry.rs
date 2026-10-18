@@ -58,7 +58,8 @@ use crate::sim::world::Simulation;
 /// table lists. The four pie buckets are derived from it, not added alongside.
 /// v14: `render` — the per-phase breakdown of one in-game render.
 /// v15: `logs` — incremental log records for the dashboard's log view.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 15;
+/// v16: `cheats` — the trainer switches, so a panel reload cannot desync.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 16;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -360,6 +361,27 @@ pub struct RenderTimingReport {
     pub other_ms: f32,
 }
 
+/// The trainer switches in force, as the dashboard renders them.
+///
+/// A projection of [`crate::sim::cheats::Cheats`]: the panel is the only
+/// writer, so echoing the live values back is what keeps two browser windows
+/// (or a reload) showing the same switch positions instead of whatever that
+/// window last clicked.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct CheatReport {
+    pub infinite_money: bool,
+    pub money_target: i32,
+    pub infinite_power: bool,
+    pub instant_build: bool,
+    pub invincible: bool,
+    pub damage_scale: u16,
+    pub reveal_map: bool,
+    /// The house the switches act on, resolved. Present from the first frame
+    /// a switch is on; the panel shows it so "who is this helping" is never a
+    /// guess.
+    pub owner: Option<String>,
+}
+
 /// One log record on the wire.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LogRecord {
@@ -420,6 +442,8 @@ pub struct TelemetrySnapshot {
     pub render: Option<RenderTimingReport>,
     /// App-filled log records since the previous snapshot.
     pub logs: Option<LogBatch>,
+    /// The trainer switches currently in force (schema v16).
+    pub cheats: CheatReport,
 }
 
 impl Simulation {
@@ -517,6 +541,16 @@ impl Simulation {
             profile: None,
             render: None,
             logs: None,
+            cheats: CheatReport {
+                infinite_money: self.cheats.infinite_money,
+                money_target: self.cheats.money_target,
+                infinite_power: self.cheats.infinite_power,
+                instant_build: self.cheats.instant_build,
+                invincible: self.cheats.invincible,
+                damage_scale: self.cheats.damage_scale,
+                reveal_map: self.cheats.reveal_map,
+                owner: self.cheats.owner.map(|owner| self.interner.resolve(owner).to_string()),
+            },
         }
     }
 }

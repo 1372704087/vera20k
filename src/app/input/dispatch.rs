@@ -1958,6 +1958,12 @@ fn handle_dev_hotkey_pressed(state: &mut AppState, code: winit::keyboard::KeyCod
         }
         KeyCode::F10 | KeyCode::KeyV => {
             state.match_state.sandbox_full_visibility = !state.match_state.sandbox_full_visibility;
+            // Keep the dashboard's trainer switch pointing at the same fact,
+            // so the panel does not claim the shroud is on after this chord.
+            if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+                runtime.simulation.cheats.reveal_map =
+                    state.match_state.sandbox_full_visibility;
+            }
             log::info!(
                 "Fog of war: {}",
                 if state.match_state.sandbox_full_visibility {

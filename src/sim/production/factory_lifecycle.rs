@@ -768,6 +768,11 @@ pub(in crate::sim) fn revalidate_and_step_factories(
     }
     let mut registry = std::mem::take(&mut sim.production.factories);
     registry.step_all(&mut sim.houses, sim.session.binary_frame);
+    if sim.cheats.instant_build
+        && let Some(owner) = sim.cheats.owner
+    {
+        registry.cheat_complete(&mut sim.houses, sim.session.binary_frame, owner);
+    }
     sim.production.factories = registry;
 }
 

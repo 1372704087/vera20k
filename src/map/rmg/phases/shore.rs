@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn equivalent_foreign_shore_piece_ends_the_block_successfully() {
         let mut fixture = Fixture::new();
-        // Pieces 1 and 2 share class 0.
+        // Pieces 0, 1 and 2 share class 0 (0x82A7F4).
         fixture.set(FIRST, SHORE_BASE + 1, 7);
         assert_eq!(fixture.place(SHORE_BASE, 5, false), (true, true));
         assert_eq!(fixture.cell(FIRST), (SHORE_BASE + 1, 0, 4, 7));

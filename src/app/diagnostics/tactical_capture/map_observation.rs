@@ -2663,8 +2663,7 @@ impl TacticalCaptureSession {
         state.diag.use_map_presentation_clock()?;
         state.match_state.input.cursor_x = 0.0;
         state.match_state.input.cursor_y = 0.0;
-        let now_ms =
-            crate::app::match_runtime::frame_pacer::wall_clock_ms();
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state.platform.frame_pacer.reanchor(now_ms);
         Ok(())
     }
@@ -2704,8 +2703,12 @@ impl TacticalCaptureSession {
                     && receipt.binary_frame == 0,
                 "Rust L0 differs from requested fixed Battle launch"
             );
+            // The receipt above seals the requested display handle. Runtime
+            // ownership uses the same collision-safe slots as normal startup.
+            let launch_slots =
+                crate::sim::scenario_bootstrap::normalized_launch_slots(&profile.launch);
             ensure!(
-                state.match_state.local_player_owner() == Some(profile.launch.player_name.as_str()),
+                state.match_state.local_player_owner() == Some(launch_slots[0].owner_name.as_str()),
                 "loaded local owner differs from requested launch"
             );
             validate_loaded_resources(state)?;

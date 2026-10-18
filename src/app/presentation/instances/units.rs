@@ -259,6 +259,17 @@ pub(crate) fn build_unit_instances(
         let Some(band) = entity_draw_band(sim.display_layers(), stable_id) else {
             continue;
         };
+        // The screen cull reads only the position, and nothing between here
+        // and the waterline capture writes, so an object off the screen
+        // skips the admission work below.
+        let viewport = if entity.category() == EntityCategory::Unit {
+            unit_viewport
+        } else {
+            [sw, sh]
+        };
+        let Some([sx, sy]) = unit_draw_anchor(entity, [cam_x, cam_y], viewport) else {
+            continue;
+        };
         // Common visibility, passenger, limbo, and DrawState admission is shared below.
         let pos = &entity.position;
         let owner_str = sim.interner.resolve(entity.owner());
@@ -318,14 +329,6 @@ pub(crate) fn build_unit_instances(
         // slope during gamemd's 3-frame transition, then falls back to the
         // stable terrain slope path.
         let slope_state = unit_render_slope_state(state, entity, display_binary_frame, band);
-        let viewport = if entity.category() == EntityCategory::Unit {
-            unit_viewport
-        } else {
-            [sw, sh]
-        };
-        let Some([sx, sy]) = unit_draw_anchor(entity, [cam_x, cam_y], viewport) else {
-            continue;
-        };
         let interp_z = pos.z();
         let draw_state = draw_decision.state;
         let extra_light = state.rules().map_or(0, |rules| {

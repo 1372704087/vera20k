@@ -26,24 +26,6 @@ pub(crate) fn is_simple_deployer(sim: &Simulation, entity: &GameEntity, rules: &
 }
 
 impl Simulation {
-    /// The Unit SimpleDeployer arm of CanDeploySlashUnload700D50:
-    /// Cell484AE0 precedes the Foot+684 tube-state gate, then Type+E13 admits.
-    /// EMP timer504 has no active Rust producer; its separate mechanism remains
-    /// unrepresented, as in the shared command admission owner.
-    pub fn can_simple_deploy(&self, id: u64, rules: &RuleSet) -> bool {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return false;
-        };
-        is_simple_deployer(self, entity, rules)
-            && entity.low_bridge_tube_state.is_none()
-            && !self.resolved_terrain.as_ref().is_some_and(|terrain| {
-                terrain.is_tube_deploy_neighborhood((
-                    entity.position.rx() as i16,
-                    entity.position.ry() as i16,
-                ))
-            })
-    }
-
     /// Unload73DE6E..73DEC8 observes6E0 before choosing its updater. Pending
     /// animation/landing returns1; completed work queues/commences Guard then
     /// FootUnload4DA2B0 returns450. Neither tail consumes scenario RNG.

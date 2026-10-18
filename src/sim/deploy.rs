@@ -5,7 +5,9 @@
 //! including when its requested next action refuses. Unit simple deployment
 //! uses its Mission leaf, the same Techno Stage and attached AnimClass.
 
+use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
+use crate::rules::terrain_rules::LandType;
 use crate::sim::combat::{TargetKind, combat_weapon};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::locomotor::MovementLayer;
@@ -46,8 +48,18 @@ impl CrushImmunity {
     }
 }
 
-/// Event9 DEPLOY4C778A..4C7812. MCV conversion and simple deployment
-/// share this event; each concrete Mission_Unload branch owns its effects.
+/// Event9 DEPLOY4C778A..4C7812. MCV conversion, simple deployment and the
+/// deploy-fire arm share this event; each concrete Mission_Unload branch owns
+/// its effects.
+///
+/// RESIDUAL:
+/// - Native refuses only an aircraft (`0x004C777E`) and the
+///   Construction/Selling missions below; VERA admits only those three Unit
+///   kinds, whose Unload arms it ports. Trigger: a DEPLOY event for another
+///   object, which no VERA sender issues.
+/// - Native breaks radio contact (vt+0x274(3), `0x004C77E4`) and deploys;
+///   VERA refuses a unit with a radio partner. Trigger: D on a unit in radio
+///   contact, such as one docked at a service depot. Effect: it ignores D.
 pub(crate) fn issue_order(
     sim: &mut Simulation,
     id: u64,
@@ -59,7 +71,8 @@ pub(crate) fn issue_order(
             && !e.lifecycle.in_limbo()
             && e.tether.partner().is_none()
             && (crate::sim::mcv_deploy::is_mcv(sim, e, rules)
-                || crate::sim::unit_simple_deploy::is_simple_deployer(sim, e, rules))
+                || crate::sim::unit_simple_deploy::is_simple_deployer(sim, e, rules)
+                || unit_fires_on_deploy(sim, e, rules))
     }) {
         return false;
     }
@@ -123,6 +136,229 @@ pub(crate) fn issue_order(
         &crate::sim::mission::authority::EntityReadyInputProvider,
     )
     .is_ok()
+}
+
+/// The head of `UnitClass::Mission_Unload @ 0x0073D630`: a Unit in no tank
+/// bunker (`+0x2E4`) whose type has `Passengers=` below 1 and `DeployFire=`
+/// without `IsSimpleDeployer=` takes the deploy-fire arm
+/// ([`Simulation::unit_deploy_fire_unload`]) before every other Unload arm.
+/// Retail: the Chaos Drone (`[CAOS]`).
+pub fn unit_fires_on_deploy(
+    sim: &Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+) -> bool {
+    entity.category() == EntityCategory::Unit
+        && entity.bunker.link().installed_in().is_none()
+        && sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| {
+                object.passengers < 1 && object.deploy_fire && !object.is_simple_deployer
+            })
+}
+
+impl Simulation {
+    /// The object's own cell: GetMapCoords (vt+0x1B8) through
+    /// MapClass::GetCellAt (`0x005657A0`), whose miss is the shared dummy cell
+    /// stamped with the coordinate. None without terrain or a navigation
+    /// coordinate.
+    pub(crate) fn own_map_cell(&self, id: u64) -> Option<(u16, u16)> {
+        let coord = self.foot_navigation_coordinate(id).ok()?;
+        let terrain = self.resolved_terrain.as_ref()?;
+        let cell = terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
+        let at = terrain.native_cell_coord(cell);
+        Some((at.0 as u16, at.1 as u16))
+    }
+
+    /// `UnitClass::Mission_Unload`'s deploy-fire arm
+    /// (`0x0073DCD3..0x0073DD5A`, admitted by [`unit_fires_on_deploy`]): the
+    /// unit targets its own cell (vt+0x3C8), fires weapon 0 at the Target it
+    /// then holds when GetFireError (vt+0x3C0, range checked) answers OK
+    /// (FireAt vt+0x3CC), keeps that Target and returns one Scenario draw
+    /// `RandomRanged(0, 2)` plus 14. Returns the delay and whether the shot
+    /// changed bridge state.
+    pub(crate) fn unit_deploy_fire_unload(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> (i32, bool) {
+        let mut bridge_changed = false;
+        // Native always has a cell; without one VERA fires at nothing rather
+        // than at a Target the unit held before.
+        let targeted = self.own_map_cell(id).is_some_and(|(rx, ry)| {
+            self.assign_target_represented(
+                id,
+                Some(TargetKind::Cell(rx, ry)),
+                Some(rules),
+                overlay_registry,
+                effects,
+            )
+            .is_ok()
+        });
+        let shot = targeted
+            .then(|| self.substrate.entities.get(id))
+            .flatten()
+            .and_then(|actor| {
+                let object = self.object_type(actor.type_ref(), rules)?;
+                let target = actor.attack_target.target()?;
+                let subject = crate::sim::combat::fire_error_world::FireSubject {
+                    world: self,
+                    rules,
+                    overlay_registry,
+                    fog: None,
+                    firer: actor,
+                    obj: object,
+                    target: Some(target),
+                    weapon_index: 0,
+                };
+                (subject.fire_error(true) == crate::sim::combat::fire_error::FireError::Ok)
+                    .then_some(target)
+            });
+        if let Some(target) = shot {
+            bridge_changed = self
+                .commit_fire_visit(
+                    crate::sim::combat::world_fire::FireVisit::Direct {
+                        id,
+                        target,
+                        weapon_index: 0,
+                    },
+                    rules,
+                    overlay_registry,
+                    effects,
+                )
+                .bridge_state_changed;
+        }
+        (
+            self.scenario_rng.next_range_u32_inclusive(0, 2) as i32 + 14,
+            bridge_changed,
+        )
+    }
+}
+
+impl Simulation {
+    /// `TechnoClass::CanDeploySlashUnload @ 0x00700D50` (vt+0x314, no class
+    /// overrides it): may this object deploy or unload now? Its callers are
+    /// the deploy key (`0x00730C74`), Unit self What_Action (`0x0073FFEA`,
+    /// refusal answers NoDeploy) and `UnitClass::Deploy` (`0x007393CC`).
+    ///
+    /// Every class first refuses at a tunnel mouth (Cell `0x00484AE0`).
+    /// - Unit: refused in a tube (Foot `+0x684 >= 0`); needs DeploysInto,
+    ///   Passengers, `IsSimpleDeployer=`, a tank-bunker link (`+0x2E4`) or
+    ///   `DeployFire=` (`0x00746D00`, Type `+0x6AC`). With DeploysInto it is
+    ///   refused while a parasite eats it (`+0x694`) or, when DeploysInto is a
+    ///   `ConstructionYard=`, while mind-controlled (`+0x2C0`). With
+    ///   `Passengers=` above 0 a transport is also refused on a bridge
+    ///   (`+0x8C`), beside a bridge deck (`CellClass+0x140` bit `0x100` on
+    ///   its cell or a N/S/E/W neighbour, `0x00700F28..0x00701064`), on Water
+    ///   when its owner's IsHuman byte is set (House `+0x1EC`, `0x0070106A`),
+    ///   and in a building's cell unless the building is a `Bunker=`
+    ///   (`0x00701087..0x007010BB`).
+    /// - Building: `0x00465D30` always refuses.
+    /// - Infantry: a type with `UndeployDelay=` above -1 (`0x005224F0`) is
+    ///   refused while deployed (Doing 27..30, `0x00522510`), in Doing 31, or
+    ///   while its rearm timer runs (`+0x2EC`); then `Deployer=` decides
+    ///   (`0x005224E0`).
+    /// - Aircraft: `Passengers=` other than 0.
+    ///
+    /// `vt+0x310` (`0x00700D10`), the deploy key's other test, refuses only a
+    /// Unit in a tube or under EMP, which this already refuses.
+    ///
+    /// RESIDUAL: the EMP refusal (vt+0x37C) of Units and Aircraft is not
+    /// represented: EMP has no Rust producer.
+    pub fn can_deploy_slash_unload(&self, id: u64, rules: &RuleSet) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let Some(object) = self.object_type(entity.type_ref(), rules) else {
+            return false;
+        };
+        let (rx, ry) = (entity.position.rx(), entity.position.ry());
+        let terrain = self.resolved_terrain.as_ref();
+        if terrain
+            .is_some_and(|terrain| terrain.is_tube_deploy_neighborhood((rx as i16, ry as i16)))
+        {
+            return false;
+        }
+        match entity.category() {
+            EntityCategory::Unit => {
+                if entity.low_bridge_tube_state.is_some() {
+                    return false;
+                }
+                let bunkered = entity.bunker.link().installed_in().is_some();
+                if object.deploys_into.is_none()
+                    && object.passengers == 0
+                    && !object.is_simple_deployer
+                    && !bunkered
+                    && !object.deploy_fire
+                {
+                    return false;
+                }
+                if object.deploys_into.is_some()
+                    && (entity.parasite.eater().is_some()
+                        || (crate::sim::mcv_deploy::deploys_into(self, entity, rules)
+                            .is_some_and(|yard| yard.construction_yard)
+                            && entity.mind_control.controller().is_some()))
+                {
+                    return false;
+                }
+                if object.passengers <= 0 {
+                    return true;
+                }
+                if entity.on_bridge() {
+                    return false;
+                }
+                if let Some(terrain) = terrain
+                    && let Some(own) = terrain.native_fixed_cell_index(rx as i16, ry as i16)
+                {
+                    let cell = |index: usize| &terrain.cells()[index];
+                    let (x, y) = (rx as i16, ry as i16);
+                    let near_deck = std::iter::once(Some(own))
+                        .chain([4, 0, 2, 6].map(|direction| {
+                            let (dx, dy) = crate::util::direction::DIRECTION_DELTAS[direction];
+                            terrain.native_fixed_cell_index(x + dx as i16, y + dy as i16)
+                        }))
+                        .flatten()
+                        .any(|index| cell(index).bridge_facts.has_structural_bridge());
+                    if near_deck
+                        || (self
+                            .houses
+                            .get(&entity.owner())
+                            .is_some_and(|house| house.is_human)
+                            && cell(own).yr_cell_land_type == LandType::Water.as_index())
+                    {
+                        return false;
+                    }
+                }
+                !self
+                    .substrate
+                    .occupancy
+                    .first_building_on_layer(rx, ry, MovementLayer::Ground)
+                    .and_then(|building| self.substrate.entities.get(building))
+                    .and_then(|building| self.object_type(building.type_ref(), rules))
+                    .is_some_and(|building| !building.bunker)
+            }
+            EntityCategory::Structure => false,
+            EntityCategory::Infantry => {
+                if object.undeploy_delay > -1
+                    && (entity.infantry_deploy_doing()
+                        || entity
+                            .mission_leaf
+                            .as_infantry()
+                            .is_some_and(|leaf| leaf.doing() == 31)
+                        || entity
+                            .rearm_timer
+                            .remaining(self.session.binary_frame as i32)
+                            != 0)
+                {
+                    return false;
+                }
+                object.deployer
+            }
+            EntityCategory::Aircraft => object.passengers != 0,
+        }
+    }
 }
 
 impl Simulation {

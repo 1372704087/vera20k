@@ -118,6 +118,13 @@ pub enum TriggerEffect {
     HomeCamera {
         coord: Option<[i32; 3]>,
     },
+    /// Execute105/70F120: the app owns the process wall-clock bubble. Reveal
+    /// is synchronous in sim; this ordered cue never becomes gameplay state.
+    TalkBubble {
+        actor: Option<u64>,
+        value: i32,
+        duration: i32,
+    },
 }
 
 /// Original definition pointers translated to retained registry ordinals.
@@ -3232,6 +3239,38 @@ impl Simulation {
                 }
                 return matched;
             }
+            91 => {
+                // Steam gamemd3e81a617..08600:6DDAF9..6DDB5A walks
+                // Infantry A83DEC/A83DF8, NOT Foot. Only Alive90,
+                // Marked74,!Limbo81 and TagContains6E5380 of this live
+                // Trigger gate virtual514/5220F0. Health/House/value do not.
+                let Some(live) = context.live_index else {
+                    return false;
+                };
+                let mut found = false;
+                let mut ordinal = 0;
+                while let Some(id) = self.substrate.entities.infantry_registry_at(ordinal) {
+                    let eligible = self.substrate.entities.get(id).is_some_and(|entity| {
+                        entity.lifecycle.object_alive()
+                            && entity.lifecycle.cell_marked()
+                            && !entity.lifecycle.in_limbo()
+                            && self.tag_contains_live_trigger(TagAttachment::Object(id), live)
+                    });
+                    if eligible {
+                        self.substrate
+                            .entities
+                            .get_mut(id)
+                            .unwrap()
+                            .infantry
+                            .as_mut()
+                            .expect("Infantry constructor owns its runtime")
+                            .make_psycho();
+                        found = true;
+                    }
+                    ordinal += 1;
+                }
+                return found;
+            }
             81..=83 => {
                 use crate::map::entities::EntityCategory;
                 use crate::sim::mission::{MissionId, MissionType};
@@ -4194,6 +4233,48 @@ impl Simulation {
                     frame_effects,
                 );
             }
+            105 => {
+                // Steam gamemd Execute6DF588..6DF5D0, not sibling6E4040.
+                // No matching live Team leaves the previous bubble unchanged;
+                // an absent Type or an empty first Team instead clears it.
+                let actor = if let Some(DefinitionReference::Team(index)) = reference {
+                    let name = &self.trigger_runtime.definitions.team_types[index];
+                    let Some(team_type) = self.interner.get(name) else {
+                        return false;
+                    };
+                    let Some(team) = self.team_script_vm.first_team_of_type(team_type) else {
+                        return false;
+                    };
+                    team.members().next()
+                } else {
+                    None
+                };
+                let value = value.unwrap_or(0);
+                let actor = actor.filter(|_| value != 0);
+                let duration = if actor.is_some() {
+                    rules.map_or(300, |r| r.general.talk_bubble_time)
+                } else {
+                    0
+                };
+                effects.push(TriggerEffect::TalkBubble {
+                    actor,
+                    value: if actor.is_some() { value } else { 0 },
+                    duration,
+                });
+                //70F134/13A/173 commits the request BEFORE Map callbacks.
+                //A nested105 from discovery must win. Commit earlier cues
+                //to the one frame-output queue before entering that receiver.
+                self.publish_trigger_effects(std::mem::take(effects));
+                if let Some(actor) = actor {
+                    //70F159..70F189: flags0/0/0/1/1, current player (not
+                    //the Team owner), literal radius2, including negative values.
+                    self.reveal_talk_bubble_actor(
+                        actor,
+                        crate::sim::world::UninitContext::new(rules, overlay_registry)
+                            .with_effects(frame_effects),
+                    );
+                }
+            }
             106 => {
                 // Active inline Execute6DF5D1, not the similarly annotated
                 // separate helper6E37F0. Type9's string is+54; raw value is+90.
@@ -4568,6 +4649,10 @@ mod movement_event_tests;
 mod shroud_spy_tests;
 
 #[cfg(test)]
+#[path = "trigger_runtime_infantry_psycho_tests.rs"]
+mod infantry_psycho_tests;
+
+#[cfg(test)]
 #[path = "trigger_runtime_ore_tests.rs"]
 mod ore_tests;
 
@@ -4670,3 +4755,7 @@ mod meteor_action_tests {
         assert_eq!(invalid.anims().count(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "trigger_runtime_talk_tests.rs"]
+mod talk_tests;

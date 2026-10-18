@@ -3060,7 +3060,8 @@ impl ObjectType {
             } else {
                 0
             },
-            weapons_factory: section.read_bool("WeaponsFactory", false),
+            // `BuildingTypeClass::ReadINI` alone reads it (`0x00460A79`).
+            weapons_factory: building_bool(section, category, "WeaponsFactory"),
             armory,
             gdi_barracks,
             nod_barracks,

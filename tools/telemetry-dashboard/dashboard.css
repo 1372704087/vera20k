@@ -1321,7 +1321,13 @@
   .house-card:hover { border-color: var(--line-strong); }
   .house-card:focus-visible { outline: 1px solid var(--cyan); outline-offset: 2px; }
 
-  .house-modal-card { max-width: min(94vw, 1240px); }
+  /* The card has to state its own width: `.shot-card` only caps it, so an
+     empty house — no squads, no base plan, no roster — used to shrink the
+     dialog to its 463px of content while the viewport still said "wide
+     enough for two columns", and the squad track then took all of it.
+     `max-width: none` drops the shared 1000px cap; the `min()` keeps it on
+     screen. */
+  .house-modal-card { width: min(94vw, 1240px); max-width: none; }
   .house-modal-card header { align-items: center; }
   .house-modal-card .tags { display: flex; gap: 6px; }
   /* The squads are a second table, not another block in the house's story, so

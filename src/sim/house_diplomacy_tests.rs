@@ -227,6 +227,46 @@ fn make_ally_drops_the_targets_on_the_new_ally() {
     );
 }
 
+/// Within a pass the remembered reveal viewers (`vision::RevealViewers`)
+/// follow the ally graph's writers: MakeAlly and MakeEnemy change them at
+/// once. Debug builds also check each remembered answer against a fresh one.
+#[test]
+fn ally_writes_reach_the_remembered_reveal_viewers() {
+    let rules = rules();
+    let (mut sim, ids) = sim_with(
+        &rules,
+        &[
+            ("Player", "Americans", true),
+            ("Computer1", "Russians", false),
+            ("Computer2", "Russians", false),
+        ],
+    );
+    for &id in &ids {
+        sim.fog
+            .by_owner
+            .get_or_insert_with(id, || crate::sim::vision::OwnerVisibility::new(8, 8));
+    }
+    let config = crate::sim::vision::VisionConfig::default();
+    let viewers = |sim: &mut Simulation| {
+        sim.reveal_viewers
+            .direct(
+                &sim.fog,
+                &sim.house_alliances,
+                ids[1],
+                &config,
+                &sim.interner,
+            )
+            .to_vec()
+    };
+    sim.reveal_viewers.begin();
+    assert_eq!(viewers(&mut sim), [ids[1]]);
+    sim.make_ally(ids[1], ids[2], &rules, None, FrameEffects::default());
+    assert_eq!(viewers(&mut sim), [ids[1], ids[2]]);
+    sim.make_enemy(ids[1], ids[2], &rules);
+    assert_eq!(viewers(&mut sim), [ids[1]]);
+    sim.reveal_viewers.end();
+}
+
 /// MakeEnemy adds the anger first (`0x004F9FDD`), while the house is still
 /// an ally the rescan skips, then breaks both sides (`0x004FA020`,
 /// `0x004FA094`). The next call finds no alliance and names the enemy.

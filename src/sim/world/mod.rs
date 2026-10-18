@@ -1245,6 +1245,10 @@ pub struct Simulation {
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
     pub(crate) movement_pass_cache: crate::sim::movement::movement_tick::MovementPassCache,
+    /// Each owner's reveal viewers, remembered through the object and fog
+    /// passes (`vision::RevealViewers`); never serialized or hashed.
+    #[serde(skip)]
+    pub(crate) reveal_viewers: crate::sim::vision::RevealViewers,
     /// Which listeners each pointer expiry reaches (`expiry_listeners`).
     /// Derived from the listener stores; never serialized or hashed.
     #[serde(skip)]
@@ -3355,6 +3359,7 @@ impl Simulation {
         let seed = session.seed;
         let mut out = Self {
             movement_pass_cache: Default::default(),
+            reveal_viewers: Default::default(),
             expiry_listeners: Default::default(),
             path_batch: None,
             scan_batch: None,

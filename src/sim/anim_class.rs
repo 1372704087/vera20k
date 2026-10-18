@@ -1101,7 +1101,7 @@ impl Simulation {
             z: world.z,
         });
         let config = self.sight_reveal_config(Some(rules));
-        let viewers = crate::sim::vision::direct_reveal_viewers(
+        let viewers = self.reveal_viewers.direct(
             &self.fog,
             &self.house_alliances,
             owner,

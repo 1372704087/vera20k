@@ -755,6 +755,7 @@ impl Simulation {
                 .collect();
             self.fog.by_owner.defer(kept);
         }
+        self.reveal_viewers.begin();
         let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;
             outcome.destroyed_structure |= turn.destroyed_structure;
@@ -763,6 +764,7 @@ impl Simulation {
             Ok(())
         });
         self.fog.by_owner.settle();
+        self.reveal_viewers.end();
         self.finish_batched_path_searches();
         self.finish_batched_scans();
         walked?;

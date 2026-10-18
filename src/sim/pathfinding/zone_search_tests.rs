@@ -145,6 +145,7 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
                 urgency: 2,
             },
             Some(&counts),
+            None,
         );
         assert_eq!(
             result.unwrap_err(),
@@ -257,8 +258,14 @@ fn caller_count_bridge_detour(
             .iter()
             .all(|step| step.ry == 0 && step.layer == MovementLayer::Ground)
     );
-    assert!(
-        route(Some(&BlockerNeighborCounts::new(6, 4))).is_none(),
+    // Zero counts keep the corridor search off the unmarked approach, so it
+    // fails rather than take the detour. This fixture's levels 1 and 2 map
+    // no cells, so every cell reads zone 0 there: the retry's flood finds
+    // that zone split on a one-zone route, which clears the hierarchy
+    // (`0x0042CF9A`), and the plain search takes the shortcut.
+    assert_eq!(
+        route(Some(&BlockerNeighborCounts::new(6, 4))),
+        Some(ordinary),
         "zero counts cannot enter the unmarked ground approach"
     );
     let mut live_counts = BlockerNeighborCounts::new(6, 4);

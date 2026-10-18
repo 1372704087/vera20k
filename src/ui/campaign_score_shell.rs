@@ -34,6 +34,13 @@ pub const ENEMIES_DESTROYED_LABEL_STATIC: u16 = 0x069F;
 pub const ENEMIES_DESTROYED_VALUE_STATIC: u16 = 0x06F6;
 pub const SCORE_ART_REGION_STATIC: u16 = 0x072B;
 
+/// Retail `gamemd.exe` SHA-256 `3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600`:
+/// `0x006033F0` returns 100 ms for dialog `0x103` / static `0x72B`.
+const CAMPAIGN_SCORE_EMBLEM_INTERVAL: Duration = Duration::from_millis(100);
+/// `0x006C93C9..0x006C93E1` handles its frame-zero `0x4D8` by selecting SCRA
+/// frame 29 again.
+const CAMPAIGN_SCORE_EMBLEM_WRAP_FRAME: usize = 29;
+
 /// Shared shell metadata for the right-edge heading, status help and bottom
 /// Continue button. The campaign dialog's Continue control has its own id and
 /// tooltip; the application reacts to that control id rather than a guessed
@@ -388,6 +395,51 @@ pub struct CampaignScorePage {
     pub model: CampaignScoreScreenModel,
     pub texts: CampaignScoreTexts,
     statics: Vec<CampaignScoreStatic>,
+    emblem_animation: Option<CampaignScoreEmblemAnimation>,
+}
+
+/// The campaign `0x72B` SCRA static's kind-4 timer and frame. The timer is
+/// presentation-only and belongs to this page instance; dropping/reopening
+/// the page drops/restarts its animation epoch with the art.
+#[derive(Debug, Clone)]
+struct CampaignScoreEmblemAnimation {
+    frame_count: usize,
+    frame: usize,
+    next_tick_at: Instant,
+}
+
+impl CampaignScoreEmblemAnimation {
+    fn new(frame_count: usize, now: Instant) -> Option<Self> {
+        (frame_count > 0).then_some(Self {
+            frame_count,
+            frame: 0,
+            next_tick_at: now + CAMPAIGN_SCORE_EMBLEM_INTERVAL,
+        })
+    }
+
+    /// A due native `WM_TIMER` advances exactly one frame; overdue timer
+    /// periods coalesce instead of jumping through unpainted frames. On the
+    /// SCRA wrap to zero the parent immediately selects frame 29 again.
+    fn poll(&mut self, now: Instant) -> usize {
+        if now >= self.next_tick_at {
+            let next = (self.frame + 1) % self.frame_count;
+            self.frame = if next == 0 && self.frame_count > CAMPAIGN_SCORE_EMBLEM_WRAP_FRAME {
+                CAMPAIGN_SCORE_EMBLEM_WRAP_FRAME
+            } else {
+                next
+            };
+            let periods = now.duration_since(self.next_tick_at).as_nanos()
+                / CAMPAIGN_SCORE_EMBLEM_INTERVAL.as_nanos()
+                + 1;
+            self.next_tick_at +=
+                CAMPAIGN_SCORE_EMBLEM_INTERVAL * u32::try_from(periods).unwrap_or(u32::MAX);
+        }
+        self.frame
+    }
+
+    fn next_tick_at(&self) -> Instant {
+        self.next_tick_at
+    }
 }
 
 impl CampaignScorePage {
@@ -417,7 +469,36 @@ impl CampaignScorePage {
             model,
             texts,
             statics,
+            emblem_animation: None,
         }
+    }
+
+    /// Start the campaign emblem's native 100 ms kind-4 timer when the SCRA
+    /// frames have been loaded for control `0x72B`.
+    pub fn start_emblem_animation(&mut self, frame_count: usize, now: Instant) {
+        self.emblem_animation = CampaignScoreEmblemAnimation::new(frame_count, now);
+    }
+
+    /// Current SCRA frame to draw after applying any due native timer tick.
+    /// `None` means the page has no loaded SCRA sequence.
+    pub fn poll_emblem_animation(&mut self, now: Instant) -> Option<usize> {
+        self.emblem_animation
+            .as_mut()
+            .map(|animation| animation.poll(now))
+    }
+
+    /// Read the last timer-selected SCRA frame without advancing its clock.
+    pub fn emblem_animation_frame(&self) -> Option<usize> {
+        self.emblem_animation
+            .as_ref()
+            .map(|animation| animation.frame)
+    }
+
+    /// Next native timer deadline while the SCRA kind-4 animation is active.
+    pub fn next_emblem_animation_tick(&self) -> Option<Instant> {
+        self.emblem_animation
+            .as_ref()
+            .map(CampaignScoreEmblemAnimation::next_tick_at)
     }
 
     pub fn static_text(&self, control_id: u16) -> Option<&str> {
@@ -533,6 +614,122 @@ mod tests {
         );
         assert_eq!(spec(SCORE_ART_REGION_STATIC).native_style, 0x5000_0007);
         assert_eq!(spec(SCORE_ART_REGION_STATIC).reveal, None);
+    }
+
+    #[test]
+    fn campaign_emblem_timer_advances_one_frame_and_native_wrap_selects_29() {
+        let opened = Instant::now();
+        let mut page = CampaignScorePage::open(
+            CampaignScoreScreenModel::default(),
+            CampaignScoreTexts::default(),
+            opened,
+        );
+        assert_eq!(page.poll_emblem_animation(opened), None);
+        page.start_emblem_animation(0, opened);
+        assert_eq!(page.poll_emblem_animation(opened), None);
+        assert_eq!(page.next_emblem_animation_tick(), None);
+
+        page.start_emblem_animation(44, opened);
+        assert_eq!(page.emblem_animation_frame(), Some(0));
+        assert_eq!(
+            page.next_emblem_animation_tick(),
+            Some(opened + Duration::from_millis(100))
+        );
+        assert_eq!(
+            page.poll_emblem_animation(opened + Duration::from_millis(99)),
+            Some(0)
+        );
+        assert_eq!(
+            page.poll_emblem_animation(opened + Duration::from_millis(100)),
+            Some(1)
+        );
+
+        for tick in 2..=43 {
+            let at = opened + Duration::from_millis(tick * 100);
+            assert_eq!(page.poll_emblem_animation(at), Some(tick as usize));
+        }
+        assert_eq!(
+            page.poll_emblem_animation(opened + Duration::from_millis(4_400)),
+            Some(29)
+        );
+        assert_eq!(
+            page.poll_emblem_animation(opened + Duration::from_millis(4_500)),
+            Some(30)
+        );
+
+        // A stalled event loop coalesces to one WM_TIMER callback.
+        let mut stalled = CampaignScorePage::open(
+            CampaignScoreScreenModel::default(),
+            CampaignScoreTexts::default(),
+            opened,
+        );
+        stalled.start_emblem_animation(44, opened);
+        assert_eq!(
+            stalled.poll_emblem_animation(opened + Duration::from_millis(5_000)),
+            Some(1)
+        );
+        assert_eq!(stalled.emblem_animation_frame(), Some(1));
+        assert_eq!(
+            stalled.next_emblem_animation_tick(),
+            Some(opened + Duration::from_millis(5_100))
+        );
+    }
+
+    #[test]
+    fn campaign_emblem_animation_restarts_with_a_new_page_epoch() {
+        let opened = Instant::now();
+        let mut page = CampaignScorePage::open(
+            CampaignScoreScreenModel::default(),
+            CampaignScoreTexts::default(),
+            opened,
+        );
+        page.start_emblem_animation(44, opened);
+        assert_eq!(
+            page.poll_emblem_animation(opened + Duration::from_millis(800)),
+            Some(1)
+        );
+
+        let reopened = opened + Duration::from_secs(20);
+        let mut reopened_page = CampaignScorePage::open(
+            CampaignScoreScreenModel::default(),
+            CampaignScoreTexts::default(),
+            reopened,
+        );
+        reopened_page.start_emblem_animation(44, reopened);
+        assert_eq!(reopened_page.emblem_animation_frame(), Some(0));
+        assert_eq!(
+            reopened_page.poll_emblem_animation(reopened + Duration::from_millis(99)),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn campaign_emblem_timer_remains_scheduled_after_text_reveals_finish() {
+        let opened = Instant::now();
+        let mut page = CampaignScorePage::open(
+            CampaignScoreScreenModel::default(),
+            CampaignScoreTexts::default(),
+            opened,
+        );
+        page.start_emblem_animation(44, opened);
+        page.start_reveals(opened);
+
+        for elapsed_ms in (0..10_000).step_by(15) {
+            let now = opened + Duration::from_millis(elapsed_ms);
+            page.poll_emblem_animation(now);
+            for static_text in page.statics_mut() {
+                static_text.paint(now);
+            }
+            page.commit_presented();
+            if page.reveals_terminal() {
+                assert!(
+                    page.next_emblem_animation_tick()
+                        .is_some_and(|due| due > now)
+                );
+                return;
+            }
+        }
+        panic!("campaign score text reveals did not reach their terminal state");
     }
 
     #[test]

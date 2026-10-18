@@ -340,6 +340,13 @@ impl App {
         };
         let now = Instant::now();
         let mut page = CampaignScorePage::open(model, texts, now);
+        let emblem_frames = state
+            .frontend
+            .campaign_score_art
+            .as_ref()
+            .and_then(|art| art.scra.as_ref())
+            .map_or(0, |strip| strip.frames.len());
+        page.start_emblem_animation(emblem_frames, now);
         page.start_reveals(now);
         state.frontend.campaign_score_page = Some(page);
         state.frontend.shell_first_paint_slide = None;

@@ -132,6 +132,8 @@ const CHECKPOINT_SKIRMISH_DEFEAT_SCORE: &str = "skirmish-defeat-score";
 const CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE: &str = "skirmish-defeat-continue";
 const CHECKPOINT_SCORE_0X108_STEADY: &str = "score-0x108-steady";
 const CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY: &str = "campaign-score-0x103-steady";
+const CHECKPOINT_CAMPAIGN_SCORE_0X103_ANIMATION_SEQUENCE: &str =
+    "campaign-score-0x103-animation-sequence";
 const CHECKPOINT_SCORE_0X108_ENTRY_PREFIX: &str = "score-0x108-entry-tick-";
 const CHECKPOINT_SCORE_0X108_HOVER_CONTINUE: &str = "score-0x108-hover-continue";
 const CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE: &str = "score-0x108-leave-continue";
@@ -308,6 +310,10 @@ pub enum ShellCaptureCheckpoint {
     /// Synthetic, settled rendering of the production campaign victory page
     /// `0x103`; fixture strings do not establish native parity.
     CampaignScore0x103Steady,
+    /// Synthetic production-renderer sequence sampling visible `0x103` art
+    /// frames, then exercising Continue close/reopen lifecycle. This is not
+    /// native execution or parity evidence.
+    CampaignScore0x103AnimationSequence,
 }
 
 impl ShellCaptureCheckpoint {
@@ -437,6 +443,9 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE => Ok(Self::SkirmishDefeatContinue),
             CHECKPOINT_SCORE_0X108_STEADY => Ok(Self::Score0x108Steady),
             CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY => Ok(Self::CampaignScore0x103Steady),
+            CHECKPOINT_CAMPAIGN_SCORE_0X103_ANIMATION_SEQUENCE => {
+                Ok(Self::CampaignScore0x103AnimationSequence)
+            }
             CHECKPOINT_SCORE_0X108_HOVER_CONTINUE => Ok(Self::Score0x108HoverContinue),
             CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE => Ok(Self::Score0x108LeaveContinue),
             CHECKPOINT_MOVIES_0X101_STEADY => Ok(Self::MoviesPage0x101Steady),
@@ -622,6 +631,9 @@ impl ShellCaptureCheckpoint {
             Self::SkirmishDefeatContinue => CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE,
             Self::Score0x108Steady => CHECKPOINT_SCORE_0X108_STEADY,
             Self::CampaignScore0x103Steady => CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY,
+            Self::CampaignScore0x103AnimationSequence => {
+                CHECKPOINT_CAMPAIGN_SCORE_0X103_ANIMATION_SEQUENCE
+            }
             Self::Score0x108Entry(_) => "score-0x108-entry",
             Self::Score0x108HoverContinue => CHECKPOINT_SCORE_0X108_HOVER_CONTINUE,
             Self::Score0x108LeaveContinue => CHECKPOINT_SCORE_0X108_LEAVE_CONTINUE,
@@ -1230,9 +1242,15 @@ impl ShellCaptureSession {
             _ => None,
         }
         .map(score::ScoreCapture::new);
-        let campaign_score = (request.checkpoint
-            == ShellCaptureCheckpoint::CampaignScore0x103Steady)
-            .then(score::CampaignScoreCapture::new);
+        let campaign_score = match request.checkpoint {
+            ShellCaptureCheckpoint::CampaignScore0x103Steady => {
+                Some(score::CampaignScoreCapture::new())
+            }
+            ShellCaptureCheckpoint::CampaignScore0x103AnimationSequence => {
+                Some(score::CampaignScoreCapture::animation_sequence())
+            }
+            _ => None,
+        };
         Self {
             request,
             started_at: None,
@@ -1253,6 +1271,13 @@ impl ShellCaptureSession {
 
     pub(crate) fn is_entry_sequence(&self) -> bool {
         self.entry_sequence.is_some()
+    }
+
+    /// A capture frame completes the command only when this state is terminal.
+    /// Ordinary stills become terminal after their first readback; the campaign
+    /// animation sequence retains the event loop between its three samples.
+    pub(crate) fn is_terminal(&self) -> bool {
+        self.outcome.is_some()
     }
 
     pub(crate) fn completion_handoff(&self) -> ShellCompletionHandoff {
@@ -1348,6 +1373,14 @@ impl ShellCaptureSession {
         if self.is_entry_sequence() {
             return Ok(false);
         }
+        if self
+            .campaign_score
+            .as_ref()
+            .is_some_and(score::CampaignScoreCapture::is_animation_sequence)
+        {
+            return Ok(false);
+        }
+
         ensure!(
             !self.readback_started,
             "shell capture attempted more than one readback"
@@ -1357,6 +1390,31 @@ impl ShellCaptureSession {
             self.readback_started = true;
         }
         Ok(ready)
+    }
+
+    /// Animation samples are selected after the production renderer has
+    /// polled and drawn its page-local SCRA frame, so the stored index matches
+    /// the final swapchain bytes submitted for readback.
+    pub(crate) fn should_capture_after_render(
+        &mut self,
+        state: &AppState,
+        rendered: PresentedShell,
+    ) -> Result<bool> {
+        let Some(capture) = self
+            .campaign_score
+            .as_mut()
+            .filter(|capture| capture.is_animation_sequence())
+        else {
+            return Ok(false);
+        };
+        ensure!(
+            !self.readback_started,
+            "campaign animation sequence requested overlapping readbacks"
+        );
+        let should_capture =
+            capture.should_capture_animation_frame(state, rendered, self.frames_seen)?;
+        self.readback_started = should_capture;
+        Ok(should_capture)
     }
 
     pub(crate) fn observe_entry_sequence_after_render(
@@ -1483,6 +1541,76 @@ impl ShellCaptureSession {
         surface_format: wgpu::TextureFormat,
         pixels: &[u8],
     ) -> Result<()> {
+        if self
+            .campaign_score
+            .as_ref()
+            .is_some_and(score::CampaignScoreCapture::is_animation_sequence)
+        {
+            ensure!(
+                self.readback_started,
+                "campaign sequence completed without an outstanding readback"
+            );
+            let expected_len = usize::try_from(
+                u64::from(self.request.width) * u64::from(self.request.height) * u64::from(4_u8),
+            )
+            .context("campaign sequence byte length does not fit usize")?;
+            ensure!(
+                pixels.len() == expected_len,
+                "campaign sequence BGRA8 frame length mismatch: expected {expected_len}, got {}",
+                pixels.len()
+            );
+
+            let final_bundle = {
+                let capture = self
+                    .campaign_score
+                    .as_mut()
+                    .expect("animation sequence has a campaign capture");
+                capture.record_animation_sample(
+                    state,
+                    self.request.width,
+                    self.request.height,
+                    pixels,
+                )?;
+                if capture.animation_sequence_complete() {
+                    let sample_byte_length = capture
+                        .animation_sample_byte_length(self.request.width, self.request.height);
+                    Some((
+                        capture.animation_payload(),
+                        capture.animation_manifest(
+                            &self.request,
+                            surface_format,
+                            sample_byte_length,
+                        ),
+                        capture.animation_png_frames(self.request.width, self.request.height)?,
+                    ))
+                } else {
+                    None
+                }
+            };
+            self.readback_started = false;
+            if let Some((payload, manifest, png_frames)) = final_bundle {
+                let mut manifest_bytes = serde_json::to_vec_pretty(&manifest)
+                    .context("serialize campaign animation capture manifest")?;
+                manifest_bytes.push(b'\n');
+                fs::create_dir(self.request.output_dir()).with_context(|| {
+                    format!(
+                        "create immutable campaign animation capture directory {}",
+                        self.request.output_dir().display()
+                    )
+                })?;
+                write_new_file(&self.request.output_dir().join("frames.bgra"), &payload)?;
+                for (name, png) in png_frames {
+                    write_new_file(&self.request.output_dir().join(name), &png)?;
+                }
+                write_new_file(
+                    &self.request.output_dir().join(MANIFEST_FILE_NAME),
+                    &manifest_bytes,
+                )?;
+                self.outcome = Some(Ok(()));
+            }
+            return Ok(());
+        }
+
         ensure!(
             self.readback_started,
             "capture completed before readback started"

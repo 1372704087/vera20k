@@ -21,6 +21,7 @@ use crate::render::shell_text::ShellAlign;
 use crate::render::shell_text_reveal::PathAReveal;
 use crate::ui::campaign_score_shell::{
     CAMPAIGN_SCORE_PAGE, CONTINUE_BUTTON, CampaignScoreControlSpec, CampaignScoreLayout,
+    SCORE_ART_REGION_STATIC,
 };
 
 const SHELL_TEXT: [u8; 3] = [255, 255, 0];
@@ -48,6 +49,11 @@ pub(crate) fn render_campaign_score_page(
     let page_layout =
         crate::app::frontend::shell_layout::menu_page_layout(state, &CAMPAIGN_SCORE_PAGE);
     let now = Instant::now();
+    let emblem_frame = state
+        .frontend
+        .campaign_score_page
+        .as_mut()
+        .and_then(|page| page.poll_emblem_animation(now));
     let controller = &state.frontend.shell_controller;
     let active = controller.top_id() == Some(CAMPAIGN_SCORE_PAGE.dialog);
     let hovered = active.then(|| controller.hovered()).flatten();
@@ -142,7 +148,7 @@ pub(crate) fn render_campaign_score_page(
     });
     let text =
         shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.factor());
-    let mut draws = Vec::with_capacity(3);
+    let mut draws = Vec::with_capacity(4);
     if let Some(art) = state.frontend.campaign_score_art.as_ref() {
         let background = art.background;
         draws.push(TexturedDraw {
@@ -158,6 +164,18 @@ pub(crate) fn render_campaign_score_page(
                 ..Default::default()
             }],
         });
+        if let (Some(strip), Some(frame)) = (art.scra.as_ref(), emblem_frame)
+            && let (Some(entry), Some(window)) = (
+                strip.frames.get(frame).copied(),
+                layout.control_rect(SCORE_ART_REGION_STATIC),
+            )
+            && let Some(sprite) = shell_paint::paint_kind4_static(entry, window, layout.scale)
+        {
+            draws.push(TexturedDraw {
+                texture: &strip.texture,
+                instances: vec![sprite],
+            });
+        }
     }
     draws.push(TexturedDraw {
         texture: &chrome.texture,

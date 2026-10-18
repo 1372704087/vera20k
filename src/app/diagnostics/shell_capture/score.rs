@@ -7,9 +7,14 @@
 
 use super::*;
 use crate::app::App;
-use crate::ui::campaign_score_shell::CampaignScoreScreenModel;
+use crate::ui::campaign_score_shell::{
+    CONTINUE_BUTTON, CampaignScoreLayout, CampaignScoreScreenModel, SCORE_ART_REGION_STATIC,
+};
 use crate::ui::score_shell::{ScoreRow, ScoreScreenModel};
+use crate::ui::shell::geom::RectPx;
+use image::ImageEncoder;
 use serde_json::{Value, json};
+use std::time::Instant;
 
 /// Frames to present once the target state is reached.
 const SETTLE_FRAMES: u32 = 4;
@@ -64,6 +69,51 @@ enum CampaignScorePhase {
     Settling(u32),
 }
 
+const CAMPAIGN_ANIMATION_SAMPLE_COUNT: usize = 3;
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum CampaignAnimationPhase {
+    #[default]
+    MainMenu,
+    WaitingForFirstFrame,
+    WaitingForFirstSample,
+    WaitingForNextFrame,
+    Continue,
+    WaitingForMainMenu,
+    WaitingForReopenedFrame,
+    Done,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PendingCampaignAnimationSample {
+    label: &'static str,
+    frame: u32,
+    elapsed_ms: u128,
+    emblem_frame: usize,
+    roi: RectPx,
+}
+
+struct CampaignAnimationSample {
+    label: &'static str,
+    frame: u32,
+    elapsed_ms: u128,
+    emblem_frame: usize,
+    roi: RectPx,
+    frame_sha256: String,
+    roi_sha256: String,
+    roi_changed_pixels_from_previous: Option<usize>,
+    pixels: Vec<u8>,
+}
+
+#[derive(Default)]
+struct CampaignAnimationSequence {
+    phase: CampaignAnimationPhase,
+    page_opened_at: Option<Instant>,
+    reopened_at: Option<Instant>,
+    pending: Option<PendingCampaignAnimationSample>,
+    samples: Vec<CampaignAnimationSample>,
+}
+
 /// A synthetic, asset-independent fixture for visually reviewing the real
 /// campaign victory page through the production app renderer. These values
 /// are display examples only and establish no native parity.
@@ -80,6 +130,7 @@ fn synthetic_campaign_score_model() -> CampaignScoreScreenModel {
 pub(super) struct CampaignScoreCapture {
     phase: CampaignScorePhase,
     route: Vec<Value>,
+    animation: Option<CampaignAnimationSequence>,
 }
 
 impl CampaignScoreCapture {
@@ -87,7 +138,20 @@ impl CampaignScoreCapture {
         Self {
             phase: CampaignScorePhase::MainMenu,
             route: Vec::new(),
+            animation: None,
         }
+    }
+
+    pub(super) fn animation_sequence() -> Self {
+        Self {
+            phase: CampaignScorePhase::MainMenu,
+            route: Vec::new(),
+            animation: Some(CampaignAnimationSequence::default()),
+        }
+    }
+
+    pub(super) fn is_animation_sequence(&self) -> bool {
+        self.animation.is_some()
     }
 
     pub(super) fn after_present(
@@ -96,6 +160,10 @@ impl CampaignScoreCapture {
         rendered: PresentedShell,
         frame: u32,
     ) -> Result<()> {
+        if self.animation.is_some() {
+            return self.after_present_animation(state, rendered, frame);
+        }
+
         if self.phase == CampaignScorePhase::MainMenu {
             if rendered == PresentedShell::MainMenu
                 && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(state))?
@@ -137,6 +205,369 @@ impl CampaignScoreCapture {
             self.phase = CampaignScorePhase::Settling(remaining.saturating_sub(1));
         }
         Ok(())
+    }
+
+    fn after_present_animation(
+        &mut self,
+        state: &mut AppState,
+        rendered: PresentedShell,
+        frame: u32,
+    ) -> Result<()> {
+        let animation = self
+            .animation
+            .as_mut()
+            .expect("animation sequence dispatch checks its state");
+        match animation.phase {
+            CampaignAnimationPhase::MainMenu => {
+                if rendered == PresentedShell::MainMenu
+                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(state))?
+                {
+                    App::open_campaign_score_page(
+                        state,
+                        synthetic_campaign_score_model(),
+                        "Synthetic campaign score animation capture".into(),
+                        "Synthetic UI fixture; not native-parity evidence.".into(),
+                    );
+                    ensure!(
+                        state
+                            .frontend
+                            .campaign_score_art
+                            .as_ref()
+                            .and_then(|art| art.scra.as_ref())
+                            .is_some_and(|strip| !strip.frames.is_empty()),
+                        "campaign animation capture requires loaded SCRA frames"
+                    );
+                    let opened_at = Instant::now();
+                    animation.page_opened_at = Some(opened_at);
+                    animation.phase = CampaignAnimationPhase::WaitingForFirstFrame;
+                    self.route.push(json!({
+                        "dialog": 0x103,
+                        "frame": frame,
+                        "action": "open through App::open_campaign_score_page",
+                        "fixture": "synthetic UI example",
+                        "animation_art_loaded": true,
+                    }));
+                }
+            }
+            CampaignAnimationPhase::WaitingForFirstFrame
+            | CampaignAnimationPhase::WaitingForFirstSample
+            | CampaignAnimationPhase::WaitingForNextFrame => {
+                ensure!(
+                    rendered == PresentedShell::Score && App::campaign_score_shell_active(state),
+                    "campaign animation sequence left the production 0x103 page"
+                );
+                if animation.phase == CampaignAnimationPhase::WaitingForFirstFrame
+                    && state
+                        .frontend
+                        .campaign_score_page
+                        .as_ref()
+                        .is_some_and(|page| page.reveals_terminal())
+                {
+                    self.route.push(json!({
+                        "dialog": 0x103,
+                        "frame": frame,
+                        "action": "wait for page text to finish revealing before first sample",
+                    }));
+                    animation.phase = CampaignAnimationPhase::WaitingForFirstSample;
+                }
+            }
+            CampaignAnimationPhase::Continue => {
+                ensure!(
+                    rendered == PresentedShell::Score && App::campaign_score_shell_active(state),
+                    "campaign Continue probe did not start on dialog 0x103"
+                );
+                click_campaign_continue(state)?;
+                ensure!(
+                    state.frontend.campaign_score_page.is_none()
+                        && state.frontend.campaign_score_art.is_none(),
+                    "Continue did not release campaign score page and art"
+                );
+                animation.phase = CampaignAnimationPhase::WaitingForMainMenu;
+                self.route.push(json!({
+                    "dialog": 0x103,
+                    "frame": frame,
+                    "action": "Continue closed page and released campaign score art",
+                    "page_released": true,
+                    "art_released": true,
+                }));
+            }
+            CampaignAnimationPhase::WaitingForMainMenu => {
+                if rendered == PresentedShell::MainMenu {
+                    ensure!(
+                        state.frontend.campaign_score_page.is_none()
+                            && state.frontend.campaign_score_art.is_none(),
+                        "campaign score page or art survived the Continue close"
+                    );
+                    App::open_campaign_score_page(
+                        state,
+                        synthetic_campaign_score_model(),
+                        "Synthetic campaign score animation reopen".into(),
+                        "Synthetic UI fixture; not native-parity evidence.".into(),
+                    );
+                    ensure!(
+                        state
+                            .frontend
+                            .campaign_score_art
+                            .as_ref()
+                            .and_then(|art| art.scra.as_ref())
+                            .is_some_and(|strip| !strip.frames.is_empty()),
+                        "campaign animation reopen did not load SCRA frames"
+                    );
+                    animation.reopened_at = Some(Instant::now());
+                    animation.phase = CampaignAnimationPhase::WaitingForReopenedFrame;
+                    self.route.push(json!({
+                        "dialog": 0x103,
+                        "frame": frame,
+                        "action": "reopen through App::open_campaign_score_page",
+                        "animation_art_loaded": true,
+                    }));
+                }
+            }
+            CampaignAnimationPhase::WaitingForReopenedFrame => {
+                ensure!(
+                    rendered == PresentedShell::Score && App::campaign_score_shell_active(state),
+                    "campaign animation reopen did not render dialog 0x103"
+                );
+            }
+            CampaignAnimationPhase::Done => {}
+        }
+        Ok(())
+    }
+
+    pub(super) fn should_capture_animation_frame(
+        &mut self,
+        state: &AppState,
+        rendered: PresentedShell,
+        frame: u32,
+    ) -> Result<bool> {
+        let Some(animation) = self.animation.as_mut() else {
+            return Ok(false);
+        };
+        ensure!(
+            animation.pending.is_none(),
+            "campaign animation sequence already has an outstanding sample"
+        );
+        let (label, epoch) = match animation.phase {
+            CampaignAnimationPhase::WaitingForFirstSample => {
+                if !state
+                    .frontend
+                    .campaign_score_page
+                    .as_ref()
+                    .is_some_and(|page| page.reveals_terminal())
+                {
+                    return Ok(false);
+                }
+                ("animation-before", animation.page_opened_at)
+            }
+            CampaignAnimationPhase::WaitingForNextFrame => {
+                ("animation-after", animation.page_opened_at)
+            }
+            CampaignAnimationPhase::WaitingForReopenedFrame => {
+                ("reopened-frame-zero", animation.reopened_at)
+            }
+            _ => return Ok(false),
+        };
+        ensure!(
+            rendered == PresentedShell::Score && App::campaign_score_shell_active(state),
+            "campaign animation sample was requested outside rendered dialog 0x103"
+        );
+        let emblem_frame = state
+            .frontend
+            .campaign_score_page
+            .as_ref()
+            .and_then(|page| page.emblem_animation_frame())
+            .context("campaign animation sample has no loaded SCRA frame")?;
+        if animation.phase == CampaignAnimationPhase::WaitingForNextFrame {
+            let first = animation
+                .samples
+                .first()
+                .context("second campaign animation sample has no first sample")?;
+            if emblem_frame == first.emblem_frame {
+                return Ok(false);
+            }
+        }
+        if animation.phase == CampaignAnimationPhase::WaitingForReopenedFrame {
+            ensure!(
+                emblem_frame == 0,
+                "reopened campaign page did not render SCRA frame zero"
+            );
+        }
+        let epoch = epoch.context("campaign animation sample has no page epoch")?;
+        let elapsed_ms = Instant::now().saturating_duration_since(epoch).as_millis();
+        let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
+        let layout = if crate::app::frontend::shell_layout::fills_window(state) {
+            CampaignScoreLayout::compute_responsive_layout(width, height)
+        } else {
+            CampaignScoreLayout::compute_layout(width, height)
+        };
+        let roi = layout
+            .control_rect(SCORE_ART_REGION_STATIC)
+            .context("campaign score layout has no SCRA control ROI")?;
+        animation.pending = Some(PendingCampaignAnimationSample {
+            label,
+            frame,
+            elapsed_ms,
+            emblem_frame,
+            roi,
+        });
+        Ok(true)
+    }
+
+    pub(super) fn record_animation_sample(
+        &mut self,
+        state: &AppState,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+    ) -> Result<()> {
+        let animation = self
+            .animation
+            .as_mut()
+            .context("animation sample was recorded for a steady capture")?;
+        let pending = animation
+            .pending
+            .take()
+            .context("campaign animation readback has no post-render snapshot")?;
+        ensure!(
+            App::campaign_score_shell_active(state),
+            "campaign score page closed before its sample readback completed"
+        );
+        let roi_pixels = crop_bgra_roi(pixels, width, height, pending.roi)?;
+        let roi_changed_pixels_from_previous = animation
+            .samples
+            .last()
+            .map(|previous| {
+                let previous_roi = crop_bgra_roi(&previous.pixels, width, height, pending.roi)?;
+                Ok::<_, anyhow::Error>(changed_bgra_pixel_count(&previous_roi, &roi_pixels)?)
+            })
+            .transpose()?;
+        let sample = CampaignAnimationSample {
+            label: pending.label,
+            frame: pending.frame,
+            elapsed_ms: pending.elapsed_ms,
+            emblem_frame: pending.emblem_frame,
+            roi: pending.roi,
+            frame_sha256: crate::util::sha256::sha256_hex(pixels),
+            roi_sha256: crate::util::sha256::sha256_hex(&roi_pixels),
+            roi_changed_pixels_from_previous,
+            pixels: pixels.to_vec(),
+        };
+        animation.samples.push(sample);
+        match animation.samples.len() {
+            1 => animation.phase = CampaignAnimationPhase::WaitingForNextFrame,
+            2 => {
+                let first = &animation.samples[0];
+                let second = &animation.samples[1];
+                ensure!(
+                    first.emblem_frame != second.emblem_frame,
+                    "campaign SCRA animation frame did not advance between rendered samples"
+                );
+                ensure!(
+                    second
+                        .roi_changed_pixels_from_previous
+                        .is_some_and(|count| count > 0),
+                    "campaign SCRA ROI pixels did not change between rendered samples"
+                );
+                animation.phase = CampaignAnimationPhase::Continue;
+            }
+            3 => {
+                ensure!(
+                    animation.samples[2].emblem_frame == 0,
+                    "reopened campaign score page did not restart at SCRA frame zero"
+                );
+                animation.phase = CampaignAnimationPhase::Done;
+            }
+            count => bail!("campaign animation captured unexpected sample {count}"),
+        }
+        Ok(())
+    }
+
+    pub(super) fn animation_sequence_complete(&self) -> bool {
+        self.animation.as_ref().is_some_and(|animation| {
+            animation.phase == CampaignAnimationPhase::Done
+                && animation.samples.len() == CAMPAIGN_ANIMATION_SAMPLE_COUNT
+        })
+    }
+
+    pub(super) fn animation_payload(&self) -> Vec<u8> {
+        self.animation
+            .as_ref()
+            .into_iter()
+            .flat_map(|animation| animation.samples.iter())
+            .flat_map(|sample| sample.pixels.iter().copied())
+            .collect()
+    }
+
+    pub(super) fn animation_manifest(
+        &self,
+        request: &ShellCaptureRequest,
+        format: wgpu::TextureFormat,
+        sample_byte_length: u64,
+    ) -> Value {
+        let animation = self.animation.as_ref().expect("animation capture exists");
+        let samples = animation.samples.iter().enumerate().map(|(index, sample)| {
+            json!({
+                "sample": index,
+                "label": sample.label,
+                "preview_png": format!("sample-{index:02}.png"),
+                "capture_frame": sample.frame,
+                "elapsed_ms_since_page_open": sample.elapsed_ms,
+                "scra_frame_index": sample.emblem_frame,
+                "roi": {"x": sample.roi.x, "y": sample.roi.y,
+                    "width": sample.roi.w, "height": sample.roi.h},
+                "frame_sha256": sample.frame_sha256,
+                "roi_sha256": sample.roi_sha256,
+                "roi_changed_pixels_from_previous": sample.roi_changed_pixels_from_previous,
+                "byte_offset": index as u64 * sample_byte_length,
+                "byte_length": sample_byte_length,
+            })
+        });
+        json!({
+            "schema_version": "vera20k.campaign-score-animation-capture.v1",
+            "checkpoint": request.checkpoint.as_str(),
+            "dialog_resource_id": 0x103,
+            "fixture_kind": "synthetic UI review; no campaign execution",
+            "parity_certification": "NONE",
+            "presenter_domain": "final-swapchain-after-rgb565",
+            "surface": {"width": request.width, "height": request.height,
+                "format": format!("{format:?}"), "pixel_layout": "BGRA8",
+                "row_order": "top-left", "row_stride": request.width * 4},
+            "route": self.route,
+            "samples": samples.collect::<Vec<_>>(),
+            "frame_data": {"path": "frames.bgra",
+                "byte_length": sample_byte_length * CAMPAIGN_ANIMATION_SAMPLE_COUNT as u64},
+        })
+    }
+
+    pub(super) fn animation_sample_byte_length(&self, width: u32, height: u32) -> u64 {
+        u64::from(width) * u64::from(height) * 4
+    }
+
+    pub(super) fn animation_png_frames(
+        &self,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<(String, Vec<u8>)>> {
+        let animation = self.animation.as_ref().expect("animation capture exists");
+        animation
+            .samples
+            .iter()
+            .enumerate()
+            .map(|(index, sample)| {
+                let mut rgba = Vec::with_capacity(sample.pixels.len());
+                for bgra in sample.pixels.chunks_exact(4) {
+                    rgba.extend_from_slice(&[bgra[2], bgra[1], bgra[0], bgra[3]]);
+                }
+                let mut png = Vec::new();
+                image::codecs::png::PngEncoder::new(&mut png).write_image(
+                    &rgba,
+                    width,
+                    height,
+                    image::ExtendedColorType::Rgba8,
+                )?;
+                Ok((format!("sample-{index:02}.png"), png))
+            })
+            .collect()
     }
 
     pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
@@ -192,6 +623,71 @@ impl CampaignScoreCapture {
                 "sha256": crate::util::sha256::sha256_hex(pixels)}
         })
     }
+}
+
+fn click_campaign_continue(state: &mut AppState) -> Result<()> {
+    let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
+    let layout = if crate::app::frontend::shell_layout::fills_window(state) {
+        CampaignScoreLayout::compute_responsive_layout(width, height)
+    } else {
+        CampaignScoreLayout::compute_layout(width, height)
+    };
+    let button = layout.continue_button;
+    state.match_state.input.cursor_x = (button.x + button.w / 2) as f32;
+    state.match_state.input.cursor_y = (button.y + button.h / 2) as f32;
+    App::handle_campaign_score_mouse_move(state);
+    App::handle_campaign_score_mouse_down(state);
+    ensure!(
+        state.frontend.shell_controller.pressed() == Some(CONTINUE_BUTTON),
+        "campaign Continue probe did not press control 0x423"
+    );
+    App::handle_campaign_score_mouse_up(state);
+    ensure!(
+        state.frontend.campaign_score_page.is_none() && state.frontend.campaign_score_art.is_none(),
+        "campaign Continue probe did not release dialog 0x103 state"
+    );
+    Ok(())
+}
+
+fn crop_bgra_roi(pixels: &[u8], width: u32, height: u32, roi: RectPx) -> Result<Vec<u8>> {
+    ensure!(
+        roi.x >= 0 && roi.y >= 0 && roi.w > 0 && roi.h > 0,
+        "invalid campaign ROI"
+    );
+    ensure!(
+        i64::from(roi.x) + i64::from(roi.w) <= i64::from(width)
+            && i64::from(roi.y) + i64::from(roi.h) <= i64::from(height),
+        "campaign ROI falls outside the captured surface"
+    );
+    let expected_len = usize::try_from(u64::from(width) * u64::from(height) * 4)
+        .context("campaign frame byte length does not fit usize")?;
+    ensure!(
+        pixels.len() == expected_len,
+        "campaign ROI source is not a complete BGRA8 frame"
+    );
+    let row_stride = usize::try_from(width).context("campaign frame width does not fit usize")? * 4;
+    let roi_x = usize::try_from(roi.x).context("campaign ROI x is negative")? * 4;
+    let roi_width = usize::try_from(roi.w).context("campaign ROI width is negative")? * 4;
+    let roi_y = usize::try_from(roi.y).context("campaign ROI y is negative")?;
+    let roi_height = usize::try_from(roi.h).context("campaign ROI height is negative")?;
+    let mut cropped = Vec::with_capacity(roi_width * roi_height);
+    for y in roi_y..roi_y + roi_height {
+        let start = y * row_stride + roi_x;
+        cropped.extend_from_slice(&pixels[start..start + roi_width]);
+    }
+    Ok(cropped)
+}
+
+fn changed_bgra_pixel_count(before: &[u8], after: &[u8]) -> Result<usize> {
+    ensure!(
+        before.len() == after.len() && before.len() % 4 == 0,
+        "campaign ROI comparison has mismatched BGRA8 data"
+    );
+    Ok(before
+        .chunks_exact(4)
+        .zip(after.chunks_exact(4))
+        .filter(|(before, after)| before != after)
+        .count())
 }
 
 /// The retail comparison game's page: a loss on DC Uprising, 800x600.

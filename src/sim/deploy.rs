@@ -48,8 +48,18 @@ impl CrushImmunity {
     }
 }
 
-/// Event9 DEPLOY4C778A..4C7812. MCV conversion and simple deployment
-/// share this event; each concrete Mission_Unload branch owns its effects.
+/// Event9 DEPLOY4C778A..4C7812. MCV conversion, simple deployment and the
+/// deploy-fire arm share this event; each concrete Mission_Unload branch owns
+/// its effects.
+///
+/// RESIDUAL:
+/// - Native refuses only an aircraft (`0x004C777E`) and the
+///   Construction/Selling missions below; VERA admits only those three Unit
+///   kinds, whose Unload arms it ports. Trigger: a DEPLOY event for another
+///   object, which no VERA sender issues.
+/// - Native breaks radio contact (vt+0x274(3), `0x004C77E4`) and deploys;
+///   VERA refuses a unit with a radio partner. Trigger: D on a unit in radio
+///   contact, such as one docked at a service depot. Effect: it ignores D.
 pub(crate) fn issue_order(
     sim: &mut Simulation,
     id: u64,
@@ -61,7 +71,8 @@ pub(crate) fn issue_order(
             && !e.lifecycle.in_limbo()
             && e.tether.partner().is_none()
             && (crate::sim::mcv_deploy::is_mcv(sim, e, rules)
-                || crate::sim::unit_simple_deploy::is_simple_deployer(sim, e, rules))
+                || crate::sim::unit_simple_deploy::is_simple_deployer(sim, e, rules)
+                || unit_fires_on_deploy(sim, e, rules))
     }) {
         return false;
     }
@@ -125,6 +136,105 @@ pub(crate) fn issue_order(
         &crate::sim::mission::authority::EntityReadyInputProvider,
     )
     .is_ok()
+}
+
+/// The head of `UnitClass::Mission_Unload @ 0x0073D630`: a Unit in no tank
+/// bunker (`+0x2E4`) whose type has `Passengers=` below 1 and `DeployFire=`
+/// without `IsSimpleDeployer=` takes the deploy-fire arm
+/// ([`Simulation::unit_deploy_fire_unload`]) before every other Unload arm.
+/// Retail: the Chaos Drone (`[CAOS]`).
+pub fn unit_fires_on_deploy(
+    sim: &Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+) -> bool {
+    entity.category() == EntityCategory::Unit
+        && entity.bunker.link().installed_in().is_none()
+        && sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| {
+                object.passengers < 1 && object.deploy_fire && !object.is_simple_deployer
+            })
+}
+
+impl Simulation {
+    /// The object's own cell: GetMapCoords (vt+0x1B8) through
+    /// MapClass::GetCellAt (`0x005657A0`), whose miss is the shared dummy cell
+    /// stamped with the coordinate. None without terrain or a navigation
+    /// coordinate.
+    pub(crate) fn own_map_cell(&self, id: u64) -> Option<(u16, u16)> {
+        let coord = self.foot_navigation_coordinate(id).ok()?;
+        let terrain = self.resolved_terrain.as_ref()?;
+        let cell = terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
+        let at = terrain.native_cell_coord(cell);
+        Some((at.0 as u16, at.1 as u16))
+    }
+
+    /// `UnitClass::Mission_Unload`'s deploy-fire arm
+    /// (`0x0073DCD3..0x0073DD5A`, admitted by [`unit_fires_on_deploy`]): the
+    /// unit targets its own cell (vt+0x3C8), fires weapon 0 at the Target it
+    /// then holds when GetFireError (vt+0x3C0, range checked) answers OK
+    /// (FireAt vt+0x3CC), keeps that Target and returns one Scenario draw
+    /// `RandomRanged(0, 2)` plus 14. Returns the delay and whether the shot
+    /// changed bridge state.
+    pub(crate) fn unit_deploy_fire_unload(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> (i32, bool) {
+        let mut bridge_changed = false;
+        // Native always has a cell; without one VERA fires at nothing rather
+        // than at a Target the unit held before.
+        let targeted = self.own_map_cell(id).is_some_and(|(rx, ry)| {
+            self.assign_target_represented(
+                id,
+                Some(TargetKind::Cell(rx, ry)),
+                Some(rules),
+                overlay_registry,
+                effects,
+            )
+            .is_ok()
+        });
+        let shot = targeted
+            .then(|| self.substrate.entities.get(id))
+            .flatten()
+            .and_then(|actor| {
+                let object = self.object_type(actor.type_ref(), rules)?;
+                let target = actor.attack_target.target()?;
+                let subject = crate::sim::combat::fire_error_world::FireSubject {
+                    world: self,
+                    rules,
+                    overlay_registry,
+                    fog: None,
+                    firer: actor,
+                    obj: object,
+                    target: Some(target),
+                    weapon_index: 0,
+                };
+                (subject.fire_error(true) == crate::sim::combat::fire_error::FireError::Ok)
+                    .then_some(target)
+            });
+        if let Some(target) = shot {
+            bridge_changed = self
+                .commit_fire_visit(
+                    crate::sim::combat::world_fire::FireVisit::Direct {
+                        id,
+                        target,
+                        weapon_index: 0,
+                    },
+                    rules,
+                    overlay_registry,
+                    effects,
+                )
+                .bridge_state_changed;
+        }
+        (
+            self.scenario_rng.next_range_u32_inclusive(0, 2) as i32 + 14,
+            bridge_changed,
+        )
+    }
 }
 
 impl Simulation {

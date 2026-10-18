@@ -2361,10 +2361,19 @@ fn self_action(
             entity_id: target.stable_id,
         });
     }
-    obj.is_some_and(|o| is_simple_deploy_unit(entity, o) || o.deploys_into.is_some() || o.deployer)
-        .then_some(Command::DeployMcv {
-            entity_id: target.stable_id,
-        })
+    // Unit What_Action offers its self action to a simple deployer, a
+    // DeploysInto unit or a `DeployFire=` one (`0x0074000B`, `0x007400F0`).
+    obj.is_some_and(|o| {
+        o.deploys_into.is_some()
+            || if entity.category() == EntityCategory::Unit {
+                o.is_simple_deployer || o.deploy_fire
+            } else {
+                o.deployer
+            }
+    })
+    .then_some(Command::DeployMcv {
+        entity_id: target.stable_id,
+    })
 }
 
 /// Object entry orders use the same admission owner as the hover cursor.

@@ -393,6 +393,16 @@ pub struct GeneralRules {
     /// writes15; ReadGeneral671DB2..671DCC passes the prior signed value to
     /// ReadInteger5276D0 and stores it unchanged, without a clamp.
     pub max_waypoint_path_length: i32,
+    /// General.TalkBubbleTime, Rules+1800; ctor6677A3=300 wall-clock buckets.
+    pub talk_bubble_time: i32,
+    /// `[General] FlashFrameTime=`, Rules `+0x88`: the constructor's 7
+    /// (`0x00665711`), read by ReadInteger at `0x00671981` without a clamp.
+    /// The radar combat flash's toggle period.
+    pub flash_frame_time: i32,
+    /// `[General] RadarCombatFlashTime=`, Rules `+0x8C`: the constructor's 21
+    /// (`0x0066571B`), read by ReadInteger at `0x006719A1` without a clamp.
+    /// ReceiveDamage starts each Techno's radar combat flash with it.
+    pub radar_combat_flash_time: i32,
     /// `[AudioVisual]` thresholds copied to the presentation frame-rate
     /// controller by Fill_In_Data6850F5 and the radar movie transitions.
     pub detail: DetailRules,
@@ -2164,6 +2174,9 @@ impl Default for GeneralRules {
             );
         Self {
             max_waypoint_path_length: 15,
+            talk_bubble_time: 300,
+            flash_frame_time: 7,
+            radar_combat_flash_time: 21,
             detail: DetailRules::default(),
             pose_dir: 0,
             deploy_dir: 0,
@@ -3128,6 +3141,9 @@ impl GeneralRules {
             deploy_dir,
             max_waypoint_path_length: general
                 .read_int("MaxWaypointPathLength", defaults.max_waypoint_path_length),
+            flash_frame_time: general.read_int("FlashFrameTime", defaults.flash_frame_time),
+            radar_combat_flash_time: general
+                .read_int("RadarCombatFlashTime", defaults.radar_combat_flash_time),
             scroll_multiplier: audio_visual
                 .read_double("ScrollMultiplier", defaults.scroll_multiplier),
             savour_delay_minutes,
@@ -3384,6 +3400,7 @@ impl GeneralRules {
             crate_promote_sound: audio_visual
                 .read_name("CratePromoteSound", 0x80)
                 .map(str::to_owned),
+            talk_bubble_time: defaults.talk_bubble_time,
             elite_flash_timer: audio_visual.read_int("EliteFlashTimer", defaults.elite_flash_timer),
             idle_action_frequency: audio_visual
                 .read_double("IdleActionFrequency", defaults.idle_action_frequency),
@@ -4156,6 +4173,7 @@ impl RuleSet {
         rules.general.wind_direction = processed.wind_direction();
         rules.general.difficulty_rows = *processed.difficulty_rows();
         rules.general.detail = processed.detail();
+        rules.general.talk_bubble_time = processed.talk_bubble_time();
         let (ambient_rate, ambient_step) = processed.ambient_change_inputs();
         (
             rules.general.ambient_change_rate_nonzero,

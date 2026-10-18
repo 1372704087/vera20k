@@ -36,8 +36,7 @@ pub(crate) use runtime::tick_crate_regeneration;
 pub use state::{CrateAuthority, CrateSlot};
 
 use crate::map::bridge_facts::{
-    BRIDGE_FLAG_STRUCTURAL, BridgeFlagStamp, BridgeStampFamily, BridgeStampSlot,
-    high_bridge_stamp_for_overlay,
+    BridgeFlagStamp, BridgeStampFamily, BridgeStampSlot, high_bridge_stamp_for_overlay,
 };
 use crate::map::lighting::LightingProfileUnits;
 #[cfg(any(test, feature = "test-support"))]
@@ -47,9 +46,10 @@ use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
-use crate::sim::cell_rect::cell_is_in_playfield_height_aware;
+use crate::sim::cell_rect::{
+    CellPassabilityArgs, CellRef, cell_is_in_playfield_height_aware, check_cell_passability,
+};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
-use crate::sim::occupancy::OBJECT_OCCUPATION_BIT;
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
 
@@ -657,44 +657,32 @@ fn validate_and_stamp_candidate_inner(
             // identity bypass, not an inferred consequence of selecting deck facts;
             // even a nonzero deck occupation byte does not reject the ordinary tail.
             if high_bridge_data.is_none() {
-                let Some((bridge_layer_selected, selected_speed_cost)) = sim
+                let Some(terrain_cell) = sim
                     .resolved_terrain
                     .as_ref()
                     .and_then(|terrain| terrain.cell(cell.0, cell.1))
-                    .map(|terrain_cell| {
-                        (
-                            terrain_cell.bridge_facts.raw_flags & BRIDGE_FLAG_STRUCTURAL != 0,
-                            terrain_cell.speed_costs.cost_for_speed_type(mark_speed),
-                        )
-                    })
                 else {
                     break 'mark AcceptedCellResult::Ghost;
                 };
-                let selected_occupation = if bridge_layer_selected {
-                    sim.substrate.raw_cell_occupation.deck_bits(cell.0, cell.1)
-                } else {
-                    sim.substrate
-                        .raw_cell_occupation
-                        .ground_bits(cell.0, cell.1)
-                };
-                // `CellClass::CheckCellPassability @ 0x004834A0` applies both native
-                // occupation filters; their intersection is exactly bit 0x40. Other
-                // raw occupation bits do not reject this Mark admission.
-                if selected_occupation & OBJECT_OCCUPATION_BIT != 0 {
-                    if let Some(full_rules) = full_rules {
-                        spawn_crate_cell_anim(
-                            sim,
-                            full_rules,
-                            overlay_registry,
-                            cell,
-                            selected_flags.cell_anim.as_deref(),
-                            lighting_profile,
-                        );
-                    }
-                    recalc_real_crate_mark_cell(sim, overlay_registry, cell);
-                    break 'mark AcceptedCellResult::Ghost;
-                }
-                if !bridge_layer_selected && selected_speed_cost == Some(0) {
+                // Water (`0x005FD001..0x005FD00C`) and the crate images
+                // (`0x005FD065..0x005FD070`) push (SpeedType, 0, 0, -1, Normal,
+                // -1, 1): EBX is -1 and EDI 0 from `0x005FC5E9`/`0x005FC5EC`.
+                // With neither occupant class ignored, any raw bit refuses.
+                if !check_cell_passability(
+                    &CellRef::Real(terrain_cell),
+                    CellPassabilityArgs {
+                        speed_type: mark_speed,
+                        ignore_infantry: false,
+                        ignore_vehicles: false,
+                        zone: None,
+                        movement_zone: MovementZone::Normal,
+                        level: None,
+                        is_bridge: true,
+                    },
+                    &sim.cell_passability_map(),
+                )
+                .admits()
+                {
                     if let Some(full_rules) = full_rules {
                         spawn_crate_cell_anim(
                             sim,
@@ -1222,17 +1210,24 @@ pub(crate) mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::sim::cell_rect::PlayfieldBounds;
+    use crate::sim::occupancy::OBJECT_OCCUPATION_BIT;
     use crate::sim::overlay_grid::OverlayGrid;
     use crate::sim::pathfinding::PathGrid;
 
     const MAP: u16 = 40;
 
+    /// The land row of every [`uniform_terrain`] cell: each SpeedType at
+    /// 100%. A crate overlay's `Land=` (Clear) reads it from the registry's
+    /// rules, and the grid's land rows from the same keys.
+    const OPEN_LAND_KEYS: &str = "Foot=100%\nTrack=100%\nWheel=100%\nFloat=100%\n\
+        Hover=100%\nAmphibious=100%\nFloatBeach=100%\n";
+
     pub(crate) fn crate_registry() -> OverlayTypeRegistry {
-        let ini = IniFile::from_str(
+        let ini = IniFile::from_str(&format!(
             "[OverlayTypes]\n0=TIB01\n1=SILVER\n2=WOOD\n3=WATER\n\
              [TIB01]\nTiberium=yes\n[SILVER]\nCrate=yes\n\
-             [WOOD]\nCrate=yes\n[WATER]\nCrate=yes\n",
-        );
+             [WOOD]\nCrate=yes\n[WATER]\nCrate=yes\n[Clear]\n{OPEN_LAND_KEYS}",
+        ));
         OverlayTypeRegistry::from_ini(&ini, None)
     }
 
@@ -1838,12 +1833,14 @@ pub(crate) mod tests {
         assert!(slot.duration > 0);
     }
 
-    /// The slot's Mark (`OverlayClass::Mark @ 0x005FC570`) refuses only raw
-    /// ground occupation bit 0x40; every other bit keeps the visible crate.
-    /// The scenario-start snap never returns an occupied Cell, so this enters
-    /// at the slot.
+    /// The slot's Mark (`OverlayClass::Mark @ 0x005FC570`) asks
+    /// `CellClass::CheckCellPassability @ 0x004834A0` with both ignore
+    /// arguments 0 for a crate image (`0x005FD065..0x005FD070`; EDI is 0 from
+    /// `0x005FC5EC`), so any raw ground occupation bit refuses
+    /// (`0x00483558..0x0048357A`) and leaves a ghost. The scenario-start snap
+    /// never returns an occupied Cell, so this enters at the slot.
     #[test]
-    fn crate_slot_only_object_ground_occupation_bit_ghosts() {
+    fn crate_slot_any_raw_ground_occupation_bit_ghosts() {
         let rules = crate_ruleset("CrateMinimum=1\nCrateMaximum=1\n");
         let registry = crate_registry();
         let grid = PathGrid::test_all_passable(MAP, MAP);
@@ -1866,18 +1863,13 @@ pub(crate) mod tests {
             );
             assert_eq!(
                 accepted,
-                Some(if bit == OBJECT_OCCUPATION_BIT {
-                    AcceptedCellResult::Ghost
-                } else {
-                    AcceptedCellResult::Visible
-                }),
-                "only raw occupation bit 0x40 may reject Mark; tested {bit:#04x}"
+                Some(AcceptedCellResult::Ghost),
+                "tested {bit:#04x}"
             );
             assert!(sim.crate_authority.slots()[0].cell_x != 0);
-            assert_eq!(
-                crate_cells(&sim, &registry).contains(&cell),
-                bit != OBJECT_OCCUPATION_BIT,
-                "non-object occupation bits must retain the visible crate"
+            assert!(
+                !crate_cells(&sim, &registry).contains(&cell),
+                "tested {bit:#04x}"
             );
         }
     }
@@ -2107,6 +2099,9 @@ pub(crate) mod tests {
             .substrate
             .raw_cell_occupation
             .mark_deck(cell.0, cell.1, 0x01);
+        // The crate Mark ignores neither occupant class (`0x005FD065..
+        // 0x005FD070` push EDI = 0 for both), so an infantry bit in the
+        // selected deck byte refuses too.
         assert_eq!(
             validate_and_stamp_candidate(
                 &mut non_object_deck,
@@ -2115,8 +2110,8 @@ pub(crate) mod tests {
                 cell,
                 ForcedPostPrecheckFailure::None,
             ),
-            AcceptedCellResult::Visible,
-            "a selected deck byte without object bit 0x40 passes Mark"
+            AcceptedCellResult::Ghost,
+            "a selected deck byte without object bit 0x40 still refuses Mark"
         );
 
         let mut object_deck = sim_with_grid(0xB21D_0003);
@@ -3425,7 +3420,9 @@ pub(crate) mod tests {
     }
 
     /// Every cell the same land type, every speed type passable, so the only
-    /// thing the water flag can change is which crate image is chosen.
+    /// thing the water flag can change is which crate image is chosen. Its
+    /// Clear and Water land rows are [`OPEN_LAND_KEYS`], bound as a loaded map
+    /// binds its rules.
     fn uniform_terrain(water: bool) -> crate::map::resolved_terrain::ResolvedTerrainGrid {
         use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
         use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
@@ -3466,7 +3463,13 @@ pub(crate) mod tests {
                 cells.push(cell);
             }
         }
-        ResolvedTerrainGrid::from_cells(MAP, MAP, cells)
+        let mut grid = ResolvedTerrainGrid::from_cells(MAP, MAP, cells);
+        grid.set_land_speed_rules_for_test(&crate::rules::terrain_rules::TerrainRules::from_ini(
+            &IniFile::from_str(&format!(
+                "[Clear]\n{OPEN_LAND_KEYS}[Water]\n{OPEN_LAND_KEYS}"
+            )),
+        ));
+        grid
     }
 
     /// The count the loader feeds the clamp: human seats only. A 1v3 skirmish

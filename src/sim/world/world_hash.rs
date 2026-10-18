@@ -667,6 +667,7 @@ impl Simulation {
     fn fold_fog_through_projectiles(&self, fog_digests: &[u64], hasher: &mut impl Hasher) {
         self.hash_fog_and_alliances(fog_digests, hasher);
         self.hash_bridge_state(hasher);
+        self.pending_bridge_collapses.hash_state(hasher);
         // Native local graph updates retain route-selection history even
         // when the current terrain and House threat values are identical.
         // Ordinary native load rebuilds the hierarchy through581F50; its

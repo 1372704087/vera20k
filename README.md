@@ -98,12 +98,10 @@ Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20k via PayPal" height="40"></a>
 
-All donations are meant for the contributors and are shared according to the
-[TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger). This is a
-good-faith intention only, not a legal obligation: a donation is a gift, and nobody gains a
-legal claim to it, whether against the project, its maintainers, or their estates or heirs.
+All donations received are distributed
+to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
 
-Payouts, when made, go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
+Payouts to contributors go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
 or Bitcoin.
 
 ## Credits and legal

@@ -98,12 +98,10 @@ VERA20k 的开发者都是你们的朋友。我们希望把庞大的中国红警
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="通过 PayPal 支持 VERA20k" height="40"></a>
 
-所有捐款都用于贡献者，并根据
-[TIBTRE 贡献账本](https://github.com/YuriPlanet/tibtre-ledger)进行分配。这仅是一项善意的意向，
-不具有法律约束力：捐款属于赠与，任何人都不因此享有法律请求权，无论是针对本项目、其维护者，
-还是其遗产或继承人。
+所有收到的捐款都将根据
+[TIBTRE 贡献账本](https://github.com/YuriPlanet/tibtre-ledger)分配给贡献者。
 
-如有付款，贡献者可通过 PayPal、中国银联、支付宝、Vipps、SEPA 银行转账或比特币收款。
+贡献者可通过 PayPal、中国银联、支付宝、Vipps、SEPA 银行转账或比特币收款。
 
 ## 致谢与法律声明
 

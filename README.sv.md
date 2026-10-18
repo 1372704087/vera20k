@@ -98,12 +98,10 @@ därifrån. Diskussionen sker på [Discord](https://discord.gg/kmjRUn5m5F) och i
 
 <a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20k via PayPal" height="40"></a>
 
-Alla donationer är avsedda för de medverkande och fördelas enligt
-[TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger). Detta är endast en
-avsikt i god tro, inte en juridisk förpliktelse: en donation är en gåva, och ingen får något
-rättsligt anspråk på den, varken mot projektet, dess ansvariga eller deras dödsbon eller arvingar.
+Alla mottagna donationer fördelas till
+medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
 
-Utbetalningar, när de görs, sker via PayPal, UnionPay (Kina), Alipay, Vipps,
+Utbetalningar till medverkande görs via PayPal, UnionPay (Kina), Alipay, Vipps,
 SEPA-banköverföring eller Bitcoin.
 
 ## Tack och juridisk information

@@ -293,22 +293,6 @@ pub(super) fn commit_receiver_health(
     if let Some(target) = world.substrate.entities.get_mut(target_id) {
         let ty = world.interner.object_type(target.type_ref(), rules)?;
         let already_dead = state == damage::DamageState::AlreadyDead;
-        // `0x00701E6D..0x00701FC8`: any result but 0 (Unaffected) or 5
-        // (AlreadyDead, which returned) starts the radar combat flash, a
-        // death included.
-        if reached_survivor_postlude
-            && matches!(
-                state,
-                damage::DamageState::Damaged
-                    | damage::DamageState::Yellow
-                    | damage::DamageState::Red
-                    | damage::DamageState::Dead
-            )
-        {
-            target
-                .radar_combat_flash
-                .start(binary_frame as i32, rules.general.radar_combat_flash_time);
-        }
         //701FCB..70202E resets disguise reveal before the live exact-zero
         //override. Dead/AlreadyDead never take this survivor-only arm.
         if reached_survivor_postlude
@@ -359,6 +343,24 @@ pub(super) fn commit_receiver_health(
                 smoke_maintenance = None;
                 latch_hostile_hit = false;
             }
+        }
+        // `0x00701E6D..0x00701FC8`: any result but 0 (Unaffected) or 5
+        // (AlreadyDead, which returned) starts the radar combat flash, a
+        // death included, except the delay-kill death arm, which returns 5
+        // first (`0x00701ED0..0x00701F7D`).
+        if reached_survivor_postlude
+            && postmortem_candidate.is_none()
+            && matches!(
+                state,
+                damage::DamageState::Damaged
+                    | damage::DamageState::Yellow
+                    | damage::DamageState::Red
+                    | damage::DamageState::Dead
+            )
+        {
+            target
+                .radar_combat_flash
+                .start(binary_frame as i32, rules.general.radar_combat_flash_time);
         }
     }
     Some(ReceiverHealthCommit {

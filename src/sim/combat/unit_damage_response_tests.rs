@@ -472,5 +472,6 @@ fn damage_starts_the_radar_combat_flash() {
     };
     assert_eq!(flash(10), Some(49));
     assert_eq!(flash(0), Some(0), "a hit that does no damage");
-    assert!(matches!(flash(10_000), None | Some(49)), "a killing hit");
+    assert_eq!(flash(-10), Some(0), "a heal at full health");
+    assert_eq!(flash(10_000), Some(49), "a killing hit");
 }

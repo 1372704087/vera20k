@@ -697,12 +697,6 @@ pub(super) fn publish_null_nav_com(entity: &mut GameEntity) {
     entity.navigation.publish_nav_com(None);
 }
 
-/// FootClass::Stop_Moving-equivalent owner clear (`0x004DF0D0`): zeroes only
-/// the owner destination pair (NavCom and its auxiliary slot), nothing else.
-pub(crate) fn foot_stop_moving(entity: &mut GameEntity) {
-    entity.navigation.stop_moving();
-}
-
 fn drive_set_destination(
     entity: &mut GameEntity,
     destination: DriveCoord,

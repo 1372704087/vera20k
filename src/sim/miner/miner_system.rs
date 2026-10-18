@@ -640,7 +640,7 @@ fn handle_return(
             return;
         }
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
-            crate::sim::movement::foot_stop_moving(entity);
+            entity.navigation.stop_moving();
         }
     }
     let too_far = if teleporter {

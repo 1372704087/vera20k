@@ -256,7 +256,7 @@ impl Simulation {
             }
         }
         if let Some(infantry) = self.substrate.entities.get_mut(id) {
-            crate::sim::movement::foot_stop_moving(infantry);
+            infantry.navigation.stop_moving();
         }
         crate::sim::combat::world_fire::start_uncloaking_to_fire(self, rules, id);
         self.rearm_c4_planter(id, building, rules);

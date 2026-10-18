@@ -1435,7 +1435,7 @@ pub(crate) fn mission_repair(
             if let Some(contact) = sim.substrate.entities.get_mut(unit)
                 && contact.navigation.nav_com().is_some()
             {
-                crate::sim::movement::foot_stop_moving(contact);
+                contact.navigation.stop_moving();
             }
         }
         if radio::transmit_to_contact(

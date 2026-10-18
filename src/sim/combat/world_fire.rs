@@ -470,7 +470,7 @@ fn admit_attacker_fire<'r>(
         if target_is_navcom {
             //52093C/520946: shared FootStop4DF0D0 then the concrete+500
             // receiver. That receiver owns any DoAction/Walk Stop callback.
-            crate::sim::movement::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
             if let Err(cause) =
                 world.foot_stop_driver(snap.stable_id, rules, overlay_registry, effects)
             {

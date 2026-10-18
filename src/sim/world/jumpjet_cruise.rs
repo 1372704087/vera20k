@@ -697,7 +697,7 @@ impl Simulation {
             return;
         }
         if let Some(owner) = self.substrate.entities.get_mut(id) {
-            crate::sim::movement::foot_stop_moving(owner);
+            owner.navigation.stop_moving();
         }
         if let Err(cause) = self.scatter(
             id,

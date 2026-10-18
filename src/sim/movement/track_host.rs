@@ -426,7 +426,7 @@ impl Simulation {
                 }
                 if reached {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
-                    super::navcom::foot_stop_moving(entity);
+                    entity.navigation.stop_moving();
                     entity.navigation.path_replay.clear_live_head();
                     entity.navigation.settle_destination_setter();
                     if entity.mission.current().known() == Some(MissionType::Move) {

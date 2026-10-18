@@ -545,7 +545,12 @@ impl Simulation {
         if clear_nav {
             //4D59FB/5A01 are precisely FootStopMoving's two direct writes.
             // The independently retained locomotor head/destination stay live.
-            super::navcom::foot_stop_moving(self.substrate.entities.get_mut(id).unwrap());
+            self.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .navigation
+                .stop_moving();
         }
         let actor = self.substrate.entities.get(id).unwrap();
         let terrain = self.resolved_terrain.as_ref().unwrap();

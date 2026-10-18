@@ -138,6 +138,17 @@ pub struct CellCoordinate {
     pub y: i32,
 }
 
+/// Packed `CellStruct` words, sign-extended as CellStruct-to-Coord642740
+/// reads them.
+impl From<(i16, i16)> for CellCoordinate {
+    fn from((x, y): (i16, i16)) -> Self {
+        Self {
+            x: i32::from(x),
+            y: i32::from(y),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CellQueryPoint {
     pub x: i32,

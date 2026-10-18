@@ -4084,7 +4084,7 @@ mod tests {
             .spawn_object_limbo_at_height("YAPOWR", "Americans", 10, 10, 0, 0, &rules)
             .expect("Bio Reactor builds");
         let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 0);
-        cargo.board(99, 1);
+        cargo.board_forced_chain(&[(99, 1)]);
         sim.entities_mut().get_mut(reactor).unwrap().passenger_role =
             crate::sim::passenger::PassengerRole::transport(cargo);
         let hover = HoverTargetKindWithId {

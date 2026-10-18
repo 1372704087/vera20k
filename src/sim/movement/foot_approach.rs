@@ -9,13 +9,14 @@
 //! computer and OmniCrusher crush arms ([`ApproachCrush`]) and its
 //! BalloonHover arm, ahead of the Foot body.
 
-use super::foot_path::{cell_centre, chebyshev, coord_cell};
+use super::foot_path::{chebyshev, coord_cell};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::object_type::Ability;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::cell_kernel::cell_center;
 use crate::sim::cell_rect;
 use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::combat::{self, TargetKind, in_range};
@@ -697,7 +698,7 @@ impl Simulation {
                     self.place_infantry_spot_in_cell(rules, cell, own)?
                         .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 })
                 } else {
-                    cell_centre(radial)
+                    DriveCoord::from(cell_center(radial.into(), 0))
                 };
                 let cells = NativeCellQuery::canonical(self.resolved_terrain.as_ref().unwrap());
                 point.z = in_range::native_ground_target_z(point.x, point.y, &cells)
@@ -744,7 +745,7 @@ impl Simulation {
                         // or ground lookup. Destination setting resolves Z later.
                         if self.approach_accepts(
                             id,
-                            cell_centre(candidate),
+                            DriveCoord::from(cell_center(candidate.into(), 0)),
                             &target,
                             weapon,
                             close_range.then_some(own),

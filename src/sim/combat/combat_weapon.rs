@@ -1295,7 +1295,7 @@ mod tests {
                 inside.veterancy.set_rank_for_test(veterancy);
                 entities.insert(inside);
                 let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 0);
-                assert!(cargo.board(2, 1));
+                cargo.board_forced_chain(&[(2, 1)]);
                 building.passenger_role = PassengerRole::transport(cargo);
             }
             entities.insert(building);

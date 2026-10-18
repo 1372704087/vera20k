@@ -195,14 +195,15 @@ impl Fixture {
                 );
                 pax
             };
-            let boarded = self
+            let cargo = self
                 .sim
                 .substrate
                 .entities
                 .get_mut(transport)
                 .and_then(|t| t.passenger_role.cargo_mut())
-                .is_some_and(|cargo| cargo.board(pax, 1));
-            assert!(boarded, "cargo accepts passenger {i}");
+                .expect("transport cargo");
+            assert!(cargo.can_accept(1), "cargo accepts passenger {i}");
+            cargo.board_forced_chain(&[(pax, 1)]);
             self.sim
                 .substrate
                 .entities
@@ -1106,14 +1107,15 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities
@@ -1227,14 +1229,15 @@ fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities
@@ -1356,14 +1359,15 @@ fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground(
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities

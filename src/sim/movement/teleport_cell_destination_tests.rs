@@ -671,7 +671,7 @@ fn full_transport_arrival_replays_original_warp_in_refusal_tail() {
             .passenger_role
             .cargo_mut()
             .unwrap()
-            .board_forced(occupant, rules.object("E1").unwrap().size);
+            .board_forced_chain(&[(occupant, rules.object("E1").unwrap().size)]);
         crate::sim::passenger::begin_boarding(
             sim.substrate.entities.get_mut(id).unwrap(),
             transport,

@@ -134,12 +134,11 @@ impl Fixture {
                     ConcealOutcome::Concealed
                 );
                 let entity = self.sim.substrate.entities.get_mut(transport).unwrap();
-                assert!(
-                    entity
-                        .passenger_role
-                        .cargo_mut()
-                        .is_some_and(|cargo| cargo.board(passenger, 1))
-                );
+                entity
+                    .passenger_role
+                    .cargo_mut()
+                    .expect("transport cargo")
+                    .board_forced_chain(&[(passenger, 1)]);
                 self.sim
                     .substrate
                     .entities

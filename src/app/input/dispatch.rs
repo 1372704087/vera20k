@@ -3280,7 +3280,7 @@ mod deploy_key_tests {
         let aircraft = spawn("AIRCRAFT");
         let infantry = spawn("GI");
         let mut cargo = PassengerCargo::new(5, 0);
-        cargo.board(999, 1);
+        cargo.board_forced_chain(&[(999, 1)]);
         sim.entities_mut()
             .get_mut(transport)
             .unwrap()
@@ -3338,7 +3338,7 @@ mod deploy_key_tests {
             .spawn_object("YAPOWR", "Americans", 10, 10, 0, &rules)
             .expect("Bio Reactor builds");
         let mut cargo = PassengerCargo::new(5, 0);
-        cargo.board(99, 1);
+        cargo.board_forced_chain(&[(99, 1)]);
         sim.entities_mut().get_mut(reactor).unwrap().passenger_role =
             PassengerRole::transport(cargo);
 

@@ -558,7 +558,7 @@ fn native_base_response_live_threat_matches_representable_original_rows() {
         if count > 0 {
             let mut cargo = PassengerCargo::new(count as u32, 1);
             for id in 0..count as u64 {
-                assert!(cargo.board(id + 10, 1));
+                cargo.board_forced_chain(&[(id + 10, 1)]);
             }
             owner.passenger_role = PassengerRole::transport(cargo);
         }

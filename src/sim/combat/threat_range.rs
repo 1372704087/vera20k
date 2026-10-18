@@ -620,7 +620,7 @@ GuardRange=9\n\n\
                 passenger.set_gunner_selection_for_test(current as i32, -1);
                 passenger.passenger_role = PassengerRole::inside_for_test(1, open_topped);
                 entities.insert(passenger);
-                assert!(cargo.board(id, 1));
+                cargo.board_forced_chain(&[(id, 1)]);
             }
             let mut transport = GameEntity::test_default(1, "TRN", "Test", 0, 0);
             transport

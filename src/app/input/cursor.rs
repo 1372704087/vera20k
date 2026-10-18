@@ -2169,15 +2169,13 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         let gi = sim
             .spawn_object("GI", "Americans", 1, 10, 0, &rules)
             .unwrap();
-        assert!(
-            sim.entities_mut()
-                .get_mut(house)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(gi, 1)
-        );
+        sim.entities_mut()
+            .get_mut(house)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(gi, 1)]);
         assert!(rules.object("HOUSE").unwrap().primary().is_none());
         for (actor, y) in [(tower, 6), (house, 10)] {
             assert_eq!(
@@ -2377,15 +2375,13 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             let target_id = sim
                 .spawn_object("TANK", "Americans", 4, 10, 0, &rules)
                 .unwrap();
-            assert!(
-                sim.entities_mut()
-                    .get_mut(house)
-                    .unwrap()
-                    .passenger_role
-                    .cargo_mut()
-                    .unwrap()
-                    .board(gi, 1)
-            );
+            sim.entities_mut()
+                .get_mut(house)
+                .unwrap()
+                .passenger_role
+                .cargo_mut()
+                .unwrap()
+                .board_forced_chain(&[(gi, 1)]);
             sim.entities_mut().get_mut(gi).unwrap().passenger_role =
                 PassengerRole::inside_for_test(house, false);
             let occupant = sim.entities().get(gi).unwrap();

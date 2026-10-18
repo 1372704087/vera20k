@@ -243,8 +243,9 @@ impl HouseStrategyEmergencyState {
         self.last_attacker_house_index
     }
 
-    /// Trigger action9 writes only House+250=4 at6DEAFF; the existing
-    /// strategy timer and its eventual FireSale/Hunt remain untouched.
+    /// Trigger action9 (6DEAFF) and Team script30 (6E99E5) write only
+    /// House+250=4; the existing strategy timer and eventual FireSale/Hunt
+    /// remain untouched.
     pub(crate) fn set_state_four(&mut self) {
         self.mode = 4;
     }

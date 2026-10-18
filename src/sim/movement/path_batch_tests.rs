@@ -384,8 +384,9 @@ fn a_redirected_request_is_left_to_find_path() {
 
 /// Each answer is its search's own, whatever thread ran it: the same
 /// searches one at a time on this thread, reading every entry fact from the
-/// world, agree, for no-queue requests and code-2 ladders. Movers along the
-/// map edge stamp the shared Dummy from their finishing passes.
+/// world, agree, for no-queue requests and code-2 ladders, the urgency-2
+/// ones started first. Movers along the map edge stamp the shared Dummy from
+/// their finishing passes.
 #[test]
 fn batched_answers_do_not_depend_on_the_threads() {
     let rules = rules();
@@ -396,8 +397,12 @@ fn batched_answers_do_not_depend_on_the_threads() {
         send(&mut sim, &rules, tank, (29 - 2 * i, 1));
         let infantry = spawn(&mut sim, &rules, "E1", (1, 3 + 2 * i));
         send(&mut sim, &rules, infantry, (1, 29 - 2 * i));
-        // Tanks repeat a no-queue request, infantrymen a code-2 ladder's.
-        movers.extend([(tank, WaitingRequest::NoQueue), (infantry, CODE2)]);
+        // Tanks repeat a no-queue request, infantrymen a code-2 ladder's,
+        // every third at urgency 2.
+        let ladder = WaitingRequest::Code2Ladder {
+            urgency: if i % 3 == 2 { 2 } else { 1 },
+        };
+        movers.extend([(tank, WaitingRequest::NoQueue), (infantry, ladder)]);
     }
     sim.batch_path_searches();
     for &(id, request) in &movers {

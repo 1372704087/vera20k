@@ -26,6 +26,7 @@ use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, chop_sum_f32, sqrt_approx_f32,
 };
 use std::cell::RefCell;
+#[cfg(any(test, feature = "test-support"))]
 use std::collections::BTreeSet;
 
 /// Accepted native path descriptor (`gamemd.exe 42AA90` reads the parent descriptor's
@@ -35,7 +36,9 @@ use std::collections::BTreeSet;
 /// `tools/spatial_oracle/astar_path_finishing.{py,json}` (supplied chains).
 #[derive(Clone, Copy)]
 struct PathDescriptor {
-    parent: usize,
+    /// The parent's cell index and list ([`encode_from`]), `u32::MAX` for the
+    /// start.
+    parent: u32,
     height: i16,
     /// The g its node was created with, which the main loop also keeps per
     /// list (`+0x24` ground, `+0x20` deck; written at `0x0042A125..0x0042A156`)
@@ -45,7 +48,7 @@ struct PathDescriptor {
 
 impl PathDescriptor {
     const UNVISITED: Self = Self {
-        parent: usize::MAX,
+        parent: u32::MAX,
         height: 0,
         g: 0.0,
     };
@@ -176,7 +179,10 @@ const SEARCH_MARKER_COST_MULTIPLIER: i32 = 4;
 /// the original bitwise lifecycle and peer-path replay behavior.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchMarkerOverlay {
-    cells: BTreeSet<(u16, u16)>,
+    /// The marked cells as `x << 16 | y`, ascending. A* asks about most
+    /// candidates it creates, so a lookup is a binary search of one small
+    /// array, and a cell outside the marked range is answered at once.
+    cells: Vec<u32>,
 }
 
 impl SearchMarkerOverlay {
@@ -184,14 +190,27 @@ impl SearchMarkerOverlay {
         Self::default()
     }
 
+    fn key(cell: (u16, u16)) -> u32 {
+        u32::from(cell.0) << 16 | u32::from(cell.1)
+    }
+
     pub fn toggle(&mut self, cell: (u16, u16)) {
-        if !self.cells.insert(cell) {
-            self.cells.remove(&cell);
+        match self.cells.binary_search(&Self::key(cell)) {
+            Ok(at) => {
+                self.cells.remove(at);
+            }
+            Err(at) => self.cells.insert(at, Self::key(cell)),
         }
     }
 
     pub fn contains(&self, cell: (u16, u16)) -> bool {
-        self.cells.contains(&cell)
+        let key = Self::key(cell);
+        match (self.cells.first(), self.cells.last()) {
+            (Some(&first), Some(&last)) if (first..=last).contains(&key) => {
+                self.cells.binary_search(&key).is_ok()
+            }
+            _ => false,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -449,14 +468,21 @@ const BRIDGE_HEIGHT_THRESHOLD: u16 = 2;
 
 /// Encode source cell index + bridge flag into came_from value.
 /// Max map = 512x512 = 262,144 cells -> fits in 18 bits, leaving bit 20 free.
-const CAME_FROM_BRIDGE: usize = 1 << 20;
+const CAME_FROM_BRIDGE: u32 = 1 << 20;
 
 /// AStar429E54 selects its closed list from the candidate's raw0x100 and
 /// the CURRENT signed path height, before calling Foot+1AC. Walkability is a
 /// different derived field and must not turn an unflagged ramp into a deck.
 fn is_at_bridge_level(path_height: i16, cell: &PathCell) -> bool {
-    cell.has_structural_bridge()
-        && path_height.abs_diff(cell.signed_level()) >= BRIDGE_HEIGHT_THRESHOLD
+    selects_bridge_list(
+        path_height,
+        (cell.has_structural_bridge(), cell.signed_level()),
+    )
+}
+
+/// [`is_at_bridge_level`] from the cell's structural flag and signed level.
+fn selects_bridge_list(path_height: i16, (structural, level): (bool, i16)) -> bool {
+    structural && path_height.abs_diff(level) >= BRIDGE_HEIGHT_THRESHOLD
 }
 
 fn initial_search_heights(
@@ -503,12 +529,16 @@ pub(crate) fn compute_node_height(
     ground + if deck { 4 } else { 0 }
 }
 
-fn encode_from(cell_idx: usize, on_bridge: bool) -> usize {
-    cell_idx | if on_bridge { CAME_FROM_BRIDGE } else { 0 }
+fn encode_from(cell_idx: usize, on_bridge: bool) -> u32 {
+    debug_assert!(cell_idx < CAME_FROM_BRIDGE as usize);
+    cell_idx as u32 | if on_bridge { CAME_FROM_BRIDGE } else { 0 }
 }
 
-fn decode_from(value: usize) -> (usize, bool) {
-    (value & !CAME_FROM_BRIDGE, value & CAME_FROM_BRIDGE != 0)
+fn decode_from(value: u32) -> (usize, bool) {
+    (
+        (value & !CAME_FROM_BRIDGE) as usize,
+        value & CAME_FROM_BRIDGE != 0,
+    )
 }
 
 /// The exit of the explicit tube entered at `coord`, the direction-8 candidate.
@@ -704,7 +734,7 @@ fn reconstruct_path_dual(
         let encoded = descriptor.parent;
         debug_assert_ne!(
             encoded,
-            usize::MAX,
+            u32::MAX,
             "reconstruct_path_dual: hit unvisited cell at idx={} bridge={}",
             current_idx,
             current_bridge
@@ -776,7 +806,7 @@ pub fn astar_search(
         // moment a node is created for it and freezes its g there. The start
         // node is created before the loop, so it is stamped here, with g 0.
         let start_descriptor = PathDescriptor {
-            parent: usize::MAX,
+            parent: u32::MAX,
             height: compute_node_height(start_height, None, start_cell),
             g: 0.0,
         };
@@ -855,29 +885,32 @@ pub fn astar_search(
                 let nx = nx_i as u16;
                 let ny = ny_i as u16;
                 let n_idx = ny as usize * w + nx as usize;
-                let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
 
                 // Closed-list selection (0x00429E54): the CURRENT node's height
                 // against the candidate. Foot+1AC's own 0x004D9C60 list choice
                 // stays local to the class.
-                let neighbor_use_bridge = is_at_bridge_level(current.height, neighbor_cell);
-                let closed = if neighbor_use_bridge {
-                    bridge.get(n_idx)
+                let neighbor_use_bridge =
+                    selects_bridge_list(current.height, grid.layer_inputs(n_idx));
+                let layer = if neighbor_use_bridge {
+                    &*bridge
                 } else {
-                    ground.get(n_idx)
+                    &*ground
                 };
                 // A closed cell other than the goal never gets a node or ends
                 // the route here (the retry below only re-asks gamemd's class
                 // and edge cost, a recorded residual), and every test gamemd
                 // makes before its closed test only passes a candidate over,
                 // so such a cell is passed over first. Most candidates are
-                // closed.
-                if closed.is_some() && (nx, ny) != goal {
+                // closed, so this reads only the stamp.
+                let is_goal = (nx, ny) == goal;
+                if layer.contains(n_idx) && !is_goal {
                     continue;
                 }
+                let closed = if is_goal { layer.get(n_idx) } else { None };
                 if !search_cell_allocated(options.resolved_terrain, (nx, ny)) {
                     continue;
                 }
+                let neighbor_cell = grid.cell(nx, ny).unwrap_or(&DEFAULT_BLOCKED_CELL);
 
                 // Compute what height the NEW node carries forward (separate computation)
                 let neighbor_height =
@@ -1241,6 +1274,10 @@ pub struct PathGrid {
     /// so sight's line of sight borrows the plane
     /// ([`Self::ground_height_grid`]) instead of copying it per reveal.
     ground_levels: Vec<u8>,
+    /// Every cell's `bridge_structural` in cell order, kept beside
+    /// `ground_levels`, so A* chooses a candidate's closed list from two
+    /// small planes instead of the whole cell ([`Self::layer_inputs`]).
+    bridge_structural: Vec<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1355,14 +1392,63 @@ impl PathGrid {
     /// Create a new grid where all cells are ground-walkable with no bridges.
     pub fn new(width: u16, height: u16) -> Self {
         let size = width as usize * height as usize;
-        Self {
-            cells: vec![DEFAULT_WALKABLE_CELL; size],
+        Self::with_cells(
+            vec![DEFAULT_WALKABLE_CELL; size],
             width,
             height,
-            terrain_object_cell_bits: Vec::new(),
-            ground_walkable_without_terrain_object: Vec::new(),
-            ground_levels: vec![DEFAULT_WALKABLE_CELL.ground_level; size],
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    /// A grid of `cells` with the planes each cell writer keeps derived from
+    /// them.
+    fn with_cells(
+        cells: Vec<PathCell>,
+        width: u16,
+        height: u16,
+        terrain_object_cell_bits: Vec<u8>,
+        ground_walkable_without_terrain_object: Vec<bool>,
+    ) -> Self {
+        let ground_levels = cells.iter().map(|cell| cell.ground_level).collect();
+        let bridge_structural = cells.iter().map(|cell| cell.bridge_structural).collect();
+        Self {
+            cells,
+            width,
+            height,
+            terrain_object_cell_bits,
+            ground_walkable_without_terrain_object,
+            ground_levels,
+            bridge_structural,
         }
+    }
+
+    /// Write the cell at `index` and the planes kept from it.
+    fn store_cell(&mut self, index: usize, cell: PathCell) {
+        self.ground_levels[index] = cell.ground_level;
+        self.bridge_structural[index] = cell.bridge_structural;
+        self.cells[index] = cell;
+    }
+
+    /// The cell at `index`'s structural-bridge flag and signed level, the
+    /// inputs of A*'s closed-list choice (`is_at_bridge_level`), read from
+    /// the kept planes. A cell past the grid reads as the default blocked
+    /// cell does.
+    fn layer_inputs(&self, index: usize) -> (bool, i16) {
+        let inputs = (
+            self.bridge_structural.get(index).copied().unwrap_or(false),
+            self.ground_levels
+                .get(index)
+                .map_or(0, |&level| level as i8 as i16),
+        );
+        debug_assert_eq!(
+            inputs,
+            self.cells.get(index).map_or((false, 0), |cell| {
+                (cell.has_structural_bridge(), cell.signed_level())
+            }),
+            "the kept planes match the cell"
+        );
+        inputs
     }
 
     /// Terrain-object sub-cell occupation bits at a cell, in cell-plane form
@@ -1588,15 +1674,13 @@ impl PathGrid {
                 *slot = walkable_without_terrain_object;
             }
         }
-        let ground_levels = cells.iter().map(|cell| cell.ground_level).collect();
-        Self {
+        Self::with_cells(
             cells,
-            width: terrain.width(),
-            height: terrain.height(),
+            terrain.width(),
+            terrain.height(),
             terrain_object_cell_bits,
             ground_walkable_without_terrain_object,
-            ground_levels,
-        }
+        )
     }
 
     /// Publish just one recalculated terrain cell. Existing structure presence
@@ -1612,8 +1696,7 @@ impl PathGrid {
         }
         let index = usize::from(cell.ry) * usize::from(self.width) + usize::from(cell.rx);
         let (path_cell, bits, without_terrain) = project_terrain_path_cell(cell);
-        self.ground_levels[index] = path_cell.ground_level;
-        self.cells[index] = path_cell;
+        self.store_cell(index, path_cell);
         if let Some(slot) = self.terrain_object_cell_bits.get_mut(index) {
             *slot = bits;
         }
@@ -1723,15 +1806,7 @@ impl PathGrid {
     /// Construct from raw cell data (test helper).
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_cells(cells: Vec<PathCell>, width: u16, height: u16) -> Self {
-        let ground_levels = cells.iter().map(|cell| cell.ground_level).collect();
-        Self {
-            cells,
-            width,
-            height,
-            terrain_object_cell_bits: Vec::new(),
-            ground_walkable_without_terrain_object: Vec::new(),
-            ground_levels,
-        }
+        Self::with_cells(cells, width, height, Vec::new(), Vec::new())
     }
 
     /// Test-only helper: directly write a cell's bridge fields.
@@ -1751,19 +1826,21 @@ impl PathGrid {
             } else {
                 0
             };
-            self.ground_levels[idx] = ground_level;
-            self.cells[idx] = PathCell {
-                ground_walkable: true,
-                bridge_walkable,
-                bridge_structural: bridge_walkable,
-                bridge_marker_0x80: false,
-                transition,
-                ground_level,
-                bridge_deck_level,
-                slope_type: 0,
-                tube_index: None,
-                low_bridge_tube_cell: false,
-            };
+            self.store_cell(
+                idx,
+                PathCell {
+                    ground_walkable: true,
+                    bridge_walkable,
+                    bridge_structural: bridge_walkable,
+                    bridge_marker_0x80: false,
+                    transition,
+                    ground_level,
+                    bridge_deck_level,
+                    slope_type: 0,
+                    tube_index: None,
+                    low_bridge_tube_cell: false,
+                },
+            );
         }
     }
 
@@ -1791,19 +1868,21 @@ impl PathGrid {
     ) {
         if x < self.width && y < self.height {
             let idx = y as usize * self.width as usize + x as usize;
-            self.ground_levels[idx] = ground_level;
-            self.cells[idx] = PathCell {
-                ground_walkable: true,
-                bridge_walkable,
-                bridge_structural,
-                bridge_marker_0x80: false,
-                transition,
-                ground_level,
-                bridge_deck_level,
-                slope_type: 0,
-                tube_index: None,
-                low_bridge_tube_cell: false,
-            };
+            self.store_cell(
+                idx,
+                PathCell {
+                    ground_walkable: true,
+                    bridge_walkable,
+                    bridge_structural,
+                    bridge_marker_0x80: false,
+                    transition,
+                    ground_level,
+                    bridge_deck_level,
+                    slope_type: 0,
+                    tube_index: None,
+                    low_bridge_tube_cell: false,
+                },
+            );
         }
     }
 }
@@ -2026,28 +2105,19 @@ mod core_tests;
 impl PathGrid {
     /// Test helper: build a grid with every cell ground-walkable.
     pub fn test_all_passable(width: u16, height: u16) -> Self {
-        let size = width as usize * height as usize;
-        PathGrid {
-            cells: vec![DEFAULT_WALKABLE_CELL; size],
-            width,
-            height,
-            terrain_object_cell_bits: Vec::new(),
-            ground_walkable_without_terrain_object: Vec::new(),
-            ground_levels: vec![DEFAULT_WALKABLE_CELL.ground_level; size],
-        }
+        Self::new(width, height)
     }
 
     /// Test helper: build a grid with every cell blocked.
     pub fn test_all_blocked(width: u16, height: u16) -> Self {
         let size = width as usize * height as usize;
-        PathGrid {
-            cells: vec![DEFAULT_BLOCKED_CELL; size],
+        Self::with_cells(
+            vec![DEFAULT_BLOCKED_CELL; size],
             width,
             height,
-            terrain_object_cell_bits: Vec::new(),
-            ground_walkable_without_terrain_object: Vec::new(),
-            ground_levels: vec![DEFAULT_BLOCKED_CELL.ground_level; size],
-        }
+            Vec::new(),
+            Vec::new(),
+        )
     }
 }
 

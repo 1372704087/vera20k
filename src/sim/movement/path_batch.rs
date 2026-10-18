@@ -492,7 +492,15 @@ impl Simulation {
         // thread, so only tests check that the searches draw nothing.
         #[cfg(any(test, feature = "test-support"))]
         let rng = sim.rng_state();
-        let answers = crate::sim::parallel::map(pending, |&(id, request)| {
+        // Urgency-2 re-paths route around every moving friendly and cost the
+        // most by far (match bench: a median of ~720 expansions against ~70
+        // for the rest), so they start first and none runs alone at the end.
+        // An answer depends on its request alone, so the order changes none.
+        let mut order: Vec<usize> = (0..pending.len()).collect();
+        order.sort_by_key(|&index| {
+            !matches!(pending[index].1, WaitingRequest::Code2Ladder { urgency: 2 })
+        });
+        let answers = crate::sim::parallel::map_in_order(pending, &order, |&(id, request)| {
             dummy.detached(|| {
                 sim.batched_search(id, request, rules, registry, grid, counts, Some(facts))
             })

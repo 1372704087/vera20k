@@ -1073,6 +1073,18 @@ fn search_marker_overlay_uses_xor_parity() {
     overlay.toggle((3, 1));
     assert!(!overlay.contains((3, 1)));
     assert!(overlay.is_empty());
+
+    // Cells toggled in no particular order stay marked until toggled again,
+    // and no other cell is, inside their range or outside it.
+    for cell in [(5, 2), (1, 9), (5, 0), (300, 4), (1, 8), (5, 0)] {
+        overlay.toggle(cell);
+    }
+    for cell in [(5, 2), (1, 9), (300, 4), (1, 8)] {
+        assert!(overlay.contains(cell), "{cell:?}");
+    }
+    for cell in [(5, 0), (5, 1), (1, 7), (0, 9), (300, 5), (301, 0), (0, 0)] {
+        assert!(!overlay.contains(cell), "{cell:?}");
+    }
 }
 
 #[test]

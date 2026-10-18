@@ -224,8 +224,8 @@ impl PreludeReads<'_> {
 
 impl PreludeCells for PreludeReads<'_> {
     fn coord(&self, cell: Cell) -> (i16, i16) {
-        self.kept(cell)
-            .map_or_else(|| self.query.coord(cell), |facts| facts.coord)
+        // A real cell's coordinate is its index's; only the Dummy's is read.
+        self.query.coord(cell)
     }
 
     fn lookup(&self, coord: (i16, i16)) -> Cell {

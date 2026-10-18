@@ -63,6 +63,25 @@ cargo run --release --bin vera20k
 Write `ra2_dir` with forward slashes, like `C:/Games/RA2`. Use `--release` to play; debug
 builds are too slow. The log is in `logs/ra2.log`.
 
+### Debug dashboard
+
+`VERA_TELEMETRY_ADDR` starts a browser view of the running match: frame timing, every house,
+units, terrain, the log console, plus debug switches and a trainer. Run it from the checkout
+root, because the page is served from `tools/telemetry-dashboard`:
+
+```sh
+VERA_TELEMETRY_ADDR=127.0.0.1:9741 cargo run --release --bin vera20k
+```
+
+Then open `http://127.0.0.1:9741/`. There is nothing to build first: the server reads the `.js`
+committed beside each `.ts`. After editing a `.ts`, run `npm ci && npm run build` in
+`tools/telemetry-dashboard` and commit the `.js` together with it. To see the dashboard without
+installing the game, `cargo run --bin telemetry-serve` serves it from a synthetic world.
+
+The port authenticates nobody, so it binds to loopback unless you also set
+`VERA_TELEMETRY_ALLOW_REMOTE`. Published builds carry no dashboard at all: they compile with
+`--no-default-features`, which drops the `telemetry-dashboard` feature.
+
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original

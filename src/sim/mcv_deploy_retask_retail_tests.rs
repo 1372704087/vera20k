@@ -103,6 +103,8 @@ fn actual_computer_yard_retasks_existing_starting_force_through_move() {
     let sim = scene.sim();
     assert_ne!(sim.houses[&owner].base_origin(), (0, 0));
     let move_mission = MissionId::from_known(MissionType::Move);
+    let shared = sim.entities().get(army[0].0).unwrap().navigation.nav_com();
+    assert!(shared.is_some(), "the deploy gives a destination");
     for (id, _) in &army {
         let entity = sim.entities().get(*id).unwrap();
         assert_eq!(
@@ -110,13 +112,15 @@ fn actual_computer_yard_retasks_existing_starting_force_through_move() {
             None,
             "the deploy clears {id}'s archive target"
         );
-        assert!(
-            entity.navigation.nav_com().is_some(),
-            "the deploy gives {id} a destination"
-        );
         assert_eq!(
-            entity.mission.effective(),
-            move_mission,
+            entity.navigation.nav_com(),
+            shared,
+            "the deploy gives {id} the shared destination"
+        );
+        // An actor that updates after the MCV in the deploy frame has
+        // already commenced the queued Move.
+        assert!(
+            entity.mission.queued() == move_mission || entity.mission.current() == move_mission,
             "the deploy queues Move for {id}"
         );
     }

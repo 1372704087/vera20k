@@ -918,15 +918,33 @@ fn a_computer_yard_deploy_sends_its_ground_force_to_the_base() {
     for human in [false, true] {
         let (mut sim, rules, mcv, [tank, infantry, enemy]) = ground_force_fixture(human);
         let command = human.then_some(Command::DeployMcv { entity_id: mcv });
+        let mut deploy_frame = sim.session.binary_frame;
         tick(&mut sim, &rules, command);
         for _ in 0..140 {
             if !yard_cells(&sim).is_empty() {
                 break;
             }
+            deploy_frame = sim.session.binary_frame;
             tick(&mut sim, &rules, None);
         }
         let yard = yard_cells(&sim);
         assert_eq!(yard.len(), 1, "human={human}");
+        // The new yard's base origin seeds the Foot 4x4 search, whose
+        // no-target pick reads the deploy frame's counter. The port's
+        // arguments and filters are pinned by its own test in house_base.
+        let owner = sim.interner.get("Americans").unwrap();
+        let origin = sim.houses[&owner].base_origin();
+        let frame = std::mem::replace(&mut sim.session.binary_frame, deploy_frame);
+        let destination = sim
+            .find_plain_passable_cell(
+                (i32::from(origin.0), i32::from(origin.1)),
+                crate::rules::locomotor_type::SpeedType::Foot,
+                None,
+                crate::rules::locomotor_type::MovementZone::Normal,
+                (4, 4),
+            )
+            .map(|(x, y)| NavTargetRef::cell(x + 1, y + 1));
+        sim.session.binary_frame = frame;
         let entity = |id| sim.substrate.entities.get(id).unwrap();
         let ordered = |id| {
             let mission = &entity(id).mission;
@@ -943,15 +961,7 @@ fn a_computer_yard_deploy_sends_its_ground_force_to_the_base() {
             }
             continue;
         }
-        let destination = entity(tank).navigation.nav_com();
-        let Some(NavTargetRef::Cell { rx, ry }) = destination else {
-            panic!("the tank has a cell destination: {destination:?}");
-        };
-        let (yard_x, yard_y) = yard[0];
-        assert!(
-            rx.abs_diff(yard_x) <= 8 && ry.abs_diff(yard_y) <= 8,
-            "{rx},{ry}"
-        );
+        assert!(destination.is_some());
         for id in [tank, infantry] {
             assert_eq!(entity(id).navigation.nav_com(), destination);
             assert_eq!(entity(id).archive_target(), None);

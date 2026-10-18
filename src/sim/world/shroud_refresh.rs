@@ -634,6 +634,18 @@ impl Simulation {
             }
         });
         for &viewer in viewers {
+            if projection == vision::MapRevealProjection::Source
+                && notification_viewer != Some(viewer)
+            {
+                // No receiver hears this plane: walk it in one go.
+                let native_cells = context
+                    .terrain()
+                    .or(self.resolved_terrain.as_ref())
+                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+                self.fog
+                    .reveal_source_map_cells(viewer, &cells, final_pass, native_cells.as_ref());
+                continue;
+            }
             for &cell in &cells {
                 let notify = {
                     let native_cells = context
@@ -1387,16 +1399,19 @@ impl Simulation {
         radius: i32,
         context: UninitContext<'_>,
     ) {
-        for cell in vision::sight_border_cells(origin, radius, 0) {
-            let cells = context
-                .terrain()
-                .or(self.resolved_terrain.as_ref())
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-            self.fog
-                .refresh_sight_border_cell(viewer, cell, cells.as_ref());
-            #[cfg(any(test, feature = "test-support"))]
-            REVEAL_CALLS.with_borrow_mut(|trace| {
-                if let Some(trace) = trace {
+        let border = vision::sight_border_cells(origin, radius, 0);
+        let cells = context
+            .terrain()
+            .or(self.resolved_terrain.as_ref())
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+        self.fog
+            .refresh_sight_border_cells(viewer, &border, cells.as_ref());
+        // Each refresh writes only its own cell's frame, so every frame
+        // read after the whole border is the one its refresh stored.
+        #[cfg(any(test, feature = "test-support"))]
+        REVEAL_CALLS.with_borrow_mut(|trace| {
+            if let Some(trace) = trace {
+                for &cell in &border {
                     trace.border_receivers.push(cell);
                     if cell.0 < self.fog.width && cell.1 < self.fog.height {
                         trace.border_ground_after.push(
@@ -1406,8 +1421,8 @@ impl Simulation {
                         );
                     }
                 }
-            });
-        }
+            }
+        });
     }
 
     /// Techno70ADC0, selected Action40 Map567230 vslot120 callback.

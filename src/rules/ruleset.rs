@@ -776,6 +776,13 @@ pub struct GeneralRules {
     pub wake: AnimRef,
     /// Multiplayer move-command feedback animation (MoveFlash= in [General]).
     pub move_flash: AnimRef,
+    /// `[General] Behind=` (`Rules+0xB8`): the indicator Anim a Techno
+    /// behind a building takes (`TechnoClass::AI_Update @ 0x006FA2D3`).
+    /// ReadGeneral (`0x0066E4F5..0x0066E513`) reads it into a 0x80 buffer and
+    /// resolves it through the AnimType factory (`0x00428B80`), keeping the
+    /// current value when the key is absent; the constructor leaves it null
+    /// (`0x00665765`).
+    pub behind: Option<String>,
     /// Fatal infantry animation bindings indexed by Warhead `InfDeath`.
     /// Slots 3/4/6..10 come from `[General]`; slot 5 is the second declared
     /// `[Animations]` entry. Slots 0..2 intentionally have no external anim.
@@ -2292,6 +2299,7 @@ impl Default for GeneralRules {
             move_flash: AnimRef {
                 name: "RING".to_string(),
             },
+            behind: None,
             infantry_death_anims: [
                 None,
                 None,
@@ -3579,6 +3587,9 @@ impl GeneralRules {
             move_flash: AnimRef {
                 name: parse_anim_name("MoveFlash", "RING"),
             },
+            behind: general
+                .read_type_name("Behind", 0x80)
+                .map(str::to_ascii_uppercase),
             infantry_death_anims,
             damage_delay_minutes: general.read_double("DamageDelay", 1.0) as f32,
             spy_power_blackout: general.read_int("SpyPowerBlackout", defaults.spy_power_blackout),

@@ -287,10 +287,10 @@ impl OverlayGrid {
     /// them: `ReadMapOverlayPacks @ 0x005FD2E0` has one caller,
     /// `InitializeScenarioFromINI` (`0x00687A34`), which a generated launch
     /// reaches only through `RandomMapGenerator::InitMapFromSyntheticINI @
-    /// 0x00599650` (`0x00598A74`), on an INI holding `[Map]`, `[Basic]` and
-    /// `[Lighting]` alone and before any overlay exists. The generator then
-    /// stores each overlay index (`CellClass+0x44`) and data byte (`+0x11E`)
-    /// itself, with no `OverlayClass` constructed: ore through
+    /// 0x00599650` (`0x00598A74`), on a synthetic INI with no overlay packs
+    /// and before any overlay exists. The generator then stores each overlay
+    /// index (`CellClass+0x44`) and data byte (`+0x11E`) itself, with no
+    /// `OverlayClass` constructed: ore through
     /// `RandomMapGenerator::CreateTiberium` (`0x00598EF4`, writer
     /// `0x005A28C0`), rocks through `0x005A3AE0` (`0x00599232`), low-bridge
     /// decks through `0x0058F2C0`. So no slope, art, crate or passability

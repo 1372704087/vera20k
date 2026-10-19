@@ -40,6 +40,41 @@ pub(crate) enum PerCellReason {
 }
 
 impl Simulation {
+    /// FootClass::IsLeavingMap at 0x004DC790..4DC803 in retail gamemd.exe.
+    /// Stored membership precedes the Team6EC300 gate; an IsTrain type
+    /// still heading to an on-playfield NavCom must remain. The existing Map
+    /// query owner retains its Dummy writes; the predicate draws nothing.
+    fn foot_is_leaving_map(&self, id: u64, rules: Option<&RuleSet>) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        if !entity.in_playfield()
+            || self.team_script_vm.team_for_member(id).is_some()
+                && !self.member_team_is_moving_outside_playfield(id)
+        {
+            return false;
+        }
+        let is_train = rules
+            .and_then(|rules| self.object_type(entity.type_ref(), rules))
+            .is_some_and(|object| object.is_train);
+        let Some(destination) = entity.navigation.nav_com().filter(|_| is_train) else {
+            return true;
+        };
+        let cells = self
+            .resolved_terrain
+            .as_ref()
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+        super::ground_pose::target_get_coords(destination.into(), self, cells.as_ref()).is_none_or(
+            |coord| {
+                !crate::sim::cell_rect::cell_is_in_playfield_leptons(
+                    (coord.x, coord.y, coord.z),
+                    self.playfield_bounds,
+                    self.resolved_terrain.as_ref(),
+                )
+            },
+        )
+    }
+
     /// The virtual call: the Unit or Infantry override, else the Foot body.
     /// Returns whether the Infantry override changed a bridge.
     pub(crate) fn per_cell_process(
@@ -1192,11 +1227,9 @@ impl Simulation {
     /// Trigger: every arrival. Effect: zone triggers and planning waypoints
     /// do not fire from movement. Risk: maps with those trigger families.
     ///
-    /// RESIDUAL: the off-playfield exit (`0x004D8D67..0x004D8DA4`): a live
-    /// object whose Cell fails `0x00578460(cell, 1)` and whose vt+0x4DC
-    /// (`0x004DC790`, needs `+0x3D5`) answers true is UnInit (vt+0xF8) and
-    /// skips the tail. Trigger: a promoted object leaving the playfield.
-    /// Effect: VERA keeps it. Frequency: rare (teams exiting the map).
+    /// The off-playfield exit at 0x004D8D67..0x004D8DA4 asks the class IsLeavingMap
+    /// after Map578460(cell,1), then UnInit and returns before the tail.
+    /// Foot uses 0x004DC790; Aircraft retains its separate 0x0041B890 override.
     ///
     /// The Techno tail ends with the open-ground discovery
     /// ([`Self::discover_on_open_ground_after_cell_entry`]) and the Cell's
@@ -1251,6 +1284,38 @@ impl Simulation {
         // Foot4D8D59: an object that died in the Foot body skips the whole
         // Techno tail.
         if !self.per_cell_owner_alive(id) {
+            return;
+        }
+        // Retail Foot4D8D67..4D8DA4: physical packed Cell, mode1 Map
+        // lookup, virtual IsLeavingMap, then the shared UnInit owner.
+        let cell = self
+            .substrate
+            .entities
+            .get(id)
+            .map(|entity| super::foot_path::coord_cell(position_world_coord(&entity.position)));
+        // Partial worlds without a configured Map cannot admit an exit.
+        if let (Some((x, y)), Some(bounds)) = (cell, self.playfield_bounds)
+            && !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
+                (i32::from(x), i32::from(y)),
+                Some(bounds),
+                self.resolved_terrain.as_ref(),
+            )
+            && self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| match entity.category() {
+                    EntityCategory::Aircraft => self.aircraft_may_leave_map(id),
+                    EntityCategory::Unit | EntityCategory::Infantry => {
+                        self.foot_is_leaving_map(id, rules)
+                    }
+                    EntityCategory::Structure => false,
+                })
+        {
+            self.uninit_with_context(
+                id,
+                UninitContext::new(rules, registry).with_effects(effects),
+            );
             return;
         }
         // `0x006F5090`'s head lets a held Temporal target go, then caches the
@@ -1357,6 +1422,10 @@ impl Simulation {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "per_cell_exit_tests.rs"]
+mod exit_tests;
 
 #[cfg(test)]
 mod discovery_tests {

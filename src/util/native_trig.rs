@@ -9,6 +9,8 @@
 //!
 //! Shared retail table data, bounded FLH lookups and full-facing displacement.
 
+use crate::util::retail_trig::TrigTable;
+
 // Original 0084F084 table, extracted and checked by walk_direction_table.py.
 // The small FLH arrays below are derived lookups for its different, f32-narrowed
 // angle input. Walk uses a full signed direction and must not quantize to 32 steps.
@@ -32,25 +34,17 @@ pub fn native_tan_from_table(
     X::load_f32(NativeF32Bits::from_bits(bits)).expect("finite retail tangent entry")
 }
 
-fn sine_table_bits(index: usize) -> u32 {
-    let offset = index * 4;
-    u32::from_le_bytes(RETAIL_SINE_TABLE[offset..offset + 4].try_into().unwrap())
-}
-
-fn walk_sine_index(facing: u16) -> usize {
-    // 75C067: signed direction - 3FFF, times double 7E2810. Sin/Cos then
-    // multiply by float 8223B0/8223B4. Their exact product is this dyadic ratio.
-    // Integer evaluation gives the same truncated index for ALL 65536 words
-    // as the original instruction sequence (walk_direction_table corpus).
+/// Walk75C067's `Math::SinFromTable`/`CosFromTable` units for a facing word:
+/// the signed direction minus 3FFF, times double 7E2810, times float
+/// 8223B0/8223B4 (both 16384/2pi), cut by ftol. Their exact product is this
+/// dyadic ratio. Integer evaluation gives the same truncated units for ALL
+/// 65536 words as the original instruction sequence (walk_direction_table
+/// corpus); the table lookups then fold them as every other caller does.
+fn walk_table_units(facing: u16) -> i32 {
     const NUMERATOR: i128 = 75_560_166_591_041_506_239_877;
     const DENOMINATOR: i128 = 1 << 78;
     let direction = i128::from(facing as i16) - 0x3FFF;
-    let raw = (-direction * NUMERATOR / DENOMINATOR) as i32;
-    let mut index = (raw / 2).rem_euclid(8192);
-    if raw & 1 != 0 && index < 8191 {
-        index += 1;
-    }
-    index as usize
+    (-direction * NUMERATOR / DENOMINATOR) as i32
 }
 
 fn advance_integer_coordinate(origin: i32, speed: i32, coefficient: u32) -> i32 {
@@ -82,10 +76,16 @@ fn advance_integer_coordinate(origin: i32, speed: i32, coefficient: u32) -> i32 
 /// at the simulation's bounded integer movement speeds; final truncation is
 /// toward zero, after adding each displacement to its world coordinate.
 pub fn facing_step_world_xy(current: [i32; 2], facing: u16, speed: i32) -> [i32; 2] {
-    let index = walk_sine_index(facing);
+    let table = TrigTable::embedded();
+    let units = walk_table_units(facing);
+    let bits = |index| table.entry(index).to_bits();
     [
-        advance_integer_coordinate(current[0], speed, sine_table_bits(index + 2048)),
-        advance_integer_coordinate(current[1], speed, sine_table_bits(index) ^ 0x8000_0000),
+        advance_integer_coordinate(current[0], speed, bits(table.cos_index(units))),
+        advance_integer_coordinate(
+            current[1],
+            speed,
+            bits(table.sin_index(units)) ^ 0x8000_0000,
+        ),
     ]
 }
 
@@ -117,8 +117,10 @@ pub const NATIVE_TRIG_MAX_STEP: i32 = 31;
 ///
 /// `sin(-(pi/16) * k)` exactly as retail returns it, indexed by `k + 31`.
 ///
-/// These are the bytes at `0x0084F084 + idx * 4`, not computed values: the
-/// retail table differs from a correctly-rounded `f32` sine on 4997 of its
+/// These are the bytes at `0x0084F084 + idx * 4`, not computed values. They
+/// cache `Matrix3x4_RotateZ`'s two table lookups at each step's angle;
+/// `step_tables_are_the_table_lookups_at_get_flh_angles` derives every entry
+/// through [`TrigTable`]. The retail table differs from a correctly-rounded `f32` sine on 4997 of its
 /// 10241 entries, and its scale constant is slightly low, so negative angles
 /// land two index steps short. That asymmetry is real and load-bearing —
 /// `k = -1` yields `+0.195090309` while `k = +1` yields `-0.193585575`, which
@@ -248,11 +250,12 @@ mod tests {
         assert_eq!(sha256_hex(RETAIL_SINE_TABLE), oracle["table_sha256"]);
         let mut indexes = Sha256::new();
         let mut values = Sha256::new();
+        let table = TrigTable::embedded();
         for heading in 0..=u16::MAX {
-            let sine = walk_sine_index(heading);
-            for index in [sine, sine + 2048] {
+            let units = walk_table_units(heading);
+            for index in [table.sin_index(units), table.cos_index(units)] {
                 indexes.update(&(index as u16).to_le_bytes());
-                values.update(&sine_table_bits(index).to_le_bytes());
+                values.update(&table.entry(index).to_bits().to_le_bytes());
             }
         }
         assert_eq!(
@@ -260,6 +263,30 @@ mod tests {
             oracle["sin_cos_index_sha256"]
         );
         assert_eq!(digest_hex(values.finalize()), oracle["sin_cos_bits_sha256"]);
+    }
+
+    /// `Matrix3x4_RotateZ @ 0x005AF1A0` reads `CosFromTable` and
+    /// `SinFromTable` of `(double)theta`, where GetFLH forms `theta` from the
+    /// step with FILD, FMUL double `[0x007E4408]` (-(pi/16)), FSTP double, FLD
+    /// double and FSTP float.
+    #[test]
+    fn step_tables_are_the_table_lookups_at_get_flh_angles() {
+        use crate::util::native_x87::{NativeF64Bits, X87Chop53 as X};
+        let minus_pi_16 = X::load_f64(NativeF64Bits::from_bits(0xBFC9_21FB_5444_2D18)).unwrap();
+        let table = TrigTable::embedded();
+        for step in NATIVE_TRIG_MIN_STEP..=NATIVE_TRIG_MAX_STEP {
+            let product = X::mul(X::load_i32(step), minus_pi_16);
+            let double = X::load_f64(X::store_f64(product).unwrap()).unwrap();
+            let theta = X::load_f32(X::store_f32(double).unwrap()).unwrap();
+            let sin = X::store_f32(table.sin_from_table(theta)).unwrap().bits();
+            let cos = X::store_f32(table.cos_from_table(theta)).unwrap().bits();
+            let index = (step - NATIVE_TRIG_MIN_STEP) as usize;
+            assert_eq!(
+                (sin, cos),
+                (NATIVE_SIN_BY_STEP[index], NATIVE_COS_BY_STEP[index]),
+                "step {step}"
+            );
+        }
     }
 
     #[test]

@@ -15,7 +15,7 @@ use crate::rules::overlay_types::is_bridge_overlay_index;
 use crate::rules::overlay_types::{OverlayTypeRegistry, clears_tiberium_on_slope};
 use crate::sim::intern::InternedId;
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::native_x87::object_distance;
 use std::collections::BTreeSet;
 
@@ -175,7 +175,7 @@ fn increment_wall_neighbor_plane(
     rx: u16,
     ry: u16,
 ) {
-    for (dx, dy) in CELL_DELTAS {
+    for (dx, dy) in DIRECTION_DELTAS {
         let target = native_runtime_overlay_cell_lookup(
             width,
             height,
@@ -513,7 +513,7 @@ impl OverlayGrid {
         self.bump_mutation_epoch();
         let counts = &mut self.retained_neighbor_counts;
         let terrain = terrain.expect("retained neighbor counts need native CellClass lookup");
-        for (dx, dy) in CELL_DELTAS {
+        for (dx, dy) in DIRECTION_DELTAS {
             let target = native_runtime_overlay_cell_lookup(
                 self.width,
                 self.height,
@@ -582,7 +582,7 @@ impl OverlayGrid {
             "retained wall-neighbor authority must match overlay shape"
         );
 
-        for (dx, dy) in CELL_DELTAS {
+        for (dx, dy) in DIRECTION_DELTAS {
             // Adjacent_Cell rereads the receiver's packed coordinate for each
             // probe. This matters when the receiver itself is the shared
             // dummy: a miss restamps +0x24 before the next direction.

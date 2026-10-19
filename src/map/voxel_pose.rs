@@ -38,7 +38,7 @@ pub fn voxel_body_facing(step: u8) -> Mat4 {
 /// ([`crate::rules::voxel_asset_catalog::voxel_tilt_half_sizes`]); `angles` are the roll and pitch
 /// (`TechnoClass+0x328`, `+0x32C`).
 pub(crate) fn voxel_tilt_offsets(
-    trig: &crate::map::retail_trig::TrigTable,
+    trig: &crate::util::retail_trig::TrigTable,
     [roll, pitch]: [f32; 2],
     [half_y, half_x]: [f32; 2],
 ) -> [i32; 3] {
@@ -96,7 +96,7 @@ pub fn voxel_tilt_applies(angles: [f32; 2]) -> bool {
 
 pub fn voxel_tilt_frame(angles: [f32; 2], half_sizes: [f32; 2]) -> (Mat4, Mat4) {
     let [x, y, z] = voxel_tilt_offsets(
-        crate::map::retail_trig::TrigTable::embedded(),
+        crate::util::retail_trig::TrigTable::embedded(),
         angles,
         half_sizes,
     );
@@ -109,7 +109,7 @@ pub fn voxel_tilt_frame(angles: [f32; 2], half_sizes: [f32; 2]) -> (Mat4, Mat4) 
 }
 
 pub fn voxel_table_rotation(angle: f32) -> (f32, f32) {
-    let trig = crate::map::retail_trig::TrigTable::embedded();
+    let trig = crate::util::retail_trig::TrigTable::embedded();
     let angle = affine::load(angle).expect("finite voxel angle");
     (
         affine::store(trig.sin_from_table(angle)).expect("finite table entry"),

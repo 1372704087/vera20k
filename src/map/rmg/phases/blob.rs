@@ -34,7 +34,7 @@ pub struct BlobCtx<'a> {
     pub gauss: &'a mut Gaussian,
     /// The retail sine table, for the river's heading; `None` only in unit
     /// tests that skip rivers.
-    pub trig: Option<&'a crate::map::retail_trig::TrigTable>,
+    pub trig: Option<&'a crate::util::retail_trig::TrigTable>,
     /// Map rect dims (the +0xF4/+0xF8 pair): seed draws scale by these.
     pub map_w: i32,
     pub map_h: i32,
@@ -455,7 +455,7 @@ mod tests {
             let block_table = blocks();
             let mut rng = RmgRng::new(77);
             let mut gauss = Gaussian::default();
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,

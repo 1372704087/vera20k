@@ -16,7 +16,7 @@ pub(crate) fn selected_head(
     input_ground_z: i32,
     bridge: bool,
 ) -> DriveCoord {
-    let (x, y, _) = crate::sim::cell_kernel::infantry_subcell_offset(slot);
+    let (x, y) = crate::util::lepton::subcell_offset(slot);
     DriveCoord {
         x: (input.x & !255).wrapping_add(x),
         y: (input.y & !255).wrapping_add(y),

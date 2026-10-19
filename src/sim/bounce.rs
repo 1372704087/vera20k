@@ -351,7 +351,7 @@ fn quaternion_from_axis_angle(
         X87Chop53::load_f32(angle)?,
         X87Chop53::load_f32(HALF)?,
     ))?)?;
-    let table = crate::map::retail_trig::TrigTable::embedded();
+    let table = crate::util::retail_trig::TrigTable::embedded();
     let sin = table.sin_from_table(half);
     let cos = table.cos_from_table(half);
     let [nx, ny, nz] = load_all(normal)?;

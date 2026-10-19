@@ -16,7 +16,7 @@ use crate::map::resolved_terrain::{
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::tiberium_type::TiberiumTypeRegistry;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 pub(crate) const NO_OVERLAY_IDENTITY: i32 = -1;
 
@@ -1245,7 +1245,7 @@ impl LiveOverlayCells {
             apply_effect(self, AuthoredWallEffect::CleanupRecalcAndZone(recalc))?;
         }
 
-        for (dx, dy) in CELL_DELTAS {
+        for (dx, dy) in DIRECTION_DELTAS {
             let neighbor = self.cell_ref(
                 anchor_coord.0.wrapping_add(dx as i16),
                 anchor_coord.1.wrapping_add(dy as i16),

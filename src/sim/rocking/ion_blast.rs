@@ -3,8 +3,8 @@
 //! Numeric controls: tools/ion_blast_forces.json, original53CBE0 execution.
 
 use super::{RockingState, absolute, double, load, store};
-use crate::map::retail_trig::TrigTable;
-use crate::util::native_x87::{NativeF32Bits, X87Chop53 as X, X87Ordering, sqrt_approx_f32};
+use crate::util::native_x87::{X87Chop53 as X, X87Ordering, sqrt_approx_f32};
+use crate::util::retail_trig::TrigTable;
 
 ///53CEDA..53CF33: screen translation cancels; neither camera nor viewport
 ///admission enters the force. Sampling is at ftol(Sqrt_Approx(dx²+dy²))+8.

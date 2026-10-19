@@ -78,7 +78,7 @@ use crate::sim::components::DriveCoord;
 use crate::sim::movement::{ground_pose, target_cell_coord};
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{FrameEffects, Simulation, UninitContext};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 #[path = "parasite_grapple.rs"]
 mod grapple;
@@ -626,7 +626,7 @@ impl Simulation {
                 raw.wrapping_sub(0x3fff),
             ))
             .expect("finite parasite bite facing");
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let y = X::ftol_i32_low_masked(X::sub(
                 X::load_i32(location.y),
                 X::mul(trig.sin_from_table(angle), X::load_i32(lateral)),
@@ -727,7 +727,7 @@ impl Simulation {
             return;
         }
         let requested = if naval {
-            let (dx, dy) = CELL_DELTAS[dir8(released)];
+            let (dx, dy) = DIRECTION_DELTAS[dir8(released)];
             (
                 victim_cell.0.wrapping_add(dx as i16),
                 victim_cell.1.wrapping_add(dy as i16),
@@ -933,7 +933,7 @@ impl Simulation {
             victim_entity.position.rx() as i16,
             victim_entity.position.ry() as i16,
         );
-        let (dx, dy) = CELL_DELTAS[dir8(raw)];
+        let (dx, dy) = DIRECTION_DELTAS[dir8(raw)];
         let adjacent = (
             victim_cell.0.wrapping_add(dx as i16),
             victim_cell.1.wrapping_add(dy as i16),

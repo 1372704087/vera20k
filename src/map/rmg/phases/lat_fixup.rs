@@ -13,7 +13,7 @@ use crate::map::lat::{LatConfig, SlopeFixupConfig, lat_fixed_tile_live, slope_fi
 use crate::map::rmg::grid::RmgGrid;
 use crate::map::rmg::tiles::TileIds;
 
-/// The four cardinal directions as `CELL_DELTAS` indices (N, E, S, W), the
+/// The four cardinal directions as `DIRECTION_DELTAS` indices (N, E, S, W), the
 /// LAT mask's bit order.
 const CARDINAL_DIRS: [usize; 4] = [0, 2, 4, 6];
 /// Off-band / off-map neighbour tile (`Get_CellClass(off_map)` → tile 0).

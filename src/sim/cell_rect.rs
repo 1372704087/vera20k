@@ -22,7 +22,7 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 // Fixed cell indexing is map-owned (map::cell_index, F05); sim re-exports
 // so runtime consumers keep their paths.
@@ -719,7 +719,7 @@ impl CellReservationGrid {
             return u32::MAX;
         }
         let mut result = 0u32;
-        for (index, (dx, dy)) in CELL_DELTAS.into_iter().enumerate() {
+        for (index, (dx, dy)) in DIRECTION_DELTAS.into_iter().enumerate() {
             let (origin_x, origin_y) = center.live_coord();
             let neighbor = resolve_reservation_cell(
                 terrain,

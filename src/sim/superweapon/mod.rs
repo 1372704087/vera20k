@@ -18,6 +18,8 @@ pub use chronosphere::CHRONO_WARP_SELECTION_INDEX;
 pub mod airstrike_tint;
 #[cfg(test)]
 mod can_fire_tests;
+#[cfg(test)]
+mod view_admission_tests;
 #[cfg(any(test, feature = "test-support"))]
 mod cell_receiver_tests;
 #[cfg(test)]

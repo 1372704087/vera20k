@@ -2415,4 +2415,99 @@ mod tests {
             Some("BLOCKED")
         );
     }
+
+    /// The RNG contract the poison test previously pinned: explicit
+    /// application consumes exactly the start-assignment draw and nothing
+    /// from any legacy random-resolution path.
+    #[test]
+    fn explicit_skirmish_application_consumes_only_the_start_assignment_draw() {
+        let mut sim = Simulation::new();
+        let mut session = test_session();
+        session.opponents[0].start_position = LaunchStartPosition::Position(0);
+        session.options.bases = false;
+        session.options.unit_count = 0;
+        let terrain = test_terrain(64, 64);
+        let starts = test_launch_starts();
+        let map = test_map_with_starts(&starts);
+        let rules = test_standard_launch_rules();
+        let mut expected_scenario = sim.scenario_rng.clone();
+        let _ = expected_scenario.next_range_u32_inclusive(0, 0xffff);
+
+        let result = apply_explicit_skirmish_launch_session(
+            &mut sim,
+            &map,
+            &roster_with_neutral_and_playable(),
+            &rules,
+            &terrain,
+            &launch_descriptor(&session),
+        );
+
+        assert_eq!(result.spawned_mcvs, 0);
+        assert_eq!(result.active_slots, 2);
+        assert_eq!(sim.rng_state().scenario, expected_scenario.logical_state());
+    }
+
+    #[test]
+    fn gsi_04_16_standard_ai_explicit_start_reserves_before_auto_human() {
+        let mut sim = Simulation::new();
+        sim.scenario_rng = SimRng::new(8);
+        let mut session = test_session();
+        session.local_slot_mut().start_position = LaunchStartPosition::Auto;
+        session.opponents[0].start_position = LaunchStartPosition::Position(0);
+        session.options.bases = false;
+        session.options.unit_count = 0;
+        let all_starts = test_launch_starts();
+        let starts = &all_starts[..3];
+        let map = test_map_with_starts(starts);
+        let terrain = test_terrain(64, 64);
+        let rules = test_standard_launch_rules();
+        let mut expected_rng = sim.scenario_rng.clone();
+        // The full explicit table is already occupied before the House pass.
+        // The Auto human therefore selects farthest with no draw, and the AI
+        // later honors its explicit entry. Only the selected-mode tail draw
+        // remains after assignment.
+        let _ = expected_rng.next_range_u32_inclusive(0, 0xffff);
+
+        let result = apply_explicit_skirmish_launch_session(
+            &mut sim,
+            &map,
+            &roster_with_neutral_and_playable(),
+            &rules,
+            &terrain,
+            &launch_descriptor(&session),
+        );
+
+        assert_eq!(result.active_slots, 2);
+        assert_eq!(result.spawned_mcvs, 0);
+        assert_eq!(
+            crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
+                .and_then(|house| house.base_center),
+            Some((30, 10)),
+            "the Auto human takes the first farthest free tie, not the AI reservation"
+        );
+        assert_eq!(
+            crate::sim::house_state::house_state_for_owner(
+                &sim.houses,
+                "Computer1",
+                &sim.interner,
+            )
+            .and_then(|house| house.base_center),
+            Some((10, 10)),
+            "standard Battle honors the AI's preassigned table entry"
+        );
+        let table_owner = |start_idx| {
+            sim.session
+                .start_slot_houses
+                .get(&start_idx)
+                .map(|owner| sim.interner.resolve(*owner))
+        };
+        assert_eq!(table_owner(0), Some("Computer1"));
+        assert_eq!(table_owner(1), Some("Player"));
+        assert_eq!(table_owner(2), None);
+        assert_eq!(sim.session.start_slot_houses.len(), 2);
+        assert_eq!(
+            sim.scenario_rng.logical_state(),
+            expected_rng.logical_state()
+        );
+    }
 }

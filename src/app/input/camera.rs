@@ -2726,3 +2726,16 @@ mod fast_scroll_tests;
 #[cfg(test)]
 #[path = "camera_bounds_tests.rs"]
 mod camera_bounds_tests;
+
+/// Half a tile on **both** axes from the tile corner — the Y half is the one
+/// that used to be missing, which put every camera move 15 px north of the
+/// unit it was supposed to centre on.
+#[test]
+fn cell_centre_shifts_half_a_tile_on_both_axes_from_the_tile_corner() {
+    for (rx, ry, z) in [(0_u16, 0_u16, 0_u8), (5, 9, 2), (63, 1, 0)] {
+        let (nw_x, nw_y) = terrain::iso_to_screen(rx, ry, z);
+        let (cx, cy) = cell_centre_world_point(rx, ry, z);
+        assert_eq!(cx - nw_x, terrain::TILE_WIDTH / 2.0);
+        assert_eq!(cy - nw_y, terrain::TILE_HEIGHT / 2.0);
+    }
+}

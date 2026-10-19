@@ -1561,12 +1561,13 @@ fn advance_until_order_ends(
 /// A restore that could not reach the class setter (the entity-local target
 /// expiry restore) leaves the saved NavCom with the setter owed. Restore_Mission
 /// (0x004D8F80) calls vt+0x480(saved, 1): the Infantry setter for a Walk
-/// infantryman, Unit 0x741970 for a Hover or Walk Unit, whose Foot tail reaches
-/// Hover Move_To (0x00514D90) or Walk Move_To (0x0075ACB0). The owed call runs
-/// at the next Process entry and the object walks its restored order.
+/// infantryman, Unit 0x741970 for a Drive, Hover or Walk Unit, whose Foot tail
+/// reaches Drive, Hover Move_To (0x00514D90) or Walk Move_To (0x0075ACB0). The
+/// owed call runs at the next Process entry and the object moves to its
+/// restored order.
 #[test]
 fn owed_restore_setter_moves_walk_and_hover_objects_to_the_saved_order() {
-    for kind in ["HOV", "WLK", "ENGINEER"] {
+    for kind in ["DRV", "HOV", "WLK", "ENGINEER"] {
         let (mut sim, rules, registry) = walk_and_hover_fixture();
         let id = sim
             .spawn_object(kind, "Americans", 10, 10, 0, &rules)

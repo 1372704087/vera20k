@@ -4271,33 +4271,52 @@ fn gsi_13_10_effective_art_metadata_precedes_complete_category_fallback() {
     }
 }
 
+/// ReadUnits `0x007434F3..0x00743510` writes OnBridge from HIGH and places
+/// the unit at ground + `0xB1D0AC`, with or without HasBridge and independent
+/// of the navigation fixture's cached deck level 3. Original controls:
+/// anytown_damage/unit_unlimbo.json authored_rows.
 #[test]
 fn test_spawn_from_map_high_unit_uses_native_ground_plus_bridge_height() {
-    let mut sim = Simulation::new();
-    let resolved = single_bridge_cell(5, 5, 3);
-    install_rectangular_test_playfield(&mut sim, resolved.width(), resolved.height());
-    sim.install_resolved_terrain_for_new_map(resolved.clone());
-    let count = sim.spawn_from_map_with_resolved(
-        &[MapEntity {
-            cell_x: 5,
-            cell_y: 5,
-            high: true,
-            ..make_test_entity("MTNK", EntityCategory::Unit)
-        }],
-        Some(&combat_test_rules()),
-        Some(&resolved),
+    let raised_corner = ResolvedTerrainGrid::from_cells(
+        6,
+        6,
+        (0..6u16)
+            .flat_map(|ry| {
+                (0..6u16).map(
+                    move |rx| crate::map::resolved_terrain::ResolvedTerrainCell {
+                        level: u8::from((rx, ry) == (5, 5)),
+                        ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
+                    },
+                )
+            })
+            .collect(),
     );
+    for (resolved, z, z_leptons) in [
+        (single_bridge_cell(5, 5, 3), 4, 416),
+        (raised_corner, 5, 520),
+    ] {
+        let mut sim = Simulation::new();
+        install_rectangular_test_playfield(&mut sim, resolved.width(), resolved.height());
+        sim.install_resolved_terrain_for_new_map(resolved.clone());
+        let count = sim.spawn_from_map_with_resolved(
+            &[MapEntity {
+                cell_x: 5,
+                cell_y: 5,
+                high: true,
+                ..make_test_entity("MTNK", EntityCategory::Unit)
+            }],
+            Some(&combat_test_rules()),
+            Some(&resolved),
+        );
 
-    assert_eq!(count, 1);
-    let e = sim.substrate.entities.get(1).expect("spawned entity");
-    // ReadUnits7434F3..743510 uses HIGH and ground+B1D0AC, independent
-    // of the navigation fixture's cached deck level3. Original controls:
-    // anytown_damage/unit_unlimbo.json authored_rows.
-    assert_eq!(e.position.z(), 4);
-    assert_eq!(e.position.exact_z_leptons(), Some(416));
-    assert!(e.on_bridge());
-    let loco = e.locomotor.as_ref().expect("loco");
-    assert_eq!(loco.layer(), MovementLayer::Bridge);
+        assert_eq!(count, 1);
+        let e = sim.substrate.entities.get(1).expect("spawned entity");
+        assert_eq!(e.position.z(), z);
+        assert_eq!(e.position.exact_z_leptons(), Some(z_leptons));
+        assert!(e.on_bridge());
+        let loco = e.locomotor.as_ref().expect("loco");
+        assert_eq!(loco.layer(), MovementLayer::Bridge);
+    }
 }
 
 /// Production spawns read the live CellClass level: a level rewritten after

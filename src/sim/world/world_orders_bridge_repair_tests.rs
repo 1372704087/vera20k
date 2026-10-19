@@ -63,15 +63,10 @@ fn build_ordinary_c4_sim(
 
     // The SEAL walks: a second [GHOST] section would not be read, since a
     // lookup finds the first section of a name.
-    let ini = BRIDGE_REPAIR_TEST_INI
-        .replace(
-            "[GHOST]\n",
-            "[GHOST]\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
-        )
-        .replace(
-            "[BuildingTypes]\n0=CABHUT\n",
-            "[BuildingTypes]\n0=CABHUT\n1=BIG\n[BIG]\nStrength=800\nArmor=concrete\nFoundation=3x3\n",
-        );
+    let ini = BRIDGE_REPAIR_TEST_INI.replace(
+        "[GHOST]\n",
+        "[GHOST]\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
+    );
     let (mut sim, rules, registry) = super::entry_test_fixture::fixture_with_rules(&ini);
     // A raw ordinary three-cell width, with resident TMP/navigation owners.
     // Overlay families do not imply structural/deck geometry.
@@ -765,6 +760,8 @@ fn ordinary_engineer_overlay_repair_does_not_clear_neighbor_pavement() {
     let (mut sim, rules, registry, hut) = ready_repair_fixture(Some(231));
     let engineer = ready_engineer(&mut sim, &rules, &registry, hut);
 
+    // Admit damaged-data tiles so an accidental pavement clear would affect
+    // this fixture; native ordinary overlay repair must preserve it.
     // The neighbor shares the span's tile identity and damaged-data gate.
     // It lies outside the repaired strip, adjacent to (17, 16), so it is NOT
     // visited by the ordinary overlay repair walk. An erroneous connected
@@ -788,6 +785,10 @@ fn ordinary_engineer_overlay_repair_does_not_clear_neighbor_pavement() {
         assert_eq!(
             terrain.cell(rx, ry).unwrap().bridge_facts.overlay_id,
             Some(0xce)
+        );
+        assert!(
+            terrain.pavement_damaged_at(rx, ry),
+            "cell ({rx},{ry}) pavement damage must survive native ordinary overlay repair"
         );
     }
     assert!(

@@ -21,6 +21,10 @@ fn broken_strip(sim: &mut Simulation) {
     }
 }
 
+/// The real CaptureBuilding order walks the engineer into the hut and repairs
+/// from the completed Walk in its object turn. A supplied just-landed Fly team
+/// member on the span (native carrier/Hornet reachability is proved
+/// separately) takes the repair's actual damage receiver before its later turn.
 #[test]
 fn engineer_repair_damages_landed_fly_with_known_non_waypoint_team_script() {
     command_repair_fixture(true, true);

@@ -432,7 +432,11 @@ fn damage_state_from_byte_ew_range() {
 // ---- MapClass::FindBridgeConnection_Predicate 0x00587410, overlay branch ----
 
 fn hut_terrain() -> ResolvedTerrainGrid {
-    let mut grid = crate::map::resolved_terrain::test_grid(16, 16, crate::map::resolved_terrain::test_flat_cell);
+    let mut grid = crate::map::resolved_terrain::test_grid(
+        16,
+        16,
+        crate::map::resolved_terrain::test_flat_cell,
+    );
     grid.test_set_high_bridge_set_starts(Some(100), Some(200));
     grid
 }

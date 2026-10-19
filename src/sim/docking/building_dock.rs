@@ -3331,4 +3331,55 @@ mod tests {
             "a human house's miner standing off ore parks on Guard"
         );
     }
+
+    /// Between two of the contact's probes nothing draws.
+    #[test]
+    fn contact_probe_draws_nothing_between_dispatches() {
+        let (mut sim, rules) = setup(1);
+        assert!(order_repair(&mut sim, &rules, 1));
+        tick_units(&mut sim, &rules);
+        let mut shadow = sim.clone_scenario_rng();
+        let due = {
+            let timer = sim
+                .substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .mission
+                .dispatch_timer();
+            (timer.start_frame() + timer.delay()) as u32
+        };
+        for _ in 0..64 {
+            if sim.session.binary_frame + 1 >= due {
+                break;
+            }
+            tick_units(&mut sim, &rules);
+        }
+        assert_eq!(
+            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
+            shadow.next_range_u32_inclusive(0, 1000),
+            "no draw between dispatches"
+        );
+    }
+
+    /// Each Enter dispatch draws exactly one `RandomRanged(0,2)` on the
+    /// Scenario stream (the Mission_Enter epilogue), none between dispatches.
+    #[test]
+    fn waiter_probe_draws_one_scenario_random_per_dispatch() {
+        let (mut sim, rules) = setup(2);
+        for tank in 1..=2 {
+            assert!(order_repair(&mut sim, &rules, tank));
+        }
+        // Frame 1: the contact probes and the pending unit dispatches (two
+        // draws).
+        let mut shadow = sim.clone_scenario_rng();
+        tick_units(&mut sim, &rules);
+        shadow.next_range_u32_inclusive(0, 2);
+        shadow.next_range_u32_inclusive(0, 2);
+        assert_eq!(
+            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
+            shadow.next_range_u32_inclusive(0, 1000),
+            "two dispatches ⇒ two RandomRanged(0,2) draws"
+        );
+    }
 }

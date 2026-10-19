@@ -226,11 +226,6 @@ impl MissionLeafState {
         self.expect_unit_mut().tracker_byte_18 = raw;
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn set_unit_tracker_byte_19(&mut self, raw: u8) {
-        self.expect_unit_mut().tracker_byte_19 = raw;
-    }
-
     /// The one inherited Foot+68D view used by Foot handlers. Infantry's
     /// concrete readiness view reads that same variant field. Buildings do
     /// not inherit this byte.

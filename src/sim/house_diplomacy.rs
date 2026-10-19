@@ -28,6 +28,10 @@
 //! reveal event.
 //!
 //! RESIDUALS
+//! - Natively, a Building whose latch (`+0x250`) is still set from a reveal
+//!   made before the alliance opens on the new ally's map only at the next
+//!   bracket; VERA opens it at this one
+//!   (`Simulation::admit_allied_building_sight`).
 //! - The rest of each bracket is unported. Its Human arm re-reveals each of
 //!   the player's own discovered objects (`+0x41B`) where it stands, and the
 //!   allied-Building arm re-reveals the Buildings of allies whose bit did not

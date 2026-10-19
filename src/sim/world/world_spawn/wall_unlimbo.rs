@@ -213,7 +213,7 @@ impl Simulation {
                 (rx, ry),
                 coord.z,
                 radius,
-                heights.levels(),
+                Some(&heights),
                 final_pass,
                 &config,
                 context,

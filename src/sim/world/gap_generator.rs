@@ -302,24 +302,20 @@ impl Simulation {
         viewer: InternedId,
         rules: &RuleSet,
     ) -> (Vec<vision::GapGeneratorSource>, bool) {
+        let config = self.sight_reveal_config(Some(rules));
         let candidates: Vec<_> = self
             .substrate
             .entities
             .iter_sorted()
             .filter_map(|(id, entity)| {
                 let (operational, radius) = self.gap_operational_state(id, rules)?;
-                let own = entity.owner() == viewer;
-                let allied = crate::map::houses::is_allied_with(
-                    &self.house_alliances,
-                    self.interner.resolve(entity.owner()),
-                    self.interner.resolve(viewer),
-                );
-                // Nonhuman allied Building branch is ordinary-sight ONLY. The
-                //known-own multiplayer discovery domain is shared with the caller.
-                // RESIDUAL: that arm needs AllyReveal= (`0x004ADDB2..0x004ADDD5`);
-                // with it off (retail yes) native takes an allied Building down
-                // the hostile path.
-                (own || !allied).then_some((id, operational, radius))
+                // The allied-Building arm is ordinary sight ONLY; every other
+                // object the brackets visit takes its gap callback
+                // (`0x004ADFC1..0x004ADFD9`, `0x004ADEA7..0x004ADEBF`). The
+                // known-own multiplayer discovery domain is shared with the caller.
+                (entity.owner() == viewer
+                    || !self.takes_allied_building_arm(entity, viewer, &config))
+                .then_some((id, operational, radius))
             })
             .collect();
         let mut reentry = Vec::new();

@@ -1428,7 +1428,7 @@ fn retail_goldst_cold_fire_borders_and_conceal_notifications_match_native() {
                     (origin.0, origin.1),
                     origin.2,
                     3,
-                    heights.levels(),
+                    Some(&heights),
                     false,
                     &config,
                     context,
@@ -1671,14 +1671,17 @@ fn an_owner_change_moves_the_sight_to_the_new_owner_within_the_call() {
 }
 
 /// MakeAlly and MakeEnemy bracket their ally-bit write with the map
-/// callbacks (`0x004ADEE0` before it, `0x004ADCD0` after it): the ally's
-/// Buildings open their sight on the map of the House it now counts an ally,
-/// and close it there when the alliance breaks, within the call. The ally's
-/// mobiles take no callback: their sight reaches that map at their next
-/// reveal event, and no frame pass replaces the footprint their last one
-/// stored.
+/// callbacks (`0x004ADEE0` before it, at `0x004F9B9A`/`0x004F9FD8`;
+/// `0x004ADCD0` after it, at `0x004F9F4F`/`0x004FA1E3`), whose
+/// allied-Building arm alone takes another House's object (`0x004ADDA6`,
+/// `0x004ADF7D`). A Building's sight leaves the map of a House an alliance
+/// break stops counting as an ally within the call, and opens there again
+/// within the next alliance's call, that release having cleared its latch
+/// (`0x0070B202`). A mobile takes no sight callback: its sight reaches the
+/// ally's map at its next reveal event, and no frame pass replaces the
+/// footprint its last one stored.
 #[test]
-fn an_alliance_opens_and_closes_the_allys_building_sight_within_the_call() {
+fn an_alliance_moves_the_allys_building_sight_within_the_call() {
     let Some((mut sim, rules, _)) = retail_arena() else {
         return;
     };
@@ -1687,8 +1690,8 @@ fn an_alliance_opens_and_closes_the_allys_building_sight_within_the_call() {
     let russians = add_computer_house(&mut sim, "Russians");
     // Can_Ally refuses an alliance that leaves no live enemy.
     add_computer_house(&mut sim, "Confederation");
-    let plant = sim
-        .spawn_object("NAPOWR", "Russians", 22, 22, 0, &rules)
+    let standing = sim
+        .spawn_object("NAPOWR", "Russians", 22, 8, 0, &rules)
         .unwrap();
     let tank = sim
         .spawn_object("MTNK", "Russians", 8, 22, 0, &rules)
@@ -1697,14 +1700,15 @@ fn an_alliance_opens_and_closes_the_allys_building_sight_within_the_call() {
     sim.refresh_object_sight(tank, Some(&rules), 7);
     let tank_sight = sim.fog.sight_admission(tank, russians).unwrap().clone();
     assert_eq!(tank_sight.radius, 7);
-    assert!(sim.fog.sight_is_latched(plant, russians));
-    let origin = sim.fog.sight_admission(plant, russians).unwrap().origin;
-    assert!(!sim.fog.sight_is_latched(plant, americans));
-    assert!(!sim.fog.is_cell_visible(americans, origin.0, origin.1));
+    assert!(!sim.fog.sight_is_latched(standing, americans));
 
     sim.make_ally(russians, americans, &rules, None, FrameEffects::default());
-    assert!(sim.fog.sight_is_latched(plant, americans), "0x004ADCD0");
-    assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
+    // RESIDUAL (`Simulation::admit_allied_building_sight`): native's latch
+    // (`+0x250`), set by the plant's Unlimbo, makes this `UpdateReveal`
+    // return (`0x0070B0B1`); VERA opens it here.
+    assert!(sim.fog.sight_is_latched(standing, americans));
+    // The re-admission gives a computer House's non-Building only its gap
+    // callback (`0x004ADE2D..0x004ADEBF`).
     assert!(!sim.fog.sight_is_latched(tank, americans));
     let config = sim.sight_reveal_config(Some(&rules));
     sim.refresh_sight_sources(&config, Some(&rules));
@@ -1718,9 +1722,77 @@ fn an_alliance_opens_and_closes_the_allys_building_sight_within_the_call() {
         "the frame pass keeps the last reveal's footprint"
     );
 
+    // A plant placed while the alliance stands opens on the ally's map at
+    // its Unlimbo: RevealArea's house gate admits the ally under
+    // `AllyReveal=` (`0x00567AEF`).
+    let plant = sim
+        .spawn_object("NAPOWR", "Russians", 22, 22, 0, &rules)
+        .unwrap();
+    let origin = sim.fog.sight_admission(plant, russians).unwrap().origin;
+    assert!(sim.fog.sight_is_latched(plant, americans));
+    assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
+
     sim.make_enemy(russians, americans, &rules);
-    assert!(!sim.fog.sight_is_latched(plant, americans), "0x004ADEE0");
+    assert!(
+        !sim.fog.sight_is_latched(plant, americans),
+        "0x004F9FD8's release precedes the bit write"
+    );
+    assert!(!sim.fog.is_cell_visible(americans, origin.0, origin.1));
     assert!(sim.fog.sight_is_latched(plant, russians));
+
+    sim.make_ally(russians, americans, &rules, None, FrameEffects::default());
+    assert!(
+        sim.fog.sight_is_latched(plant, americans),
+        "0x004ADDE4 passes UpdateReveal's latch test"
+    );
+    assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
+    assert!(!sim.fog.sight_is_latched(tank, americans));
+}
+
+/// A team skirmish forms its alliances after it places its starting units
+/// (`ScenarioClass::Post_Map_Init`: Generate_Starting_Units at `0x00686937`,
+/// the mode's alliances at `0x00686AE4`). The brackets give an ally's
+/// mobiles no sight callback, so a starting unit's sight reaches its new
+/// ally's map at its next cell arrival, whose reveal RevealArea's house
+/// gate admits for the ally under `AllyReveal=` (`0x00567AEF`).
+#[test]
+fn launch_alliances_open_an_allys_starting_unit_at_its_next_arrival() {
+    let Some((mut sim, rules, _)) = retail_arena() else {
+        return;
+    };
+    sim.fog = vision::FogState::new(32, 32);
+    let americans = sim.intern("Americans");
+    let russians = add_computer_house(&mut sim, "Russians");
+    add_computer_house(&mut sim, "Confederation");
+    let ours = sim
+        .spawn_object("MTNK", "Americans", 8, 8, 0, &rules)
+        .unwrap();
+    let theirs = sim
+        .spawn_object("MTNK", "Russians", 22, 22, 0, &rules)
+        .unwrap();
+    let team = crate::map::houses::HouseAllianceMap::from([
+        ("AMERICANS".to_string(), ["RUSSIANS".to_string()].into()),
+        ("RUSSIANS".to_string(), ["AMERICANS".to_string()].into()),
+    ]);
+    sim.install_house_alliances(
+        crate::sim::house_diplomacy::HouseAllianceAdmission::Admitted(team),
+        &rules,
+    );
+    assert!(sim.fog.sight_is_latched(ours, americans));
+    assert!(!sim.fog.sight_is_latched(theirs, americans));
+    assert!(!sim.fog.sight_is_latched(ours, russians));
+    let config = sim.sight_reveal_config(Some(&rules));
+    sim.refresh_sight_sources(&config, Some(&rules));
+    assert!(
+        !sim.fog.sight_is_latched(theirs, americans),
+        "the frame pass reveals nothing"
+    );
+    // Its next cell arrival: ReReveal, then UpdateReveal (Unit `0x0073AC5F`,
+    // `0x0073AC74`).
+    sim.refresh_object_sight(theirs, Some(&rules), 0);
+    assert!(sim.fog.sight_is_latched(theirs, americans));
+    let origin = sim.fog.sight_admission(theirs, americans).unwrap().origin;
+    assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
 }
 
 /// Playfield promotion (`0x006F511A`) follows the arrival's reveal (Unit

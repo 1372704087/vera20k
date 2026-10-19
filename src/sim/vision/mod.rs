@@ -25,6 +25,13 @@
 //! Between events a footprint stays where the last one put it; the frame
 //! pass only ends the frame's derived sight and marks the footprints again.
 //!
+//! The events draw no RNG. The high-flyer refresh reloads each refreshed
+//! viewer's countdown (`SightRefreshTimers`) after its release and reveal.
+//! Every walk runs RevealArea's per-cell writer (`0x004A9CA0`), whose
+//! discovery callbacks run synchronously and can raise Tags. The Limbo,
+//! UnInit, owner change and parasite refusal that release sight keep their
+//! own detach calls.
+//!
 //! ## Performance
 //! Direct source-aware writes publish viewer knowledge. Queries use a cached
 //! visibility grid so each cell lookup is O(1) instead of iterating all owners.
@@ -1772,7 +1779,7 @@ impl VisionConfig {
         cell: (u16, u16),
         radius: u16,
         z: i32,
-        line_of_sight: Option<&[u8]>,
+        line_of_sight: Option<CellLevels<'_>>,
         dimensions: (u16, u16),
     ) -> (Vec<(u16, u16)>, Option<(u16, u16, i32)>) {
         let origin = reveal_area_origin((cell.0, cell.1, z), radius, self.map_size)
@@ -1817,8 +1824,10 @@ pub(crate) struct SightFrame {
     /// The viewers whose clear visited every cell: the frame pass marks every
     /// footprint on their maps again ([`FogState::mark_untracked_sight`]).
     pub(crate) untracked: std::collections::BTreeSet<InternedId>,
-    /// VERA-only: this frame sized a fixture's fog
-    /// ([`FogState::begin_sight_frame`]), dropping every plane and cache.
+    /// VERA-only: this frame sized the fog of a simulation built without a
+    /// map descriptor ([`FogState::begin_sight_frame`]), dropping every plane
+    /// and cache. Only fixtures reach it, so only their builds read it.
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) sized: bool,
 }
 
@@ -1847,7 +1856,10 @@ impl FogState {
         // whose clear visited every cell re-marks every footprint this frame.
         let mut frame = SightFrame::default();
         if self.width != width || self.height != height {
-            frame.sized = true;
+            #[cfg(any(test, feature = "test-support"))]
+            {
+                frame.sized = true;
+            }
             self.by_owner.clear();
             self.gap_sources.clear();
             self.sight_admissions.clear();
@@ -1902,7 +1914,7 @@ pub(crate) fn entity_own_sight(
     fog: &FogState,
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
 ) -> Option<SightAdmission> {
@@ -1925,7 +1937,7 @@ pub(crate) fn entity_sight_footprint(
     fog: &FogState,
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     revealer: InternedId,
@@ -1950,7 +1962,7 @@ pub(crate) fn entity_sight_admission(
     entity: &crate::sim::game_entity::GameEntity,
     revealer: InternedId,
     config: &VisionConfig,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     sight_ability: bool,
     radius_override: Option<i32>,
@@ -1976,7 +1988,7 @@ fn sight_admission(
     fog: &FogState,
     geometry: SightGeometry,
     config: &VisionConfig,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> Option<SightAdmission> {
     let width = fog.width;
@@ -2124,7 +2136,7 @@ fn reveal_radius_into(
     range: u16,
     height: i32,
     by_height: bool,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     width: u16,
     grid_height: u16,
 ) {
@@ -2174,6 +2186,29 @@ fn reveal_area_origin(
     Some(center)
 }
 
+/// Where a reveal reads the level of each cell it tests its line of sight
+/// against (`Cell+0x11B`, read at `0x00567CB5`).
+#[derive(Clone, Copy)]
+pub(crate) enum CellLevels<'a> {
+    /// A plane in cell order (`y * width + x`) at the fog grid's width: the
+    /// published path grid's ([`PathGrid::ground_height_grid`]).
+    Plane(&'a [u8]),
+    /// The terrain's own cells, read one at a time, before the scenario
+    /// publishes that plane. An unallocated cell reads `0`, as the plane holds
+    /// it.
+    Terrain(&'a crate::map::resolved_terrain::ResolvedTerrainGrid),
+}
+
+impl CellLevels<'_> {
+    /// The raw level byte of cell (`x`, `y`) on a grid `width` cells wide.
+    fn level(self, x: u16, y: u16, width: u16) -> u8 {
+        match self {
+            Self::Plane(plane) => plane[usize::from(y) * usize::from(width) + usize::from(x)],
+            Self::Terrain(terrain) => terrain.cell(x, y).map_or(0, |cell| cell.level),
+        }
+    }
+}
+
 /// The cells `MapClass::RevealArea @ 0x005678E0` hands its leaf, in its
 /// order; `RevealShroud @ 0x005673A0` walks the same cells.
 ///
@@ -2221,7 +2256,7 @@ pub(crate) fn collect_reveal_cells(
     range: u16,
     viewer_height_leptons: i32,
     reveal_by_height: bool,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
     (width, height): (u16, u16),
     map_size: Option<(i32, i32)>,
 ) -> Vec<(u16, u16)> {
@@ -2260,13 +2295,14 @@ pub(crate) fn collect_reveal_cells(
             // raw foot cell, so we add `z_shift` back to undo the spiral's Z-shift
             // (in the original this cancellation is implicit). If that cell's Level
             // exceeds viewer_level + 3, the target is not revealed (LOS blocked).
-            if reveal_by_height && let Some(hg) = height_grid {
+            if reveal_by_height && let Some(levels) = height_grid {
                 let (mdx, mdy) = REVEAL_MIRROR[i];
                 let obs_x = rx + mdx as i32 + 2 + z_shift;
                 let obs_y = ry + mdy as i32 + 2 + z_shift;
                 if obs_x >= 0 && obs_x < w && obs_y >= 0 && obs_y < h {
                     // Original567CB5 MOVSX reads Cell+11B as a signed byte.
-                    let obs_level = i32::from(hg[(obs_y * w + obs_x) as usize] as i8);
+                    let obs_level =
+                        i32::from(levels.level(obs_x as u16, obs_y as u16, width) as i8);
                     if viewer_level + 3 < obs_level {
                         continue; // terrain blocks LOS
                     }
@@ -2569,7 +2605,7 @@ pub(crate) fn reveal_shroud_on_fire(
     house: InternedId,
     coord: crate::sim::components::DriveCoord,
     config: &VisionConfig,
-    height_grid: Option<&[u8]>,
+    height_grid: Option<CellLevels<'_>>,
 ) {
     if coord.x < 0 || coord.y < 0 {
         return;

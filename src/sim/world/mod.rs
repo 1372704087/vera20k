@@ -6985,8 +6985,9 @@ impl Simulation {
         }
 
         // --- Phase 3: Vision refresh ---
-        // DEPENDS ON: movement (positions updated), spawn (new entities need LOS).
-        // PRODUCES: fog state for the later phases and the next frame.
+        // The frame's sight projection and Gap Generator cover. Sources open,
+        // move and close their sight at their own events (Unlimbo, arrival,
+        // Limbo), so an object spawned after this pass holds its sight already.
         let vision_config = self.sight_reveal_config(rules);
         self.refresh_fog(&vision_config, rules);
 
@@ -7085,9 +7086,6 @@ impl Simulation {
                 overlay_registry,
                 effects,
             );
-            if spawned_entities {
-                self.refresh_fog(&vision_config, Some(rules));
-            }
         }
 
         // ===== SPINE REGION: LATE — AI, defeat, anims, frame commit =====

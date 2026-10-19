@@ -100,6 +100,8 @@ pub(crate) struct WolVisit {
     last_login_result: Option<u32>,
     /// `[0xB73AE0]`: the message of the day from a successful login.
     motd: Option<String>,
+    /// `[0xB77E30]`: the last user who paged us, the `/reply` target.
+    last_pager: Option<String>,
 }
 
 impl WolVisit {
@@ -119,6 +121,7 @@ impl WolVisit {
             last_error: None,
             last_login_result: None,
             motd: None,
+            last_pager: None,
         }
     }
 
@@ -169,6 +172,11 @@ impl WolVisit {
 /// The custom lobby runner `0x00787770` entered after a successful login
 /// (`postmatch` false) or after a match (`postmatch` true, the state 0x11
 /// flag `WOL_Main` passes on). The lobby chain owns everything it shows.
+/// `[0xB77E30]`, the `/reply` target of every WOL chat edit.
+pub(crate) fn last_pager(state: &AppState) -> Option<&str> {
+    state.frontend.wol.as_ref()?.last_pager.as_deref()
+}
+
 pub(crate) fn open_lobby(state: &mut AppState, postmatch: bool) {
     let _ = postmatch;
     let Some(visit) = state.frontend.wol.as_mut() else {

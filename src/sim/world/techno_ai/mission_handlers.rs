@@ -1474,12 +1474,7 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let c4 = object.c4
-        || crate::sim::combat::veterancy::has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            object,
-            crate::rules::object_type::Ability::C4,
-        );
+    let c4 = crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object);
     let Some(target) = entity.attack_target.target() else {
         return;
     };
@@ -1556,13 +1551,7 @@ fn infantry_attack_c4(
 fn c4_sabotage_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Option<u64> {
     let entity = sim.substrate.entities.get(id)?;
     let object = sim.object_type(entity.type_ref(), rules)?;
-    if !(object.c4
-        || crate::sim::combat::veterancy::has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            object,
-            crate::rules::object_type::Ability::C4,
-        ))
-    {
+    if !crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object) {
         return None;
     }
     let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.target()? else {
@@ -2201,31 +2190,27 @@ fn guard_queues_sabotage(sim: &Simulation, id: u64, rules: &RuleSet) -> bool {
         return false;
     };
     if entity.category() != EntityCategory::Infantry
-        || !sim
-            .houses
-            .get(&entity.owner())
-            .is_some_and(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero))
+        || sim.owner_is_human(entity.owner())
         || entity.mission.current().known() == Some(MissionType::Sabotage)
+        || !sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| {
+                crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object)
+            })
     {
         return false;
     }
-    let Some(object) = sim.object_type(entity.type_ref(), rules) else {
-        return false;
-    };
-    (object.c4
-        || crate::sim::combat::veterancy::has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            object,
-            crate::rules::object_type::Ability::C4,
-        ))
-        && matches!(
-            entity.attack_target.target(),
-            Some(crate::sim::combat::TargetKind::Entity(target)) if sim
-                .substrate
-                .entities
-                .get(target)
-                .is_some_and(|target| target.category() == EntityCategory::Structure)
-        )
+    // A dying building is the null Target native's detach leaves.
+    matches!(
+        entity.attack_target.target(),
+        Some(crate::sim::combat::TargetKind::Entity(target)) if sim
+            .substrate
+            .entities
+            .get(target)
+            .is_some_and(|target| target.category() == EntityCategory::Structure
+                && !target.death.is_dying()
+                && target.is_alive())
+    )
 }
 
 /// The HoverAttack re-anchor `FootClass::Mission_Attack` opens with

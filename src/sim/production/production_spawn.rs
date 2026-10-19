@@ -304,7 +304,7 @@ fn naval_rally_fast_path_cell(
     );
 
     let terrain = resolved_terrain?;
-    if terrain.cell(candidate.0, candidate.1)?.yr_cell_land_type
+    if terrain.cell(candidate.0, candidate.1)?.land_type
         != crate::rules::terrain_rules::LandType::Water.as_index()
     {
         return None;
@@ -593,7 +593,6 @@ mod tests {
             .unwrap()
             .cell_mut(cell.0, cell.1)
             .unwrap();
-        water.yr_cell_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
         water.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
         water.terrain_class = TerrainClass::Water;
         water.speed_costs.float = Some(100);

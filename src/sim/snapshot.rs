@@ -1152,9 +1152,11 @@ use crate::util::save_codec;
 // 427 -> 428: the Infantry terminal policy is gone from TerminalLifetime,
 // which keeps only the dying mark; an infantry corpse is an ordinary
 // IsAlive object at Health 0.
-// 428 -> 429: the VERA-only Boarding passenger relation is gone, which
+// 428 -> 429: saved dynamic terrain cells keep one CellClass+0xEC LandType
+// (and its pre-overlay base) instead of two copies of it.
+// 430 -> 431: the VERA-only Boarding passenger relation is gone, which
 // renumbers the later PassengerRole and carrier-relation variants.
-const SNAPSHOT_VERSION: u32 = 429;
+const SNAPSHOT_VERSION: u32 = 431;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4859,8 +4861,9 @@ mod tests {
         // 425 -> 426: the Techno+0x12C Behind indicator Anim.
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
         // 427 -> 428: TerminalLifetime keeps only the dying mark.
-        // 428 -> 429: the Boarding passenger relation is gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 429);
+        // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
+        // 430 -> 431: the Boarding passenger relation is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 431);
     }
 
     #[test]

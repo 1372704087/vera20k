@@ -7285,7 +7285,7 @@ pub(crate) fn wake_anchor_for(
         return None;
     }
     let cell = terrain?.cell(entity.position.rx(), entity.position.ry())?;
-    if cell.yr_cell_land_type != crate::rules::terrain_rules::LandType::Water.as_index() {
+    if cell.land_type != crate::rules::terrain_rules::LandType::Water.as_index() {
         return None;
     }
     Some((

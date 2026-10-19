@@ -1786,8 +1786,10 @@ mod tests {
         assert!(sim.substrate.entities.get(3).unwrap().health.current() > 0);
 
         let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=256\nArmor=heavy\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
-        )).unwrap();
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=256\nArmor=heavy\n\
+             [CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
+        ))
+        .unwrap();
         let ground = sim.substrate.entities.get_mut(1).unwrap();
         ground.lifecycle.set_in_limbo_for_test(false);
         ground.lifecycle.set_cell_marked(true);
@@ -1841,7 +1843,8 @@ mod tests {
         use crate::sim::world::SimSoundEvent;
 
         let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\n\
+             [CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
         ))
         .expect("rules parse");
         let mut sim = Simulation::new();

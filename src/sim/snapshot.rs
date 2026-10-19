@@ -1154,7 +1154,12 @@ use crate::util::save_codec;
 // IsAlive object at Health 0.
 // 428 -> 429: saved dynamic terrain cells keep one CellClass+0xEC LandType
 // (and its pre-overlay base) instead of two copies of it.
-const SNAPSHOT_VERSION: u32 = 429;
+// 429 -> 430: processed Types retain their remaining Type references
+// (TechnoType pointers and lists, Weapon anims and particle system,
+// SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
+// references, Warhead DebrisTypes), and process Rules state keeps its
+// RulesClass Type pointers and lists, the crate and rocket ones included.
+const SNAPSHOT_VERSION: u32 = 430;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4870,7 +4875,9 @@ mod tests {
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
         // 427 -> 428: TerminalLifetime keeps only the dying mark.
         // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
-        assert_eq!(super::SNAPSHOT_VERSION, 429);
+        // 429 -> 430: the remaining Type references and RulesClass Type
+        // pointers and lists.
+        assert_eq!(super::SNAPSHOT_VERSION, 430);
     }
 
     #[test]

@@ -287,7 +287,10 @@ pub(crate) fn load_neutral_tech_types(
         );
         return Vec::new();
     };
-    let types = crate::map::rmg::tech_catalog::resolve(processed.ini(), owner.fixed_art());
+    let types = crate::map::rmg::tech_catalog::resolve(
+        processed.neutral_tech_buildings(),
+        owner.fixed_art(),
+    );
     log::info!(
         "random map: resolved {} neutral tech building type(s)",
         types.len()
@@ -724,7 +727,7 @@ mod tests {
     #[test]
     fn gsi_13_04_scheduler_roots_include_generic_resolved_tile_names() {
         let ini = IniFile::from_str(
-            "[General]\nDamageFireTypes=FIRE_A,FIRE_B\n\
+            "[General]\nDamageFireTypes=FIRE_A,FIRE_B\nWake=WAKE1\n\
              [Animations]\n0=crate_spark\n\
              [OverlayTypes]\n0=STARTBOX\n[STARTBOX]\nCellAnim=crate_spark\n\
              [CrateRules]\nCrateImg=STARTBOX\nWoodCrateImg=STARTBOX\nWaterCrateImg=STARTBOX\n",
@@ -761,8 +764,8 @@ mod tests {
                 "CUSTOM_MOUTH",
                 "FIRE_A",
                 "FIRE_B",
-                // [General] Wake= default: constructed as a scheduler AnimClass
-                // by the drive locomotor, so it is bound with the roots.
+                // [General] Wake=: constructed as a scheduler AnimClass by the
+                // drive locomotor, so it is bound with the roots.
                 "WAKE1"
             ]
         );

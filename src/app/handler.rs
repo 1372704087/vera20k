@@ -493,6 +493,11 @@ impl ApplicationHandler for App {
                     if let Some(lan) = state.frontend.lan.as_mut() {
                         lan.lobby.cancel_pointer();
                     }
+                    if let Some(crate::app::shell_wol::WolPage::Login(login)) =
+                        state.frontend.wol.as_mut().map(|visit| &mut visit.page)
+                    {
+                        login.cancel_pointer();
+                    }
                     if let Some(setup) = state.frontend.multiplayer_setup.as_mut() {
                         setup.cancel_pointer();
                     }
@@ -722,10 +727,14 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::wol_welcome_active(state) {
-                        // 0x10E ignores IDOK/IDCANCEL (0x007988C0), and the
-                        // 0xD0 box's loop (0x007759E0) dispatches without
-                        // IsDialogMessage.
+                    if Self::wol_active(state) {
+                        Self::handle_wol_key(
+                            state,
+                            Some(code),
+                            event.state.is_pressed(),
+                            event.text.as_deref(),
+                        );
+                        state.platform.window.request_redraw();
                         return;
                     }
 
@@ -889,7 +898,7 @@ impl ApplicationHandler for App {
                 if Self::load_saved_game_active(state) {
                     Self::handle_load_saved_game_mouse_move(state);
                 }
-                if Self::wol_welcome_active(state) {
+                if Self::wol_active(state) {
                     Self::handle_wol_mouse_move(state);
                 }
                 if Self::score_shell_active(state) {
@@ -904,7 +913,7 @@ impl ApplicationHandler for App {
                     && !Self::movie_list_active(state)
                     && !Self::campaign_active(state)
                     && !Self::load_saved_game_active(state)
-                    && !Self::wol_welcome_active(state)
+                    && !Self::wol_active(state)
                     && state.frontend.fullscreen_movie.is_none()
                     && state.frontend.credits_roll.is_none()
                     && !Self::native_skirmish_shell_active(state)
@@ -966,7 +975,7 @@ impl ApplicationHandler for App {
                         }
                         return;
                     }
-                    if Self::wol_welcome_active(state) {
+                    if Self::wol_active(state) {
                         if button == MouseButton::Left {
                             if btn_state.is_pressed() {
                                 Self::handle_wol_mouse_down(state);
@@ -1142,6 +1151,7 @@ impl ApplicationHandler for App {
                 crate::app::input::keyboard::poll_scroll_repeat(state),
                 crate::app::input::network_options::poll_scroll_repeat(state),
                 crate::app::shell_lan::poll(state),
+                crate::app::shell_wol::poll(state),
                 crate::app::shell_network_setup::poll(state),
                 crate::app::input::multiplayer_setup::poll(state),
                 crate::app::input::sound::poll_scroll_repeat(state),

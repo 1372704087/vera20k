@@ -64,6 +64,10 @@ pub(crate) enum ShellSlideKind {
     Options,
     /// Dialog 0x10E — Westwood Online welcome.
     WolWelcome,
+    /// Dialog 0x10F — Westwood Online login.
+    WolLogin,
+    /// Dialog 0x113 — Westwood Online custom-match lobby.
+    WolLobby,
     /// Dialog 0xA3 — Options' Keyboard page (front-end parent only).
     Keyboard,
     /// Dialog D7, Options' Network child.
@@ -97,6 +101,8 @@ impl ShellSlideKind {
             ShellSlideKind::LoadSavedGame => 0x00B7,
             ShellSlideKind::Options => 0x00D5,
             ShellSlideKind::WolWelcome => 0x010E,
+            ShellSlideKind::WolLogin => 0x010F,
+            ShellSlideKind::WolLobby => 0x0113,
             ShellSlideKind::Keyboard => 0x00A3,
             ShellSlideKind::NetworkOptions => 0x00D7,
             ShellSlideKind::LanLobby => 0xBB,
@@ -215,9 +221,11 @@ pub(crate) enum ShellExitThen {
     /// Campaign victory Continue (`0x423`, result 1): `0x103` slides out
     /// before GameExit::Victory continues the campaign.
     CampaignScoreContinue,
-    /// A Westwood Online action: `0x10E` closes before the WOLAPI object
-    /// fails to load and `TXT_APIMISSING` shows.
-    WolApiMissing,
+    /// A Westwood Online mode button: `0x10E` closes with the mode written
+    /// and `WOL_Main` runs that mode's flow.
+    WolAction(crate::ui::wol_shell::WolMode),
+    /// `0x10F` closed with Login (`0x539`) or Back (2).
+    WolLoginClose(u16),
 }
 
 impl ShellExitThen {
@@ -245,7 +253,8 @@ impl ShellExitThen {
                 ShellSlideKind::ChooseMap
             }
             Self::RandomMapUse | Self::RandomMapCancel => ShellSlideKind::RandomMap,
-            Self::WolBack | Self::WolApiMissing => ShellSlideKind::WolWelcome,
+            Self::WolBack | Self::WolAction(_) => ShellSlideKind::WolWelcome,
+            Self::WolLoginClose(_) => ShellSlideKind::WolLogin,
             Self::ScoreContinue => ShellSlideKind::Score,
             Self::CampaignScoreContinue => ShellSlideKind::CampaignScore,
         }
@@ -517,6 +526,8 @@ impl<'a> ShellLifecycleReducer<'a> {
             | ShellSlideKind::LoadSavedGame
             | ShellSlideKind::Options
             | ShellSlideKind::WolWelcome
+            | ShellSlideKind::WolLogin
+            | ShellSlideKind::WolLobby
             | ShellSlideKind::Keyboard
             | ShellSlideKind::NetworkOptions
             | ShellSlideKind::LanLobby => ShellWaveCompletion::MenuPage,
@@ -736,17 +747,16 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
         ShellSlideKind::Campaign
     } else if state.frontend.shell_route.load_saved_game() {
         ShellSlideKind::LoadSavedGame
-    } else if state.frontend.shell_route.wol_welcome() {
-        // The TXT_APIMISSING box runs after 0x10E is destroyed.
-        if state
-            .frontend
-            .wol_welcome
-            .as_ref()
-            .is_some_and(|wol| wol.api_missing.is_some())
-        {
-            return None;
+    } else if state.frontend.shell_route.wol() {
+        // The waits and boxes run after a WOL dialog is destroyed, over the
+        // empty backdrop.
+        match state.frontend.wol.as_ref().map(|visit| &visit.page) {
+            Some(crate::app::shell_wol::WolPage::Welcome) => ShellSlideKind::WolWelcome,
+            Some(crate::app::shell_wol::WolPage::Login(_)) => ShellSlideKind::WolLogin,
+            _ => return None,
         }
-        ShellSlideKind::WolWelcome
+    } else if state.frontend.shell_route.wol_lobby() {
+        ShellSlideKind::WolLobby
     } else if state.frontend.main_menu_shell_error.is_none() {
         ShellSlideKind::MainMenu
     } else {
@@ -928,12 +938,8 @@ pub(crate) fn render_shell_first_paint_slide(
                 destination,
             )?
         }
-        ShellSlideKind::WolWelcome => {
-            crate::app::frontend::wol_welcome_render::render_wol_welcome_page(
-                state,
-                encoder,
-                destination,
-            )?
+        ShellSlideKind::WolWelcome | ShellSlideKind::WolLogin | ShellSlideKind::WolLobby => {
+            crate::app::frontend::wol_welcome_render::render_wol_page(state, encoder, destination)?
         }
         ShellSlideKind::Options => {
             crate::app::App::native_launcher_options_active(state) && {

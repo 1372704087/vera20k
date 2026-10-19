@@ -257,6 +257,26 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         top_panel: false,
         campaign_score: false,
     },
+    // WOL login 0x10F: Login, Forget Account (disabled, still counted by
+    // 0x0060A180) and Manage Account, then Back. The custom lobby 0x113:
+    // eight top-list buttons (0x00608CD0), Back, and the top panel (+0xD5,
+    // 0x00622820); its runtime button visibility is not yet observed.
+    SlideDialogSpec {
+        dialog_id: 0x010F,
+        top_buttons: 3,
+        bottom_button: true,
+        map_button: false,
+        top_panel: false,
+        campaign_score: false,
+    },
+    SlideDialogSpec {
+        dialog_id: 0x0113,
+        top_buttons: 8,
+        bottom_button: true,
+        map_button: false,
+        top_panel: true,
+        campaign_score: false,
+    },
     SlideDialogSpec {
         dialog_id: 0x00A3,
         top_buttons: 0,

@@ -1284,7 +1284,8 @@ impl App {
             ShellExitThen::WolBack => Self::return_from_wol(state),
             ShellExitThen::ScoreContinue => Self::leave_mission_result_screen(state),
             ShellExitThen::CampaignScoreContinue => Self::leave_mission_result_screen(state),
-            ShellExitThen::WolApiMissing => Self::commit_wol_api_missing(state),
+            ShellExitThen::WolAction(mode) => Self::commit_wol_action(state, mode),
+            ShellExitThen::WolLoginClose(result) => Self::commit_wol_login_close(state, result),
         }
     }
 
@@ -1307,7 +1308,7 @@ impl App {
         if state.frontend.credits_roll.is_some() {
             return;
         }
-        if state.frontend.shell_route.wol_welcome() {
+        if state.frontend.shell_route.wol_visit() {
             return;
         }
         if let Some(assets) = state.process_assets.manager() {

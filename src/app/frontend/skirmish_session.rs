@@ -421,7 +421,9 @@ impl MultiplayerShellRuntime {
         });
     }
 
-    pub(crate) fn set_lan_name(&mut self, name: &str) {
+    /// Session handle `[0xA8B380]`: BB's name edit, and the WOL nickname
+    /// after a successful login (`0x007864C0`).
+    pub(crate) fn set_handle(&mut self, name: &str) {
         self.local_preferences.handle_bytes = crate::util::native_string::acp_encode(name);
         self.local_preferences
             .handle_bytes

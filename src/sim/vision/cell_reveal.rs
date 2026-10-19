@@ -1217,7 +1217,7 @@ fn cells_of(indices: &[u32], width: u16) -> Vec<(u16, u16)> {
 /// The eight cells around `cell` in `0x0089F688` order, with the native signed
 /// WORD adds.
 fn cell_neighbors(cell: (u16, u16)) -> impl Iterator<Item = (u16, u16)> {
-    crate::util::direction_tables::cell::CELL_DELTAS
+    crate::util::direction::DIRECTION_DELTAS
         .into_iter()
         .map(move |(dx, dy)| {
             (

@@ -25,8 +25,8 @@ const TABLE_LEN: usize = 16384;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::retail_trig::executable::file_offset_of;
     use crate::util::native_x87::sqrt_approx_table_entry;
+    use crate::util::retail_trig::executable::file_offset_of;
 
     fn retail_executable() -> Option<Vec<u8>> {
         let dir = std::env::var("RA2_DIR").ok()?;

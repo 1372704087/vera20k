@@ -22,7 +22,7 @@ use crate::map::bridge_facts::BRIDGE_FLAG_ANCHOR_SELF;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::tube_facts::{TubeId, TubeSource};
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, chop_sum_f32, sqrt_approx_f32,
 };
@@ -439,7 +439,7 @@ impl HierarchyGate<'_> {
 /// The direction tiebreaks `AStar_main_loop` adds to each compass edge (`FADD`
 /// at `0x00429F96`): the binary32 table at `0x0081872C`, about 0.001 to 0.008.
 /// Cardinals get lower values than diagonals, which stops path oscillation
-/// when several routes tie. Index order matches [`CELL_DELTAS`]: N, NE, E, SE,
+/// when several routes tie. Index order matches [`DIRECTION_DELTAS`]: N, NE, E, SE,
 /// S, SW, W, NW.
 const DIR_TIEBREAK: [f32; 8] = [
     f32::from_bits(0x3a83_126f), // N   ≈0.001
@@ -939,7 +939,7 @@ pub fn astar_search(
             let mut held = None;
 
             // --- Neighbor expansion ---
-            for (dir_index, &(dx, dy)) in CELL_DELTAS.iter().enumerate() {
+            for (dir_index, &(dx, dy)) in DIRECTION_DELTAS.iter().enumerate() {
                 let nx_i = cx as i32 + dx;
                 let ny_i = cy as i32 + dy;
                 if nx_i < 0

@@ -31,18 +31,6 @@ pub const CELL_CENTER_LEPTON: SimFixed = SimFixed::lit("128");
 /// like `LEPTONS_PER_CELL_I32` for 256. A test pins the two forms equal.
 pub const CELL_CENTER_LEPTON_I32: i32 = 128;
 
-/// Tile width in pixels (60.0) divided by leptons per cell (256).
-/// Pre-computed for efficient lepton → screen pixel conversion.
-/// = 60.0 / 256.0 = 0.234375
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) const SCREEN_X_PER_LEPTON: f32 = 60.0 / 256.0;
-
-/// Tile half-height in pixels (15.0) divided by leptons per cell (256).
-/// Pre-computed for efficient lepton → screen pixel conversion.
-/// = 30.0 / 256.0 = 0.1171875
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) const SCREEN_Y_PER_LEPTON: f32 = 30.0 / 256.0;
-
 /// Screen-Y offset every VERA world layer carries relative to the original's
 /// absolute tactical pixel.
 ///
@@ -64,37 +52,16 @@ const SIM_FIXED_SCALE: i64 = 1 << 16;
 // Infantry sub-cell lepton positions (RA2 canonical)
 // ---------------------------------------------------------------------------
 
-/// Sub-cell lepton offsets within a cell. RA2 defines 5 sub-cell positions (0–4).
-/// Extracted from the original engine's runtime init.
+/// Sub-cell lepton offsets within a cell, by spot (0–4), from the cell's
+/// north corner. Extracted from the original engine's runtime init.
 ///
 /// - Sub-cell 0: center  (128, 128) — vehicles + default
 /// - Sub-cell 1: top-left  ( 64,  64)
 /// - Sub-cell 2: top-right (192,  64)
 /// - Sub-cell 3: bottom-left  ( 64, 192) — used for infantry placement
 /// - Sub-cell 4: bottom-right (192, 192) — used for infantry placement
-///
-/// Same values as `sim::cell_kernel::INFANTRY_SUBCELL_OFFSETS` (the
-/// native-ordered integer table); change both or neither.
-///
-/// Sub-cell center position (sub-cell 0, and fallback for vehicles).
-pub const SUBCELL_CENTER_X: SimFixed = SimFixed::lit("128");
-pub const SUBCELL_CENTER_Y: SimFixed = SimFixed::lit("128");
-
-/// Sub-cell 1: top-left within the cell diamond.
-pub const SUBCELL_1_X: SimFixed = SimFixed::lit("64");
-pub const SUBCELL_1_Y: SimFixed = SimFixed::lit("64");
-
-/// Sub-cell 2: top-right within the cell diamond.
-pub const SUBCELL_2_X: SimFixed = SimFixed::lit("192");
-pub const SUBCELL_2_Y: SimFixed = SimFixed::lit("64");
-
-/// Sub-cell 3: bottom-left (SW quadrant) within the cell diamond.
-pub const SUBCELL_3_X: SimFixed = SimFixed::lit("64");
-pub const SUBCELL_3_Y: SimFixed = SimFixed::lit("192");
-
-/// Sub-cell 4: bottom-right (SE quadrant) within the cell diamond.
-pub const SUBCELL_4_X: SimFixed = SimFixed::lit("192");
-pub const SUBCELL_4_Y: SimFixed = SimFixed::lit("192");
+pub const SUBCELL_OFFSETS: [(i32, i32); 5] =
+    [(128, 128), (64, 64), (192, 64), (64, 192), (192, 192)];
 
 // ---------------------------------------------------------------------------
 // InRange (3D distance) constants
@@ -289,35 +256,22 @@ pub const fn native_pixel_height_leptons(pixels: i32) -> i32 {
     (product / (1 << 51)) as i64 as i32
 }
 
+/// A spot's [`SUBCELL_OFFSETS`] entry in whole leptons. Unknown spots
+/// default to the cell center.
+pub fn subcell_offset(spot: u8) -> (i32, i32) {
+    SUBCELL_OFFSETS
+        .get(usize::from(spot))
+        .copied()
+        .unwrap_or(SUBCELL_OFFSETS[0])
+}
+
 /// Get the lepton sub-cell offset for a given sub-cell index (0–4).
 ///
 /// Returns `(sub_x, sub_y)` in lepton units (0..256 range).
-/// Unknown indices default to cell center.
+/// No sub-cell or an unknown index defaults to cell center.
 pub fn subcell_lepton_offset(sub_cell: Option<u8>) -> (SimFixed, SimFixed) {
-    match sub_cell {
-        Some(1) => (SUBCELL_1_X, SUBCELL_1_Y),
-        Some(2) => (SUBCELL_2_X, SUBCELL_2_Y),
-        Some(3) => (SUBCELL_3_X, SUBCELL_3_Y),
-        Some(4) => (SUBCELL_4_X, SUBCELL_4_Y),
-        _ => (SUBCELL_CENTER_X, SUBCELL_CENTER_Y), // 0 + fallback
-    }
-}
-
-/// Convert a sub-cell lepton offset to a screen-space pixel offset from cell center.
-///
-/// The isometric projection maps lepton offsets from center (128, 128) to pixels:
-///   dx_pixels = (sub_x - sub_y) * (TILE_WIDTH / 2) / 256
-///   dy_pixels = (sub_x + sub_y - 256) * (TILE_HEIGHT / 2) / 256
-///
-/// This replaces hardcoded pixel offsets with lepton-derived values.
-#[cfg(any(test, feature = "test-support"))]
-pub fn lepton_sub_to_screen_offset(sub_x: SimFixed, sub_y: SimFixed) -> (f32, f32) {
-    let dx_lep: f32 = sub_x.to_num::<f32>() - CELL_CENTER_LEPTON.to_num::<f32>();
-    let dy_lep: f32 = sub_y.to_num::<f32>() - CELL_CENTER_LEPTON.to_num::<f32>();
-    // Isometric projection: offset from center
-    let screen_dx: f32 = (dx_lep - dy_lep) * SCREEN_X_PER_LEPTON / 2.0;
-    let screen_dy: f32 = (dx_lep + dy_lep) * SCREEN_Y_PER_LEPTON / 2.0;
-    (screen_dx, screen_dy)
+    let (x, y) = subcell_offset(sub_cell.unwrap_or(0));
+    (SimFixed::from_num(x), SimFixed::from_num(y))
 }
 
 /// Project a signed absolute world X/Y coordinate using active YR's integer
@@ -471,13 +425,8 @@ mod tests {
 
     #[test]
     fn gsi_13_02_util_and_terrain_share_the_exact_absolute_projector() {
-        for (sub_x, sub_y) in [
-            (SUBCELL_CENTER_X, SUBCELL_CENTER_Y),
-            (SUBCELL_1_X, SUBCELL_1_Y),
-            (SUBCELL_2_X, SUBCELL_2_Y),
-            (SUBCELL_3_X, SUBCELL_3_Y),
-            (SUBCELL_4_X, SUBCELL_4_Y),
-        ] {
+        for spot in 0..SUBCELL_OFFSETS.len() as u8 {
+            let (sub_x, sub_y) = subcell_lepton_offset(Some(spot));
             let util = lepton_to_screen(10, 4, sub_x, sub_y, 2);
             let absolute = absolute_leptons_to_screen(
                 absolute_lepton_axis(10, sub_x),
@@ -630,54 +579,17 @@ mod tests {
     }
 
     #[test]
-    fn subcell_3_offsets_bottom_left() {
-        let (dx, _dy) = lepton_sub_to_screen_offset(SUBCELL_3_X, SUBCELL_3_Y);
-        // Sub-cell 3 (64, 192): dx_lep = -64, dy_lep = +64.
-        // Isometric: screen_dx = -15 (left of center), screen_dy = 0.
-        assert!(dx < 0.0, "Sub-cell 3 should be left of center: dx={}", dx);
-    }
-
-    #[test]
-    fn subcell_4_offsets_bottom_right() {
-        let (dx, _dy) = lepton_sub_to_screen_offset(SUBCELL_4_X, SUBCELL_4_Y);
-        // Sub-cell 4 (192, 192): dx_lep = +64, dy_lep = +64.
-        // Isometric: screen_dx = 0, screen_dy = +7.5 (below center).
-        assert!(
-            dx.abs() < 1.0,
-            "Sub-cell 4 should be near center X: dx={}",
-            dx
-        );
-    }
-
-    #[test]
-    fn subcell_center_has_zero_offset() {
-        let (dx, dy) = lepton_sub_to_screen_offset(SUBCELL_CENTER_X, SUBCELL_CENTER_Y);
-        assert!(
-            dx.abs() < 0.001,
-            "Center sub-cell X offset should be ~0: {}",
-            dx
-        );
-        assert!(
-            dy.abs() < 0.001,
-            "Center sub-cell Y offset should be ~0: {}",
-            dy
-        );
-    }
-
-    #[test]
     fn subcell_lookup_returns_correct_positions() {
-        assert_eq!(
-            subcell_lepton_offset(None),
-            (SUBCELL_CENTER_X, SUBCELL_CENTER_Y)
-        );
-        assert_eq!(
-            subcell_lepton_offset(Some(0)),
-            (SUBCELL_CENTER_X, SUBCELL_CENTER_Y)
-        );
-        assert_eq!(subcell_lepton_offset(Some(1)), (SUBCELL_1_X, SUBCELL_1_Y));
-        assert_eq!(subcell_lepton_offset(Some(2)), (SUBCELL_2_X, SUBCELL_2_Y));
-        assert_eq!(subcell_lepton_offset(Some(3)), (SUBCELL_3_X, SUBCELL_3_Y));
-        assert_eq!(subcell_lepton_offset(Some(4)), (SUBCELL_4_X, SUBCELL_4_Y));
+        let lit = |x: &str, y: &str| (SimFixed::lit(x), SimFixed::lit(y));
+        assert_eq!(subcell_lepton_offset(None), lit("128", "128"));
+        assert_eq!(subcell_lepton_offset(Some(0)), lit("128", "128"));
+        assert_eq!(subcell_lepton_offset(Some(1)), lit("64", "64"));
+        assert_eq!(subcell_lepton_offset(Some(2)), lit("192", "64"));
+        assert_eq!(subcell_lepton_offset(Some(3)), lit("64", "192"));
+        assert_eq!(subcell_lepton_offset(Some(4)), lit("192", "192"));
+        assert_eq!(subcell_lepton_offset(Some(5)), lit("128", "128"));
+        assert_eq!(subcell_offset(3), (64, 192));
+        assert_eq!(subcell_offset(255), (128, 128));
     }
 
     #[test]

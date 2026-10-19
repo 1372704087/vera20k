@@ -4,12 +4,12 @@
 //! absence and existing state. Native controls: unit_rocker_impulse.json.
 
 use super::{RockingState, absolute, double, load, store};
-use crate::map::retail_trig::TrigTable;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{
     MaskedX87Chop53 as M, MaskedX87Ordering, NativeF32Bits, NativeF64Bits, X87Chop53 as X,
     X87Ordering, sqrt_approx_f32,
 };
+use crate::util::retail_trig::TrigTable;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RockerImpulse {

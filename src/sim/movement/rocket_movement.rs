@@ -24,7 +24,6 @@
 //! [`LocomotorRuntimePayload::Rocket`]: super::locomotion::piggyback::LocomotorRuntimePayload
 //! [`MissileSpawnRules::rocket_block`]: crate::rules::missile_spawn::MissileSpawnRules::rocket_block
 
-use crate::map::retail_trig::TrigTable;
 use crate::rules::effect_asset_catalog::{ROCKET_TAKEOFF_ANIM, ROCKET_TRAIL_ANIM};
 use crate::rules::missile_spawn::MissileSpawnParams;
 use crate::sim::components::DriveCoord;
@@ -36,6 +35,7 @@ use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, X87Value, sqrt_approx_f32,
     sqrt_approx_length,
 };
+use crate::util::retail_trig::TrigTable;
 
 /// `+0x40` before Move_To: Process runs only the tail, which a zero speed
 /// leaves idle.

@@ -90,6 +90,7 @@ impl Drain {
     }
 
     /// The drainer's DrainAnim.
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn anim(&self) -> Option<crate::sim::anim_class::AnimId> {
         self.anim
     }

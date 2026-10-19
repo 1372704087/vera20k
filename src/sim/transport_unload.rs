@@ -31,7 +31,7 @@ use crate::sim::passenger::{
 };
 use crate::sim::pathfinding::passability::LandType;
 use crate::sim::world::{FrameEffects, PlacementEvidence, SimSoundEvent, Simulation};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 /// `UnitClass+0x6E4`: the passengers a transport's Unload keeps aboard.
 /// `UnitClass::Mission_Unload @ 0x0073D630` state 0 writes it
@@ -201,7 +201,7 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
 
     let mut best_score: i32 = -1;
     let mut best_octant: usize = 0;
-    for (octant, &delta) in CELL_DELTAS.iter().enumerate() {
+    for (octant, &delta) in DIRECTION_DELTAS.iter().enumerate() {
         let open = cell_from(base, delta).is_some_and(|cell| octant_cell_open(sim, cell, owner));
         let mut score: i32 = if open { 0x80 } else { -0x80 };
         let dir8 = i32::from(((octant as u32) << 5) as u8 as i8);
@@ -217,7 +217,7 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
     if best_score <= 0 {
         return None;
     }
-    let cell = cell_from(base, CELL_DELTAS[best_octant])?;
+    let cell = cell_from(base, DIRECTION_DELTAS[best_octant])?;
     Some((cell, opposite_octant(best_octant)))
 }
 
@@ -366,8 +366,9 @@ fn eject_head_passenger(
             let mut placement: Option<Placement> = None;
             while i < 8 {
                 let octant = (start + i) & 7;
-                let exit_cell = cell_from(base, CELL_DELTAS[octant]);
-                let beyond_cell = exit_cell.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
+                let exit_cell = cell_from(base, DIRECTION_DELTAS[octant]);
+                let beyond_cell =
+                    exit_cell.and_then(|cell| cell_from(cell, DIRECTION_DELTAS[octant]));
                 // Both passes ask the cell two steps out first, then the exit
                 // cell (`0x0073D994`, `0x0073D9C2`).
                 let args = InfantryEntryArgs {
@@ -628,8 +629,8 @@ pub(crate) fn building_mission_unload_absorber(
             let mut placement = None;
             while index < 8 {
                 let octant = (start + index) & 7;
-                let adjacent = cell_from(base, CELL_DELTAS[octant]);
-                let beyond = adjacent.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
+                let adjacent = cell_from(base, DIRECTION_DELTAS[octant]);
+                let beyond = adjacent.and_then(|cell| cell_from(cell, DIRECTION_DELTAS[octant]));
                 let args = InfantryEntryArgs {
                     direction: octant as i32,
                     height,
@@ -1130,7 +1131,7 @@ fn eject_from_aircraft(
                 previous_cell: None,
             };
             for (i, &octant) in AIRCRAFT_EXIT_SCAN[..8].iter().enumerate() {
-                let candidate = cell_from(cell, CELL_DELTAS[octant & 7]);
+                let candidate = cell_from(cell, DIRECTION_DELTAS[octant & 7]);
                 scan_cell = candidate;
                 if candidate.is_some_and(|cell| {
                     passenger_can_enter(sim, rules, overlay_registry, pax_id, cell, args)

@@ -3,10 +3,10 @@
 //! the same represented arithmetic. Keep stores explicit at their callers.
 
 use super::ProjectileVelocity as Velocity;
-use crate::map::retail_trig::TrigTable;
 use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53 as X, X87Ordering, X87Value,
 };
+use crate::util::retail_trig::TrigTable;
 
 pub(super) const PI_HALF: NativeF64Bits = NativeF64Bits::from_bits(0x3ff9_21fb_5444_2d18);
 const WORD_SCALE: NativeF64Bits = NativeF64Bits::from_bits(0xc0c4_5f07_af68_ecef);

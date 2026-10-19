@@ -38,7 +38,6 @@ pub mod overlay;
 pub mod playfield;
 pub mod preview;
 pub mod ranking;
-pub mod retail_trig;
 pub mod resolved_terrain;
 pub mod rmg;
 pub mod tags;

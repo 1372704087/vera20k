@@ -705,7 +705,7 @@ mod tests {
         let _ = map_type;
         let quota;
         {
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,
@@ -812,7 +812,7 @@ mod tests {
         };
         let base;
         {
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,

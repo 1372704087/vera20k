@@ -5289,6 +5289,35 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
         sim.process_pending_delete();
         assert!(sim.particle_systems().get(system_id).is_none());
     }
+
+    #[test]
+    fn move_handler_preserves_pending_timer_without_consuming_rng() {
+        let mut sim = ordinary_drive_host_sim(0xCAFE);
+        let rules = move_cadence_rules();
+        let pending = MissionDispatchTimer::from_raw(0, 5);
+        let fixture = mission_test_fixture(
+            &sim.substrate
+                .entities
+                .get(ORDINARY_DRIVE_HOST_ID)
+                .expect("fixture entity")
+                .mission,
+        );
+        sim.substrate
+            .entities
+            .get_mut(ORDINARY_DRIVE_HOST_ID)
+            .expect("fixture entity")
+            .mission
+            .apply_test_fixture(MissionTestFixture {
+                dispatch_timer: pending,
+                ..fixture
+            });
+        let before_rng = sim.scenario_rng.logical_state();
+
+        sim.object_ai_visit_one(ORDINARY_DRIVE_HOST_ID, Some(&rules), ObjectAiCtx::default());
+
+        assert_eq!(dispatch_timer_of(&sim, ORDINARY_DRIVE_HOST_ID), pending);
+        assert_eq!(sim.scenario_rng.logical_state(), before_rng);
+    }
 }
 
 #[cfg(test)]
@@ -5324,32 +5353,3 @@ mod mirage_disguise_tests;
 
 #[cfg(any(test, feature = "test-support"))]
 use super::bridge_test_evidence;
-
-#[test]
-fn move_handler_preserves_pending_timer_without_consuming_rng() {
-    let mut sim = ordinary_drive_host_sim(0xCAFE);
-    let rules = move_cadence_rules();
-    let pending = MissionDispatchTimer::from_raw(0, 5);
-    let fixture = mission_test_fixture(
-        &sim.substrate
-            .entities
-            .get(ORDINARY_DRIVE_HOST_ID)
-            .expect("fixture entity")
-            .mission,
-    );
-    sim.substrate
-        .entities
-        .get_mut(ORDINARY_DRIVE_HOST_ID)
-        .expect("fixture entity")
-        .mission
-        .apply_test_fixture(MissionTestFixture {
-            dispatch_timer: pending,
-            ..fixture
-        });
-    let before_rng = sim.scenario_rng.logical_state();
-
-    sim.object_ai_visit_one(ORDINARY_DRIVE_HOST_ID, Some(&rules), ObjectAiCtx::default());
-
-    assert_eq!(dispatch_timer_of(&sim, ORDINARY_DRIVE_HOST_ID), pending);
-    assert_eq!(sim.scenario_rng.logical_state(), before_rng);
-}

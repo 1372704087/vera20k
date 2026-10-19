@@ -675,7 +675,7 @@ pub(crate) fn tick_dying_animation(
 /// ReadINI, `0x00460AA9`), which retail `rulesmd.ini` sets nowhere, so that
 /// arm is dormant. Trigger: the `DeathAnims=` and `NotHuman=` types. Player
 /// effect: such a type plays a death it does not own. The paradropping
-/// infantryman's arm ahead of them is `world::infantry_terminal`'s
+/// infantryman's arm ahead of them is `world::infantry_death`'s
 /// `PARADROP_INF_DEATH`.
 pub fn death_sequence_for_inf_death(inf_death: u8) -> Option<SequenceKind> {
     match inf_death {

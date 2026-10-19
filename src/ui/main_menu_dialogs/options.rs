@@ -52,8 +52,8 @@ pub(crate) const LAUNCHER_LABEL_SPECS: [(&str, &str); 30] = [
 ];
 
 /// VERA's own captions and status help on this page. The retail string table
-/// has nothing for full screen, zoom, the battle shape or the Red Alert 2 look,
-/// so these are English everywhere.
+/// has nothing for full screen, zoom, the battle shape or the Red Alert 2
+/// loading screen and menu movie, so these are English everywhere.
 pub(crate) const ZOOM_LABEL: &str = "Zoom";
 pub(crate) const ZOOM_HELP: &str =
     "How big battles look. Auto picks the best size for your screen.";
@@ -64,7 +64,7 @@ pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to p
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
 pub(crate) const ORIGINAL_SHAPE_HELP: &str =
     "Battles keep the original 4:3 shape, with bars on wide screens.";
-pub(crate) const RA2_LOOK_LABEL: &str = "Red Alert 2 Look";
+pub(crate) const RA2_LOOK_LABEL: &str = "RA2 Loading & Menu Movie";
 pub(crate) const RA2_LOOK_HELP: &str = "Show the Red Alert 2 loading screen and menu movie.";
 
 /// VERA's battle zoom: the Options combo that took the place of gamemd's

@@ -17,7 +17,7 @@
 //! (`movement::jumpjet_movement::jumpjet_flight`) and its impact notice finishes it
 //! ([`Simulation::jumpjet_crash_impact`]). A `Crashable=` `JumpJet=`
 //! infantryman crashes from `InfantryClass::ReceiveDamage` (`0x005185F1`,
-//! `world::infantry_terminal`) and falls and lands in its AirDeath actions
+//! `world::infantry_death`) and falls and lands in its AirDeath actions
 //! (`movement::infantry_action`).
 //!
 //! While it falls a wreck keeps the AI its native IsAlive (`+0x90`) gates: the

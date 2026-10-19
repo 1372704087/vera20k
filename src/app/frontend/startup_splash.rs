@@ -46,10 +46,10 @@ const YR_SPLASH: SplashArt = SplashArt {
     large: "GLSLMD.SHP",
 };
 
-/// VERA's Red Alert 2 Look: the unsuffixed Red Alert 2 originals in
-/// `ra2.mix -> local.mix`, the same single-frame 640x480 and 800x600 shapes
-/// with a matching palette, chosen by the same width rule. The text over them
-/// still comes from the Yuri's Revenge string table.
+/// VERA's RA2 Loading & Menu Movie option: the unsuffixed Red Alert 2
+/// originals in `ra2.mix -> local.mix`, the same single-frame 640x480 and
+/// 800x600 shapes with a matching palette, chosen by the same width rule. The
+/// text over them still comes from the Yuri's Revenge string table.
 const RA2_SPLASH: SplashArt = SplashArt {
     palette: "GLS.PAL",
     small: "GLSS.SHP",
@@ -504,7 +504,7 @@ mod tests {
             assert_eq!(art.shape_for_width(800), art.large);
             assert_eq!(art.shape_for_width(1920), art.large);
         }
-        // The Red Alert 2 Look swaps in the unsuffixed Red Alert 2 art.
+        // The RA2 Loading & Menu Movie option swaps in the unsuffixed Red Alert 2 art.
         assert_eq!(splash_art(false).large, "GLSLMD.SHP");
         assert_eq!(splash_art(true).large, "GLSL.SHP");
     }
@@ -557,7 +557,7 @@ mod tests {
 
         compare_composed_splash_to_retail_shape(&assets, &font, YR_SPLASH, 800, 600);
         compare_composed_splash_to_retail_shape(&assets, &font, YR_SPLASH, 1920, 1080);
-        // The Red Alert 2 Look draws its unsuffixed originals the same way.
+        // The RA2 Loading & Menu Movie option draws its unsuffixed originals the same way.
         compare_composed_splash_to_retail_shape(&assets, &font, RA2_SPLASH, 800, 600);
 
         let small_art_available = assets.load_file_from_mix(YR_SPLASH.small).is_some();

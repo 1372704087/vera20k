@@ -309,6 +309,11 @@ fn naval_rally_fast_path_cell(
     {
         return None;
     }
+    // `CellClass::Find_Nearest_Object @ 0x0047C3D0` (`0x00444329`) takes
+    // any Techno in the cell, with no alive or Health test: an infantry
+    // corpse refuses the candidate too. `is_active` still skips a vehicle or
+    // aircraft on VERA's SHP death animation (the dying mark), a VERA-only
+    // chain native does not have.
     let has_eligible_active_object = occupancy
         .get(candidate.0, candidate.1)
         .into_iter()

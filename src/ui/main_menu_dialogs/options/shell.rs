@@ -159,7 +159,7 @@ impl LauncherOptionsLayout {
                 // And this one on the same row, under the Visual Details
                 // slider, where the band is empty too.
                 (LauncherCheckboxId::OriginalShape, dlu(89, 75, 130, 10)),
-                // The Red Alert 2 Look box continues the UI Options column
+                // The RA2 Loading & Menu Movie box continues the UI Options column
                 // under Show Hidden, where the band is empty above Audio.
                 (LauncherCheckboxId::Ra2Look, dlu(93, 233, 130, 10)),
             ],

@@ -3243,6 +3243,7 @@ impl Simulation {
                     .as_ref()
                     .is_none_or(|state| state.is_destroyable()),
             ),
+            harvester_immune: Some(self.session.harvester_immune),
             ..Default::default()
         }
     }

@@ -531,6 +531,17 @@ pub struct ScenarioDescriptor {
     /// by the same skirmish/multiplayer sites. Gates
     /// `CellClass::CanSpreadTiberium @ 0x00483690`.
     pub tiberium_spreads_flag: bool,
+    /// Native `ScenarioClass` flags bit `0x800`. Campaign reads the map's
+    /// `[SpecialFlags] HarvesterImmune=` (`0x006B8EBF..0x006B8ED7`); a
+    /// nonzero game mode replaces the map's flags with the session's staging
+    /// word (`0x00687C16..0x00687C29`), whose `PregameSetup` arm stores the
+    /// session's Harvester Truce byte `0x00A8B31D` in this bit
+    /// (`0x005E7495..0x005E74D4`). The skirmish dialog clears the truce byte
+    /// (`0x006AD89D`), so every skirmish leaves it off; LAN/WOL lobbies can
+    /// set it. Its reader is `Evaluate_Candidate`'s HarvesterImmune gate
+    /// (`0x006F8009..0x006F8047`): while set, a candidate whose type is in
+    /// Rules' `HarvesterUnit=` list is refused.
+    pub harvester_immune: bool,
     /// Map-authored global-light profiles plus their tick-zero mutable state.
     pub lighting: ScenarioLightingState,
     /// Shared gameplay conversion profile; independent of every client's window.
@@ -561,6 +572,7 @@ impl ScenarioDescriptor {
             no_damage: header.special_flags & 0x20 != 0,
             tiberium_grows_flag: header.special_flags & 0x40 != 0,
             tiberium_spreads_flag: header.special_flags & 0x80 != 0,
+            harvester_immune: header.special_flags & 0x800 != 0,
             ..Self::default()
         }
     }
@@ -652,6 +664,10 @@ pub struct ScenarioSession {
     /// Persisted native `ScenarioClass` flags bit `0x80` (`TiberiumSpreads`).
     #[serde(default)]
     pub tiberium_spreads_flag: bool,
+    /// Persisted native `ScenarioClass` flags bit `0x800` (HarvesterImmune /
+    /// Harvester Truce); see the descriptor field of the same name.
+    #[serde(default)]
+    pub harvester_immune: bool,
     /// Scenario+11E0: a computer slot has a team. Cleared at `0x00683A3A`;
     /// `Create_Houses` sets it for a computer slot whose team (`+0x60`) is
     /// not -1 (`0x006881F5..0x00688209`). Computer_Paranoid is its only
@@ -915,6 +931,11 @@ impl ScenarioSession {
         if s.tiberium_spreads_flag {
             b"scenario-tiberium-spreads-v1".hash(hasher);
         }
+        // The gate the HarvesterImmune bit drives is gameplay-active, so a
+        // session that differs in it must diverge the desync detector.
+        if s.harvester_immune {
+            b"scenario-harvester-immune-v1".hash(hasher);
+        }
         if s.computer_slot_has_team {
             b"scenario-computer-slot-team-v1".hash(hasher);
         }
@@ -1063,6 +1084,7 @@ impl ScenarioSession {
             vein_growth: u8::from(desc.vein_growth_enabled.unwrap_or(true)),
             tiberium_grows_flag: desc.tiberium_grows_flag,
             tiberium_spreads_flag: desc.tiberium_spreads_flag,
+            harvester_immune: desc.harvester_immune,
             computer_slot_has_team: false,
             lighting: desc.lighting,
             pixel_conversion_bounds: desc.pixel_conversion_bounds,
@@ -1502,6 +1524,44 @@ mod tests {
             .sim;
         assert!(restored.session.tiberium_grows_flag && restored.session.tiberium_spreads_flag);
         assert_eq!(restored.state_hash(), forced.state_hash());
+    }
+
+    /// Scenario bit `0x800` (HarvesterImmune / Harvester Truce) reaches the
+    /// session from the descriptor and the native replay header, is
+    /// lockstep-visible — its gate refuses candidates, so a differing
+    /// session must diverge the desync detector — and survives a snapshot,
+    /// with the field defaulting clear like an older snapshot's absent word.
+    #[test]
+    fn scenario_harvester_immune_bit_roundtrips_and_changes_hash() {
+        let mut header = crate::sim::replay::NativeReplayHeader::new(0x1234_5678, "truce.map");
+        header.special_flags = 0x800;
+        let descriptor = ScenarioDescriptor::from_native_replay_header(&header);
+        assert!(descriptor.harvester_immune);
+
+        let mut immune = Simulation::from_descriptor(&descriptor);
+        assert!(immune.session.harvester_immune);
+        let clear = Simulation::from_descriptor(&ScenarioDescriptor {
+            harvester_immune: false,
+            ..descriptor.clone()
+        });
+        assert_ne!(immune.state_hash(), clear.state_hash());
+
+        // Native in-scenario load restarts Scenario RNG from Seed0; isolate
+        // the bit's persistence after the independent hash check.
+        immune.scenario_rng = crate::sim::rng::SimRng::new(0);
+        let bytes = crate::sim::snapshot::GameSnapshot::save(&immune, 1, 2, "truce.map", 0);
+        let restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
+            .expect("snapshot load")
+            .sim;
+        assert!(restored.session.harvester_immune);
+        assert_eq!(restored.state_hash(), immune.state_hash());
+
+        // A snapshot written before the field existed loads with the bit
+        // clear, the retained cold-Scenario value of the native word.
+        let mut json = serde_json::to_value(&immune.session).unwrap();
+        json.as_object_mut().unwrap().remove("harvester_immune");
+        let missing: ScenarioSession = serde_json::from_value(json).unwrap();
+        assert!(!missing.harvester_immune);
     }
 }
 

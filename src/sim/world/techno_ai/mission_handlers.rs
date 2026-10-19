@@ -1893,7 +1893,9 @@ const AREA_GUARD_CADENCE_JITTER_MAX: u32 = 5;
 /// follows the idle block. A harvester instead commences Harvest before the
 /// post/leash/scan work (4D6D1A..4D6D68), preserving its target and navigation.
 /// Native controls: `harvest_attack_return --area-guard`.
-/// The AI C4/Sabotage arm4D6DDA remains a separate required chain.
+/// After establishing the post, the computer demolition arm queues Sabotage
+/// and returns 1 before leash/Approach/cadence work (4D6DBE..4D6E44), using
+/// the same admission predicate as Guard ([`guard_queues_sabotage`]).
 pub(super) fn evaluate_foot_area_guard(
     sim: &mut Simulation,
     id: u64,
@@ -1953,6 +1955,11 @@ pub(super) fn evaluate_foot_area_guard(
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
             entity.set_archive_target(post);
         }
+    }
+    // Retail gamemd4D6DBE..4D6E44: Queue(Sabotage,0), return1; no Commence
+    // or RNG draw. The common dispatcher queues and writes the timer once.
+    if guard_queues_sabotage(sim, id, rules) {
+        return MissionHandlerEvaluation::queue(1, MissionType::Sabotage);
     }
     let archive = sim
         .substrate
@@ -2198,14 +2205,15 @@ pub(super) fn evaluate_foot_guard_cadence(
 }
 
 /// `FootClass::Mission_Guard`'s computer demolition arm (`0x004D523A..
-/// 0x004D52A9`), after the held-Target branch and before the rearm return:
+/// 0x004D52A9`) and `Mission_AreaGuard`'s (`0x004D6DBE..0x004D6E44`):
 /// an Infantry whose house is not human-controlled (`0x0050B730`), whose
 /// type is `C4=` (`+0xEC2`) or whose rank holds weapon ability 14
 /// (`0x0070D0D0`), not already on Sabotage (vt+0x184), holding a building
 /// Target queues Sabotage, vt+0x1E8(17, 0). Unlike Mission_Attack's arm it
 /// asks no `CanC4=` and writes no destination: Sabotage's Mission_Capture
-/// heads for the Target. A computer's Tanya or Navy SEAL guarding near an
-/// enemy base thus walks in to plant. No draw.
+/// heads for the Target. A computer's Tanya or Navy SEAL holding that
+/// building Target thus walks in to plant. No draw. Guard continues to its rearm
+/// timer/cadence; AreaGuard returns 1 immediately after queueing.
 fn guard_queues_sabotage(sim: &Simulation, id: u64, rules: &RuleSet) -> bool {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;

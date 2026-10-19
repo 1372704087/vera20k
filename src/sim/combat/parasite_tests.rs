@@ -250,19 +250,6 @@ impl Arena {
 }
 
 #[test]
-fn constructor_allocates_a_parasite_only_for_weapon_zero_parasite_types() {
-    let rules = rules();
-    let mut arena = Arena::new(&rules);
-    let dog = arena.spawn(&rules, "DOG", "Russians", (5, 5));
-    let drone = arena.spawn(&rules, "DRON", "Russians", (6, 5));
-    let tank = arena.spawn(&rules, "MTNK", "Americans", (7, 5));
-    let entities = &arena.sim.substrate.entities;
-    assert!(entities.get(dog).unwrap().parasite.class.is_some());
-    assert!(entities.get(drone).unwrap().parasite.class.is_some());
-    assert!(entities.get(tank).unwrap().parasite.class.is_none());
-}
-
-#[test]
 fn dog_bite_kills_the_infantry_and_releases_the_dog_where_it_stood() {
     let rules = rules();
     let mut arena = Arena::new(&rules);

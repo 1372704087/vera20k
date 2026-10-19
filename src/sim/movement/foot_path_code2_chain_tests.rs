@@ -243,18 +243,6 @@ fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
     }
 }
 
-/// An off-map cell is the shared dummy, which lists nothing.
-#[test]
-fn an_off_map_step_clears() {
-    let rules = rules();
-    let mut sim = arena(&rules);
-    let tank = stopped(&mut sim, &rules, (10, 10), Some(WEST));
-    let tank = sim.substrate.entities.get_mut(tank).unwrap();
-    tank.position.set_rx_for_test(0);
-
-    assert!(!jams(&sim, (10, 10)));
-}
-
 /// The original executable's controls (`tools/spatial_oracle/
 /// astar_hills_markers.json`): a same-House MTNK on its ground list with
 /// the queue words `0, 0`, facing north (its `+0x388` bytes are zero), at

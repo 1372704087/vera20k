@@ -1152,7 +1152,9 @@ use crate::util::save_codec;
 // 427 -> 428: the Infantry terminal policy is gone from TerminalLifetime,
 // which keeps only the dying mark; an infantry corpse is an ordinary
 // IsAlive object at Health 0.
-const SNAPSHOT_VERSION: u32 = 428;
+// 428 -> 429: saved dynamic terrain cells keep one CellClass+0xEC LandType
+// (and its pre-overlay base) instead of two copies of it.
+const SNAPSHOT_VERSION: u32 = 429;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4867,7 +4869,8 @@ mod tests {
         // 425 -> 426: the Techno+0x12C Behind indicator Anim.
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
         // 427 -> 428: TerminalLifetime keeps only the dying mark.
-        assert_eq!(super::SNAPSHOT_VERSION, 428);
+        // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
+        assert_eq!(super::SNAPSHOT_VERSION, 429);
     }
 
     #[test]

@@ -137,9 +137,7 @@ fn retail_water_world() -> Option<(RuleSet, Simulation, InternedId)> {
         ("water", Vec::new()),
         |x, y| crate::map::resolved_terrain::ResolvedTerrainCell {
             land_type: water,
-            yr_cell_land_type: water,
             base_land_type: water,
-            base_yr_cell_land_type: water,
             terrain_class: TerrainClass::Water,
             base_terrain_class: TerrainClass::Water,
             speed_costs: float,

@@ -571,13 +571,7 @@ fn action_line_endpoints(
         object_location, query_ground_height, target_get_coords,
     };
     let terrain = sim.resolved_terrain.as_ref();
-    let target = match nav_target {
-        NavTargetRef::Cell { rx, ry } => TargetKind::Cell(rx, ry),
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => TargetKind::Entity(id),
-    };
-    let mut end = target_get_coords(target, sim, cells)?;
+    let mut end = target_get_coords(TargetKind::from(nav_target), sim, cells)?;
     let end_cell = (
         crate::util::lepton::lepton_to_cell_packed(end.x),
         crate::util::lepton::lepton_to_cell_packed(end.y),

@@ -150,12 +150,7 @@ fn nav_names(nav: NavTargetRef, target: TeamTarget) -> bool {
         (NavTargetRef::Cell { rx, ry }, TeamTarget::Cell { x, y }) => {
             rx == x as u16 && ry == y as u16
         }
-        (
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id },
-            TeamTarget::Object(object),
-        ) => id == object,
+        (NavTargetRef::Object { id }, TeamTarget::Object(object)) => id == object,
         _ => false,
     }
 }
@@ -167,9 +162,7 @@ fn nav_target(nav: NavTargetRef) -> TeamTarget {
             x: rx as i16,
             y: ry as i16,
         },
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => TeamTarget::Object(id),
+        NavTargetRef::Object { id } => TeamTarget::Object(id),
     }
 }
 

@@ -680,7 +680,7 @@ def _target_reference(value: Any, label: str, *, navigation: bool = False) -> No
         if tag == 'Cell':
             require_exact_keys(payload, ('rx', 'ry'), label)
             _coordinate([payload['rx'], payload['ry']], label)
-        elif tag in ('Entity', 'Object', 'Building'):
+        elif tag == 'Object':
             require_exact_keys(payload, ('id',), label)
             _bounded_int(payload['id'], label, 1, (1 << 64) - 1)
         else:

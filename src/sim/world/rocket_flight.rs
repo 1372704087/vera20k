@@ -529,7 +529,7 @@ pub(super) mod retail_tests {
             // state at Mission_Attack's 0.
             use crate::sim::components::NavTargetRef;
             use crate::sim::mission::MissionType::{Attack, Move, Retreat};
-            let tank = Some(NavTargetRef::Entity { id: target });
+            let tank = Some(NavTargetRef::Object { id: target });
             assert_eq!(
                 moves[0],
                 (launched, ((Some(Move), Some(0)), tank)),

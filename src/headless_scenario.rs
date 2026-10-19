@@ -2255,7 +2255,7 @@ mod retail_construction_tests {
                 hit = Some(frame);
             }
             if charged.is_none()
-                && entity.navigation.nav_com() == Some(NavTargetRef::Entity { id: gi })
+                && entity.navigation.nav_com() == Some(NavTargetRef::object(gi))
                 && (entity.mission.queued() == move_mission
                     || entity.mission.current() == move_mission)
             {

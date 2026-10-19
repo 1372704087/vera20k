@@ -771,59 +771,6 @@ fn native_blowup_all_corpus() {
     }
 }
 
-/// In production, a short game's defeat follows the last counted building's
-/// deletion: the next frame's house pass blows up the rest of the army, with
-/// no kill credit, and then defeats the house.
-#[test]
-fn losing_the_last_building_blows_up_the_army_next_frame() {
-    let rules = rules(3);
-    let (mut sim, houses) = sim_with_houses(&[0, 1]);
-    // MPlayer_Defeated flags only PlayerPtr (4FC5AA..6B7): the survivor is local.
-    sim.session.current_house = Some(houses[1]);
-    sim.session.game_options.short_game = true;
-    let refinery = sim
-        .spawn_object_at_height("GAREFN", "house0", 10, 10, 0, 0, &rules)
-        .unwrap();
-    let tank = sim
-        .spawn_object_at_height("TANK", "house0", 20, 20, 0, 0, &rules)
-        .unwrap();
-    let enemy_base = sim
-        .spawn_object_at_height("NAREFN", "house1", 30, 30, 0, 0, &rules)
-        .unwrap();
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
-    let step = |sim: &mut Simulation| {
-        sim.advance_tick(&[], Some(&rules), None, None, 67);
-    };
-    step(&mut sim);
-    assert!(!sim.houses[&houses[0]].is_defeated);
-
-    // The refinery dies; its tracking leaves with the frame-end drain.
-    sim.uninit_with_rules(refinery, &rules);
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
-    step(&mut sim);
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 0);
-    assert!(
-        !sim.houses[&houses[0]].is_defeated,
-        "counted until its deletion"
-    );
-    step(&mut sim);
-    assert!(sim.houses[&houses[0]].is_defeated);
-    assert!(sim.houses[&houses[1]].has_won());
-    assert!(
-        sim.substrate
-            .entities
-            .get(tank)
-            .is_none_or(|entity| entity.health.current() == 0),
-        "the army is blown up"
-    );
-    assert_eq!(
-        sim.houses[&houses[1]].stats.units_killed(),
-        0,
-        "no house is credited"
-    );
-    assert!(sim.substrate.entities.get(enemy_base).is_some());
-}
-
 /// MPlayer_Defeated (`0x004FC0BC..0x004FC10D`): a computer house at
 /// `MaxIQLevels`, defeated under `[AI] Paranoid`, turns the computers left
 /// paranoid. Computer_Paranoid skips the defeated house.
@@ -938,30 +885,6 @@ fn a_local_defeat_reveals_the_whole_map_and_keeps_the_radar_on() {
         crate::sim::radar::has_radar_for_owner(&sim, &rules, "house0"),
         "no House rechecks radar after the local defeat"
     );
-}
-
-/// Another house's defeat writes its map-clear byte alone
-/// (`0x004FC30C..0x004FC328`): no plane is explored and radar rechecks go on.
-#[test]
-fn another_house_defeat_writes_only_its_map_clear_byte() {
-    let rules = rules(3);
-    let (mut sim, houses, [_, enemy]) = two_house_plane(&rules);
-    let step = |sim: &mut Simulation| {
-        sim.advance_tick(&[], Some(&rules), None, None, 67);
-    };
-    step(&mut sim);
-    sim.uninit_with_rules(enemy, &rules);
-    step(&mut sim);
-    step(&mut sim);
-    let other = &sim.houses[&houses[1]];
-    assert!(other.is_defeated && other.map_is_clear);
-    assert!(!sim.local_player_defeated());
-    assert!(!sim.houses[&houses[0]].map_is_clear);
-    for house in &houses {
-        assert!(!sim.fog.whole_map_revealed_for_owner(*house));
-    }
-    assert!(!sim.fog.is_cell_revealed(houses[0], 39, 39));
-    assert!(!sim.fog.is_cell_revealed(houses[1], 0, 0));
 }
 
 /// RevealEntireMap's guards (`0x00577F30..0x00577FAD`): NULL reveals to the

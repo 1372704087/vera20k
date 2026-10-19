@@ -1523,26 +1523,19 @@ fn initialized_cell_what_action_matches_every_original_query() {
 /// Original input emits no Move for the recorded local-house, Berserk and
 /// Deployer/Doing contexts. Action0 can return CellClick AL1 without issuing
 /// an order; the latter's query2 has a different refusal path.51AA40 owns its
-/// separate later human-class guard.
+/// separate later human-class guard. Unit query7404B0 and click738910 have
+/// their own pre-Event guards: explicit native byte priors exercise them
+/// without claiming that MTNK's retail type can itself produce deployment
+/// transitions.
 #[test]
 #[ignore = "slow; run when changing what it covers"]
-fn initialized_gi_cell_input_no_order_contexts_match_original_state() {
+fn initialized_gi_and_unit_cell_input_no_order_contexts_match_original_state() {
     check_initialized_no_order_contexts(&[
         "human_Doing27_B",
         "human_Doing27_shift_B",
         "mode5_current_mismatch_B",
         "mode5_current_nonhuman_Doing27_input_class_B",
         "berserk_B",
-    ]);
-}
-
-/// Unit query7404B0 and click738910 have their own pre-Event guards.
-/// Explicit native byte priors exercise them without claiming that MTNK's
-/// retail type can itself produce deployment transitions.
-#[test]
-#[ignore = "slow; run when changing what it covers"]
-fn initialized_unit_cell_input_no_order_contexts_match_original_state() {
-    check_initialized_no_order_contexts(&[
         "unit_owner_mismatch_B",
         "unit_berserk_B",
         "unit_deployed_B",
@@ -1866,23 +1859,25 @@ enum OutputRoute {
     RallyBetweenCompletionAndPlace,
 }
 
+/// Without a rally the two paid GIs walk out and release their factory
+/// contacts. Building443860 appends SetRally before the next Strip6A8B30
+/// appends PLACE: the already admitted player event must reach the tail
+/// first, and Exit443C60 copies the new Archive to the retained GI instead of
+/// its previous value.
 #[test]
-fn no_rally_two_paid_gi_walk_out_and_release_their_factory_contacts() {
-    joined_two_paid_gi(OutputRoute::NoRally);
+fn two_paid_gi_walk_out_without_a_rally_or_with_one_set_before_place() {
+    for route in [
+        OutputRoute::NoRally,
+        OutputRoute::RallyBetweenCompletionAndPlace,
+    ] {
+        joined_two_paid_gi(route);
+    }
 }
 
 #[test]
 #[ignore = "slow; run when changing what it covers"]
 fn rally_two_paid_gi_consume_archive_walk_to_rally_and_settle() {
     joined_two_paid_gi(OutputRoute::Rally);
-}
-
-/// Building443860 appends SetRally before the next Strip6A8B30 appends PLACE.
-/// The already admitted player event must reach the tail first: Exit443C60
-/// copies the new Archive to the retained GI instead of its previous value.
-#[test]
-fn rally_between_factory_completion_and_place_reaches_the_held_gi() {
-    joined_two_paid_gi(OutputRoute::RallyBetweenCompletionAndPlace);
 }
 
 fn joined_two_paid_gi(route: OutputRoute) {

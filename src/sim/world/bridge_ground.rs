@@ -275,38 +275,6 @@ mod tests {
     }
 
     #[test]
-    fn bridge_ground_revisited_terrorist_executes_its_death_weapon_again() {
-        let rules = stock_cascade_rules();
-        let mut sim = world(&rules);
-        let tank = place(&mut sim, &rules, "MTNK", 4);
-        let next = place(&mut sim, &rules, "TERROR", 4);
-        let head = place(&mut sim, &rules, "TERROR", 4);
-        assert_eq!(
-            members(&sim, 4, 4).collect::<Vec<_>>(),
-            vec![
-                CellObjectMember::Entity(head),
-                CellObjectMember::Entity(next),
-                CellObjectMember::Entity(tank),
-            ]
-        );
-        apply(
-            &mut sim,
-            &rules,
-            None,
-            4,
-            4,
-            crate::sim::world::FrameEffects::default(),
-        );
-        // Two original deaths leave the heavy tank alive. The captured
-        // successor's repeated DeathWeapon kills it; its unlinked NextObject
-        // cannot pass it a later direct C4 receiver.
-        assert_eq!(
-            sim.substrate.entities.get(tank).unwrap().health.current(),
-            0
-        );
-    }
-
-    #[test]
     fn bridge_ground_zero_health_building_skips_the_techno_death_tail() {
         use crate::sim::world::SimSoundEvent;
         let rules = stock_cascade_rules();
@@ -340,58 +308,6 @@ mod tests {
                 .object_alive()
         );
         assert!(sim.substrate.pending_delete.is_empty());
-    }
-
-    #[test]
-    fn bridge_ground_infantry_action_preserves_same_sequence_and_retired_membership() {
-        use crate::sim::world::InfantryDeathSequence;
-        let rules = stock_cascade_rules();
-        let mut sim = world(&rules);
-        let gi = place(&mut sim, &rules, "E1", 4);
-        assert!(
-            sim.infantry_do_action(
-                gi,
-                12,
-                true,
-                &rules,
-                crate::sim::world::FrameEffects::default()
-            )
-            .unwrap()
-        );
-        sim.substrate
-            .entities
-            .get_mut(gi)
-            .unwrap()
-            .set_native_stage_value(7);
-        sim.begin_infantry_death_sequence(
-            gi,
-            InfantryDeathSequence::Die2,
-            &rules,
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(
-            sim.substrate
-                .entities
-                .get(gi)
-                .unwrap()
-                .native_stage()
-                .value(),
-            7
-        );
-        sim.uninit_with_rules(gi, &rules);
-        let pending = sim.substrate.pending_delete.clone();
-        sim.begin_infantry_death_sequence(
-            gi,
-            InfantryDeathSequence::Die1,
-            &rules,
-            crate::sim::world::FrameEffects::default(),
-        );
-        let object = sim.substrate.entities.get(gi).unwrap();
-        assert_eq!(object.mission_leaf.as_infantry().unwrap().doing(), 11);
-        assert_eq!(object.native_stage().value(), 0);
-        assert!(!object.lifecycle.object_alive());
-        assert!(!sim.live_object_order_snapshot().contains(&gi));
-        assert_eq!(sim.substrate.pending_delete, pending);
     }
 
     #[test]

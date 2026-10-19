@@ -480,13 +480,10 @@ fn ordinary_terror_attack_finishes_die2_and_retires_its_source() {
 }
 
 #[test]
-fn direct_suicide_blast_reports_building_loss() {
-    assert_suicide_blast_reports_building_loss(true);
-}
-
-#[test]
-fn ordinary_suicide_blast_reports_building_loss() {
-    assert_suicide_blast_reports_building_loss(false);
+fn direct_and_ordinary_suicide_blasts_report_building_loss() {
+    for direct in [true, false] {
+        assert_suicide_blast_reports_building_loss(direct);
+    }
 }
 
 fn assert_suicide_blast_reports_building_loss(direct: bool) {

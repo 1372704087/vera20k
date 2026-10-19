@@ -158,9 +158,9 @@ fn reload(state: &mut AppState, reset: bool) {
         .manager()
         .and_then(|a| a.get_archive_ref("KEYBOARDMD.INI"));
     state.match_state.input.hotkey_bindings = if reset {
-        crate::app::persistence::keyboard::reset(&config.paths.ra2_dir, archive)
+        crate::app::persistence::keyboard::reset(config.paths.settings_dir(), archive)
     } else {
-        crate::app::persistence::keyboard::reload(&config.paths.ra2_dir, archive)
+        crate::app::persistence::keyboard::reload(config.paths.settings_dir(), archive)
     };
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,7 +220,7 @@ pub(crate) fn commit_close(state: &mut AppState, exit: KeyboardExit) {
     if exit.binding_action() == BindingExit::Save {
         if let Some(config) = state.platform.game_config.as_ref()
             && let Err(error) = crate::app::persistence::keyboard::save(
-                &config.paths.ra2_dir,
+                config.paths.settings_dir(),
                 &state.match_state.input.hotkey_bindings,
             )
         {

@@ -112,6 +112,7 @@ impl App {
         event_loop: &ActiveEventLoop,
         capture_dimensions: Option<(u32, u32)>,
         startup_options: RetailStartupOptions,
+        external_launch: bool,
     ) -> Result<AppState> {
         // One parsed retail profile snapshot yields two ordered products: the
         // independent frontend size selected after the early Video read, and the later
@@ -125,7 +126,7 @@ impl App {
             &startup_options,
             game_config
                 .as_ref()
-                .map(|config| config.paths.ra2_dir.as_path()),
+                .map(|config| config.paths.settings_dir()),
             RetailOptionsLoad::from_ra2md,
         );
         let profile_screen = options_load.startup_shell_screen;
@@ -257,7 +258,12 @@ impl App {
                 assets,
             )
         });
-        let mut startup_splash = if capture_dimensions.is_none() && main_menu_shell_error.is_none()
+        // A client-selected game enters scenario loading directly. This splash
+        // is presented synchronously below, before start_spawn_session runs;
+        // clearing it in that later callback cannot hide the first frame.
+        let mut startup_splash = if !external_launch
+            && capture_dimensions.is_none()
+            && main_menu_shell_error.is_none()
         {
             startup_asset_manager
                 .as_ref()
@@ -295,7 +301,10 @@ impl App {
                 }
             }
         }
-        // Everything below runs with the splash already on screen: the
+        if external_launch {
+            log::info!("External launch: process-start splash skipped");
+        }
+        // Ordinary interactive startup runs with the splash already on screen: the
         // presented swapchain frame stays composited while this thread blocks,
         // and the hold armed above is measured from that present, so a slow
         // load is spent inside the five seconds instead of before them.
@@ -416,7 +425,7 @@ impl App {
                 frontend_seed.value,
                 game_config
                     .as_ref()
-                    .map(|config| config.paths.ra2_dir.as_path()),
+                    .map(|config| config.paths.settings_dir()),
                 startup_asset_manager.as_ref(),
                 startup_rules_projection.as_ref(),
                 skirmish_defaults,
@@ -451,8 +460,17 @@ impl App {
         let startup_software_cursor = startup_asset_manager.as_ref().and_then(|assets| {
             crate::render::cursor_atlas::build_software_cursor(&gpu, &batch_renderer, assets)
         });
-        let hotkey_bindings =
-            crate::app::input::hotkeys::HotkeyBindings::load(startup_asset_manager.as_ref());
+        let hotkey_bindings = game_config.as_ref().map_or_else(
+            || crate::app::input::hotkeys::HotkeyBindings::from_ini_bytes(None),
+            |config| {
+                crate::app::persistence::keyboard::startup(
+                    config.paths.settings_dir(),
+                    startup_asset_manager
+                        .as_ref()
+                        .and_then(|assets| assets.get_archive_ref("KEYBOARDMD.INI")),
+                )
+            },
+        );
         let startup_in_game_options =
             crate::app::persistence::options::in_game_options_from_profile(&options_profile);
         let mut startup_tooltips = crate::ui::tooltips::TooltipService::new();
@@ -605,6 +623,8 @@ impl App {
                 ),
             },
             frontend: crate::app::frontend::state::FrontendState {
+                external_launch: false,
+                external_launch_error: None,
                 screen: GameScreen::default(),
                 scenario_catalog,
                 skirmish_modes,

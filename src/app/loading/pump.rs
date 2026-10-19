@@ -1507,7 +1507,14 @@ pub(crate) fn ensure_native_loading_atlas(state: &mut AppState) -> anyhow::Resul
                 "Campaign MISSION source: {}",
                 serde_json::json!(selected.source)
             );
-            metadata.apply_ini(&selected.ini, session.stage.request().selected_map_file());
+            let scenario = session
+                .stage
+                .request()
+                .startup()
+                .campaign()
+                .expect("campaign loading owns a campaign startup")
+                .scenario();
+            metadata.apply_ini(&selected.ini, scenario);
         }
         let csf = state.process_assets.csf.as_ref().ok_or_else(|| {
             anyhow::anyhow!("campaign loading requires the initialized CSF table")
@@ -1754,6 +1761,11 @@ fn fail_loading(state: &mut AppState, policy: LoadingFailurePolicy, err: anyhow:
         policy,
     );
     reset_loading_presentation(state);
+    if state.frontend.external_launch {
+        state.frontend.external_launch_error = Some(format!("CnCNet map loading failed: {err:#}"));
+        crate::app::App::return_to_main_menu(state);
+        return;
+    }
     if policy == LoadingFailurePolicy::RetryCampaignShell {
         // MainPrepareSession52E718 tests StartScenario's AL; a failed normal
         // campaign start retries the main shell at52E732 ->52D9C9.

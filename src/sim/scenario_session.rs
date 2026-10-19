@@ -815,6 +815,7 @@ impl ScenarioSession {
         &mut self,
         difficulty: i32,
         mission_counter: i32,
+        game_options: Option<&GameOptions>,
     ) -> Result<(), CampaignScenarioStartupError> {
         if self.game_mode_nonzero {
             return Err(CampaignScenarioStartupError::NonCampaignMode);
@@ -826,6 +827,11 @@ impl ScenarioSession {
             .ok_or(CampaignScenarioStartupError::InvalidDifficulty(difficulty))?;
         let computer_difficulty = HouseDifficulty::from_native(2 - difficulty)
             .expect("the admitted menu row has a complementary computer row");
+        // External launch input enters before House/terrain constructors. The
+        // existing session remains the sole live owner of per-match options.
+        if let Some(options) = game_options {
+            self.game_options = options.clone();
+        }
         self.campaign = Some(CampaignScenarioState {
             mission_counter,
             player_difficulty,
@@ -1114,7 +1120,7 @@ mod tests {
             let mut sim = Simulation::from_descriptor(&ScenarioDescriptor::default());
             let hash_before = sim.state_hash();
             sim.session
-                .initialize_campaign_startup(difficulty, 7)
+                .initialize_campaign_startup(difficulty, 7, None)
                 .unwrap();
             assert_eq!(sim.session.campaign_mission_counter(), Some(7));
             assert_eq!(
@@ -1134,7 +1140,7 @@ mod tests {
             assert_eq!(sim.session.current_house(), Some(current));
             assert_eq!(sim.state_hash(), hash);
             assert_eq!(
-                sim.session.initialize_campaign_startup(difficulty, 1),
+                sim.session.initialize_campaign_startup(difficulty, 1, None),
                 Err(CampaignScenarioStartupError::AlreadyInstalled)
             );
             sim.session.reset_campaign_mission_counter_on_shell_exit();
@@ -1158,7 +1164,7 @@ mod tests {
         });
         let hash = offline.state_hash();
         assert_eq!(
-            offline.session.initialize_campaign_startup(1, 1),
+            offline.session.initialize_campaign_startup(1, 1, None),
             Err(CampaignScenarioStartupError::NonCampaignMode)
         );
         assert_eq!(offline.state_hash(), hash);
@@ -1172,12 +1178,46 @@ mod tests {
             let mut sim = Simulation::from_descriptor(&ScenarioDescriptor::default());
             let hash = sim.state_hash();
             assert_eq!(
-                sim.session.initialize_campaign_startup(difficulty, 1),
+                sim.session.initialize_campaign_startup(difficulty, 1, None),
                 Err(CampaignScenarioStartupError::InvalidDifficulty(difficulty))
             );
             assert_eq!(sim.state_hash(), hash);
             assert_eq!(sim.session.campaign_mission_counter(), None);
         }
+    }
+
+    #[test]
+    fn cncnet_campaign_options_enter_the_session_owner_and_survive_persistence() {
+        let mut sim = Simulation::from_descriptor(&ScenarioDescriptor::default());
+        let options = GameOptions {
+            game_speed: 5,
+            build_off_ally: false,
+            ..Default::default()
+        };
+        sim.session
+            .initialize_campaign_startup(1, 1, Some(&options))
+            .unwrap();
+        assert_eq!(sim.projected_in_game_options_speed(), Some(5));
+        assert!(!sim.session.game_options.build_off_ally);
+        let hash = sim.state_hash();
+        let encoded = serde_json::to_vec(&sim.session).unwrap();
+        sim.session = serde_json::from_slice(&encoded).unwrap();
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.projected_in_game_options_speed(), Some(5));
+        let other = GameOptions {
+            game_speed: 2,
+            ..Default::default()
+        };
+        assert!(
+            sim.session
+                .initialize_campaign_startup(1, 1, Some(&other))
+                .is_err()
+        );
+        assert_eq!(
+            sim.state_hash(),
+            hash,
+            "failed admission must not overwrite live options"
+        );
     }
 
     #[test]

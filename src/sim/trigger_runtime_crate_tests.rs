@@ -703,7 +703,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     sim.session.game_mode_nonzero = false;
-    sim.session.initialize_campaign_startup(1, 7).unwrap();
+    sim.session.initialize_campaign_startup(1, 7, None).unwrap();
     sim.session.game_options.crates = false;
     sim.session.binary_frame = 0;
     crate::sim::scenario_bootstrap::initialize_map_roster_houses(

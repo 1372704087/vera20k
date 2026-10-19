@@ -383,7 +383,7 @@ mod tests {
             // not alter the selected HomeCell in this shared post-load owner.
             map.basic.alt_home_cell = Some(-1);
             let mut sim = Simulation::from_descriptor(&Default::default());
-            sim.session.initialize_campaign_startup(1, 1).unwrap();
+            sim.session.initialize_campaign_startup(1, 1, None).unwrap();
             let before = sim.rng_state();
             let mut input = generic_post_map_input(&rules, &overlays, &roster);
             input.campaign_new_game_map = Some(&map);
@@ -431,7 +431,7 @@ mod tests {
         let (rules, overlays) = post_map_rules_and_overlays();
         let roster = crate::map::houses::parse_house_roster(&ini, &[], Some(&rules));
         let mut sim = Simulation::new();
-        sim.session.initialize_campaign_startup(1, 1).unwrap();
+        sim.session.initialize_campaign_startup(1, 1, None).unwrap();
         crate::sim::scenario_bootstrap::initialize_map_roster_houses(
             &mut sim,
             &roster,

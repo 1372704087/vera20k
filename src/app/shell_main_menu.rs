@@ -549,6 +549,10 @@ impl App {
     /// Where the shell resumes after a match: a Skirmish game re-enters a new
     /// `0x102` (PrepareSession with GameMode 5), anything else the main menu.
     pub(super) fn resume_shell_after_match(state: &mut AppState) {
+        if state.frontend.external_launch {
+            Self::start_quit_cascade(state);
+            return;
+        }
         if state.frontend.shell_route.skirmish() {
             Self::enter_native_skirmish_from_single_player(state);
         }

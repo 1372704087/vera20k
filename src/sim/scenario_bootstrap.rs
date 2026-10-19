@@ -400,6 +400,7 @@ pub enum FreshScenarioPrefix<'a> {
         house_roster: &'a HouseRoster,
         difficulty: i32,
         mission_counter: i32,
+        game_options: Option<&'a crate::sim::game_options::GameOptions>,
     },
 }
 
@@ -2382,6 +2383,7 @@ impl ScenarioBootstrapRng {
                 house_roster,
                 difficulty,
                 mission_counter,
+                game_options,
             } => {
                 NativeStartBounds::from_map_header(&map_data.header)
                     .ok_or(PreFillScenarioPrefixPlanError::InvalidMapCellExtent)?;
@@ -2428,9 +2430,11 @@ impl ScenarioBootstrapRng {
                     }
                 }
                 let mut simulation = self.into_simulation(descriptor);
-                simulation
-                    .session
-                    .initialize_campaign_startup(difficulty, mission_counter)?;
+                simulation.session.initialize_campaign_startup(
+                    difficulty,
+                    mission_counter,
+                    game_options,
+                )?;
                 simulation.native_unique_ids = Some(
                     crate::sim::native_identity::NativeUniqueIdCursor::begin_campaign_prefix(
                         early_events.len(),

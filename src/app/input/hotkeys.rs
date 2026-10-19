@@ -8,7 +8,6 @@ use std::collections::BTreeMap;
 
 use winit::keyboard::{Key, KeyCode, KeyLocation, ModifiersState, NamedKey};
 
-use crate::assets::asset_manager::AssetManager;
 use crate::rules::ini_parser::IniFile;
 
 pub(crate) mod catalog;
@@ -178,11 +177,7 @@ pub(crate) enum BindingAssignmentError {
 }
 
 impl HotkeyBindings {
-    pub(crate) fn load(assets: Option<&AssetManager>) -> Self {
-        Self::from_ini_bytes(assets.and_then(|assets| assets.get_ref("KEYBOARDMD.INI")))
-    }
-
-    fn from_ini_bytes(bytes: Option<&[u8]>) -> Self {
+    pub(crate) fn from_ini_bytes(bytes: Option<&[u8]>) -> Self {
         let mut bindings = Self::reload_from_ini_bytes(bytes);
         // Startup 532150 calls reload 533D20, then installs these three keys.
         // Cancel/reset use reload alone and must not silently reinstall them.

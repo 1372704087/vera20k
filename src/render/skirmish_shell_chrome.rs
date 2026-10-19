@@ -130,6 +130,7 @@ pub struct SkirmishShellChromeAtlas {
     /// two-pixel outside expansion.
     pub trackbar_frames: [Option<SkirmishShellChromeEntry>; TRACKBAR_FRAMES.len()],
     /// Keyboard A3 category face, original resource138 DLU.
+    pub combo_face_249: Option<SkirmishShellChromeEntry>,
     pub combo_face_207: Option<SkirmishShellChromeEntry>,
     pub combo_face_180: Option<SkirmishShellChromeEntry>,
     pub combo_face_150: Option<SkirmishShellChromeEntry>,
@@ -155,6 +156,7 @@ pub struct ControlChrome {
     /// The frames of the [`TRACKBAR_FRAMES`] windows, in that order.
     pub trackbar_frames: [Option<SkirmishShellChromeEntry>; TRACKBAR_FRAMES.len()],
     /// Keyboard A3 category face, original resource138 DLU.
+    pub combo_face_249: Option<SkirmishShellChromeEntry>,
     pub combo_face_207: Option<SkirmishShellChromeEntry>,
     pub combo_face_180: Option<SkirmishShellChromeEntry>,
     pub trackbar_plaque_left_trofl: Option<SkirmishShellChromeEntry>,
@@ -197,6 +199,7 @@ impl SkirmishShellChromeAtlas {
             checkbox_unchecked_cue_i: self.checkbox_unchecked_cue_i,
             checkbox_checked_cce_i: self.checkbox_checked_cce_i,
             trackbar_frames: self.trackbar_frames,
+            combo_face_249: self.combo_face_249,
             combo_face_207: self.combo_face_207,
             combo_face_180: self.combo_face_180,
             trackbar_plaque_left_trofl: self.trackbar_plaque_left_trofl,
@@ -509,6 +512,7 @@ pub fn build_skirmish_shell_chrome_atlas(
         ("skirmish_combo_face_150", 150),
         ("launcher_combo_face_180", 180),
         ("keyboard_combo_face_207", 207),
+        ("network_combo_face_249", 249),
         ("skirmish_combo_face_117", 117),
         ("skirmish_combo_face_44", 44),
         ("skirmish_combo_face_38", 38),
@@ -618,6 +622,7 @@ pub fn build_skirmish_shell_chrome_atlas(
                 .get(trackbar_frame_label(width, height, reserve).as_str())
                 .copied()
         }),
+        combo_face_249: by_label.get("network_combo_face_249").copied(),
         combo_face_207: by_label.get("keyboard_combo_face_207").copied(),
         combo_face_180: by_label.get("launcher_combo_face_180").copied(),
         combo_face_150: by_label.get("skirmish_combo_face_150").copied(),

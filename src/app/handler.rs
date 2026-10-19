@@ -470,6 +470,9 @@ impl ApplicationHandler for App {
                     if let Some(dialog) = state.frontend.keyboard_dialog.as_mut() {
                         dialog.reset_interaction();
                     }
+                    if let Some(dialog) = state.frontend.network_options.as_mut() {
+                        dialog.cancel_pointer();
+                    }
                     if let Some(dialog) = state.frontend.options_dialog.as_mut() {
                         dialog.shell_cancel_pointer_gesture();
                     }
@@ -530,6 +533,10 @@ impl ApplicationHandler for App {
                 }
                 if state.frontend.keyboard_dialog.is_some() {
                     crate::app::input::keyboard::key(state, &event);
+                    return;
+                }
+                if state.frontend.network_options.is_some() {
+                    crate::app::input::network_options::key(state, &event);
                     return;
                 }
                 if Self::native_skirmish_shell_active(state)
@@ -777,6 +784,10 @@ impl ApplicationHandler for App {
                     crate::app::input::keyboard::cursor_moved(state);
                     return;
                 }
+                if state.frontend.network_options.is_some() {
+                    crate::app::input::network_options::cursor_moved(state);
+                    return;
+                }
                 if Self::native_launcher_options_active(state) {
                     Self::handle_launcher_options_mouse(state, None);
                     return;
@@ -895,6 +906,14 @@ impl ApplicationHandler for App {
                     crate::app::input::keyboard::mouse(state, button, btn_state.is_pressed());
                     return;
                 }
+                if state.frontend.network_options.is_some() {
+                    crate::app::input::network_options::mouse(
+                        state,
+                        button,
+                        btn_state.is_pressed(),
+                    );
+                    return;
+                }
                 if Self::main_menu_dialog_open(state) {
                     if Self::native_launcher_options_active(state) && button == MouseButton::Left {
                         Self::handle_launcher_options_mouse(state, Some(btn_state.is_pressed()));
@@ -972,6 +991,10 @@ impl ApplicationHandler for App {
                     state.platform.window.request_redraw();
                     return;
                 }
+                if state.frontend.network_options.is_some() {
+                    // ComboDropWin consumes no mouse-wheel selection/scroll.
+                    return;
+                }
                 if state.frontend.screen == GameScreen::MainMenu
                     && Self::native_skirmish_shell_active(state)
                     && Self::handle_skirmish_shell_mouse_wheel(state, lines)
@@ -1007,6 +1030,7 @@ impl ApplicationHandler for App {
             Self::update_load_saved_game_scroll(state, false);
             [
                 crate::app::input::keyboard::poll_scroll_repeat(state),
+                crate::app::input::network_options::poll_scroll_repeat(state),
                 crate::app::input::sound::poll_scroll_repeat(state),
                 Self::poll_movie_list_scroll(state),
                 Self::poll_choose_map_scroll(state),

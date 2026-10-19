@@ -121,6 +121,9 @@ pub(crate) struct MatchSession {
     /// the FRAMEINFO comparison. Process-lifetime like the native global: no
     /// launch or load clears it; only the multiplayer frame-0 reset does.
     checksum_history: MultiplayerChecksumHistory,
+    /// Process byte B07788, set by the first ReadMultiPlayerSettings call.
+    /// It survives dialog, match and saved-game transitions.
+    multiplayer_settings_initialized: bool,
 }
 
 impl Default for MatchSession {
@@ -131,11 +134,24 @@ impl Default for MatchSession {
             local_player: 0,
             host: false,
             checksum_history: MultiplayerChecksumHistory::new(),
+            multiplayer_settings_initialized: false,
         }
     }
 }
 
 impl MatchSession {
+    /// SessionClass__ReadMultiPlayerSettings 698161..6981DA consumes a Main
+    /// RandomRanged(0,32768) before reading PortPool, even with an explicit
+    /// PortPool key. Keep this shared stream effect at its process lifetime.
+    /// Port allocation and firewall detection consume the resulting default
+    /// only in transport services, outside the shell implementation.
+    pub(crate) fn prepare_multiplayer_settings(&mut self, main: &crate::sim::rng::MainRngDraws) {
+        if !self.multiplayer_settings_initialized {
+            let _port_pool_default = 4096 + main.ranged(0, 32768);
+            self.multiplayer_settings_initialized = true;
+        }
+    }
+
     /// The shell's launch write: campaign (`0x0052E175`) or skirmish
     /// (`0x0052E10F`). An offline session has at most the local human and is
     /// its own host. A campaign has no participant table.
@@ -232,6 +248,43 @@ impl MatchSession {
 #[cfg(test)]
 mod tests {
     use super::{MatchSession, SessionMode, SessionPlayer};
+
+    #[test]
+    fn multiplayer_settings_initialization_matches_native_rng_and_survives_session_changes() {
+        use crate::sim::rng::{MainRng, SimRng};
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/storage_oracle/network_options.json",
+        ))
+        .unwrap();
+        for case in corpus["initialization_cases"]
+            .as_array()
+            .expect("native initialization cases")
+        {
+            let main: MainRng =
+                SimRng::from_native_state_hex_for_test(case["initial_rng_hex"].as_str().unwrap())
+                    .into();
+            let mut session = MatchSession::default();
+            let calls = case["calls"].as_array().unwrap();
+            assert!(calls.len() >= 2, "native first/re-entry comparison");
+            for (index, call) in calls.iter().enumerate() {
+                session.prepare_multiplayer_settings(&main.draws());
+                assert_eq!(
+                    main.native_state_hex(),
+                    call["rng_hex"].as_str().unwrap(),
+                    "{} call {index}",
+                    case["name"]
+                );
+                session.begin_offline(SessionMode::Skirmish, Some("Commander".into()));
+            }
+            // Loading another scenario does not reset the process's B07788.
+            session.restore_from_save(false, None);
+            session.prepare_multiplayer_settings(&main.draws());
+            assert_eq!(
+                main.native_state_hex(),
+                calls.last().unwrap()["rng_hex"].as_str().unwrap()
+            );
+        }
+    }
 
     #[test]
     fn process_start_is_campaign_with_no_participants() {

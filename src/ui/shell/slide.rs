@@ -151,6 +151,14 @@ impl SlideDialogSpec {
 /// draws SCRT then SCRBK (`+0xD7`, `0x006229CE`).
 pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
     SlideDialogSpec {
+        dialog_id: 0x00D7,
+        top_buttons: 1,
+        bottom_button: true,
+        map_button: false,
+        top_panel: false,
+        campaign_score: false,
+    },
+    SlideDialogSpec {
         dialog_id: 0x00E2,
         top_buttons: 5,
         bottom_button: true,
@@ -271,7 +279,7 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
 
 /// Whether a dialog plays the first-paint controls-reveal slide: every
 /// front-end shell with a `RENDERED_SHELL_SLIDES` column. The original's full
-/// list (`0x0060C540`, 55 ids) also marks Options' Network `0xD7`, the
+/// list (`0x0060C540`, 55 ids) also marks the
 /// in-game menu dialogs (`0xB5`, `0xB6`, `0xB8`, `0xBBA`, `0xBBB`)
 /// and the LAN/WOL setup dialogs; none of them slides here yet. `0xB7` slides
 /// only outside a suspended game (`0x00612690`), which is the only place it is

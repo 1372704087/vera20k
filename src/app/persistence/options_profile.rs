@@ -81,6 +81,14 @@ pub(crate) struct RetailOptionsProfile {
     // `0x005FAF9E`; Play_Movie raises it through `0x005FBF80`.
     pub(crate) movie_progress: crate::ui::movies_credits_shell::MovieProgress,
 
+    // OptionsClass +0x4A/+0x54/+0x58; ReadFromINI 5FAC88..5FACDE.
+    pub(crate) network_socket: u16,
+    pub(crate) network_card: i32,
+    pub(crate) network_destination: String,
+    // SessionClass__ReadMultiPlayerSettings 6981E6..698228 and D7 560480.
+    pub(crate) network_send_delay: bool,
+    pub(crate) network_port: i32,
+
     // [WOnline] LobMusic: read by `WOL_Main`'s settings reader `0x0077DED0`
     // (`ReadInt`, default 1) from the same RA2MD.INI object into
     // `[0x00B7690C]`, outside OptionsClass. Read-only here; this route never
@@ -148,6 +156,11 @@ impl Default for RetailOptionsProfile {
             sound_latency: 9,
             in_game_music: true,
             movie_progress: crate::ui::movies_credits_shell::MovieProgress::default(),
+            network_socket: u16::MAX,
+            network_card: 0,
+            network_destination: String::new(),
+            network_send_delay: false,
+            network_port: 0,
             wol_lobby_music: 1,
             full_screen: false,
             zoom: crate::ui::main_menu_dialogs::options::Zoom::Auto,
@@ -168,9 +181,7 @@ pub(crate) struct FormattedProfileSections {
     pub(crate) options: [(&'static str, String); 11],
     pub(crate) video: [(&'static str, String); 3],
     pub(crate) audio: [(&'static str, String); 7],
-    /// `[Network] NetID` only. Native also writes Socket/NetCard/DestNet from
-    /// network fields this profile does not model; their bytes are preserved.
-    pub(crate) network: [(&'static str, String); 1],
+    pub(crate) network: [(&'static str, String); 4],
     /// VERA's own section, written after the native ones.
     pub(crate) vera: [(&'static str, String); 5],
 }
@@ -350,6 +361,13 @@ impl RetailOptionsProfile {
         }
 
         self.movie_progress = decode_net_id(ini.section_or_empty(NETWORK_SECTION));
+        let network = ini.section_or_empty(NETWORK_SECTION);
+        self.network_socket = network.read_int("Socket", i32::from(self.network_socket)) as u16;
+        self.network_card = network.read_int("NetCard", self.network_card);
+        self.network_destination = network.read_string("DestNet", "", 0x40);
+        let multiplayer = ini.section_or_empty("MultiPlayer");
+        self.network_send_delay = multiplayer.read_bool("SendDelay", false);
+        self.network_port = multiplayer.read_int("PortNumberOverride", 0);
         if let Some(wonline) = ini.section(WONLINE_SECTION) {
             self.wol_lobby_music = wonline.read_int("LobMusic", self.wol_lobby_music);
         }
@@ -431,7 +449,12 @@ impl RetailOptionsProfile {
                 ("SoundLatency", self.sound_latency.to_string()),
                 ("InGameMusic", format_bool(self.in_game_music).to_string()),
             ],
-            network: [("NetID", encode_net_id(self.movie_progress))],
+            network: [
+                ("Socket", self.network_socket.to_string()),
+                ("NetCard", self.network_card.to_string()),
+                ("DestNet", self.network_destination.clone()),
+                ("NetID", encode_net_id(self.movie_progress)),
+            ],
             vera: [
                 ("FullScreen", format_bool(self.full_screen).to_string()),
                 ("Zoom", self.zoom.ini_value().to_string()),
@@ -451,7 +474,27 @@ impl RetailOptionsProfile {
         let output = apply_formatted_section(input, OPTIONS_SECTION, &formatted.options);
         let output = apply_formatted_section(&output, VIDEO_SECTION, &formatted.video);
         let output = apply_formatted_section(&output, AUDIO_SECTION, &formatted.audio);
-        let output = apply_formatted_section(&output, NETWORK_SECTION, &formatted.network);
+        // DestNet is the native byte string returned by NewEdit/ReadString.
+        // Re-encoding it as UTF-8 would alter high-byte suffixes accepted by %x.
+        let network: Vec<_> = formatted
+            .network
+            .iter()
+            .map(|(key, value)| {
+                (
+                    *key,
+                    value
+                        .encode_utf16()
+                        .map(|unit| unit as u8)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect();
+        let network: Vec<_> = network
+            .iter()
+            .map(|(key, bytes)| (*key, bytes.as_slice()))
+            .collect();
+        let output =
+            crate::util::ini_writer::set_ini_byte_values(&output, NETWORK_SECTION, &network);
         apply_formatted_section(&output, VERA_SECTION, &formatted.vera)
     }
 
@@ -468,6 +511,29 @@ impl RetailOptionsProfile {
         )
     }
 
+    /// D7's accepted firewall settings write only these two MultiPlayer keys
+    /// (NetworkOptionsDialog__DlgProc_D7 at 560480). LAN fields are written
+    /// by the parent Options writer.
+    pub(crate) fn commit_network_options(&self, ra2_dir: &Path) -> io::Result<()> {
+        commit_transformed_profile(
+            ra2_dir,
+            |path| std::fs::read(path),
+            |path, bytes| std::fs::write(path, bytes),
+            |input| self.transform_network_options(input),
+        )
+    }
+
+    fn transform_network_options(&self, input: &[u8]) -> Vec<u8> {
+        apply_formatted_section(
+            input,
+            "MultiPlayer",
+            &[
+                ("SendDelay", format_bool(self.network_send_delay).to_owned()),
+                ("PortNumberOverride", self.network_port.to_string()),
+            ],
+        )
+    }
+
     /// Injectable form of [`Self::commit_ra2md`] used to verify the physical
     /// one-read/one-write transaction without touching a user's profile.
     pub(crate) fn commit_ra2md_with<Read, Write>(
@@ -480,15 +546,23 @@ impl RetailOptionsProfile {
         Read: FnOnce(&Path) -> io::Result<Vec<u8>>,
         Write: FnOnce(&Path, &[u8]) -> io::Result<()>,
     {
-        let path = ra2_dir.join(RA2MD_INI_FILENAME);
-        let input = match read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(error) => return Err(error),
-        };
-        let output = self.transform_ra2md(&input);
-        write(&path, &output)
+        commit_transformed_profile(ra2_dir, read, write, |input| self.transform_ra2md(input))
     }
+}
+
+fn commit_transformed_profile(
+    ra2_dir: &Path,
+    read: impl FnOnce(&Path) -> io::Result<Vec<u8>>,
+    write: impl FnOnce(&Path, &[u8]) -> io::Result<()>,
+    transform: impl FnOnce(&[u8]) -> Vec<u8>,
+) -> io::Result<()> {
+    let path = ra2_dir.join(RA2MD_INI_FILENAME);
+    let input = match read(&path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error),
+    };
+    write(&path, &transform(&input))
 }
 
 fn upper_only_volume(value: f64) -> f32 {
@@ -594,6 +668,96 @@ mod tests {
     use std::cell::{Cell, RefCell};
 
     use super::*;
+
+    #[test]
+    fn network_settings_read_native_defaults_and_narrow_socket_only() {
+        let defaults = load_snapshot(&RetailStartupOptions::default(), b"").retained_profile;
+        assert_eq!(
+            (
+                defaults.network_socket,
+                defaults.network_card,
+                defaults.network_port
+            ),
+            (65535, 0, 0)
+        );
+        assert!(!defaults.network_send_delay);
+        assert!(defaults.network_destination.is_empty());
+        let loaded = load_snapshot(&RetailStartupOptions::default(), b"[Network]\nSocket=65536\nNetCard=-2\nDestNet=  aa.bb.cc.dd  \n[MultiPlayer]\nSendDelay=yes\nPortNumberOverride=-1\n").retained_profile;
+        assert_eq!(
+            (
+                loaded.network_socket,
+                loaded.network_card,
+                loaded.network_port
+            ),
+            (0, -2, -1)
+        );
+        assert!(loaded.network_send_delay);
+        assert_eq!(loaded.network_destination, "aa.bb.cc.dd");
+    }
+
+    #[test]
+    fn d7_commit_keeps_lan_pending_until_parent_options_write() {
+        let input = b"; keep\r\n[Network]\r\nSocket=5\r\nNetCard=1\r\nDestNet=1.2.3.4\r\n[MultiPlayer]\r\nHandle=unchanged\r\nSendDelay=no\r\nPortNumberOverride=0\r\n";
+        let profile = RetailOptionsProfile {
+            network_socket: 123,
+            network_card: 2,
+            network_destination: "aa.bb.cc.dd".into(),
+            network_send_delay: true,
+            network_port: -1,
+            ..Default::default()
+        };
+        let d7 = profile.transform_network_options(input);
+        let parsed = IniFile::from_bytes(&d7).unwrap();
+        assert_eq!(parsed.section_or_empty("Network").read_int("Socket", 0), 5);
+        assert_eq!(
+            parsed
+                .section_or_empty("MultiPlayer")
+                .read_string("Handle", "", 64),
+            "unchanged"
+        );
+        assert!(
+            parsed
+                .section_or_empty("MultiPlayer")
+                .read_bool("SendDelay", false)
+        );
+        assert_eq!(
+            parsed
+                .section_or_empty("MultiPlayer")
+                .read_int("PortNumberOverride", 0),
+            -1
+        );
+        let parent = profile.transform_ra2md(&d7);
+        let parsed = IniFile::from_bytes(&parent).unwrap();
+        assert_eq!(
+            parsed.section_or_empty("Network").read_int("Socket", 0),
+            123
+        );
+        assert_eq!(
+            parsed
+                .section_or_empty("Network")
+                .read_string("DestNet", "", 64),
+            "aa.bb.cc.dd"
+        );
+        assert_eq!(
+            parsed
+                .section_or_empty("MultiPlayer")
+                .read_int("PortNumberOverride", 0),
+            -1
+        );
+    }
+
+    #[test]
+    fn destination_round_trips_native_bytes_without_utf8_encoding() {
+        let loaded = load_snapshot(
+            &RetailStartupOptions::default(),
+            b"[Network]\nDestNet=1\xe9.2.3.4\n",
+        )
+        .retained_profile;
+        let output = loaded.transform_ra2md(b"[Network]\nDestNet=old\n");
+        let reloaded = load_snapshot(&RetailStartupOptions::default(), &output).retained_profile;
+        assert_eq!(loaded.network_destination, "1é.2.3.4");
+        assert_eq!(reloaded.network_destination, loaded.network_destination);
+    }
 
     /// `CRCEngine::operator()` @ `0x004A1DE0` over `"Network"`, executed
     /// natively under Unicorn: the scratch `INIClass__ReadCommaHexUTF16`
@@ -1172,7 +1336,7 @@ IsScoreRepeat=no\r\nIsScoreShuffle=no\r\nSoundLatency=9\r\nInGameMusic=yes\r\n\
             for (key, expected) in values {
                 assert_eq!(
                     section.get_for_test(key),
-                    Some(expected.as_str()),
+                    (!expected.is_empty()).then_some(expected.as_str()),
                     "{section_name}/{key}"
                 );
             }

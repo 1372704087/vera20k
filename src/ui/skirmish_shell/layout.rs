@@ -487,6 +487,20 @@ pub fn combo_arrow_rect(rect: RectPx, scale: ShellScale) -> RectPx {
     })
 }
 
+/// Clickable arrow area of OwnerDraw_ComboBox 00617250 (006184B4).
+/// The adjacent `combo_arrow_rect` is only a zero-size sprite anchor.
+pub fn combo_arrow_hit_rect(rect: RectPx, scale: ShellScale) -> RectPx {
+    let face = combo_face_rect(rect, scale);
+    scale.derive_rect(face, |face| {
+        RectPx::new(
+            face.x + face.w - COMBO_ARROW_RESERVE_W,
+            face.y,
+            COMBO_ARROW_RESERVE_W,
+            face.h,
+        )
+    })
+}
+
 pub fn combo_text_rect(rect: RectPx, scale: ShellScale) -> RectPx {
     scale.derive_rect(rect, |rect| {
         let w = rect.w - COMBO_ARROW_RESERVE_W;

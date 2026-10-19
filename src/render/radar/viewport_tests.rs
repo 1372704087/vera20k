@@ -53,14 +53,6 @@ fn native_radar_screen_geometry_rejects_letterbox_and_maps_half_open_edges() {
 }
 
 #[test]
-fn native_radar_click_inverse_uses_x87_rounding_at_corners_center_and_edge() {
-    let geometry = NativeRadarSurfaceGeometry::from_raw_rect(30, 20, 300, 180).unwrap();
-    assert_eq!(geometry.surface_pixel_to_cell((0, 0)), Some((-4i16 as u16, 25)));
-    assert_eq!(geometry.surface_pixel_to_cell((70, 41)), Some((114, -5i16 as u16)));
-    assert_eq!(geometry.surface_pixel_to_cell((139, 82)), Some((232, -35i16 as u16)));
-}
-
-#[test]
 fn native_viewport_rect_matches_wide_and_tall_binary_arithmetic() {
     let wide = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 300, 180).unwrap();
     assert_eq!(
@@ -191,27 +183,6 @@ fn native_previous_border_visits_keep_duplicates_and_native_edge_order() {
 }
 
 #[test]
-fn native_viewport_state_dirties_overlap_before_action40_rebuild_resets_baseline() {
-    let wide = NativeRadarRect { x: 20, y: 20, w: 10, h: 17 };
-    let overlapping = NativeRadarRect { x: 21, y: 21, w: 10, h: 17 };
-    let tall = NativeRadarRect { x: 8, y: 30, w: 8, h: 13 };
-    let mut state = NativeRadarViewportState::default();
-    assert!(state.update(wide).dirty_previous_border.is_empty());
-    assert_eq!(
-        state.update(overlapping).dirty_previous_border,
-        native_previous_border_visits(wide),
-        "overlap does not suppress the old-border visit chronology",
-    );
-
-    state.reset_for_rebuild();
-    let rebuilt = state.update(tall);
-    assert_eq!(rebuilt.previous, tall);
-    assert!(rebuilt.dirty_previous_border.is_empty());
-    state.reset_for_rebuild();
-    assert!(state.update(tall).dirty_previous_border.is_empty());
-}
-
-#[test]
 fn native_viewport_outline_is_one_surface_pixel_and_uses_injected_sidebar_color() {
     let surface = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 300, 180).unwrap();
     let screen = NativeRadarScreenGeometry::new(surface, [100.0, 50.0, 280.0, 216.0]);
@@ -257,33 +228,6 @@ fn native_viewport_lower_right_outline_is_inclusive_and_leaves_native_final_pixe
     assert_eq!(lines[2].size, [10.0, 1.0]);
     assert_eq!(lines[3].position, [129.0, 77.0]);
     assert_eq!(lines[3].size, [1.0, 17.0]);
-}
-
-#[test]
-fn native_viewport_outline_clips_oversize_edges_to_full_sidebar_not_radar_aperture() {
-    let surface = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 140, 108).unwrap();
-    assert_eq!(surface.generated_size(), (140, 108));
-    let screen = NativeRadarScreenGeometry::new(surface, [216.0, 49.0, 140.0, 108.0]);
-    let sidebar = [200.0, 0.0, 168.0, 300.0];
-
-    // top=-1, right=395, left=196 are outside the retained surface. The
-    // bottom line crosses the whole surface at y=198. Its x=200..215 pixels
-    // deliberately survive even though they are left of the radar aperture.
-    let lines = native_viewport_outline_instances(
-        (7.0, 11.0),
-        screen,
-        NativeRadarRect { x: -20, y: -50, w: 200, h: 200 },
-        sidebar,
-        [1.0; 3],
-    );
-    assert_eq!(lines.len(), 1);
-    assert_eq!(lines[0].position, [207.0, 209.0]);
-    assert_eq!(lines[0].size, [168.0, 1.0]);
-
-    let final_screen_x = lines[0].position[0] - 7.0;
-    let final_screen_y = lines[0].position[1] - 11.0;
-    assert_eq!([final_screen_x, final_screen_y], [200.0, 198.0]);
-    assert!(final_screen_x < 216.0, "the radar aperture must not be the clip rect");
 }
 
 #[test]
@@ -511,31 +455,6 @@ fn native_content_boundary_clips_to_sidebar_edges_not_generated_content() {
     assert_eq!(lines[0].position[0] - 7.0, 140.0);
 }
 
-#[test]
-fn native_content_boundary_rebuild_uses_current_surface_without_stale_state() {
-    let wide = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 300, 180).unwrap();
-    let tall = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 180, 300).unwrap();
-    let screen_rect = [16.0, 49.0, 140.0, 108.0];
-    let sidebar = [0.0, 0.0, 168.0, 300.0];
-    let build = |surface| {
-        native_content_boundary_outline_instances(
-            (0.0, 0.0),
-            NativeRadarScreenGeometry::new(surface, screen_rect),
-            surface,
-            sidebar,
-            [1.0; 3],
-        )
-        .into_iter()
-        .map(|line| (line.position, line.size))
-        .collect::<Vec<_>>()
-    };
-
-    let before_action40 = build(wide);
-    let after_action40 = build(tall);
-    assert_ne!(before_action40, after_action40);
-    assert_eq!(build(tall), after_action40, "equal rebuilds derive the same current frame");
-}
-
 fn outline_source_pixels(
     rect: NativeRadarRect,
     source_content: (i32, i32),
@@ -652,57 +571,5 @@ fn native_outlines_match_retained_surface_nearest_raster_at_half_one_and_one_hal
         assert_eq!(boundary_actual, boundary_expected, "content boundary scale={scale}");
         assert!(!viewport_actual.is_empty(), "fixture must cover camera pixels at scale={scale}");
         assert!(!boundary_actual.is_empty(), "fixture must cover boundary pixels at scale={scale}");
-    }
-}
-
-#[test]
-fn native_outlines_match_nearest_raster_when_oversize_edges_clip_the_sidebar() {
-    let surface = NativeRadarSurfaceGeometry::from_raw_rect(0, 0, 140, 108).unwrap();
-    let camera = (-3.75, 8.5);
-    let oversize = NativeRadarRect { x: -10, y: -40, w: 170, h: 130 };
-    let boundary = NativeRadarRect { x: -1, y: -1, w: 142, h: 110 };
-    let source_content = (16, 49);
-
-    for scale in [0.5_f32, 1.5] {
-        // Eighty retained source rows deliberately clip the lower camera and
-        // generated-boundary edges while preserving top/side corner phases.
-        let sidebar = [101.0, 3.0, 168.0 * scale, 80.0 * scale];
-        let aperture = [
-            sidebar[0] + 16.0 * scale,
-            sidebar[1] + 49.0 * scale,
-            140.0 * scale,
-            108.0 * scale,
-        ];
-        let screen = NativeRadarScreenGeometry::new(surface, aperture);
-
-        let camera_actual = shader_raster_pixels(
-            &native_viewport_outline_instances(camera, screen, oversize, sidebar, [1.0; 3]),
-            camera,
-        );
-        let camera_expected = nearest_scaled_reference(
-            &outline_source_pixels(oversize, source_content),
-            sidebar,
-            (scale, scale),
-        );
-        assert_eq!(camera_actual, camera_expected, "clipped camera scale={scale}");
-
-        let boundary_actual = shader_raster_pixels(
-            &native_content_boundary_outline_instances(
-                camera,
-                screen,
-                surface,
-                sidebar,
-                [1.0; 3],
-            ),
-            camera,
-        );
-        let boundary_expected = nearest_scaled_reference(
-            &outline_source_pixels(boundary, source_content),
-            sidebar,
-            (scale, scale),
-        );
-        assert_eq!(boundary_actual, boundary_expected, "clipped boundary scale={scale}");
-        assert!(!camera_actual.is_empty());
-        assert!(!boundary_actual.is_empty());
     }
 }

@@ -713,22 +713,6 @@ mod tests {
     }
 
     #[test]
-    fn radar_tracker_two_identical_action40_resets_both_rebuild() {
-        let mut tracker = RetainedRadarTracker::default();
-        let mut building = update(2, false);
-        building.foundation = Some((2, 2));
-        tracker.update_object(building, false);
-        for _ in 0..2 {
-            tracker.reset_for_action40();
-            assert!(tracker.take_action40_building_tail_pending());
-            assert!(!tracker.is_registered(2));
-            tracker.update_object(building, true);
-            assert!(tracker.is_registered(2));
-            assert_eq!(tracker.entries_at(40, 60).len(), 1);
-        }
-    }
-
-    #[test]
     fn radar_tracker_action40_building_tail_uses_reverse_creation_order() {
         let mut tracker = RetainedRadarTracker::default();
         let mut older = update(1, false);

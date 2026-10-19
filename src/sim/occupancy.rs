@@ -325,7 +325,9 @@ impl RawCellOccupationGrid {
 
     pub(crate) fn mark_ground(&mut self, rx: u16, ry: u16, mask: u8) {
         if mask != 0 {
-            self.cells.get_or_insert_with((rx, ry), Default::default).ground |= mask;
+            self.cells
+                .get_or_insert_with((rx, ry), Default::default)
+                .ground |= mask;
         }
     }
 
@@ -369,7 +371,9 @@ impl RawCellOccupationGrid {
 
     pub(crate) fn mark_deck(&mut self, rx: u16, ry: u16, mask: u8) {
         if mask != 0 {
-            self.cells.get_or_insert_with((rx, ry), Default::default).deck |= mask;
+            self.cells
+                .get_or_insert_with((rx, ry), Default::default)
+                .deck |= mask;
         }
     }
 

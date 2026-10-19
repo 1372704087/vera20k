@@ -160,8 +160,7 @@ fn sim_with_houses(seed: u64) -> Simulation {
     ] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     sim
 }
@@ -1503,11 +1502,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
         } = &mut scenario.runtime;
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .entry(owner)
-            .or_insert_with(|| HouseState::new(owner, 0, None, false, 10_000, 10));
-        if !sim.session.house_order.contains(&owner) {
-            sim.session.house_order.push(owner);
-        }
+            .get_or_register_for_test(owner, || HouseState::new(owner, 0, None, false, 10_000, 10));
         // The first central cell that admits the MCV, with level walkable
         // ground under and around it and a power plant three cells west, as a
         // player's base would stand on.
@@ -1624,11 +1619,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
     let rules = &resources.rules;
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .entry(owner)
-        .or_insert_with(|| HouseState::new(owner, 0, None, false, 10_000, 10));
-    if !sim.session.house_order.contains(&owner) {
-        sim.session.house_order.push(owner);
-    }
+        .get_or_register_for_test(owner, || HouseState::new(owner, 0, None, false, 10_000, 10));
     // Each transport on the first central cell that admits it, with level
     // walkable ground around it for its GIs (the row south) and their
     // Scatter, four or more cells from the others. Check the shared playfield

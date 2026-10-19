@@ -73,7 +73,7 @@ fn stock_e1_feedback_matches_whole_native_receiver_before_audio_service() {
         let owner = sim.interner.intern("Americans");
         let mut house = HouseState::new(owner, 0, None, true, 0, 10);
         house.player_control = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.session.current_house = Some(owner);
         let source = sim
             .spawn_object_at_height("MTNK", "Americans", cell[0] - 1, cell[1], 0, 0, rules)
@@ -282,7 +282,7 @@ fn damage_feedback_matches_original_draws_house_admission_coordinates_and_contin
         let other = sim.interner.intern("OtherHouse");
         let mut house = HouseState::new(owner, 0, None, input["human"].as_bool().unwrap(), 0, 10);
         house.player_control = input["player_control"].as_bool().unwrap();
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(
                 input["game_mode"].as_u64().unwrap() != 0,

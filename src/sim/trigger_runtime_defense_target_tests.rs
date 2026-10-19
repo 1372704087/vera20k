@@ -16,8 +16,7 @@ fn fixture() -> (Simulation, InternedId, InternedId) {
     let other = sim.interner.intern("UnrelatedHouse");
     for id in [owner, other] {
         sim.houses
-            .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, 0, None, false, 0, 10));
     }
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));

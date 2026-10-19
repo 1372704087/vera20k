@@ -207,8 +207,7 @@ impl Fixture {
                 sim.interner.intern("Second")
             };
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, index == 0, 5000, 10));
-            sim.session.house_order.push(id);
+                .insert_for_test(HouseState::new(id, 0, None, index == 0, 5000, 10));
             houses.push((int(&house["pointer"]), id));
         }
         sim.session.current_house = Some(owner);
@@ -382,7 +381,7 @@ impl Fixture {
             house["discovered_by_current_house"] =
                 json!(prior["first_current_viewer_discovery_1f4"] == 1);
             sim.houses
-                .insert(*id, serde_json::from_value(house).unwrap());
+                .replace_for_test(serde_json::from_value(house).unwrap());
             let mut state = serde_json::to_value(PowerState::default()).unwrap();
             state["total_output"] = prior["power"].clone();
             state["total_drain"] = prior["drain"].clone();
@@ -738,7 +737,7 @@ fn original_half_threshold_and_friendly_repair_object_actions() {
     fixture
         .sim
         .houses
-        .insert(enemy, HouseState::new(enemy, 0, None, false, 5000, 10));
+        .register(HouseState::new(enemy, 0, None, false, 5000, 10));
     fixture.sim.change_owner_with_rules(
         fixture.building,
         enemy,

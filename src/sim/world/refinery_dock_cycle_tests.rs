@@ -672,11 +672,11 @@ fn capturing_the_refinery_mid_unload_sends_the_miner_off() {
     run_until_unloading(&mut s);
     let owner = s.sim.substrate.entities.get(s.miner).unwrap().owner();
     let russians = s.sim.interner.intern("Russians");
-    s.sim.houses.insert(
-        russians,
-        crate::sim::house_state::HouseState::new(russians, 1, None, false, 0, 10),
-    );
-    s.sim.session.house_order.push(russians);
+    s.sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            russians, 1, None, false, 0, 10,
+        ));
     s.sim.change_owner_with_rules(
         s.refinery,
         russians,

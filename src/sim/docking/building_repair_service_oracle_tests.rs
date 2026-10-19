@@ -340,7 +340,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
     let owner = sim.interner.intern("Russians");
     let mut house = crate::sim::house_state::HouseState::new(owner, 1, None, true, 0, 0);
     house.difficulty = crate::sim::house_state::HouseDifficulty::Hard;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let depot = sim
         .spawn_object(
             row["building"].as_str().unwrap(),

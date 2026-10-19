@@ -31,8 +31,7 @@ fn fixture() -> (Simulation, RuleSet, InternedId) {
     sim.fog.height = 24;
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 10_000, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 10_000, 10));
     (sim, spy_sat_rules(), owner)
 }
 
@@ -195,7 +194,7 @@ fn gsi_04_18_remote_unbound_and_retained_active_uplinks_are_silent() {
     insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
     let viewer = sim.interner.intern("OtherHuman");
     sim.houses
-        .insert(viewer, HouseState::new(viewer, 1, None, true, 10_000, 10));
+        .register(HouseState::new(viewer, 1, None, true, 10_000, 10));
     sim.session.current_house = Some(viewer);
     sim.reconcile_active_vision_structures(&rules);
     assert!(sim.houses[&owner].spy_sat_active);

@@ -330,7 +330,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
                     let new_owner = sim.interner.intern("NewOwner");
                     for owner in [house, new_owner] {
                         sim.houses
-                            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+                            .register(HouseState::new(owner, 0, None, true, 0, 10));
                     }
                     sim.change_owner_with_rules(
                         1,

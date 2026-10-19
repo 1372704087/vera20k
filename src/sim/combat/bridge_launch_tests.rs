@@ -68,11 +68,10 @@ fn retail_grizzly_forcefire_freezes_the_native_cell_aim() {
     }) {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let terrain = sim.resolved_terrain.as_mut().unwrap();
         for (x, y) in [(10, 16), (10, 20)] {

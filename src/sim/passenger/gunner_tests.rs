@@ -26,8 +26,7 @@ fn arena(rules: &RuleSet) -> (Simulation, PathGrid) {
     for (name, side) in [(OWNER, 0), ("Russians", 1)] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, true, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, true, 0, 10));
     }
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     sim.intern_rule_type_ids(rules);

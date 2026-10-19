@@ -54,10 +54,8 @@ fn scenario() -> (Simulation, RuleSet) {
     let owners = [("Americans", 0u8, 10u16, 10u16), ("Alliance", 1u8, 10, 20)];
     for (i, (owner, side, base_x, base_y)) in owners.iter().enumerate() {
         let oid = sim.interner.intern(owner);
-        sim.houses.insert(
-            oid,
-            HouseState::new(oid, *side, None, true, START_CREDITS, 10),
-        );
+        sim.houses
+            .register(HouseState::new(oid, *side, None, true, START_CREDITS, 10));
         let sid = (i as u64) * 10 + 1;
         spawn_structure(&mut sim, &rules, sid, owner, "GACNST", *base_x, *base_y);
         spawn_structure(
@@ -238,10 +236,8 @@ fn retail_builds_step_at_the_native_frames() {
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, 0, None, true, START_CREDITS, 10),
-        );
+        sim.houses
+            .register(HouseState::new(owner, 0, None, true, START_CREDITS, 10));
         spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
         spawn_structure(&mut sim, &rules, 2, "Americans", factory, 16, 10);
         spawn_structure(&mut sim, &rules, 3, "Americans", "GAPOWR", 22, 10);

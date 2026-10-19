@@ -88,8 +88,7 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
     ] {
         let owner = sim.intern(owner);
         sim.houses
-            .entry(owner)
-            .or_insert_with(|| HouseState::new(owner, 0, None, true, 0, 10));
+            .get_or_register_for_test(owner, || HouseState::new(owner, 0, None, true, 0, 10));
         let mut entity = GameEntity::new_at_frame_zero_for_test(
             id,
             x,
@@ -564,21 +563,12 @@ pub(super) fn retail_hills_collapsed_scene(
         .runtime
         .simulation
         .houses
-        .entry(enemy)
-        .or_insert_with(|| {
+        .get_or_register_for_test(enemy, || {
             let mut house = HouseState::new(enemy, 0, None, true, 0, 10);
             house.initialize_scenario_name("Russians");
             house
         });
-    if !scenario
-        .runtime
-        .simulation
-        .session
-        .house_order
-        .contains(&enemy)
-    {
-        scenario.runtime.simulation.session.house_order.push(enemy);
-    }
+    if !scenario.runtime.simulation.houses.order().contains(&enemy) {}
     scenario
         .runtime
         .simulation

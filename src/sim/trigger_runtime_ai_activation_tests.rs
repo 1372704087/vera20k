@@ -166,15 +166,16 @@ fn run_native_action(
 ) {
     let input = &row["input"];
     let context = format!("Action{} {}", row["kind"], input["name"]);
-    sim.session.house_order = input["order"].as_array().map_or_else(
-        || houses.to_vec(),
-        |order| {
-            order
-                .iter()
-                .map(|index| houses[index.as_u64().unwrap() as usize])
-                .collect()
-        },
-    );
+    sim.houses
+        .reorder_for_test(&input["order"].as_array().map_or_else(
+            || houses.to_vec(),
+            |order| {
+                order
+                    .iter()
+                    .map(|index| houses[index.as_u64().unwrap() as usize])
+                    .collect()
+            },
+        ));
     // Original Scenario+1180 storage supplied by the native fixture: slot0
     // resolves registered House1, slot1 House0, and slots2..7 are absent.
     sim.session.start_slot_houses.clear();
@@ -366,7 +367,9 @@ fn ai_activation_replays_original_action_to_timer_selector_histories() {
         ];
         let countries: Vec<_> = input["countries"]
             .as_array()
-            .map_or(vec![0, 7, 0], |array| array.iter().map(number).collect());
+            .map_or(vec![0, 7, 0], |array| {
+                array.iter().map(number).collect::<Vec<_>>()
+            });
         for (index, owner) in houses.iter().copied().enumerate() {
             let country = sim.interner.intern(&format!("Country{}", countries[index]));
             let mut house = HouseState::new(
@@ -391,10 +394,10 @@ fn ai_activation_replays_original_action_to_timer_selector_histories() {
                 timer.map_or(0, |t| number(&t[0])),
                 timer.map_or(10, |t| number(&t[2])),
             );
-            sim.houses.insert(owner, house);
+            sim.houses.register(house);
         }
         sim.houses.get_mut(&houses[0]).unwrap().enemy_house = Some(houses[1]);
-        sim.session.house_order = houses.to_vec();
+        sim.houses.reorder_for_test(&houses.to_vec());
         supply_rng(&mut sim, &row["initial_rng_full"]);
         let (old_team, team_types) = install_team_scene(&mut sim, houses[0]);
         let old_bytes = save_codec::serialize(sim.team_script_vm.team(old_team).unwrap()).unwrap();
@@ -871,11 +874,15 @@ fn house_base_control_scene(
     sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(32, 32));
     let owner = sim.interner.intern("AIHouse");
     let country = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, Some(country), false, 10000, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner,
+            0,
+            Some(country),
+            false,
+            10000,
+            10,
+        ));
     if yards {
         for (x, y) in [(12, 17), (19, 21)] {
             sim.spawn_object(yard_type, "AIHouse", x, y, 0, rules)
@@ -1134,8 +1141,7 @@ fn house_trigger_ratio_original_writer_and_due_selector_keep_signed_values_timer
         let enemy = sim.interner.intern("H1");
         for id in [owner, enemy] {
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, 0, None, false, 0, 10));
         }
         let house = sim.houses.get_mut(&owner).unwrap();
         house.difficulty = HouseDifficulty::Normal;
@@ -1371,10 +1377,10 @@ fn house_team_controls_signed_reader_hash_and_null_house_keep_other_state() {
         ] {
             let mut sim = Simulation::new();
             let owner = sim.interner.intern("House");
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, false, 0, 10,
+                ));
             let before_hash = sim.state_hash();
             let before = serde_json::to_value(&sim.houses[&owner]).unwrap();
             let rng = sim.rng_state();

@@ -145,7 +145,7 @@ fn grant_percentage_hold_release_and_ai_match_original_histories() {
         let owner = sim.interner.intern("Confederation");
         let type_id = sim.interner.intern("PsychicDominatorSpecial");
         sim.houses
-            .insert(owner, HouseState::new(owner, 2, None, false, 0, 10));
+            .register(HouseState::new(owner, 2, None, false, 0, 10));
         sim.super_weapons.entry(owner).or_default().insert(
             type_id,
             SuperWeaponInstance::new(type_id, owner, grant_frame),
@@ -242,7 +242,7 @@ fn house_hold_pass_matches_original_retained_power_histories() {
         let owner = sim.interner.intern("Confederation");
         let type_id = sim.interner.intern("PsychicDominatorSpecial");
         sim.houses
-            .insert(owner, HouseState::new(owner, 2, None, false, 0, 10));
+            .register(HouseState::new(owner, 2, None, false, 0, 10));
         sim.spawn_object("YAPPET", "Confederation", 10, 10, 0, &rules)
             .unwrap();
         let first = &sequence["rows"][0]["input"];
@@ -308,7 +308,7 @@ fn pending_house_tech_tree_tail_is_hashed_and_saved() {
     let mut sim = Simulation::with_seed(0);
     let owner = sim.interner.intern("Confederation");
     sim.houses
-        .insert(owner, HouseState::new(owner, 2, None, false, 0, 10));
+        .register(HouseState::new(owner, 2, None, false, 0, 10));
     assert!(sim.houses.get_mut(&owner).unwrap().take_tech_recheck());
     let clean_hash = sim.state_hash();
     sim.request_house_tech_tree_recheck(owner);
@@ -353,8 +353,7 @@ fn house_power_edge_holds_after_reactor_sample_in_the_same_frame() {
     let owner = sim.interner.intern("Confederation");
     let type_id = sim.interner.intern("PsychicDominatorSpecial");
     sim.houses
-        .insert(owner, HouseState::new(owner, 2, None, false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 2, None, false, 0, 10));
     sim.super_weapons
         .entry(owner)
         .or_default()

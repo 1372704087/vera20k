@@ -2009,18 +2009,16 @@ impl Simulation {
         // Active YR Full_Init constructs the complete HouseClass array before
         // Terrain/Techno map sections reveal objects. Scenario loading preserves
         // that order, so Reveal writes the final house-index bit immediately.
-        if self.session.house_order.is_empty() {
+        if self.houses.is_empty() {
             return None;
         }
         let index = self
-            .session
-            .house_order
-            .iter()
-            .position(|registered| *registered == owner)
+            .houses
+            .index_of(owner)
             .and_then(|index| i32::try_from(index).ok());
         debug_assert!(
             index.is_some(),
-            "base-reservation owner must be present in ScenarioSession.house_order"
+            "base-reservation owner must be registered in the House array"
         );
         index
     }

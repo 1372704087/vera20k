@@ -3106,7 +3106,10 @@ mod tests {
         let mut sim = Simulation::new();
         sim.resolve_type_handles(&rules);
         let americans = sim.interner.intern("Americans");
-        sim.session.house_order.push(americans);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                americans, 0, None, false, 0, 10,
+            ));
         // The rung is a human player's (`0x007003ED`).
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -3144,11 +3147,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for (name, human) in [("Americans", true), ("Soviets", false)] {
             let owner = sim.interner.intern(name);
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, human, 0, 10,
+                ));
         }
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -3259,11 +3261,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for (house, human) in [("Americans", true), ("Russians", false)] {
             let id = sim.interner.intern(house);
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, human, 0, 10,
+                ));
         }
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -3329,7 +3330,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for house in ["Americans", "Soviets"] {
             let id = sim.interner.intern(house);
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, false, 0, 10,
+                ));
         }
         // The attack rung is a human player's (`0x007003ED`).
         sim.session.set_game_mode(
@@ -3430,11 +3434,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for (house, human) in [("Americans", true), ("Soviets", false)] {
             let id = sim.interner.intern(house);
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, human, 0, 10,
+                ));
         }
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -3731,11 +3734,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for (house, human) in [("Americans", true), ("Russians", false)] {
             let id = sim.interner.intern(house);
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, human, 0, 10,
+                ));
         }
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -4307,7 +4309,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for house in ["Americans", "Soviets"] {
             let id = sim.interner.intern(house);
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, false, 0, 10,
+                ));
         }
         let americans = sim.interner.get("Americans").unwrap();
         let mut spawn = |kind: &str, owner: &str, rx: u16| {
@@ -4371,8 +4376,7 @@ mod tests {
                 .0;
             let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
             house.project_country_mults(rules, &sim.interner);
-            sim.houses.insert(owner, house);
-            sim.session.house_order.push(owner);
+            sim.houses.register(house);
         }
         let owner = sim.interner.get("Americans").unwrap();
         sim.session.current_house = Some(owner);
@@ -4774,7 +4778,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         for house in ["Americans", "Soviets"] {
             let id = sim.interner.intern(house);
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, false, 0, 10,
+                ));
         }
         let americans = sim.interner.get("Americans").unwrap();
         // The rung is a human player's (`0x007003ED`).

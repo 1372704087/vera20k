@@ -54,8 +54,7 @@ fn world(rules: &RuleSet, factories: &[&str]) -> (Simulation, InternedId) {
     let owner = sim.intern("Americans");
     let mut house = HouseState::new(owner, 0, None, true, 50_000, 10);
     house.project_country_mults(rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);
     for (index, name) in factories.iter().enumerate() {
@@ -1305,8 +1304,7 @@ fn superweapon_retained_cameo_keeps_identity_through_hold_and_recovery() {
     let mut sim = Simulation::with_seed(0);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     let sw_type = sim.interner.intern("NukeSpecial");
     let mut instance = SuperWeaponInstance::new(sw_type, owner, 0);
     instance.is_active = true;

@@ -29,7 +29,7 @@ fn fixture(topology: &Value) -> (Simulation, InternedId, InternedId) {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     for (owner, human) in [(player, true), (other, false)] {
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
+            .register(HouseState::new(owner, 0, None, human, 0, 10));
         sim.power_states.insert(
             owner,
             crate::sim::power_system::PowerState::settled_for_test(),
@@ -362,7 +362,7 @@ fn periodic_conceal_shares_the_full_sweep_and_preserves_viewer_planes() {
     sim.fog
         .by_owner
         .insert(player, player_fog.by_owner[&player].clone());
-    sim.session.house_order = vec![other, player];
+    sim.houses.reorder_for_test(&[other, player]);
     let (_, ordered) =
         trace_reveal_calls(|| sim.tick_pending_shroud_conceal(UninitContext::default()));
     assert_eq!(ordered.notifications, vec![((7, 5), true), ((1, 4), true)]);
@@ -904,7 +904,7 @@ fn reveal_entire_map_walks_the_size_diamond_and_notifies_each_cell() {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     for (owner, human) in [(player, true), (other, false)] {
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
+            .register(HouseState::new(owner, 0, None, human, 0, 10));
     }
     // A Size 6x4 diamond spans rx and ry 1..=9; 10x10 storage ends the walk
     // at the first cell past it, as an allocated map does.
@@ -1027,7 +1027,7 @@ impl EdgeScript {
         );
         for (index, &owner) in viewers.iter().enumerate() {
             sim.houses
-                .insert(owner, HouseState::new(owner, 0, None, index == 0, 0, 10));
+                .register(HouseState::new(owner, 0, None, index == 0, 0, 10));
         }
         let (width, height) = Self::SIZE;
         let side = (width + height) as u16;

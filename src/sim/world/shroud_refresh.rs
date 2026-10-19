@@ -190,8 +190,8 @@ impl Simulation {
         // must never choose their cross-House effects or RNG order. Match the
         // retained House registry; fixture-only planes have stable ID order.
         let mut viewers: Vec<_> = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .copied()
             .filter(|owner| self.fog.by_owner.contains_key(owner))
@@ -201,7 +201,7 @@ impl Simulation {
             .by_owner
             .keys()
             .copied()
-            .filter(|owner| !self.session.house_order.contains(owner))
+            .filter(|owner| !self.houses.order().contains(owner))
             .collect();
         extra.sort_unstable();
         viewers.extend(extra);

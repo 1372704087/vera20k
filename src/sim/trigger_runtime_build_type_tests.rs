@@ -134,8 +134,7 @@ fn build_type_state_uses_native_constructor_values_and_survives_snapshot_hash() 
     let mut sim = Simulation::with_seed(0);
     let owner = sim.interner.intern("Owner");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     for (category, name) in categories() {
         let expected = integer(&native["constructor"]["last_built"][name]);
         assert_eq!(sim.houses[&owner].last_built_type_index(category), expected);
@@ -265,9 +264,9 @@ fn building_discovery_updates_last_type_only_after_admission_outside_init() {
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     sim.houses
-        .insert(player, HouseState::new(player, 1, None, true, 0, 10));
+        .register(HouseState::new(player, 1, None, true, 0, 10));
     sim.houses.get_mut(&owner).unwrap().record_built_type(
         ObjectCategory::Building,
         integer(&source["input"]["initial_house26c"]),

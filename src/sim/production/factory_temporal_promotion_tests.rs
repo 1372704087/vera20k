@@ -37,8 +37,7 @@ fn fixture(rules: &RuleSet, producer: &str, backup: bool) -> (SimRuntime, Intern
     for (id, human, cash) in [(owner, true, 10_000), (enemy, true, 0)] {
         let mut house = HouseState::new(id, 0, Some(id), human, cash, 10);
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(id, house);
-        sim.session.house_order.push(id);
+        sim.houses.register(house);
     }
     sim.session.current_house = Some(owner);
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);

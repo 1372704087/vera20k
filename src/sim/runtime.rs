@@ -100,12 +100,7 @@ impl<'a> SimView<'a> {
         &self.simulation.house_alliances
     }
 
-    pub fn houses(
-        &self,
-    ) -> &'a std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    > {
+    pub fn houses(&self) -> &'a crate::sim::houses::Houses {
         &self.simulation.houses
     }
 
@@ -303,7 +298,7 @@ mod tests {
         assert_eq!(sim.session.current_house, Some(selected));
         assert!(sim.houses[&selected].is_human && sim.houses[&selected].player_control);
         let first = sim.interner.get("Zulu").unwrap();
-        assert_eq!(sim.session.house_order, [first, selected]);
+        assert_eq!(sim.houses.order(), [first, selected]);
         assert!(!sim.houses[&first].is_human && !sim.houses[&first].player_control);
     }
 
@@ -440,10 +435,10 @@ mod tests {
         .expect("one exact generated binding");
         let mut sim = Simulation::with_seed(0xC701_0412);
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         let before = sim.scenario_rng.logical_state();
 
         assert_eq!(

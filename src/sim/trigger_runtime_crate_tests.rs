@@ -20,11 +20,15 @@ fn fixture() -> (Simulation, RuleSet, OverlayTypeRegistry, InternedId, u64) {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     sim.session.game_options.crates = false;
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner,
+            0,
+            Some(owner),
+            true,
+            0,
+            10,
+        ));
     let actor = sim
         .spawn_object_at_height("TNK", "Americans", 15, 15, 0, 0, &rules)
         .unwrap();
@@ -451,11 +455,8 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
         sim.houses.get_mut(&owner).unwrap().player_control = false;
         sim.houses.get_mut(&owner).unwrap().economy.add_credits(100);
         let other = sim.interner.intern("Russians");
-        sim.houses.insert(
-            other,
-            HouseState::new(other, 1, Some(other), false, 200, 10),
-        );
-        sim.session.house_order.push(other);
+        sim.houses
+            .register(HouseState::new(other, 1, Some(other), false, 200, 10));
         let mutation = input["mutation"].as_str().unwrap_or("none");
         let action = match mutation {
             "kill" => "32,0,0,0,0,0,0,A",

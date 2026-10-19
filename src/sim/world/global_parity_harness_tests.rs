@@ -88,7 +88,7 @@ pub(super) fn record_replay_diagnostic(
         // House/Factory receipts observe shared consumers through their existing
         // owners, including private power state; they never mutate the replay.
         "engineer_house_attribution":{
-            "house_order":sim.session.house_order.iter().map(|owner|sim.resolve(*owner)).collect::<Vec<_>>(),
+            "house_order":sim.houses.order().iter().map(|owner|sim.resolve(*owner)).collect::<Vec<_>>(),
             "current_house":sim.session.current_house.map(|owner|sim.resolve(owner)),
             "houses":sim.houses.iter().map(|(owner,house)|serde_json::json!({
                 "owner":sim.resolve(*owner),"stats":house.stats,"economy":house.economy,
@@ -816,7 +816,7 @@ fn seed_scenario(sim: &mut Simulation, rules: &RuleSet, overlays: &OverlayTypeRe
     // join no house order, so no house AI runs.
     for (owner, side) in [("Americans", 0), ("Soviet", 1)] {
         let id = sim.interner.intern(owner);
-        sim.houses.entry(id).or_insert_with(|| {
+        sim.houses.get_or_register_for_test(id, || {
             crate::sim::house_state::HouseState::new(id, side, None, false, 0, 10)
         });
     }
@@ -1326,7 +1326,7 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
     );
     let building_owner = rep.interner.get("Americans").expect("building owner");
     assert!(
-        rep.session.house_order.is_empty(),
+        rep.houses.order().is_empty(),
         "this fixture runs no House AI"
     );
     assert!(

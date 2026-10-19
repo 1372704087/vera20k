@@ -339,8 +339,11 @@ fn stock_cloak_producer_honors_rank_selected_cloak_ability() {
 /// so this arm is dormant in an ordinary skirmish; the tests below still pin
 /// its collect/dispatch shape for a mod that does ship one.
 fn arm_cloak_field_for(sim: &mut Simulation, owner: InternedId, cell: (u16, u16)) {
-    if !sim.session.house_order.contains(&owner) {
-        sim.session.house_order.push(owner);
+    if !sim.houses.contains_key(&owner) {
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
     }
     sim.fog.reset_cloaked_by_houses();
     let index = sim
@@ -1127,11 +1130,10 @@ fn completing_the_cloak_scatters_only_a_computer_owned_unit() {
     let mut sim = Simulation::with_seed(0xC10A_C002);
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let house = sim.interner.intern(name);
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(house, side, None, human, 0, 10),
-        );
-        sim.session.house_order.push(house);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house, side, None, human, 0, 10,
+            ));
     }
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     let human = sim

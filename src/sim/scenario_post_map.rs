@@ -122,7 +122,7 @@ impl Simulation {
         // and the particle/OreTwinkle tail. Every nonnull House participates;
         // restore never enters this fresh-only owner or repeats its credits.
         if input.fill_silos {
-            for &owner in &self.session.house_order {
+            for owner in self.houses.order().to_vec() {
                 let income = crate::sim::house_state::income_ppm_for_owner(
                     &self.houses,
                     &self.interner,
@@ -449,7 +449,7 @@ mod tests {
             "A"
         ));
         let alliances = sim.house_alliances.clone();
-        let order = sim.session.house_order.clone();
+        let order = sim.houses.order().to_vec();
         let house_ids: Vec<_> = order
             .iter()
             .map(|owner| sim.houses[owner].native_unique_id())
@@ -463,7 +463,7 @@ mod tests {
             &absent_late_roster,
         ));
         assert_eq!(sim.house_alliances, alliances);
-        assert_eq!(sim.session.house_order, order);
+        assert_eq!(sim.houses.order(), order);
         assert_eq!(
             order
                 .iter()

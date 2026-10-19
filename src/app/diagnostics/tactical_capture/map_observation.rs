@@ -345,8 +345,8 @@ fn super_weapon_rows(sim: &crate::sim::world::Simulation, owner: &str) -> Value 
 /// names (`HouseClass+0x5788`), and the enemy its anger chose (`+0x5600`).
 fn diplomacy_row(sim: &crate::sim::world::Simulation, owner: &str) -> Value {
     let allies: Vec<&str> = sim
-        .session
-        .house_order
+        .houses
+        .order()
         .iter()
         .map(|&house| sim.interner.resolve(house))
         .filter(|house| {

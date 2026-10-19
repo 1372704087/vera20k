@@ -20,8 +20,7 @@ fn retail_factories() -> Option<(RuleSet, Simulation, u64, u64)> {
     let side = rules.country_side_index("Americans").unwrap().0;
     let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let first = sim.spawn_object("GAWEAP", "Americans", 6, 6, 0, &rules)?;
@@ -421,8 +420,7 @@ fn manual_primary_native_histories_preserve_retained_flags_consumers_and_streams
             let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
             house.project_country_mults(&rules, &sim.interner);
             house.take_tech_recheck();
-            sim.houses.insert(owner, house);
-            sim.session.house_order.push(owner);
+            sim.houses.register(house);
         }
         sim.session.current_house = Some(owners[0]);
         let mut ids = Vec::new();

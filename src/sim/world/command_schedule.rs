@@ -547,7 +547,7 @@ impl Simulation {
         commands: &[CommandEnvelope],
         execute_tick: u64,
     ) -> Vec<InternedId> {
-        let mut house_order = self.session.house_order.clone();
+        let mut house_order = self.houses.order().to_vec();
         for command in commands
             .iter()
             .filter(|command| command.execute_tick <= execute_tick)

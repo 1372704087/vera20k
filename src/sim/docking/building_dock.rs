@@ -2186,7 +2186,7 @@ mod tests {
             let owner_id = sim.interner.intern("Americans");
             let mut house = HouseState::new(owner_id, 0, None, false, 0, 10);
             house.economy.set_credits_for_test(10_000);
-            sim.houses.insert(owner_id, house);
+            sim.houses.register(house);
         }
         spawn_depot(&mut sim);
         for i in 0..tank_count {

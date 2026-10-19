@@ -201,7 +201,7 @@ fn damage_receiver_matches_original_packet_result_and_disguise_consequence() {
         let mut world = crate::sim::world::Simulation::new();
         world
             .houses
-            .insert(owner, HouseState::new(owner, 0, Some(owner), false, 0, 0));
+            .register(HouseState::new(owner, 0, Some(owner), false, 0, 0));
         world.substrate.entities.insert(target);
         world.session.binary_frame = frame;
         let warhead = interner.intern(input["warhead"].as_str().unwrap());

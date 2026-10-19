@@ -92,8 +92,7 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
         let owner = sim.interner.intern("Americans");
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, Some(owner), true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, 0, Some(owner), true, 0, 10));
         sim.session.current_house = Some(owner);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         sim.fog = crate::sim::vision::FogState::new(32, 32);

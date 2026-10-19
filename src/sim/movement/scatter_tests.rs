@@ -1,5 +1,6 @@
 use super::*;
 use crate::sim::components::{DriveCoord, NavTargetRef};
+use crate::sim::house_state::HouseState;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::{FacingClass, locomotor::LocomotorState};
 
@@ -340,7 +341,7 @@ fn cell_scatter_dispatch_matches_original_execution() {
         let rules = RuleSet::from_ini(&IniFile::from_str(&ini)).unwrap();
         let mut interner = StringInterner::new();
         let mut entities = EntityStore::new();
-        let mut houses = BTreeMap::new();
+        let mut houses = crate::sim::houses::Houses::default();
         let bridge = flag(input, "bridge", false);
         let mut technos = Vec::new();
         let mut others = Vec::new();
@@ -374,7 +375,7 @@ fn cell_scatter_dispatch_matches_original_execution() {
                 .set_rank_for_test(object["rank"].as_u64().unwrap_or(0) as u16 * 100);
             let mut house = HouseState::new(owner, 0, None, true, 0, 10);
             house.current_iq = object["iq"].as_i64().unwrap_or(0) as i32;
-            houses.insert(owner, house);
+            houses.register(house);
             entities.insert(entity);
             technos.push(id);
         }
@@ -440,10 +441,13 @@ fn unforced_walk_reads_house_iq_ability_elite_and_player_scatter() {
     man.set_category_for_test(EntityCategory::Infantry);
     let owner = man.owner();
     entities.insert(man);
-    let mut houses = BTreeMap::new();
-    houses.insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+    let mut houses = crate::sim::houses::Houses::default();
+    houses.register(HouseState::new(owner, 0, None, true, 0, 10));
     let interner = crate::sim::intern::test_interner();
-    let walk = |entities: &EntityStore, houses: &BTreeMap<_, _>, rules: &RuleSet, cell: &[u64]| {
+    let walk = |entities: &EntityStore,
+                houses: &crate::sim::houses::Houses,
+                rules: &RuleSet,
+                cell: &[u64]| {
         scatter_objects_admitted(cell, false, Some(rules), entities, houses, &interner)
     };
     for (iq, rank, expected) in [(1, 0, false), (2, 0, true), (1, 100, true)] {
@@ -703,7 +707,7 @@ fn receive_damage_scatter_gates_match_original_execution() {
         sim.interner = crate::sim::intern::test_interner();
         let mut house = HouseState::new(owner, 0, None, flag("human"), 0, 10);
         house.player_control = flag("player_control");
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(
                 input["game_mode_nonzero"].as_bool().unwrap_or(true),

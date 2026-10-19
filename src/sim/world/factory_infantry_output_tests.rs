@@ -215,8 +215,7 @@ fn ground_command_fixture(
     }
     house.difficulty = HouseDifficulty::Hard;
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house =
         (state["house"]["current"] == state["house"]["pointer"]).then_some(owner);
     // The complete original no_rally bootstrap records mode1 -> Skirmish5
@@ -278,11 +277,8 @@ fn ground_command_fixture(
         // reservation state. The fixture House does not reconstruct the
         // original target House's flags, HouseAI or startup.
         let target_owner = sim.interner.intern("Original-target-owner");
-        sim.houses.insert(
-            target_owner,
-            HouseState::new(target_owner, 1, None, false, 0, 10),
-        );
-        sim.session.house_order.push(target_owner);
+        sim.houses
+            .register(HouseState::new(target_owner, 1, None, false, 0, 10));
         let target = sim
             .spawn_object_at_height_with_overlay_registry(
                 prior["type"]["name"].as_str().unwrap(),
@@ -1915,8 +1911,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
     let mut house = HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
     house.difficulty = HouseDifficulty::Hard;
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));

@@ -234,7 +234,7 @@ fn toggle_repair_matches_the_original() {
         sim.session.current_house = (input["player"] == true).then_some(owner);
         let mut house = HouseState::new(owner, 0, None, input["human"] == true, 0, 10);
         house.player_control = input["player_control"] == true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let kind = sim.interner.intern("YAREFN");
         let mut building = GameEntity::new_at_frame_zero_for_test(
             1,
@@ -360,7 +360,7 @@ fn update_scene(corpus: &Value, input: &Value) -> (Simulation, RuleSet, Option<u
             .as_u64()
             .unwrap_or_else(|| constant(corpus, "delay_02")),
     ));
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     assert_eq!(sim.allocate_stable_id(), 1);
     let kind = sim.interner.intern("YAREFN");
     let health = int("health", 300);
@@ -779,7 +779,7 @@ fn the_repair_step_keeps_signed_adds_and_the_live_strength() {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 1000, 10));
+            .register(HouseState::new(owner, 0, None, true, 1000, 10));
         let kind = sim.interner.intern("GAPOWR");
         let mut building = GameEntity::new_at_frame_zero_for_test(
             1,

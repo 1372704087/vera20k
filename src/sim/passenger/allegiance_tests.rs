@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::rules::{art_data::ArtRegistry, ini_parser::IniFile};
+use crate::sim::house_state::HouseState;
 use crate::sim::world::ObjectAiCtx;
 use serde_json::Value;
 
@@ -97,8 +98,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64, Vec<InternedId>) {
                 10,
             );
             state.player_control = house["player_control"].as_bool().unwrap();
-            sim.houses.insert(owner, state);
-            sim.session.house_order.push(owner);
+            sim.houses.register(state);
             owner
         })
         .collect();
@@ -271,7 +271,7 @@ fn missing_civilian_roster_does_not_fabricate_a_house() {
     }) {
         let (mut sim, rules, id, _) = fixture(&row["input"]);
         let old_owner = sim.substrate.entities.get(id).unwrap().owner();
-        let houses = sim.session.house_order.clone();
+        let houses = sim.houses.order().to_vec();
         assert!(!reconcile_civilian_garrison_owner_for_building(
             &mut sim,
             &rules,
@@ -280,7 +280,7 @@ fn missing_civilian_roster_does_not_fabricate_a_house() {
             crate::sim::world::FrameEffects::default()
         ));
         assert_eq!(sim.substrate.entities.get(id).unwrap().owner(), old_owner);
-        assert_eq!(sim.session.house_order, houses);
+        assert_eq!(sim.houses.order(), houses);
     }
 }
 
@@ -377,8 +377,7 @@ fn zero_capacity_map_garrison_abandons_without_allocated_cargo() {
             .unwrap()
             .0;
         sim.houses
-            .insert(owner, HouseState::new(owner, side, None, human, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, side, None, human, 0, 10));
         if human {
             sim.session.current_house = Some(owner);
         }

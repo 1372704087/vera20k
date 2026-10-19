@@ -117,8 +117,7 @@ fn scripted_rally_preference_and_clear_match_original_targets_and_rng() {
         let enemy = sim.interner.intern(ENEMY);
         for owner in [computer, enemy] {
             sim.houses
-                .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
-            sim.session.house_order.push(owner);
+                .register(HouseState::new(owner, 0, None, false, 0, 10));
         }
         let input = &control["input"];
         sim.houses.get_mut(&computer).unwrap().difficulty =
@@ -467,8 +466,7 @@ fn the_try_fire_arms_match_native() {
         let enemy = sim.interner.intern(ENEMY);
         for (id, human) in [(computer, flag(&row["human"])), (enemy, true)] {
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, human, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, 0, None, human, 0, 10));
         }
         let house = sim.houses.get_mut(&computer).unwrap();
         house.player_control = flag(&row["control"]);
@@ -560,7 +558,7 @@ fn the_ground_rally_point_matches_native() {
     let computer = interner.intern(COMPUTER);
     let enemy = interner.intern(ENEMY);
     for row in rows {
-        let mut houses = std::collections::BTreeMap::new();
+        let mut houses = crate::sim::houses::Houses::default();
         for (id, base, alternate) in [
             (computer, &row["own_base"], &row["own_alternate"]),
             (enemy, &row["enemy_base"], &row["enemy_alternate"]),
@@ -569,7 +567,7 @@ fn the_ground_rally_point_matches_native() {
             let base = wide(cell(base));
             house.base_center = (base != (0, 0)).then_some(base);
             house.alternate_base_center = wide(cell(alternate));
-            houses.insert(id, house);
+            houses.register(house);
         }
         houses.get_mut(&computer).unwrap().enemy_house =
             (int(&row["enemy_index"]) != -1).then_some(enemy);
@@ -615,8 +613,7 @@ fn the_genetic_mutator_target_matches_native() {
         for name in [COMPUTER, ENEMY, ALLY] {
             let id = sim.interner.intern(name);
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, 0, None, false, 0, 10));
         }
         // `+0x5788` bit 2: the computer counts the third house an ally.
         sim.house_alliances
@@ -841,8 +838,7 @@ fn retail_skirmish() -> Option<(RuleSet, Simulation, InternedId, InternedId)> {
     let russians = sim.interner.intern("Russians");
     for (id, side, human) in [(russians, 1, true), (americans, 0, false)] {
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     let house = sim.houses.get_mut(&americans).unwrap();
     house.difficulty = HouseDifficulty::Hard;
@@ -1117,8 +1113,7 @@ fn the_psychic_dominator_target_matches_native() {
         for name in [COMPUTER, ENEMY, ALLY, NO_HOUSE] {
             let id = sim.interner.intern(name);
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, 0, None, false, 0, 10));
         }
         sim.houses.get_mut(&computer).unwrap().enemy_house =
             (int(&row["enemy_index"]) != -1).then_some(enemy);

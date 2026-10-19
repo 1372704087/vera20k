@@ -388,9 +388,8 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Allies");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 500, 10));
+            .register(HouseState::new(owner, 0, None, true, 500, 10));
         sim.session.current_house = Some(owner);
-        sim.session.house_order.push(owner);
         (sim, owner)
     }
 
@@ -596,7 +595,7 @@ mod tests {
         let (mut sim, owner) = offline();
         let other = sim.interner.intern("Enemy");
         sim.houses
-            .insert(other, HouseState::new(other, 1, None, false, 0, 10));
+            .register(HouseState::new(other, 1, None, false, 0, 10));
         let ty = sim.interner.intern("E1");
         let warhead = sim.interner.intern("SA");
         for (id, house) in [(1, owner), (2, other)] {

@@ -270,7 +270,6 @@ pub(super) fn commit_receiver_health(
         if execute_world_callbacks {
             update_anger_nodes(
                 &mut world.houses,
-                &world.session.house_order,
                 &world.house_alliances,
                 &world.interner,
                 victim_owner,

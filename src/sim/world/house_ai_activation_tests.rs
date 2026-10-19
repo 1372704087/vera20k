@@ -13,7 +13,7 @@ fn insert_house(
     let owner = sim.interner.intern(name);
     let mut house = HouseState::new(owner, 0, None, is_human, 0, 10);
     house.current_iq = current_iq;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     owner
 }
 
@@ -56,7 +56,6 @@ fn house_anger_decay_uses_binary_frame_not_rust_tick() {
             .unwrap()
             .grudge_scores
             .insert(peer, 2);
-        sim.session.house_order.extend([owner, peer]);
         (sim, owner)
     }
 

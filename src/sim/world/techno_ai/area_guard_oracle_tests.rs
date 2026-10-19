@@ -118,7 +118,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         .unwrap()
         .owner();
     f.sim.session.current_house = Some(friendly);
-    f.sim.session.house_order = vec![friendly, enemy];
+    f.sim.houses.reorder_for_test(&[friendly, enemy]);
     for (name, _) in roles {
         let before = &state["actors"][name];
         let id = f

@@ -94,7 +94,7 @@ fn build_synthetic_simulation(seed: u32) -> Simulation {
         // match on tick 1, freezing the committed-tick counter. Passive houses are
         // exempt from defeat evaluation, keeping every tick committable.
         house.multiplay_passive = true;
-        sim.houses.insert(owner_id, house);
+        sim.houses.register(house);
 
         let type_ref = sim.interner.intern("GACNST");
         let base_x = 10 + (index as u16) * 20;

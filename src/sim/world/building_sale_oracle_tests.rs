@@ -582,7 +582,7 @@ fn the_computers_low_credit_sale_matches_the_original_admission() {
         let mut house = HouseState::new(owner, 0, None, false, int("balance"), int("tech_level"));
         house.current_iq = int("current_iq");
         house.authored_iq = int("authored_iq");
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let kind = sim.interner.intern("YAREFN");
         let mut building = GameEntity::new_at_frame_zero_for_test(
             1,

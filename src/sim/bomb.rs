@@ -127,7 +127,7 @@ pub struct Bomb {
     /// `+0x38`: `start_frame + IvanTimedDelay`.
     end_frame: i32,
     /// The houses whose player sees it, bit `n` for
-    /// `ScenarioSession::house_order[n]`: native's per-client BombVisible
+    /// `Houses::order()[n]`: native's per-client BombVisible
     /// (the carrier's `+0x68`) for every house at once. Written only by
     /// `bomb_list_update`; saved like `+0x68`, but not hashed.
     #[serde(default)]
@@ -290,7 +290,7 @@ impl Simulation {
             .entities
             .get(carrier)
             .and_then(|entity| entity.bomb)
-            .is_some_and(|bomb| bomb.seen_by & house_bit(&self.session.house_order, house) != 0)
+            .is_some_and(|bomb| bomb.seen_by & house_bit(&self.houses.order(), house) != 0)
     }
 
     /// Where the carrier's ticking loop plays: its Location (`+0x9C`), while it
@@ -320,7 +320,7 @@ impl Simulation {
         if self.bombs.carriers.is_empty() {
             return;
         }
-        let order = &self.session.house_order;
+        let order = &self.houses.order();
         // The detectors (`BombList+0x1C`): `TechnoClass::Unlimbo` adds an
         // object whose type has a nonzero BombSight (`0x006F6D70`), `Limbo`
         // takes it out (`0x006F6B7A`). Coordinates are GetCoords (`vt+0x48`).

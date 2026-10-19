@@ -96,11 +96,8 @@ fn build_ordinary_c4_sim(
     ));
     for (side, name) in ["Americans", "Soviets"].into_iter().enumerate() {
         let house = sim.interner.intern(name);
-        sim.houses.insert(
-            house,
-            HouseState::new(house, side as u8, None, false, 1000, 10),
-        );
-        sim.session.house_order.push(house);
+        sim.houses
+            .register(HouseState::new(house, side as u8, None, false, 1000, 10));
     }
     (sim, rules, registry)
 }
@@ -458,11 +455,17 @@ fn ordinary_friendly_repair_uses_capture_event_without_hut_exception() {
         .replace("BridgeRepairHut=yes", "BridgeRepairHut=no\nCapturable=yes");
     for target_owner in ["Americans", "Soviets"] {
         let (mut sim, rules, registry) = super::entry_test_fixture::fixture_with_rules(&ini);
-        let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        for (side, name) in ["Americans", "Soviets"].into_iter().enumerate() {
+            let owner = sim.interner.intern(name);
+            sim.houses.register(crate::sim::house_state::HouseState::new(
+                owner,
+                side as i32,
+                None,
+                side == 0,
+                0,
+                10,
+            ));
+        }
         let target = sim
             .spawn_object_at_height("CABHUT", target_owner, 9, 10, 0, 0, &rules)
             .unwrap();

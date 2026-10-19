@@ -184,11 +184,10 @@ fn an_enemy_on_the_drop_cell_keeps_the_slaves_inside() {
 
     let mut s = refinery_with_slaves(2);
     let enemy_house = s.scene.sim.interner.intern("Russians");
-    s.scene.sim.houses.insert(
-        enemy_house,
-        HouseState::new(enemy_house, 0, None, true, 0, 10),
-    );
-    s.scene.sim.session.house_order.push(enemy_house);
+    s.scene
+        .sim
+        .houses
+        .register(HouseState::new(enemy_house, 0, None, true, 0, 10));
     let drop = s
         .scene
         .sim
@@ -561,10 +560,12 @@ fn a_destroyed_refinery_frees_its_slaves_to_the_killer() {
     }));
     s.scene.rules.general.slaves_free_sound = Some("SlavesFreed".to_string());
     let russians = s.scene.sim.interner.intern("Russians");
-    s.scene.sim.houses.insert(
-        russians,
-        crate::sim::house_state::HouseState::new(russians, 1, None, true, 0, 10),
-    );
+    s.scene
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            russians, 1, None, true, 0, 10,
+        ));
     let killer = s
         .scene
         .sim

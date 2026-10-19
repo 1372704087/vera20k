@@ -634,11 +634,15 @@ fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
     let americans = sim.interner.intern("Americans");
     for (owner, human) in [("Player", true), ("Americans", false), ("Computer2", false)] {
         let id = sim.interner.intern(owner);
-        sim.houses.insert(
-            id,
-            crate::sim::house_state::HouseState::new(id, 0, Some(americans), human, 5000, 10),
-        );
-        sim.session.house_order.push(id);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                id,
+                0,
+                Some(americans),
+                human,
+                5000,
+                10,
+            ));
     }
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
@@ -662,10 +666,15 @@ fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
 
 fn add_house(sim: &mut Simulation, owner: &str, is_human: bool) {
     let owner_id = sim.interner.intern(owner);
-    sim.houses.insert(
-        owner_id,
-        crate::sim::house_state::HouseState::new(owner_id, 0, Some(owner_id), is_human, 5000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner_id,
+            0,
+            Some(owner_id),
+            is_human,
+            5000,
+            10,
+        ));
 }
 
 fn deployed_type<'a>(sim: &'a Simulation, type_name: &str) -> &'a GameEntity {
@@ -738,7 +747,19 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     add_house(&mut sim, "Americans", false);
     let owner = sim.interner.get("Americans").unwrap();
-    sim.houses.get_mut(&owner).unwrap().current_iq = 5;
+    let game_mode_nonzero = sim.session.game_mode_nonzero();
+    let house = sim.houses.get_mut(&owner).unwrap();
+    house.current_iq = 5;
+    // Scenario setup's SetDifficulty supplies the RepairDelay the latch timer
+    // draws from; the House update releases the latch once that expires.
+    house.set_difficulty(
+        crate::sim::house_state::HouseDifficulty::Normal,
+        &rules.general,
+        Default::default(),
+        game_mode_nonzero,
+        0,
+        0,
+    );
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
@@ -1016,6 +1037,7 @@ fn base_plan_recalc_deploy_failures_preserve_source_rng_plan_and_centers() {
             .spawn_object("AMCV", "Americans", 20, 22, 128, rules)
             .expect("spawn MCV");
         if add_blocker {
+            add_house(&mut sim, "Blocker", false);
             sim.spawn_object("GAPOWR", "Blocker", 21, 22, 0, rules)
                 .expect("spawn footprint blocker");
         }
@@ -1219,10 +1241,10 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     );
     let owner = sim.interner.intern("Americans");
     let human = input["human"].as_i64().unwrap_or(0) != 0;
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, human, 0, 10,
+        ));
     sim.houses.get_mut(&owner).unwrap().set_difficulty(
         crate::sim::house_state::HouseDifficulty::from_native(
             input["difficulty"].as_i64().unwrap_or(1) as i32,
@@ -1779,10 +1801,10 @@ fn transport_may_unload(
     .expect("transport rules");
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, human, 0, 10,
+        ));
     if let Some(building) = building {
         sim.spawn_object(building, "Americans", 20, 22, 0, &rules)
             .expect("the building builds");

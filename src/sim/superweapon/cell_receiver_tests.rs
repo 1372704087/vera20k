@@ -76,8 +76,7 @@ fn fixture_with_art(extra: &str, art: Option<&IniFile>) -> (Simulation, RuleSet)
     sim.resolve_type_handles(&rules);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 50_000, 10));
     sim.session.game_options.super_weapons = true;
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(16, 16, |x, y| {
         test_terrain_cell(x, y)
@@ -646,8 +645,7 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
     let owner = sim.interner.intern("Americans");
     let enemy = sim.interner.intern("Soviet");
     sim.houses
-        .insert(enemy, HouseState::new(enemy, 1, None, true, 10_000, 10));
-    sim.session.house_order.push(enemy);
+        .register(HouseState::new(enemy, 1, None, true, 10_000, 10));
     let tank = sim
         .spawn_object_at_height("MTNK", "Americans", 5, 5, 0, 0, &rules)
         .unwrap();

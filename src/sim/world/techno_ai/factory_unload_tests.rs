@@ -352,7 +352,7 @@ fn fixture(rules: &RuleSet, ini: &IniFile) -> Fixture {
     sim.session.map_height = 128;
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
+        .register(HouseState::new(owner, 0, None, true, 50_000, 10));
     let product = sim
         .construct_object_limbo_at_height(
             "MTNK",
@@ -907,7 +907,7 @@ fn stock_naval_unload_leaves_match_original_mission_door_slots_and_rng() {
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
+            .register(HouseState::new(owner, 0, None, true, 50_000, 10));
         // Both receivers come from their real retail constructors. The DEST
         // starts held in Limbo; this leaf imports its measured post-Exit prior
         // rather than substituting a land tank or claiming to replay Exit.

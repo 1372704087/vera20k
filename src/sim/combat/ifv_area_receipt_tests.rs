@@ -297,11 +297,11 @@ fn native_area_receipt_tracks_dispatch_and_strict_iron_curtain_boundary() {
         world.session.binary_frame = 100;
         world.session.no_damage = input["scenario_flags"].as_u64().unwrap() & 0x20 != 0;
         let owner = world.interner.intern("Americans");
-        world.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        world.session.house_order.push(owner);
+        world
+            .houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         crate::sim::arena_fixture::flat_arena(&mut world, &rules);
         for cell in &mut world.resolved_terrain.as_mut().unwrap().cells {
             cell.level = 6;

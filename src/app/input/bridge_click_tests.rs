@@ -80,8 +80,7 @@ fn commandable_movers() -> (Simulation, crate::sim::intern::InternedId, [u64; 2]
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
-    sim.session.house_order = vec![owner];
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     sim.session.tick = 123;
     for (id, type_name, category) in [
         (42, "MTNK", EntityCategory::Unit),
@@ -243,7 +242,7 @@ fn spawn_retail_mover(
         resources,
     } = &mut scenario.runtime;
     let owner = sim.interner.intern("Americans");
-    let house = sim.houses.entry(owner).or_insert_with(|| {
+    let house = sim.houses.get_or_register_for_test(owner, || {
         crate::sim::house_state::HouseState::new(owner, 0, None, true, 10_000, 10)
     });
     // This is an authored local input fixture. A headless retail scenario
@@ -254,9 +253,6 @@ fn spawn_retail_mover(
     sim.session.current_house = Some(owner);
     for house in sim.houses.values_mut() {
         house.multiplay_passive = true;
-    }
-    if !sim.session.house_order.contains(&owner) {
-        sim.session.house_order.push(owner);
     }
     let entity = sim
         .spawn_object(

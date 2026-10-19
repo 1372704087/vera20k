@@ -64,8 +64,7 @@ fn retail_runtime() -> Option<(SimRuntime, [u64; 2])> {
         let side = rules.country_side_index(country).unwrap().0;
         let mut house = HouseState::new(owner, side, Some(owner), human, 50_000, 10);
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         if human {
             sim.session.current_house = Some(owner);
         }
@@ -283,7 +282,7 @@ fn retail_inactive_and_nonlocal_defeat_do_not_leave_the_local_planner() {
             };
             admitted.extend(output.take_admitted_commands());
         }
-        let loser = rt.simulation.session.house_order[losing_house];
+        let loser = rt.simulation.houses.order()[losing_house];
         assert!(rt.simulation.houses[&loser].is_defeated);
         assert_eq!(planning.active(), active);
         assert_eq!(

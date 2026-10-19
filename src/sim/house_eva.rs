@@ -132,7 +132,7 @@ pub(crate) fn update_house_eva(sim: &mut Simulation, rules: &RuleSet, owner: Int
 
 #[cfg(any(test, feature = "test-support"))]
 fn tick_house_eva(sim: &mut Simulation, rules: &RuleSet) {
-    for owner in sim.session.house_order.clone() {
+    for owner in sim.houses.order().to_vec() {
         update_house_eva(sim, rules, owner);
     }
 }
@@ -182,11 +182,8 @@ mod tests {
     fn sim_with_house(credits: i32, human: bool) -> (Simulation, InternedId) {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, 0, Some(owner), human, credits, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(HouseState::new(owner, 0, Some(owner), human, credits, 10));
         (sim, owner)
     }
 
@@ -288,11 +285,8 @@ mod tests {
         let rules = rules();
         let (mut sim, owner) = sim_with_house(0, true);
         let soviet = sim.interner.intern("Russians");
-        sim.houses.insert(
-            soviet,
-            HouseState::new(soviet, 1, Some(soviet), false, 0, 10),
-        );
-        sim.session.house_order.push(soviet);
+        sim.houses
+            .register(HouseState::new(soviet, 1, Some(soviet), false, 0, 10));
         let barracks = structure(&mut sim, &rules, "GAPILE", 3);
         structure(&mut sim, &rules, "GAPILE", 4);
         let yard = structure(&mut sim, &rules, "GAYARD", 6);

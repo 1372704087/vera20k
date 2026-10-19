@@ -24,11 +24,14 @@ fn fixture() -> (Simulation, RuleSet, InternedId, InternedId, InternedId) {
     let b = sim.interner.intern("Soviet");
     let c = sim.interner.intern("Third");
     for owner in [a, b, c] {
-        sim.houses.insert(
+        sim.houses.register(HouseState::new(
             owner,
-            HouseState::new(owner, owner.index() as u8, None, true, 10_000, 10),
-        );
-        sim.session.house_order.push(owner);
+            owner.index() as u8,
+            None,
+            true,
+            10_000,
+            10,
+        ));
     }
     (sim, rules, a, b, c)
 }
@@ -573,11 +576,8 @@ pub fn nontransitive_source_gap_views() -> Vec<(vision::FogState, InternedId, In
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     sim.fog = vision::FogState::new(32, 32);
     let hostile = sim.intern("Neutral");
-    sim.houses.insert(
-        hostile,
-        HouseState::new(hostile, 3, None, false, 10_000, 10),
-    );
-    sim.session.house_order.push(hostile);
+    sim.houses
+        .register(HouseState::new(hostile, 3, None, false, 10_000, 10));
     let graph = HouseAllianceMap::from([
         ("AMERICANS".into(), ["SOVIET".into()].into()),
         ("SOVIET".into(), ["AMERICANS".into(), "THIRD".into()].into()),

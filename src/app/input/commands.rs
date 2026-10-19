@@ -1077,11 +1077,13 @@ mod tests {
         let mut sim = Simulation::new();
         let local = sim.interner.intern("Local");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
-        sim.session.house_order.push(local);
+            .register(HouseState::new(local, 0, None, true, 0, 10));
 
         let accepted = schedule_stress_attack_moves(&mut sim, "Local", &[11, 12, 13], (40, 60));
-        assert_eq!(accepted, 3, "every object of the stress army gets its own order");
+        assert_eq!(
+            accepted, 3,
+            "every object of the stress army gets its own order"
+        );
         let queued = sim.pending_command_snapshot();
         assert_eq!(queued.len(), 3);
         assert!(
@@ -1111,8 +1113,7 @@ mod tests {
         let local = sim.interner.intern("Local");
         let kind = sim.interner.intern("FixtureType");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
-        sim.session.house_order.push(local);
+            .register(HouseState::new(local, 0, None, true, 0, 10));
         sim.session.set_input_locked(true);
         let before_hash = sim.state_hash();
         let before_names = sim.interner.len();
@@ -1159,8 +1160,7 @@ mod tests {
         let mut sim = Simulation::new();
         let local = sim.interner.intern("Local");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
-        sim.session.house_order.push(local);
+            .register(HouseState::new(local, 0, None, true, 0, 10));
         let before_hash = sim.state_hash();
 
         assert_eq!(
@@ -1200,8 +1200,7 @@ mod tests {
         let mut sim = Simulation::new();
         let local = sim.interner.intern("Local");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, true, 0, 10));
-        sim.session.house_order = vec![local];
+            .register(HouseState::new(local, 0, None, true, 0, 10));
         sim.session.tick = 41;
         sim.session.binary_frame = 73;
 
@@ -1256,9 +1255,8 @@ mod tests {
         let mut enemy_house = HouseState::new(enemy, 1, None, false, 0, 10);
         local_house.tracking.set_buildings_for_test(1);
         enemy_house.tracking.set_buildings_for_test(1);
-        sim.houses.insert(local, local_house);
-        sim.houses.insert(enemy, enemy_house);
-        sim.session.house_order = vec![local, enemy];
+        sim.houses.register(local_house);
+        sim.houses.register(enemy_house);
         sim.session.game_options.short_game = false;
         sim.session.tick = 41;
         sim.session.binary_frame = 42;
@@ -1369,8 +1367,7 @@ mod tests {
         let local = sim.interner.intern("Local");
         let type_ref = sim.interner.intern("TESTUNIT");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, false, 0, 10));
-        sim.session.house_order = vec![local];
+            .register(HouseState::new(local, 0, None, false, 0, 10));
         sim.session.tick = 123;
         sim.session.binary_frame = 77;
         let mut entity = GameEntity::new_at_frame_zero_for_test(
@@ -1499,12 +1496,11 @@ mod tests {
         let missing_house = sim.interner.intern("MissingHouse");
         let mut local_house = HouseState::new(local, 0, None, false, 0, 10);
         local_house.player_control = true;
-        sim.houses.insert(local, local_house);
+        sim.houses.register(local_house);
         sim.houses
-            .insert(remote, HouseState::new(remote, 1, None, true, 0, 10));
+            .register(HouseState::new(remote, 1, None, true, 0, 10));
         sim.houses
-            .insert(ai, HouseState::new(ai, 2, None, false, 0, 10));
-        sim.session.house_order = vec![local, remote, ai];
+            .register(HouseState::new(ai, 2, None, false, 0, 10));
         sim.session.binary_frame = 23;
 
         let issued = sim

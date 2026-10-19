@@ -26,8 +26,7 @@ fn fixture(relative_z: i32) -> (Simulation, RuleSet, u64) {
     super::super::lifecycle_tests::install_common_raw_terrain(&mut sim, 128, 82, 2, None);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     let id = sim.allocate_stable_id();
     let mut entity = GameEntity::test_default(id, "TEST", "Americans", 113, 59);
     entity.set_type_ref_for_test(sim.interner.intern("TEST"));

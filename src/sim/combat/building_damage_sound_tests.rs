@@ -172,8 +172,7 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
             .intern(identity["house_type_name"].as_str().unwrap());
         let mut house = HouseState::new(owner, 0, Some(country), human, 0, 10);
         house.player_control = player_control;
-        world.houses.insert(owner, house);
-        world.session.house_order.push(owner);
+        world.houses.register(house);
     }
     // Inherited make_dock_fixture declares mode1 and source PlayerPtr.
     world

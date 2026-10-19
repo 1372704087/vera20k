@@ -343,7 +343,7 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
     let mut sim = Simulation::new();
     let owner = sim.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     let tower = sim
         .spawn_object("ATESLA", "Americans", 12, 12, 0, &rules)
@@ -434,11 +434,8 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
         let mut sim = Simulation::new();
         for (index, name) in ["Americans", "Russians"].into_iter().enumerate() {
             let owner = sim.intern(name);
-            sim.houses.insert(
-                owner,
-                HouseState::new(owner, index as u8, None, true, 0, 10),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(HouseState::new(owner, index as u8, None, true, 0, 10));
         }
         sim.install_resolved_terrain_for_new_map(
             crate::map::resolved_terrain::test_flat_ground_grid(64),

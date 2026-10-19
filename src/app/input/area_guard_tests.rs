@@ -121,8 +121,7 @@ pub(super) fn fixture(corpus: &Value, row: &Value, retail: RetailBattleRules) ->
             10,
         );
         house.player_control = actor["player_control"].as_u64().unwrap() != 0;
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         if pointer == current_house {
             sim.session.current_house = Some(owner);
         }

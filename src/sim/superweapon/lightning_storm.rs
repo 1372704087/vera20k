@@ -290,8 +290,8 @@ pub(crate) fn start(
     storm.active = true;
     let local_player_defeated = sim.local_player_defeated();
     // HouseClass::Array, in creation order.
-    for index in 0..sim.session.house_order.len() {
-        let house = sim.session.house_order[index];
+    for index in 0..sim.houses.order().len() {
+        let house = sim.houses.order()[index];
         if let Some(owner) = owner
             && crate::map::houses::is_allied_with(
                 &sim.house_alliances,

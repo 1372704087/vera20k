@@ -131,7 +131,7 @@ impl Simulation {
                 .stop_preclick(pre_sw, frame);
         }
         // `0x004FAEC6..0x004FAEF2`: every house, last to first.
-        let houses: Vec<InternedId> = self.session.house_order.iter().rev().copied().collect();
+        let houses: Vec<InternedId> = self.houses.order().iter().rev().copied().collect();
         for house in houses {
             alert_super_weapon_defense(self, rules, house, sw, cell);
         }

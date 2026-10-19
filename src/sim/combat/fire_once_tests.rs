@@ -64,11 +64,10 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
     sim.intern_rule_type_ids(rules);
     sim.resolve_type_handles(rules);
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order = vec![owner];
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     sim.session.binary_frame = integer(&row["supplied"]["frame"]) as u32;
     let targets = [(20, 20), (22, 20)].map(|(rx, ry)| {
         sim.spawn_object_at_height("HTNK", "Americans", rx, ry, 0, 0, rules)

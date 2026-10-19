@@ -11,8 +11,7 @@ fn arena(rules: &RuleSet) -> Simulation {
     for (name, side) in [("Americans", 0), ("Russians", 1)] {
         let owner = sim.interner.intern(name);
         sim.houses
-            .insert(owner, HouseState::new(owner, side, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, side, None, true, 0, 10));
     }
     sim.session.current_house = sim.interner.get("Americans");
     crate::sim::arena_fixture::flat_arena(&mut sim, rules);

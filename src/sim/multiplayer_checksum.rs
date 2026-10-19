@@ -271,14 +271,14 @@ impl Simulation {
             }
         }
 
-        if self.session.house_order.len() != self.houses.len() {
+        if self.houses.order().len() != self.houses.len() {
             return Err(MultiplayerChecksumError::HouseOrderCoverage {
-                registered: self.session.house_order.len(),
+                registered: self.houses.order().len(),
                 stored: self.houses.len(),
             });
         }
-        for (index, owner) in self.session.house_order.iter().copied().enumerate() {
-            if self.session.house_order[..index].contains(&owner) {
+        for (index, owner) in self.houses.order().iter().copied().enumerate() {
+            if self.houses.order()[..index].contains(&owner) {
                 return Err(MultiplayerChecksumError::DuplicateHouse(owner));
             }
             let house = self

@@ -2292,14 +2292,14 @@ mod tests {
         let mut sim = Simulation::new();
         let ours = sim.interner.intern("Americans");
         let theirs = sim.interner.intern("Russians");
-        sim.houses.insert(
-            ours,
-            crate::sim::house_state::HouseState::new(ours, 0, None, true, 0, 10),
-        );
-        sim.houses.insert(
-            theirs,
-            crate::sim::house_state::HouseState::new(theirs, 1, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                ours, 0, None, true, 0, 10,
+            ));
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                theirs, 1, None, false, 0, 10,
+            ));
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
@@ -2425,14 +2425,14 @@ mod tests {
         let mut sim = Simulation::new();
         let ours = sim.interner.intern("Americans");
         let theirs = sim.interner.intern("Russians");
-        sim.houses.insert(
-            ours,
-            crate::sim::house_state::HouseState::new(ours, 0, None, true, 0, 10),
-        );
-        sim.houses.insert(
-            theirs,
-            crate::sim::house_state::HouseState::new(theirs, 1, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                ours, 0, None, true, 0, 10,
+            ));
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                theirs, 1, None, false, 0, 10,
+            ));
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
@@ -3847,10 +3847,10 @@ mod tests {
         // A human's probe: ReceiveDamage's scatter tail moves a computer's
         // unarmed unit off the reach edge (`0x00702C8A`); this measures reach.
         let soviet = sim.interner.intern("Soviet");
-        sim.houses.insert(
-            soviet,
-            crate::sim::house_state::HouseState::new(soviet, 1, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                soviet, 1, None, true, 0, 10,
+            ));
         // Capture walks onto the foundation before PerCellProcess admits
         // the occupant (InfantryClass::PerCellProcess @ 0x00519675).
         assert!(sim.apply_command(
@@ -4329,10 +4329,10 @@ mod tests {
         insert_scannable(&mut sim, 6, "Americans", "NOACQ", EntityCategory::Unit);
         on_move(&mut sim, 6);
         let americans = sim.interner.intern("Americans");
-        sim.houses.insert(
-            americans,
-            crate::sim::house_state::HouseState::new(americans, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                americans, 0, None, true, 0, 10,
+            ));
         crate::sim::team_script_vm::join_team_for_test(&mut sim, &[6], false, true);
         assert!(!scans(&mut sim, 6));
     }
@@ -4347,10 +4347,10 @@ mod tests {
         insert_scannable(&mut sim, 1, "Soviet", "MTNK", EntityCategory::Unit);
         insert_scannable(&mut sim, 2, "Soviet", "MTNK", EntityCategory::Unit);
         let soviet = sim.interner.intern("Soviet");
-        sim.houses.insert(
-            soviet,
-            crate::sim::house_state::HouseState::new(soviet, 0, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                soviet, 0, None, false, 0, 10,
+            ));
         let aim = |sim: &mut Simulation| {
             sim.substrate
                 .entities
@@ -4398,10 +4398,10 @@ mod tests {
             insert_scannable(&mut sim, 1, "Soviet", "MTNK", EntityCategory::Unit);
             insert_scannable(&mut sim, 2, "Soviet", "MTNK", EntityCategory::Unit);
             let soviet = sim.interner.intern("Soviet");
-            sim.houses.insert(
-                soviet,
-                crate::sim::house_state::HouseState::new(soviet, 0, None, human, 0, 10),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    soviet, 0, None, human, 0, 10,
+                ));
             let actor = sim.substrate.entities.get_mut(1).unwrap();
             actor
                 .mission
@@ -4455,10 +4455,10 @@ mod tests {
                 EntityCategory::Unit,
             );
             let owner = sim.intern("Soviet");
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, false, 0, 10,
+                ));
             let actor = sim.substrate.entities.get_mut(1).unwrap();
             actor
                 .attack_target

@@ -306,8 +306,7 @@ fn march(
             // No house owns a building, so exempt every house from the defeat
             // scan; objects still fight because only same-house pairs are allied.
             house.multiplay_passive = true;
-            sim.houses.insert(id, house);
-            sim.session.house_order.push(id);
+            sim.houses.register(house);
             id
         })
         .collect();

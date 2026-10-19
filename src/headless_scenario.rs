@@ -589,13 +589,10 @@ mod retail_construction_tests {
                         descriptor,
                         |sim| {
                             let americans = sim.interner.intern("Americans");
-                            sim.houses.insert(
-                                americans,
-                                crate::sim::house_state::HouseState::new(
+                            sim.houses
+                                .register(crate::sim::house_state::HouseState::new(
                                     americans, 0, None, true, 0, 10,
-                                ),
-                            );
-                            sim.session.house_order.push(americans);
+                                ));
                         },
                     );
                     Ok::<_, ()>(sim)

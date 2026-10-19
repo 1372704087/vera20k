@@ -91,7 +91,7 @@ fn native_null_record_kill_books_each_live_callback_immediately() {
         let (stats, score) = capture_totals(&row["before"]);
         house.stats = stats;
         house.economy.set_score_for_test(score);
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let mut victim = GameEntity::test_default(1, "GAPOWR", "Americans", 10, 10);
         victim.set_owner_for_test(owner);
         victim.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
@@ -226,7 +226,7 @@ fn produced_history_distinguishes_equal_built_totals_and_last_types() {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
         (sim, owner)
     };
     let (mut first, owner) = fixture();
@@ -271,7 +271,7 @@ fn saved_produced_history_rejects_inconsistent_cache_or_sparse_items() {
                 house.produced_type_counts[ObjectCategory::Infantry as usize].insert(2, 0);
             }
         }
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let bytes = GameSnapshot::save_validated(&sim, 1, 2, "invalid produced history", 0);
         let mut saved = GameSnapshot::load_validated(&bytes, 1, 2, "PRODUCED-HISTORY.MAP")
             .unwrap()
@@ -332,7 +332,7 @@ fn house_current_viewer_discovery_is_retained_without_changing_peer_hash() {
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     assert!(!sim.houses[&owner].discovered_by_current_house());
     let prior = sim.state_hash();
     sim.houses
@@ -343,7 +343,7 @@ fn house_current_viewer_discovery_is_retained_without_changing_peer_hash() {
     let encoded = serde_json::to_vec(&sim.houses[&owner]).unwrap();
     let restored: HouseState = serde_json::from_slice(&encoded).unwrap();
     assert!(restored.discovered_by_current_house());
-    sim.houses.insert(owner, restored);
+    sim.houses.replace_for_test(restored);
     assert_eq!(sim.state_hash(), prior);
 }
 
@@ -404,8 +404,7 @@ fn native_house_statistics_survive_snapshot_and_retained_ship_terminal_record() 
         }
         assert_eq!(house.stats, stats, "native Built total equals its item sum");
         house.economy.set_score_for_test(score);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         let id = sim.allocate_stable_id();
         let mut hull = GameEntity::test_default(id, "AEGIS", "Americans", 113, 59);
         hull.set_type_ref_for_test(sim.interner.intern("AEGIS"));
@@ -473,8 +472,7 @@ fn saved_live_statistics_preserve_terminal_score_and_rng_continuation() {
     // Explicit four-produced-item prior for this synthetic score scene.
     house.set_produced_count_for_test(ObjectCategory::Infantry, 0, 4);
     house.economy.set_score_for_test(700);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     let bytes = GameSnapshot::save_validated(&sim, 1, 2, "before score edge", 3);
     let mut restored = GameSnapshot::load_validated(&bytes, 1, 2, "SCORE.MAP")
         .unwrap()

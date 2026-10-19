@@ -40,11 +40,14 @@ fn fixture(countries: &[i32]) -> (Simulation, RuleSet, [InternedId; 3]) {
     let houses = std::array::from_fn(|index| {
         let owner = sim.interner.intern(&format!("House{index}"));
         let country = sim.interner.intern(&format!("Country{}", countries[index]));
-        sim.houses.insert(
+        sim.houses.register(HouseState::new(
             owner,
-            HouseState::new(owner, index as u8, Some(country), false, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+            index as u8,
+            Some(country),
+            false,
+            0,
+            10,
+        ));
         owner
     });
     (sim, rules, houses)
@@ -157,12 +160,14 @@ fn no_factories_event_matches_original_incoming_house_list_and_raw_class() {
                 .tracking
                 .set_buildings_for_test(int(&house["tracked_buildings"]));
         }
-        sim.session.house_order = case["house_order"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|slot| houses[slot.as_u64().unwrap() as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &case["house_order"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|slot| houses[slot.as_u64().unwrap() as usize])
+                .collect::<Vec<_>>(),
+        );
         super::tests::install_event_ingress_map(
             &mut sim,
             &rules,
@@ -246,12 +251,14 @@ fn fire_sale_action_matches_original_selector_state_and_unchanged_timer() {
     assert_eq!(controls.len(), 12);
     for case in controls {
         let (mut sim, rules, houses) = fixture(&[19, 7, 19]);
-        sim.session.house_order = case["house_order"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|slot| houses[slot.as_u64().unwrap() as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &case["house_order"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|slot| houses[slot.as_u64().unwrap() as usize])
+                .collect::<Vec<_>>(),
+        );
         for (slot, house) in case["player_at_slots"]
             .as_array()
             .unwrap()
@@ -377,8 +384,8 @@ fn no_factories_retail_sov02_delay_reaches_existing_sale_and_hunt_after_restore(
         Some(house)
     );
     let other = sim
-        .session
-        .house_order
+        .houses
+        .order()
         .iter()
         .copied()
         .find(|&id| id != house)

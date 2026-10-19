@@ -80,8 +80,7 @@ fn stock_base_fixture_from_retail(
     let owner = sim.intern(owner_name);
     let mut house = HouseState::new(owner, 0, Some(owner), true, 50_000, 10);
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     // Like the supplied flat terrain/base, mapped ground is an explicit
@@ -979,8 +978,7 @@ fn retail_spy_stolen_soviet_tech_admits_and_delivers_chrono_ivan() {
     // so unrelated AI construction cannot manufacture the missing request.
     let mut house = HouseState::new(enemy, 1, Some(enemy), true, 0, 10);
     house.project_country_mults(&fixture.rules, &fixture.sim.interner);
-    fixture.sim.houses.insert(enemy, house);
-    fixture.sim.session.house_order.push(enemy);
+    fixture.sim.houses.register(house);
     let laboratory = fixture
         .sim
         .spawn_object_at_height("NATECH", "Russians", 18, 20, 0, 0, &fixture.rules)

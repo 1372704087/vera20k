@@ -38,8 +38,7 @@ fn recruiting_team_fixture() -> (Simulation, RuleSet, u64, [u64; 2]) {
         .expect("clean fixed AIMD installs");
     let owner = sim.interner.intern("Computer");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
-    sim.session.house_order = vec![owner];
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     let members = [(10, 10), (12, 10)].map(|(rx, ry)| {
         sim.spawn_object_at_height("E1", "Computer", rx, ry, 0, 0, &rules)
             .expect("E1 spawns")
@@ -389,11 +388,10 @@ fn team_fixture(
     let mut computer = HouseState::new(owner, 0, None, false, 0, 10);
     computer.enemy_house = Some(enemy);
     computer.base_center = Some((10, 11));
-    sim.houses.insert(owner, computer);
+    sim.houses.register(computer);
     let mut human = HouseState::new(enemy, 1, None, true, 0, 10);
     human.base_center = Some((18, 11));
-    sim.houses.insert(enemy, human);
-    sim.session.house_order = vec![owner, enemy];
+    sim.houses.register(human);
     let members = [(10, 10), (12, 10)].map(|(rx, ry)| {
         sim.spawn_object_at_height(member, "Computer", rx, ry, 0, 0, &rules)
             .expect("member spawns")
@@ -655,7 +653,7 @@ fn super_team_fixture(script: &str) -> (Simulation, RuleSet, u64, [u64; 2], [u64
     );
     // House construction retains every stock entry, including the ungranted
     // ChronoWarp that Fire_SW reaches via PostClick. Clicking never constructs.
-    for owner in sim.session.house_order.clone() {
+    for owner in sim.houses.order().to_vec() {
         for name in &rules.super_weapon_order {
             let id = sim.interner.intern(name);
             sim.super_weapons.entry(owner).or_default().insert(

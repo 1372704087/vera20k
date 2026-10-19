@@ -747,8 +747,7 @@ fn install_base_building_house(sim: &mut Simulation, human: bool) {
         filled: true,
         retry_count: 0,
     }];
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
 }
 
 const BUILDABLE: &str = "[Clear]\nBuildable=yes\n";
@@ -884,11 +883,10 @@ fn ground_force_fixture(human: bool) -> (Simulation, RuleSet, u64, [u64; 3]) {
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     install_base_building_house(&mut sim, human);
     let enemy = sim.interner.intern("Russians");
-    sim.houses.insert(
-        enemy,
-        crate::sim::house_state::HouseState::new(enemy, 1, None, true, 0, 10),
-    );
-    sim.session.house_order.push(enemy);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            enemy, 1, None, true, 0, 10,
+        ));
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .unwrap();
@@ -1034,8 +1032,7 @@ fn retail_dustbowl_computer_mcv() -> (
     let mut house =
         crate::sim::house_state::HouseState::new(owner, 1, Some(owner), false, 10_000, 10);
     house.current_iq = rules.general.max_iq_levels;
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
 
     let (width, height) = crate::rules::foundation::foundation_dimensions(
         &rules.object("NACNST").expect("retail NACNST").foundation,

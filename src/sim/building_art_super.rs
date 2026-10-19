@@ -255,8 +255,7 @@ mod tests {
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Russians");
         sim.houses
-            .insert(owner, HouseState::new(owner, 1, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, 1, None, true, 0, 10));
         sim.resolved_terrain = Some(test_grid(16, 16, test_flat_cell));
         crate::sim::arena_fixture::supply_native_map(&mut sim);
         let id = sim

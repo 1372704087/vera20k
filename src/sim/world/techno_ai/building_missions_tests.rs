@@ -898,15 +898,12 @@ pub(super) fn retail_dustbowl_defence(
         // Register each extra House the way the native House array holds one:
         // a name FromName50C170 can read plus array membership, so the
         // snapshot401 admission (d11222e2c) accepts this state on restore.
-        sim.houses.entry(house).or_insert_with(|| {
+        sim.houses.get_or_register_for_test(house, || {
             let mut state =
                 crate::sim::house_state::HouseState::new(house, side, None, true, 10_000, 10);
             state.initialize_scenario_name(name);
             state
         });
-        if !sim.session.house_order.contains(&house) {
-            sim.session.house_order.push(house);
-        }
     }
     let (defence, truck, x, y) = (40..100_u16)
         .flat_map(|y| (40..100_u16).map(move |x| (x, y)))

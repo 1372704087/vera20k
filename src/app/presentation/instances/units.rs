@@ -1928,11 +1928,10 @@ mod tests {
             .expect("harvester rules");
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
         let id = sim
             .spawn_object_at_height("HARV", "Americans", 10, 10, 0x10, 0, &rules)
             .expect("harvester");

@@ -234,8 +234,7 @@ fn supplied_world(
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, None, true, 0, 10);
     house.player_control = true;
-    sim.houses.insert(owner, house);
-    sim.session.house_order = vec![owner];
+    sim.houses.register(house);
     let id = sim
         .construct_object_limbo_at_height(
             "SHAD",

@@ -468,12 +468,12 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
             let owner = fx.sim.interner.intern(name);
             fx.sim
                 .houses
-                .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+                .register(HouseState::new(owner, 0, None, true, 0, 10));
             owner
         })
         .collect();
     let opposing_house = owners[1];
-    fx.sim.session.house_order = owners;
+    fx.sim.houses.reorder_for_test(&owners);
     fx.sim
         .session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
@@ -1768,11 +1768,11 @@ fn nighthawk_passenger_is_refused_by_an_enemy_in_the_aircraft_cell() {
             let owner = fx.sim.interner.intern(name);
             fx.sim
                 .houses
-                .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+                .register(HouseState::new(owner, 0, None, true, 0, 10));
             owner
         })
         .collect();
-    fx.sim.session.house_order = owners;
+    fx.sim.houses.reorder_for_test(&owners);
     fx.sim
         .session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));

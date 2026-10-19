@@ -2021,7 +2021,7 @@ mod tests {
                     let mut house =
                         crate::sim::house_state::HouseState::new(local, 0, None, true, 0, 10);
                     house.is_defeated = true;
-                    sim.houses.insert(local, house);
+                    sim.houses.register(house);
                     sim.session.current_house = Some(local);
                 }
                 let owner = sim.interner.intern(if row["player"] == true {
@@ -2468,8 +2468,7 @@ mod tests {
         let owner = sim.intern("Americans");
         let mut house = HouseState::new(owner, 0, Some(owner), true, 50_000, 10);
         house.project_country_mults(&rules, &sim.interner);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         sim.session.current_house = Some(owner);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         for (name, x) in [("GACNST", 4), ("GAPILE", 11)] {

@@ -902,7 +902,7 @@ mod tests {
         sim.resolve_type_handles(&rules);
         let owner = sim.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 1000, 10));
+            .register(HouseState::new(owner, 0, None, true, 1000, 10));
         sim.session.current_house = Some(owner);
         let infantry = sim.interner.get("E1").unwrap();
         let cameo = Cameo {

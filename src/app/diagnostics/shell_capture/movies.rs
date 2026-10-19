@@ -1582,7 +1582,7 @@ fn installed_campaign_runtime_receipt(state: &AppState) -> Result<Value> {
     let current_native_id = current_house
         .native_unique_id()
         .context("current House has no native identity")?;
-    let roster = sim.session.house_order.iter().map(|id| {
+    let roster = sim.houses.order().iter().map(|id| {
         let house = sim.houses.get(id).context("registered House missing from live roster")?;
         let native_id = house.native_unique_id().context("registered House has no native identity")?;
         let team_timer = house.team_creation.timer();

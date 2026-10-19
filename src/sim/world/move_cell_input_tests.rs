@@ -567,11 +567,10 @@ impl Simulation {
         let mut sim = Self::with_seed(0x4de1d0);
         sim.intern_rule_type_ids(&rules);
         let owner = sim.interner.intern("Local");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         sim.session.current_house = Some(owner);
         sim.session.binary_frame = 100;
         // Infantry-only contenders need Long Game: Short Game correctly
@@ -649,11 +648,10 @@ impl Simulation {
             .unwrap();
         // Keep two live Long Game contenders while the real frame host runs.
         let enemy = sim.interner.intern("Enemy");
-        sim.houses.insert(
-            enemy,
-            crate::sim::house_state::HouseState::new(enemy, 1, None, false, 0, 10),
-        );
-        sim.session.house_order.push(enemy);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                enemy, 1, None, false, 0, 10,
+            ));
         sim.spawn_object("E1", "Enemy", 12, 11, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
         sim.fog.reveal_all_for_owner(owner);

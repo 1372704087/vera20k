@@ -21,7 +21,7 @@ use crate::sim::vision::FogState;
 /// Max horizontal reach: sqrt(200) ≈ 14px, max vertical reach: sqrt(400) = 20px.
 const PICK_DISTANCE_THRESHOLD: f32 = 200.0;
 /// The simulation's house table, as the picker needs it: owner → player state.
-type HouseStates = std::collections::BTreeMap<InternedId, crate::sim::house_state::HouseState>;
+type HouseStates = crate::sim::houses::Houses;
 
 /// Ordered calls into the native selection vector. `clear` runs first,
 /// `deselect` removes exact members without disturbing survivors, and `select`

@@ -747,8 +747,7 @@ fn building_team(
     let mut house = |name: &str, side| {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, false, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, false, 0, 10));
         id
     };
     let russians = house("Russians", 1);
@@ -1009,8 +1008,7 @@ fn scatter_sends_every_member_to_a_neighbouring_cell() {
     let mut sim = Simulation::with_seed(0x6E9650);
     let owner = sim.interner.intern("Russians");
     sim.houses
-        .insert(owner, HouseState::new(owner, 1, None, false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 1, None, false, 0, 10));
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     let starts = [(10, 10), (11, 10), (12, 10)];
     let members: Vec<u64> = starts
@@ -1443,8 +1441,7 @@ impl DeployTeam {
         let mut sim = Simulation::with_seed(0x6ED4D0);
         let owner = sim.interner.intern("Russians");
         sim.houses
-            .insert(owner, HouseState::new(owner, 1, None, false, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, 1, None, false, 0, 10));
         let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let members: Vec<u64> = spawns
             .iter()

@@ -103,12 +103,7 @@ impl PaidHead {
         let other = sim.interner.intern("Opponent");
         let mut house = HouseState::new(other, 1, Some(owner), false, 0, 10);
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(other, house);
-        for house in [owner, other] {
-            if !sim.session.house_order.contains(&house) {
-                sim.session.house_order.push(house);
-            }
-        }
+        sim.houses.register(house);
         let attacker = sim
             .spawn_object("CLEG", "Opponent", 12, 20, 0, rules)
             .expect("the stock CLEG prior constructs before the comparison");

@@ -253,10 +253,7 @@ fn gsi_13_06_active_shp_unit(type_name: &str, kind: LocomotorKind) -> GameEntity
 struct Gsi1306Speed {
     rules: RuleSet,
     interner: StringInterner,
-    houses: std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    >,
+    houses: crate::sim::houses::Houses,
 }
 
 impl Gsi1306Speed {
@@ -271,7 +268,7 @@ impl Gsi1306Speed {
             ))
             .expect("SHP fixture rules"),
             interner: crate::sim::intern::test_interner(),
-            houses: std::collections::BTreeMap::new(),
+            houses: crate::sim::houses::Houses::default(),
         }
     }
 
@@ -845,10 +842,10 @@ fn infantry_action_fixture(
     );
     let mut sim = crate::sim::world::Simulation::with_seed(0);
     let house = sim.interner.intern("Americans");
-    sim.houses.insert(
-        house,
-        crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            house, 0, None, true, 0, 10,
+        ));
     let id = sim
         .construct_object_limbo_at_height(
             "E1",

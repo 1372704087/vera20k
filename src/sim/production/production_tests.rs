@@ -532,14 +532,11 @@ pub(super) fn spawn_structure(
 ) {
     let owner_id = sim.interner.intern(owner);
     let type_id_interned = sim.interner.intern(type_id);
-    sim.houses.entry(owner_id).or_insert_with(|| {
+    sim.houses.get_or_register_for_test(owner_id, || {
         crate::sim::house_state::HouseState::new(owner_id, 0, None, true, STARTING_CREDITS, 10)
     });
     // LogicClass visits Houses through its constructor-ordered vector. Raw
     // placed-building fixtures must admit their House as well as its storage.
-    if !sim.session.house_order.contains(&owner_id) {
-        sim.session.house_order.push(owner_id);
-    }
     let mut ge = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
         sid,
         rx,
@@ -1204,10 +1201,15 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     sim.session.map_width = 40;
     sim.session.map_height = 40;
     let americans = sim.interner.intern("Americans");
-    sim.houses.insert(
-        americans,
-        crate::sim::house_state::HouseState::new(americans, 0, None, true, STARTING_CREDITS, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            americans,
+            0,
+            None,
+            true,
+            STARTING_CREDITS,
+            10,
+        ));
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 10, 10);
     spawn_structure(&mut sim, &rules, 2, "Americans", "GAYARD", 20, 20);
     stamp_type_foundation(&mut sim, &rules, 1);

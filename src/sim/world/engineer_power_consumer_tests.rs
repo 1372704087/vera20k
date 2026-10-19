@@ -125,7 +125,7 @@ fn fixture(radar: bool) -> (Simulation, RuleSet, InternedId) {
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, Some(owner), true, 5000, 10);
     house.current_iq = 1;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     building(&mut sim, PLANT, owner, "GAPOWR", 374);
     building(&mut sim, DRAIN, owner, "DRAIN", 500);
     building(&mut sim, RADAR, owner, "RADAR", 500);

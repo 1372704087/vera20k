@@ -1116,9 +1116,10 @@ fn advance_one_simulation_frame(
                 let houses = rt.simulation.houses.len();
                 let batch = rt.simulation.path_batch_stats();
                 state.match_state.telemetry_timing.push(tick_ms);
-                state.match_state.telemetry_history.record_tick(
-                    tick, tick_ms, entities, houses, batch,
-                );
+                state
+                    .match_state
+                    .telemetry_history
+                    .record_tick(tick, tick_ms, entities, houses, batch);
                 // A report point closes the profiling window, so it covers the
                 // five seconds since the previous point rather than the whole
                 // match.
@@ -2468,9 +2469,9 @@ mod modal_pump_tests {
         let player = sim.interner.intern("Player");
         let computer = sim.interner.intern("Computer1");
         sim.houses
-            .insert(player, HouseState::new(player, 0, None, true, 0, 10));
+            .register(HouseState::new(player, 0, None, true, 0, 10));
         sim.houses
-            .insert(computer, HouseState::new(computer, 1, None, false, 0, 10));
+            .register(HouseState::new(computer, 1, None, false, 0, 10));
         let row = |owner, losses| crate::sim::score::TerminalScoreRowSnapshot {
             owner,
             country: None,

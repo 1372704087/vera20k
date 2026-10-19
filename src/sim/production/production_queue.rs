@@ -34,7 +34,7 @@ pub(in crate::sim) fn house_for_test<'a>(
     owner: &str,
 ) -> &'a mut crate::sim::house_state::HouseState {
     let key = sim.interner.intern(owner);
-    sim.houses.entry(key).or_insert_with(|| {
+    sim.houses.get_or_register_for_test(key, || {
         crate::sim::house_state::HouseState::new(key, 0, None, true, STARTING_CREDITS, 10)
     })
 }

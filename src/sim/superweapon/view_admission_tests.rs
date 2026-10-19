@@ -26,8 +26,7 @@ fn nuke_scene() -> (Simulation, RuleSet, InternedId, InternedId) {
     let mut sim = Simulation::with_seed(0);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     let type_id = sim.interner.intern("NukeSpecial");
     sim.super_weapons
         .entry(owner)

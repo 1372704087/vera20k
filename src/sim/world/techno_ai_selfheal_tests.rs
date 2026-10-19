@@ -63,7 +63,7 @@ fn scene() -> (Simulation, RuleSet, InternedId) {
     sim.intern_rule_type_ids(&rules);
     let owner = sim.interner.intern("Soviet");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     (sim, rules, owner)
 }
 
@@ -141,7 +141,7 @@ fn an_owner_change_moves_the_counter_between_houses() {
     let (mut sim, rules, owner) = scene();
     let new_owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(new_owner, HouseState::new(new_owner, 0, None, false, 0, 10));
+        .register(HouseState::new(new_owner, 0, None, false, 0, 10));
     let hospital = spawn(&mut sim, &rules, "CAHOSP");
     assert_eq!(sim.houses[&owner].self_heal_infantry(), 1);
 
@@ -671,7 +671,7 @@ fn missing_house_self_heal_keys_retain_constructor_defaults_and_completed_buildi
     // The actual building ownership transition revokes both live grants.
     let other = sim.interner.intern("Other");
     sim.houses
-        .insert(other, HouseState::new(other, 1, None, false, 0, 10));
+        .register(HouseState::new(other, 1, None, false, 0, 10));
     for building in [hospital, machine_shop] {
         sim.change_owner_with_rules(building, other, &rules, None, FrameEffects::empty());
     }

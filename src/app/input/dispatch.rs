@@ -2514,11 +2514,10 @@ mod item83_selection_order_tests {
         let mut sim = Simulation::new();
         let local = sim.interner.intern("Local");
         let kind = sim.interner.intern("TESTUNIT");
-        sim.houses.insert(
-            local,
-            crate::sim::house_state::HouseState::new(local, 0, None, false, 0, 10),
-        );
-        sim.session.house_order = vec![local];
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                local, 0, None, false, 0, 10,
+            ));
         for id in [42, 43, 44] {
             let mut entity = GameEntity::new_at_frame_zero_for_test(
                 id,
@@ -3809,7 +3808,7 @@ mod control_group_tests {
         let id = sim.interner.intern(name);
         let mut house = crate::sim::house_state::HouseState::new(id, 0, None, is_human, 0, 10);
         house.player_control = player_control;
-        sim.houses.insert(id, house);
+        sim.houses.register(house);
         id
     }
 

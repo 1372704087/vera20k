@@ -106,8 +106,7 @@ fn sim_with_houses(sides: &[u8]) -> (Simulation, Vec<InternedId>) {
             let id = sim.interner.intern(&format!("house{n}"));
             let country = sim.interner.intern(&format!("Country{side}"));
             sim.houses
-                .insert(id, HouseState::new(id, side, Some(country), false, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, side, Some(country), false, 0, 10));
             id
         })
         .collect();
@@ -251,7 +250,7 @@ fn native_flag_result_and_savour_controls() {
             None,
             timer,
         );
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.session.current_house = Some(owner);
         if input["observer"].as_bool().unwrap_or(false) {
             sim.session.install_multiplayer_house_identity(
@@ -1029,8 +1028,7 @@ fn the_civilian_house_is_asked_of_its_house_type() {
                 let id = sim.interner.intern(name);
                 let country = sim.interner.intern(country);
                 sim.houses
-                    .insert(id, HouseState::new(id, side, Some(country), false, 0, 10));
-                sim.session.house_order.push(id);
+                    .register(HouseState::new(id, side, Some(country), false, 0, 10));
                 id
             })
             .collect();

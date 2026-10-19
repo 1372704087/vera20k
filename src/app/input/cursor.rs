@@ -2641,10 +2641,10 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             // is human (House50B730). current_house alone is UI identity;
             // register the real house before spawning its counted objects.
             let owner = sim.entities().get(seed_tank).unwrap().owner();
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, true, 0, 10,
+                ));
             assert!(sim.owner_is_human(owner));
             let house = sim
                 .spawn_object("HOUSE", "Americans", 2, 10, 0, &rules)
@@ -3363,7 +3363,10 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         sim.resolve_type_handles(&rules);
         for house in ["Americans", "Soviets"] {
             let id = sim.interner.intern(house);
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, false, 0, 10,
+                ));
         }
         // This is a local player's selected actor. Techno700C40's virtual
         // +A0 reaches House50B6F0; a house_order entry alone is not LocalPlayer.

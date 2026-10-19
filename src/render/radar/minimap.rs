@@ -31,7 +31,7 @@ use crate::rules::house_colors::HouseColorRamps;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 use super::current_cell::CurrentRadarCellAuthority;
 use super::events::{ClientRadarEvents, RadarEventSource};
@@ -361,7 +361,7 @@ impl MinimapRenderer {
         queue: &wgpu::Queue,
         entities: &crate::sim::entity_store::EntityStore,
         logic_order: &[u64],
-        houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
+        houses: &crate::sim::houses::Houses,
         house_colors: &HouseColorMap,
         sim_tick: u64,
         binary_frame: u32,

@@ -1049,11 +1049,10 @@ mod repair_notification_tests {
         let owner = sim.interner.intern("Americans");
         let other = sim.interner.intern("Russians");
         for id in [owner, other] {
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, 0, None, true, 0, 1),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, true, 0, 1,
+                ));
         }
         sim.session.current_house = Some(owner);
         sim.session.set_game_mode(
@@ -1104,10 +1103,10 @@ mod repair_notification_tests {
         let ai = sim.interner.intern("Russians");
         let player = sim.interner.intern("Americans");
         for owner in [ai, player] {
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, false, 0, 0,
+                ));
         }
         sim.houses.get_mut(&player).unwrap().player_control = true;
         sim.announce_bridge_repair(ai, (7, 8), (8, 8));

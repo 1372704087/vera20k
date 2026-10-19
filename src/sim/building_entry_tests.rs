@@ -124,8 +124,7 @@ fn arena(rules: &RuleSet) -> (Simulation, PathGrid) {
     for (name, side, human) in [("YuriCountry", 2, false), ("Americans", 0, true)] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     (sim, grid)
@@ -2852,8 +2851,7 @@ fn script64_enters_a_neutral_civilian_building_outside_the_own_house_list() {
     house.multiplay_passive =
         crate::sim::house_state::resolve_multiplay_passive(Some(&rules), Some("Neutral"));
     assert!(house.multiplay_passive, "production Country reader");
-    sim.houses.insert(neutral, house);
-    sim.session.house_order.push(neutral);
+    sim.houses.register(house);
     let own = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 24, 10);
     let civilian = spawn(&mut sim, &rules, "CAGAS01", "Neutral", 16, 10);
     let occupier = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
@@ -2990,8 +2988,7 @@ fn retail_all01_script64_conscript_admits_a_map_civilian_garrison() {
     house.multiplay_passive =
         crate::sim::house_state::resolve_multiplay_passive(Some(&rules), Some("Neutral"));
     assert!(house.multiplay_passive, "retained campaign Country reader");
-    sim.houses.insert(neutral, house);
-    sim.session.house_order.push(neutral);
+    sim.houses.register(house);
     let building = spawn(&mut sim, &rules, &civilian.type_id, "Neutral", 16, 10);
     let conscript = spawn(&mut sim, &rules, "E2", "YuriCountry", 10, 10);
 

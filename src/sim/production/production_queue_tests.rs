@@ -50,10 +50,10 @@ fn busy_factory_exit_world() -> Option<(Simulation, RuleSet, InternedId)> {
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     let owner = sim.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     for (id, cell) in [(1, (6, 6)), (2, (10, 20)), (3, (20, 10))] {
         spawn_structure(&mut sim, &rules, id, "Americans", "GAWEAP", cell.0, cell.1);
@@ -631,10 +631,10 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
             ),
         );
         let owner = sim.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 50_000, 10,
+            ));
         let mut labels = BTreeMap::new();
         let mut producer_types = vec![("source", input["producer_type"].as_str().unwrap())];
         producer_types.extend(
@@ -1125,10 +1125,10 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 10, 10);
     spawn_structure(&mut sim, &rules, 2, "Americans", "GAWEAP", 14, 10);
 
@@ -1264,17 +1264,15 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
         let after = &cancellation["after"];
         let mut sim = Simulation::with_seed(control["input"]["seed"].as_u64().unwrap());
         let owner = sim.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
                 owner,
                 0,
                 None,
                 control["input"]["owner_human"].as_bool().unwrap(),
                 5000,
                 10,
-            ),
-        );
+            ));
         arm_build_via(
             &mut sim,
             &rules,
@@ -1469,10 +1467,10 @@ fn build_catalog_exposes_sidebar_categories_and_required_houses() {
 
     for (side, name) in [(0, "Americans"), (0, "Alliance")] {
         let id = sim.interner.intern(name);
-        sim.houses.insert(
-            id,
-            crate::sim::house_state::HouseState::new(id, side, None, true, 50_000, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                id, side, None, true, 50_000, 10,
+            ));
     }
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 10, 10);
     spawn_structure(&mut sim, &rules, 2, "Americans", "GAWEAP", 12, 10);
@@ -1550,17 +1548,15 @@ fn named_skirmish_owner_uses_country_for_build_permissions() {
 
     let owner_id = sim.interner.intern("Commander");
     let country_id = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner_id,
-        crate::sim::house_state::HouseState::new(
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
             owner_id,
             0,
             Some(country_id),
             true,
             super::production_types::STARTING_CREDITS,
             10,
-        ),
-    );
+        ));
     spawn_structure(&mut sim, &rules, 1, "Commander", "GACNST", 10, 10);
 
     let options = build_options_for_owner(&sim, &rules, "Commander");
@@ -1621,17 +1617,15 @@ fn deployed_mcv_unlocks_building_options_for_named_skirmish_owner() {
 
     let owner_id = sim.interner.intern("Commander");
     let country_id = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner_id,
-        crate::sim::house_state::HouseState::new(
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
             owner_id,
             0,
             Some(country_id),
             true,
             super::production_types::STARTING_CREDITS,
             10,
-        ),
-    );
+        ));
     let mcv = sim
         .spawn_object("AMCV", "Commander", 20, 22, 64, &rules)
         .expect("MCV should spawn");
@@ -1891,10 +1885,15 @@ fn forbidden_houses_leave_americans_one_airforce_command() {
     sim.resolve_type_handles(&rules);
 
     let americans_id = sim.interner.intern("Americans");
-    sim.houses.insert(
-        americans_id,
-        crate::sim::house_state::HouseState::new(americans_id, 0, None, true, 50_000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            americans_id,
+            0,
+            None,
+            true,
+            50_000,
+            10,
+        ));
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
 
     let americans = build_options_for_owner(&sim, &rules, "Americans");
@@ -2733,7 +2732,7 @@ fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
         let owner = sim.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 50_000, 10);
         house.base_center = Some((20, 20));
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 12, 12);
         sim.substrate
@@ -2851,7 +2850,7 @@ fn a_computer_barracks_sends_its_infantry_to_a_listed_post() {
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 50_000, 10);
         house.base_center = Some((20, 20));
         house.current_iq = iq;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 12, 12);
         arm_build_via(

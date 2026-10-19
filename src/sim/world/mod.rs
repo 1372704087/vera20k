@@ -1185,10 +1185,6 @@ pub struct Simulation {
     #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     house_ai_activation_order_test_trace: Vec<HouseAiActivationOrderTestEvent>,
-    /// One-shot fixture hook proving that the House loop reloads live length.
-    #[cfg(any(test, feature = "test-support"))]
-    #[serde(skip)]
-    house_update_append_after_test: Option<(InternedId, InternedId)>,
     /// Sound events produced during the current tick and moved into the owned
     /// app-frame output batch.
     #[serde(skip)]
@@ -1239,9 +1235,8 @@ pub struct Simulation {
     /// Resolved TeamClass/ScriptType runtime; scenario INI parsing remains a
     /// separate refused boundary until its record grammar is evidenced.
     pub team_script_vm: TeamScriptVm,
-    /// Per-player state keyed by uppercase owner name. Deterministic iteration
-    /// via BTreeMap. Equivalent to the original engine's HouseClass array.
-    pub houses: BTreeMap<InternedId, HouseState>,
+    /// The HouseClass array: each House's state and registration order.
+    pub houses: crate::sim::houses::Houses,
     /// Derived movement inputs reused across object turns (blocker plane).
     /// Rebuilt from state on demand; never serialized or hashed.
     #[serde(skip)]
@@ -2946,8 +2941,8 @@ impl Simulation {
             }
             let victim_name = self.interner.resolve(event.owner).to_string();
             let listeners: Vec<InternedId> = self
-                .session
-                .house_order
+                .houses
+                .order()
                 .iter()
                 .copied()
                 .filter(|&listener| {
@@ -3410,8 +3405,6 @@ impl Simulation {
             master_frame_test_trace: Vec::new(),
             #[cfg(any(test, feature = "test-support"))]
             house_ai_activation_order_test_trace: Vec::new(),
-            #[cfg(any(test, feature = "test-support"))]
-            house_update_append_after_test: None,
             sound_events: Vec::new(),
             lighting_sources: crate::sim::light_sources::LightingSources::default(),
             fire_events: Vec::new(),
@@ -3424,7 +3417,7 @@ impl Simulation {
             bale_events: Vec::new(),
             bunker_wall_events: Vec::new(),
             team_script_vm: TeamScriptVm::default(),
-            houses: BTreeMap::new(),
+            houses: crate::sim::houses::Houses::default(),
             zone_grid: None,
             path_grid: None,
             structure_navigation_cells: BTreeSet::new(),
@@ -5052,7 +5045,7 @@ impl Simulation {
         country: crate::rules::ruleset::CountryIdx,
         rules: &RuleSet,
     ) -> Option<InternedId> {
-        self.session.house_order.iter().copied().find(|owner| {
+        self.houses.order().iter().copied().find(|owner| {
             self.houses
                 .get(owner)
                 .and_then(|house| house.country)
@@ -6200,14 +6193,7 @@ impl Simulation {
         let selling =
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
         let mut active = BTreeSet::new();
-        let mut scanned_houses = BTreeSet::new();
-        for &owner in self.session.house_order.iter().chain(self.houses.keys()) {
-            let Some(house) = self.houses.get(&owner) else {
-                continue;
-            };
-            if !scanned_houses.insert(owner) {
-                continue;
-            }
+        for (&owner, house) in &self.houses {
             for &stable_id in house.base_projection.buildings() {
                 let Some(entity) = self.substrate.entities.get(stable_id) else {
                     continue;
@@ -6325,8 +6311,8 @@ impl Simulation {
         let game_mode_nonzero = self.session.game_mode_nonzero();
         let iq_production = rules.map(|rules| rules.general.iq_production);
         let represented = self.houses.contains_key(&owner);
-        if let Some(house) = self.houses.get_mut(&owner) {
-            house_strategy::decay_anger_scores(house, &self.session.house_order, current_frame);
+        if let Some((house, house_order)) = self.houses.get_mut_with_order(&owner) {
+            house_strategy::decay_anger_scores(house, house_order, current_frame);
         }
         if represented {
             #[cfg(any(test, feature = "test-support"))]

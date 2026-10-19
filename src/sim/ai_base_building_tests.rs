@@ -38,7 +38,7 @@ fn suggest_new_object_matches_original_raw_factory_dispatch_table() {
     ] {
         house.ai_unit_choices.set(kind, 0);
     }
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     // Original jump targets load the existing four House choices. The saved
     // byte table establishes aliases; this is control-flow/data evidence,
     // not an execution of a complete native production queue.
@@ -100,10 +100,8 @@ fn computer_house(game_mode_nonzero: bool) -> (Simulation, InternedId) {
     );
     let owner = sim.interner.intern("AIHouse");
     let country = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        HouseState::new(owner, 0, Some(country), false, 10_000, 10),
-    );
+    sim.houses
+        .register(HouseState::new(owner, 0, Some(country), false, 10_000, 10));
     (sim, owner)
 }
 
@@ -471,11 +469,8 @@ fn exit_fixture() -> (Simulation, RuleSet, InternedId, u64, u64) {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     let owner = sim.interner.intern("AIHouse");
     let country = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        HouseState::new(owner, 0, Some(country), false, 10_000, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(HouseState::new(owner, 0, Some(country), false, 10_000, 10));
     let yard = sim
         .spawn_object("YARD", "AIHouse", 12, 12, 0, &rules)
         .unwrap();
@@ -659,8 +654,7 @@ fn an_enemy_on_the_site_fails_the_exit_and_the_node_forgets_its_cell() {
     let (mut sim, rules, owner, yard, product) = exit_fixture();
     let enemy = sim.interner.intern("Enemy");
     sim.houses
-        .insert(enemy, HouseState::new(enemy, 1, None, false, 10_000, 10));
-    sim.session.house_order.push(enemy);
+        .register(HouseState::new(enemy, 1, None, false, 10_000, 10));
     sim.spawn_object("TANK", "Enemy", 16, 16, 0, &rules)
         .unwrap();
 

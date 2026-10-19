@@ -356,9 +356,9 @@ mod tests {
         let local = sim.interner.intern("Player");
         let ai = sim.interner.intern("Computer");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, true, 10_000, 10));
+            .register(HouseState::new(local, 0, None, true, 10_000, 10));
         sim.houses
-            .insert(ai, HouseState::new(ai, 1, None, false, 10_000, 10));
+            .register(HouseState::new(ai, 1, None, false, 10_000, 10));
         sim.fog.by_owner.insert(
             ai,
             crate::sim::vision::OwnerVisibility::new(sim.fog.width, sim.fog.height),
@@ -388,7 +388,7 @@ mod tests {
         let human = shrouded.interner.intern("Player");
         shrouded
             .houses
-            .insert(human, HouseState::new(human, 0, None, true, 10_000, 10));
+            .register(HouseState::new(human, 0, None, true, 10_000, 10));
         let context = crate::sim::world::UninitContext::new(None, None);
         apply_launch_shroud_option(&mut shrouded, context);
         assert!(!shrouded.fog.is_cell_revealed(human, 7, 5));
@@ -1220,8 +1220,8 @@ mod tests {
         );
 
         let order: Vec<_> = sim
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .map(|id| sim.interner.resolve(*id))
             .collect();
@@ -1390,10 +1390,8 @@ mod tests {
                 .multiplay_passive = true;
         }
         let observer = sim.interner.intern("Observer");
-        sim.houses.insert(
-            observer,
-            HouseState::new(observer, 0, None, false, 10_000, 10),
-        );
+        sim.houses
+            .register(HouseState::new(observer, 0, None, false, 10_000, 10));
 
         apply_skirmish_ai_opening_credits(&mut sim, &rules);
 
@@ -2045,7 +2043,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner_id = sim.interner.intern("MapPlayer");
         sim.houses
-            .insert(owner_id, HouseState::new(owner_id, 2, None, true, 0, 10));
+            .register(HouseState::new(owner_id, 2, None, true, 0, 10));
         assert_eq!(
             crate::app::presentation::sidebar_render::sidebar_theme_for_owner(
                 Some(&sim),
@@ -2062,7 +2060,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Russians");
         sim.houses
-            .insert(owner, HouseState::new(owner, 1, None, true, 0, 10));
+            .register(HouseState::new(owner, 1, None, true, 0, 10));
         assert_eq!(
             crate::app::presentation::sidebar_render::sidebar_theme_for_owner(
                 Some(&sim),
@@ -2078,7 +2076,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner_id = sim.interner.intern("DynamicOwner");
         sim.houses
-            .insert(owner_id, HouseState::new(owner_id, 7, None, true, 0, 10));
+            .register(HouseState::new(owner_id, 7, None, true, 0, 10));
 
         assert_eq!(
             crate::app::presentation::sidebar_render::sidebar_theme_for_owner(

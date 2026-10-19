@@ -161,10 +161,21 @@ impl Fixture {
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(48));
         crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "prism flat ground 48");
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
+        // The target's House: building spawns mark their owner's reservation.
+        let target_owner = sim.interner.intern("Russians");
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                target_owner,
+                1,
+                None,
+                false,
+                0,
+                10,
+            ));
         let mut buildings = BTreeMap::new();
         let mut spawned = Vec::new();
         let towers = input["towers"].as_array().cloned().unwrap_or_default();

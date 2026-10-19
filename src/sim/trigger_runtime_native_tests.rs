@@ -272,12 +272,14 @@ fn naval_land_events_match_original_signed_tracking_and_country_selection() {
                     integer(&counts[2]),
                 );
         }
-        sim.session.house_order = case["house_order"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|index| houses[index.as_u64().unwrap() as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &case["house_order"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|index| houses[index.as_u64().unwrap() as usize])
+                .collect::<Vec<_>>(),
+        );
         install_event_ingress_map(
             &mut sim,
             &rules,
@@ -876,12 +878,14 @@ fn building_loss_event_matches_original_tracked_count_and_country_order() {
     assert_eq!(controls.len(), 14);
     for case in controls {
         let (mut sim, rules, _, houses) = event_ingress_fixture();
-        sim.session.house_order = case["house_order"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|index| houses[integer(index) as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &case["house_order"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|index| houses[integer(index) as usize])
+                .collect::<Vec<_>>(),
+        );
         for (index, owner) in houses.iter().enumerate() {
             sim.houses
                 .get_mut(owner)
@@ -1071,7 +1075,7 @@ fn damage_source_event44_matches_original_registered_house_index() {
     let mut compared = 0;
     for case in corpus["predicate_controls"].as_array().unwrap() {
         let (mut sim, rules, _, houses) = event_ingress_fixture();
-        assert_eq!(sim.session.house_order, houses);
+        assert_eq!(sim.houses.order(), houses);
         sim.session.binary_frame = 123;
         let actor = case["inputs"]["actor_owner"].as_u64().map(|index| {
             spawn_event_ingress_unit(&mut sim, &rules, houses[index as usize], (15, 15))
@@ -1940,11 +1944,8 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
         let owner = sim.interner.intern("RetainedHouse");
         let country = sim.interner.intern("Confederation");
         if input["owner_present"].as_bool().unwrap() {
-            sim.houses.insert(
-                owner,
-                HouseState::new(owner, 0, Some(country), false, 0, 10),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(HouseState::new(owner, 0, Some(country), false, 0, 10));
         }
         for name in &rules.super_weapon_order {
             let id = sim.interner.intern(name);
@@ -2253,7 +2254,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     sim.session.binary_frame = integer(&native["frame"]) as u32;
     let owner = sim.interner.intern(&authored.owner);
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     let type_id = sim.interner.intern(&authored.type_id);
     assert_eq!(sim.allocate_stable_id(), 1);
     let mut entity = GameEntity::new_at_frame_zero_for_test(
@@ -3158,7 +3159,7 @@ fn team_member_tag_admission_and_removal_match_original_controls() {
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, Some(owner), false, 0, 10));
+            .register(HouseState::new(owner, 0, Some(owner), false, 0, 10));
         let definitions = IniFile::from_str(&format!(
             "[TeamTypes]\n0=TT\n[TT]\nHouse=Americans\nScript=S\nTaskForce=F\nOnTransOnly={}\n\
              [ScriptTypes]\n0=S\n[S]\n0=5,0\n[TaskForces]\n0=F\n[F]\n0=1,E1\n",
@@ -3411,8 +3412,8 @@ fn stock_state(sim: &Simulation, draws: usize) -> Value {
         })
         .collect();
     let houses: serde_json::Map<_, _> = sim
-        .session
-        .house_order
+        .houses
+        .order()
         .iter()
         .map(|house| {
             let tags: Vec<_> = runtime
@@ -3510,11 +3511,10 @@ fn physical_retail_sov01_registration_and_enable_timers_match_original_at_all_di
                 .country
                 .as_deref()
                 .map(|name| sim.interner.intern(name));
-            sim.houses.insert(
-                house,
-                crate::sim::house_state::HouseState::new(house, 0, country, false, 0, 10),
-            );
-            sim.session.house_order.push(house);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    house, 0, country, false, 0, 10,
+                ));
         }
         sim.initialize_trigger_definitions(&map, &teams, Some(&eva), None);
         sim.trigger_runtime.fixture_difficulty = Some(integer(&row["input"]["difficulty"]));
@@ -3753,8 +3753,7 @@ fn supplied_house(sim: &mut Simulation, input: &Value) -> crate::sim::intern::In
             CdTimer::from_raw(-1, 99),
         );
     }
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     owner
 }
 
@@ -4339,9 +4338,9 @@ fn native_trigger_reveal_initial_event48_tags_receive_neutral_discovery_dispatch
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false),
         );
         sim.houses
-            .insert(player, HouseState::new(player, 0, None, true, 0, 10));
+            .register(HouseState::new(player, 0, None, true, 0, 10));
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+            .register(HouseState::new(owner, 0, None, false, 0, 10));
         sim.initialize_trigger_definitions(
             &map,
             &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),

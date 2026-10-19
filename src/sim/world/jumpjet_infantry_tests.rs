@@ -63,12 +63,9 @@ pub(super) fn retail_dustbowl_rocketeer()
     } = &mut scenario.runtime;
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let house = sim.interner.intern(name);
-        sim.houses
-            .entry(house)
-            .or_insert_with(|| HouseState::new(house, side, None, human, 10_000, 10));
-        if !sim.session.house_order.contains(&house) {
-            sim.session.house_order.push(house);
-        }
+        sim.houses.get_or_register_for_test(house, || {
+            HouseState::new(house, side, None, human, 10_000, 10)
+        });
     }
     let (rocketeer, x, y) = (40..100_u16)
         .flat_map(|y| (40..100_u16).map(move |x| (x, y)))
@@ -824,10 +821,12 @@ fn rocketeer_crash_fixture(
     });
     sim.playfield_size_height = Some(64);
     sim.session.binary_frame = 1000;
-    for (name, human) in [("Americans", true), ("Soviets", false)] {
+    // Both Houses human: the native harness steps objects alone, so no
+    // computer House update draws from the Scenario stream.
+    for name in ["Americans", "Soviets"] {
         let house = sim.interner.intern(name);
         sim.houses
-            .insert(house, HouseState::new(house, 0, None, human, 0, 10));
+            .register(HouseState::new(house, 0, None, true, 0, 10));
     }
     let reveal = |sim: &mut super::Simulation, id: u64, rx: u16, ry: u16| {
         assert!(matches!(

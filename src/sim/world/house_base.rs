@@ -991,8 +991,7 @@ mod tests {
         let owner = sim.interner.intern(name);
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         owner
     }
 
@@ -1366,7 +1365,7 @@ mod tests {
                 2 => sim.playfield_size_height = None,
                 3 => sim.zone_grid = None,
                 4 => {
-                    sim.houses.remove(&owner);
+                    sim.houses.remove_for_test(&owner);
                 }
                 5 => {
                     sim.substrate.entities.remove(id);
@@ -1864,7 +1863,7 @@ mod tests {
         for house in [allies, soviets] {
             let mut state = HouseState::new(house, 0, None, false, 0, 10);
             state.project_country_mults(&rules, &sim.interner);
-            sim.houses.insert(house, state);
+            sim.houses.register(state);
         }
         let tank = rules.object("HTNK").unwrap();
         let costs = |sim: &Simulation| {

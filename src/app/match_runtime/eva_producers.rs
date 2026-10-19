@@ -593,8 +593,7 @@ mod tests {
                 .0;
             let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
             house.project_country_mults(&rules, &sim.interner);
-            sim.houses.insert(owner, house);
-            sim.session.house_order.push(owner);
+            sim.houses.register(house);
         }
         sim.session.current_house = Some(local);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);

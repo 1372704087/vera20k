@@ -97,7 +97,7 @@ fn unit(
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     // Map load wires the four [General] slope keys into the live config.
     let general = &rules.general;
     sim.terrain_speed_config =

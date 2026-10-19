@@ -29,11 +29,9 @@ fn saved_current_house_drives_app_fog_and_command_owner_after_load() {
     for (index, owner) in [outgoing, player].into_iter().enumerate() {
         // Both human, with the outgoing owner registered first: neither
         // is_human nor House registration order identifies the saved viewer.
-        saved.houses.insert(
-            owner,
-            HouseState::new(owner, index as u8, None, true, 0, 10),
-        );
-        saved.session.house_order.push(owner);
+        saved
+            .houses
+            .register(HouseState::new(owner, index as u8, None, true, 0, 10));
     }
     saved.session.current_house = Some(player);
     saved.fog.width = 8;
@@ -108,8 +106,7 @@ fn current_house_excludes_selection_and_debug_override_but_sandbox_keeps_both() 
     let selected = sim.interner.intern("SelectedHouse");
     let type_ref = sim.interner.intern("TESTUNIT");
     sim.houses
-        .insert(player, HouseState::new(player, 0, None, true, 0, 10));
-    sim.session.house_order.push(player);
+        .register(HouseState::new(player, 0, None, true, 0, 10));
     assert_eq!(
         preferred_local_owner_for_sim(&sim, None, &roster, Some("SandboxHouse")).as_deref(),
         Some("SandboxHouse"),

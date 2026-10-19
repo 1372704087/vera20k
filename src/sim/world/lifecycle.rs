@@ -4067,7 +4067,6 @@ impl Simulation {
             .filter_map(Self::nav_ref_object)
             .for_each(&mut name);
         [
-            listener.passenger_role.boarding_transport_id(),
             listener.passenger_role.inside_transport_id(),
             listener.pending_entry(),
             listener.spawn_owner_id.owner(),
@@ -4614,13 +4613,11 @@ impl Simulation {
         // Transporter+11C survives a live hull's ordinary Limbo announcement,
         // for either control. Clear only on Object+90==0, exact Health==0 or
         // ScenarioInit(A8E7AC)!=0. Negative live HP is not this zero test.
-        // The boarding adapter follows NavCom expiry independently.
-        let clear_passenger_role = listener.passenger_role.boarding_transport_id()
+        let clear_passenger_role = listener.passenger_role.inside_transport_id()
             == Some(expired_id)
-            || (listener.passenger_role.inside_transport_id() == Some(expired_id)
-                && (!expired_object_alive
-                    || expired_health == 0
-                    || self.object_placement_scope_active()));
+            && (!expired_object_alive
+                || expired_health == 0
+                || self.object_placement_scope_active());
         let clear_c4_source = listener
             .pending_c4_detonation
             .pending()

@@ -24,6 +24,11 @@ use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::radio::{self, RadioMessage, RadioPayload};
 use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation, UninitContext};
 
+/// NavCom (`+0x5A4`) compared by pointer with `object`.
+fn nav_com_is(entity: &crate::sim::game_entity::GameEntity, object: u64) -> bool {
+    super::nav_targets_same_receiver(entity.navigation.nav_com(), NavTargetRef::object(object))
+}
+
 /// The reason a `Per_Cell_Process` call passes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PerCellReason {
@@ -195,58 +200,19 @@ impl Simulation {
             if self.foot_per_cell_eaten(id, rules, registry, effects) {
                 return;
             }
+            if self.unit_per_cell_absorber(id, rules, registry, effects) {
+                return;
+            }
             // The object-destination docking arm73A31F..A547 completes
             // Foot's tail and returns before the later factory clearance.
             if self.unit_dock_now(id, rules, registry, effects) {
                 return;
             }
-            // Steam gamemd3e81a617, Unit73A64A..73A793: Enter attaches
-            // at PerCell2, before clearance, sight, Ready and Foot's tail.
-            // Drive4B20CD..4B2115 retires its track before this callback;
-            // attaching in the late passenger pass concealed a moving Unit
-            // whose old head resumed when another shore unloaded it.
-            if let Some(transport) = self
-                .substrate
-                .entities
-                .get(id)
-                .and_then(|entity| entity.passenger_role.boarding_transport_id())
-                && self
-                    .substrate
-                    .entities
-                    .get(transport)
-                    .is_some_and(|target| target.category() == EntityCategory::Unit)
-            {
-                match crate::sim::passenger::process_boarding_passenger(
-                    self,
-                    rules,
-                    id,
-                    crate::sim::passenger::BoardingVisit::CellArrival,
-                    registry,
-                    effects,
-                ) {
-                    crate::sim::passenger::BoardingOutcome::Boarded => return,
-                    crate::sim::passenger::BoardingOutcome::Refused => {
-                        //73A796..73A7CF: null destination, deferred Guard,
-                        //then forced Scatter(NULL,1,1), returning before Foot.
-                        self.assign_null_destination(id, Some(rules), registry, effects);
-                        if let Some(entity) = self.substrate.entities.get_mut(id) {
-                            crate::sim::mission::authority::queue_entity_mission_deferred(
-                                entity,
-                                MissionId::from_known(MissionType::Guard),
-                            );
-                        }
-                        let _ = self.scatter(
-                            id,
-                            None,
-                            super::ScatterFlags::new(true, true),
-                            rules,
-                            registry,
-                            effects,
-                        );
-                        return;
-                    }
-                    crate::sim::passenger::BoardingOutcome::Waiting => {}
-                }
+            // Unit73A5EA..73A7CF attaches at PerCell2, before clearance,
+            // sight, Ready and Foot's tail. Drive4B20CD..4B2115 retires its
+            // track before this callback.
+            if self.unit_per_cell_transport(id, rules, registry, effects) {
+                return;
             }
             self.unit_per_cell_factory_clearance(id, rules, registry, effects);
         }
@@ -254,12 +220,10 @@ impl Simulation {
         // current-XYZ/cached-radius+3 Map567DA0 border, after clearance and
         // before Ready/Commence. Evidence: shroud_frontier_moving.json.
         // RESIDUAL: native returns
-        // before them from arms VERA runs elsewhere or not at all: the
-        // `UnitAbsorb=` entry, its failure
-        // tail (`0x0073A796`), and Guard's map exit (`0x0073AC0E..
-        // 0x0073AC4F`). Trigger: a unit arriving to enter a building or
-        // to leave the map (VERA retains building entry adapters). Effect:
-        // VERA reveals one more footprint at that cell, which stays revealed.
+        // before them from Guard's map exit (`0x0073AC0E..0x0073AC4F`), which
+        // VERA runs elsewhere. Trigger: a unit arriving to leave the map.
+        // Effect: VERA reveals one more footprint at that cell, which stays
+        // revealed.
         if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
             self.refresh_object_sight(id, rules, 0);
             self.refresh_object_sight_border(id, UninitContext::new(rules, registry));
@@ -731,16 +695,17 @@ impl Simulation {
     /// `InfantryClass::Per_Cell_Process @ 0x00519630`: for reason 2 its
     /// occupier arm (`0x00519675..0x00519739`,
     /// [`Self::infantry_per_cell_occupy`]), building receiver (an Engineer's,
-    /// or a spy's infiltration, `0x00519948..0x0051A06E`), C4 plant
+    /// or a spy's infiltration, `0x00519948..0x0051A06E`), Enter arm
+    /// (`0x0051A0D4..0x0051A4BF`, [`Self::infantry_per_cell_enter`]), C4 plant
     /// (`0x0051A4BF..0x0051A664`, [`Self::infantry_per_cell_c4`]), tethered
     /// radio8 release (`0x0051A7F8..0x0051A812`), then the Foot body for a
     /// live owner (`0x0051A9EB` tests only IsAlive, `+0x90`). Each arm asks
     /// for its own missions, so their order among themselves is native.
     ///
-    /// Mobile Enter executes the shared passenger owner at51A3A0..51A485,
-    /// before C4 and the Teleport caller's NULL destination, despite warp-in.
+    /// The Enter arm runs before C4 and the Teleport caller's NULL
+    /// destination, despite warp-in.
     /// Eaten51973C runs after the occupier arm and before ordinary Capture.
-    /// RESIDUAL: other Capture branches, building Enter and the C4 cell
+    /// RESIDUAL: other Capture branches and the C4 cell
     /// arm (`0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
     /// ports with their own owners (`capture_manager`, `passenger`); native
     /// runs them before the Foot body, with some early returns, which also
@@ -774,70 +739,15 @@ impl Simulation {
             _ => Default::default(),
         };
         if !entry.return_before_foot {
-            // Steam gamemd3e81a617,51A3A0..51A485: a mobile transport
-            // arrival boards before Foot's tail. Teleport71971C calls here
-            // after setting warp-in; waiting for the late passenger phase
-            // loses NavCom to71973C and incorrectly strands the infantry.
+            // Teleport71971C calls here after setting warp-in, before its
+            // NULL destination.
             if reason == PerCellReason::Arrival
                 && let Some(rules) = rules
-                && let Some(target_transport_id) = self
-                    .substrate
-                    .entities
-                    .get(id)
-                    .and_then(|entity| entity.passenger_role.boarding_transport_id())
-                && self
-                    .substrate
-                    .entities
-                    .get(target_transport_id)
-                    .is_some_and(|target| {
-                        matches!(
-                            target.category(),
-                            EntityCategory::Unit | EntityCategory::Aircraft
-                        )
-                    })
+                && let Some(changed) = self.infantry_per_cell_enter(id, rules, registry, effects)?
             {
-                let boarding = crate::sim::passenger::process_boarding_passenger(
-                    self,
-                    rules,
-                    id,
-                    crate::sim::passenger::BoardingVisit::CellArrival,
-                    registry,
-                    effects,
-                );
-                match boarding {
-                    crate::sim::passenger::BoardingOutcome::Boarded => {
-                        return Ok(entry.bridge_state_changed);
-                    }
-                    crate::sim::passenger::BoardingOutcome::Refused => {
-                        //51A488..51A4BF: failed0F retires NavCom, queues
-                        //Guard and scatters, then returns without Foot's tail.
-                        self.assign_null_destination(id, Some(rules), registry, effects);
-                        if let Some(entity) = self.substrate.entities.get_mut(id) {
-                            crate::sim::mission::authority::queue_entity_mission_deferred(
-                                entity,
-                                MissionId::from_known(MissionType::Guard),
-                            );
-                        }
-                        let changed = self
-                            .infantry_scatter_null(
-                                id,
-                                super::ScatterFlags::new(true, true),
-                                rules,
-                                registry,
-                                effects,
-                            )
-                            .map_err(|cause| FrameAdvanceError {
-                                tick: self.session.tick,
-                                binary_frame: self.session.binary_frame,
-                                entity_id: id,
-                                cause,
-                            })?;
-                        return Ok(entry.bridge_state_changed || changed);
-                    }
-                    crate::sim::passenger::BoardingOutcome::Waiting => {}
-                }
+                return Ok(entry.bridge_state_changed || changed);
             }
-            //51A4BF follows the mobile Enter arm and precedes radio8 release.
+            //51A4BF follows the Enter arm and precedes radio8 release.
             if reason == PerCellReason::Arrival
                 && let Some(rules) = rules
                 && self.infantry_per_cell_c4(id, rules, registry, effects)?
@@ -874,6 +784,338 @@ impl Simulation {
             }
         }
         Ok(entry.bridge_state_changed)
+    }
+
+    /// What an Enter arrival finds in a cell: the first Building of its
+    /// ground list (`0x0047C520`), else the first Aircraft (`0x0047EBF0`) or
+    /// Unit (`0x0047EBA0`) of `layer`'s list, in that order; a
+    /// `VehicleThief=` infantryman looks for the Unit first and the Building
+    /// last (Infantry `0x0051A0D4..0x0051A184` and `0x0051A1BB..0x0051A219`,
+    /// Unit `0x0073A5EA..0x0073A63A`).
+    fn enter_candidate(
+        &self,
+        (rx, ry): (u16, u16),
+        layer: MovementLayer,
+        vehicle_thief: bool,
+    ) -> Option<u64> {
+        let occupancy = &self.substrate.occupancy;
+        let entities = &self.substrate.entities;
+        let building = || occupancy.first_building_on_layer(rx, ry, MovementLayer::Ground);
+        let aircraft =
+            || occupancy.first_category_on_layer(rx, ry, layer, EntityCategory::Aircraft, entities);
+        let unit =
+            || occupancy.first_category_on_layer(rx, ry, layer, EntityCategory::Unit, entities);
+        if vehicle_thief {
+            unit().or_else(aircraft).or_else(building)
+        } else {
+            building().or_else(aircraft).or_else(unit)
+        }
+    }
+
+    /// The Enter arm of `InfantryClass::Per_Cell_Process`
+    /// (`0x0051A0D4..0x0051A4BF`). On Enter (Get_Mission), what he finds in
+    /// his own cell ([`Self::enter_candidate`], his OnBridge `+0x8C` naming
+    /// the list) is entered when it is his NavCom or his Target (`+0x2B4`),
+    /// or what a Cell NavCom holds, looked up on the bridge lists
+    /// (`0x0051A186..0x0051A252`). Its Tag hears event 1 with him
+    /// (`0x0051A258..0x0051A26A`). Then:
+    /// - a Building that is also the first Building of his cell is sent
+    ///   DOCK_NOW through his first contact, and ROGER takes him in
+    ///   (`0x0051A27F..0x0051A39D`);
+    /// - anything else that shares his cell (GetMapCoords, vt+0x1B8) and is
+    ///   his NavCom is asked CAN_LOAD: ROGER takes him aboard
+    ///   (`0x0051A3A0..0x0051A485`); any other answer drops his destination,
+    ///   queues Guard and scatters him (`0x0051A488..0x0051A4BC`).
+    ///
+    /// Answers `Some(bridge changed)` when the arm returned before C4 and
+    /// Foot's tail, `None` when the visit carries on. The Tag event can run
+    /// trigger actions; nothing here draws RNG but the refusal's Scatter.
+    fn infantry_per_cell_enter(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<Option<bool>, FrameAdvanceError> {
+        use crate::sim::passenger::{BoardingArm, board_passenger};
+        use crate::sim::radio::RadioResponse;
+        let Some(infantry) = self.substrate.entities.get(id) else {
+            return Ok(None);
+        };
+        if infantry.mission.effective() != MissionId::from_known(MissionType::Enter) {
+            return Ok(None);
+        }
+        let vehicle_thief = self
+            .object_type(infantry.type_ref(), rules)
+            .is_some_and(|object| object.vehicle_thief);
+        let layer = if infantry.on_bridge() {
+            MovementLayer::Bridge
+        } else {
+            MovementLayer::Ground
+        };
+        let cell = (infantry.position.rx(), infantry.position.ry());
+        let Some(candidate) = self.enter_candidate(cell, layer, vehicle_thief) else {
+            return Ok(None);
+        };
+        let nav_cell = match infantry.navigation.nav_com() {
+            Some(NavTargetRef::Cell { rx, ry }) => Some((rx, ry)),
+            _ => None,
+        };
+        let targeted = matches!(
+            infantry.attack_target.target(),
+            Some(crate::sim::combat::TargetKind::Entity(target)) if target == candidate
+        );
+        if !nav_com_is(infantry, candidate)
+            && !targeted
+            && nav_cell
+                .and_then(|cell| self.enter_candidate(cell, MovementLayer::Bridge, vehicle_thief))
+                != Some(candidate)
+        {
+            return Ok(None);
+        }
+        let context = UninitContext::new(Some(rules), registry).with_effects(effects);
+        self.dispatch_object_tag_event(candidate, 1, Some(id), None, context);
+        let (Some(infantry), Some(carrier)) = (
+            self.substrate.entities.get(id),
+            self.substrate.entities.get(candidate),
+        ) else {
+            return Ok(None);
+        };
+        let cell = (infantry.position.rx(), infantry.position.ry());
+        if carrier.category() == EntityCategory::Structure {
+            if self.substrate.occupancy.first_building_on_layer(
+                cell.0,
+                cell.1,
+                MovementLayer::Ground,
+            ) != Some(candidate)
+                || radio::transmit_to_contact(self, id, RadioMessage::DockNow, Some(rules), effects)
+                    != RadioResponse::Roger
+            {
+                return Ok(None);
+            }
+            board_passenger(
+                self,
+                rules,
+                id,
+                candidate,
+                BoardingArm::InfantryBuilding,
+                registry,
+                effects,
+            );
+            return Ok(Some(false));
+        }
+        if (carrier.position.rx(), carrier.position.ry()) != cell
+            || !nav_com_is(infantry, candidate)
+        {
+            return Ok(None);
+        }
+        if radio::transmit(
+            self,
+            id,
+            candidate,
+            RadioMessage::CanEnter,
+            RadioPayload::default(),
+            Some(rules),
+            effects,
+        ) == RadioResponse::Roger
+        {
+            board_passenger(
+                self,
+                rules,
+                id,
+                candidate,
+                BoardingArm::InfantryTransport,
+                registry,
+                effects,
+            );
+            return Ok(Some(false));
+        }
+        self.assign_null_destination(id, Some(rules), registry, effects);
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            crate::sim::mission::authority::queue_entity_mission_deferred(
+                entity,
+                MissionId::from_known(MissionType::Guard),
+            );
+        }
+        let changed = self
+            .infantry_scatter_null(
+                id,
+                super::ScatterFlags::new(true, true),
+                rules,
+                registry,
+                effects,
+            )
+            .map_err(|cause| FrameAdvanceError {
+                tick: self.session.tick,
+                binary_frame: self.session.binary_frame,
+                entity_id: id,
+                cause,
+            })?;
+        Ok(Some(changed))
+    }
+
+    /// `UnitClass::Per_Cell_Process`'s `UnitAbsorb=` arm
+    /// (`0x0073A237..0x0073A31C`): on Enter, with the first Building of its
+    /// cell (`0x0047C520`) as NavCom and that building `UnitAbsorb=`, the unit
+    /// asks it CAN_LOAD. ROGER takes it in; any other answer runs
+    /// [`Self::unit_per_cell_enter_refused`]. Either returns before the rest
+    /// of the visit.
+    fn unit_per_cell_absorber(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let Some(unit) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let Some(building) = self.substrate.occupancy.first_building_on_layer(
+            unit.position.rx(),
+            unit.position.ry(),
+            MovementLayer::Ground,
+        ) else {
+            return false;
+        };
+        if !self
+            .substrate
+            .entities
+            .get(building)
+            .and_then(|building| self.object_type(building.type_ref(), rules))
+            .is_some_and(|object| object.unit_absorb)
+            || unit.mission.effective() != MissionId::from_known(MissionType::Enter)
+            || !nav_com_is(unit, building)
+        {
+            return false;
+        }
+        self.unit_per_cell_board(
+            id,
+            building,
+            crate::sim::passenger::BoardingArm::UnitAbsorber,
+            rules,
+            registry,
+            effects,
+        );
+        true
+    }
+
+    /// `UnitClass::Per_Cell_Process`'s transport arm
+    /// (`0x0073A5EA..0x0073A7CF`): what the unit finds in its cell
+    /// ([`Self::enter_candidate`]; the object after itself in its cell list
+    /// when that is itself), on Enter, sharing its GetMapCoords, in radio
+    /// contact with it (`0x0065AD50`) and of a type with `Passengers=` above
+    /// 0, is asked CAN_LOAD. ROGER takes it aboard; any other answer runs
+    /// [`Self::unit_per_cell_enter_refused`]. Either returns before the rest
+    /// of the visit.
+    fn unit_per_cell_transport(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let Some(unit) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let cell = (unit.position.rx(), unit.position.ry());
+        let layer = if unit.on_bridge() {
+            MovementLayer::Bridge
+        } else {
+            MovementLayer::Ground
+        };
+        let mut candidate = self.enter_candidate(cell, layer, false);
+        if candidate == Some(id) {
+            // `0x0073A640`: As_Techno of its own next object (`+0x30`).
+            candidate = self
+                .substrate
+                .occupancy
+                .get(cell.0, cell.1)
+                .and_then(|list| list.next_on_layer(layer, id));
+        }
+        if unit.mission.effective() != MissionId::from_known(MissionType::Enter) {
+            return false;
+        }
+        let Some(transport) = candidate
+            .filter(|&candidate| candidate != id)
+            .and_then(|candidate| self.substrate.entities.get(candidate))
+        else {
+            return false;
+        };
+        if (transport.position.rx(), transport.position.ry()) != cell
+            || !unit.radio_contacts.contains(transport.stable_id())
+            || self
+                .object_type(transport.type_ref(), rules)
+                .is_none_or(|object| object.passengers <= 0)
+        {
+            return false;
+        }
+        let transport = transport.stable_id();
+        self.unit_per_cell_board(
+            id,
+            transport,
+            crate::sim::passenger::BoardingArm::UnitTransport,
+            rules,
+            registry,
+            effects,
+        );
+        true
+    }
+
+    /// The Unit arms' CAN_LOAD (`0x0073A273`, `0x0073A6D1`): ROGER boards
+    /// through [`crate::sim::passenger::board_passenger`], anything else runs
+    /// [`Self::unit_per_cell_enter_refused`].
+    fn unit_per_cell_board(
+        &mut self,
+        id: u64,
+        carrier: u64,
+        arm: crate::sim::passenger::BoardingArm,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        if radio::transmit(
+            self,
+            id,
+            carrier,
+            RadioMessage::CanEnter,
+            RadioPayload::default(),
+            Some(rules),
+            effects,
+        ) == crate::sim::radio::RadioResponse::Roger
+        {
+            crate::sim::passenger::board_passenger(
+                self, rules, id, carrier, arm, registry, effects,
+            );
+        } else {
+            self.unit_per_cell_enter_refused(id, rules, registry, effects);
+        }
+    }
+
+    /// The Unit Enter arms' refusal (`0x0073A796..0x0073A7CF`): the NULL
+    /// destination (vt+0x480(0, 1)), Guard queued (vt+0x1E8(5, 0)) and a
+    /// forced Scatter from no coordinate (vt+0x174(null, 1, 1)).
+    fn unit_per_cell_enter_refused(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        self.assign_null_destination(id, Some(rules), registry, effects);
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            crate::sim::mission::authority::queue_entity_mission_deferred(
+                entity,
+                MissionId::from_known(MissionType::Guard),
+            );
+        }
+        let _ = self.scatter(
+            id,
+            None,
+            super::ScatterFlags::new(true, true),
+            rules,
+            registry,
+            effects,
+        );
     }
 
     /// The occupier arm (`0x00519675..0x00519739`): an `Occupier=` or

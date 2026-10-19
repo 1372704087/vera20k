@@ -494,8 +494,7 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
         Some(7)
     );
     // This component comparison supplies physical arrival after the native
-    // Enter order. Mobile infantry attaches at PerCellProcess519630; the
-    // later passenger frame phase is no longer an arrival substitute.
+    // Enter order. Mobile infantry attaches at PerCellProcess519630.
     let arrival = crate::sim::movement::ground_pose::position_world_coord(
         &fx.sim.substrate.entities.get(transport).unwrap().position,
     );
@@ -515,7 +514,6 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
     entity
         .mission
         .set_current_for_test(MissionId::from_known(MissionType::Enter), 0);
-    crate::sim::passenger::begin_boarding(entity, transport);
     fx.sim
         .per_cell_process(
             passenger,

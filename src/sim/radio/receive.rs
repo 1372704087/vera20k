@@ -736,13 +736,204 @@ fn unit_receive(
         RadioMessage::CanEnter => rules.map_or(RadioResponse::None, |rules| {
             unit_can_enter_radio(sim, unit, sender, rules)
         }),
-        // 7, 0xE and 0x15: the transport/service arms have no
-        // represented sender.
-        RadioMessage::DockingComplete | RadioMessage::CanDock | RadioMessage::DockNow => {
-            RadioResponse::None
-        }
+        RadioMessage::CanDock => match (sender, rules) {
+            (Some(from), Some(rules)) => unit_docking(sim, unit, from, payload, rules, effects),
+            _ => RadioResponse::None,
+        },
+        // 7 and 0x15: the service arms have no represented sender.
+        RadioMessage::DockingComplete | RadioMessage::DockNow => RadioResponse::None,
         _ => foot_receive(sim, unit, sender, msg, payload, rules, effects),
     }
+}
+
+/// DOCKING, `UnitClass::Receive_Radio` case 0x0E (`0x007377D8..0x00737A95`),
+/// a passenger's question whether it may come aboard (the Infantry setter's
+/// Enter arm and every Mission_Enter dispatch ask it):
+/// - moving, or holding a NavCom, on Move (`+0xAC`, not Get_Mission) it
+///   answers NEGATIVE (`0x007377D8..0x0073780D`);
+/// - a sender that is not `Contacts[0]` needs room as CAN_LOAD measures it
+///   (NEGATIVE otherwise), and a transport with no contact HELLOs it
+///   (`0x0073781E..0x007378B0`);
+/// - with no NavCom it drives to the sender (vt+0x480(sender, 1)) and answers
+///   DOCKING when the sender's retained cell (`Foot+0x55C`) lies in another
+///   zone than its own under the sender type's MovementZone, or its own cell
+///   is water (`0x007378B6..0x0073798D`);
+/// - otherwise, with room, the Foot receiver runs, and a transport that is
+///   not moving, swinging its turret (`+0x6AF`) or tethered asks the sender
+///   NEED_TO_MOVE and on ROGER sends it MOVE_HERE with itself, breaking the
+///   contact when that is not answered ROGER; the answer is ROGER
+///   (`0x00737994..0x00737A95`). Without room it is the Foot receiver's.
+///
+/// No RNG is drawn here; the setters it reaches own their effects.
+fn unit_docking(
+    sim: &mut Simulation,
+    unit: u64,
+    from: u64,
+    payload: RadioPayload,
+    rules: &RuleSet,
+    effects: FrameEffects<'_>,
+) -> RadioResponse {
+    let Some((transport, sender)) = sim
+        .substrate
+        .entities
+        .get(unit)
+        .zip(sim.substrate.entities.get(from))
+    else {
+        return RadioResponse::None;
+    };
+    let Some((transport_type, sender_type)) = sim
+        .object_type(transport.type_ref(), rules)
+        .zip(sim.object_type(sender.type_ref(), rules))
+    else {
+        return RadioResponse::None;
+    };
+    let moving = crate::sim::movement::motion_query::is_moving(transport) == Some(true);
+    if (moving || transport.navigation.nav_com().is_some())
+        && transport.mission.current() == MissionId::from_known(MissionType::Move)
+    {
+        return RadioResponse::Negatory;
+    }
+    let (passengers, size_limit) = (transport_type.passengers, transport_type.size_limit);
+    let (sender_size, movement_zone) = (sender_type.size, sender_type.movement_zone);
+    // Size= and SizeLimit= are native doubles VERA reads as integers, as in
+    // [`unit_can_enter_radio`].
+    let room = |sim: &Simulation| {
+        let occupied = sim
+            .substrate
+            .entities
+            .get(unit)
+            .and_then(|transport| transport.passenger_role.cargo())
+            .map_or(0, |cargo| cargo.total_size());
+        i64::from(occupied) + i64::from(sender_size) <= i64::from(passengers)
+            && sender_size <= size_limit
+    };
+    if transport.radio_contacts.slot(0) != Some(from) {
+        if !room(sim) {
+            return RadioResponse::Negatory;
+        }
+        if transport.radio_contacts.is_empty() {
+            transmit(
+                sim,
+                unit,
+                from,
+                RadioMessage::Hello,
+                RadioPayload::default(),
+                Some(rules),
+                effects,
+            );
+        }
+    }
+    let Some((transport, sender)) = sim
+        .substrate
+        .entities
+        .get(unit)
+        .zip(sim.substrate.entities.get(from))
+    else {
+        return RadioResponse::None;
+    };
+    if transport.navigation.nav_com().is_none() {
+        // Map56D230 with no bridge test. A sender that is not a Foot reads
+        // the DWORD -1 (`0x00737910..0x0073791B`). Without a zone grid both
+        // lookups answer None and compare equal.
+        let retained_zone = |foot: &crate::sim::game_entity::GameEntity| {
+            let (x, y) = foot.navigation.neighbor_state.cell();
+            sim.zone_grid
+                .as_ref()
+                .zip(sim.resolved_terrain.as_ref())
+                .and_then(|(zones, terrain)| {
+                    zones.get_zone_id_native(terrain, (x as u16, y as u16), movement_zone, false)
+                })
+        };
+        let transport_zone = retained_zone(transport);
+        let sender_zone = if sender.category() == EntityCategory::Structure {
+            Some(u32::MAX)
+        } else {
+            retained_zone(sender)
+        };
+        // `0x0073796B`: Land (`CellClass+0xEC`) of the cell holding its
+        // Location (vt+0x1B8) is Water (2).
+        let on_water = || {
+            let at = crate::sim::movement::ground_pose::position_world_coord(&transport.position);
+            sim.resolved_terrain.as_ref().is_some_and(|terrain| {
+                let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+                let cell = cells.lookup(((at.x / 256) as i16, (at.y / 256) as i16));
+                cells.land_type(cell)
+                    == i32::from(crate::rules::terrain_rules::LandType::Water.as_index())
+            })
+        };
+        if transport_zone != sender_zone || on_water() {
+            let _ = sim.assign_destination_represented(
+                unit,
+                Some(NavTargetRef::object(from)),
+                Some(rules),
+                effects.overlay_registry(),
+                effects,
+            );
+            return RadioResponse::Docking;
+        }
+    }
+    if passengers <= 0 || !room(sim) {
+        return foot_receive(
+            sim,
+            unit,
+            Some(from),
+            RadioMessage::CanDock,
+            payload,
+            Some(rules),
+            effects,
+        );
+    }
+    let _ = foot_receive(
+        sim,
+        unit,
+        Some(from),
+        RadioMessage::CanDock,
+        payload,
+        Some(rules),
+        effects,
+    );
+    let Some(transport) = sim.substrate.entities.get(unit) else {
+        return RadioResponse::Roger;
+    };
+    if crate::sim::movement::motion_query::is_moving(transport) == Some(true)
+        || transport.turret_rotation_latch.is_set()
+        || transport.tether.partner().is_some()
+    {
+        return RadioResponse::Roger;
+    }
+    if transmit(
+        sim,
+        unit,
+        from,
+        RadioMessage::NeedToMove,
+        RadioPayload::default(),
+        Some(rules),
+        effects,
+    ) == RadioResponse::Roger
+        && transmit(
+            sim,
+            unit,
+            from,
+            RadioMessage::MoveToCell,
+            RadioPayload {
+                target: Some(NavTargetRef::object(unit)),
+                ..RadioPayload::default()
+            },
+            Some(rules),
+            effects,
+        ) != RadioResponse::Roger
+    {
+        transmit(
+            sim,
+            unit,
+            from,
+            RadioMessage::Break,
+            RadioPayload::default(),
+            Some(rules),
+            effects,
+        );
+    }
+    RadioResponse::Roger
 }
 
 /// Unit737430 message0F, 73758A..7376AA: the mobile transport's admission

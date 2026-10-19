@@ -1358,8 +1358,6 @@ mod retail_construction_tests {
                                 entity.navigation.nav_com(),
                                 if entity.passenger_role.is_inside_transport() {
                                     " aboard"
-                                } else if entity.passenger_role.boarding_transport_id().is_some() {
-                                    " boarding"
                                 } else {
                                     ""
                                 },

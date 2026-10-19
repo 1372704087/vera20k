@@ -1149,7 +1149,9 @@ use crate::util::save_codec;
 // 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
 // 425 -> 426: retain the Techno+0x12C Behind indicator Anim.
 // 426 -> 427: retained IonBlast rules inputs, pending damaging blasts and Foot draw lift.
-const SNAPSHOT_VERSION: u32 = 427;
+// 427 -> 428: the VERA-only Boarding passenger relation is gone, which
+// renumbers the later PassengerRole and carrier-relation variants.
+const SNAPSHOT_VERSION: u32 = 428;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2474,22 +2476,12 @@ fn restore_object_references(
             }
         }
 
-        let passenger_partner = entity
-            .passenger_role
-            .boarding_transport_id()
-            .map(|id| (id, "passenger_role.boarding"))
-            .or_else(|| {
-                entity
-                    .passenger_role
-                    .inside_transport_id()
-                    .map(|id| (id, "passenger_role.inside"))
-            });
-        if let Some((target_id, field)) = passenger_partner {
+        if let Some(target_id) = entity.passenger_role.inside_transport_id() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
-                field,
+                "passenger_role.inside",
                 "EntityStore",
                 target_id,
             )?;

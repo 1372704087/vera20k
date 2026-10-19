@@ -1475,11 +1475,11 @@ def _fire(value: Any, label: str) -> None:
 
 def _temporal(value: Any, label: str) -> int:
     row = require_object(value, label)
-    require_exact_keys(row, ('has_link', 'warp_target', 'chain_head', 'boarding_transport',
-                             'inside_transport', 'cargo'), label)
+    require_exact_keys(row, ('has_link', 'warp_target', 'chain_head', 'inside_transport',
+                             'cargo'), label)
     if type(row['has_link']) is not bool:
         raise ValidationError(f'{label}.has_link must be boolean')
-    for key in ('warp_target', 'chain_head', 'boarding_transport'):
+    for key in ('warp_target', 'chain_head'):
         if row[key] is not None:
             _bounded_int(row[key], f'{label}.{key}', 1, (1 << 64) - 1)
     if row['inside_transport'] is not None:

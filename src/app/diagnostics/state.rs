@@ -182,6 +182,7 @@ impl DiagnosticsState {
             frame_timer: FrameTimer::new(),
             #[cfg(feature = "telemetry-dashboard")]
             render_timing: Default::default(),
+            #[cfg(feature = "telemetry-dashboard")]
             render_report_cache: None,
             #[cfg(feature = "telemetry-dashboard")]
             process_stats: Default::default(),

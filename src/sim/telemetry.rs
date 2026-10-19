@@ -25,7 +25,7 @@
 //!   so the map view shows them piled at the origin.
 //! - **Measured data only.** No event-history or pathfinding-health counters
 //!   are invented where the current simulation has no observation source. The
-//!   `path_batch` block (v23) is the batch's own accounting: it already makes
+//!   `path_batch` block (v24) is the batch's own accounting: it already makes
 //!   those counts to enforce its caps and its budget, so it reports them.
 //! - **Wire stability.** Houses and spots are `Vec`s in store/interned-id
 //!   order — deterministic across peers and runs. New fields arrive as
@@ -94,7 +94,7 @@ pub struct ReportPoint {
     pub timing: Option<TimingSample>,
     pub profile: Option<crate::sim::frame_profile::FrameProfileReport>,
     pub render: Option<crate::sim::telemetry::RenderTimingReport>,
-    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+    pub path_batch: Option<crate::sim::movement::PathBatchStats>,
 }
 
 /// One 1 Hz summary of a match, recorded by the app for the whole match.
@@ -113,7 +113,7 @@ pub struct MatchHistorySample {
     pub houses: u32,
     /// The path batch's own counts at the sample's last tick; `None` while the
     /// simulation searches serially.
-    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+    pub path_batch: Option<crate::sim::movement::PathBatchStats>,
 }
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
@@ -593,7 +593,7 @@ pub struct TelemetrySnapshot {
     pub profile: Option<crate::sim::frame_profile::FrameProfileReport>,
     /// The path batch's own accounting of its latest pass; `None` while the
     /// simulation searches serially, since then no pass runs.
-    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+    pub path_batch: Option<crate::sim::movement::PathBatchStats>,
     /// Whole-match 1 Hz summaries; app-filled, and only on the first publish
     /// after a client attached.
     pub history: Option<Vec<MatchHistorySample>>,

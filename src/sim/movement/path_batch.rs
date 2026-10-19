@@ -156,7 +156,8 @@ const PASS_WINDOW: usize = 64;
 pub struct PathBatchStats {
     /// Registrations waiting when the latest pass started.
     pub waiting: u32,
-    /// Registrations the latest pass searched, after both caps.
+    /// Registrations the latest pass searched: after the per-pass cap, before
+    /// the urgency-2 budget cut drops answers.
     pub searched: u32,
     /// Registrations it answered, whether or not the Foot took the answer.
     pub answered: u32,

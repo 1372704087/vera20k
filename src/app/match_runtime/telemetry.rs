@@ -139,7 +139,7 @@ pub struct MatchHistory {
     peak_ms: f32,
     entities: u32,
     houses: u32,
-    path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+    path_batch: Option<crate::sim::movement::PathBatchStats>,
 }
 
 impl MatchHistory {
@@ -152,7 +152,7 @@ impl MatchHistory {
         tick_ms: f32,
         entities: usize,
         houses: usize,
-        path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+        path_batch: Option<crate::sim::movement::PathBatchStats>,
     ) {
         let cast = |count: usize| u32::try_from(count).unwrap_or(u32::MAX);
         self.ticks += 1;
@@ -487,7 +487,10 @@ mod tests {
 
     #[test]
     fn report_points_close_every_five_seconds_and_keep_the_newest() {
-        assert!(!ReportHistory::due(0), "tick zero is the launch, not a sample");
+        assert!(
+            !ReportHistory::due(0),
+            "tick zero is the launch, not a sample"
+        );
         assert!(!ReportHistory::due(REPORT_POINT_TICKS - 1));
         assert!(ReportHistory::due(REPORT_POINT_TICKS));
         let mut history = ReportHistory::default();

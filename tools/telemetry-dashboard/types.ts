@@ -250,7 +250,7 @@ export interface FrameProfileReport {
   phases_ms: number[];
 }
 
-/** One 1 Hz whole-match sample (schema v24). Render and ledger readings are
+/** One 1 Hz whole-match sample (schema v25). Render and ledger readings are
  *  absent by design: those are only measured while a client is attached. */
 export interface MatchHistorySample {
   tick: number;
@@ -271,7 +271,7 @@ export interface ReportHouseRow {
   score: number;
 }
 
-/** A report-grade sample (schema v25): exactly what the match report reads. */
+/** A report-grade sample (schema v26): exactly what the match report reads. */
 export interface ReportPoint {
   tick: number;
   entities_total: number;
@@ -279,17 +279,17 @@ export interface ReportPoint {
   map_height: number;
   houses: ReportHouseRow[];
   timing: TimingSample | null;
-  profile: FrameProfileReport;
+  profile: FrameProfileReport | null;
   render: RenderTimingReport | null;
   path_batch: PathBatchStats | null;
 }
 
-/** The path batch pass's own accounting (schema v23). `null` while the
+/** The path batch pass's own accounting (schema v24). `null` while the
  *  simulation searches serially, since then no pass runs. */
 export interface PathBatchStats {
   /** Registrations waiting when the latest pass started. */
   waiting: number;
-  /** Registrations it searched, after both caps. */
+  /** Registrations it searched: after the per-pass cap, before the urgency-2 budget cut. */
   searched: number;
   /** Registrations it answered. */
   answered: number;

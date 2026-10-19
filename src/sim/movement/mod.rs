@@ -90,7 +90,8 @@ pub(crate) use navcom::set_walk_destination_coord;
 pub(crate) use navcom::{building_dock_cell, building_dock_coordinate, nav_target_coordinate};
 #[cfg(test)]
 pub(crate) mod fresh_oracle_seam;
-pub mod path_batch;
+pub(crate) mod path_batch;
+pub use path_batch::PathBatchStats;
 mod path_markers;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use path_markers::fixture_path_replay;

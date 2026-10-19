@@ -35,7 +35,6 @@ pub(crate) mod electric_bolt;
 pub(crate) mod foot_depth;
 pub mod frame_readback;
 pub mod gpu;
-pub(crate) mod ion_blast_ripple;
 pub(crate) mod laser;
 pub(crate) mod line_trail;
 pub mod loading_screen_chrome;

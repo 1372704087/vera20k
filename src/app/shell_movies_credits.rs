@@ -479,6 +479,7 @@ impl App {
             CreditsReturn::MainMenu => {
                 Self::destroy_current_shell_dialog(state);
                 state.frontend.shell_route = ShellRoute::MainMenu;
+                Self::resume_shell_after_match(state);
             }
         }
     }

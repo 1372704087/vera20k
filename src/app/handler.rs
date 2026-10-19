@@ -205,6 +205,15 @@ impl ApplicationHandler for App {
         };
         match Self::initialize(event_loop, capture_dimensions, self.startup_options) {
             Ok(mut state) => {
+                if let Some(request) = self.spawn_request.take()
+                    && let Err(error) = Self::start_spawn_session(&mut state, request)
+                {
+                    let error = format!("CnCNet startup failed: {error:#}");
+                    log::error!("{error}");
+                    self.startup_failure = Some(error);
+                    event_loop.exit();
+                    return;
+                }
                 if let Some(session) = self.shell_capture.as_mut() {
                     session.prepare_state(&mut state);
                 }
@@ -220,10 +229,13 @@ impl ApplicationHandler for App {
                 // default). A focus regain re-applies it if the OS dropped it.
                 crate::app::input::cursor::apply_cursor_confinement(&state);
                 self.state = Some(state);
-                log::info!("Initialization complete — showing main menu");
+                log::info!("Initialization complete");
             }
             Err(err) => {
                 log::error!("Failed to initialize: {:#}", err);
+                if self.spawn_request.is_some() {
+                    self.startup_failure = Some(format!("CnCNet initialization failed: {err:#}"));
+                }
                 if let Some(session) = self.shell_capture.as_mut() {
                     session.fail(format!("shell capture initialization failed: {err:#}"));
                 }

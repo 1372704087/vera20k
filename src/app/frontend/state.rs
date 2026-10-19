@@ -13,6 +13,9 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::ui::game_screen::GameScreen;
 
 pub(crate) struct FrontendState {
+    /// External offline launch: returning from the session closes the process for its client.
+    pub(crate) external_launch: bool,
+    pub(crate) external_launch_error: Option<String>,
     /// The Skirmish setup dialog's state.
     pub(crate) skirmish_shell_state: crate::ui::skirmish_shell::SkirmishShellState,
     /// Choose Map's last clicked game-type row `[0x008316FC]`: starts at -1,

@@ -251,6 +251,7 @@ pub fn usage_text() -> String {
         "  -CD             Use the wildcard media-archive branch.",
         "  -WIN            No effect: full screen is a choice on the Options page.",
         "  -NOAUDIO        Disable music and sound output.",
+        "  -SPAWN          Start an offline CnCNet session from ./spawn.ini.",
         "  -? -h /? /h     Show this message.",
         "",
         "Other retail switches are accepted so a launch never fails on them,",

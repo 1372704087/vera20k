@@ -125,7 +125,7 @@ impl App {
             &startup_options,
             game_config
                 .as_ref()
-                .map(|config| config.paths.ra2_dir.as_path()),
+                .map(|config| config.paths.settings_dir()),
             RetailOptionsLoad::from_ra2md,
         );
         let profile_screen = options_load.startup_shell_screen;
@@ -416,7 +416,7 @@ impl App {
                 frontend_seed.value,
                 game_config
                     .as_ref()
-                    .map(|config| config.paths.ra2_dir.as_path()),
+                    .map(|config| config.paths.settings_dir()),
                 startup_asset_manager.as_ref(),
                 startup_rules_projection.as_ref(),
                 skirmish_defaults,
@@ -451,8 +451,17 @@ impl App {
         let startup_software_cursor = startup_asset_manager.as_ref().and_then(|assets| {
             crate::render::cursor_atlas::build_software_cursor(&gpu, &batch_renderer, assets)
         });
-        let hotkey_bindings =
-            crate::app::input::hotkeys::HotkeyBindings::load(startup_asset_manager.as_ref());
+        let hotkey_bindings = game_config.as_ref().map_or_else(
+            || crate::app::input::hotkeys::HotkeyBindings::from_ini_bytes(None),
+            |config| {
+                crate::app::persistence::keyboard::startup(
+                    config.paths.settings_dir(),
+                    startup_asset_manager
+                        .as_ref()
+                        .and_then(|assets| assets.get_archive_ref("KEYBOARDMD.INI")),
+                )
+            },
+        );
         let startup_in_game_options =
             crate::app::persistence::options::in_game_options_from_profile(&options_profile);
         let mut startup_tooltips = crate::ui::tooltips::TooltipService::new();
@@ -605,6 +614,8 @@ impl App {
                 ),
             },
             frontend: crate::app::frontend::state::FrontendState {
+                external_launch: false,
+                external_launch_error: None,
                 screen: GameScreen::default(),
                 scenario_catalog,
                 skirmish_modes,

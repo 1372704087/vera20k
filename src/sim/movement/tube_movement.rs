@@ -27,7 +27,7 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation};
 use crate::util::fixed_math::{SIM_ONE, SIM_ZERO};
-use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, distance_3d_leptons};
+use crate::util::native_x87::{NativeF64Bits, X87Chop53, distance_3d_leptons};
 use crate::util::retail_trig::TrigTable;
 
 /// FootClass-owned active TubeMovement payload.
@@ -911,13 +911,15 @@ fn advance_amount(
         target.x.wrapping_sub(base.x),
         target.y.wrapping_sub(base.y),
     );
-    let angle_scale = f64::from_bits(0xbf19_222d_989f_5e57);
-    let angle = f64::from(i32::from(facing as i16).wrapping_sub(0x3fff)) * angle_scale;
-    let cosine = trig.cos_radians(angle);
-    let sine = trig.sin_radians(angle);
+    // `0x00735C53..0x00735CBB`: the stored radians of the facing word, then
+    // `SinFromTable` (`0x00735C8F`) and `CosFromTable` (`0x00735CAB`).
+    let angle = X87Chop53::load_f64(crate::util::direction_tables::radians_from_facing16(facing))
+        .expect("a facing word's radians are finite");
+    let cosine = trig.cos_from_table(angle);
+    let sine = trig.sin_from_table(angle);
     let amount_x87 = X87Chop53::load_i32(amount);
-    let x = ftol_add_f32_product(base.x, cosine, amount_x87);
-    let y = ftol_add_f32_product(base.y, -sine, amount_x87);
+    let x = ftol_add_product(base.x, cosine, amount_x87);
+    let y = ftol_add_product(base.y, X87Chop53::neg(sine), amount_x87);
 
     let nominal_bits = if raw_step & 1 == 0 {
         256.0_f64.to_bits()
@@ -933,9 +935,11 @@ fn advance_amount(
     DriveCoord { x, y, z }
 }
 
-fn ftol_add_f32_product(base: i32, factor: f32, amount: crate::util::native_x87::X87Value) -> i32 {
-    let factor = X87Chop53::load_f32(NativeF32Bits::from_bits(factor.to_bits()))
-        .expect("retail trig entry is finite");
+fn ftol_add_product(
+    base: i32,
+    factor: crate::util::native_x87::X87Value,
+    amount: crate::util::native_x87::X87Value,
+) -> i32 {
     X87Chop53::ftol_i64(X87Chop53::add(
         X87Chop53::load_i32(base),
         X87Chop53::mul(factor, amount),

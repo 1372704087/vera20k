@@ -120,17 +120,6 @@ impl TrigTable {
         cos_index(angle_units) as usize
     }
 
-    /// Sine of an angle in radians. The scaling and the truncation to an integer
-    /// index are the caller's job in the original, so they happen here.
-    pub fn sin_radians(&self, radians: f64) -> f32 {
-        self.sin(radians_to_units(radians) as i32)
-    }
-
-    /// Cosine of an angle in radians.
-    pub fn cos_radians(&self, radians: f64) -> f32 {
-        self.cos(radians_to_units(radians) as i32)
-    }
-
     /// `Math::SinFromTable @ 0x004CACB0` for its double argument under the
     /// process's x87 mode: the table unit is `Math::ftol` of the radians times
     /// the binary32 scale at `0x008223B0` (16384/2pi), and the entry comes back
@@ -285,11 +274,6 @@ fn from_table_units(radians: impl Into<MaskedX87Value>) -> i32 {
 fn table_value(entry: f32) -> X87Value {
     X87Chop53::load_f32(NativeF32Bits::from_bits(entry.to_bits()))
         .unwrap_or_else(|_| X87Chop53::load_i32(0))
-}
-
-/// Convert radians to the caller units the lookups take.
-pub fn radians_to_units(radians: f64) -> f64 {
-    radians * (UNITS_PER_TURN / std::f64::consts::TAU)
 }
 
 #[cfg(test)]

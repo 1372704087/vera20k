@@ -203,7 +203,12 @@ impl ApplicationHandler for App {
                 return;
             }
         };
-        match Self::initialize(event_loop, capture_dimensions, self.startup_options) {
+        match Self::initialize(
+            event_loop,
+            capture_dimensions,
+            self.startup_options,
+            self.spawn_request.is_some(),
+        ) {
             Ok(mut state) => {
                 if let Some(request) = self.spawn_request.take()
                     && let Err(error) = Self::start_spawn_session(&mut state, request)

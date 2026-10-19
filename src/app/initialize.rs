@@ -112,6 +112,7 @@ impl App {
         event_loop: &ActiveEventLoop,
         capture_dimensions: Option<(u32, u32)>,
         startup_options: RetailStartupOptions,
+        external_launch: bool,
     ) -> Result<AppState> {
         // One parsed retail profile snapshot yields two ordered products: the
         // independent frontend size selected after the early Video read, and the later
@@ -257,7 +258,12 @@ impl App {
                 assets,
             )
         });
-        let mut startup_splash = if capture_dimensions.is_none() && main_menu_shell_error.is_none()
+        // A client-selected game enters scenario loading directly. This splash
+        // is presented synchronously below, before start_spawn_session runs;
+        // clearing it in that later callback cannot hide the first frame.
+        let mut startup_splash = if !external_launch
+            && capture_dimensions.is_none()
+            && main_menu_shell_error.is_none()
         {
             startup_asset_manager
                 .as_ref()
@@ -295,7 +301,10 @@ impl App {
                 }
             }
         }
-        // Everything below runs with the splash already on screen: the
+        if external_launch {
+            log::info!("External launch: process-start splash skipped");
+        }
+        // Ordinary interactive startup runs with the splash already on screen: the
         // presented swapchain frame stays composited while this thread blocks,
         // and the hold armed above is measured from that present, so a slow
         // load is spent inside the five seconds instead of before them.

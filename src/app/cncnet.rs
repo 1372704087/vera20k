@@ -56,7 +56,6 @@ impl App {
                 .unwrap_or_default()
         );
         state.frontend.external_launch = true;
-        state.frontend.startup_splash = None;
         state.persistence.options_profile.game_speed = request.game_speed;
         Self::destroy_current_shell_dialog(state);
         state.frontend.shell_first_paint_slide = None;

@@ -142,7 +142,7 @@ fn stock_carrier_pips_follow_construction_sortie_recall_reload_and_selection() {
                 None,
                 33,
                 crate::sim::world::TickLane::Ordinary,
-                None,
+                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("ordinary stock Carrier frame");

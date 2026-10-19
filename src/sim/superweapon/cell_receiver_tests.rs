@@ -392,7 +392,7 @@ fn infantry_same_frame_firer_death_keeps_electric_consequences() {
                 None,
                 67,
                 crate::sim::world::TickLane::Ordinary,
-                None,
+                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");

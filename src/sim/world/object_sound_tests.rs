@@ -10,7 +10,6 @@ use crate::rules::sound_ini::SoundRegistry;
 use crate::sim::combat::Health;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::terrain_object::TerrainObjectState;
-use crate::sim::world::TriggerInputs;
 
 fn sounds() -> SoundRegistry {
     SoundRegistry::from_ini(&IniFile::from_str(
@@ -50,7 +49,7 @@ fn sim_with_trigger(action: &str) -> (Simulation, crate::map::map_file::MapFile)
 }
 
 fn poll(sim: &mut Simulation) {
-    sim.advance_triggers(TriggerInputs { rules: None }, None, FrameEffects::default());
+    sim.advance_triggers(None, None, FrameEffects::default());
 }
 
 fn insert_structure(sim: &mut Simulation, id: u64, type_name: &str, cell: (u16, u16)) {

@@ -24,7 +24,7 @@ use crate::map::variable_names::LocalVariableMap;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::timer::CdTimer;
-use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation, TriggerInputs};
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 const ACTION_PLAY_SOUND: i32 = 19;
 const ACTION_FORCE_TRIGGER: i32 = 22;
@@ -2686,9 +2686,11 @@ impl Simulation {
     /// Logic55AFB0 reads the mutable list length and dirty bytes afresh for
     /// every Tag. A removed current Tag shifts the next entry, which is skipped
     /// until the next visit; an enabled later Tag can fire during this pass.
+    /// `rules` are the frame's bound match rules, which action callbacks share
+    /// with ordinary Techno runtime calculations.
     pub fn advance_triggers(
         &mut self,
-        inputs: TriggerInputs<'_>,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Vec<TriggerEffect> {
@@ -2711,7 +2713,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );
@@ -2728,7 +2730,7 @@ impl Simulation {
                             force: false,
                         },
                         &mut effects,
-                        inputs.rules,
+                        rules,
                         overlay_registry,
                         frame_effects,
                     ) {
@@ -2749,7 +2751,7 @@ impl Simulation {
                             force: false,
                         },
                         &mut effects,
-                        inputs.rules,
+                        rules,
                         overlay_registry,
                         frame_effects,
                     ) {
@@ -2769,7 +2771,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );
@@ -2785,7 +2787,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );

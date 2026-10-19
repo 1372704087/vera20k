@@ -207,13 +207,7 @@ fn counted_tag_create_then_stop_reaches_the_normal_ai_and_late_delete_drain() {
     );
     sim.classify_map_triggers(None);
     sim.session.set_started(true);
-    sim.advance_triggers(
-        TriggerInputs {
-            rules: Some(&rules),
-        },
-        None,
-        FrameEffects::default(),
-    );
+    sim.advance_triggers(Some(&rules), None, FrameEffects::default());
     assert!(sim.trigger_runtime.logic_tags.is_empty());
     let ids: Vec<_> = sim.particle_systems().iter().map(|(&id, _)| id).collect();
     assert_eq!(ids.len(), 1);
@@ -227,7 +221,7 @@ fn counted_tag_create_then_stop_reaches_the_normal_ai_and_late_delete_drain() {
             None,
             67,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .unwrap();

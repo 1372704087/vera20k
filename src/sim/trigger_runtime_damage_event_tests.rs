@@ -759,13 +759,7 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
     let timer = sim.trigger_runtime.trigger(next).unwrap().timer;
     sim.session.binary_frame = timer.start_frame().wrapping_add(timer.duration()) as u32;
     let previous_actions = sim.trigger_runtime.action_trace.len();
-    let effects = sim.advance_triggers(
-        TriggerInputs {
-            rules: Some(&rules),
-        },
-        Some(&overlays),
-        FrameEffects::default(),
-    );
+    let effects = sim.advance_triggers(Some(&rules), Some(&overlays), FrameEffects::default());
     assert!(!sim.trigger_runtime.trigger(next).unwrap().enabled);
     assert_eq!(
         sim.trigger_runtime.action_trace[previous_actions..]

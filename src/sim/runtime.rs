@@ -187,9 +187,7 @@ impl SimRuntime {
             Some(&self.resources.overlay_registry),
             tick_ms,
             lane,
-            Some(crate::sim::world::TriggerInputs {
-                rules: Some(&self.resources.rules),
-            }),
+            true,
             effects,
         )
     }

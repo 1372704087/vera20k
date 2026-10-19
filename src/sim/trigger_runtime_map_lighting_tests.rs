@@ -708,13 +708,7 @@ fn ordered_timer_trigger_updates_live_ambient_inputs_before_the_next_fade() {
     sim.session.lighting.target_ambient = 60;
     sim.session.lighting.transition_timer = CdTimer::started(12, 8);
     sim.session.binary_frame = 20;
-    sim.advance_triggers(
-        TriggerInputs {
-            rules: Some(&rules),
-        },
-        Some(&overlays),
-        FrameEffects::default(),
-    );
+    sim.advance_triggers(Some(&rules), Some(&overlays), FrameEffects::default());
     assert_eq!(
         sim.trigger_runtime
             .action_trace

@@ -56,7 +56,7 @@ fn infantry_fatal_frame_exit_preserves_delivered_cleanup_through_load() {
             Some(&registry),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -129,7 +129,7 @@ fn infantry_fatal_frame_exit_preserves_delivered_cleanup_through_load() {
             Some(&registry),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");

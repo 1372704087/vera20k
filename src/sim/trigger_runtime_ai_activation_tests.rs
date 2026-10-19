@@ -48,13 +48,7 @@ fn authored_ai_trigger_actions_change_only_the_selected_house_latch() {
             sim.main_rng.native_state_hex(),
             sim.mapgen_rng.native_state_hex(),
         );
-        let _ = sim.advance_triggers(
-            TriggerInputs {
-                rules: Some(&rules),
-            },
-            Some(&registry),
-            FrameEffects::default(),
-        );
+        let _ = sim.advance_triggers(Some(&rules), Some(&registry), FrameEffects::default());
         for (index, owner) in houses.iter().enumerate() {
             let house = &sim.houses[owner];
             let wanted = HouseAiActivationLatches {
@@ -1276,13 +1270,7 @@ fn house_team_controls_ordered_tag_history_preserves_native_due_selection_and_sa
     let main_before = sim.main_rng.native_state_hex();
     let mapgen_before = sim.mapgen_rng.native_state_hex();
     let untouched = save_codec::serialize(&sim.houses[&houses[2]]).unwrap();
-    sim.advance_triggers(
-        TriggerInputs {
-            rules: Some(&rules),
-        },
-        Some(&registry),
-        FrameEffects::default(),
-    );
+    sim.advance_triggers(Some(&rules), Some(&registry), FrameEffects::default());
     // Original consecutive Read/Execute13/77/78/79, Steam3e81a617..08600:
     // 13 selects Country7, while all three ratio actions use incoming House0.
     assert_eq!(

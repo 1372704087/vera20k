@@ -57,11 +57,7 @@ fn scene_with_rules(
 }
 
 fn spring(sim: &mut Simulation, rules: &RuleSet) {
-    sim.advance_triggers(
-        crate::sim::world::TriggerInputs { rules: Some(rules) },
-        None,
-        FrameEffects::default(),
-    );
+    sim.advance_triggers(Some(rules), None, FrameEffects::default());
 }
 
 #[test]

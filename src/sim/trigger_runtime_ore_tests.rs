@@ -326,13 +326,7 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
     sim.classify_map_triggers(None);
     waypoints(&mut sim, &[(0, (8, 9)), (1, (8, 8))]);
     sim.session.set_started(true);
-    sim.advance_triggers(
-        TriggerInputs {
-            rules: Some(&rules),
-        },
-        Some(registry),
-        FrameEffects::default(),
-    );
+    sim.advance_triggers(Some(&rules), Some(registry), FrameEffects::default());
     assert!(!sim.production.ore_growth_config.grows);
     assert!(sim.trigger_runtime.logic_tags.is_empty());
     assert!(
@@ -355,7 +349,7 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
             Some(registry),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .unwrap();
@@ -391,7 +385,7 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
             Some(registry),
             134,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .unwrap();

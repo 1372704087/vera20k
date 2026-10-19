@@ -156,7 +156,7 @@ impl MindScene {
                 None,
                 33,
                 TickLane::Ordinary,
-                None,
+                false,
                 FrameEffects::default(),
             )
             .expect("ordinary stock Mastermind frame");

@@ -424,13 +424,7 @@ fn retail_all02_prisoner_damage_enable_elapsed_wakeup_survives_restore() {
     assert_eq!(guards.len(), 8);
     assert_eq!(sim.trigger_runtime.tag(wake_tag).unwrap().refs, 7);
     let poll = |sim: &mut Simulation| {
-        sim.advance_triggers(
-            TriggerInputs {
-                rules: Some(&rules),
-            },
-            Some(&overlays),
-            FrameEffects::default(),
-        );
+        sim.advance_triggers(Some(&rules), Some(&overlays), FrameEffects::default());
     };
     poll(&mut sim);
     assert!(sim.trigger_runtime.action_trace.is_empty());

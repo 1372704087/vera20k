@@ -411,7 +411,7 @@ fn ordinary_terror_attack_finishes_die2_and_retires_its_source() {
                 None,
                 33,
                 super::TickLane::Ordinary,
-                None,
+                false,
                 FrameEffects::default(),
             )
             .unwrap();
@@ -591,7 +591,7 @@ fn assert_suicide_blast_reports_building_loss(direct: bool) {
                 None,
                 33,
                 super::TickLane::Ordinary,
-                None,
+                false,
                 FrameEffects::default(),
             )
             .unwrap();

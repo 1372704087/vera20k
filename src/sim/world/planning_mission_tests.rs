@@ -62,7 +62,7 @@ fn step_with_overlays(
         overlays,
         33,
         super::super::TickLane::Ordinary,
-        None,
+        false,
         Default::default(),
     )
     .unwrap();

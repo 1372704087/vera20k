@@ -691,7 +691,7 @@ mod tests {
                 None,
                 67,
                 TickLane::Ordinary,
-                None,
+                false,
                 FrameEffects::default(),
             )
             .expect("empty frame completes")

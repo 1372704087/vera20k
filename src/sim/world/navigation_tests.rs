@@ -342,7 +342,7 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");

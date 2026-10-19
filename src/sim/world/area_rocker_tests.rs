@@ -19,7 +19,7 @@ fn ordinary_frame(sim: &mut Simulation, rules: &RuleSet) -> Vec<super::SimFireEv
             None,
             33,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .expect("ordinary retail Kirov frame");

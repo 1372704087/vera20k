@@ -12,7 +12,7 @@ use crate::sim::projectile::{
 };
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
 use crate::sim::snapshot::GameSnapshot;
-use crate::sim::world::{FrameEffects, MasterFrameTestRung, Simulation, TickLane, TriggerInputs};
+use crate::sim::world::{FrameEffects, MasterFrameTestRung, Simulation, TickLane};
 
 #[test]
 fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
@@ -1821,7 +1821,7 @@ fn advance_trigger_frame(
         // retain the original(0,0) cell; no diagnostic waypoint shadow is used.
         sim.resolved_terrain = Some(flat_trigger_playfield_terrain(32, 32));
     }
-    sim.advance_triggers(TriggerInputs { rules }, None, FrameEffects::default())
+    sim.advance_triggers(rules, None, FrameEffects::default())
 }
 
 fn flat_trigger_playfield_terrain(
@@ -1870,7 +1870,7 @@ fn ordinary_master_frame(
         overlays,
         67,
         TickLane::Ordinary,
-        poll_triggers.then_some(TriggerInputs { rules }),
+        poll_triggers,
         FrameEffects::default(),
     )
     .expect("the ordinary fixture frame completes")
@@ -2218,7 +2218,7 @@ fn parsed_event_records_match_native_list_and_production_predicates() {
                     None,
                     67,
                     TickLane::Ordinary,
-                    Some(TriggerInputs { rules: None }),
+                    true,
                     crate::sim::world::FrameEffects::default(),
                 )
                 .unwrap();
@@ -2365,7 +2365,7 @@ fn parsed_map_trigger_flags_gate_production_frames_and_survive_restore() {
                 None,
                 67,
                 TickLane::Ordinary,
-                Some(TriggerInputs { rules: None }),
+                true,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("production frame completes");
@@ -2795,7 +2795,7 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
             None,
             None,
             67,
-            Some(TriggerInputs { rules: None }),
+            true,
         ),
         vec![original_tick.state_hash],
     );

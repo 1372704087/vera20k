@@ -391,7 +391,7 @@ mod tests {
                 None,
                 67,
                 crate::sim::world::TickLane::Ordinary,
-                None,
+                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");
@@ -426,7 +426,7 @@ mod tests {
                 None,
                 67,
                 crate::sim::world::TickLane::Ordinary,
-                None,
+                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");

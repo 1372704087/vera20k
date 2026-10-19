@@ -190,7 +190,7 @@ fn paid_ready_fixture() -> Option<Fixture> {
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .expect("ordinary paid production frame");
@@ -608,7 +608,7 @@ fn advance_commands(fixture: &mut Fixture, commands: &[CommandEnvelope]) -> SimF
             Some(&fixture.overlays),
             67,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .expect("ordinary authoritative command frame")

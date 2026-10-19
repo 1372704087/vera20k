@@ -84,7 +84,7 @@ fn ambient_events_poll_current_signed_scalar_and_include_equality() {
             sim.scenario_rng.native_state_hex(),
             sim.mapgen_rng.native_state_hex(),
         );
-        sim.advance_triggers(TriggerInputs { rules: None }, None, FrameEffects::default());
+        sim.advance_triggers(None, None, FrameEffects::default());
         assert_eq!(
             sim.trigger_local_is_set_for_test(0),
             below,
@@ -118,9 +118,7 @@ fn saved_pending_ambient_event_fires_after_the_production_frame_fade() {
             None,
             67,
             TickLane::Ordinary,
-            Some(TriggerInputs {
-                rules: Some(&rules),
-            }),
+            true,
             FrameEffects::default(),
         )
         .unwrap();
@@ -147,9 +145,7 @@ fn saved_pending_ambient_event_fires_after_the_production_frame_fade() {
                 None,
                 67,
                 TickLane::Ordinary,
-                Some(TriggerInputs {
-                    rules: Some(&rules),
-                }),
+                true,
                 FrameEffects::default(),
             )
             .unwrap();

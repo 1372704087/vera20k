@@ -6240,7 +6240,7 @@ mod tests {
 
     fn waypoint_cue_spring_flare(sim: &mut Simulation, rules: &RuleSet) -> AnimId {
         sim.advance_triggers(
-            crate::sim::world::TriggerInputs { rules: Some(rules) },
+            Some(rules),
             None,
             crate::sim::world::FrameEffects::default(),
         );

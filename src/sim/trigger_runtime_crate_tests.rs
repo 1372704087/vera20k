@@ -98,11 +98,7 @@ fn install(sim: &mut Simulation, rules: &RuleSet, body: &str) -> crate::map::map
 }
 
 fn poll(sim: &mut Simulation, rules: &RuleSet, registry: &OverlayTypeRegistry) {
-    let _ = sim.advance_triggers(
-        TriggerInputs { rules: Some(rules) },
-        Some(registry),
-        FrameEffects::default(),
-    );
+    let _ = sim.advance_triggers(Some(rules), Some(registry), FrameEffects::default());
 }
 
 #[test]

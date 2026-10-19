@@ -138,7 +138,7 @@ pub(crate) fn launched_stock_submarine_torpedo(
                 None,
                 33,
                 TickLane::Ordinary,
-                None,
+                false,
                 FrameEffects::default(),
             )
             .expect("ordinary submarine Attack frame");
@@ -263,7 +263,7 @@ fn stock_submarine_attack_has_a_visible_flat_voxel_torpedo(elite: bool) {
             None,
             33,
             crate::sim::world::TickLane::Ordinary,
-            None,
+            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("ordinary torpedo flight/impact frame");

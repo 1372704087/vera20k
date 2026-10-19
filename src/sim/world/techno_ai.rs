@@ -2906,7 +2906,7 @@ mod tests {
             None,
             67,
             super::super::TickLane::Ordinary,
-            None,
+            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("empty authoritative frame");

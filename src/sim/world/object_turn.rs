@@ -553,8 +553,13 @@ impl Simulation {
                 sim.session.binary_frame,
             );
         }
-        if !sim.process_track_turn(stable_id, rules, overlay_registry, effects) {
-            return Ok(outcome);
+        match sim.process_track_turn(stable_id, rules, overlay_registry, effects) {
+            movement::track_turn::TrackProcessEntry::Movement => {}
+            movement::track_turn::TrackProcessEntry::Tail => {
+                sim.drive_process_rest_tail(stable_id, rules, overlay_registry, effects);
+                return Ok(outcome);
+            }
+            movement::track_turn::TrackProcessEntry::Return => return Ok(outcome),
         }
         let mut pending_movement = {
             let current_grid = sim.path_grid_snapshot();
@@ -582,6 +587,7 @@ impl Simulation {
             cause,
         };
         let mut retry = false;
+        let mut process_tail = true;
         loop {
             if let Some(request) = pending_movement.take_foot_path_request() {
                 let outcome = sim
@@ -624,6 +630,11 @@ impl Simulation {
                         effects,
                     )
                     .map_err(|cause| frame_error(sim, cause))?;
+                // Drive4B0A7E/4B064C: the out byte returns the Process
+                // immediately; it must not run the common rest-speed tail.
+                if out {
+                    process_tail = false;
+                }
                 if !out
                     && sim
                         .substrate
@@ -659,7 +670,14 @@ impl Simulation {
                 .map_err(|cause| frame_error(sim, cause))?;
             pending_movement.record_track_movement(pass.moved);
             outcome.track_owned = true;
-            if retry || !invocation.active_gate || pass.aborted {
+            // Only the FIRST, active-track call tests Process_Track's AL
+            // (4B057B). The post-fresh call ignores AL and goes through the
+            // live-owner check to the common tail (4B0AAF..4B0ABC).
+            if invocation.active_gate && pass.aborted {
+                process_tail = false;
+                break;
+            }
+            if retry || !invocation.active_gate {
                 break;
             }
             if !sim
@@ -694,6 +712,9 @@ impl Simulation {
             .merge(movement::movement_tick::finish_movement_pass(
                 pending_movement,
             ));
+        if process_tail {
+            sim.drive_process_rest_tail(stable_id, rules, overlay_registry, effects);
+        }
         Ok(outcome)
     }
     pub(super) fn advance_live_object_pass(

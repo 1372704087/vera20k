@@ -531,13 +531,15 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // destination is now Unit 0x00741970, which returns before any write without a
 // NavCom (0x00741A80). Tank 4 is at rest and attacking with no NavCom at the
 // tick-300 Stop, still holding a Foot speed fraction of about 0.73. The old
-// body's Drive Stop zeroed it (navcom.rs `drive_stop_moving`, itself a
-// stand-in for the unported Drive rest tail 0x4B0828), so the old tick-320
-// retreat order (to 8,8) now departs faster, leaves tank 6's fire, and the
-// duel never resolved. RESIDUAL: the native departure speed after an at-rest
-// stop is not established until 0x4B0828 is ported. The order now moves tank 4
-// one cell toward tank 6, and tank 4 still dies inside the run. Main/MapGen
-// are unchanged. Previous: 0x8976_4F17_0FCF_A3FB.
+// body's Drive Stop zeroed it. Retaining the speed made the former tick-320
+// retreat route (to 8,8) faster, taking tank 4 out of tank 6's fire. The order
+// now moves tank 4 one cell
+// toward tank 6, and tank 4 still dies inside the run. Drive Stop4AFE00 now
+// retains speed; only the admitted Process4B0828 tail clears it after both
+// class coordinates and the path queue empty. Consumed original Stop/rest/
+// departure controls live in tools/spatial_oracle/track_rest_speed.json.
+// This global pin is a Rust regression, not native whole-scenario parity.
+// Main/MapGen are unchanged. Previous: 0x8976_4F17_0FCF_A3FB.
 // 2026-10-02 Building body has one retained owner (hash composition):
 // same-binary control restores only the former two absent Up/Down
 // folds and reproduces the preceding pin. All819 control/current

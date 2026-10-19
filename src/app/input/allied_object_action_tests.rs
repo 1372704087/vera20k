@@ -399,7 +399,15 @@ fn allied_object_click_dispatches_the_existing_move_receiver() {
     );
     let (sim, actor, target) = object_pair(&battle.rules, "MTNK", "ally");
     assert_eq!(
-        object_click_release(&sim, &battle.rules, &[actor], &[actor], target, &overlays,),
+        object_click_release(
+            &sim,
+            &battle.rules,
+            &[actor],
+            &[actor],
+            target,
+            &overlays,
+            false
+        ),
         LeftRelease::Dispatch
     );
     let owner = sim.entities().get(actor).unwrap().owner();

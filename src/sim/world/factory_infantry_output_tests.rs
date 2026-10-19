@@ -2029,7 +2029,6 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     Some(&registry),
                     TICK_MS,
                     super::TickLane::Ordinary,
-                    false,
                     crate::sim::world::FrameEffects::default(),
                 )
                 .expect("the ordinary app frame completes");

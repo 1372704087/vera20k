@@ -9,18 +9,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::actions::ActionMap;
 use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSelector};
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::events::EventCondition;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::events::EventMap;
 use crate::map::resolved_terrain::NativeCellQuery;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::triggers::TriggerMap;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::variable_names::LocalVariableMap;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::timer::CdTimer;
@@ -1038,76 +1030,6 @@ impl Simulation {
         self.session
             .campaign_house_difficulties()
             .map_or(1, |(player, _)| player.table_index() as i32)
-    }
-
-    /// Legacy unit fixtures declare one synthetic Tag per Trigger instead of
-    /// a `[Tags]` section. This seam installs those complete definitions,
-    /// events and actions included, from the production record readers'
-    /// output, as `initialize_trigger_definitions` does for a map; Fill
-    /// (`classify_map_triggers`) stays the fixture's next step. Construction,
-    /// polling and actions use the same production owner. Map loading always
-    /// uses the physical reader.
-    #[cfg(any(test, feature = "test-support"))]
-    fn initialize_fixture_trigger_definitions(
-        &mut self,
-        triggers: &TriggerMap,
-        events: &EventMap,
-        actions: &ActionMap,
-        locals: &LocalVariableMap,
-    ) {
-        let mut ids: Vec<_> = triggers.keys().collect();
-        ids.sort();
-        let mut definitions = RuntimeDefinitions::default();
-        for id in &ids {
-            definitions.trigger_type(id);
-        }
-        for id in ids {
-            let index = definitions.trigger_type(id).unwrap();
-            let record = &triggers[id];
-            let linked = record
-                .linked_trigger_id()
-                .and_then(|id| definitions.trigger_type(id));
-            let typ = &mut definitions.trigger_types[index];
-            typ.owner = record.owner().map(str::to_string);
-            typ.linked = linked;
-            typ.enabled = record.enabled();
-            typ.transfer_on_capture |= record.transfer_on_capture();
-            typ.difficulty = record.difficulty();
-            definitions.tag_types.push(TagType {
-                id: id.clone(),
-                name: id.clone(),
-                repeat: 0,
-                trigger: Some(index),
-            });
-        }
-        // The range is fixed first: Types an action reference allocates get
-        // no records.
-        for index in 0..definitions.trigger_types.len() {
-            let id = definitions.trigger_types[index].id.clone();
-            let conditions = events
-                .get(&id)
-                .map_or_else(Vec::new, |record| record.conditions().to_vec());
-            let entries = actions
-                .get(&id)
-                .map_or_else(Vec::new, |record| record.entries().to_vec());
-            let resolved = entries
-                .into_iter()
-                .map(|entry| definitions.resolve_action(entry, None, None))
-                .collect();
-            let typ = &mut definitions.trigger_types[index];
-            typ.events = conditions.into_iter().map(RuntimeEvent::from).collect();
-            typ.actions = resolved;
-        }
-        self.trigger_runtime = TriggerRuntime {
-            definitions,
-            definitions_prepared: true,
-            locals_set: locals
-                .values()
-                .filter(|v| v.initially_set)
-                .map(|v| v.index)
-                .collect(),
-            ..TriggerRuntime::default()
-        };
     }
 
     /// Original Tag6E52A0 includes pending-but-not-yet-destroyed instances.

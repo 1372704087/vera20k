@@ -152,19 +152,6 @@ impl MapAction {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
-impl MapAction {
-    /// A fixture record holding entries the reader cannot produce, such as an
-    /// empty waypoint token.
-    pub fn for_test(id: &str, entries: Vec<ActionEntry>) -> Self {
-        Self {
-            id: id.to_string(),
-            fields: Vec::new(),
-            entries,
-        }
-    }
-}
-
 pub type ActionMap = HashMap<String, MapAction>;
 
 /// Decode the alphabetic waypoint token stored in action field 8.

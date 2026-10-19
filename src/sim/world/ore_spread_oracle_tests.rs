@@ -147,7 +147,6 @@ fn app_frames_match_original_ore_driver_histories_and_rng_continuation() {
                     Some(&registry),
                     67,
                     TickLane::Ordinary,
-                    false,
                     crate::sim::world::FrameEffects::default(),
                 )
                 .unwrap()
@@ -212,7 +211,6 @@ fn app_ore_constructor_terminal_cleanup_matches_original_deferred_drain() {
                 Some(&registry),
                 67,
                 TickLane::Ordinary,
-                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .unwrap()

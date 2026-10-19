@@ -63,43 +63,6 @@ impl MapTrigger {
     }
 }
 
-#[cfg(any(test, feature = "test-support"))]
-impl MapTrigger {
-    /// A fixture header with all difficulties set, including the absent owner
-    /// the reader produces only for a record of bare commas.
-    pub fn for_test(
-        id: &str,
-        owner: Option<&str>,
-        linked_trigger_id: Option<&str>,
-        name: &str,
-        enabled: bool,
-    ) -> Self {
-        let fields = [
-            owner.unwrap_or(""),
-            linked_trigger_id.unwrap_or("<none>"),
-            name,
-            if enabled { "0" } else { "1" },
-            "1",
-            "1",
-            "1",
-            "0",
-        ];
-        Self {
-            id: id.to_string(),
-            fields: fields.map(str::to_string).to_vec(),
-            owner: owner.map(str::to_string),
-            linked_trigger_id: linked_trigger_id.map(str::to_string),
-            name: Some(name.to_string()),
-            enabled,
-            difficulty: TriggerDifficulty {
-                easy: true,
-                medium: true,
-                hard: true,
-            },
-        }
-    }
-}
-
 pub type TriggerMap = HashMap<String, MapTrigger>;
 
 /// Parse `[Triggers]` into exact-key header records.

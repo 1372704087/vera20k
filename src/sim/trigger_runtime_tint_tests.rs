@@ -141,7 +141,6 @@ fn ordered_tag_rgb_actions_then_the_production_fade_keep_distinct_palette_operat
             None,
             67,
             TickLane::Ordinary,
-            true,
             FrameEffects::default(),
         )
         .unwrap();

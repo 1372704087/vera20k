@@ -59,7 +59,6 @@ fn advance(sim: &mut Simulation, rules: &RuleSet) {
         None,
         33,
         TickLane::Ordinary,
-        false,
         FrameEffects::default(),
     )
     .unwrap();

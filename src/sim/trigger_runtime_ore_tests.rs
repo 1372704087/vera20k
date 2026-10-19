@@ -349,7 +349,6 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
             Some(registry),
             67,
             TickLane::Ordinary,
-            false,
             FrameEffects::default(),
         )
         .unwrap();
@@ -385,7 +384,6 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
             Some(registry),
             134,
             TickLane::Ordinary,
-            false,
             FrameEffects::default(),
         )
         .unwrap();

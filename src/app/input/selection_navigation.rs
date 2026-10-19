@@ -781,7 +781,6 @@ mod tests {
                 None,
                 67,
                 TickLane::Ordinary,
-                false,
                 FrameEffects::empty(),
             )
             .unwrap();
@@ -825,7 +824,6 @@ mod tests {
                     None,
                     67,
                     TickLane::Ordinary,
-                    false,
                     FrameEffects::empty(),
                 )
                 .unwrap();
@@ -887,7 +885,6 @@ mod tests {
                     None,
                     67,
                     TickLane::Ordinary,
-                    false,
                     FrameEffects::empty(),
                 )
                 .unwrap();

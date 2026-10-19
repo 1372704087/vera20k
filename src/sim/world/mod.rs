@@ -6668,9 +6668,10 @@ impl Simulation {
     }
 
     /// Fixture-only frame adapter (F09): unit tests drive one Main_Tick-shaped
-    /// frame with explicitly supplied rules/heights/navigation. Production and
-    /// tooling advance exclusively through `SimRuntime::advance_frame`, whose
-    /// resources are bound at construction and cannot be substituted per call.
+    /// frame with explicitly supplied rules/heights/navigation, without the
+    /// trigger poll. Production and tooling advance exclusively through
+    /// `SimRuntime::advance_frame`, whose resources are bound at construction
+    /// and cannot be substituted per call.
     #[cfg(any(test, feature = "test-support"))]
     pub fn advance_tick(
         &mut self,
@@ -6700,6 +6701,7 @@ impl Simulation {
     /// the returned facts instead of reaching back into Simulation-owned
     /// transient queues. `SimRuntime::advance_frame` is the sole production
     /// caller (F09); headless and replay execution go through the runtime.
+    /// Every frame polls the installed scenario triggers.
     pub fn advance_app_frame(
         &mut self,
         commands: &[CommandEnvelope],
@@ -6707,7 +6709,6 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
         lane: TickLane,
-        poll_triggers: bool,
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
         let frame = self.advance_master_frame(
@@ -6716,7 +6717,7 @@ impl Simulation {
             overlay_registry,
             tick_ms,
             lane,
-            poll_triggers,
+            true,
             effects,
         );
         // A failed frame must not carry a previous caller's derived interest
@@ -6799,11 +6800,12 @@ impl Simulation {
     /// Advance exactly one authoritative simulation frame.
     ///
     /// This is the sole Main_Tick-shaped entry point, reached in production
-    /// only through `advance_app_frame` (F09). The fixture-only `advance_tick`
-    /// adapter and the replay fixture runners are `#[cfg(test)]`. With
-    /// `poll_triggers` the frame polls the definitions the trigger runtime
-    /// installed at scenario init, with the frame's `rules`; production always
-    /// polls, and fixtures without map triggers may skip it.
+    /// only through `advance_app_frame` (F09), which always polls the trigger
+    /// definitions installed at scenario init, with the frame's `rules`. The
+    /// fixture-only `advance_tick` adapter and the replay fixture runners are
+    /// `#[cfg(test)]`; they and focused frame tests may pass `poll_triggers`
+    /// false to leave the poll out, also with map triggers installed, as when
+    /// a test isolates the House rung's Tag raise.
     pub(crate) fn advance_master_frame(
         &mut self,
         commands: &[CommandEnvelope],

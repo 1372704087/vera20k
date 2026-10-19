@@ -187,7 +187,6 @@ impl SimRuntime {
             Some(&self.resources.overlay_registry),
             tick_ms,
             lane,
-            true,
             effects,
         )
     }

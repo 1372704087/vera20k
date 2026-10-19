@@ -455,7 +455,6 @@ fn app_and_headless_frames_hash_identically_for_animation_progress() {
             None,
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -492,7 +491,6 @@ fn app_and_headless_frames_hash_identically_for_particle_frame_timing() {
                 None,
                 67,
                 TickLane::Ordinary,
-                false,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");
@@ -923,7 +921,6 @@ fn app_frame_output_transfers_pre_tick_sound_exactly_once_without_hash_change() 
             None,
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -940,7 +937,6 @@ fn app_frame_output_transfers_pre_tick_sound_exactly_once_without_hash_change() 
             None,
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -969,7 +965,6 @@ fn app_frame_output_finalizes_overlay_navigation_and_delivers_updates_once() {
             None,
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -988,7 +983,6 @@ fn app_frame_output_finalizes_overlay_navigation_and_delivers_updates_once() {
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -1010,7 +1004,6 @@ fn app_frame_output_finalizes_overlay_navigation_and_delivers_updates_once() {
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -1049,7 +1042,6 @@ fn terminal_app_frame_finalizes_overlay_updates_before_hash() {
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -1086,7 +1078,6 @@ fn terminal_app_frame_finalizes_overlay_updates_before_hash() {
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -10273,7 +10264,6 @@ fn current_rust_frame_call_order_is_preserved() {
             None,
             16,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");
@@ -10291,7 +10281,6 @@ fn current_rust_frame_call_order_is_preserved() {
             None,
             16,
             TickLane::Ordinary,
-            false,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");

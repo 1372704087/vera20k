@@ -1739,7 +1739,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
             None,
             67,
             TickLane::Ordinary,
-            true,
             FrameEffects::default(),
         )
         .unwrap();
@@ -1761,7 +1760,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         None,
         67,
         TickLane::Ordinary,
-        true,
         FrameEffects::default(),
     )
     .unwrap();
@@ -1829,7 +1827,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         None,
         67,
         TickLane::Ordinary,
-        true,
         FrameEffects::default(),
     )
     .unwrap();

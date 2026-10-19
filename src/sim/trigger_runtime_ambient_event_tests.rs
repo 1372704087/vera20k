@@ -118,7 +118,6 @@ fn saved_pending_ambient_event_fires_after_the_production_frame_fade() {
             None,
             67,
             TickLane::Ordinary,
-            true,
             FrameEffects::default(),
         )
         .unwrap();
@@ -145,7 +144,6 @@ fn saved_pending_ambient_event_fires_after_the_production_frame_fade() {
                 None,
                 67,
                 TickLane::Ordinary,
-                true,
                 FrameEffects::default(),
             )
             .unwrap();

@@ -62,6 +62,14 @@ impl Simulation {
         if super_instance(self, owner, sw_type_id).is_none() {
             return false;
         }
+        // Optional extension preflight precedes paired-Super writes, effects,
+        // defense alerts and charge consumption. Stock-only commands retain
+        // their native behavior, including native refused-click side effects.
+        if sw.building_requirements.is_some()
+            && !super::building_requirements_met(self, rules, owner, sw)
+        {
+            return false;
+        }
         if super::targeting::check(self, rules, owner, sw, cell, automatic).is_err() {
             return false;
         }

@@ -833,8 +833,9 @@ pub(super) fn dispatch_sim_sound_events(
                 // `0x004468FA..0x00446935`: `AuxBuilding=` absent, or
                 // the building's own house owns one
                 // (`CountOwnedInstances` on `Owner+0x5550`).
+                // Optional Ares lists use the same grant availability owner.
                 let aux_satisfied = rules.super_weapon(&type_name).is_none_or(|sw| {
-                    crate::sim::superweapon::aux_building_present(sim, rules, owner, sw)
+                    crate::sim::superweapon::building_requirements_met(sim, rules, owner, sw)
                 });
                 if !eva_producers::super_weapon_detected_allowed(
                     &sim.house_alliances,
@@ -2283,6 +2284,46 @@ mod tests {
             &mut output,
         );
         assert!(output.drain().is_empty());
+    }
+
+    #[test]
+    fn construction_detection_uses_the_shared_extension_building_gate() {
+        use crate::rules::ini_parser::IniFile;
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[BuildingTypes]\n0=AUX\n1=VETO\n[AUX]\nStrength=100\n[VETO]\nStrength=100\n[SuperWeaponTypes]\n0=Gate\n[Gate]\nType=PsychicReveal\nSW.AuxBuildings=AUX\nSW.NegBuildings=VETO\n",
+        );
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &ini,
+            &IniFile::from_str("[AUX]\nFoundation=1x1\n[VETO]\nFoundation=1x1\n"),
+        )
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 23);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.session.game_mode_nonzero = true;
+        let owner = sim.interner.get("Russians").unwrap();
+        let sw_type = sim.interner.get("Gate").unwrap();
+        let hear = |sim: &Simulation| {
+            let mut output = SoundEventQueue::new();
+            dispatch_sim_sound_events(
+                [SimSoundEvent::SuperWeaponDetected { owner, sw_type }],
+                sim,
+                &rules,
+                Some("Americans"),
+                &mut |_| false,
+                &mut output,
+            );
+            output.drain()
+        };
+        assert!(hear(&sim).is_empty());
+        sim.spawn_object_at_height("AUX", "Russians", 6, 6, 0, 0, &rules)
+            .unwrap();
+        assert!(
+            matches!(hear(&sim).as_slice(), [GameSoundEvent::Eva { event, .. }] if event == "EVA_NuclearSiloDetected")
+        );
+        sim.spawn_object_at_height("VETO", "Russians", 8, 8, 0, 0, &rules)
+            .unwrap();
+        assert!(hear(&sim).is_empty());
     }
 
     #[test]

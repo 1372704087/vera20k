@@ -1176,7 +1176,9 @@ use crate::util::save_codec;
 // 435 -> 436: process-resident Rules retain IRepairStep, URepairRate and
 // IRepairRate across layer reads, saved state and destructive Type resets.
 // 436 -> 437: independent BuildingLight objects and retained Spotlight rules.
-const SNAPSHOT_VERSION: u32 = 438;
+// 437 -> 438: retain the GenericWarhead payload reference in processed rules.
+// 438 -> 439: retain optional Ares auxiliary and negative building lists.
+const SNAPSHOT_VERSION: u32 = 439;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4875,7 +4877,8 @@ mod tests {
         // 435 -> 436: retained repair service inputs.
         // 436 -> 437: independent BuildingLight and retained Spotlight rules.
         // 437 -> 438: the retained GenericWarhead payload binding.
-        assert_eq!(super::SNAPSHOT_VERSION, 438);
+        // 438 -> 439: retained Ares building requirement lists.
+        assert_eq!(super::SNAPSHOT_VERSION, 439);
     }
 
     #[test]

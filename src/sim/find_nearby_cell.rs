@@ -33,6 +33,55 @@ use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::util::native_x87::{X87Chop53, sqrt_approx_f32};
 
+/// Foot4CBC40..4CBEE2: search the side of `target` facing `from`, in
+/// increasing radii (exclusive upper bound). Each edge starts AFTER its
+/// corner. This is distinct from Map56DC20's full-ring/pool search below.
+/// Original direction, wrapping and visit controls: team_recruit_oracle --retreat.
+fn find_nearby_foot_cell(
+    from: (i16, i16),
+    target: (i16, i16),
+    radii: std::ops::Range<i32>,
+    mut can_enter: impl FnMut((i16, i16), u8) -> bool,
+) -> Option<(i16, i16)> {
+    use crate::util::direction::DIRECTION_DELTAS;
+    use crate::util::direction_tables::{dir_from_facing16, facing16_between};
+    let facing = facing16_between(
+        [i32::from(from.0), i32::from(from.1)],
+        [i32::from(target.0), i32::from(target.1)],
+    );
+    let start = (dir_from_facing16(facing) ^ 4).wrapping_sub(1) & 7;
+    let delta = DIRECTION_DELTAS[usize::from(start)];
+    for radius in radii {
+        let mut cell = (
+            target
+                .0
+                .wrapping_add((radius as i16).wrapping_mul(delta.0 as i16)),
+            target
+                .1
+                .wrapping_add((radius as i16).wrapping_mul(delta.1 as i16)),
+        );
+        let segments = if start & 1 != 0 {
+            [((start + 3) & 7, radius.wrapping_mul(2)), (0, 0)]
+        } else {
+            [
+                ((start + 2) & 7, radius),
+                (start.wrapping_sub(4) & 7, radius),
+            ]
+        };
+        for (direction, count) in segments {
+            let step = DIRECTION_DELTAS[usize::from(direction)];
+            for _ in 0..count {
+                cell.0 = cell.0.wrapping_add(step.0 as i16);
+                cell.1 = cell.1.wrapping_add(step.1 as i16);
+                if can_enter(cell, direction) {
+                    return Some(cell);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Hard radius cap for the ring search.
 ///
 /// The engine derives its own cap from the two map-rectangle scalars —
@@ -703,6 +752,40 @@ impl NearbyArgs {
 }
 
 impl crate::sim::world::Simulation {
+    /// Foot4CBC40's class-specific entry receiver. Native looks up each
+    /// candidate before dispatching +1AC, including an Aircraft receiver.
+    pub(crate) fn foot_nearby_location(
+        &self,
+        id: u64,
+        from: (i16, i16),
+        target: (i16, i16),
+        radii: std::ops::Range<i32>,
+        rules: &crate::rules::ruleset::RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> Option<(i16, i16)> {
+        use crate::sim::movement::infantry_entry::{EntryQueryMode, InfantryEntryArgs};
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(
+            self.resolved_terrain.as_ref()?,
+        );
+        find_nearby_foot_cell(from, target, radii, |cell, direction| {
+            let _ = cells.lookup(cell);
+            self.mover_can_enter(
+                id,
+                cell,
+                InfantryEntryArgs {
+                    direction: i32::from(direction),
+                    height: -1,
+                    previous_cell: None,
+                },
+                EntryQueryMode::CheckLocomotor,
+                rules,
+                registry,
+            )
+            .is_ok_and(|code| code == 0)
+        })
+        .filter(|&cell| cell != (0, 0))
+    }
+
     /// `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20` on the live map:
     /// its cells and their raw occupation, the path, overlay, object and
     /// zone grids, the playfield, the radius cap from the map's Size
@@ -853,6 +936,44 @@ mod tests {
     use super::*;
     use crate::map::bridge_facts::{BRIDGE_FLAG_FORWARD_SIDE, BRIDGE_FLAG_STRUCTURAL};
     use crate::map::resolved_terrain::ResolvedTerrainGrid;
+
+    #[test]
+    fn retreat_directional_foot_search_matches_original_visits_and_null_result() {
+        let corpus = crate::test_fixture::json("tools/team_retreat.json");
+        let pair =
+            |v: &serde_json::Value| (v[0].as_i64().unwrap() as i16, v[1].as_i64().unwrap() as i16);
+        for row in corpus["nearby"].as_array().unwrap() {
+            let mut visits = Vec::new();
+            let accept = row["accept"].as_i64().unwrap();
+            let result = find_nearby_foot_cell(
+                pair(&row["source"]),
+                pair(&row["target"]),
+                row["minimum"].as_i64().unwrap() as i32..row["maximum"].as_i64().unwrap() as i32,
+                |cell, direction| {
+                    let admitted = visits.len() as i64 == accept;
+                    visits.push((cell, direction));
+                    admitted
+                },
+            );
+            let expected: Vec<_> = row["visits"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|v| {
+                    assert_eq!(v["height"], -1);
+                    assert_eq!(v["previous"], 0);
+                    assert_eq!(v["mode"], 1);
+                    (pair(&v["cell"]), v["direction"].as_u64().unwrap() as u8)
+                })
+                .collect();
+            assert_eq!(visits, expected, "{row}");
+            assert_eq!(result.unwrap_or((0, 0)), pair(&row["result"]), "{row}");
+            assert_eq!(
+                result.is_some(),
+                accept >= 0 && (accept as usize) < visits.len()
+            );
+        }
+    }
 
     /// Clear cells carrying the retail Clear row, with the grid's land rows
     /// bound as a loaded scenario binds them.

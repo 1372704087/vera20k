@@ -283,6 +283,45 @@ impl ObjectLifecycle {
     }
 }
 
+/// The dying mark: an object on the VERA-only SHP death sequence of a
+/// non-Infantry object (`combat::world_receiver`), or past its UnInit until
+/// the pending delete drains it. VERA-only: native has no such field. Native
+/// UnInit (`ObjectClass::UnInit @ 0x005F65F0`) clears IsAlive (`+0x90`),
+/// which VERA's UnInit clears as well; native has no SHP death sequence.
+///
+/// An infantryman's death sets no mark: his corpse keeps IsAlive at Health 0
+/// and goes on through his ordinary visit (`world::infantry_death`).
+///
+/// Writers: [`Self::begin`] (the receiver's SHP death and UnInit) and
+/// [`Self::restore`] (PostMortem).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct TerminalLifetime {
+    dying: bool,
+}
+
+impl TerminalLifetime {
+    /// The object is on its SHP death sequence or past its UnInit.
+    pub const fn is_dying(self) -> bool {
+        self.dying
+    }
+
+    /// Mark the object dying: a non-Infantry SHP death sequence, or UnInit.
+    pub(crate) fn begin(&mut self) {
+        self.dying = true;
+    }
+
+    /// PostMortem's restore (`0x00701F60`): alive again at Health 1.
+    pub(crate) fn restore(&mut self) {
+        self.dying = false;
+    }
+
+    /// Install a fixture's dying mark.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_dying_for_test(&mut self, dying: bool) {
+        self.dying = dying;
+    }
+}
+
 /// The control value `DispatchPointerExpiredCleanup @ 0x007258D0` forwards to
 /// every listener's `PointerExpired` slot (`vt+0x28`), i.e. the third argument
 /// of `TechnoClass::PointerExpired @ 0x007077C0`.
@@ -5468,12 +5507,9 @@ impl Simulation {
         // Ordinary Particle and Smudge instances have no Techno/Foot hooks
         // or passengers. Every represented family joins the one base tail.
         if !smudge && !particle {
-            let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
+            let Some(entity) = self.substrate.entities.get(stable_id) else {
                 return;
             };
-            // Consume deferred/retained Infantry lifetime before pointer-expiry
-            // callbacks, including an UnInit that overtakes receiver delivery.
-            entity.death.end_infantry_policy();
             // `FootClass::UnInit @ 0x004DE5DD` frees a controller's captives
             // first (a crushed or otherwise removed Yuri or Mastermind).
             let foot = matches!(

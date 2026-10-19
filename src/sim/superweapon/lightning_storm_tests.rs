@@ -185,7 +185,7 @@ fn fixture_world(
         let name = format!("H{index}");
         let id = sim.interner.intern(&name);
         let mut state = HouseState::new(id, 0, None, Some(index) == player, 0, 10);
-        state.is_defeated = flag(&house[1]);
+        state.set_is_defeated_for_test(flag(&house[1]));
         sim.houses.register(state);
         sim.power_states.insert(id, PowerState::settled_for_test());
         let bits = int(&house[0]);
@@ -463,7 +463,10 @@ fn storm_start_matches_native_rows() {
         );
         if int(&row["mute"]) != 0 {
             let player = sim.session.current_house().expect("a muted row's player");
-            sim.houses.get_mut(&player).unwrap().is_defeated = true;
+            sim.houses
+                .get_mut(&player)
+                .unwrap()
+                .set_is_defeated_for_test(true);
         }
         sim.lightning_storm = LightningStorm::for_test(
             flag(&row["active"]),

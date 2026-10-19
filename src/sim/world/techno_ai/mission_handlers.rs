@@ -1044,7 +1044,7 @@ fn infantry_idle_guard_pick(sim: &Simulation, id: u64, rules: &RuleSet) -> Missi
     let teamed = sim.team_script_vm.team_for_member(id).is_some();
     let object = sim.object_type(entity.type_ref(), rules);
     let area_guard = if !human && !teamed {
-        house.is_some_and(|house| house.current_iq >= rules.general.iq_guard_area)
+        house.is_some_and(|house| house.current_iq() >= rules.general.iq_guard_area)
             && entity.slave.owner().is_none()
             && object.is_some_and(|object| {
                 crate::sim::combat::combat_weapon::is_armed(entity, object)
@@ -2359,12 +2359,12 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
         .filter(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero()))
     {
         // Arm (ii), `0x00740880..0x0074092C`.
-        return house.tracking.owns_any_building(
+        return house.tracking().owns_any_building(
             unit_type
                 .dock
                 .iter()
                 .filter_map(|name| sim.interner.get(name)),
-        ) && !house.harvester_no_ore;
+        ) && !house.harvester_no_ore();
     }
     if !unit_type.teleporter {
         return false;

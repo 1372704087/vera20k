@@ -139,7 +139,7 @@ fn navigation_owner_controlled(
     } else {
         sim.houses
             .get(&owner)
-            .is_some_and(|house| house.player_control)
+            .is_some_and(|house| house.player_control())
     }
 }
 

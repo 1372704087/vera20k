@@ -2020,7 +2020,7 @@ mod tests {
                     let local = sim.interner.intern("Local");
                     let mut house =
                         crate::sim::house_state::HouseState::new(local, 0, None, true, 0, 10);
-                    house.is_defeated = true;
+                    house.set_is_defeated_for_test(true);
                     sim.houses.register(house);
                     sim.session.set_current_house_for_test(Some(local));
                 }

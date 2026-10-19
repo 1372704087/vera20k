@@ -229,7 +229,6 @@ use crate::sim::command::CommandEnvelope;
 use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::house_state::HouseState;
-use crate::sim::house_strategy;
 use crate::sim::intern::InternedId;
 use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::movement::locomotor::MovementLayer;
@@ -2935,7 +2934,7 @@ impl Simulation {
             let victim_passive = self
                 .houses
                 .get(&event.owner)
-                .is_some_and(|house| house.multiplay_passive);
+                .is_some_and(|house| house.multiplay_passive());
             if game_mode_nonzero && victim_passive {
                 continue;
             }
@@ -2950,7 +2949,7 @@ impl Simulation {
                         && self
                             .houses
                             .get(&listener)
-                            .is_some_and(|house| house.is_human)
+                            .is_some_and(|house| house.is_human())
                         && crate::map::houses::is_allied_with(
                             &self.house_alliances,
                             &victim_name,
@@ -4060,7 +4059,7 @@ impl Simulation {
                     && self
                         .houses
                         .get(&entity.owner())
-                        .is_some_and(|house| house.is_human);
+                        .is_some_and(|house| house.is_human());
                 Some((stable_id, member, reveal))
             })
             .collect::<Vec<_>>();
@@ -4755,7 +4754,7 @@ impl Simulation {
             self.substrate.entities.get_mut(stable_id),
             self.houses.get_mut(&owner),
         ) {
-            update(&mut house.tracking, entity);
+            update(house.tracking_mut(), entity);
         }
     }
 
@@ -4853,7 +4852,7 @@ impl Simulation {
         };
         if let Some(house) = self.houses.get_mut(&entity.owner()) {
             let factors = house.cost_factors();
-            house.tracking.added_to_game(entity, &factors);
+            house.tracking_mut().added_to_game(entity, &factors);
         }
     }
 
@@ -4877,7 +4876,7 @@ impl Simulation {
         let owner = entity.owner();
         let structure = entity.category() == EntityCategory::Structure;
         if let Some(house) = self.houses.get_mut(&owner) {
-            house.tracking.removed_from_game_prefix(entity);
+            house.tracking_mut().removed_from_game_prefix(entity);
         }
         self.powered_center_removed(stable_id, rules, effects);
         //50277B resumes after the callback prelude. Pin the original House
@@ -4886,7 +4885,7 @@ impl Simulation {
             && let Some(house) = self.houses.get_mut(&owner)
         {
             let factors = house.cost_factors();
-            house.tracking.removed_from_game(entity, &factors);
+            house.tracking_mut().removed_from_game(entity, &factors);
         }
         if structure {
             self.invalidate_house_power(owner, false);
@@ -4968,7 +4967,7 @@ impl Simulation {
                 .skip_radar_recheck();
             return;
         }
-        let buildings = self.houses[&owner].base_projection.buildings();
+        let buildings = self.houses[&owner].base_projection().buildings();
         power_system::assess_house_radar_projection(
             self.power_states
                 .get_mut(&owner)
@@ -4998,14 +4997,10 @@ impl Simulation {
         }) else {
             return;
         };
-        let _appended = if let Some(house) = self.houses.get_mut(&owner)
-            && !house.build_const_order.contains(&stable_id)
-        {
-            house.build_const_order.push(stable_id);
-            true
-        } else {
-            false
-        };
+        let _appended = self
+            .houses
+            .get_mut(&owner)
+            .is_some_and(|house| house.append_build_const(stable_id));
         #[cfg(any(test, feature = "test-support"))]
         if _appended {
             self.trace_lifecycle_for_test(LifecycleTestEvent::BuildConstAppended { stable_id });
@@ -5026,14 +5021,8 @@ impl Simulation {
         else {
             return;
         };
-        if eligible
-            && let Some(house) = self.houses.get_mut(&owner)
-            && let Some(index) = house
-                .build_const_order
-                .iter()
-                .position(|&id| id == stable_id)
-        {
-            house.build_const_order.remove(index);
+        if eligible && let Some(house) = self.houses.get_mut(&owner) {
+            house.remove_build_const(stable_id);
         }
     }
 
@@ -5056,7 +5045,7 @@ impl Simulation {
         self.houses.order().iter().copied().find(|owner| {
             self.houses
                 .get(owner)
-                .and_then(|house| house.country)
+                .and_then(|house| house.country())
                 .and_then(|id| rules.country_index(self.interner.resolve(id)))
                 == Some(country)
         })
@@ -5269,7 +5258,7 @@ impl Simulation {
                 .and_then(|entity| self.object_type(entity.type_ref(), rules))
                 .map_or(0, |object| self.cost_of(old_owner, object, rules));
             if let Some(house) = self.houses.get_mut(&new_owner) {
-                house.economy.add_score(cost);
+                house.economy_mut().add_score(cost);
             }
         }
         self.update_house_tracking(
@@ -5281,11 +5270,11 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(stable_id)
             && let Some(house) = self.houses.get_mut(&new_owner)
         {
-            house.tracking.add_tracking(entity);
+            house.tracking_mut().add_tracking(entity);
             //701607..70164D: DontScore suppresses this captured-object
             //count, not the preceding old-House price addition.
             if !entity.tracking_facts.dont_score() {
-                house.stats.record_kill(category);
+                house.stats_mut().record_kill(category);
             }
         }
         //701674 Mark(UP),70D4A0 detach and701691 Mark(DOWN) all precede
@@ -5349,10 +5338,10 @@ impl Simulation {
         // whether it is in limbo or not.
         if let Some(entity) = self.substrate.entities.get(stable_id) {
             if let Some(house) = self.houses.get_mut(&old_owner) {
-                house.tracking.recount(entity);
+                house.tracking_mut().recount(entity);
             }
             if let Some(house) = self.houses.get_mut(&new_owner) {
-                house.tracking.increment_factory_count(entity);
+                house.tracking_mut().increment_factory_count(entity);
             }
         }
         // A Helipad's docks leave the old house's AirportDocks
@@ -5370,7 +5359,7 @@ impl Simulation {
         {
             for (owner, delta) in [(old_owner, docks.wrapping_neg()), (new_owner, docks)] {
                 if let Some(house) = self.houses.get_mut(&owner) {
-                    house.tracking.add_airport_docks(delta);
+                    house.tracking_mut().add_airport_docks(delta);
                 }
             }
         }
@@ -5403,11 +5392,8 @@ impl Simulation {
                 .mind_control
                 .clear_house_original_owner_on_owner_change();
         }
-        if build_const_eligible
-            && let Some(house) = self.houses.get_mut(&new_owner)
-            && !house.build_const_order.contains(&stable_id)
-        {
-            house.build_const_order.push(stable_id);
+        if build_const_eligible && let Some(house) = self.houses.get_mut(&new_owner) {
+            house.append_build_const(stable_id);
         }
         if category == EntityCategory::Structure {
             self.join_house_base_lists(stable_id, old_owner, new_owner, rules);
@@ -5456,7 +5442,7 @@ impl Simulation {
             && self
                 .houses
                 .get(&new_owner)
-                .is_some_and(|house| house.is_human)
+                .is_some_and(|house| house.is_human())
         {
             self.leave_team(stable_id, false, rules, effects);
         }
@@ -6202,7 +6188,7 @@ impl Simulation {
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
         let mut active = BTreeSet::new();
         for (&owner, house) in &self.houses {
-            for &stable_id in house.base_projection.buildings() {
+            for &stable_id in house.base_projection().buildings() {
                 let Some(entity) = self.substrate.entities.get(stable_id) else {
                     continue;
                 };
@@ -6272,7 +6258,7 @@ impl Simulation {
             .iter()
             .filter_map(|(&owner, house)| {
                 let active = active_owners.contains(&owner);
-                (house.spy_sat_active != active).then_some((owner, active))
+                (house.spy_sat_active() != active).then_some((owner, active))
             })
             .collect();
         for (owner, active) in transitions {
@@ -6283,7 +6269,7 @@ impl Simulation {
                 self.reset_shroud_for_owner(owner, rules);
             }
             if let Some(house) = self.houses.get_mut(&owner) {
-                house.spy_sat_active = active;
+                house.record_spy_sat(active);
                 // House509069/509017 stores577A after the Map callback;
                 //509090/50903F then requests the current PlayerPtr's cue.
                 // Native750920 receives center8192, volume1f and NULL handle.
@@ -6320,7 +6306,7 @@ impl Simulation {
         let iq_production = rules.map(|rules| rules.general.iq_production);
         let represented = self.houses.contains_key(&owner);
         if let Some((house, house_order)) = self.houses.get_mut_with_order(&owner) {
-            house_strategy::decay_anger_scores(house, house_order, current_frame);
+            house.decay_anger_scores(house_order, current_frame);
         }
         if represented {
             #[cfg(any(test, feature = "test-support"))]

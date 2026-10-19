@@ -744,9 +744,9 @@ impl Simulation {
             return false;
         };
         let owner_admitted = if self.session.game_mode_nonzero() {
-            owner_house.is_human
+            owner_house.is_human()
         } else {
-            owner_house.is_human || owner_house.player_control
+            owner_house.is_human() || owner_house.player_control()
         };
         if !owner_admitted || !overlays.flags(overlay_id).is_some_and(|flags| flags.wall) {
             return false;

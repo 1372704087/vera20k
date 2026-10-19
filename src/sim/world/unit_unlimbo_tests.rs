@@ -1124,7 +1124,7 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
         sim.mission_assign_exact(producer_id, MissionId::from_known(MissionType::Guard), 0)
             .unwrap();
         assert!(
-            sim.houses[&owner].base_projection.buildings().is_empty(),
+            sim.houses[&owner].base_projection().buildings().is_empty(),
             "{name}: direct native ExitObject has no House producer membership"
         );
         let producer_type = rules.object("GAWEAP").unwrap();

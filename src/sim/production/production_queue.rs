@@ -249,7 +249,7 @@ pub(in crate::sim) fn exit_produced_object(
     }
     ai_base_building::economy_state_machine(sim, rules, owner_id, false);
     if let Some(house) = sim.houses.get_mut(&owner_id) {
-        house.ai_unit_choices.clear(kind);
+        house.ai_unit_choices_mut().clear(kind);
     }
     if kind == UnitChoiceKind::Aircraft {
         let airport_bound = product_type.airport_bound;
@@ -430,7 +430,7 @@ fn exit_land(
             return BuildingExit::Failed;
         };
         let Some(alternate_id) = house
-            .base_projection
+            .base_projection()
             .buildings()
             .iter()
             .copied()
@@ -661,7 +661,7 @@ fn exit_cloning_vat_copies(
     let vat_ids = sim
         .houses
         .get(&owner)
-        .map(|house| house.base_projection.buildings().to_vec())
+        .map(|house| house.base_projection().buildings().to_vec())
         .unwrap_or_default();
     for vat_id in vat_ids {
         let Some((vat_owner, is_cloning_vat)) =

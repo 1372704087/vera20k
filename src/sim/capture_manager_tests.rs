@@ -258,8 +258,8 @@ fn native_mirage_ring_tail_uses_current_house_or_campaign_control_flags() {
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(input["mode"] != 0),
         );
         let house = sim.houses.get_mut(&owner).unwrap();
-        house.is_human = input["human"] == 1;
-        house.player_control = input["player"] == 1;
+        house.set_is_human_for_test(input["human"] == 1);
+        house.set_player_control_for_test(input["player"] == 1);
         if input["owner_allied_with_viewer"] == true {
             sim.house_alliances
                 .entry("Americans".into())
@@ -805,7 +805,7 @@ fn native_decide_unit_fate_corpus() {
         sim.houses
             .get_mut(&controller_house)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(int("money"));
         let mut power_state = crate::sim::power_system::PowerState::default();
         power_state.total_output = int("produced");
@@ -815,7 +815,7 @@ fn native_decide_unit_fate_corpus() {
         sim.houses
             .get_mut(&russians)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(0);
         let mut power_state = crate::sim::power_system::PowerState::default();
         power_state.total_output = 0;
@@ -2149,7 +2149,10 @@ fn a_released_captive_resumes_its_attack_move() {
     let mut sim = sim(33);
     // A human controller keeps its captive's orders (no DecideUnitFate roll).
     let yuri_house = sim.interner.intern("YuriCountry");
-    sim.houses.get_mut(&yuri_house).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&yuri_house)
+        .unwrap()
+        .set_is_human_for_test(true);
     let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
     let gi = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);
     let captive = sim.substrate.entities.get_mut(gi).unwrap();
@@ -2532,7 +2535,10 @@ fn control_link_timer_selection_ports_cleanup_and_snapshot_share_the_manager() {
     rules.install_art_data(ArtRegistry::from_ini(&art));
     let mut sim = sim(31);
     let house = sim.interner.get("YuriCountry").unwrap();
-    sim.houses.get_mut(&house).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&house)
+        .unwrap()
+        .set_is_human_for_test(true);
     sim.session.set_binary_frame_for_test(100);
     let controller = spawn(&mut sim, &rules, "MIND", "YuriCountry", 10, 10);
     let first = spawn(&mut sim, &rules, "E1", "Americans", 12, 10);

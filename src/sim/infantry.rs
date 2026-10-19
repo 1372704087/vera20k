@@ -906,7 +906,7 @@ mod tests {
             0,
             10,
         );
-        house.player_control = input["player_control"].as_bool().unwrap_or(false);
+        house.set_player_control_for_test(input["player_control"].as_bool().unwrap_or(false));
         sim.houses.register(house);
         let mut actor = GameEntity::new_at_frame_zero_for_test(
             1,

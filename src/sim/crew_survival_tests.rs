@@ -1555,7 +1555,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
             scenario.tick();
         }
         assert!(scenario.sim().substrate.entities.get(guard).is_some());
-        assert!(!scenario.sim().houses[&owner].is_defeated);
+        assert!(!scenario.sim().houses[&owner].is_defeated());
         for (id, from_plant, spawn, destination) in crew {
             let entity = scenario
                 .sim()
@@ -1753,7 +1753,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
         }
     }
     assert!(scenario.sim().substrate.entities.get(guard).is_some());
-    assert!(!scenario.sim().houses[&owner].is_defeated);
+    assert!(!scenario.sim().houses[&owner].is_defeated());
     for ((kind, id, wreck, destination), left) in destinations.into_iter().zip(left) {
         println!("{kind} GI {id}: wreck {wreck:?}, Scatter to {destination:?}");
         assert!(left, "{kind}: GI {id} walked off the wreck");

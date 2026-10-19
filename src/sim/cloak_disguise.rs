@@ -771,7 +771,7 @@ impl crate::sim::world::Simulation {
             .session
             .current_house()
             .and_then(|id| self.houses.get(&id))
-            .map_or(2, |house| match house.side_index {
+            .map_or(2, |house| match house.side_index() {
                 0 => 0,
                 1 => 1,
                 _ => 2,

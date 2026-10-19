@@ -525,13 +525,13 @@ fn unit_delivery_no_legal_site_discards_constructor_and_tracking_without_retryin
     let ty = sim.interner.get("MTNK").unwrap();
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .owned_count(crate::map::entities::EntityCategory::Unit, ty),
         0
     );
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .active_count(crate::map::entities::EntityCategory::Unit, ty),
         0
     );
@@ -730,13 +730,13 @@ fn unit_delivery_ground_aircraft_cannot_land_on_an_all_water_map() {
     let ty = sim.interner.get("ORCA").unwrap();
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .owned_count(crate::map::entities::EntityCategory::Aircraft, ty),
         0
     );
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .active_count(crate::map::entities::EntityCategory::Aircraft, ty),
         0
     );
@@ -874,7 +874,7 @@ fn unit_delivery_retail_flying_foot_lifts_off_without_a_later_order() {
         }
         let owner = sim.interner.get("Americans").unwrap();
         assert!(
-            !sim.houses[&owner].is_defeated,
+            !sim.houses[&owner].is_defeated(),
             "{name}: live short-game base"
         );
         let entity = sim
@@ -1035,7 +1035,7 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
             false
         ));
         let settled = 2000 + amount;
-        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        assert_eq!(sim.houses[&owner].economy().credits(), settled);
         assert_eq!(sim.unit_deliveries.pending.len(), 1);
         assert!(!sim.fire_super_weapon(
             &rules,
@@ -1046,7 +1046,7 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
             FrameEffects::default(),
             false
         ));
-        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        assert_eq!(sim.houses[&owner].economy().credits(), settled);
         sim.uninit_with_rules(provider, &rules);
         crate::sim::credit_income::add_credits(&mut sim, owner, -1);
         let bytes = crate::sim::snapshot::GameSnapshot::save(
@@ -1062,14 +1062,14 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
         crate::sim::arena_fixture::flat_ground(&mut restored, &rules);
         restored.restore_after_snapshot_load().unwrap();
         for state in [&mut sim, &mut restored] {
-            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
+            assert_eq!(state.houses[&owner].economy().credits(), settled - 1);
             state.session.set_binary_frame_for_test(2);
             tick(state, &rules, None, FrameEffects::default());
             assert_eq!(payloads(state, "MTNK").len(), 1);
             assert!(state.unit_deliveries.pending.is_empty());
             tick(state, &rules, None, FrameEffects::default());
             assert_eq!(payloads(state, "MTNK").len(), 1);
-            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
+            assert_eq!(state.houses[&owner].economy().credits(), settled - 1);
         }
     }
 }

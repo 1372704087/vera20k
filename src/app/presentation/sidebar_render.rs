@@ -773,7 +773,7 @@ pub(crate) fn sidebar_theme_for_owner(
         owner,
         &simulation.interner,
     )?;
-    match live_house.side_index {
+    match live_house.side_index() {
         0 => Some(crate::render::sidebar_chrome::SidebarTheme::Allied),
         1 => Some(crate::render::sidebar_chrome::SidebarTheme::Soviet),
         2 => Some(crate::render::sidebar_chrome::SidebarTheme::Yuri),

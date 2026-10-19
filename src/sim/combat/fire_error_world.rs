@@ -313,7 +313,7 @@ impl<'a> FireSubject<'a> {
                 &self.world.houses,
                 firer.owner(),
             )
-            .is_some_and(|house| house.is_human),
+            .is_some_and(|house| house.is_human()),
             paralyzed: firer.parasite.is_paralyzed(frame),
             spawns: firer.spawn_manager.as_ref().map(|manager| SpawnCounts {
                 not_regenerating: manager.count_alive_spawns() as i32,

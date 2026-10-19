@@ -628,7 +628,7 @@ fn gsi_04_05_building_attack_frame_prelude_obeys_object_and_type_gates() {
     let mut houses = computer_houses(&[victim_owner]);
     let frame = |houses: &crate::sim::houses::Houses| {
         houses[&victim_owner]
-            .strategy_emergency
+            .strategy_emergency()
             .last_building_attack_frame()
     };
 
@@ -791,7 +791,7 @@ fn gsi_04_05_building_attack_frame_precedes_immune_receiver_exit() {
     );
     assert_eq!(
         houses[&victim_owner]
-            .strategy_emergency
+            .strategy_emergency()
             .last_building_attack_frame(),
         77,
         "the House write happens before ObjectClass immunity rejects damage"
@@ -886,7 +886,7 @@ fn gsi_04_05_protected_techno_response_runs_only_on_result_one() {
     let source_owner = interner.intern("Enemy");
     let wh = interner.intern("HITWH");
     let mut ally = HouseState::new(ally_owner, 0, None, false, 0, 10);
-    ally.player_control = true;
+    ally.set_player_control_for_test(true);
     let mut houses = [
         HouseState::new(victim_owner, 0, None, false, 0, 10),
         ally,
@@ -1580,7 +1580,7 @@ fn gsi_04_05_building_self_damage_return_zero_stops_receiver_commit() {
     assert_eq!(entities.get(5).unwrap().health.current(), 100);
     assert_eq!(
         houses[&victim_owner]
-            .strategy_emergency
+            .strategy_emergency()
             .last_building_attack_frame(),
         0
     );
@@ -1612,14 +1612,14 @@ fn gsi_04_05_building_attack_frame_remains_live_after_world_receiver_dispatch() 
 
     assert_eq!(
         sim.houses[&victim_owner]
-            .strategy_emergency
+            .strategy_emergency()
             .last_building_attack_frame(),
         77,
         "receiver dispatch writes the world's authoritative House timestamp"
     );
     assert_eq!(
         sim.houses[&victim_owner]
-            .strategy_emergency
+            .strategy_emergency()
             .last_attacker_house_index(),
         0,
         "receiver dispatch retains the attacker-House index with the frame stamp"
@@ -4230,15 +4230,16 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
     let mut houses = computer_houses(&[victim_house, source_house]);
     let threat_persistence = |houses: &crate::sim::houses::Houses| {
         let victim = &houses[&victim_house];
-        let snapshot = save_codec::serialize(&(victim.grudge_scores.clone(), victim.enemy_house))
-            .expect("threat state serializes");
+        let snapshot =
+            save_codec::serialize(&(victim.grudge_scores().clone(), victim.enemy_house()))
+                .expect("threat state serializes");
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        std::hash::Hash::hash(&victim.grudge_scores.len(), &mut hasher);
-        for (other, score) in &victim.grudge_scores {
+        std::hash::Hash::hash(&victim.grudge_scores().len(), &mut hasher);
+        for (other, score) in victim.grudge_scores() {
             std::hash::Hash::hash(other, &mut hasher);
             std::hash::Hash::hash(score, &mut hasher);
         }
-        std::hash::Hash::hash(&victim.enemy_house, &mut hasher);
+        std::hash::Hash::hash(&victim.enemy_house(), &mut hasher);
         (snapshot, std::hash::Hasher::finish(&hasher))
     };
     let mut occupancy = OccupancyGrid::new();
@@ -4276,8 +4277,8 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
     assert_eq!(entities.get(3).unwrap().health.current(), 1000);
     assert_eq!(threat_persistence(&houses), threat_before_zero);
     let victim = &houses[&victim_house];
-    assert!(!victim.grudge_scores.contains_key(&source_house));
-    assert_eq!(victim.enemy_house, None);
+    assert!(!victim.grudge_scores().contains_key(&source_house));
+    assert_eq!(victim.enemy_house(), None);
     assert_eq!(
         zero_death.receiver_stage_trace,
         [
@@ -4317,8 +4318,8 @@ fn gsi_04_07_damage_receiver_updates_grudge_before_retaliation() {
     );
     assert_eq!(entities.get(2).unwrap().health.current(), 500);
     let victim = &houses[&victim_house];
-    assert_eq!(victim.grudge_scores.get(&source_house), Some(&350));
-    assert_eq!(victim.enemy_house, Some(source_house));
+    assert_eq!(victim.grudge_scores().get(&source_house), Some(&350));
+    assert_eq!(victim.enemy_house(), Some(source_house));
     assert_eq!(
         death.receiver_stage_trace,
         [
@@ -4567,9 +4568,9 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     let source = sim.substrate.entities.get(source_id).unwrap();
     assert_eq!(source.mission.current().known(), Some(MissionType::Guard));
     assert!(source.attack_target.target().is_none());
-    assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 1);
-    assert_eq!(sim.houses[&source_owner].stats.buildings_killed(), 1);
-    assert_eq!(sim.houses[&source_owner].economy.score(), 700);
+    assert_eq!(sim.houses[&victim_owner].stats().buildings_lost(), 1);
+    assert_eq!(sim.houses[&source_owner].stats().buildings_killed(), 1);
+    assert_eq!(sim.houses[&source_owner].economy().score(), 700);
 
     let events = sim.lifecycle_test_events_for_test();
     let kill_index = events
@@ -4654,9 +4655,9 @@ fn gsi_04_07_damage_postmortem_exact_zero_callbacks_precede_restore() {
     assert!(target.lifecycle.object_alive() && target.in_logic_vector.is_member());
     assert!(sim.substrate.occupancy.contains_entity(8, 5, target_id));
     assert!(!sim.substrate.pending_delete.contains_object(&target_id));
-    assert_eq!(sim.houses[&victim_owner].stats.buildings_lost(), 2);
-    assert_eq!(sim.houses[&source_owner].stats.buildings_killed(), 2);
-    assert_eq!(sim.houses[&source_owner].economy.score(), 1_400);
+    assert_eq!(sim.houses[&victim_owner].stats().buildings_lost(), 2);
+    assert_eq!(sim.houses[&source_owner].stats().buildings_killed(), 2);
+    assert_eq!(sim.houses[&source_owner].economy().score(), 1_400);
     assert!(sim.lifecycle_test_events_for_test().iter().any(|event| {
         *event
             == (LifecycleTestEvent::RecordKillBookkeeping {
@@ -4727,8 +4728,8 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
         ],
         crate::sim::world::FrameEffects::default(),
     );
-    assert_eq!(sim.houses[&owner_a].stats.buildings_killed(), 2);
-    assert_eq!(sim.houses[&owner_a].economy.score(), 1_400);
+    assert_eq!(sim.houses[&owner_a].stats().buildings_killed(), 2);
+    assert_eq!(sim.houses[&owner_a].economy().score(), 1_400);
     for target_id in [expiry_target, later_target] {
         let target = sim.substrate.entities.get(target_id).unwrap();
         assert_eq!(target.health.current(), 1);
@@ -4754,12 +4755,12 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     let later = sim.substrate.entities.get(later_target).unwrap();
     assert_eq!(later.health.current(), 0);
     assert_eq!(later.kill_record.killer(), Some(owner_b));
-    assert_eq!(sim.houses[&owner_b].stats.buildings_killed(), 1);
-    assert_eq!(sim.houses[&owner_b].economy.score(), 700);
+    assert_eq!(sim.houses[&owner_b].stats().buildings_killed(), 1);
+    assert_eq!(sim.houses[&owner_b].economy().score(), 700);
 
     let initial_killer_before_expiry = (
-        sim.houses[&owner_a].stats.buildings_killed(),
-        sim.houses[&owner_a].economy.score(),
+        sim.houses[&owner_a].stats().buildings_killed(),
+        sim.houses[&owner_a].economy().score(),
     );
     sim.session.set_binary_frame_for_test(5);
     sim.tick_pending_building_detonation(
@@ -4774,8 +4775,8 @@ fn gsi_04_07_damage_postmortem_fresh_null_expiry_does_not_recredit_initial_kille
     assert!(sim.substrate.pending_delete.contains_object(&expiry_target));
     assert_eq!(
         (
-            sim.houses[&owner_a].stats.buildings_killed(),
-            sim.houses[&owner_a].economy.score(),
+            sim.houses[&owner_a].stats().buildings_killed(),
+            sim.houses[&owner_a].economy().score(),
         ),
         initial_killer_before_expiry,
         "fresh PostMortem expiry packet is sourceless and cannot recredit HouseA"
@@ -8212,7 +8213,7 @@ fn irradiate(
             spread,
         },
         0,
-        &sim.session.theater(),
+        sim.session.theater(),
         &rules.radiation,
         sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources.pending,
@@ -8436,9 +8437,10 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
     let mut ai_house = HouseState::new(ai_owner, 0, None, false, 0, 51);
     // HouseClass::Read_Scenario_INI stores `IQ=` as both the authored IQ
     // (+0x1D0) and CurrentIQ (+0x24C).
-    ai_house.current_iq =
-        scenario_houses.houses[0].scenario_current_iq(rules.general.max_iq_levels);
-    ai_house.authored_iq = ai_house.current_iq;
+    ai_house.set_current_iq_for_test(
+        scenario_houses.houses[0].scenario_current_iq(rules.general.max_iq_levels),
+    );
+    ai_house.set_authored_iq_for_test(ai_house.current_iq());
     sim.houses.register(ai_house);
     let hostile_target = sim
         .spawn_object("GAPOWR", "AI", 5, 5, 0, &rules)
@@ -8591,8 +8593,8 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
     );
 
     let house = sim.houses.get_mut(&ai_owner).unwrap();
-    house.current_iq = 2;
-    house.authored_iq = 2;
+    house.set_current_iq_for_test(2);
+    house.set_authored_iq_for_test(2);
     let mut expected_rng = sim.scenario_rng.clone();
     assert!(
         expected_rng.next_range_u32_inclusive(0, 0x32) < 51,

@@ -710,8 +710,8 @@ fn radar_pixel_shroud_exception_distinguishes_local_pointer_from_singleplayer_hu
     let (entities, interner, mut houses) = radar_gate_fixture("SecondHuman");
     let second = test_intern("SecondHuman");
     let house = houses.get_mut(&second).unwrap();
-    house.is_human = false;
-    house.player_control = true;
+    house.set_is_human_for_test(false);
+    house.set_player_control_for_test(true);
     let fog = FogState::default();
     let entry = RadarTrackerEntry {
         stable_id: 1,
@@ -803,7 +803,10 @@ fn radar_pixel_insignificant_passive_owner_requires_radar_visible() {
     let local = test_intern("Local");
     let enemy = test_intern("Passive");
     let (entities, interner, mut houses) = radar_gate_fixture("Passive");
-    houses.get_mut(&enemy).unwrap().multiplay_passive = true;
+    houses
+        .get_mut(&enemy)
+        .unwrap()
+        .set_multiplay_passive_for_test(true);
     let entry = RadarTrackerEntry {
         stable_id: 1,
         x: 0,

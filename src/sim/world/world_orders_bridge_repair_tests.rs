@@ -107,7 +107,10 @@ fn build_ordinary_c4_sim(
 /// `0x004D4C14..0x004D4C6B`).
 fn make_americans_a_player(sim: &mut Simulation) {
     let americans = sim.interner.intern("Americans");
-    sim.houses.get_mut(&americans).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&americans)
+        .unwrap()
+        .set_is_human_for_test(true);
 }
 
 fn spawn_engineer(sim: &mut Simulation, rules: &RuleSet, rx: u16, ry: u16) -> u64 {

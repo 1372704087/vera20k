@@ -386,11 +386,11 @@ fn team_fixture(
     let owner = sim.interner.intern("Computer");
     let enemy = sim.interner.intern("Human");
     let mut computer = HouseState::new(owner, 0, None, false, 0, 10);
-    computer.enemy_house = Some(enemy);
-    computer.base_center = Some((10, 11));
+    computer.set_enemy_house_for_test(Some(enemy));
+    computer.set_base_center_for_test(Some((10, 11)));
     sim.houses.register(computer);
     let mut human = HouseState::new(enemy, 1, None, true, 0, 10);
-    human.base_center = Some((18, 11));
+    human.set_base_center_for_test(Some((18, 11)));
     sim.houses.register(human);
     let members = [(10, 10), (12, 10)].map(|(rx, ry)| {
         sim.spawn_object_at_height(member, "Computer", rx, ry, 0, 0, &rules)

@@ -910,7 +910,7 @@ impl ScanContext<'_> {
     fn owner_is_passive(&self, candidate: &GameEntity) -> bool {
         self.fire_world
             .and_then(|world| world.houses.get(&candidate.owner()))
-            .is_some_and(|house| house.multiplay_passive)
+            .is_some_and(|house| house.multiplay_passive())
     }
 
     /// The exception both passive-house gates share (`0x006F8292..0x006F835E`,
@@ -1041,7 +1041,7 @@ impl<'a> ScannerStanding<'a> {
 
     /// The owner's current enemy (`House+0x5600`).
     fn enemy(&self) -> Option<InternedId> {
-        self.house.and_then(|house| house.enemy_house)
+        self.house.and_then(|house| house.enemy_house())
     }
 }
 

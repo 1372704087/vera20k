@@ -3415,8 +3415,6 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
             entity.passenger_role = PassengerRole::transport(cargo);
             if inside {
                 entity.passenger_role.set_inside_transport(1, false);
-            } else {
-                assert!(entity.passenger_role.set_boarding(1));
             }
             sim.substrate
                 .entities
@@ -3440,7 +3438,6 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
                 announce_expiry(&mut sim);
             }
             let role = &sim.substrate.entities.get(2).unwrap().passenger_role;
-            assert_eq!(role.boarding_transport_id(), None);
             assert_eq!(
                 role.inside_transport(),
                 if inside && retain_inside {

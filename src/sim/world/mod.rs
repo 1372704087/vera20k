@@ -6983,10 +6983,9 @@ impl Simulation {
             // turn or a damage commit.
             self.finish_terrain_navigation_changes(rules, &[]);
             self.flush_smudge_dirty();
-            // --- Phase 6: Passengers ---
             // Retaliation is not a phase: every receiver issues its Mission
-            // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`).
-            passenger::tick_passenger_system(self, rules, overlay_registry, effects);
+            // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`), and
+            // passengers board in their class PerCellProcess.
             // `IonBlastClass::UpdateAll @ 0x0053D310` follows the object loop
             // (`0x0055B64B`).
             bridge_state_changed |= self.update_ion_blasts(rules, overlay_registry, effects);

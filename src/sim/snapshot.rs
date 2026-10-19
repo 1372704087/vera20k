@@ -1161,7 +1161,9 @@ use crate::util::save_codec;
 // RulesClass Type pointers and lists, the crate and rocket ones included.
 // 430 -> 431: saved dynamic terrain cells drop the terrain-class, water,
 // cliff, rough and road copies of that LandType.
-const SNAPSHOT_VERSION: u32 = 431;
+// 431 -> 432: the VERA-only Boarding passenger relation is gone, which
+// renumbers the later PassengerRole and carrier-relation variants.
+const SNAPSHOT_VERSION: u32 = 432;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2486,22 +2488,12 @@ fn restore_object_references(
             }
         }
 
-        let passenger_partner = entity
-            .passenger_role
-            .boarding_transport_id()
-            .map(|id| (id, "passenger_role.boarding"))
-            .or_else(|| {
-                entity
-                    .passenger_role
-                    .inside_transport_id()
-                    .map(|id| (id, "passenger_role.inside"))
-            });
-        if let Some((target_id, field)) = passenger_partner {
+        if let Some(target_id) = entity.passenger_role.inside_transport_id() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
-                field,
+                "passenger_role.inside",
                 "EntityStore",
                 target_id,
             )?;
@@ -4880,7 +4872,8 @@ mod tests {
         // 429 -> 430: the remaining Type references and RulesClass Type
         // pointers and lists.
         // 430 -> 431: no derived land caches beside that LandType.
-        assert_eq!(super::SNAPSHOT_VERSION, 431);
+        // 431 -> 432: the Boarding passenger relation is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 432);
     }
 
     #[test]

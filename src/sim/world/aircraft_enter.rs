@@ -255,8 +255,8 @@ impl EnterHost for WorldEnter<'_> {
     /// (`0x00419300`), so natively an aircraft reaches this only with
     /// another aircraft as its radio contact, which only a transport
     /// aircraft's boarding forms; no retail aircraft type has `Passengers=`.
-    /// VERA's aircraft receiver answers DOCK_NOW 0 (`radio::receive`), and
-    /// VERA boards passengers through `passenger::tick_passenger_system`'s
-    /// proximity transaction instead.
+    /// VERA's aircraft receiver answers CAN_LOAD and DOCK_NOW 0
+    /// (`radio::receive`), so neither the Infantry nor the Unit
+    /// PerCellProcess arm puts a passenger aboard an aircraft.
     fn board_contact(&mut self) {}
 }

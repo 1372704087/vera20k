@@ -1001,8 +1001,6 @@ fn advance_one_simulation_frame(
     mouse_scroll: Option<(f32, f32)>,
 ) -> bool {
     let mut refresh_atlases_after_tick = false;
-    #[cfg(feature = "telemetry-dashboard")]
-    let telemetry_active = state.diag.telemetry_observer.active();
     // Trigger definitions are runtime-bound (F07), so a live runtime is the
     // only activity source; the old trigger-only fixture mode is unrepresentable.
     let runtime_active = state.match_state.sim_runtime.is_some();
@@ -1051,6 +1049,10 @@ fn advance_one_simulation_frame(
             // Normal play hashes its state once every PLAY_HASH_INTERVAL
             // frames and on the frame that ends the match, for the replay log.
             sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
+            // Report points need the ledger whether or not a dashboard is
+            // attached; `publish_if_due` only runs with a client.
+            #[cfg(feature = "telemetry-dashboard")]
+            sim.set_frame_profiling(true);
             // Delay-zero AnimClass construction can emit StartSound during the
             // final map-load sweep. Keep it until this first tactical drain;
             // `drain(..)` below still consumes every event exactly once.
@@ -1059,8 +1061,10 @@ fn advance_one_simulation_frame(
             } else {
                 Vec::new()
             };
+            // Recorded whether or not a client is attached: the history ring
+            // backfills a dashboard that connects mid-match.
             #[cfg(feature = "telemetry-dashboard")]
-            let telemetry_advance_started = telemetry_active.then(Instant::now);
+            let telemetry_advance_started = Instant::now();
             // F07: the runtime is the one production frame API — bound
             // resources, no caller-substitutable inputs.
             let mut output = {
@@ -1105,11 +1109,37 @@ fn advance_one_simulation_frame(
                 .expect("simulation frame failed; prior world mutations remain")
             };
             #[cfg(feature = "telemetry-dashboard")]
-            if let Some(started) = telemetry_advance_started {
-                state
-                    .match_state
-                    .telemetry_timing
-                    .push(started.elapsed().as_secs_f32() * 1000.0);
+            {
+                let tick_ms = telemetry_advance_started.elapsed().as_secs_f32() * 1000.0;
+                let tick = rt.simulation.session.tick;
+                let entities = rt.simulation.entities().len();
+                let houses = rt.simulation.houses.len();
+                let batch = rt.simulation.path_batch_stats();
+                state.match_state.telemetry_timing.push(tick_ms);
+                state.match_state.telemetry_history.record_tick(
+                    tick, tick_ms, entities, houses, batch,
+                );
+                // A report point closes the profiling window, so it covers the
+                // five seconds since the previous point rather than the whole
+                // match.
+                if crate::app::match_runtime::telemetry::ReportHistory::due(tick) {
+                    let speed = rt.simulation.session.game_options.game_speed.clamp(0, 6) as u8;
+                    let mut timing = state
+                        .match_state
+                        .telemetry_timing
+                        .summarize(state.platform.frame_pacer.budget_ms(speed));
+                    timing.fps = state.diag.frame_timer.fps();
+                    timing.tick_hz = state
+                        .match_state
+                        .telemetry_tick_rate
+                        .rate(std::time::Instant::now());
+                    let mut point = rt.simulation.report_point();
+                    point.timing = Some(timing);
+                    point.render = state.diag.render_timing.report();
+                    state.match_state.report_history.push(point);
+                    rt.simulation.reset_frame_profile();
+                    state.diag.render_timing = Default::default();
+                }
             }
             let admitted_commands = output.take_admitted_commands();
             let SimFrameOutput {

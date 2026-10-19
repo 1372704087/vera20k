@@ -24,7 +24,9 @@
 //!   `store_spawned_limbo` resets the CoordStruct to the off-map default —
 //!   so the map view shows them piled at the origin.
 //! - **Measured data only.** No event-history or pathfinding-health counters
-//!   are invented where the current simulation has no observation source.
+//!   are invented where the current simulation has no observation source. The
+//!   `path_batch` block (v23) is the batch's own accounting: it already makes
+//!   those counts to enforce its caps and its budget, so it reports them.
 //! - **Wire stability.** Houses and spots are `Vec`s in store/interned-id
 //!   order — deterministic across peers and runs. New fields arrive as
 //!   `Option` or new sections under a bumped `TELEMETRY_SCHEMA_VERSION`.
@@ -57,7 +59,13 @@ use crate::sim::world::Simulation;
 /// positions).
 /// v22: read-only schema; trainer state is absent and collections are bounded.
 /// v23: optional developer-tools capability and bounded selected-object history.
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 23;
+/// v24: `path_batch` — the path batch pass's own counts and durations.
+/// v25: `history` — 1 Hz match summaries recorded whether or not a dashboard is
+/// attached; sent once, to a client that attached since the last publish.
+/// v26: `report_points` — report-grade samples (5 s) carrying exactly the
+/// fields the dashboard's match report reads, so a past point can render the
+/// full report. Spots, logs, debug and production detail stay out.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 26;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -534,6 +542,18 @@ pub struct TelemetrySnapshot {
     pub process: Option<ProcessStats>,
     /// Mean cost per simulation tick in the current observation window.
     pub profile: Option<crate::sim::frame_profile::FrameProfileReport>,
+    /// The path batch's own accounting of its latest pass; `None` while the
+    /// simulation searches serially, since then no pass runs.
+    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+    /// Whole-match 1 Hz summaries; app-filled, and only on the first publish
+    /// after a client attached.
+    pub history: Option<Vec<MatchHistorySample>>,
+    /// Report-grade 5 s samples; app-filled, and only on the first publish
+    /// after a client attached.
+    pub report_points: Option<Vec<ReportPoint>>,
+    /// The newest report-grade sample; app-filled on every snapshot, so a long
+    /// session keeps gaining reportable points after the initial backfill.
+    pub report_point: Option<ReportPoint>,
     /// App-filled per-phase render breakdown; `None` until the app has rendered
     /// a game frame.
     pub render: Option<RenderTimingReport>,
@@ -759,6 +779,10 @@ impl Simulation {
             debug: None,
             process: None,
             profile: self.frame_profile().report(),
+            path_batch: self.path_batch_stats(),
+            history: None,
+            report_points: None,
+            report_point: None,
             render: None,
             logs: None,
             #[cfg(feature = "debug-tools")]
@@ -786,6 +810,53 @@ impl Simulation {
                     }),
                 }
             },
+        }
+    }
+
+    /// Build a report-grade sample of the current state. `timing` and `render`
+    /// stay `None`: the render loop owns those readings, and the app fills them
+    /// where it captures the point.
+    pub fn report_point(&self) -> ReportPoint {
+        let rows: Vec<ReportHouseRow> = self
+            .houses
+            .iter()
+            .take(TELEMETRY_MAX_HOUSES)
+            .map(|(_, house)| ReportHouseRow {
+                name: bounded_name(self.interner.resolve(house.name)),
+                is_human: house.is_human,
+                passive: house.multiplay_passive,
+                structures: 0,
+                credits: house.economy.credits(),
+                score: house.economy.score(),
+            })
+            .collect();
+        let index: BTreeMap<InternedId, usize> = self
+            .houses
+            .keys()
+            .take(TELEMETRY_MAX_HOUSES)
+            .enumerate()
+            .map(|(row, owner)| (*owner, row))
+            .collect();
+        let mut rows = rows;
+        let mut entities_total = 0u32;
+        for entity in self.entities().values() {
+            entities_total = entities_total.saturating_add(1);
+            if entity.category() == EntityCategory::Structure
+                && let Some(&row) = index.get(&entity.owner())
+            {
+                rows[row].structures = rows[row].structures.saturating_add(1);
+            }
+        }
+        ReportPoint {
+            tick: self.session.tick,
+            entities_total,
+            map_width: self.session.map_width,
+            map_height: self.session.map_height,
+            houses: rows,
+            timing: None,
+            profile: self.frame_profile().report(),
+            render: None,
+            path_batch: self.path_batch_stats(),
         }
     }
 }

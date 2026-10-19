@@ -140,6 +140,10 @@ pub(crate) struct DiagnosticsState {
     pub(crate) telemetry_server: Option<crate::app::telemetry_server::TelemetryServer>,
     #[cfg(feature = "telemetry-dashboard")]
     pub(crate) telemetry_last_publish: Option<Instant>,
+    /// The server attach count the last publish answered; a change means a new
+    /// client still needs the whole-match history.
+    #[cfg(feature = "telemetry-dashboard")]
+    pub(crate) telemetry_history_generation: u64,
     #[cfg(feature = "telemetry-dashboard")]
     pub(crate) telemetry_observer: crate::app::match_runtime::telemetry::ObserverSession,
     #[cfg(feature = "debug-tools")]
@@ -179,6 +183,8 @@ impl DiagnosticsState {
             telemetry_server: None,
             #[cfg(feature = "telemetry-dashboard")]
             telemetry_last_publish: None,
+            #[cfg(feature = "telemetry-dashboard")]
+            telemetry_history_generation: 0,
             #[cfg(feature = "telemetry-dashboard")]
             telemetry_observer: Default::default(),
             #[cfg(feature = "debug-tools")]

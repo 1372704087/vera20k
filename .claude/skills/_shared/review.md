@@ -16,7 +16,11 @@ after fixes or revisions, unless the user explicitly asks.
 ## Packet
 
 - The requirement: issue, brief or user request.
-- The commit to review and its diff command (`git -C <checkout> diff <base>...<sha>`).
+- The commit to review, its diff command (`git -C <checkout> diff <base>...<sha>`)
+  and the diff itself: inline when short, otherwise saved to a scratch file.
+- The changed functions, each with the native address and name it ports.
+- The evidence the owner used: Rust files and functions, Ghidra functions, harness
+  docs, retail INI sections.
 - The owner's claims, with their evidence.
 - The actual validation output, including what was not run.
 
@@ -42,6 +46,10 @@ consumers; distinguish evidence from speculation and architectural preference. F
 claims that AGENTS.md requires to be executed (numeric kernels, RNG draws, arithmetic
 traps, reported mismatches) but that lack executable evidence. Name useful refactoring
 opportunities with their impact and risks.
+
+Read in few, large pieces: a whole function or file per call, and several searches per
+command (`rg -n 'a|b|c'`, or chained commands). Each call costs about ten seconds
+whatever it returns, so a hundred small reads add minutes without adding depth.
 
 Report actionable findings first, most severe first, each with trigger, consequence and
 source, marked CONFIRMED or PLAUSIBLE; then what was checked and found sound; then

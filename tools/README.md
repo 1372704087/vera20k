@@ -240,6 +240,8 @@ Prefer `fast` binaries for ordinary captures and label debug tests selectively.
 Evidence should reference the shared label, manifest, source/binary hashes and
 results instead of creating additional executable copies.
 
+Run retirement, including its dry run, only to retire owned labels or to investigate
+disk pressure; preserve required binaries, dependencies and evidence.
 After a validated chain merges, review its exact owned labels. Keep the final
 build and relevant control/debug binaries still required; archive manifests,
 checksums, results and native inputs through their evidence owners. Preview

@@ -1159,7 +1159,9 @@ use crate::util::save_codec;
 // SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
 // references, Warhead DebrisTypes), and process Rules state keeps its
 // RulesClass Type pointers and lists, the crate and rocket ones included.
-const SNAPSHOT_VERSION: u32 = 430;
+// 430 -> 431: saved dynamic terrain cells drop the terrain-class, water,
+// cliff, rough and road copies of that LandType.
+const SNAPSHOT_VERSION: u32 = 431;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4877,7 +4879,8 @@ mod tests {
         // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
         // 429 -> 430: the remaining Type references and RulesClass Type
         // pointers and lists.
-        assert_eq!(super::SNAPSHOT_VERSION, 430);
+        // 430 -> 431: no derived land caches beside that LandType.
+        assert_eq!(super::SNAPSHOT_VERSION, 431);
     }
 
     #[test]

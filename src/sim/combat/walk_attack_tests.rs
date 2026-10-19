@@ -10,7 +10,6 @@ use crate::sim::world::Simulation;
 fn flat_cell(rx: u16, ry: u16) -> crate::map::resolved_terrain::ResolvedTerrainCell {
     crate::map::resolved_terrain::ResolvedTerrainCell {
         filled_clear: true,
-        terrain_class: Default::default(),
         accepts_smudge: true,
         ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
     }
@@ -41,7 +40,7 @@ fn walk_attack_scene() -> (Simulation, RuleSet, u64, u64) {
     sim.session.current_house = sim.interner.get("Local");
     let costs = rules
         .terrain_rules
-        .semantics_by_name("Clear")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
         .unwrap()
         .speed_costs;
     let cells = (0..64)

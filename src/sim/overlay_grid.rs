@@ -2326,7 +2326,7 @@ mod tests {
 
     #[test]
     fn bridge_publication_literal_fields_do_not_schedule_attribute_recalc() {
-        let mut terrain = single_cell_terrain(0, Default::default(), false, false);
+        let mut terrain = single_cell_terrain(0, Default::default(), false);
         let mut grid = OverlayGrid::new(1, 1);
         assert!(grid.write_literal_bridge_state(&mut terrain, 0, 0, 15));
         assert_eq!(grid.cell(0, 0).overlay_id, None);
@@ -2431,17 +2431,10 @@ mod tests {
     fn single_cell_terrain(
         base_land_type: u8,
         speed_costs: crate::rules::terrain_rules::SpeedCostProfile,
-        is_water: bool,
         base_ground_walk_blocked: bool,
     ) -> crate::map::resolved_terrain::ResolvedTerrainGrid {
         use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-        use crate::rules::terrain_rules::TerrainClass;
 
-        let terrain_class = if is_water {
-            TerrainClass::Water
-        } else {
-            TerrainClass::Clear
-        };
         ResolvedTerrainGrid::from_cells(
             1,
             1,
@@ -2449,16 +2442,12 @@ mod tests {
                 filled_clear: true,
                 tileset_index: None,
                 land_type: base_land_type,
-                terrain_class,
                 speed_costs,
-                is_water,
-                is_cliff_like: base_ground_walk_blocked,
                 accepts_smudge: true,
                 ground_walk_blocked: base_ground_walk_blocked,
                 zone_type: zone_class::GROUND,
                 base_ground_walk_blocked,
                 base_land_type,
-                base_terrain_class: terrain_class,
                 base_speed_costs: speed_costs,
                 ..crate::map::resolved_terrain::test_flat_cell(0, 0)
             }],
@@ -3300,7 +3289,7 @@ IsRubble=yes
         for (overlay_id, expected_zone, expected_blocks) in cases {
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, overlay_id, 0);
-            let mut terrain = single_cell_terrain(clear, SpeedCostProfile::default(), false, false);
+            let mut terrain = single_cell_terrain(clear, SpeedCostProfile::default(), false);
             recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
             let cell = terrain.cell(0, 0).expect("cell");
             assert_eq!(cell.zone_type, expected_zone, "overlay id {overlay_id}");
@@ -3342,14 +3331,13 @@ NoUseTileLandType=yes
             ..Default::default()
         };
 
-        let mut terrain = single_cell_terrain(LandType::Water.as_index(), water_costs, true, true);
+        let mut terrain = single_cell_terrain(LandType::Water.as_index(), water_costs, true);
         let mut overlay_grid = OverlayGrid::new(1, 1);
         overlay_grid.place_overlay(0, 0, 0, 1);
         recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
 
         let deck = terrain.cell(0, 0).expect("bridge deck cell");
         assert_eq!(deck.land_type, LandType::Road.as_index());
-        assert!(!deck.is_water);
         // The regression: `ground_walk_blocked` used to be rebuilt from
         // `base_ground_walk_blocked`, so the water underneath kept the deck
         // closed to every ground unit even though its LandType was Road.
@@ -3382,15 +3370,15 @@ NoUseTileLandType=yes
             ..Default::default()
         };
 
-        let mut water = single_cell_terrain(LandType::Water.as_index(), zero_wheel, true, true);
+        let mut water = single_cell_terrain(LandType::Water.as_index(), zero_wheel, true);
         recalc_overlay_passability(&mut overlay_grid, &mut water, &registry, 0, 0);
         assert_eq!(water.cell(0, 0).unwrap().zone_type, zone_class::WATER);
 
-        let mut beach = single_cell_terrain(LandType::Beach.as_index(), zero_wheel, false, false);
+        let mut beach = single_cell_terrain(LandType::Beach.as_index(), zero_wheel, false);
         recalc_overlay_passability(&mut overlay_grid, &mut beach, &registry, 0, 0);
         assert_eq!(beach.cell(0, 0).unwrap().zone_type, zone_class::BEACH);
 
-        let mut rock = single_cell_terrain(LandType::Rock.as_index(), zero_wheel, false, true);
+        let mut rock = single_cell_terrain(LandType::Rock.as_index(), zero_wheel, true);
         recalc_overlay_passability(&mut overlay_grid, &mut rock, &registry, 0, 0);
         assert_eq!(rock.cell(0, 0).unwrap().zone_type, zone_class::IMPASSABLE);
     }
@@ -3416,7 +3404,7 @@ NoUseTileLandType=yes
         ] {
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, overlay_id, 0);
-            let mut terrain = single_cell_terrain(clear, clear_speed, false, false);
+            let mut terrain = single_cell_terrain(clear, clear_speed, false);
             terrain.cell_mut(0, 0).unwrap().terrain_object_occupation = Some(7);
             terrain.cell_mut(0, 0).unwrap().terrain_object_blocks = true;
             recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
@@ -3432,7 +3420,7 @@ NoUseTileLandType=yes
         let mut overlay_grid = OverlayGrid::new(1, 1);
         overlay_grid.place_overlay(0, 0, 4, 0);
         let mut rubble_on_water =
-            single_cell_terrain(LandType::Water.as_index(), zero_wheel, true, false);
+            single_cell_terrain(LandType::Water.as_index(), zero_wheel, false);
         recalc_overlay_passability(&mut overlay_grid, &mut rubble_on_water, &registry, 0, 0);
         assert_eq!(
             rubble_on_water.cell(0, 0).unwrap().zone_type,
@@ -3441,8 +3429,7 @@ NoUseTileLandType=yes
         );
 
         overlay_grid.place_overlay(0, 0, 5, 0);
-        let mut gate_on_water =
-            single_cell_terrain(LandType::Water.as_index(), zero_wheel, true, false);
+        let mut gate_on_water = single_cell_terrain(LandType::Water.as_index(), zero_wheel, false);
         recalc_overlay_passability(&mut overlay_grid, &mut gate_on_water, &registry, 0, 0);
         assert_eq!(
             gate_on_water.cell(0, 0).unwrap().zone_type,
@@ -3450,7 +3437,7 @@ NoUseTileLandType=yes
         );
 
         overlay_grid.place_overlay(0, 0, 6, 0);
-        let mut exact_one_overlay = single_cell_terrain(clear, clear_speed, false, false);
+        let mut exact_one_overlay = single_cell_terrain(clear, clear_speed, false);
         recalc_overlay_passability(&mut overlay_grid, &mut exact_one_overlay, &registry, 0, 0);
         assert_eq!(
             exact_one_overlay.cell(0, 0).unwrap().zone_type,
@@ -3468,7 +3455,7 @@ NoUseTileLandType=yes
                 wheel: Some(wheel),
                 ..Default::default()
             };
-            let mut terrain = single_cell_terrain(clear, speed, false, false);
+            let mut terrain = single_cell_terrain(clear, speed, false);
             recalc_overlay_passability(&mut empty_grid, &mut terrain, &registry, 0, 0);
             assert_eq!(
                 terrain.cell(0, 0).unwrap().zone_type,
@@ -3482,7 +3469,7 @@ NoUseTileLandType=yes
             (4, zone_class::BUILDING, true),
             (0, zone_class::BUILDING, false),
         ] {
-            let mut object = single_cell_terrain(clear, clear_speed, false, false);
+            let mut object = single_cell_terrain(clear, clear_speed, false);
             let object_cell = object.cell_mut(0, 0).unwrap();
             object_cell.terrain_object_occupation = Some(occupation);
             object_cell.terrain_object_blocks = expected_blocks;
@@ -3490,7 +3477,7 @@ NoUseTileLandType=yes
             assert_eq!(object.cell(0, 0).unwrap().zone_type, expected_zone);
         }
 
-        let mut blocked_base = single_cell_terrain(clear, clear_speed, false, true);
+        let mut blocked_base = single_cell_terrain(clear, clear_speed, true);
         recalc_overlay_passability(&mut empty_grid, &mut blocked_base, &registry, 0, 0);
         assert_eq!(
             blocked_base.cell(0, 0).unwrap().zone_type,
@@ -3501,7 +3488,7 @@ NoUseTileLandType=yes
 
     #[test]
     fn gsi_04_04_runtime_land_writer_retains_profiles_and_restores_pristine_tile() {
-        use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+        use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 
         let registry = gsi_04_04_registry();
         let base_speed = SpeedCostProfile {
@@ -3509,21 +3496,19 @@ NoUseTileLandType=yes
             ..Default::default()
         };
 
-        for (overlay_id, land, class) in [
-            (7, LandType::Road, TerrainClass::Road),
-            (9, LandType::Wall, TerrainClass::Wall),
-            (10, LandType::Railroad, TerrainClass::Railroad),
-            (12, LandType::Water, TerrainClass::Water),
-            (13, LandType::Rough, TerrainClass::Rough),
+        for (overlay_id, land) in [
+            (7, LandType::Road),
+            (9, LandType::Wall),
+            (10, LandType::Railroad),
+            (12, LandType::Water),
+            (13, LandType::Rough),
         ] {
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, overlay_id, 0);
-            let mut terrain =
-                single_cell_terrain(LandType::Clear.as_index(), base_speed, false, false);
+            let mut terrain = single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
             recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
             let cell = terrain.cell(0, 0).expect("retained land cell");
             assert_eq!(cell.land_type, land.as_index(), "overlay {overlay_id}");
-            assert_eq!(cell.terrain_class, class, "overlay {overlay_id}");
             assert_eq!(
                 cell.speed_costs,
                 registry
@@ -3533,14 +3518,11 @@ NoUseTileLandType=yes
                     .unwrap(),
                 "overlay {overlay_id} profile"
             );
-            assert_eq!(cell.is_water, land == LandType::Water);
-            assert_eq!(cell.is_road, land == LandType::Road);
-            assert_eq!(cell.is_rough, land == LandType::Rough);
         }
 
         let mut overlay_grid = OverlayGrid::new(1, 1);
         overlay_grid.place_overlay(0, 0, 8, 0);
-        let mut terrain = single_cell_terrain(LandType::Clear.as_index(), base_speed, false, false);
+        let mut terrain = single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
         recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
         assert_eq!(
             terrain.cell(0, 0).unwrap().land_type,
@@ -3557,11 +3539,7 @@ NoUseTileLandType=yes
         recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
         let restored = terrain.cell(0, 0).unwrap();
         assert_eq!(restored.land_type, LandType::Clear.as_index());
-        assert_eq!(restored.terrain_class, TerrainClass::Clear);
         assert_eq!(restored.speed_costs, base_speed);
-        assert!(!restored.is_water);
-        assert!(!restored.is_road);
-        assert!(!restored.is_rough);
     }
 
     #[test]
@@ -3583,8 +3561,7 @@ NoUseTileLandType=yes
         for slope in [0, 4, 5] {
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, 11, 7);
-            let mut terrain =
-                single_cell_terrain(LandType::Clear.as_index(), base_speed, false, false);
+            let mut terrain = single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
             terrain.cell_mut(0, 0).unwrap().slope_type = slope;
 
             assert!(recalc_overlay_passability(
@@ -3624,7 +3601,7 @@ NoUseTileLandType=yes
                 let mut overlay_grid = OverlayGrid::new(1, 1);
                 overlay_grid.place_overlay(0, 0, overlay_id, 7);
                 let mut terrain =
-                    single_cell_terrain(LandType::Clear.as_index(), base_speed, false, false);
+                    single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
                 terrain.cell_mut(0, 0).unwrap().slope_type = slope;
 
                 assert!(recalc_overlay_passability(
@@ -3642,12 +3619,7 @@ NoUseTileLandType=yes
                 let cell = terrain.cell(0, 0).unwrap();
                 assert_eq!(cell.land_type, land.as_index());
                 assert_eq!(cell.land_type, land.as_index());
-                assert_eq!(cell.terrain_class, land.terrain_class());
                 assert_eq!(cell.speed_costs, expected_speed);
-                assert_eq!(cell.is_water, land.is_water());
-                assert_eq!(cell.is_cliff_like, land.is_cliff_like());
-                assert_eq!(cell.is_rough, land.is_rough());
-                assert_eq!(cell.is_road, land.is_road());
                 assert_eq!(cell.base_land_type, LandType::Clear.as_index());
                 assert_eq!(cell.base_speed_costs, base_speed);
                 assert_eq!(cell.overlay_zone_type, None);
@@ -3658,8 +3630,7 @@ NoUseTileLandType=yes
     }
 
     /// Round-trip on tiberium overlay add/remove: a fresh-spread or TIBTRE-spawned
-    /// ore cell must inherit Tiberium-mode `land_type` / `terrain_class` /
-    /// `speed_costs`, and a harvested-to-zero ore cell must revert to the
+    /// ore cell must inherit Tiberium-mode `land_type` / `speed_costs`, and a harvested-to-zero ore cell must revert to the
     /// underlying terrain values. Regression test for the §10 parity bug where
     /// runtime ore placement bypassed RecalcAttributes-equivalent logic.
     #[test]
@@ -3667,7 +3638,7 @@ NoUseTileLandType=yes
         use crate::map::resolved_terrain::{ResolvedTerrainCell, zone_class};
         use crate::rules::ini_parser::IniFile;
         use crate::rules::terrain_rules::LandType;
-        use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+        use crate::rules::terrain_rules::SpeedCostProfile;
 
         // Registry with overlay id=0 marked Tiberium=yes (mirrors stock TIB01).
         let ini = IniFile::from_str(
@@ -3688,7 +3659,6 @@ NoUseTileLandType=yes
                 accepts_smudge: true,
                 zone_type: zone_class::GROUND,
                 base_land_type: clear_lt,
-                base_terrain_class: TerrainClass::Clear,
                 base_speed_costs: base_speed,
                 ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
             });
@@ -3715,7 +3685,6 @@ NoUseTileLandType=yes
         let cell = &terrain.cells[idx];
         assert_eq!(cell.land_type, tib_lt, "land_type → Tiberium");
         assert_eq!(cell.land_type, tib_lt, "land_type → 5");
-        assert_eq!(cell.terrain_class, TerrainClass::Tiberium);
         assert_eq!(
             cell.speed_costs, tib_speed,
             "speed_costs sourced from [Tiberium]"
@@ -3730,7 +3699,6 @@ NoUseTileLandType=yes
         let cell = &terrain.cells[idx];
         assert_eq!(cell.land_type, clear_lt, "land_type → underlying Clear");
         assert_eq!(cell.land_type, clear_lt);
-        assert_eq!(cell.terrain_class, TerrainClass::Clear);
         assert_eq!(
             cell.speed_costs, base_speed,
             "speed_costs → underlying default"

@@ -1921,7 +1921,7 @@ mod tests {
     };
     use crate::map::overlay::OverlayEntry;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-    use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
     use crate::sim::intern::StringInterner;
     use crate::sim::terrain_object::{
         TerrainObjectState, mark_terrain_occupation, unmark_terrain_occupation,
@@ -1962,7 +1962,6 @@ mod tests {
                 speed_costs,
                 zone_type: zone_class::GROUND,
                 base_land_type: LandType::Clear.as_index(),
-                base_terrain_class: TerrainClass::Clear,
                 base_speed_costs: speed_costs,
                 ..crate::map::resolved_terrain::test_flat_cell(0, 0)
             }],

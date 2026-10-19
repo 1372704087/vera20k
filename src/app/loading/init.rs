@@ -132,7 +132,7 @@ fn refresh_generated_tiberium_presentation_frames(
 mod map_wall_owner_candidate_tests {
     use super::*;
     use crate::map::entities::EntityCategory;
-    use crate::rules::terrain_rules::TerrainClass;
+    use crate::rules::terrain_rules::LandType;
     use crate::sim::combat::Health;
     use crate::sim::components::BuildingUp;
     use crate::sim::game_entity::GameEntity;
@@ -317,7 +317,14 @@ mod map_wall_owner_candidate_tests {
                     let cell = terrain
                         .cell((origin.0 as i16 + dx) as u16, (origin.1 as i16 + dy) as u16)
                         .unwrap();
-                    assert_eq!((cell.level, cell.slope_type, cell.is_water), (2, 0, false));
+                    assert_eq!(
+                        (
+                            cell.level,
+                            cell.slope_type,
+                            cell.land_type == LandType::Water.as_index()
+                        ),
+                        (2, 0, false)
+                    );
                 }
             }
         }
@@ -512,16 +519,16 @@ mod map_wall_owner_candidate_tests {
             );
         }
         assert_eq!(
-            terrain.cell(1, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium
+            terrain.cell(1, 1).unwrap().land_type,
+            LandType::Tiberium.as_index()
         );
         assert_eq!(
-            terrain.cell(2, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium
+            terrain.cell(2, 1).unwrap().land_type,
+            LandType::Tiberium.as_index()
         );
         assert_eq!(
-            terrain.cell(4, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium,
+            terrain.cell(4, 1).unwrap().land_type,
+            LandType::Tiberium.as_index(),
             "the unknown Terrain fixture starts with the same projected ore state"
         );
         overlays.take_dirty_cells();
@@ -566,16 +573,16 @@ mod map_wall_owner_candidate_tests {
         assert_eq!(overlays.cell(4, 1).overlay_id, Some(0));
         assert_eq!(overlays.cell(4, 1).overlay_data, 10);
         assert_eq!(
-            terrain.cell(1, 1).unwrap().terrain_class,
-            TerrainClass::Clear
+            terrain.cell(1, 1).unwrap().land_type,
+            LandType::Clear.as_index()
         );
         assert_eq!(
-            terrain.cell(2, 1).unwrap().terrain_class,
-            TerrainClass::Clear
+            terrain.cell(2, 1).unwrap().land_type,
+            LandType::Clear.as_index()
         );
         assert_eq!(
-            terrain.cell(4, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium,
+            terrain.cell(4, 1).unwrap().land_type,
+            LandType::Tiberium.as_index(),
             "an unknown TerrainType leaves the resolved ore projection intact"
         );
         assert!(

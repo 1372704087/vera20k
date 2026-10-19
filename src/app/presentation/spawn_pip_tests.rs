@@ -266,7 +266,8 @@ fn stock_carrier_spawner_fire_reveals_to_its_human_victim() {
             .unwrap()
             .cell(source.0, source.1)
             .unwrap()
-            .is_water,
+            .land_type()
+            == crate::rules::terrain_rules::LandType::Water.as_index(),
         "authored source is real loaded Water"
     );
     let weapon = scene

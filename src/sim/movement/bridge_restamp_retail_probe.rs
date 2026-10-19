@@ -484,7 +484,7 @@ fn retail_cliff_override_level_difference_census() {
             // destination's own row for that SpeedType.
             let road_row = rules
                 .terrain_rules
-                .semantics_by_name("Road")
+                .semantics_for_land_type(crate::rules::terrain_rules::LandType::Road.as_index())
                 .map_or(crate::util::fixed_math::SIM_ONE, |road| {
                     road.speed_costs.speed_multiplier_for(speed_type)
                 });

@@ -620,7 +620,6 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                         cell.speed_costs.float = Some(100);
                         if family == TrackFamily::Ship {
                             cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
-                            cell.is_water = true;
                             cell.ground_walk_blocked = true;
                             cell.land_type =
                                 crate::rules::terrain_rules::LandType::Water.as_index();

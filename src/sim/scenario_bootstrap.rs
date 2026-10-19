@@ -2951,7 +2951,6 @@ mod tests {
                 .copied()
                 .map(|start| (start.index, start))
                 .collect(),
-            cell_tags: Default::default(),
             tags: Default::default(),
             triggers: Default::default(),
             events: Default::default(),

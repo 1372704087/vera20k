@@ -558,7 +558,6 @@ impl App {
                     terrain_grid: None,
                     height_map: BTreeMap::new(),
                     bridge_height_map: BTreeMap::new(),
-                    installed_playfield_authority: None,
                     overlays: Default::default(),
                     terrain_objects: Vec::new(),
                     overlay_names: BTreeMap::new(),

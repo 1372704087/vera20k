@@ -352,7 +352,7 @@ fn infantry_same_frame_firer_death_keeps_electric_consequences() {
                 "Americans",
                 5,
                 5,
-                crate::sim::movement::facing_from_delta(1, 0),
+                crate::util::direction_tables::facing8_from_delta(1, 0),
                 0,
                 &rules,
             )

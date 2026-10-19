@@ -382,7 +382,7 @@ fn authored_placement_matches_eight_original_controls_and_all_rng_streams() {
             case["output"]["scenario_id_cursor"],
             "{name}: constructor identity continuation"
         );
-        assert_eq!(map.actions["CREATE"].entries[0].kind, 108);
+        assert_eq!(map.actions["CREATE"].entries()[0].kind, 108);
         if let Some(lifetime) = case.get("lifecycle") {
             // Native AllAbstract already contains the supplied Action, whereas
             // this owner records only Overlay objects. Compare registry deltas

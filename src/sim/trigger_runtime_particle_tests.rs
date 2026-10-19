@@ -19,8 +19,8 @@ fn action(kind: i32, value: i32) -> RuntimeAction {
     let entry = crate::map::actions::parse_actions(&ini)
         .remove("CASE")
         .unwrap()
-        .entries
-        .remove(0);
+        .entries()[0]
+        .clone();
     RuntimeDefinitions::default().resolve_action(entry, None, None)
 }
 

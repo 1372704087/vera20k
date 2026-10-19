@@ -341,11 +341,11 @@ fn naval_rally_walk_candidate(
     rally: (u16, u16),
     occupancy: &OccupancyGrid,
 ) -> (u16, u16) {
-    let facing = crate::util::fixed_math::facing_from_delta_int(
+    let facing = crate::util::direction_tables::facing8_from_delta(
         i32::from(rally.0) - i32::from(producer_nw.0),
         i32::from(rally.1) - i32::from(producer_nw.1),
     );
-    let (step_x, step_y) = crate::util::fixed_math::dir_to_cell_delta(facing);
+    let (step_x, step_y) = crate::util::direction::delta_from_facing(facing);
     let mut candidate = foundation_center;
 
     // Look_up_building_in_cell @ 0x0047C520 returns the first Building in

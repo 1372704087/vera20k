@@ -226,7 +226,8 @@ impl ResolvedTerrainGrid {
             .and_then(|td| td.rmg_tiles.clear_tile)
             .unwrap_or(0);
         let materialized_size_diamond = variant_selector.is_some();
-        let playfield = materialized_size_diamond.then(|| Playfield::from_header(&map.header));
+        let playfield =
+            materialized_size_diamond.then(|| PlayfieldBounds::from_map_header(&map.header));
         let raw_cells = if let (Some(selector), Some(fill_ranged)) =
             (variant_selector.as_deref_mut(), scenario_fill_ranged)
         {
@@ -577,7 +578,12 @@ impl ResolvedTerrainGrid {
                     base: base_cliff_back_eligible,
                 });
                 let outside = playfield.is_some_and(|playfield| {
-                    !playfield.contains_raised(rx, ry, level as i8, metadata.slope_type)
+                    !playfield.contains_height_aware_packed(
+                        i32::from(rx),
+                        i32::from(ry),
+                        level as i8,
+                        metadata.slope_type,
+                    )
                 });
                 let zone_type = recalc_zone_type(
                     outside,

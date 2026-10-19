@@ -83,7 +83,7 @@ fn simulation_fixture() -> (Simulation, crate::map::terrain::TerrainGrid) {
     for (rx, ry) in [FLOOD[0], REPAIR_START] {
         terrain.cell_mut(rx, ry).unwrap().bridge_facts.overlay_id = Some(0xD1);
     }
-    let grid = build_terrain_grid_from_resolved(&terrain, None, None);
+    let grid = build_terrain_grid_from_resolved(&terrain, None);
     let bridge_state = BridgeRuntimeState::from_resolved_terrain_with_map_size(
         &terrain,
         true,

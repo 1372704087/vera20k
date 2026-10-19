@@ -286,11 +286,9 @@ fn retail_all02_prisoner_damage_enable_elapsed_wakeup_survives_restore() {
         body.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             let selected = if section == "Tags" {
-                map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|id| chain.contains(&id.as_str()))
-                })
+                map.tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|id| chain.contains(&id)))
             } else {
                 chain.contains(&key)
             };

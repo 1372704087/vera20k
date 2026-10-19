@@ -206,7 +206,6 @@ fn make_map(
         smudges: Vec::new(),
         terrain_objects,
         waypoints: HashMap::new(),
-        cell_tags: HashMap::new(),
         tags: HashMap::new(),
         triggers: HashMap::new(),
         events: HashMap::new(),
@@ -2551,7 +2550,7 @@ fn no_tile_presentation_uses_theater_clear_tile_without_rewriting_semantics() {
     assert_eq!(sentinel.level, 3);
     assert_eq!(grid.presentation_tile(sentinel), (37, 0));
 
-    let presentation = crate::map::terrain::build_terrain_grid_from_resolved(&grid, None, None);
+    let presentation = crate::map::terrain::build_terrain_grid_from_resolved(&grid, None);
     let rendered = presentation
         .cells
         .iter()
@@ -3561,8 +3560,8 @@ SnowOccupationBits=0
 
 #[test]
 fn gsi_04_04_outside_precedes_overlay_land_and_terrain_occupation() {
-    let playfield = Playfield::from_local_size(34, 0, 0, 34, 42);
-    let outside = !playfield.contains_raised(0, 0, 0, 0);
+    let playfield = PlayfieldBounds::from_normalized_local_size(34, 0, 0, 34, 42);
+    let outside = !playfield.contains_height_aware_packed(0, 0, 0, 0);
     assert!(outside);
     assert_eq!(
         recalc_zone_type(

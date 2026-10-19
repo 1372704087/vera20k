@@ -15,8 +15,6 @@ use crate::app::match_runtime::session::SessionMode;
 
 use crate::app::types::SIM_TICK_HZ;
 use crate::app::types::SIM_TICK_MS;
-use crate::assets::asset_manager::AssetManager;
-use crate::assets::pal_file::Palette;
 use crate::map::terrain;
 use crate::render::sprite_atlas;
 use crate::render::unit_atlas;
@@ -1695,12 +1693,12 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
         return;
     }
 
-    let unit_palette = load_unit_palette(
+    // Growth pages must key on the palettes the load-time pages used.
+    let Some((palette, cell_palette)) = crate::map::theater::load_theater_unit_and_iso_palettes(
         asset_manager,
-        &state.match_state.match_presentation.theater_ext,
-    );
-    let Some(palette) = unit_palette else {
-        log::warn!("Atlas refresh skipped: unit palette not found");
+        &state.match_state.match_presentation.theater_name,
+    ) else {
+        log::warn!("Atlas refresh skipped: theater palettes not found");
         return;
     };
 
@@ -1731,10 +1729,6 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             .flat_map(|terrain| terrain.tile_animations())
             .map(|anim| anim.anim_name.to_ascii_uppercase())
             .collect();
-        let cell_palette = load_iso_palette(
-            asset_manager,
-            &state.match_state.match_presentation.theater_ext,
-        );
         if let Some(new_sprite_atlas) = sprite_atlas::build_sprite_atlas(
             &state.renderer.gpu.device,
             &state.renderer.gpu.queue,
@@ -1750,7 +1744,7 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             &extra_buildings,
             &anim_remap_keys,
             &cell_drawer_type_ids,
-            cell_palette.as_ref(),
+            Some(&cell_palette),
             existing,
             Some(&sim.interner),
         ) {
@@ -1805,34 +1799,6 @@ fn upsert_overlay_entries(
     let synced = index.upsert_occupied(candidates);
     *existing = index.as_slice().to_vec();
     synced
-}
-
-fn load_unit_palette(asset_manager: &AssetManager, theater_ext: &str) -> Option<Palette> {
-    let themed = format!("unit{}.pal", theater_ext.to_ascii_lowercase());
-    let candidates = [
-        themed.as_str(),
-        "unittem.pal",
-        "unitsno.pal",
-        "uniturb.pal",
-        "unit.pal",
-        "temperat.pal",
-    ];
-    for name in candidates {
-        let Some(data) = asset_manager.get(name) else {
-            continue;
-        };
-        if let Ok(pal) = Palette::from_bytes(&data) {
-            return Some(pal);
-        }
-    }
-    None
-}
-
-fn load_iso_palette(asset_manager: &AssetManager, theater_ext: &str) -> Option<Palette> {
-    let name = format!("iso{}.pal", theater_ext.to_ascii_lowercase());
-    asset_manager
-        .get_ref(&name)
-        .and_then(|bytes| Palette::from_bytes(bytes).ok())
 }
 
 pub(crate) fn screen_point_to_world(state: &AppState, screen_x: f32, screen_y: f32) -> (f32, f32) {

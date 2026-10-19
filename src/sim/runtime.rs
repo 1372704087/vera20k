@@ -26,9 +26,11 @@ pub struct SimResources {
     pub terrain_template: Option<crate::map::resolved_terrain::ResolvedTerrainGrid>,
     /// The complete immutable match rules (including the sole ArtRegistry).
     pub rules: crate::rules::ruleset::RuleSet,
-    /// Immutable trigger definitions parsed from the map; the runtime state
-    /// machine lives in the simulation, these are bound once (F07: the app
-    /// no longer passes definitions each frame).
+    /// Copies of the map's trigger records. No production path reads them:
+    /// the trigger runtime reads its definitions from the map once, at
+    /// scenario init. They stay because the saved scenario resources
+    /// serialize them and `headless_scenario.rs` binds them; legacy test
+    /// fixtures still take events and actions from here.
     pub trigger_graph: crate::map::trigger_graph::TriggerGraph,
     pub triggers: crate::map::triggers::TriggerMap,
     pub events: crate::map::events::EventMap,

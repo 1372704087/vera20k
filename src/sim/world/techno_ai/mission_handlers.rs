@@ -1863,6 +1863,7 @@ pub(super) fn foot_area_guard_scan_ahead(
     if entity.mission.current().known() != Some(MissionType::AreaGuard)
         || entity.attack_target.target().is_some()
         || entity.infantry_deploy_doing()
+        || entity.is_harvester()
         || !foot_mission_handler_due(sim, id, sim.session.binary_frame)
     {
         return None;
@@ -1889,9 +1890,10 @@ const AREA_GUARD_CADENCE_JITTER_MAX: u32 = 5;
 /// Foot's navigation list, [`Simulation::area_guard_navigation_head`])
 /// precede it. With a Target and a post it approaches through
 /// [`Simulation::approach_target`] (`0x004D6F32`). ElectricAssault adjacency
-/// follows the idle block. Required larger chains: the AI C4/Sabotage arm
-/// 4D6DDA and the early harvester arm.
-/// They retain their existing boundaries; these controls do not certify them.
+/// follows the idle block. A harvester instead commences Harvest before the
+/// post/leash/scan work (4D6D1A..4D6D68), preserving its target and navigation.
+/// Native controls: `harvest_attack_return --area-guard`.
+/// The AI C4/Sabotage arm4D6DDA remains a separate required chain.
 pub(super) fn evaluate_foot_area_guard(
     sim: &mut Simulation,
     id: u64,
@@ -1920,6 +1922,29 @@ pub(super) fn evaluate_foot_area_guard(
         return head;
     }
     sim.area_guard_navigation_head(id, rules, ctx.overlay_registry, ctx.effects);
+    if sim
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|entity| entity.category() == EntityCategory::Unit && entity.is_harvester())
+    {
+        // Foot4D6D34..4D6D68: Queue(Harvest,0), unconditional Commence,
+        // then Scenario RandomRanged(1,10)+1. Commence is deliberately not
+        // gated by ReadyToCommence; the shared dispatcher writes this delay
+        // AFTER the mission change. No idle/target/destination setter runs.
+        let now = sim.session.binary_frame;
+        let _ = sim.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Harvest),
+            0,
+            now,
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+        );
+        let _ = sim.mission_commence_exact(id, now);
+        return MissionHandlerEvaluation::cadence(
+            sim.scenario_rng.next_range_u32_inclusive(1, 10) as i32 + 1,
+        );
+    }
     let needs_post = sim.substrate.entities.get(id).is_some_and(|entity| {
         entity.archive_target().is_none() && entity.mission.queued() == MissionId::NONE
     });

@@ -338,6 +338,73 @@ fn a_harvest_order_on_a_cutting_miner_keeps_state_one_and_cuts_on_arrival() {
 /// clear terrain and two owned refineries; this is a frame integration test,
 /// not a whole-map native comparison.
 #[test]
+fn retail_war_miner_area_guard_returns_to_harvesting() {
+    use crate::rules::overlay_types::OverlayTypeRegistry;
+    use crate::sim::mission::MissionType;
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let registry = OverlayTypeRegistry::from_ini(&retail.processed_rules, None);
+    assert!(retail.rules.object("HARV").unwrap().harvester);
+    for on_ore in [true, false] {
+        let mut s = super::refinery_dock_oracle_tests::scene_with(
+            &serde_json::json!({
+                "mission": "guard", "status": 0, "linked": false,
+                "miner_cell": [15, 15], "unlimbo_at_cell": true,
+            }),
+            retail.rules.clone(),
+            &retail.processed_rules,
+        );
+        s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        let owner = s.sim.entities().get(s.miner).unwrap().owner();
+        s.sim.session.current_house = Some(owner);
+        s.sim.session.house_order = vec![owner];
+        let ore_cell = if on_ore { (15, 15) } else { (16, 15) };
+        let ore = registry.id_for_name("TIB01").unwrap();
+        let grid = s.sim.overlay_grid.as_mut().unwrap();
+        grid.place_overlay(ore_cell.0, ore_cell.1, ore, 10);
+        grid.recalculate_runtime_cell(
+            s.sim.resolved_terrain.as_mut().unwrap(),
+            &registry,
+            ore_cell,
+        );
+        // G's existing selection producer, exact event codec and receiver;
+        // no test assigns AreaGuard or Harvest directly.
+        let command = s.sim.area_guard_key_command(s.miner, &s.rules).unwrap();
+        let record = s.sim.encode_megamission_record(owner, &command).unwrap();
+        let command = s.sim.decode_native_command_record(&record, 0).unwrap();
+        assert!(s.sim.apply_command_with_overlays(
+            "Americans",
+            &command.payload,
+            Some(&s.rules),
+            Some(&registry),
+            Default::default(),
+        ));
+        let mut harvested = false;
+        for _ in 0..180 {
+            let grid = s.sim.path_grid_snapshot();
+            s.sim
+                .advance_tick(&[], Some(&s.rules), grid.as_deref(), Some(&registry), 67);
+            let miner = s.sim.entities().get(s.miner).unwrap();
+            if !miner.miner.as_ref().unwrap().cargo().is_empty() {
+                assert_eq!(miner.mission.current().known(), Some(MissionType::Harvest));
+                assert_eq!((miner.position.rx(), miner.position.ry()), ore_cell);
+                harvested = true;
+                break;
+            }
+        }
+        assert!(
+            harvested,
+            "G must resume harvesting from on_ore={on_ore}; mission {:?}",
+            s.sim.entities().get(s.miner).unwrap().mission.current()
+        );
+    }
+}
+
+/// An attack interrupts the same retail miner, then its idle hook resumes work.
+#[test]
 #[ignore = "slow; run when changing what it covers"]
 fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
     use crate::rules::overlay_types::OverlayTypeRegistry;

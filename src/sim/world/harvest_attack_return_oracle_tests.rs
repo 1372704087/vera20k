@@ -163,6 +163,12 @@ impl Replay {
         // Unit construction consumes shared stream work in Rust. All fixture
         // allocations precede the declared original Scenario seed/prestate.
         scene.sim.scenario_rng = crate::sim::rng::SimRng::new(input["seed"].as_u64().unwrap_or(1));
+        if input["area_guard_comparison"] == true {
+            // Independent native seed controls declared by the additive
+            // AreaGuard corpus, installed after the scene's construction.
+            scene.sim.main_rng = crate::sim::rng::MainRng::new(31);
+            scene.sim.mapgen_rng = crate::sim::rng::SimRng::new(42);
+        }
         Self {
             scene,
             first,
@@ -268,6 +274,21 @@ impl Replay {
             native["scenario_rng"],
             "{context}: full Scenario RNG"
         );
+        if let Some(other_rng) = native.get("other_rng") {
+            let views = s.sim.rng_views();
+            let main = views.main;
+            let mapgen = views.mapgen;
+            assert_eq!(
+                json!({"disabled": main.disabled, "index_a": main.index_a, "index_b": main.index_b, "state": main.words.as_slice()}),
+                other_rng["main"],
+                "{context}: full Main RNG"
+            );
+            assert_eq!(
+                json!({"disabled": mapgen.disabled, "index_a": mapgen.index_a, "index_b": mapgen.index_b, "state": mapgen.words}),
+                other_rng["mapgen"],
+                "{context}: full MapGen RNG"
+            );
+        }
         let stage = serde_json::to_value(e.native_stage()).unwrap();
         assert_eq!(
             stage["changed"], native["stage_changed"],
@@ -330,6 +351,13 @@ impl Replay {
                                 target_ry,
                             }
                         }
+                        "area_guard" => {
+                            let (x, y) = cell(&input["post"]);
+                            Command::Guard {
+                                entity_id: s.miner,
+                                target: Some(TargetKind::Cell(x, y)),
+                            }
+                        }
                         other => panic!("{context}: command {other}"),
                     },
                 };
@@ -345,6 +373,11 @@ impl Replay {
                 );
             }
             "promote" => s.sim.mission_host_promote(s.miner, now, &s.rules),
+            "ready" => assert_eq!(
+                u8::from(s.sim.mission_ready_to_commence(s.miner, &s.rules)),
+                int(&step["returned"]["ready_al"]) as u8,
+                "{context}: ReadyToCommence"
+            ),
             "dispatch" => {
                 let config = crate::sim::miner::MinerConfig::from_rules(&s.rules);
                 super::dispatch_foot_mission(
@@ -440,6 +473,24 @@ impl Replay {
                     int(&step["returned"]["supplied_frame_from_previous_native_timer"]) as u32;
             }
             other => panic!("{context}: operation {other}"),
+        }
+    }
+}
+
+#[test]
+fn area_guard_harvest_transition_matches_original_executable_steps() {
+    let native = crate::test_fixture::json("tools/spatial_oracle/harvest_area_guard.json");
+    assert_eq!(native["reader_receipts"], corpus()["reader_receipts"]);
+    let rows = native["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 6);
+    for row in rows {
+        let name = row["input"]["name"].as_str().unwrap();
+        let mut replay = Replay::new(row);
+        replay.compare(&row["before"], &row["input"], &format!("{name}: initial"));
+        for (index, step) in row["steps"].as_array().unwrap().iter().enumerate() {
+            let context = format!("{name}: step {index} {}", step["input"]["op"]);
+            replay.step(step, &context);
+            replay.compare(&step["after"], &row["input"], &context);
         }
     }
 }

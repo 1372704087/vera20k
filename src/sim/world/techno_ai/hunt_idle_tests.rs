@@ -34,7 +34,9 @@ fn a_hunter_without_a_target_idles_unless_a_campaign_computer_owns_it() {
                 .insert(id, HouseState::new(id, side, None, human, 0, 10));
             sim.session.house_order.push(id);
         }
-        sim.session.game_mode_nonzero = game_mode_nonzero;
+        sim.session.set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(game_mode_nonzero),
+        );
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         let hunter = sim
             .spawn_object_at_height("E1", owner, 10, 10, 0, 0, &rules)

@@ -935,7 +935,7 @@ fn infantry_automatic_guard_delay(
     let Some(object) = sim.object_type(actor.type_ref(), rules) else {
         return -1;
     };
-    if house.is_controlled_by_human(sim.session.game_mode_nonzero)
+    if house.is_controlled_by_human(sim.session.game_mode_nonzero())
         || !object.deployer
         || !object.deploy_fire
         || object.undeploy_delay > -1
@@ -1040,7 +1040,7 @@ fn infantry_idle_guard_pick(sim: &Simulation, id: u64, rules: &RuleSet) -> Missi
     };
     let house = sim.houses.get(&entity.owner());
     let human =
-        house.is_none_or(|house| house.is_controlled_by_human(sim.session.game_mode_nonzero));
+        house.is_none_or(|house| house.is_controlled_by_human(sim.session.game_mode_nonzero()));
     let teamed = sim.team_script_vm.team_for_member(id).is_some();
     let object = sim.object_type(entity.type_ref(), rules);
     let area_guard = if !human && !teamed {
@@ -1406,7 +1406,7 @@ fn evaluate_foot_hunt(
     // a campaign computer house reaches the march on the player (RESIDUAL
     // above).
     if no_target_arm
-        && (sim.session.game_mode_nonzero
+        && (sim.session.game_mode_nonzero()
             || sim
                 .substrate
                 .entities
@@ -2356,7 +2356,7 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
     if let Some(house) = sim
         .houses
         .get(&entity.owner())
-        .filter(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero))
+        .filter(|house| !house.is_controlled_by_human(sim.session.game_mode_nonzero()))
     {
         // Arm (ii), `0x00740880..0x0074092C`.
         return house.tracking.owns_any_building(

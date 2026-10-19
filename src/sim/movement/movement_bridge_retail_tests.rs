@@ -47,6 +47,9 @@ mod bridge_restamp_retail_probe;
 #[path = "bridge_tile_retail_probe.rs"]
 mod bridge_tile_retail_probe;
 
+#[path = "bridge_retail_power_fixture.rs"]
+mod bridge_retail_power_fixture;
+
 #[path = "sov01_bridge_retail_tests.rs"]
 mod sov01_bridge_retail_tests;
 
@@ -580,6 +583,12 @@ fn drive_across_high_bridge_with_order(
 
     let owner_name = prepare_commanding_house(&mut scenario);
     println!("commanding house: {owner_name}");
+    bridge_retail_power_fixture::prepare_powered_mover(
+        &mut scenario,
+        &owner_name,
+        unit_type,
+        span.approach_a,
+    );
 
     // Spawn on the near approach; fall back one cell further back if that cell
     // is already occupied by map-placed content.
@@ -1295,6 +1304,12 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
 
     let owner_name = prepare_commanding_house(&mut scenario);
     println!("commanding house: {owner_name}");
+    bridge_retail_power_fixture::prepare_powered_mover(
+        &mut scenario,
+        &owner_name,
+        unit_type,
+        span.approach_a,
+    );
 
     let start_candidates = [
         span.approach_a,
@@ -3283,6 +3298,12 @@ fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun
     };
 
     let owner_name = prepare_commanding_house(&mut scenario);
+    bridge_retail_power_fixture::prepare_powered_mover(
+        &mut scenario,
+        &owner_name,
+        unit_type,
+        under_a,
+    );
     let mut entity_id = None;
     let mut start_cell = under_a;
     for candidate in [

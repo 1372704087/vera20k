@@ -133,9 +133,25 @@ impl PreparedNetworkStartup {
     }
 }
 
-/// Start_Scenario683AB0's campaign-array selection. This is an immutable
-/// launch projection from the process catalog, separate from multiplayer
-/// session/slot staging. Full_Init686B6A uses Options.Difficulty literally.
+
+/// Explicit settings supplied by an external campaign launcher.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CampaignLaunchOptions {
+    pub game_speed: i32,
+    pub build_off_ally: bool,
+    /// External client map root, independent of the retail asset directory.
+    pub scenario_directory: Option<std::path::PathBuf>,
+}
+
+impl CampaignLaunchOptions {
+    fn loose_scenario_file(&self, scenario: &str) -> Option<String> {
+        let path = self.scenario_directory.as_ref()?.join(scenario);
+        path.is_file().then(|| path.to_string_lossy().into_owned())
+    }
+}
+
+/// Start_Scenario683AB0's immutable campaign-array selection, separate from
+/// multiplayer slot staging. Full_Init686B6A uses Options.Difficulty literally.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PreparedCampaignStartup {
     campaign_index: usize,
@@ -144,11 +160,15 @@ pub struct PreparedCampaignStartup {
     /// the campaign's Scenario (`0x00683AF8`); a won mission passes the map
     /// MapSelect chose (`0x00685C4E`).
     scenario: String,
+    /// Derived physical source for a loose external mission. The logical
+    /// scenario above remains authoritative for metadata and continuation.
+    scenario_file: Option<String>,
     /// Scenario+0x1254 for this start. A new campaign starts after
     /// BattleControlTerminated6865B0, whose reset matches the ctor's 1; a won
     /// mission increments it before Start_Scenario (`0x00685AAF`).
     mission_counter: i32,
     difficulty: i32,
+    launch_options: Option<CampaignLaunchOptions>,
     /// The globals `0x004C6180` saved from the won mission; `0x004C6210`
     /// writes them back once Start_Scenario has read the next map.
     carried_globals: Option<[bool; SCENARIO_GLOBAL_COUNT]>,
@@ -168,12 +188,27 @@ impl PreparedCampaignStartup {
         &self.scenario
     }
 
+    pub fn selected_map_file(&self) -> &str {
+        self.scenario_file.as_deref().unwrap_or(&self.scenario)
+    }
+
     pub fn mission_counter(&self) -> i32 {
         self.mission_counter
     }
 
     pub fn difficulty(&self) -> i32 {
         self.difficulty
+    }
+
+    /// Only explicit external overrides replace the existing campaign defaults.
+    pub fn game_options(&self) -> Option<crate::sim::game_options::GameOptions> {
+        self.launch_options
+            .as_ref()
+            .map(|options| crate::sim::game_options::GameOptions {
+                game_speed: options.game_speed,
+                build_off_ally: options.build_off_ally,
+                ..Default::default()
+            })
     }
 
     pub fn carried_globals(&self) -> Option<&[bool; SCENARIO_GLOBAL_COUNT]> {
@@ -188,15 +223,27 @@ impl PreparedCampaignStartup {
         scenario: String,
         mission_counter: i32,
         difficulty: i32,
+        game_speed: i32,
         carried_globals: [bool; SCENARIO_GLOBAL_COUNT],
         clock: &mut impl MatchSeedClock,
     ) -> Self {
         Self {
             campaign_index: self.campaign_index,
             campaign: self.campaign.clone(),
+            scenario_file: self
+                .launch_options
+                .as_ref()
+                .and_then(|options| options.loose_scenario_file(&scenario)),
             scenario,
             mission_counter,
             difficulty,
+            launch_options: self
+                .launch_options
+                .as_ref()
+                .map(|options| CampaignLaunchOptions {
+                    game_speed,
+                    ..options.clone()
+                }),
             carried_globals: Some(carried_globals),
             seed: read_match_seed(clock),
         }
@@ -207,16 +254,25 @@ pub fn prepare_campaign_startup(
     campaigns: &crate::rules::campaigns::CampaignRegistry,
     name: &str,
     difficulty: i32,
+    scenario: Option<&str>,
+    launch_options: Option<CampaignLaunchOptions>,
     clock: &mut impl MatchSeedClock,
 ) -> Option<PreparedCampaignStartup> {
     let campaign_index = campaigns.find_index(name)?;
     let campaign = campaigns.get(campaign_index)?.clone();
+    let scenario = scenario.unwrap_or_else(|| campaign.scenario()).to_owned();
     Some(PreparedCampaignStartup {
         campaign_index,
-        scenario: campaign.scenario().to_owned(),
+        // External mission selectors can enter a later authored scenario while
+        // retaining the selected campaign's final movie and continuation identity.
+        scenario_file: launch_options
+            .as_ref()
+            .and_then(|options| options.loose_scenario_file(&scenario)),
+        scenario,
         campaign,
         mission_counter: 1,
         difficulty,
+        launch_options,
         carried_globals: None,
         seed: read_match_seed(clock),
     })
@@ -244,7 +300,7 @@ impl LoadingStartup {
                 .selected_map_file
                 .as_deref()
                 .expect("accepted network map"),
-            Self::Campaign(startup) => startup.scenario(),
+            Self::Campaign(startup) => startup.selected_map_file(),
             Self::Accepted(startup) => startup.session.selected_map_file(),
             Self::UnverifiedLegacy { session, .. } => {
                 session.selected_map_file.as_deref().unwrap_or("auto")
@@ -681,7 +737,7 @@ mod tests {
         let mut campaigns = crate::rules::campaigns::CampaignRegistry::default();
         campaigns.apply_ini(&ini, &crate::rules::movies::MovieRegistry::default());
         let mut clock = CountingClock { value: 7, reads: 0 };
-        let campaign = prepare_campaign_startup(&campaigns, "ALL1", 1, &mut clock)
+        let campaign = prepare_campaign_startup(&campaigns, "ALL1", 1, None, None, &mut clock)
             .expect("synthetic campaign catalog admits a selected campaign");
         assert_eq!(
             LoadingStartup::Campaign(campaign).session_mode(),
@@ -707,6 +763,54 @@ mod tests {
             .session_mode(),
             SessionMode::Skirmish
         );
+    }
+
+    #[test]
+    fn cncnet_campaign_enters_a_selected_mission_and_keeps_continuation_identity() {
+        let ini = crate::rules::ini_parser::IniFile::from_str(
+            "[Battles]\n0=ALL1\n[ALL1]\nCD=2\nScenario=ALL01UMD.MAP\n",
+        );
+        let mut campaigns = crate::rules::campaigns::CampaignRegistry::default();
+        campaigns.apply_ini(&ini, &crate::rules::movies::MovieRegistry::default());
+        let mut clock = CountingClock {
+            value: 731,
+            reads: 0,
+        };
+        let startup = prepare_campaign_startup(
+            &campaigns,
+            "ALL1",
+            2,
+            Some("ALL04UMD.MAP"),
+            Some(CampaignLaunchOptions {
+                game_speed: 2,
+                build_off_ally: false,
+                scenario_directory: None,
+            }),
+            &mut clock,
+        )
+        .expect("campaign admission");
+        assert_eq!(startup.scenario(), "ALL04UMD.MAP");
+        assert_eq!(startup.campaign().scenario(), "ALL01UMD.MAP");
+        assert_eq!(startup.campaign().id(), "ALL1");
+        assert_eq!(startup.campaign().cd(), 2);
+        assert_eq!(startup.difficulty(), 2);
+        assert_eq!(startup.game_options().unwrap().game_speed, 2);
+        assert!(!startup.game_options().unwrap().build_off_ally);
+        assert_eq!(startup.seed.value, 731);
+        assert_eq!(clock.reads, 1);
+        let next = startup.next_mission(
+            "ALL05UMD.MAP".into(),
+            2,
+            2,
+            4,
+            [false; SCENARIO_GLOBAL_COUNT],
+            &mut clock,
+        );
+        assert_eq!(next.campaign_index(), startup.campaign_index());
+        assert_eq!(next.campaign(), startup.campaign());
+        assert_eq!(next.scenario(), "ALL05UMD.MAP");
+        assert_eq!(next.game_options().unwrap().game_speed, 4);
+        assert!(!next.game_options().unwrap().build_off_ally);
     }
 
     fn assert_unverified(session: &SkirmishLaunchSession, expected: UnverifiedStartupReason) {

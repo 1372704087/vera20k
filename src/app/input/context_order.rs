@@ -1123,19 +1123,16 @@ pub(crate) fn object_click_payload(
 /// under the chord ([`Simulation::object_move_click`],
 /// [`move_click_command`]); Select and 0 order nothing.
 ///
-/// Attack, and any action under force fire, orders
-/// [`object_click_payload`]. What_Action decides Attack before
+/// Attack orders [`object_click_payload`]. What_Action decides Attack before
 /// ClickedMission promotes it to attack-move, so an unforced shot ILLEGAL to
 /// the receiver leaves no Attack to promote: its tail answers 0 or Select
 /// there ([`attack_action`]). A Crazy Ivan's Attack over an object he cannot
 /// bomb is NoIvanBomb (`0x0051EB24`), which orders nothing.
 ///
-/// RESIDUAL (#605): force fire orders the payload whatever the receiver.
-/// Trigger: Ctrl over an object with an unarmed receiver. Effect: VERA
-/// queues an Attack where native, whose attack rung admits an unarmed
-/// receiver under Ctrl too only as an `Infiltrate=` infantryman
-/// (`0x00700444..0x00700474`), selects the object or moves the receiver near
-/// it. Rare.
+/// Ctrl bypasses friendly/ILLEGAL rejection in the existing action owner,
+/// but still requires armed or Infiltrate admission (`700444..700474`).
+/// Its Select/NoMove tail remains the ordinary selection/movement path.
+/// Original controls: allied_object_action.json unarmed_object_controls.
 ///
 /// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
 fn object_attack_click_command(
@@ -1177,26 +1174,25 @@ fn object_attack_click_command(
             move_near(crate::sim::world::MoveAction::Move)
         };
     }
-    if modifier != OrderModifier::ForceFire {
-        // Ordinary attack admission; Guard was classified above with hover.
-        match attack_action(
-            sim,
-            rules,
-            attacker_id,
-            &TargetKind::Entity(target_id),
-            false,
-            Some(overlay_registry),
-        ) {
-            // NoIvanBomb (`0x0051EB24`) orders nothing.
-            AttackAction::Attack if ivan_cannot_bomb(sim, rules, attacker_id, target_id) => {
-                return None;
-            }
-            AttackAction::Attack => {}
-            AttackAction::NoMove => {
-                return move_near(crate::sim::world::MoveAction::NoMove);
-            }
-            AttackAction::Select | AttackAction::None | AttackAction::Rally => return None,
+    // Guard was classified above with hover. Every other receiver asks its
+    // own action, including Ctrl; forcing does not invent Attack admission.
+    match attack_action(
+        sim,
+        rules,
+        attacker_id,
+        &TargetKind::Entity(target_id),
+        modifier == OrderModifier::ForceFire,
+        Some(overlay_registry),
+    ) {
+        // NoIvanBomb (`0x0051EB24`) orders nothing.
+        AttackAction::Attack if ivan_cannot_bomb(sim, rules, attacker_id, target_id) => {
+            return None;
         }
+        AttackAction::Attack => {}
+        AttackAction::NoMove => {
+            return move_near(crate::sim::world::MoveAction::NoMove);
+        }
+        AttackAction::Select | AttackAction::None | AttackAction::Rally => return None,
     }
     match infantry_attack_action(sim, rules, attacker_id, target_id) {
         Some(InfantryAttackAction::NoMove) => {
@@ -2176,7 +2172,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             // Attack5. The ordinary MTNK fall-through below takes Move; other
             // class/shroud combinations remain part of the shared-cell audit.
             if let Some(target_id) = attack_target {
-                if matches!(modifier, OrderModifier::Normal | OrderModifier::AttackMove) {
+                if matches!(
+                    modifier,
+                    OrderModifier::Normal | OrderModifier::AttackMove | OrderModifier::ForceFire
+                ) {
                     match object_click_release(
                         sim,
                         &resources.rules,
@@ -2184,6 +2183,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         &selected_units,
                         target_id,
                         &resources.overlay_registry,
+                        modifier == OrderModifier::ForceFire,
                     ) {
                         LeftRelease::Select => return false,
                         LeftRelease::Nothing => return true,
@@ -2803,6 +2803,7 @@ fn object_click_release(
     receivers: &[u64],
     target_id: u64,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    forced: bool,
 ) -> LeftRelease {
     let Some(best) = cursor_owner(sim, rules, current_objects, target_id)
         .filter(|best| receivers.contains(best))
@@ -2814,7 +2815,7 @@ fn object_click_release(
         rules,
         best,
         &TargetKind::Entity(target_id),
-        false,
+        forced,
         Some(overlay_registry),
     );
     if action == AttackAction::Attack
@@ -3595,7 +3596,7 @@ mod tests {
             attack_action(sim, &rules, actor, &TargetKind::Entity(enemy), false, None)
         };
         let release = |sim: &Simulation, selection: &[u64]| {
-            object_click_release(sim, &rules, selection, selection, enemy, &overlays)
+            object_click_release(sim, &rules, selection, selection, enemy, &overlays, false)
         };
         let click = |sim: &Simulation, actor| {
             object_attack_click_command(
@@ -3640,7 +3641,7 @@ mod tests {
             "the armed tank owns the cursor"
         );
         assert_eq!(
-            object_click_release(&sim, &rules, &[mcv], &[], enemy, &overlays),
+            object_click_release(&sim, &rules, &[mcv], &[], enemy, &overlays, false),
             LeftRelease::Dispatch,
             "a capability arm took the object that owns the cursor"
         );
@@ -5544,3 +5545,7 @@ mod cursor_contract_tests;
 #[cfg(test)]
 #[path = "engineer_special_entry_tests.rs"]
 mod engineer_special_entry_tests;
+
+#[cfg(test)]
+#[path = "foot_unarmed_ctrl_tests.rs"]
+mod foot_unarmed_ctrl_tests;

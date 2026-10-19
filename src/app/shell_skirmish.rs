@@ -190,7 +190,13 @@ impl App {
     ) {
         Self::teardown_skirmish_shell_for_start(state);
         state.frontend.multiplayer_shell_runtime.persist_snapshot();
-        Self::start_skirmish_session(state, session);
+        if let Err(error) = Self::start_skirmish_session(
+            state,
+            session,
+            &mut crate::app::match_bootstrap::OrdinaryMatchSeedClock,
+        ) {
+            log::error!("Cannot start skirmish: {error:#}");
+        }
     }
 
     /// Skirmish Back after the teardown slide: the session fields are written
@@ -218,10 +224,11 @@ impl App {
         state.frontend.skirmish_preview_texture = None;
     }
 
-    fn start_skirmish_session(
+    pub(super) fn start_skirmish_session(
         state: &mut AppState,
         session: crate::skirmish_launch::SkirmishLaunchSession,
-    ) {
+        clock: &mut impl crate::app::match_bootstrap::MatchSeedClock,
+    ) -> anyhow::Result<()> {
         let accepted_random_map = state
             .frontend
             .random_map_retention
@@ -230,27 +237,19 @@ impl App {
             crate::app::match_bootstrap::StartupSessionClassification::AcceptedExplicitFixedBattle(
                 accepted,
             ) => {
-                let correlation = match crate::app::match_bootstrap::allocate_match_correlation(
+                let correlation = crate::app::match_bootstrap::allocate_match_correlation(
                     &mut state.frontend.next_match_correlation,
-                ) {
-                    Ok(correlation) => correlation,
-                    Err(err) => {
-                        log::error!("Cannot start accepted match: {err}");
-                        return;
-                    }
-                };
-                let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
+                )?;
                 let startup = crate::app::match_bootstrap::prepare_match_startup(
                     correlation,
                     *accepted,
-                    &mut clock,
+                    clock,
                 );
                 crate::app::loading::pump::LoadingRequest::accepted_skirmish(startup)
             }
             crate::app::match_bootstrap::StartupSessionClassification::UnverifiedLegacy(reason) => {
                 log::warn!("Skirmish startup uses unverified compatibility path: {reason:?}");
-                let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
-                let seed = crate::app::match_bootstrap::read_match_seed(&mut clock);
+                let seed = crate::app::match_bootstrap::read_match_seed(clock);
                 crate::app::loading::pump::LoadingRequest::unverified_legacy_skirmish(session, seed)
             }
         }
@@ -268,6 +267,7 @@ impl App {
         crate::app::loading::pump::begin_loading(state, request);
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
+        Ok(())
     }
 
     pub(crate) fn ensure_skirmish_shell_chrome(state: &mut AppState) -> bool {

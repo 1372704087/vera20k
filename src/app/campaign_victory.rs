@@ -258,6 +258,7 @@ impl App {
                             scenario,
                             counter + 1,
                             state.persistence.options_profile.difficulty,
+                            sim.session.game_options.game_speed,
                             sim.global_variables(),
                             &mut crate::app::match_bootstrap::OrdinaryMatchSeedClock,
                         )))
@@ -288,6 +289,7 @@ impl App {
             VictoryEnd::Shell => {
                 Self::destroy_current_shell_dialog(state);
                 state.frontend.shell_route = crate::app::shell_route::ShellRoute::MainMenu;
+                Self::resume_shell_after_match(state);
             }
             VictoryEnd::Credits => Self::start_credits_roll(
                 state,

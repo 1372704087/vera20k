@@ -63,8 +63,9 @@ mod tests {
         let mut interner = crate::sim::intern::StringInterner::new();
         let owner = interner.intern("FixtureHouse");
         for building in [true, false] {
-            let mut input =
-                MatchInputState::new(crate::app::input::hotkeys::HotkeyBindings::load(None));
+            let mut input = MatchInputState::new(
+                crate::app::input::hotkeys::HotkeyBindings::from_ini_bytes(None),
+            );
             if building {
                 assert!(input.begin_building_placement("FixtureBuilding", 23, owner,));
             } else {
@@ -135,8 +136,9 @@ mod tests {
         let mut interner = crate::sim::intern::StringInterner::new();
         let owner = interner.intern("FixtureHouse");
         for building in [true, false] {
-            let mut input =
-                MatchInputState::new(crate::app::input::hotkeys::HotkeyBindings::load(None));
+            let mut input = MatchInputState::new(
+                crate::app::input::hotkeys::HotkeyBindings::from_ini_bytes(None),
+            );
             if building {
                 assert!(input.begin_building_placement("FixtureBuilding", 23, owner,));
             } else {

@@ -88,6 +88,10 @@ and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 Optional features (e.g. Ares) should be configurable through INI files, with client toggles
 where appropriate.
 
+To launch single-player YR skirmishes or campaigns through a dedicated CnCNet
+client, see the [offline client setup](integrations/cncnet/README.md). This needs
+a VERA build with the `-SPAWN` startup adapter.
+
 ## Contributing
 
 Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play

@@ -28,6 +28,8 @@ const TACTICAL_CAPTURE_FLAG: &str = "--tactical-capture";
 pub enum AppLaunchMode {
     /// Ordinary launch, carrying whatever the retail switch table decided.
     Interactive(RetailStartupOptions),
+    /// CnCNet's offline launch contract; configuration is read before creating a window.
+    Spawn(RetailStartupOptions),
     /// A help switch: print usage and terminate before any window is created,
     /// exactly as native's switch parser makes `WinMain` bail.
     Usage,
@@ -183,6 +185,20 @@ where
     let (retail_options, args) = consume_retail_switches(args);
     if retail_options.usage_requested {
         return Ok(AppLaunchMode::Usage);
+    }
+    let spawn_count = args
+        .iter()
+        .filter(|arg| {
+            arg.to_str()
+                .is_some_and(|arg| arg.eq_ignore_ascii_case("-SPAWN"))
+        })
+        .count();
+    if spawn_count != 0 {
+        ensure!(
+            spawn_count == 1 && args.len() == 1,
+            "-SPAWN cannot be combined with other launch modes or unknown arguments"
+        );
+        return Ok(AppLaunchMode::Spawn(retail_options));
     }
     match shell_capture::parse_launch_args(args)? {
         ShellAppLaunchMode::Interactive => Ok(AppLaunchMode::Interactive(retail_options)),
@@ -364,6 +380,30 @@ mod tests {
             parse_launch_args(Vec::<OsString>::new()).expect("parse"),
             AppLaunchMode::Interactive(_)
         ));
+    }
+
+    #[test]
+    fn cncnet_spawn_preserves_retail_display_switches() {
+        let AppLaunchMode::Spawn(options) =
+            parse_launch_args(["-spawn", "-WIN", "-NOAUDIO"].map(OsString::from))
+                .expect("CnCNet offline launch")
+        else {
+            panic!("expected an external launch");
+        };
+        assert!(options.windowed);
+        assert!(!options.audio_enabled);
+    }
+
+    #[test]
+    fn cncnet_spawn_rejects_duplicate_and_conflicting_modes() {
+        for args in [
+            vec!["-SPAWN", "-spawn"],
+            vec!["-SPAWN", "--typo"],
+            vec!["-SPAWN", "--shell-capture"],
+            vec!["-SPAWN", "--tactical-capture"],
+        ] {
+            assert!(parse_launch_args(args.into_iter().map(OsString::from)).is_err());
+        }
     }
 
     #[test]

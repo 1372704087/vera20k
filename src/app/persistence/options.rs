@@ -137,7 +137,7 @@ pub(crate) fn persist_options_profile(state: &AppState) {
     if let Err(error) = state
         .persistence
         .options_profile
-        .commit_ra2md(&config.paths.ra2_dir)
+        .commit_ra2md(config.paths.settings_dir())
     {
         log::warn!("Failed to persist Options profile to RA2MD.INI: {error}");
     }

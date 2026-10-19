@@ -112,8 +112,15 @@ fn prepared_campaign() -> crate::app::match_bootstrap::PreparedCampaignStartup {
     );
     let mut campaigns = crate::rules::campaigns::CampaignRegistry::default();
     campaigns.apply_ini(&ini, &crate::rules::movies::MovieRegistry::default());
-    crate::app::match_bootstrap::prepare_campaign_startup(&campaigns, "ALL1", 1, &mut TestClock(31))
-        .expect("synthetic campaign catalog admits a selected campaign")
+    crate::app::match_bootstrap::prepare_campaign_startup(
+        &campaigns,
+        "ALL1",
+        1,
+        None,
+        None,
+        &mut TestClock(31),
+    )
+    .expect("synthetic campaign catalog admits a selected campaign")
 }
 
 #[test]

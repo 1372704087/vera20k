@@ -314,7 +314,7 @@ fn campaign_house_segment_matches_six_stock_rows_and_nine_startup_controls() {
             ..Default::default()
         });
         sim.session
-            .initialize_campaign_startup(i32_at(row, "option"), i32_at(row, "mission_number"))
+            .initialize_campaign_startup(i32_at(row, "option"), i32_at(row, "mission_number"), None)
             .unwrap();
         sim.native_unique_ids = Some(NativeUniqueIdCursor::begin_campaign_prefix(
             0,
@@ -393,6 +393,7 @@ fn campaign_house_segment_matches_six_stock_rows_and_nine_startup_controls() {
                         house_roster: &roster,
                         difficulty: i32_at(row, "option"),
                         mission_counter: i32_at(row, "mission_number"),
+                        game_options: None,
                     },
                 )
                 .unwrap();
@@ -459,6 +460,7 @@ fn fresh_campaign_rejects_an_absent_stock_roster_instead_of_fabricating_offline_
             house_roster: &roster,
             difficulty: 1,
             mission_counter: 1,
+            game_options: None,
         },
     );
     assert!(matches!(
@@ -503,6 +505,7 @@ fn fresh_campaign_rejects_unknown_country_factory_before_house_construction() {
             house_roster: &roster,
             difficulty: 1,
             mission_counter: 1,
+            game_options: None,
         },
     );
     assert!(matches!(

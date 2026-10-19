@@ -2767,6 +2767,9 @@ pub(crate) fn load_map_from_initial(
     if let Some(continuation) = mapgen_rng_continuation.or(retained_process_mapgen) {
         bootstrap_rng.install_process_mapgen_continuation(continuation);
     }
+    let campaign_game_options = campaign
+        .as_ref()
+        .and_then(|campaign| campaign.game_options());
     let fresh_prefix = if let Some(plan) = scenario_prefix_plan {
         FreshScenarioPrefix::StockOffline(
             plan.bind_native_rules_receipt(
@@ -2788,6 +2791,7 @@ pub(crate) fn load_map_from_initial(
             house_roster: &house_roster,
             difficulty: campaign.difficulty(),
             mission_counter: campaign.mission_counter(),
+            game_options: campaign_game_options.as_ref(),
         }
     };
     let scenario_descriptor = crate::sim::scenario_session::ScenarioDescriptor {

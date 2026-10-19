@@ -593,6 +593,10 @@ impl App {
     /// PrepareSession re-enters the active mode's shell: LAN starts a new BB,
     /// Skirmish a new0x102. The session keeps the admitted network return owner.
     pub(super) fn resume_shell_after_match(state: &mut AppState) {
+        if state.frontend.external_launch {
+            Self::start_quit_cascade(state);
+            return;
+        }
         if state.match_state.session.network_return_context()
             == Some(crate::app::match_runtime::session::NetworkReturnContext::LanLobby)
         {

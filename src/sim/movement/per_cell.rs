@@ -969,6 +969,12 @@ impl Simulation {
     /// Trigger: every arrival. Effect: zone triggers and planning waypoints
     /// do not fire from movement. Risk: maps with those trigger families.
     ///
+    /// RESIDUAL: the off-playfield exit (`0x004D8D67..0x004D8DA4`): a live
+    /// object whose Cell fails `0x00578460(cell, 1)` and whose vt+0x4DC
+    /// (`0x004DC790`, needs `+0x3D5`) answers true is UnInit (vt+0xF8) and
+    /// skips the tail. Trigger: a promoted object leaving the playfield.
+    /// Effect: VERA keeps it. Frequency: rare (teams exiting the map).
+    ///
     /// The Techno tail ends with the open-ground discovery
     /// ([`Self::discover_on_open_ground_after_cell_entry`]) and the Cell's
     /// ActivateVeins (`0x00486920`), which acts only on the veins overlay
@@ -1019,8 +1025,19 @@ impl Simulation {
                 crate::sim::world::UninitContext::new(rules, registry).with_effects(effects),
             );
         }
-        // `0x006F5090`'s head lets a held Temporal target go.
+        // Foot4D8D59: an object that died in the Foot body skips the whole
+        // Techno tail.
+        if !self.per_cell_owner_alive(id) {
+            return;
+        }
+        // `0x006F5090`'s head lets a held Temporal target go, then caches the
+        // Cell of its GetCoords (`0x006F50B9..0x006F50F6`) for the tail.
         self.temporal_release_if_warping(id);
+        let cell = self
+            .substrate
+            .entities
+            .get(id)
+            .map(|entity| (entity.position.rx(), entity.position.ry()));
         //6F50FA calls the existing cloak/sensor owner before Tag34. The
         //ordinary stock arm is dormant without a CloakGenerator field;
         //custom fields retain the owner's StartCloaking/targeter response.
@@ -1039,10 +1056,13 @@ impl Simulation {
             UninitContext::new(rules, registry).with_effects(effects),
         );
         self.promote_entity_playfield_membership_after_move(id);
-        self.discover_on_open_ground_after_cell_entry(
-            id,
-            UninitContext::new(rules, registry).with_effects(effects),
-        );
+        if let Some(cell) = cell {
+            self.discover_on_open_ground_after_cell_entry(
+                id,
+                cell,
+                UninitContext::new(rules, registry).with_effects(effects),
+            );
+        }
     }
 
     /// The Techno tail's discovery (`0x006F5140..0x006F516C`): an object the
@@ -1051,7 +1071,12 @@ impl Simulation {
     /// of its GetCoords) is DiscoveredBy that house (vt+0x198). VERA's
     /// shroud-refresh discovery covers Cells being revealed; this covers an
     /// object walking into ground already open.
-    fn discover_on_open_ground_after_cell_entry(&mut self, id: u64, context: UninitContext<'_>) {
+    fn discover_on_open_ground_after_cell_entry(
+        &mut self,
+        id: u64,
+        (rx, ry): (u16, u16),
+        context: UninitContext<'_>,
+    ) {
         let Some(viewer) = self.session.current_house else {
             return;
         };
@@ -1059,9 +1084,7 @@ impl Simulation {
             return;
         };
         if entity.discovery.discovered_by_current_house()
-            || !self
-                .fog
-                .is_ground_open(viewer, entity.position.rx(), entity.position.ry())
+            || !self.fog.is_ground_open(viewer, rx, ry)
         {
             return;
         }
@@ -1121,7 +1144,8 @@ mod discovery_tests {
 
     /// The Techno per-cell tail's discovery (`0x006F5140..0x006F516C`): an
     /// enemy arriving on ground the current house has open is discovered;
-    /// over shrouded ground, or with no current house, it is not.
+    /// over shrouded ground, with no current house, or once dead in the Foot
+    /// body (`0x004D8D59`), it is not.
     #[test]
     fn an_enemy_arriving_on_open_ground_is_discovered_by_the_current_house() {
         let mut sim = Simulation::new();
@@ -1170,6 +1194,19 @@ mod discovery_tests {
         sim.fog.set_ground_bits_for_test(player, 5, 5, 0x08);
         assert!(!arrive(&mut sim), "visible but not open");
         sim.fog.set_ground_bits_for_test(player, 5, 5, 0x18);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_object_alive_for_test(false);
+        assert!(!arrive(&mut sim), "a dead object skips the tail");
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .lifecycle
+            .set_object_alive_for_test(true);
         assert!(arrive(&mut sim));
     }
 }

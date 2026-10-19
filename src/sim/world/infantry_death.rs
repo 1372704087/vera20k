@@ -694,6 +694,41 @@ mod corpse_tests {
         );
         assert_eq!(nukedie(&sim), 1);
     }
+
+    /// The zero-count refusal (`0x0051D70F`) that leaves a killed
+    /// infantryman to the Health reset (`0x0051BC57`) meets one retail type:
+    /// every other `[InfantryTypes]` entry has Die1 and Die2 frames once
+    /// `artmd.ini`'s sequences are bound. WEEDGUY has no ART and
+    /// `TechLevel=-1` (rulesmd.ini keeps it to instantiate weapons), so only
+    /// a map that places one can kill it into that revival.
+    #[test]
+    fn retail_infantry_without_die_frames_are_the_weedguy() {
+        let Some(mut rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+        else {
+            return;
+        };
+        let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
+            return;
+        };
+        rules.bind_animation_sequences(
+            &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+        );
+        assert!(!rules.infantry_ids.is_empty());
+        let without: Vec<&String> = rules
+            .infantry_ids
+            .iter()
+            .filter(|id| {
+                [11, 12].into_iter().any(|action| {
+                    rules
+                        .animation_sequence(id)
+                        .and_then(|set| set.infantry_action(action))
+                        .is_none_or(|record| record.frames_per_facing == 0)
+                })
+            })
+            .collect();
+        assert_eq!(without, ["WEEDGUY"]);
+        assert_eq!(rules.object("WEEDGUY").unwrap().tech_level, -1);
+    }
 }
 
 #[cfg(test)]

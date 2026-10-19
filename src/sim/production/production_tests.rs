@@ -1314,9 +1314,9 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     );
 }
 
-#[test]
-fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
-    let rules = naval_production_rules();
+/// A 4x4 naval yard (id 1) at (10, 10) on open water, its rally at
+/// (20, 10).
+fn naval_yard_with_rally(rules: &RuleSet) -> Simulation {
     let mut sim = Simulation::new();
     let terrain = water_terrain(40, 40);
     let grid = PathGrid::from_resolved_terrain(&terrain);
@@ -1333,7 +1333,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
     sim.session.map_width = 40;
     sim.session.map_height = 40;
 
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 10, 10);
+    spawn_structure(&mut sim, rules, 1, "Americans", "GAYARD", 10, 10);
     sim.remove_entity_occupancy(1);
     {
         let yard = sim.substrate.entities.get_mut(1).unwrap();
@@ -1341,6 +1341,77 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         yard.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(20, 10)));
     }
     sim.add_entity_occupancy(1);
+    sim
+}
+
+/// Builds a DEST at the yard of [`naval_yard_with_rally`] and returns its
+/// cell.
+fn deliver_naval_yard_ship(sim: &mut Simulation, rules: &RuleSet) -> (u16, u16) {
+    arm_build_via(sim, rules, "Americans", "DEST", ProductionCategory::Ship, 1);
+    let americans = sim.interner.intern("Americans");
+    assert!(
+        sim.production
+            .factories
+            .test_arm_ready(americans, ProductionCategory::Ship)
+    );
+    assert!(super::dispatch_production_changes_for_tests(
+        sim, rules, None
+    ));
+    sim.substrate
+        .entities
+        .values()
+        .find(|entity| {
+            entity.owner() == americans
+                && sim
+                    .interner
+                    .resolve(entity.type_ref())
+                    .eq_ignore_ascii_case("DEST")
+        })
+        .map(|ship| (ship.position.rx(), ship.position.ry()))
+        .expect("naval Unit delivered")
+}
+
+/// `CellClass::Find_Nearest_Object @ 0x0047C3D0` (`0x00444329`) takes any
+/// Techno in the rally walk's water cell, with no alive or Health test: an
+/// infantry corpse on its Die1 sequence there refuses the fast path, as a
+/// living swimmer would, and the ship leaves by another cell.
+#[test]
+fn an_infantry_corpse_in_the_rally_cell_refuses_the_naval_fast_path() {
+    let rules = naval_production_rules();
+    let mut sim = naval_yard_with_rally(&rules);
+    let mut corpse =
+        crate::sim::game_entity::GameEntity::test_default(50, "E1", "Americans", 14, 12);
+    corpse.set_category_for_test(crate::map::entities::EntityCategory::Infantry);
+    corpse.set_owner_for_test(sim.interner.intern("Americans"));
+    corpse.set_type_ref_for_test(sim.interner.intern("E1"));
+    corpse.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
+        crate::map::entities::EntityCategory::Infantry,
+    );
+    corpse.health.set_for_test(0);
+    sim.substrate.entities.insert(corpse);
+    sim.substrate.occupancy.add(
+        14,
+        12,
+        50,
+        crate::sim::movement::locomotor::MovementLayer::Ground,
+        Some(0),
+        CellListInsertion::PrependNonBuilding,
+    );
+    sim.begin_infantry_death_sequence(
+        50,
+        crate::sim::world::InfantryDeathSequence::Die1,
+        &rules,
+        crate::sim::world::FrameEffects::default(),
+    );
+    assert_ne!(deliver_naval_yard_ship(&mut sim, &rules), (14, 12));
+    let mut clear = naval_yard_with_rally(&rules);
+    assert_eq!(deliver_naval_yard_ship(&mut clear, &rules), (14, 12));
+}
+
+#[test]
+fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
+    let rules = naval_production_rules();
+    let mut sim = naval_yard_with_rally(&rules);
 
     arm_build_via(
         &mut sim,

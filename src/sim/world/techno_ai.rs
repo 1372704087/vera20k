@@ -2177,6 +2177,71 @@ mod tests {
         assert_eq!(run(&mut sim, medic, enemy), Some(TargetKind::Entity(enemy)));
     }
 
+    /// A Die1 corpse takes the healer drops (`0x006FA9D8..0x006FAAEF`) on its
+    /// one ordinary visit: IsAlive gates them (`0x006FA735`), Health does
+    /// not. A human house's dead medic lets go of the enemy it held; a dead
+    /// rifleman beside it, no healer, keeps his on a frame the sixteenth-frame
+    /// CANT drop (`0x006FA472`) skips.
+    #[test]
+    fn a_dead_medic_lets_go_of_an_enemy_on_its_corpse_visit() {
+        let art = IniFile::from_str(crate::rules::retail_ini_fixture::GI_ART_EXCERPT);
+        let mut rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n0=MEDIC\n1=E1\n[VehicleTypes]\n0=TANK\n\
+             [AircraftTypes]\n[BuildingTypes]\n\
+             [MEDIC]\nImage=GI\nStrength=100\nPrimary=Heal\n\
+             [E1]\nImage=GI\nStrength=100\nPrimary=Gun\n\
+             [TANK]\nStrength=300\nPrimary=Gun\n\
+             [WeaponTypes]\n0=Heal\n1=Gun\n\
+             [Heal]\nDamage=-50\nRange=2\n[Gun]\nDamage=60\nRange=5\n",
+        ))
+        .unwrap();
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        rules.bind_animation_sequences(
+            &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+        );
+        let mut sim = Simulation::new();
+        let ours = sim.interner.intern("Americans");
+        let theirs = sim.interner.intern("Russians");
+        sim.houses.insert(
+            ours,
+            crate::sim::house_state::HouseState::new(ours, 0, None, true, 0, 10),
+        );
+        sim.houses.insert(
+            theirs,
+            crate::sim::house_state::HouseState::new(theirs, 1, None, false, 0, 10),
+        );
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(ours);
+        sim.session.binary_frame = 1;
+        sim.resolve_type_handles(&rules);
+        let enemy = sim
+            .spawn_object("TANK", "Russians", 16, 10, 0, &rules)
+            .unwrap();
+        let mut corpse_target = |name: &str, x: u16| {
+            let id = sim
+                .spawn_object(name, "Americans", x, 10, 0, &rules)
+                .unwrap();
+            let entity = sim.substrate.entities.get_mut(id).unwrap();
+            entity
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(enemy)));
+            entity.health.set_for_test(0);
+            sim.begin_infantry_death_sequence(
+                id,
+                crate::sim::world::InfantryDeathSequence::Die1,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            );
+            sim.object_ai_visit_one(id, Some(&rules), ObjectAiCtx::default());
+            let corpse = sim.substrate.entities.get(id).unwrap();
+            assert_eq!(corpse.mission_leaf.as_infantry().unwrap().doing(), 11);
+            assert!(corpse.is_object_alive() && corpse.health.current() == 0);
+            corpse.attack_target.target()
+        };
+        assert_eq!(corpse_target("MEDIC", 10), None);
+        assert_eq!(corpse_target("E1", 12), Some(TargetKind::Entity(enemy)));
+    }
+
     #[test]
     fn wave_context_keeps_terrain_object_coordinates_until_pointer_expiry() {
         use crate::sim::projectile::ProjectileCoord;

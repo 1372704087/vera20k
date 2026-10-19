@@ -668,6 +668,23 @@ pub(super) fn dispatch_sim_sound_events(
                     type_override: None,
                 }
             }
+            SimSoundEvent::SuperWeaponInsufficientFunds { owner, sw_type } => {
+                if !owner_is_local(&sim.interner, owner, local_owner_name) {
+                    continue;
+                }
+                let Some(event) = sim
+                    .interner
+                    .try_resolve(sw_type)
+                    .and_then(|name| rules.super_weapon(name))
+                    .and_then(|sw| sw.insufficient_funds_eva.as_deref())
+                else {
+                    continue;
+                };
+                GameSoundEvent::Eva {
+                    event: event.to_owned(),
+                    type_override: None,
+                }
+            }
             SimSoundEvent::HouseEva { owner, event } => {
                 // `HouseClass::Update 0x004F8BA0` / `0x004F8D14`, the Robot
                 // Tank lines (`0x0050E0D0`, `0x0050E19B`, `0x00502776`) and
@@ -1186,6 +1203,58 @@ mod tests {
              [AudioVisual]\nBaseUnderAttackSound=Siren\n",
         ))
         .unwrap()
+    }
+
+    #[test]
+    fn superweapon_money_refusal_eva_is_owner_local_configurable_and_silenceable() {
+        for (setting, expected) in [
+            ("", Some("EVA_InsufficientFunds")),
+            ("EVA.InsufficientFunds=CustomFunds\n", Some("CustomFunds")),
+            ("EVA.InsufficientFunds=none\n", None),
+        ] {
+            let ini = crate::rules::ini_parser::IniFile::from_str(&format!(
+                "[SuperWeaponTypes]\n0=Paid\n[Paid]\nType=PsychicReveal\nMoney.Amount=-500\n{setting}"
+            ));
+            let processed = crate::rules::native_processing::RulesLayerStack::new(ini)
+                .process_with_fixed_art(&crate::rules::ini_parser::IniFile::empty())
+                .unwrap();
+            let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
+            let eva = crate::rules::sound_ini::EvaRegistry::from_ini(
+                &crate::rules::ini_parser::IniFile::from_str(
+                    "[DialogList]\n0=EVA_InsufficientFunds\n1=CustomFunds\n",
+                ),
+            );
+            rules.bind_type_eva_references(processed.ini(), &eva);
+            let mut sim = Simulation::new();
+            let local = sim.interner.intern("Americans");
+            let other = sim.interner.intern("Russians");
+            let sw_type = sim.interner.intern("Paid");
+            let mut output = SoundEventQueue::new();
+            dispatch_sim_sound_events(
+                [local, other]
+                    .map(|owner| SimSoundEvent::SuperWeaponInsufficientFunds { owner, sw_type }),
+                &sim,
+                &rules,
+                Some("Americans"),
+                &mut |_| panic!("money refusal must not create a radar event"),
+                &mut output,
+            );
+            let events = output.drain();
+            let cues: Vec<_> = events
+                .iter()
+                .map(|event| match event {
+                    GameSoundEvent::Eva {
+                        event,
+                        type_override,
+                    } => {
+                        assert!(type_override.is_none());
+                        event.as_str()
+                    }
+                    other => panic!("unexpected event {other:?}"),
+                })
+                .collect();
+            assert_eq!(cues, expected.into_iter().collect::<Vec<_>>());
+        }
     }
 
     /// A retail Slave Miner's self-click deploy speaks `VoiceDeploy=`

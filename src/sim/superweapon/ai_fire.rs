@@ -185,6 +185,11 @@ pub(crate) fn try_fire(
         {
             continue;
         }
+        // Do not spend targeting RNG or attempt an unaffordable paid launch.
+        // The Fire_SW transaction checks the current wallet again.
+        if !super::money::configuration_supported(sw) || !super::money::can_afford(sim, owner, sw) {
+            continue;
+        }
         let arm = AiFireArm::of(sw.kind);
         #[cfg(any(test, feature = "test-support"))]
         if matches!(

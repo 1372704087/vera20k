@@ -183,6 +183,12 @@ pub struct SuperWeaponType {
     /// Optional Ares building gates, bound by ordered rules processing.
     /// `None` leaves all stock grant/fire paths unchanged.
     pub building_requirements: Option<SuperWeaponBuildingRequirements>,
+    /// Ares `Money.Amount`: signed credits settled once at accepted launch.
+    /// Negative amounts are costs; zero leaves the stock path unchanged.
+    pub money_amount: i32,
+    /// Owner-local refusal cue resolved against the fixed EVAMD catalog.
+    /// The process audio binder owns defaults and ordered unknown retention.
+    pub insufficient_funds_eva: Option<String>,
     /// `SpecialSound=` (`+0xC0`, `0x006CEB74`): the cue SuperClass::AI
     /// plays when a Force Shield's countdown runs out (`0x006CBCCF`). A read
     /// stores VocClass::FindIndex (`0x007514D0`) of the name; an absent key
@@ -290,6 +296,8 @@ impl SuperWeaponType {
             weapon_type: None,
             aux_building: None,
             building_requirements: None,
+            money_amount: section.read_ares_int("Money.Amount", 0),
+            insufficient_funds_eva: None,
             unit_delivery: None,
             special_sound: section.read_name("SpecialSound", 0x80).map(str::to_string),
             start_sound: section.read_name("StartSound", 0x80).map(str::to_string),

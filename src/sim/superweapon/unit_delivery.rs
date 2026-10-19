@@ -8,6 +8,7 @@
 //! existing Object entry/Unlimbo transactions, and VERA frame/identity-based
 //! deterministic placement seeds. This is not an Ares RNG/order oracle.
 
+use super::targeting::on_map;
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -61,19 +62,6 @@ impl UnitDeliveryState {
         }
         Ok(())
     }
-}
-
-fn on_map(sim: &Simulation, cell: (u16, u16)) -> bool {
-    sim.resolved_terrain
-        .as_ref()
-        .and_then(|terrain| terrain.cell(cell.0, cell.1))
-        .is_some()
-        && crate::sim::cell_rect::cell_is_in_playfield_height_aware_in_query(
-            (i32::from(cell.0), i32::from(cell.1)),
-            sim.playfield_bounds,
-            sim.resolved_terrain.as_ref(),
-            None,
-        )
 }
 
 fn delivery_owner(

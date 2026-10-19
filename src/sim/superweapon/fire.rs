@@ -82,6 +82,24 @@ impl Simulation {
             .post_click
             .then(|| pre_dependent(self, rules, sw))
             .flatten();
+        // Paid two-stage powers need an authoritative, saved one-use selection
+        // transaction. Native readiness alone is not such a token: PreClick
+        // becomes ready again on its next House update. Keep those optional
+        // configurations inert, including a free destination of a paid source.
+        if !super::money::configuration_supported(sw)
+            || paired.is_some_and(|(_, source)| source.money_amount != 0)
+        {
+            return false;
+        }
+        // Explicit extension only: all admission precedes paired-Super writes.
+        // Stock zero-cost Fire_SW retains its native refused-click tail.
+        if sw.money_amount != 0
+            && (!super::money::valid_target(self, sw, cell)
+                || !click_fire_admission(self, owner, sw_type_id, sw)
+                || !super::money::admit(self, owner, sw_type_id, sw))
+        {
+            return false;
+        }
         if let Some((pre_type, _)) = paired {
             let Some(pre) = super_instance(self, owner, pre_type) else {
                 return false;
@@ -140,7 +158,8 @@ fn click_fire(
     overlay_registry: Option<&OverlayTypeRegistry>,
     frame_effects: FrameEffects<'_>,
 ) -> bool {
-    if sw.use_charge_drain {
+    // Paid launches passed this same owner before the outer transaction writes.
+    if sw.money_amount == 0 && !click_fire_admission(sim, owner, sw_type_id, sw) {
         return false;
     }
     if sw.kind == SuperWeaponKind::GenericWarhead
@@ -148,20 +167,7 @@ fn click_fire(
     {
         return false;
     }
-    let Some(instance) = super_instance(sim, owner, sw_type_id) else {
-        return false;
-    };
-    if !instance.click_fire_admits() && !sw.post_click {
-        return false;
-    }
-    if sw.kind == SuperWeaponKind::LightningStorm && super::lightning_storm::has_deferment(sim) {
-        sim.sound_events
-            .push(SimSoundEvent::LightningStormRefused { owner });
-        return false;
-    }
-    if sw.kind == SuperWeaponKind::PsychicDominator && super::psychic_dominator::active(sim) {
-        sim.sound_events
-            .push(SimSoundEvent::PsychicDominatorRefused { owner });
+    if sw.money_amount != 0 && !super::money::transact(sim, owner, sw_type_id, sw) {
         return false;
     }
     launch(
@@ -187,6 +193,36 @@ fn click_fire(
         .and_then(|weapons| weapons.get_mut(&sw_type_id))
     {
         instance.finish_click_fire(sw, frame);
+    }
+    true
+}
+
+/// Pure admission apart from existing type-specific refusal feedback. Reused
+/// before paid paired-Super writes; successful checks neither charge nor pay.
+fn click_fire_admission(
+    sim: &mut Simulation,
+    owner: InternedId,
+    sw_type_id: InternedId,
+    sw: &SuperWeaponType,
+) -> bool {
+    if sw.use_charge_drain {
+        return false;
+    }
+    let Some(instance) = super_instance(sim, owner, sw_type_id) else {
+        return false;
+    };
+    if !instance.click_fire_admits() && !sw.post_click {
+        return false;
+    }
+    if sw.kind == SuperWeaponKind::LightningStorm && super::lightning_storm::has_deferment(sim) {
+        sim.sound_events
+            .push(SimSoundEvent::LightningStormRefused { owner });
+        return false;
+    }
+    if sw.kind == SuperWeaponKind::PsychicDominator && super::psychic_dominator::active(sim) {
+        sim.sound_events
+            .push(SimSoundEvent::PsychicDominatorRefused { owner });
+        return false;
     }
     true
 }
@@ -327,14 +363,14 @@ fn super_instance(
 /// entry at its `PreDependent=` index (`HouseClass+0x258` indexed by
 /// `Type+0xF0`, `0x004FAE6C..0x004FAE7E`).
 fn pre_dependent<'r>(
-    sim: &mut Simulation,
+    sim: &Simulation,
     rules: &'r RuleSet,
     sw: &SuperWeaponType,
 ) -> Option<(InternedId, &'r SuperWeaponType)> {
     let name = rules
         .super_weapon_order
         .get(usize::try_from(sw.pre_dependent).ok()?)?;
-    Some((sim.interner.intern(name), rules.super_weapon(name)?))
+    Some((sim.interner.get(name)?, rules.super_weapon(name)?))
 }
 
 /// `HouseClass @ 0x004FAF00` for `house`, given the fired Super's type and

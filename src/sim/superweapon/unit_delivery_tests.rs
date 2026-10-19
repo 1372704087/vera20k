@@ -997,3 +997,79 @@ fn unit_delivery_same_due_requests_complete_newest_first_and_only_once() {
     assert_eq!(payloads(&sim, "MTNK").len(), 2);
     assert_eq!(sim.sound_events.iter().filter(|event| matches!(event, SimSoundEvent::VocAt { sound_id, .. } if sound_id == "DeliveryCue")).count(), 2);
 }
+
+#[test]
+fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_provider_loss() {
+    for amount in [-2000, 2000] {
+        let rules = rules(&format!(
+            "[Delivery]\nMoney.Amount={amount}\nSW.Deferment=2\nSW.AuxBuildings=GAPOWR\n[GAPOWR]\nSuperWeapon=Delivery\n"
+        ));
+        let mut sim = world(&rules);
+        let (owner, sw) = charge(&mut sim, &rules, "Americans");
+        let provider = sim
+            .spawn_object("GAPOWR", "Americans", 8, 8, 0, &rules)
+            .unwrap();
+        if amount < 0 {
+            crate::sim::credit_income::spend_money(&mut sim, owner, 1);
+            let before = sim.state_hash();
+            assert!(!sim.fire_super_weapon(
+                &rules,
+                owner,
+                sw,
+                (12, 10),
+                None,
+                FrameEffects::default(),
+                false
+            ));
+            assert_eq!(sim.state_hash(), before);
+            assert!(sim.unit_deliveries.pending.is_empty());
+            crate::sim::credit_income::add_credits(&mut sim, owner, 1);
+        }
+        assert!(sim.fire_super_weapon(
+            &rules,
+            owner,
+            sw,
+            (12, 10),
+            None,
+            FrameEffects::default(),
+            false
+        ));
+        let settled = 2000 + amount;
+        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        assert_eq!(sim.unit_deliveries.pending.len(), 1);
+        assert!(!sim.fire_super_weapon(
+            &rules,
+            owner,
+            sw,
+            (12, 10),
+            None,
+            FrameEffects::default(),
+            false
+        ));
+        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        sim.uninit_with_rules(provider, &rules);
+        crate::sim::credit_income::add_credits(&mut sim, owner, -1);
+        let bytes = crate::sim::snapshot::GameSnapshot::save(
+            &sim,
+            0,
+            rules.simulation_config_hash(),
+            "paid delivery",
+            0,
+        );
+        let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
+            .unwrap()
+            .sim;
+        crate::sim::arena_fixture::flat_ground(&mut restored, &rules);
+        restored.restore_after_snapshot_load().unwrap();
+        for state in [&mut sim, &mut restored] {
+            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
+            state.session.binary_frame = 2;
+            tick(state, &rules, None, FrameEffects::default());
+            assert_eq!(payloads(state, "MTNK").len(), 1);
+            assert!(state.unit_deliveries.pending.is_empty());
+            tick(state, &rules, None, FrameEffects::default());
+            assert_eq!(payloads(state, "MTNK").len(), 1);
+            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
+        }
+    }
+}

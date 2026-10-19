@@ -4741,6 +4741,22 @@ impl RuleSet {
         }
     }
 
+    /// Resolve Ares refusal cues through the same fixed EVAMD catalog that
+    /// owns process playback. The retained INI body supplies each read pass.
+    pub fn bind_type_eva_references(
+        &mut self,
+        ini: &IniFile,
+        eva: &crate::rules::sound_ini::EvaRegistry,
+    ) {
+        for sw in self.super_weapons.values_mut() {
+            sw.insufficient_funds_eva = eva.read_rules_reference(
+                ini.section(&sw.id),
+                "EVA.InsufficientFunds",
+                "EVA_InsufficientFunds",
+            );
+        }
+    }
+
     /// Parse a complete RuleSet from a rules.ini IniFile.
     ///
     /// Loads all type registries, individual object sections, and any
@@ -5796,6 +5812,21 @@ impl RuleSet {
         if !building_requirements.is_empty() {
             "Ares.SuperWeaponBuildingRequirements".hash(&mut hasher);
             building_requirements.hash(&mut hasher);
+        }
+        let superweapon_money = self
+            .super_weapons
+            .iter()
+            .filter(|(_, sw)| sw.money_amount != 0)
+            .map(|(id, sw)| {
+                (
+                    id.to_ascii_uppercase(),
+                    (sw.money_amount, &sw.insufficient_funds_eva),
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !superweapon_money.is_empty() {
+            "Ares.SuperWeaponMoney".hash(&mut hasher);
+            superweapon_money.hash(&mut hasher);
         }
         let deliveries = self
             .super_weapons
@@ -8336,6 +8367,7 @@ CellSpread=0
             None,
             IniFile::empty(),
             std::sync::Arc::default(),
+            Default::default(),
         )
         .expect("cold Rules owner");
         let broken = IniFile::from_str("[Countries]\n0=Alpha\n[Sides]\nBroken=<random>\n");

@@ -2272,7 +2272,7 @@ fn dying_infantry_visits_shared_native_clock() {
     fixture.sim.session.binary_frame = signed(&frame["native_frame"]) as u32;
     fixture.sim.begin_infantry_death_sequence(
         fixture.actor,
-        crate::sim::world::infantry_terminal::InfantryDeathSequence::Die1,
+        crate::sim::world::InfantryDeathSequence::Die1,
         &rules,
         crate::sim::world::FrameEffects::default(),
     );

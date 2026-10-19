@@ -133,8 +133,9 @@ pub(crate) fn blocker_plane_source(
     if retained_foot && entity.category() != EntityCategory::Structure {
         return None;
     }
-    // Dying corpses are off the occupancy grid: don't let them inflate the
-    // A* dynamic-blocker neighbor costs.
+    // An object on the SHP death sequence adds nothing. An infantry corpse
+    // stays Marked (`+0x74`) until its UnInit's Limbo, as the retained Foot
+    // counters follow Mark and Limbo, and keeps blocking.
     if entity.death.is_dying() || !entity.lifecycle.cell_marked() {
         return None;
     }

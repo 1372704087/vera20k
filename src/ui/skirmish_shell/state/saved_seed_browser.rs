@@ -105,24 +105,50 @@ pub struct SavedSeedDescriptionEdit {
 impl SavedSeedDescriptionEdit {
     pub fn set_text(&mut self, description: &SeedDescription) {
         // Programmatic assignment also passes through7B78D0 after EM_LIMITTEXT.
-        self.units = description
-            .units()
-            .iter()
-            .copied()
-            .take(SAVED_SEED_DESCRIPTION_MAX_UNITS)
+        self.set_units_limited(
+            description.units().iter().copied(),
+            SAVED_SEED_DESCRIPTION_MAX_UNITS,
+        );
+    }
+
+    /// NewEdit614B30's shared assignment: limits count UTF-16 units, and zero
+    /// means unlimited. D7 uses five/eleven units; its port has no limit.
+    pub fn set_units_limited(&mut self, units: impl IntoIterator<Item = u16>, limit: usize) {
+        self.units = units
+            .into_iter()
+            .take(if limit == 0 { usize::MAX } else { limit })
             .collect();
         self.caret = self.units.len();
         self.first_visible_unit = 0;
     }
 
     pub fn insert_text(&mut self, text: &str) {
+        self.insert_text_limited(text, SAVED_SEED_DESCRIPTION_MAX_UNITS);
+    }
+
+    /// Native 614B30 insertion, retaining the caller's configured EM_LIMITTEXT.
+    pub fn insert_text_limited(&mut self, text: &str, limit: usize) {
         for unit in text.encode_utf16().filter(|unit| *unit > 0x1f) {
-            if self.units.len() == SAVED_SEED_DESCRIPTION_MAX_UNITS {
+            if limit != 0 && self.units.len() >= limit {
                 break;
             }
             self.units.insert(self.caret, unit);
             self.caret += 1;
         }
+    }
+
+    /// NewEdit message 0x4B5 (614D28): narrow each UTF-16 unit to its low byte,
+    /// then terminate the caller's buffer at capacity-1. This is not ACP.
+    pub fn narrow_text(&self, capacity: usize) -> String {
+        crate::util::native_string::widen_bytes(
+            &self
+                .units
+                .iter()
+                .take(capacity.saturating_sub(1))
+                .map(|unit| *unit as u8)
+                .take_while(|byte| *byte != 0)
+                .collect::<Vec<_>>(),
+        )
     }
 
     pub fn backspace(&mut self) {
@@ -168,6 +194,18 @@ impl SavedSeedDescriptionEdit {
 
     pub fn display_text(&self) -> String {
         String::from_utf16_lossy(&self.units)
+    }
+
+    /// Keep the insertion point visible using the active font's measured width.
+    pub fn scroll_to_caret(&mut self, available: u32, measure: impl Fn(&str) -> u32) {
+        self.first_visible_unit = self.first_visible_unit.min(self.caret);
+        while self.first_visible_unit < self.caret {
+            let prefix = String::from_utf16_lossy(&self.units[self.first_visible_unit..self.caret]);
+            if measure(&prefix) <= available {
+                break;
+            }
+            self.first_visible_unit += 1;
+        }
     }
 }
 

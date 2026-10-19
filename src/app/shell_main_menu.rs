@@ -196,16 +196,11 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn prepare_network_settings(&mut self) {
-        self.state
-            .frontend
-            .offline_skirmish_runtime
-            .refresh_local_multiplayer_preferences();
+        App::prepare_multiplayer_settings(self.state);
     }
 
     fn route_network(&mut self) {
-        log::info!(
-            "Launcher Options Network child boundary reached; RT_DIALOG 0xD7 is not implemented"
-        );
+        crate::app::input::network_options::open(self.state, &[]);
     }
 
     fn route_keyboard(&mut self) {
@@ -216,15 +211,31 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn reopen_parent(&mut self) {
-        // Native caller blocks in A3. Our asynchronous child resumes this
+        // Native caller blocks in A3/D7. Our asynchronous child resumes this
         // continuation when it closes (after its teardown slide).
-        if self.state.frontend.keyboard_dialog.is_none() {
+        if self.state.frontend.keyboard_dialog.is_none()
+            && self.state.frontend.network_options.is_none()
+        {
             App::open_launcher_options_dialog(self.state);
         }
     }
 }
 
 impl App {
+    /// Shared pre-dialog Session read: D7 at55FD31, Skirmish at52E11E,
+    /// and LAN (including failed IPX admission) at52E37D. Preferences stay
+    /// in their process caches; the original reads INI8870C0, not disk.
+    pub(crate) fn prepare_multiplayer_settings(state: &mut AppState) {
+        let main = crate::app::state::process_main_draws(
+            state.match_state.sim_runtime.as_mut(),
+            &mut state.frontend.frontend_main_rng,
+        );
+        state
+            .match_state
+            .session
+            .prepare_multiplayer_settings(&main);
+    }
+
     /// A right-panel menu page (Single Player `0x100` or Movies & Credits
     /// `0x101`) owns the `MainMenu` screen.
     pub(super) fn menu_page_active(state: &AppState) -> bool {
@@ -584,6 +595,7 @@ impl App {
     /// `0x0052E119`, `0x0052E168` -> `0x006AE2C0`). Its Back returns to
     /// Single Player either way (GameMode 0, state 1, `0x0052E175`).
     pub(super) fn enter_native_skirmish_from_single_player(state: &mut AppState) {
+        Self::prepare_multiplayer_settings(state);
         // Prepare dialog 0x102 from the process-lifetime MIX list before
         // destroying its 0x100 source. Active YR's FUN_00534E50 registers the
         // neutral pair on that shared list before the shell SHPs are loaded.
@@ -706,7 +718,7 @@ impl App {
         state.frontend.options_dialog = Some(dialog);
     }
 
-    fn play_launcher_options_cue(
+    pub(crate) fn play_launcher_options_cue(
         state: &mut AppState,
         cue: crate::ui::main_menu_dialogs::options::LauncherCue,
     ) {
@@ -744,12 +756,12 @@ impl App {
             }
         }
         match output.result {
-            // Main Menu and Keyboard: 0xD5 slides out (0x0055FD06) before
-            // the result is committed and the next page runs. (Network's page
-            // 0xD7 is not ported; its result keeps the old immediate path.)
+            // 0x0055FD06 tears D5 down before every continuation, including
+            // Network (55FD28), Keyboard, and the final Main Menu return.
             Some(
                 result @ (crate::ui::main_menu_dialogs::options::LauncherParentResult::Back
-                | crate::ui::main_menu_dialogs::options::LauncherParentResult::Keyboard),
+                | crate::ui::main_menu_dialogs::options::LauncherParentResult::Keyboard
+                | crate::ui::main_menu_dialogs::options::LauncherParentResult::Network),
             ) => {
                 state.frontend.options_dialog = Some(dialog);
                 Self::leave_shell_dialog(
@@ -1184,6 +1196,9 @@ impl App {
             ShellExitThen::KeyboardClose(exit) => {
                 crate::app::input::keyboard::commit_close(state, exit)
             }
+            ShellExitThen::NetworkOptionsClose => {
+                crate::app::input::network_options::commit_close(state)
+            }
             ShellExitThen::SkirmishChooseMap => Self::open_choose_map_modal(state),
             ShellExitThen::ChooseMapUse(selection) => Self::commit_choose_map_use(state, selection),
             ShellExitThen::ChooseMapCancel => Self::close_choose_map_modal(state),
@@ -1330,6 +1345,7 @@ impl App {
     /// (`0x0052E425`), which builds a new `0xE2` with its entry slide. VERA20k
     /// has no IPX transport, so it always takes that branch.
     fn bounce_network_to_main_menu(state: &mut AppState) {
+        Self::prepare_multiplayer_settings(state);
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
     }

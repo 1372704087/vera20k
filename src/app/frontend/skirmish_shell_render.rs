@@ -1913,4 +1913,6 @@ pub(crate) use sound::render_sound_shell;
 pub(crate) use chrome::type3_button_frames;
 
 mod keyboard;
+mod network_options;
+pub(crate) use network_options::render_network_options;
 pub(crate) use keyboard::render_keyboard_shell;

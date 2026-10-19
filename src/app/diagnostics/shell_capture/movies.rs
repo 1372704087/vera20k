@@ -8,7 +8,9 @@ use crate::app::App;
 use crate::ui::campaign_shell::CampaignSide;
 use serde_json::{Value, json};
 
+mod network_options;
 mod opening;
+pub(crate) use network_options::NetworkOptionsTarget;
 pub(super) use opening::OpeningTarget;
 
 /// Row-0 press point for the selected-list checkpoint (inside `0x744`).
@@ -77,6 +79,7 @@ pub(super) enum MoviesTarget {
     /// Network on `0xE2`: its teardown slide, then a new `0xE2` with its
     /// own entry slide, captured once settled.
     NetworkBounce,
+    NetworkOptions(NetworkOptionsTarget),
     /// Main Menu -> Internet: `0x10E` settled (pointer at `hover` or
     /// neutral), held at `entry_tick`, or after one of its buttons.
     WolWelcome {
@@ -131,6 +134,12 @@ enum Phase {
     CampaignLeaving,
     LoadSavedGame,
     Options,
+    NetworkOptions,
+    NetworkOptionsInput,
+    NetworkOptionsMessage,
+    NetworkOptionsPortWarning,
+    NetworkOptionsReturning,
+    NetworkOptionsMainMenu,
     /// Network pressed: waiting for the teardown to commit.
     NetworkLeaving,
     /// A new `0xE2` exists: waiting for its entry slide to be seen.
@@ -319,6 +328,9 @@ impl MoviesCapture {
         if aborting_campaign {
             return self.campaign_abort_after_present(state, frame);
         }
+        if self.network_options_after_present(state, rendered, frame)? {
+            return Ok(());
+        }
         match (self.phase, rendered) {
             (Phase::MainMenu, PresentedShell::MainMenu) => {
                 if steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(state))? {
@@ -358,7 +370,10 @@ impl MoviesCapture {
                         self.phase = Phase::NetworkLeaving;
                         return Ok(());
                     }
-                    if matches!(self.target, MoviesTarget::Options0xD5 { .. }) {
+                    if matches!(
+                        self.target,
+                        MoviesTarget::Options0xD5 { .. } | MoviesTarget::NetworkOptions(_)
+                    ) {
                         self.route
                             .push(json!({"dialog": 0xe2, "frame": frame, "action": "Options"}));
                         App::handle_main_menu_shell_action(
@@ -450,6 +465,7 @@ impl MoviesCapture {
                         | MoviesTarget::CampaignBack
                         | MoviesTarget::LoadSavedGame0xB7 { .. }
                         | MoviesTarget::Options0xD5 { .. }
+                        | MoviesTarget::NetworkOptions(_)
                         | MoviesTarget::NetworkBounce
                         | MoviesTarget::WolWelcome { .. } => {
                             bail!("{:?} capture reached the 0x101 page", self.target)
@@ -1364,6 +1380,12 @@ impl MoviesCapture {
                 press: WolPress::MyInformation | WolPress::MainMenu,
                 ..
             } => true,
+            MoviesTarget::NetworkOptions(target) => {
+                target.is_message()
+                    || target == NetworkOptionsTarget::SaveReturn
+                    || (state.frontend.shell_page_title.is_terminal()
+                        && state.frontend.shell_status_line.is_terminal())
+            }
             MoviesTarget::WolWelcome { .. } => {
                 state.frontend.shell_page_title.is_terminal()
                     && state.frontend.shell_status_line.is_terminal()
@@ -1439,6 +1461,7 @@ impl MoviesCapture {
                             == Some(target)
                     })
             }
+            MoviesTarget::NetworkOptions(target) => self.network_options_ready(state, target)?,
             MoviesTarget::Options0xD5 { entry_tick, .. } => {
                 state.frontend.options_dialog.is_some()
                     && entry_tick.is_none_or(|target| {
@@ -1562,6 +1585,9 @@ impl MoviesCapture {
                 "route": format!("{:?}", state.frontend.shell_route),
                 "campaign_page_present": state.frontend.campaign.is_some(),
                 "loading_session_present": state.frontend.loading_session.is_some()});
+        }
+        if let MoviesTarget::NetworkOptions(target) = self.target {
+            manifest["network_options"] = self.network_options_receipt(state, target)?;
         }
         Ok(manifest)
     }

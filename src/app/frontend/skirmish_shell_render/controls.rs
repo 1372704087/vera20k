@@ -36,6 +36,105 @@ use super::{
     SHELL_SWATCH_DEPTH,
 };
 
+/// Original61E700 group and6208F0 plain frames both use two bevel rings and
+/// averaged mixed corners. A group's top edge leaves the native caption gap.
+pub(super) fn frame_segments(
+    rect: RectPx,
+    caption_width: Option<i32>,
+    outer_light: bool,
+) -> Vec<(RectPx, [u8; 3])> {
+    let light = [0xc5, 0xbe, 0xa7];
+    let dark = [0x80, 0x7a, 0x68];
+    let mixed = [0xa2, 0x9c, 0x87];
+    let mut out = Vec::new();
+    for ring in 0..2 {
+        let l = rect.x + ring;
+        let t = rect.y + ring;
+        let r = rect.x + rect.w - ring - 1;
+        let b = rect.y + rect.h - ring - 1;
+        let (tl, br) = if outer_light == (ring == 0) {
+            (light, dark)
+        } else {
+            (dark, light)
+        };
+        if let Some(width) = caption_width.filter(|width| *width > 0) {
+            out.push((RectPx::new(l, t, rect.x + 8 - l + 1, 1), tl));
+            let start = rect.x + width + 12;
+            out.push((RectPx::new(start, t, (r - start + 1).max(0), 1), tl));
+        } else {
+            out.push((RectPx::new(l, t, r - l, 1), tl));
+        }
+        out.push((RectPx::new(l, t + 1, 1, b - t), tl));
+        out.push((RectPx::new(l, b, r - l + 1, 1), br));
+        out.push((RectPx::new(r, t + 1, 1, (b - t - 1).max(0)), br));
+        out.push((RectPx::new(r, t, 1, 1), mixed));
+        out.push((RectPx::new(l, b, 1, 1), mixed));
+    }
+    out
+}
+
+pub(super) fn push_group_or_plain_frame(
+    out: &mut Vec<SpriteInstance>,
+    atlas: &SkirmishShellChromeAtlas,
+    rect: RectPx,
+    caption_width: Option<i32>,
+    outer_light: bool,
+) {
+    for (index, (rect, rgb)) in frame_segments(rect, caption_width, outer_light)
+        .into_iter()
+        .enumerate()
+    {
+        push_solid_rect(
+            out,
+            atlas,
+            rect,
+            rgb.map(|c| f32::from(c) / 255.0),
+            SHELL_CONTROL_DEPTH - index as f32 * 0.0000001,
+        );
+    }
+}
+
+/// NewEdit 00614B30 shares its UTF-16 caret-only paint across saved files
+/// and D7. The layout owner supplies the native frame and text rectangles.
+pub(super) struct NewEditPaint {
+    pub frame: RectPx,
+    pub text: RectPx,
+    pub background: Option<[f32; 3]>,
+    pub frame_depth: f32,
+    pub caret_depth: f32,
+    pub caret_visible: bool,
+}
+
+pub(super) fn push_new_edit_instances(
+    out: &mut Vec<SpriteInstance>,
+    atlas: &SkirmishShellChromeAtlas,
+    font: &BitFont,
+    editor: &crate::ui::skirmish_shell::SavedSeedDescriptionEdit,
+    paint: NewEditPaint,
+    scale: ShellScale,
+) {
+    if let Some(rgb) = paint.background {
+        push_solid_rect(out, atlas, paint.frame, rgb, paint.frame_depth + 0.00001);
+    }
+    push_ownerdraw_two_pixel_bevel_frame(out, atlas, paint.frame, paint.frame_depth);
+    if editor.focused && paint.caret_visible {
+        let field = scale.base_rect(paint.text);
+        let caret = editor.caret.min(editor.units.len());
+        let start = editor.first_visible_unit.min(caret);
+        let prefix = String::from_utf16_lossy(&editor.units[start..caret]);
+        let x = field.x + font.text_width(&prefix) as i32;
+        if x < field.x + field.w {
+            push_solid_rect(
+                out,
+                atlas,
+                scale.scale_rect(RectPx::new(x, field.y + 2, 2, (field.h - 4).max(1))),
+                SHELL_LABEL_TEXT_RGB,
+                paint.caret_depth,
+            );
+        }
+    }
+}
+
 pub(super) fn checkbox_checked(shell: &SkirmishShellState, id: SkirmishCheckboxId) -> bool {
     match id {
         SkirmishCheckboxId::ShortGame0x54e => shell.short_game,
@@ -52,6 +151,7 @@ pub(super) fn combo_face_entry(
     scale: ShellScale,
 ) -> Option<SkirmishShellChromeEntry> {
     match scale.base_rect(rect).w {
+        249 => chrome.combo_face_249,
         207 => chrome.combo_face_207,
         180 => chrome.combo_face_180,
         150 => chrome.combo_face_150,

@@ -66,6 +66,8 @@ pub(crate) enum ShellSlideKind {
     WolWelcome,
     /// Dialog 0xA3 — Options' Keyboard page (front-end parent only).
     Keyboard,
+    /// Dialog D7, Options' Network child.
+    NetworkOptions,
     /// Dialog 0x6B — Skirmish's Choose Map, a family page of its own.
     ChooseMap,
     /// Dialog 0x108 — the score screen after a skirmish game.
@@ -92,6 +94,7 @@ impl ShellSlideKind {
             ShellSlideKind::Options => 0x00D5,
             ShellSlideKind::WolWelcome => 0x010E,
             ShellSlideKind::Keyboard => 0x00A3,
+            ShellSlideKind::NetworkOptions => 0x00D7,
             ShellSlideKind::ChooseMap => 0x006B,
             ShellSlideKind::Score => 0x0108,
             ShellSlideKind::CampaignScore => 0x0103,
@@ -158,6 +161,7 @@ pub(crate) enum ShellExitThen {
     /// Keyboard `0xA3` Back or Cancel: `0x005FBEF0` tears it down with its
     /// slide, then the bindings save or reload and a new `0xD5` is built.
     KeyboardClose(crate::app::input::keyboard::KeyboardExit),
+    NetworkOptionsClose,
     /// Skirmish Choose Map (`0x5AA`): `0x102` slides out and hides without
     /// packing (`0x006AD931`, `0x006AD93C`), then `0x6B` runs.
     SkirmishChooseMap,
@@ -202,6 +206,7 @@ impl ShellExitThen {
             Self::LoadSavedGameBack => ShellSlideKind::LoadSavedGame,
             Self::Options(_) => ShellSlideKind::Options,
             Self::KeyboardClose(_) => ShellSlideKind::Keyboard,
+            Self::NetworkOptionsClose => ShellSlideKind::NetworkOptions,
             Self::SkirmishChooseMap => ShellSlideKind::Skirmish,
             Self::ChooseMapUse(_) | Self::ChooseMapCancel | Self::ChooseMapRandomMap => {
                 ShellSlideKind::ChooseMap
@@ -478,7 +483,8 @@ impl<'a> ShellLifecycleReducer<'a> {
             | ShellSlideKind::LoadSavedGame
             | ShellSlideKind::Options
             | ShellSlideKind::WolWelcome
-            | ShellSlideKind::Keyboard => ShellWaveCompletion::MenuPage,
+            | ShellSlideKind::Keyboard
+            | ShellSlideKind::NetworkOptions => ShellWaveCompletion::MenuPage,
             ShellSlideKind::Skirmish => ShellWaveCompletion::Skirmish,
             ShellSlideKind::ChooseMap => ShellWaveCompletion::ChooseMap,
             ShellSlideKind::RandomMap => ShellWaveCompletion::RandomMap,
@@ -650,6 +656,9 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
     // Keyboard page `0xA3` runs after `0xD5` is destroyed (`0x0055FD06`) and
     // slides like it. The Exit confirmation (state 6) and the quit after it
     // (state 7) run without a family dialog.
+    if state.frontend.network_options.is_some() {
+        return Some(ShellSlideKind::NetworkOptions);
+    }
     if let Some(dialog) = state.frontend.keyboard_dialog.as_ref() {
         return (dialog.parent == crate::ui::shell::keyboard::KeyboardParent::Launcher)
             .then_some(ShellSlideKind::Keyboard)
@@ -887,6 +896,14 @@ pub(crate) fn render_shell_first_paint_slide(
         }
         ShellSlideKind::Keyboard => {
             crate::app::frontend::skirmish_shell_render::render_keyboard_shell(
+                state,
+                encoder,
+                destination,
+            )?;
+            true
+        }
+        ShellSlideKind::NetworkOptions => {
+            crate::app::frontend::skirmish_shell_render::render_network_options(
                 state,
                 encoder,
                 destination,

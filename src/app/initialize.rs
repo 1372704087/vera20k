@@ -660,6 +660,7 @@ impl App {
                 campaign_art: None,
                 load_saved_game: None,
                 wol_welcome: None,
+                network_options: None,
                 wol_welcome_art: None,
                 score_page: None,
                 campaign_score_page: None,

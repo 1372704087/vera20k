@@ -5,10 +5,8 @@ use crate::skirmish_launch::{
     HOUSE_COLOR_COUNT, LaunchCountry, LaunchStartPosition, SKIRMISH_PLAYER_SLOT_COUNT,
 };
 
-use crate::ui::shell::geom::ShellScale;
-
 use super::super::layout::{
-    COMBO_ARROW_RESERVE_W, DropdownMetrics, RectPx, SkirmishShellLayout, combo_face_rect,
+    DropdownMetrics, RectPx, SkirmishShellLayout, combo_arrow_hit_rect, combo_face_rect,
 };
 use super::super::scroll::ScrollModel;
 use super::{
@@ -210,7 +208,6 @@ pub(super) fn top_index_from_thumb_y(
     maps: &[MapMenuEntry],
     id: SkirmishComboId,
     mouse_y: i32,
-    grab_offset_y: i32,
 ) -> Option<usize> {
     let scrollbar = combo_dropdown_scrollbar_rect(state, layout, maps, id)?;
     let thumb = combo_dropdown_scroll_thumb_rect(state, layout, maps, id)?;
@@ -219,7 +216,7 @@ pub(super) fn top_index_from_thumb_y(
         combo_dropdown_max_visible_rows(id),
         DropdownMetrics::scaled(layout.scale),
     );
-    Some(model.top_index_from_thumb_top(scrollbar, thumb.h, max_top, mouse_y - grab_offset_y))
+    Some(model.top_index_at_pointer(scrollbar, thumb.h, max_top, mouse_y))
 }
 
 pub(super) fn top_index_from_scrollbar_track_click(
@@ -236,7 +233,7 @@ pub(super) fn top_index_from_scrollbar_track_click(
         combo_dropdown_max_visible_rows(id),
         DropdownMetrics::scaled(layout.scale),
     );
-    Some(model.top_index_from_thumb_top(scrollbar, thumb.h, max_top, mouse_y - thumb.h / 2))
+    Some(model.top_index_at_pointer(scrollbar, thumb.h, max_top, mouse_y))
 }
 
 pub fn combo_items(
@@ -508,18 +505,6 @@ fn evict_other_color_claimants(state: &mut SkirmishShellState, row: usize, color
     }
 }
 
-fn arrow_hit_rect(rect: RectPx, scale: ShellScale) -> RectPx {
-    let face = combo_face_rect(rect, scale);
-    scale.derive_rect(face, |face| {
-        RectPx::new(
-            face.x + face.w - COMBO_ARROW_RESERVE_W,
-            face.y,
-            COMBO_ARROW_RESERVE_W,
-            face.h,
-        )
-    })
-}
-
 fn combo_hit_order() -> Vec<SkirmishComboId> {
     let mut ids = Vec::new();
     for row in (0..SKIRMISH_PLAYER_SLOT_COUNT).rev() {
@@ -544,7 +529,7 @@ fn combo_arrow_at(
     combo_hit_order().into_iter().find(|id| {
         combo_enabled(state, maps, *id)
             && combo_rect(layout, *id)
-                .map(|rect| arrow_hit_rect(rect, layout.scale).contains(x, y))
+                .map(|rect| combo_arrow_hit_rect(rect, layout.scale).contains(x, y))
                 .unwrap_or(false)
     })
 }
@@ -689,10 +674,7 @@ pub(super) fn handle_combo_mouse_down(
                         id: open.id,
                         part: DropdownScrollbarPart::Thumb,
                     });
-                    state.dropdown_scroll_drag = Some(DropdownScrollDragState {
-                        id: open.id,
-                        grab_offset_y: y - thumb.y,
-                    });
+                    state.dropdown_scroll_drag = Some(DropdownScrollDragState { id: open.id });
                 } else if let Some(top_index) =
                     top_index_from_scrollbar_track_click(state, layout, maps, open.id, y)
                 {

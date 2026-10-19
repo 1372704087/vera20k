@@ -943,7 +943,7 @@ fn an_idle_tank_behind_a_cliff_scatters_every_sixty_four_frames() {
     let tank = sim
         .spawn_object("MTNK", "Americans", 10, 10, 0, &rules)
         .unwrap();
-    let mut idle_scatter = |sim: &mut Simulation, frame: u32| {
+    let idle_scatter = |sim: &mut Simulation, frame: u32| {
         sim.session.binary_frame = frame;
         sim.foot_idle_scatter(
             tank,

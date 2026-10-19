@@ -193,18 +193,10 @@ don't stack unmerged implementation branches (researching ahead is fine).
 Residuals name trigger, effect, frequency and downstream risk; deferring required loop or
 determinism/authority/lifecycle work cannot close that loop.
 
-Delegate independent work with clear ownership. For changes to gameplay behavior, run
-one fresh read-only [critic](.agents/skills/_shared/review.md) after implementation
-and focused tests. The critic is free to inspect original evidence
-and challenge scope/design. It identifies implementation defects and useful refactoring
-opportunities, explaining their impact and risks. The owner fixes confirmed defects,
-rejects false positives with evidence and may implement worthwhile in-scope refactors,
-validating all changes. Unrelated opportunities become `refactor` issues. Each validated,
-dependency-coherent mechanism gets its own PR and at most one critic pass; do not
-hold validated mechanisms back to batch them into one review. Do not run critics per
-implementation increment within a mechanism or repeat reviews after fixes or revisions
-unless the user explicitly asks.
-Keep a concise [checkpoint](.agents/skills/_shared/handoff.md) for sustained work.
+Delegate independent work with clear ownership. Changes to gameplay behavior get one
+read-only critic before their PR; [review.md](.agents/skills/_shared/review.md) holds
+the critic rules. Keep a concise [checkpoint](.agents/skills/_shared/handoff.md) for
+sustained work.
 
 ## Git and validation
 

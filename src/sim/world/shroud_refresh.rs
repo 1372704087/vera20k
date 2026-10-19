@@ -20,13 +20,26 @@ mod reveal_to_all_tests;
 mod sight_cadence_tests;
 
 /// [`Simulation::sight_height_grid`]'s answer.
-pub(crate) struct SightHeights(Option<std::sync::Arc<PathGrid>>);
+pub(crate) struct SightHeights(SightLevels);
+
+enum SightLevels {
+    /// `RevealByHeight=no`, or no map to read.
+    Flat,
+    /// The published path grid's level plane ([`PathGrid::ground_height_grid`]).
+    Published(std::sync::Arc<PathGrid>),
+    /// The terrain's own levels, before the scenario publishes its navigation
+    /// ([`PathGrid::terrain_ground_levels`]).
+    Terrain(Vec<u8>),
+}
 
 impl SightHeights {
-    /// The ground levels in cell order, borrowed from the path grid
-    /// ([`PathGrid::ground_height_grid`]).
+    /// The ground levels in cell order.
     pub(crate) fn levels(&self) -> Option<&[u8]> {
-        self.0.as_deref().map(PathGrid::ground_height_grid)
+        match &self.0 {
+            SightLevels::Flat => None,
+            SightLevels::Published(grid) => Some(grid.ground_height_grid()),
+            SightLevels::Terrain(levels) => Some(levels),
+        }
     }
 }
 
@@ -1113,13 +1126,14 @@ impl Simulation {
                 .get(&owner)
                 .is_some_and(|house| house.spy_sat_active);
             let (gaps, admitted_gap) = self.prepare_spy_sat_gap_reentry(owner, rules);
-            // RESIDUAL: the other callers of `0x004ADCD0` are not ported.
-            // MakeAlly (`0x004F9F4F`) and MakeEnemy (`0x004FA1E3`) bracket it
-            // with `0x004ADEE0`, which has no `RevealToAll=` branch; VERA's
-            // (`sim::house_diplomacy`) run without the bracket, a residual
-            // recorded there. The first House update (`0x004F935A`) runs on the
-            // first frame; stock skirmish maps place no such building, which
-            // bounds those samples rather than proving campaign absence.
+            // RESIDUAL: the other callers of `0x004ADCD0` do not run its
+            // `RevealToAll=` branch. MakeAlly (`0x004F9F4F`) and MakeEnemy
+            // (`0x004FA1E3`), which bracket it with `0x004ADEE0` (no such
+            // branch), run only its allied-Building arm, for the ally edge
+            // they change (`sim::house_diplomacy` records the rest). The
+            // first House update (`0x004F935A`) runs on the first frame;
+            // stock skirmish maps place no such building, which bounds those
+            // samples rather than proving campaign absence.
             // Fill_In_Data's call (`0x00684F89`) skips buildings. ALL01's live
             // SpySat_Boom061FF03C uses action51/577C90, so its represented
             // release/store/reentry path runs here; occupied discovery and
@@ -1205,11 +1219,13 @@ impl Simulation {
                     {
                         self.fog
                             .retain_sight_admission(id, owner, source.clone(), false);
+                        let heights = self.sight_height_grid(config);
                         self.walk_source_sight(
                             owner,
                             source,
                             false,
                             config,
+                            heights.levels(),
                             context,
                             self.session.current_house,
                         );
@@ -1217,19 +1233,17 @@ impl Simulation {
                 }
             }
             if let Some(source) = alternates.get(&id) {
-                if !self
-                    .fog
-                    .alternate_sight_admissions
-                    .contains_key(&(id, owner))
-                {
+                if !self.fog.holds_alternate_sight(id, owner) {
                     self.fog
                         .retain_sight_admission(id, owner, source.clone(), true);
                 }
+                let heights = self.sight_height_grid(config);
                 self.walk_source_sight(
                     owner,
                     source,
                     false,
                     config,
+                    heights.levels(),
                     context,
                     self.session.current_house,
                 );
@@ -1337,6 +1351,7 @@ impl Simulation {
                 &admission,
                 false,
                 config,
+                heights,
                 context,
                 notification_viewer,
             );
@@ -1369,8 +1384,20 @@ impl Simulation {
                     .map(|source| (viewer, source))
             })
             .collect();
+        if held.is_empty() {
+            return;
+        }
+        let heights = self.sight_height_grid(&config);
         for (viewer, source) in held {
-            self.walk_source_sight(viewer, &source, true, &config, context, notification_viewer);
+            self.walk_source_sight(
+                viewer,
+                &source,
+                true,
+                &config,
+                heights.levels(),
+                context,
+                notification_viewer,
+            );
         }
     }
 
@@ -1388,27 +1415,31 @@ impl Simulation {
             return;
         }
         if let Some(source) = self.fog.take_sight_admission(id, viewer, false) {
+            let heights = self.sight_height_grid(config);
             self.walk_source_sight(
                 viewer,
                 &source,
                 true,
                 config,
+                heights.levels(),
                 context,
                 self.session.current_house,
             );
         }
     }
 
+    /// One viewer's `MapClass::RevealArea @ 0x005678E0` walk of `source`
+    /// under `heights` ([`Self::sight_height_grid`]).
     fn walk_source_sight(
         &mut self,
         viewer: crate::sim::intern::InternedId,
         source: &vision::SightAdmission,
         final_pass: bool,
         config: &vision::VisionConfig,
+        heights: Option<&[u8]>,
         context: UninitContext<'_>,
         notification_viewer: Option<crate::sim::intern::InternedId>,
     ) {
-        let heights = self.sight_height_grid(config);
         // Non-retail negative radii retain their raw cache but walk no cells.
         // Native567A63 instead indexes before its count table; that out-of-table
         // traversal is not reproduced. Ordinary positive radii clamp at10.
@@ -1417,7 +1448,7 @@ impl Simulation {
             (source.origin.0, source.origin.1),
             source.origin.2,
             source.radius.clamp(0, i32::from(vision::MAX_SIGHT_RANGE)) as u16,
-            heights.levels(),
+            heights,
             final_pass,
             config,
             context,
@@ -1439,6 +1470,18 @@ impl Simulation {
     /// after the sight callbacks; the shared release/update pair does not
     /// imply this suffix for its other callers.
     pub(crate) fn refresh_object_sight_border(&mut self, id: u64, context: UninitContext<'_>) {
+        self.refresh_object_sight_border_on(id, None, context);
+    }
+
+    /// [`Self::refresh_object_sight_border`] on `only_viewer`'s map, or else
+    /// on each map source `id`'s reveal writes: around its current XYZ, out
+    /// to that map's cached radius (`+0x260`) + 3.
+    fn refresh_object_sight_border_on(
+        &mut self,
+        id: u64,
+        only_viewer: Option<crate::sim::intern::InternedId>,
+        context: UninitContext<'_>,
+    ) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -1451,21 +1494,23 @@ impl Simulation {
                 context.terrain().or(self.resolved_terrain.as_ref()),
             ),
         );
-        let viewers = self.reveal_viewers.direct(
-            &self.fog,
-            &self.house_alliances,
-            entity.owner(),
-            &config,
-            &self.interner,
-        );
+        let viewers: std::sync::Arc<[_]> = match only_viewer {
+            Some(viewer) => std::sync::Arc::from([viewer]),
+            None => self.reveal_viewers.direct(
+                &self.fog,
+                &self.house_alliances,
+                entity.owner(),
+                &config,
+                &self.interner,
+            ),
+        };
         for &viewer in viewers.iter() {
             //Each logical plane retains its own cache projection. Native
             //constructor6F2D96 starts260 at0;70B202 retains it on release.
             //Only reveal_area's admitted player walk emits native callbacks.
             let radius = self
                 .fog
-                .sight_admissions
-                .get(&(id, viewer))
+                .sight_admission(id, viewer)
                 .map_or(0, |source| source.radius);
             self.refresh_sight_border(viewer, origin, radius.wrapping_add(3), context);
         }
@@ -1573,81 +1618,33 @@ impl Simulation {
         }
     }
 
-    /// Projection-frame maintenance does not move retained footprints or
-    /// replay their native reveal. Lifecycle callers now initialize sight
-    /// synchronously. The remaining owner/alliance reconciliation is the
-    /// existing lifecycle/House-map residual; it uses this same event owner.
-    /// RESIDUAL: a source with no cache can still enter through this fallback
-    /// rather than a native event. This includes missing non-Unlimbo reveal
-    /// producers, owner/alliance re-admission and playfield promotion: native
-    ///6F511A promotion waits until its next reveal/cell arrival, whereas this
-    ///pass reveals sooner. Inactive caches never use that fallback.
+    /// The frame's sight projection pass (`Simulation::refresh_fog`): it
+    /// ends last frame's derived sight and marks the retained footprints
+    /// again ([`vision::FogState::mark_untracked_sight`],
+    /// [`vision::FogState::mark_cleared_cells`]). It reveals and releases
+    /// nothing: a source's footprint opens and closes only at its native
+    /// events, each through this owner (listed in [`crate::sim::vision`]).
+    ///
+    /// The one exception is VERA-only: a simulation built without a map
+    /// descriptor sizes its fog on its first frame
+    /// ([`vision::FogState::begin_sight_frame`]), after its objects' Unlimbo
+    /// found no map to reveal on. Each placed source that holds sight then
+    /// takes the admission its Unlimbo (`0x006F6D27`) would have made, in
+    /// stable-id order. A launched scenario sizes its fog at construction and
+    /// never gets there.
     pub(crate) fn refresh_sight_sources(
         &mut self,
         config: &vision::VisionConfig,
         rules: Option<&RuleSet>,
     ) {
-        let untracked = self
+        let frame = self
             .fog
             .begin_sight_frame(&self.substrate.entities, self.path_grid.as_deref());
         let context = UninitContext::new(rules, None);
-        // Admissions sort by source, so each source's ids come in a row.
-        let mut removed: Vec<_> = self
-            .fog
-            .sight_admissions
-            .iter()
-            .filter(|(_, source)| source.latched)
-            .map(|(&(id, _), _)| id)
-            .collect();
-        removed.dedup();
-        removed.retain(|&id| {
-            !self
-                .substrate
-                .entities
-                .get(id)
-                .is_some_and(|entity| vision::holds_sight(entity, config))
-        });
-        for id in removed {
-            self.release_object_sight_with_context(id, context);
+        if frame.sized {
+            self.admit_sight_on_sized_fog(config, context);
         }
-        // Each owner's viewers are asked once until the ally graph changes
-        // (`vision::RevealViewers`).
-        self.reveal_viewers.begin();
-        let mut admissions = vision::SourceAdmissions::default();
-        //IDs alone cross callbacks. Requery the live object at every turn.
-        for id in self.substrate.entities.keys_sorted() {
-            let Some(entity) = self
-                .substrate
-                .entities
-                .get(id)
-                .filter(|entity| vision::holds_sight(entity, config))
-            else {
-                continue;
-            };
-            let owner = entity.owner();
-            // Nothing below changes the admissions before the cover test.
-            self.fog.read_source_admissions(id, &mut admissions);
-            if admissions.cache_is_inactive(owner) {
-                continue;
-            }
-            let viewers = self.reveal_viewers.direct(
-                &self.fog,
-                &self.house_alliances,
-                owner,
-                config,
-                &self.interner,
-            );
-            if admissions.retained_cover(owner, &viewers) {
-                if viewers.iter().any(|viewer| untracked.contains(viewer)) {
-                    self.fog.mark_retained_sight(id);
-                }
-            } else {
-                self.release_object_sight_with_context(id, context);
-                let heights = self.sight_height_grid(config);
-                self.update_object_sight_in_view(id, 0, None, config, heights.levels(), context);
-            }
-        }
-        self.reveal_viewers.end();
+        self.fog.mark_untracked_sight(&frame.untracked);
         self.fog.mark_cleared_cells();
         #[cfg(any(test, feature = "test-support"))]
         {
@@ -1657,6 +1654,30 @@ impl Simulation {
                 .map(crate::map::resolved_terrain::NativeCellQuery::isolated);
             self.fog.assert_sight_projection_consistent(cells.as_ref());
         }
+    }
+
+    /// [`Self::refresh_sight_sources`]'s stand-in for the Unlimbo admissions a
+    /// fog sized on the first frame missed.
+    fn admit_sight_on_sized_fog(
+        &mut self,
+        config: &vision::VisionConfig,
+        context: UninitContext<'_>,
+    ) {
+        // Each owner's viewers are asked once (`vision::RevealViewers`).
+        self.reveal_viewers.begin();
+        //IDs alone cross callbacks. Requery the live object at every turn.
+        for id in self.substrate.entities.keys_sorted() {
+            if self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| vision::holds_sight(entity, config))
+            {
+                let heights = self.sight_height_grid(config);
+                self.update_object_sight_in_view(id, 0, None, config, heights.levels(), context);
+            }
+        }
+        self.reveal_viewers.end();
     }
 
     /// The settings every reveal reads (`TechnoClass::UpdateReveal @
@@ -1714,17 +1735,129 @@ impl Simulation {
         self.update_object_sight_with_context(stable_id, radius, None, context);
     }
 
+    /// `MapClass::ParanoidRevealAll @ 0x004ADEE0`'s allied-Building arm
+    /// (`0x004ADF8B..0x004ADFB9`) for the ally edge `owner` -> `viewer` that
+    /// MakeEnemy is about to clear, with `viewer` as the player whose map the
+    /// bracket walks: while `owner` still counts `viewer` an ally under
+    /// `AllyReveal=`, each of `owner`'s Buildings out of limbo, in
+    /// registration order, takes its sight off that map
+    /// (`ReReveal(0, arg, 0, 0)`).
+    pub(crate) fn release_allied_building_sight(
+        &mut self,
+        owner: crate::sim::intern::InternedId,
+        viewer: crate::sim::intern::InternedId,
+        context: UninitContext<'_>,
+    ) {
+        let config = self.sight_reveal_config(context.rules());
+        if !vision::reveal_admits(
+            &self.house_alliances,
+            owner,
+            viewer,
+            &config,
+            &self.interner,
+        ) {
+            return;
+        }
+        for id in self.allied_buildings_of(owner) {
+            self.release_object_sight_for_viewer(id, viewer, &config, context);
+        }
+    }
+
+    /// `MapClass::ParanoidUnrevealAll @ 0x004ADCD0`'s allied-Building arm
+    /// (`0x004ADDB2..0x004ADE10`) for the ally edge `owner` -> `viewer` that
+    /// MakeAlly has just set: with `owner` an ally of `viewer` under
+    /// `AllyReveal=`, each of `owner`'s Buildings out of limbo, in
+    /// registration order, opens its sight on `viewer`'s map
+    /// (`UpdateReveal(0, arg, 0, 0)`, `0x004ADDE4`) and refreshes the fog
+    /// border there around its Location, out to its cached radius + 3
+    /// (`0x004ADE10`).
+    ///
+    /// RESIDUAL: native keeps one latch (`+0x250`) per object, which the
+    /// Building's own Unlimbo already set, so this `UpdateReveal` adds
+    /// nothing until a later bracket's release (any House's MakeAlly or
+    /// MakeEnemy, a whole-map transition) clears it while the edge stands;
+    /// VERA keeps one per viewer and opens the sight here. Trigger: an
+    /// alliance made while the ally has Buildings standing (team skirmish
+    /// starts with map-placed Buildings, `[AI] Paranoid=`, ally triggers).
+    /// Effect: native shows those Buildings' sight to the new ally only from
+    /// the next bracket. Frequency: rare in skirmish, whose starts place
+    /// MCVs.
+    pub(crate) fn admit_allied_building_sight(
+        &mut self,
+        owner: crate::sim::intern::InternedId,
+        viewer: crate::sim::intern::InternedId,
+        context: UninitContext<'_>,
+    ) {
+        let config = self.sight_reveal_config(context.rules());
+        if !vision::reveal_admits(
+            &self.house_alliances,
+            owner,
+            viewer,
+            &config,
+            &self.interner,
+        ) {
+            return;
+        }
+        for id in self.allied_buildings_of(owner) {
+            let heights = self.sight_height_grid(&config);
+            self.update_object_sight_in_view(
+                id,
+                0,
+                Some(viewer),
+                &config,
+                heights.levels(),
+                context,
+            );
+            self.refresh_object_sight_border_on(id, Some(viewer), context);
+        }
+    }
+
+    /// `owner`'s Buildings out of limbo, in registration order: the ones an
+    /// ally bracket's allied-Building arm visits.
+    fn allied_buildings_of(&self, owner: crate::sim::intern::InternedId) -> Vec<u64> {
+        self.substrate
+            .entities
+            .iter_sorted()
+            .filter(|(_, entity)| {
+                entity.owner() == owner
+                    && entity.category() == EntityCategory::Structure
+                    && !entity.lifecycle.in_limbo()
+            })
+            .map(|(id, _)| id)
+            .collect()
+    }
+
     /// The ground levels a reveal under `config` tests its cells' line of
-    /// sight against (`0x00567CB5`): none unless `RevealByHeight=`, or
-    /// without a path grid. A handle on the current path grid, which keeps
-    /// the levels; taking it copies no cells.
+    /// sight against (`Cell+0x11B`, read at `0x00567CB5`): none unless
+    /// `RevealByHeight=`. A handle on the current path grid, which keeps the
+    /// levels; taking it copies no cells.
+    ///
+    /// The map read places its objects, and their Unlimbo reveals
+    /// (`0x006F6D27`), before `ScenarioClass::Post_Map_Init` publishes the
+    /// path grid (`Simulation::finalize_scenario_post_map`). Native cells
+    /// carry their levels from the map read on, so until then the levels come
+    /// from the terrain, the plane the grid will publish. Reading none there
+    /// (#1886) stored footprints that ignored the heights, which the first
+    /// release after publication then walked with them, leaving the cells
+    /// only the reveal reached counted and published in sight.
     pub(crate) fn sight_height_grid(&self, config: &vision::VisionConfig) -> SightHeights {
-        SightHeights(
-            config
-                .reveal_by_height()
-                .then(|| self.path_grid_snapshot())
-                .flatten(),
-        )
+        if !config.reveal_by_height() {
+            return SightHeights(SightLevels::Flat);
+        }
+        if let Some(grid) = self.path_grid_snapshot() {
+            return SightHeights(SightLevels::Published(grid));
+        }
+        // The reveal indexes the plane by the fog's row width.
+        match self.resolved_terrain.as_ref() {
+            Some(terrain)
+                if (terrain.width(), terrain.height()) == (self.fog.width, self.fog.height) =>
+            {
+                SightHeights(SightLevels::Terrain(PathGrid::terrain_ground_levels(
+                    terrain,
+                )))
+            }
+            _ => SightHeights(SightLevels::Flat),
+        }
     }
 
     /// The gates `TechnoClass::UpdateReveal @ 0x0070AF50` and `ReReveal @
@@ -1779,11 +1912,11 @@ impl Simulation {
     ///   Skirmish has one human.
     /// - A source without its own admission yet (`+0x250` clear) would
     ///   natively store this footprint as its own and leave its owner
-    ///   without sight (`0x0070B0BF..0x0070B131`); VERA's owner sight comes
-    ///   from the per-frame reconciliation regardless. No caller reaches it:
-    ///   the opening follows the source's Unlimbo reveal (`0x006F6D27`,
-    ///   ahead of the opening at `0x00440E76`), and the re-admission
-    ///   callback's branch needs a placed building in the playfield.
+    ///   without sight (`0x0070B0BF..0x0070B131`); VERA keeps the owner's
+    ///   cache as it is. No caller reaches it: the opening follows the
+    ///   source's Unlimbo reveal (`0x006F6D27`, ahead of the opening at
+    ///   `0x00440E76`), and the re-admission callback's branch needs a placed
+    ///   building in the playfield.
     pub(crate) fn reveal_sight_to_current_house(&mut self, stable_id: u64, rules: &RuleSet) {
         let Some(current) = self.session.current_house else {
             return;
@@ -1810,11 +1943,7 @@ impl Simulation {
             &self.interner,
         );
         for &viewer in viewers.iter() {
-            if !self
-                .fog
-                .alternate_sight_admissions
-                .contains_key(&(stable_id, viewer))
-            {
+            if !self.fog.holds_alternate_sight(stable_id, viewer) {
                 self.fog
                     .retain_sight_admission(stable_id, viewer, footprint.clone(), true);
             }
@@ -1825,6 +1954,7 @@ impl Simulation {
                 &footprint,
                 false,
                 &config,
+                height_grid.levels(),
                 UninitContext::with_rules(rules),
                 Some(current),
             );
@@ -1887,12 +2017,14 @@ impl Simulation {
         for &viewer in viewers.iter() {
             self.fog.take_sight_admission(stable_id, viewer, true);
         }
+        let heights = self.sight_height_grid(&config);
         for &viewer in viewers.iter() {
             self.walk_source_sight(
                 viewer,
                 &footprint,
                 true,
                 &config,
+                heights.levels(),
                 UninitContext::with_rules(rules),
                 Some(current),
             );

@@ -5272,6 +5272,14 @@ impl Simulation {
         //Cell. The same Cell survives the owner write for701774..780.
         let spatial_threat_cell =
             rules.and_then(|_| self.spatial_threat_before_owner_change(stable_id));
+        // Techno70172F: `ReReveal(0, 0, 0, 0)` before the owner store takes
+        // the sight off every map the old owner's reveal wrote. A building
+        // released it at 448BD9 and an object in limbo at its Limbo, so for
+        // them the cleared latch makes it a no-op.
+        self.release_object_sight_with_context(
+            stable_id,
+            UninitContext::new(rules, registry).with_effects(effects),
+        );
         self.substrate.entities.change_owner(stable_id, new_owner);
         if let Some(rules) = rules {
             self.spatial_threat_after_owner_change(stable_id, spatial_threat_cell, rules);
@@ -5373,12 +5381,37 @@ impl Simulation {
         // read the type and skips it.
         if let Some(rules) = rules {
             self.change_owner_mission_half(stable_id, rules, effects);
-            if category == EntityCategory::Structure {
-                crate::sim::production::initialize_factory_primary(self, stable_id, rules);
-                //448CEF: Grand_Opening(1) also runs on an already placed
-                //building; its6E4 gate prevents repeating first-opening slots.
-                self.grand_opening(stable_id, true, false, rules, None, effects);
-            }
+        }
+        // Techno70187B: `UpdateReveal(0, 0, 0, 0, 0)` closes the Techno
+        // owner change for an object out of limbo (7017C0 skips the tail for
+        // one in limbo): its sight opens where it stands, on the maps the new
+        // owner's reveal writes. A building's own tail follows (448BE8).
+        //
+        // RESIDUAL: Building448D83 reveals once more when the new owner is
+        // the human player (IsHumanPlayer50B6F0). The latch 70187B set makes
+        // that a no-op for a placed building; one captured in limbo would
+        // natively open its sight there. No VERA producer captures a building
+        // in limbo.
+        if self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| !entity.lifecycle.in_limbo())
+        {
+            self.update_object_sight_with_context(
+                stable_id,
+                0,
+                None,
+                UninitContext::new(rules, registry).with_effects(effects),
+            );
+        }
+        if let Some(rules) = rules
+            && category == EntityCategory::Structure
+        {
+            crate::sim::production::initialize_factory_primary(self, stable_id, rules);
+            //448CEF: Grand_Opening(1) also runs on an already placed
+            //building; its6E4 gate prevents repeating first-opening slots.
+            self.grand_opening(stable_id, true, false, rules, None, effects);
         }
         // `FootClass::ChangeOwner @ 0x004DBF13..0x004DBF32`: a Foot given to
         // a human house leaves its team.
@@ -5392,7 +5425,6 @@ impl Simulation {
         }
         self.foot_neighbors_after_owner_change(stable_id, rules);
         self.refresh_waypoint_edge_from_committed_structure(stable_id);
-        self.reveal_building_sight_after_owner_change(stable_id, rules);
         if let Some(rules) = rules {
             self.reapply_building_gap_after_owner_change(stable_id, rules);
         }
@@ -6294,11 +6326,11 @@ impl Simulation {
         }
     }
 
-    /// The per-frame fog pass: ends last frame's sight, releases the sight of
-    /// objects that no longer hold it and admits the sight of objects without
-    /// one (the remaining House admission reconciliation), then applies SpySat
-    /// and Gap Generator effects. Footprints move only at reveal events
-    /// ([`Self::refresh_object_sight`]).
+    /// The per-frame fog pass: ends last frame's sight and marks the retained
+    /// footprints again ([`Self::refresh_sight_sources`]), then applies SpySat
+    /// and Gap Generator effects. It reveals and releases no source sight:
+    /// footprints open, move and close only at their native events
+    /// ([`crate::sim::vision`] lists them).
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: Option<&RuleSet>) {
         self.refresh_sight_sources(config, rules);
 

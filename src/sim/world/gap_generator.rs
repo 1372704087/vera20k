@@ -293,22 +293,6 @@ impl Simulation {
         }
     }
 
-    ///701875's ordinary reveal follows the owner swap and precedes Building
-    ///448260's gap re-add. Use the existing source geometry/admission owner.
-    pub(super) fn reveal_building_sight_after_owner_change(
-        &mut self,
-        id: u64,
-        rules: Option<&RuleSet>,
-    ) {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return;
-        };
-        if entity.category() != EntityCategory::Structure {
-            return;
-        }
-        self.update_object_sight_with_context(id, 0, None, super::UninitContext::new(rules, None));
-    }
-
     /// The live4ADEE0/4ADCD0 bracket visits gap candidates even if they had no
     /// prior deposit. Only this viewer's269/26C changes;6C8 stays untouched.
     /// Returns hostile cell re-admissions and whether ANY (also friendly)

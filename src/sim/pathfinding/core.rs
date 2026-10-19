@@ -1598,6 +1598,21 @@ impl PathGrid {
         self.height
     }
 
+    /// The level plane [`Self::from_resolved_terrain`] would publish for
+    /// `terrain` ([`Self::ground_height_grid`]): each allocated cell's level
+    /// (`PathCell::ground_level`), `0` where no cell is allocated. For a
+    /// reader that needs the levels before a grid is published.
+    pub fn terrain_ground_levels(terrain: &ResolvedTerrainGrid) -> Vec<u8> {
+        let width = terrain.width() as usize;
+        let mut levels = vec![DEFAULT_BLOCKED_CELL.ground_level; width * terrain.height() as usize];
+        for cell in terrain.iter() {
+            if let Some(level) = levels.get_mut(cell.ry as usize * width + cell.rx as usize) {
+                *level = cell.level;
+            }
+        }
+        levels
+    }
+
     /// Every cell's ground level in cell order (`y * width + x`).
     ///
     /// A derived value, not persisted simulation state:

@@ -4,12 +4,26 @@
 //! "visible" (inside a source's current sight). State is stored in a flat
 //! Vec<u8> grid per owner for O(1) lookup.
 //!
-//! A source's sight moves only at native reveal events
-//! (`Simulation::refresh_object_sight`):
-//! `ReReveal @ 0x0070B1D0` then `UpdateReveal @ 0x0070AF50`, from Unit and
-//! Infantry cell arrivals, the Jumpjet descent, Fly's phase transition, the
-//! high-flyer refresh and the Spy Plane. Between events its footprint stays
-//! where the last one put it (the Simulation sight-frame projection).
+//! A source's sight opens, moves and closes only at native events, each
+//! through Simulation's sight owner (`sim/world/shroud_refresh.rs`):
+//! `UpdateReveal @ 0x0070AF50` opens it and `ReReveal @ 0x0070B1D0` takes it
+//! back.
+//! - Unlimbo reveals it (`0x006F6D27`); Limbo releases it (`0x006F6B06`,
+//!   `0x006F6B16`), and so does the start of VERA's SHP death sequence,
+//!   which stands for the UnInit it defers.
+//! - `Simulation::refresh_object_sight` moves it: Unit and Infantry cell
+//!   arrivals, the Jumpjet descent, Fly's landing, the high-flyer refresh and
+//!   the Spy Plane.
+//! - An owner change releases it before the owner store (`0x0070172F`) and
+//!   reveals it for the new owner (`0x0070187B`).
+//! - An alliance change (MakeAlly, MakeEnemy) releases and reveals an ally's
+//!   Buildings on the map whose ally bit changed (`0x004ADEE0`,
+//!   `0x004ADCD0`), as the whole-map transitions do on their map.
+//! - The parasite's AttachTo refusal releases the sight its Unlimbo opened
+//!   (`0x0062AA51`).
+//!
+//! Between events a footprint stays where the last one put it; the frame
+//! pass only ends the frame's derived sight and marks the footprints again.
 //!
 //! ## Performance
 //! Direct source-aware writes publish viewer knowledge. Queries use a cached
@@ -692,18 +706,21 @@ pub struct FogState {
     pub by_owner: Planes,
     /// One native source cache per logical viewer. Inactive entries retain
     /// cached254/260 after250 is cleared, until actual object teardown.
-    pub(crate) sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
+    /// Private to the sight owner: its reveal and release events
+    /// (`Simulation::update_object_sight_in_view`,
+    /// `Simulation::release_object_sight_with_context`) are the only writers.
+    sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
     /// Admissions `TechnoClass::UpdateReveal @ 0x0070AF50` makes for an
     /// alternate house (`RevealToAll=`;
     /// `Simulation::reveal_sight_to_current_house`), keyed like
-    /// `sight_admissions`. Kept apart so the source's own reconciliation
-    /// never releases them, and a viewer that also shares the source's
-    /// ordinary sight holds both contributions, as native does.
+    /// `sight_admissions`. Kept apart so the source's own release never
+    /// takes them, and a viewer that also shares the source's ordinary
+    /// sight holds both contributions, as native does.
     /// Native keeps no record: each call reveals and each release
     /// (the Simulation source release) leaves the counters. VERA
     /// retains the first per viewer, which holds its source count until a
     /// release takes it.
-    pub(crate) alternate_sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
+    alternate_sight_admissions: BTreeMap<(u64, InternedId), SightAdmission>,
     /// Native local House+240: whole-map reveal guard, distinct from the
     /// checksum's map-clear byte+241 and SpySatActive+577A. TAction17 at
     ///6E0FE0 reads this guard without writing it; Map577D90 and gap writers
@@ -832,16 +849,6 @@ impl FogState {
             .is_some_and(|source| source.latched)
     }
 
-    /// Source `id`'s admissions into `into`, which the fog pass reuses.
-    pub(crate) fn read_source_admissions(&self, id: u64, into: &mut SourceAdmissions) {
-        into.0.clear();
-        into.0.extend(
-            self.sight_admissions
-                .range(source_keys(id))
-                .map(|(&(_, viewer), source)| (viewer, source.owner, source.latched)),
-        );
-    }
-
     /// Destructor cleanup of cached254/260 and alternate derived indexes.
     /// Native UnInit/Limbo must have released their live contributions first.
     pub(crate) fn forget_sight_source(&mut self, id: u64) {
@@ -870,18 +877,82 @@ impl FogState {
         }
     }
 
-    /// Mark each footprint source `stable_id` retains as current sight on
-    /// its viewer's map, where it stands.
-    pub(crate) fn mark_retained_sight(&mut self, stable_id: u64) {
+    /// Mark every latched footprint on the maps whose frame clear visited
+    /// every cell (`untracked`, [`Self::begin_sight_frame`]) as current
+    /// sight, where its last reveal left it. Bookkeeping only: which sources
+    /// hold a footprint is decided at their reveal and release events.
+    pub(crate) fn mark_untracked_sight(
+        &mut self,
+        untracked: &std::collections::BTreeSet<InternedId>,
+    ) {
+        if untracked.is_empty() {
+            return;
+        }
         let retained: Vec<_> = self
             .sight_admissions
-            .range(source_keys(stable_id))
-            .filter(|(_, source)| source.latched)
+            .iter()
+            .filter(|&(&(_, viewer), source)| source.latched && untracked.contains(&viewer))
             .map(|(&(_, viewer), admission)| (viewer, admission.clone()))
             .collect();
         for (viewer, admission) in retained {
             self.mark_sight_admission(viewer, &admission);
         }
+    }
+
+    /// `viewer`'s cache of source `id` (`+0x250`/`+0x254`/`+0x260`), latched
+    /// or retained after its release.
+    pub(crate) fn sight_admission(&self, id: u64, viewer: InternedId) -> Option<&SightAdmission> {
+        self.sight_admissions.get(&(id, viewer))
+    }
+
+    /// Whether `viewer` holds source `id`'s alternate (`RevealToAll=`)
+    /// admission.
+    pub(crate) fn holds_alternate_sight(&self, id: u64, viewer: InternedId) -> bool {
+        self.alternate_sight_admissions.contains_key(&(id, viewer))
+    }
+
+    /// Fold the source caches into the simulation state hash. The alternate
+    /// ones are folded only when present, so hashes without a `RevealToAll=`
+    /// opening keep their composition.
+    pub(crate) fn hash_sight_admissions(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.sight_admissions.hash(hasher);
+        if !self.alternate_sight_admissions.is_empty() {
+            b"alternate-sight-admissions-v1".hash(hasher);
+            self.alternate_sight_admissions.hash(hasher);
+        }
+    }
+
+    /// Every source cache, for fixtures that inspect them.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn sight_admissions_for_test(&self) -> &BTreeMap<(u64, InternedId), SightAdmission> {
+        &self.sight_admissions
+    }
+
+    /// Every source cache, for fixtures that edit one.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn sight_admissions_mut_for_test(
+        &mut self,
+    ) -> &mut BTreeMap<(u64, InternedId), SightAdmission> {
+        &mut self.sight_admissions
+    }
+
+    /// Every alternate (`RevealToAll=`) admission, for fixtures that inspect
+    /// them.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn alternate_sight_admissions_for_test(
+        &self,
+    ) -> &BTreeMap<(u64, InternedId), SightAdmission> {
+        &self.alternate_sight_admissions
+    }
+
+    /// Every alternate (`RevealToAll=`) admission, for fixtures that edit
+    /// them.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn alternate_sight_admissions_mut_for_test(
+        &mut self,
+    ) -> &mut BTreeMap<(u64, InternedId), SightAdmission> {
+        &mut self.alternate_sight_admissions
     }
 
     /// Mark each tracked map's cleared cells ([`TrackedCells::cleared`]) that
@@ -1740,14 +1811,25 @@ fn entity_has_sight_ability(
         })
 }
 
+/// What [`FogState::begin_sight_frame`] did to the planes.
+#[derive(Debug, Default)]
+pub(crate) struct SightFrame {
+    /// The viewers whose clear visited every cell: the frame pass marks every
+    /// footprint on their maps again ([`FogState::mark_untracked_sight`]).
+    pub(crate) untracked: std::collections::BTreeSet<InternedId>,
+    /// VERA-only: this frame sized a fixture's fog
+    /// ([`FogState::begin_sight_frame`]), dropping every plane and cache.
+    pub(crate) sized: bool,
+}
+
 impl FogState {
     /// Begin the projection frame without manufacturing a source event.
-    /// Source reconciliation and synchronous receivers belong to Simulation.
+    /// Source reveal/release and synchronous receivers belong to Simulation.
     pub(crate) fn begin_sight_frame(
         &mut self,
         entities: &EntityStore,
         path_grid: Option<&PathGrid>,
-    ) -> std::collections::BTreeSet<InternedId> {
+    ) -> SightFrame {
         // Construction-seeded session bounds are authoritative; the lazy
         // derivation stays only as the fallback for fixture sims built without a
         // descriptor (zero-dim fog).
@@ -1758,13 +1840,14 @@ impl FogState {
         };
         if width == 0 || height == 0 {
             *self = FogState::default();
-            return std::collections::BTreeSet::new();
+            return SightFrame::default();
         }
 
         // First tick or dimension change: recreate all grids (cold path). A grid
         // whose clear visited every cell re-marks every footprint this frame.
-        let mut untracked = std::collections::BTreeSet::new();
+        let mut frame = SightFrame::default();
         if self.width != width || self.height != height {
+            frame.sized = true;
             self.by_owner.clear();
             self.gap_sources.clear();
             self.sight_admissions.clear();
@@ -1780,12 +1863,12 @@ impl FogState {
             // Hot path: clear visible flags, preserve revealed.
             for (&viewer, vis) in self.by_owner.iter_mut() {
                 if !vis.clear_frame_sight() {
-                    untracked.insert(viewer);
+                    frame.untracked.insert(viewer);
                 }
             }
         }
 
-        untracked
+        frame
     }
 }
 
@@ -1798,7 +1881,8 @@ impl FogState {
 /// Native releases sight only at Limbo (`TechnoClass::Limbo`, `0x006F6B06`,
 /// `0x006F6B16`), so an infantry corpse keeps its sight until its death
 /// sequence UnInits it. The dying mark is VERA's SHP death sequence of a
-/// non-Infantry object, which native lacks.
+/// non-Infantry object, which native lacks: its start releases the sight
+/// that native's UnInit would.
 pub(crate) fn holds_sight(
     entity: &crate::sim::game_entity::GameEntity,
     config: &VisionConfig,
@@ -1997,31 +2081,6 @@ pub(crate) fn entity_sight_geometry(
         owner: revealer,
         origin: (entity.position.rx(), entity.position.ry(), height_leptons),
         radius: effective,
-    }
-}
-
-/// One source's admissions as the fog pass reads them, in viewer order:
-/// (viewer, owner revealed for, latched) ([`FogState::read_source_admissions`]).
-#[derive(Debug, Default)]
-pub(crate) struct SourceAdmissions(Vec<(InternedId, InternedId, bool)>);
-
-impl SourceAdmissions {
-    /// An inactive source cache belongs to this owner until an explicit
-    /// native reveal event updates it. A frame must never relatch it.
-    pub(crate) fn cache_is_inactive(&self, owner: InternedId) -> bool {
-        let mut owned = self.0.iter().filter(|&&(_, by, _)| by == owner).peekable();
-        owned.peek().is_some() && owned.all(|&(_, _, latched)| !latched)
-    }
-
-    /// Whether the retained admissions are exactly one per viewer of
-    /// `viewers` (in key order), each revealed for `owner`. Then the source's
-    /// footprints stand until a reveal event moves them.
-    pub(crate) fn retained_cover(&self, owner: InternedId, viewers: &[InternedId]) -> bool {
-        self.0
-            .iter()
-            .filter(|&&(_, _, latched)| latched)
-            .map(|&(viewer, by, _)| (viewer, by))
-            .eq(viewers.iter().map(|&viewer| (viewer, owner)))
     }
 }
 

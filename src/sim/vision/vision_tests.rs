@@ -11,6 +11,11 @@ use crate::util::save_codec;
 /// Persistent production Simulation for source/frame regression fixtures.
 /// Only fixture input construction lives here; all admission, Cell writes,
 /// frame projection and synchronous discovery run through their real owners.
+///
+/// The store swap stands for its objects' Limbo and Unlimbo, so it runs
+/// their sight events through the sight owner before the frame pass: a
+/// source whose object left releases its sight (`0x006F6B16`), and an object
+/// with no sight cache yet reveals it (`0x006F6D27`).
 fn fixture_frame(
     world: &mut crate::sim::world::Simulation,
     fog: &mut FogState,
@@ -28,11 +33,34 @@ fn fixture_frame(
         "fixture heights belong in its PathGrid"
     );
     world.fog = std::mem::take(fog);
-    world.substrate.entities = entities.clone();
     world.interner = interner.clone();
     world.house_alliances = alliances.clone();
     world.resolved_terrain = terrain.cloned();
     world.path_grid = path_grid.cloned().map(std::sync::Arc::new);
+    world.substrate.entities = entities.clone();
+    let context = crate::sim::world::UninitContext::new(rules, None);
+    let cached: std::collections::BTreeMap<u64, bool> = world.fog.sight_admissions.iter().fold(
+        Default::default(),
+        |mut cached, (&(id, _), source)| {
+            *cached.entry(id).or_default() |= source.latched;
+            cached
+        },
+    );
+    for (&id, &latched) in &cached {
+        if latched && !entities.contains(id) {
+            world.release_object_sight_with_context(id, context);
+        }
+    }
+    for id in entities.keys_sorted() {
+        if !cached.contains_key(&id)
+            && entities
+                .get(id)
+                .is_some_and(|entity| holds_sight(entity, config))
+        {
+            let heights = world.sight_height_grid(config);
+            world.update_object_sight_in_view(id, 0, None, config, heights.levels(), context);
+        }
+    }
     world.refresh_sight_sources(config, rules);
     *fog = std::mem::take(&mut world.fog);
 }

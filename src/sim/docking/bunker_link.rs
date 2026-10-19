@@ -945,6 +945,24 @@ mod tests {
             None,
         );
         assert_eq!(own, Some(TargetKind::Cell(12, 12)));
+        // The same-target test compares the request, so asking for the tank
+        // again while the bunker is held stores the bunker again.
+        for _ in 0..2 {
+            let held = stored(&sim, 3, &rules);
+            let receiver = sim.substrate.entities.get_mut(3).unwrap();
+            crate::sim::mission::concrete_effects::represented_assign_target_admitted(
+                receiver, tank, held,
+            );
+            assert_eq!(receiver.attack_target.target(), Some(TargetKind::Entity(2)));
+        }
+        // An object only approaching its bunker (no +0x2E4) is not redirected.
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Approaching(2));
+        assert_eq!(stored(&sim, 3, &rules), tank);
     }
 
     fn down_sounds(sim: &Simulation) -> usize {

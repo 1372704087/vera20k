@@ -126,6 +126,7 @@ impl WallDamageTransactionHost for AoEWallDamageHost<'_, '_> {
                 self.target_terrain_objects,
                 rx,
                 ry,
+                None,
                 #[cfg(any(test, feature = "test-support"))]
                 self.trace,
             );
@@ -758,6 +759,10 @@ pub(crate) fn expire_cell_target_references(
     terrain_objects: &BTreeMap<u64, TerrainObjectState>,
     rx: u16,
     ry: u16,
+    types: Option<(
+        &crate::rules::ruleset::RuleSet,
+        &crate::sim::intern::StringInterner,
+    )>,
     #[cfg(any(test, feature = "test-support"))] trace: &mut Vec<CellTargetDetach>,
 ) {
     let listener_ids = entities.keys_sorted();
@@ -768,7 +773,7 @@ pub(crate) fn expire_cell_target_references(
                 terrain_objects,
                 listener_id,
                 entity.suspended_attack_target.target(),
-                None,
+                types,
             )
         });
         let Some(entity) = entities.get_mut(listener_id) else {

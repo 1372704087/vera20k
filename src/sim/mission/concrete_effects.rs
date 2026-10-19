@@ -603,8 +603,8 @@ pub(crate) fn assign_target_commits(
 /// - the receiver itself becomes the Cell under its Location (`0x006FCEB8`);
 /// - then [`assign_target_commits`] admits the result, else NULL.
 ///
-/// The `IsLocomotor=` arm needs the rules and interner; a caller without
-/// them (the cell-target expiry's Restore) skips it.
+/// The `IsLocomotor=` arm needs the rules and interner. Residual: the wall
+/// hosts' cell-target expiry Restore has neither and skips that arm.
 pub(crate) fn assign_target_stored(
     entities: &EntityStore,
     terrain_objects: &BTreeMap<u64, TerrainObjectState>,
@@ -658,7 +658,7 @@ pub(crate) fn represented_assign_target(
 ) {
     debug_assert!(
         !matches!(requested, Some(TargetKind::Entity(_))),
-        "an object target needs assign_target_commits"
+        "an object target needs assign_target_stored"
     );
     represented_assign_target_admitted(entity, requested, requested);
 }
@@ -694,8 +694,10 @@ pub(crate) fn represented_assign_target_admitted(
     // ammo, mid-run in Mission_Attack states 5..9, handed another target
     // drops it and empties its ammo, so it leaves the run. This reads the
     //TYPE's Spawned/MissileSpawn flags, also for Boris planes without a
-    //SpawnOwner. A NULL request reaches this gate too (6FCDEB..6FCE46).
-    let requested = if entity.type_facts.spawned_non_missile_aircraft()
+    //SpawnOwner. A NULL request skips the arm (0x006FCDF3 jumps to the
+    // store) and keeps the ammo.
+    let requested = if requested.is_some()
+        && entity.type_facts.spawned_non_missile_aircraft()
         && matches!(crate::sim::aircraft::attack_state(entity), Some(5..=9))
         && let Some(ammo) = entity.ammo_mut()
         && ammo.current() != 0

@@ -3854,6 +3854,7 @@ impl Simulation {
             let live_objects = TiberiumPlacementObjectContext::new(
                 &self.substrate.entities,
                 &self.substrate.occupancy,
+                &self.substrate.raw_cell_occupation,
                 rules,
                 &self.interner,
                 &self.production.terrain_object_cells,

@@ -19,20 +19,10 @@ use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::native_x87::object_distance;
 use std::collections::BTreeSet;
 
-/// OverlayClass::Mark5FC5D9..5FC5E3: the common unsigned slope gate,
-/// before Railroad, Wall and other derived arms. Literal0xB2 is exempt.
-/// Source: original gamemd; trigger-crate and wall-autofill controls.
-pub(crate) const fn overlay_mark_accepts_slope(overlay_id: u8, slope: u8) -> bool {
-    slope <= MARK_MAX_SLOPE || overlay_id == MARK_STEEP_SLOPE_EXCEPTION_ID
-}
-
 /// The overlay index `BuildingClass::AfterDestruction` stamps on a destroyed
 /// building's foundation (`MOV [ESI+0x44],0xEF` at `0x0044202C`). Retail
 /// `[OverlayTypes]` puts `RUBBLE_OVERLAY` (`IsRubble=yes`) there.
 pub const RUBBLE_OVERLAY_INDEX: u8 = 0xEF;
-
-const MARK_MAX_SLOPE: u8 = 4;
-const MARK_STEEP_SLOPE_EXCEPTION_ID: u8 = 0xB2;
 
 /// Building facts consumed by the one-shot map-wall owner reconstruction pass.
 /// Callers preserve BuildingClass allocation order in this slice.
@@ -381,7 +371,10 @@ impl OverlayGrid {
                     && !(game_mode_nonzero && flags.crate_type)
             });
             if let Some(flags) = accepted_flags
-                && overlay_mark_accepts_slope(entry.overlay_id, slope_type)
+                && crate::map::overlay_mark::overlay_mark_accepts_slope(
+                    entry.overlay_id,
+                    slope_type,
+                )
             {
                 let idx = entry.ry as usize * width as usize + entry.rx as usize;
                 grid.cells[idx] = OverlayCell {
@@ -613,13 +606,27 @@ impl OverlayGrid {
         }
     }
 
-    pub(crate) fn add_retained_wall_neighbor_source(
+    /// One wrapping increment of `CellClass+0x122` on a cell
+    /// `OverlayClass::Mark`'s wall tail resolved (`0x005FC762..0x005FC773`).
+    /// The shared dummy keeps its own count.
+    pub(crate) fn increment_retained_wall_neighbor_count(
         &mut self,
-        resolved_terrain: Option<&ResolvedTerrainGrid>,
-        rx: u16,
-        ry: u16,
+        resolved_terrain: &ResolvedTerrainGrid,
+        cell: crate::map::cell_index::NativeCellIdentity,
     ) {
-        self.adjust_retained_wall_neighbor_source(resolved_terrain, rx, ry, true);
+        self.bump_mutation_epoch();
+        let crate::map::cell_index::NativeCellIdentity::Real(_) = cell else {
+            resolved_terrain
+                .shared_cell_dummy()
+                .adjust_neighbor_count(true);
+            return;
+        };
+        let (x, y) = resolved_terrain.native_cell_coord(cell);
+        let Some(index) = index_of(self.width, self.height, x as u16, y as u16) else {
+            return;
+        };
+        self.wall_plane_epoch = self.wall_plane_epoch.wrapping_add(1);
+        self.retained_neighbor_counts[index] = self.retained_neighbor_counts[index].wrapping_add(1);
     }
 
     pub(crate) fn remove_retained_wall_neighbor_source(
@@ -664,32 +671,51 @@ impl OverlayGrid {
         }
     }
 
-    /// Write the two literal CellClass overlay fields without running the
-    /// common `RecalcAttributes` tail yet. Runtime Mark needs this split so
-    /// Wall cleanup, Road germination, the Crate-data override, and CellAnim
-    /// construction occur in their native order before the tail recalc.
-    pub(crate) fn write_crate_mark_fields(
+    /// `OverlayClass::Mark @ 0x005FC570`'s literal `CellClass+0x44` store,
+    /// without the `RecalcAttributes` tail. Mark interleaves its data stores,
+    /// wall cleanup, germination and CellAnim before its own Recalc. The
+    /// terrain bridge cache follows when the caller holds the terrain mutably;
+    /// the batched ore placement holds it shared and leaves the cache (#722).
+    /// False outside the grid or for an unregistered type.
+    pub(crate) fn write_mark_identity(
         &mut self,
-        resolved_terrain: &mut ResolvedTerrainGrid,
+        resolved_terrain: Option<&mut ResolvedTerrainGrid>,
         registry: &OverlayTypeRegistry,
         rx: u16,
         ry: u16,
         overlay_id: u8,
-        overlay_data: u8,
     ) -> bool {
         let wrote = self
-            .write_identity_fields(
-                resolved_terrain,
-                registry,
-                (rx, ry),
-                overlay_id,
-                Some(overlay_data),
-            )
+            .write_identity_fields(resolved_terrain, registry, (rx, ry), overlay_id, None)
             .is_some();
         if wrote {
             self.bump_mutation_epoch();
         }
         wrote
+    }
+
+    /// The literal `CellClass+0x11E` store, with or without an identity and
+    /// without a dirty entry or Recalc: `OverlayClass::Mark`'s data stores and
+    /// the stores that follow an Overlay constructor
+    /// (`CellClass::PlaceTiberium @ 0x004872A0`, `AnimClass::AI @
+    /// 0x00424155`). The terrain bridge cache follows as for
+    /// [`Self::write_mark_identity`]. False outside the grid.
+    pub(crate) fn write_cell_data(
+        &mut self,
+        resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+        rx: u16,
+        ry: u16,
+        overlay_data: u8,
+    ) -> bool {
+        let Some(idx) = index_of(self.width, self.height, rx, ry) else {
+            return false;
+        };
+        self.bump_mutation_epoch();
+        self.cells[idx].overlay_data = overlay_data;
+        if let Some(terrain) = resolved_terrain {
+            terrain.set_runtime_overlay_bridge_state_byte(rx, ry, overlay_data);
+        }
+        true
     }
 
     /// `BuildingClass::AfterDestruction @ 0x00441F60`'s foundation-cell
@@ -706,7 +732,7 @@ impl OverlayGrid {
         ry: u16,
     ) -> bool {
         let Some(idx) = self.write_identity_fields(
-            resolved_terrain,
+            Some(resolved_terrain),
             registry,
             (rx, ry),
             RUBBLE_OVERLAY_INDEX,
@@ -719,11 +745,12 @@ impl OverlayGrid {
     }
 
     /// The literal `CellClass+0x44` store, with `+0x11E` when `overlay_data`
-    /// is given, projected into the bridge cache. No Recalc tail. Returns the
-    /// cell index, or `None` outside the grid or for an unregistered type.
+    /// is given, projected into the bridge cache when the terrain is given.
+    /// No Recalc tail. Returns the cell index, or `None` outside the grid or
+    /// for an unregistered type.
     fn write_identity_fields(
         &mut self,
-        resolved_terrain: &mut ResolvedTerrainGrid,
+        resolved_terrain: Option<&mut ResolvedTerrainGrid>,
         registry: &OverlayTypeRegistry,
         (rx, ry): (u16, u16),
         overlay_id: u8,
@@ -739,13 +766,9 @@ impl OverlayGrid {
         }
         let overlay_data = cell.overlay_data;
         self.dirty_cells.push((rx, ry));
-        resolved_terrain.set_runtime_overlay_bridge_identity(
-            rx,
-            ry,
-            overlay_id,
-            overlay_data,
-            name,
-        );
+        if let Some(terrain) = resolved_terrain {
+            terrain.set_runtime_overlay_bridge_identity(rx, ry, overlay_id, overlay_data, name);
+        }
         Some(idx)
     }
 
@@ -949,7 +972,7 @@ impl OverlayGrid {
     }
 
     /// Initialize a test wall fixture before assigning its owner. Runtime
-    /// OverlayClass::Mark uses `write_crate_mark_fields` to retain cell state.
+    /// OverlayClass::Mark uses `write_mark_identity` to retain cell state.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn stamp_wall_identity(&mut self, rx: u16, ry: u16, overlay_id: u8, data: u8) {
         self.bump_mutation_epoch();
@@ -2130,6 +2153,7 @@ pub(crate) fn test_wall_overlays(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::map::overlay_mark::MARK_STEEP_SLOPE_EXCEPTION_ID;
 
     pub(super) fn retained_wall_plane_for_sources(
         terrain: &ResolvedTerrainGrid,

@@ -271,6 +271,7 @@ impl App {
                         fnt,
                         gpu.config.width,
                         gpu.config.height,
+                        options_profile.ra2_look,
                     )
                     .map_err(|err| log::warn!("Could not build retail startup splash: {err:#}"))
                     .ok()
@@ -545,6 +546,7 @@ impl App {
                     radar_anim: None,
                     radar_movies: Default::default(),
                     chrono_screen: Default::default(),
+                    scenario_pause: Default::default(),
                     radar_animation_source: None,
                     radar_content_insets: None,
                     has_radar: false,
@@ -557,7 +559,6 @@ impl App {
                     terrain_grid: None,
                     height_map: BTreeMap::new(),
                     bridge_height_map: BTreeMap::new(),
-                    installed_playfield_authority: None,
                     overlays: Default::default(),
                     terrain_objects: Vec::new(),
                     overlay_names: BTreeMap::new(),

@@ -36,17 +36,18 @@
 //! (`0x0062A2F8..0x0062A311`, cleared at `0x0062A372..0x0062A379` and
 //! `0x0062A45C..0x0062A462`), which skips that query.
 //!
+//! A placed owner's sight: its Unlimbo reveals it (`0x006F6D27`), and the
+//! AttachTo refusal then takes it back (ReReveal `0x0062AA51`). The
+//! UpdateReveal that follows ExitUnit's (`0x0062A7A8`) and PointerExpired's
+//! (`0x0062A40B`) Unlimbo finds the latch that Unlimbo set and adds nothing.
+//!
 //! RESIDUALS (each needs a mechanism VERA does not have yet):
-//! - A placed owner's sight: native follows the Unlimbo with ReReveal
-//!   (AttachTo refusal, `0x0062AA51`) or UpdateReveal (ExitUnit `0x0062A7A8`,
-//!   PointerExpired `0x0062A40B`), and the fog border `0x00567DA0`
-//!   (presentation; `0x0062AA91`, `0x0062A44B`). VERA's vision frame pass
-//!   admits the placed owner in their place (the residual in `sim::vision`),
-//!   so after the AttachTo refusal it holds sight where native's ReReveal has
-//!   just released the reveal Unlimbo made (`0x006F6D27`), until its next
-//!   cell arrival. Trigger: a jump whose host is lost in flight. Effect: the
-//!   returned drone sees around its launch cell before it moves again.
-//!   Frequency: rare.
+//! - The fog borders that follow the AttachTo refusal (`0x0062AA91`: from
+//!   the cached radius - 3 out to + 2) and PointerExpired (`0x0062A44B`:
+//!   - 3 out to + 3) are not refreshed. Trigger: a jump whose host is lost
+//!   in flight; a drone's victim dying. Effect: the shroud-edge frames of
+//!   that ring around the drone wait for its next reveal event. Frequency:
+//!   each such release. Risk: edge frames only.
 //! - GetReleaseCoords' PlaceInfantryInCell finding no spot writes the zero
 //!   coordinate (`0x0089E778`), which a Unit owner turns into map cell
 //!   (0,0)'s GetCoords (`0x0062AE09..0x0062AE3E`); that is no longer the
@@ -79,6 +80,7 @@ use crate::sim::movement::{ground_pose, target_cell_coord};
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{FrameEffects, Simulation, UninitContext};
 use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::{dir_from_facing16, round_facing16_to_8};
 
 #[path = "parasite_grapple.rs"]
 mod grapple;
@@ -305,16 +307,6 @@ fn weapon_zero<'r>(
         .and_then(|(name, _)| rules.weapon(name))
 }
 
-/// `((raw >> 12) + 1) >> 1 & 7`: the eight-way direction of a facing word.
-fn dir8(raw: u16) -> usize {
-    (((u32::from(raw) >> 12) + 1) >> 1) as usize & 7
-}
-
-/// Unlimbo DirType argument `((raw >> 7) + 1) >> 1 & 0xFF`.
-fn dir_type(raw: u16) -> u8 {
-    ((((u32::from(raw) >> 7) + 1) >> 1) & 0xFF) as u8
-}
-
 impl Simulation {
     /// `CanInfect @ 0x0062A8E0` for AttachTo, through the same
     /// [`ParasiteVictimFacts`](super::combat_weapon::ParasiteVictimFacts)
@@ -430,13 +422,15 @@ impl Simulation {
                 .map(NativeCellQuery::canonical)
                 .as_ref(),
         );
+        let context = UninitContext::with_rules(rules).with_effects(effects);
         if !self.parasite_unlimbo_owner(owner, coords, 0, rules, effects) {
-            self.uninit_with_context(
-                owner,
-                UninitContext::with_rules(rules).with_effects(effects),
-            );
+            self.uninit_with_context(owner, context);
             return;
         }
+        // 0x0062AA51: ReReveal(0, 0, 0, 0) takes back the sight the Unlimbo
+        // just opened (`0x006F6D27`): the owner stays blind until its next
+        // reveal event.
+        self.release_object_sight_with_context(owner, context);
         self.parasite_released_owner_orders(owner, false, rules, effects);
     }
 
@@ -589,7 +583,10 @@ impl Simulation {
                     rules,
                 );
             }
-            if let Some(name) = anims.get(dir8(raw)).filter(|_| !anims.is_empty()) {
+            if let Some(name) = anims
+                .get(usize::from(dir_from_facing16(raw)))
+                .filter(|_| !anims.is_empty())
+            {
                 let world = crate::sim::anim_class::AnimWorldCoord {
                     x: location.x,
                     y: location.y,
@@ -622,7 +619,7 @@ impl Simulation {
             } else {
                 -2
             };
-            let angle = X::load_f64(crate::sim::projectile::native_math::radians(
+            let angle = X::load_f64(crate::util::direction_tables::radians_from_facing16(
                 raw.wrapping_sub(0x3fff),
             ))
             .expect("finite parasite bite facing");
@@ -702,7 +699,7 @@ impl Simulation {
             return;
         };
         let raw = victim_entity.body_facing_current(frame);
-        let released = if dir8(raw) <= 2 {
+        let released = if dir_from_facing16(raw) <= 2 {
             raw.wrapping_add(0x3FFF)
         } else {
             raw.wrapping_sub(0x3FFF)
@@ -727,7 +724,7 @@ impl Simulation {
             return;
         }
         let requested = if naval {
-            let (dx, dy) = DIRECTION_DELTAS[dir8(released)];
+            let (dx, dy) = DIRECTION_DELTAS[usize::from(dir_from_facing16(released))];
             (
                 victim_cell.0.wrapping_add(dx as i16),
                 victim_cell.1.wrapping_add(dy as i16),
@@ -751,7 +748,13 @@ impl Simulation {
                     .as_ref(),
             );
             self.parasite_can_place_at_victim(owner, victim, rules)
-                && self.parasite_unlimbo_owner(owner, coords, dir_type(released), rules, effects)
+                && self.parasite_unlimbo_owner(
+                    owner,
+                    coords,
+                    round_facing16_to_8(released),
+                    rules,
+                    effects,
+                )
         });
         if placed {
             self.parasite_reselect(owner, rules, effects);
@@ -855,7 +858,13 @@ impl Simulation {
         // 0x0062A2F8..0x0062A379: the 0xA8E7AC bracket around Unlimbo.
         let placed = coords.is_some_and(|coords| {
             self.with_object_placement_scope(|sim| {
-                sim.parasite_unlimbo_owner(owner, coords, dir_type(victim_raw), rules, effects)
+                sim.parasite_unlimbo_owner(
+                    owner,
+                    coords,
+                    round_facing16_to_8(victim_raw),
+                    rules,
+                    effects,
+                )
             })
         });
         if placed {
@@ -933,7 +942,7 @@ impl Simulation {
             victim_entity.position.rx() as i16,
             victim_entity.position.ry() as i16,
         );
-        let (dx, dy) = DIRECTION_DELTAS[dir8(raw)];
+        let (dx, dy) = DIRECTION_DELTAS[usize::from(dir_from_facing16(raw))];
         let adjacent = (
             victim_cell.0.wrapping_add(dx as i16),
             victim_cell.1.wrapping_add(dy as i16),
@@ -1055,7 +1064,7 @@ impl Simulation {
             .resolved_terrain
             .as_ref()
             .and_then(|t| t.cell(cell.0 as u16, cell.1 as u16))
-            .map(|c| c.yr_cell_land_type);
+            .map(|c| c.land_type());
         let restricted = land.is_some_and(|land| {
             land == LandType::Water.as_index()
                 || land == LandType::Beach.as_index()

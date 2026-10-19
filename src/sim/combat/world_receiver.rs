@@ -1197,14 +1197,9 @@ pub(crate) fn commit_entities(
                 .then(|| world.substrate.entities.get(attacker_id))
                 .flatten()
                 .map(|attacker| {
-                    (
-                        i32::from(attacker.position.rx())
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_x().to_num::<i32>()),
-                        i32::from(attacker.position.ry())
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_y().to_num::<i32>()),
-                    )
+                    let [x, y] =
+                        crate::sim::movement::ground_pose::position_world_xy(&attacker.position);
+                    (x, y)
                 });
             // FootClass (`0x004D746D..0x004D74C7`): a teamless Foot hit by a
             // source, whose current mission's MissionControl sets `NoThreat=`
@@ -1787,6 +1782,15 @@ fn finish_concrete_death(
                 anim.switch_to(sequence);
             }
         }
+        // VERA-only death sequence: native's UnInit would Limbo the object
+        // here, whose ReReveal (`0x006F6B16`) takes its sight off the maps.
+        // An aircraft's corpse defers that UnInit to the sequence's end (a
+        // Unit's receiver runs it next), so its sight leaves now.
+        world.release_object_sight_with_context(
+            dead_id,
+            crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
+                .with_effects(frame_effects),
+        );
         // The corpse stays in the store for its death animation; the death
         // arm's OVER_OUT to every contact (`techno_death_stun`) already
         // released its dock slots.

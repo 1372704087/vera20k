@@ -22,9 +22,7 @@ impl From<crate::sim::components::NavTargetRef> for TargetKind {
         use crate::sim::components::NavTargetRef;
         match target {
             NavTargetRef::Cell { rx, ry } => Self::Cell(rx, ry),
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id } => Self::Entity(id),
+            NavTargetRef::Object { id } => Self::Entity(id),
         }
     }
 }
@@ -151,8 +149,8 @@ pub(super) fn cell_center_coords(rx: u16, ry: u16) -> (u16, u16, SimFixed, SimFi
 /// and the Infantry fire tail read it through this. Natively the killing
 /// hit's Destroy = `Detach_All(1)` (`ObjectClass::ReceiveDamage
 /// 0x005F5765..0x005F57AF`) announces the expiry, so no Target names a dying
-/// object; VERA can keep a dying infantryman's id until its death sequence
-/// ends.
+/// object; VERA can keep an infantry corpse's id until its death sequence
+/// ends, and its Health 0 answers for that expiry here.
 pub(crate) fn target_present(
     target: Option<TargetKind>,
     world: &crate::sim::world::Simulation,

@@ -1535,14 +1535,6 @@ mod tests {
         e
     }
 
-    fn building_target(rx: u16, ry: u16, type_ref: &str) -> GameEntity {
-        let mut e = GameEntity::test_default(300, type_ref, "Defenders", rx, ry);
-        e.position.set_z_for_test(0);
-        e.set_category_for_test(EntityCategory::Structure);
-        e.lifecycle.set_cell_marked(true);
-        e
-    }
-
     fn aircraft_target(
         rx: u16,
         ry: u16,

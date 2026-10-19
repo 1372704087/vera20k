@@ -153,11 +153,6 @@ impl ResponseSelection {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn remaining_budget(&self) -> i32 {
-        self.remaining_budget
-    }
-
     pub(crate) fn can_scan(&self) -> bool {
         self.remaining_budget > 0
     }

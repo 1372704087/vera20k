@@ -13,7 +13,6 @@ use crate::util::fixed_math::SIM_ONE;
 const NORTH: u8 = 0;
 const NORTH_EAST: u8 = 1;
 const EAST: u8 = 2;
-const WEST: u8 = 6;
 
 /// A tank and a one-cell building.
 fn rules() -> RuleSet {

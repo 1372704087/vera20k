@@ -100,7 +100,7 @@ pub(crate) struct RetailOptionsProfile {
     /// The Options page's battle sidebar size.
     pub(crate) sidebar: crate::ui::main_menu_dialogs::options::SidebarSize,
     /// Whether the startup splash and the menu movie use Red Alert 2's art
-    /// instead of Yuri's Revenge's: the Options page's Red Alert 2 Look.
+    /// instead of Yuri's Revenge's: the Options page's RA2 Loading & Menu Movie.
     pub(crate) ra2_look: bool,
 }
 

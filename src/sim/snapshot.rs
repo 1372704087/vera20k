@@ -1149,12 +1149,17 @@ use crate::util::save_codec;
 // 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
 // 425 -> 426: retain the Techno+0x12C Behind indicator Anim.
 // 426 -> 427: retained IonBlast rules inputs, pending damaging blasts and Foot draw lift.
-// 427 -> 429 (428 is the infantry-death change's): processed Types retain their
-// remaining Type references (TechnoType pointers and lists, Weapon anims and
-// particle system, SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and
-// AnimType references, Warhead DebrisTypes), and process Rules state keeps
-// its RulesClass Type pointers and lists, the crate and rocket ones included.
-const SNAPSHOT_VERSION: u32 = 429;
+// 427 -> 428: the Infantry terminal policy is gone from TerminalLifetime,
+// which keeps only the dying mark; an infantry corpse is an ordinary
+// IsAlive object at Health 0.
+// 428 -> 429: saved dynamic terrain cells keep one CellClass+0xEC LandType
+// (and its pre-overlay base) instead of two copies of it.
+// 429 -> 430: processed Types retain their remaining Type references
+// (TechnoType pointers and lists, Weapon anims and particle system,
+// SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
+// references, Warhead DebrisTypes), and process Rules state keeps its
+// RulesClass Type pointers and lists, the crate and rocket ones included.
+const SNAPSHOT_VERSION: u32 = 430;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1416,8 +1421,8 @@ pub enum SnapshotRestoreError {
     InvalidCurrentHouse {
         owner: crate::sim::intern::InternedId,
     },
-    #[error("entity {object_id} has an invalid or incomplete Infantry terminal handoff")]
-    InvalidInfantryTerminalState { object_id: u64 },
+    #[error("entity {object_id} is a live infantryman with the dying mark")]
+    InvalidInfantryDyingMark { object_id: u64 },
     #[error("house {owner} has invalid serialized outcome state: {reason}")]
     InvalidHouseOutcomeState {
         owner: crate::sim::intern::InternedId,
@@ -2782,29 +2787,15 @@ impl Simulation {
                 }
             }
         }
-        // VERA-internal terminal admission invariant. UnInit clears the policy
-        // before marking the object dead; pending deletion needs no new visit.
-        // A borrowed consequence packet cannot survive a save boundary.
-        // Logic membership is rebuilt later. A retained limbo object may carry
-        // a terminal policy until its owner releases it back into Logic.
-        let terminal_logic_members: std::collections::BTreeSet<_> =
-            self.substrate.logic.snapshot().into_iter().collect();
+        // VERA-internal: the dying mark is the SHP vehicle/aircraft death and
+        // UnInit's. A live infantryman with it would take the vehicle death
+        // path; his corpse is an ordinary IsAlive object at Health 0.
         for (object_id, entity) in self.substrate.entities.iter_sorted() {
-            let infantry = entity.category() == crate::map::entities::EntityCategory::Infantry;
-            if (entity.death.infantry_terminal().is_some()
-                && (!infantry
-                    || !entity.death.is_dying()
-                    || !entity.lifecycle.object_alive()
-                    || (!entity.lifecycle.in_limbo()
-                        && !terminal_logic_members.contains(&object_id))))
-                || entity.death.infantry_terminal()
-                    == Some(crate::sim::world::InfantryTerminal::AwaitingConsequences)
-                || (infantry
-                    && entity.death.is_dying()
-                    && entity.lifecycle.object_alive()
-                    && entity.death.infantry_terminal().is_none())
+            if entity.category() == crate::map::entities::EntityCategory::Infantry
+                && entity.death.is_dying()
+                && entity.lifecycle.object_alive()
             {
-                return Err(SnapshotRestoreError::InvalidInfantryTerminalState { object_id });
+                return Err(SnapshotRestoreError::InvalidInfantryDyingMark { object_id });
             }
         }
         for (&owner, house) in &self.houses {
@@ -4882,9 +4873,11 @@ mod tests {
         // 424 -> 425: Scenario cargo flags and the ice-growth byte.
         // 425 -> 426: the Techno+0x12C Behind indicator Anim.
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
-        // 427 -> 429: the remaining Type references and RulesClass Type
-        // pointers (428 is the infantry-death change's).
-        assert_eq!(super::SNAPSHOT_VERSION, 429);
+        // 427 -> 428: TerminalLifetime keeps only the dying mark.
+        // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
+        // 429 -> 430: the remaining Type references and RulesClass Type
+        // pointers and lists.
+        assert_eq!(super::SNAPSHOT_VERSION, 430);
     }
 
     #[test]
@@ -5008,61 +5001,27 @@ mod tests {
     }
 
     #[test]
-    fn infantry_terminal_restore_rejects_state_outside_its_admission() {
+    fn restore_rejects_a_live_infantryman_with_the_dying_mark() {
         use crate::map::entities::EntityCategory;
         use crate::sim::game_entity::GameEntity;
-        use crate::sim::world::InfantryTerminal;
-        for (category, dying, object_alive, in_limbo, terminal) in [
-            (
-                EntityCategory::Unit,
-                true,
-                true,
-                true,
-                Some(InfantryTerminal::RetireNextVisit),
-            ),
-            (
-                EntityCategory::Infantry,
-                false,
-                true,
-                true,
-                Some(InfantryTerminal::RetireNextVisit),
-            ),
-            (
-                EntityCategory::Infantry,
-                true,
-                true,
-                true,
-                Some(InfantryTerminal::AwaitingConsequences),
-            ),
-            (EntityCategory::Infantry, true, true, true, None),
-            (
-                EntityCategory::Infantry,
-                true,
-                false,
-                true,
-                Some(InfantryTerminal::RetireNextVisit),
-            ),
-            (
-                EntityCategory::Infantry,
-                true,
-                true,
-                false,
-                Some(InfantryTerminal::RetireNextVisit),
-            ),
+        for (category, object_alive, rejected) in [
+            (EntityCategory::Infantry, true, true),
+            (EntityCategory::Infantry, false, false),
+            (EntityCategory::Unit, true, false),
         ] {
             let mut sim = Simulation::new();
             let mut entity = GameEntity::test_default(1, "E1", "Americans", 5, 5);
             entity.set_category_for_test(category);
-            entity.death.set_dying_for_test(dying);
+            entity.death.set_dying_for_test(true);
             entity.lifecycle.set_object_alive_for_test(object_alive);
-            entity.lifecycle.set_in_limbo_for_test(in_limbo);
-            entity.death.set_infantry_terminal_for_test(terminal);
             sim.substrate.entities.insert(entity);
             let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
             let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
             assert_eq!(
-                restored.restore_after_snapshot_load(),
-                Err(SnapshotRestoreError::InvalidInfantryTerminalState { object_id: 1 })
+                restored.restore_after_snapshot_load()
+                    == Err(SnapshotRestoreError::InvalidInfantryDyingMark { object_id: 1 }),
+                rejected,
+                "{category:?} alive={object_alive}"
             );
         }
     }

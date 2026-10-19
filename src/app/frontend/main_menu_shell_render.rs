@@ -27,7 +27,7 @@ use crate::ui::main_menu_shell::{
 use crate::ui::shell::geom::{SDBTNANM_CELL_H, SDBTNANM_CELL_W_NARROW, ShellScale};
 use crate::ui::shell::static_reveal::{Kind1PaintWindow, Kind1RevealReceipt, Kind1RevealWindow};
 
-/// Archive holding the Red Alert 2 menu loop for VERA's Red Alert 2 Look.
+/// Archive holding the Red Alert 2 menu loop for VERA's RA2 Loading & Menu Movie option.
 ///
 /// `ra2ts_l.bik` exists under the same name in this archive and in `langmd.mix`
 /// (Yuri's Revenge), whose copy normal priority resolves first. `ra2ts_s.bik`,
@@ -70,8 +70,9 @@ pub(crate) enum Ra2tsDialogOwner {
 /// Identity of the one RA2TS session installed for a movie-bearing dialog.
 ///
 /// Owner and asset base change atomically because neither alone is sufficient
-/// to make the decoder/texture reusable. VERA's Red Alert 2 Look picks which
-/// game's copy of the movie the session plays, so it is part of the identity.
+/// to make the decoder/texture reusable. VERA's RA2 Loading & Menu Movie option
+/// picks which game's copy of the movie the session plays, so it is part of the
+/// identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Ra2tsMovieSessionIdentity {
     owner: Ra2tsDialogOwner,
@@ -350,8 +351,8 @@ pub(crate) fn ensure_movie_for_current_layout(
 /// (MainMenuDialog0xE2__Run), selects Ra2ts_s at width 640 and Ra2ts_l
 /// otherwise, then gives that name to the movie control. Resolve through the
 /// shared first-match asset lookup, preserving loose-file and archive priority.
-/// VERA's Red Alert 2 Look asks [`RA2_MOVIE_ARCHIVE`] for its copy instead and
-/// falls back to that lookup when the archive lacks it.
+/// VERA's RA2 Loading & Menu Movie option asks [`RA2_MOVIE_ARCHIVE`] for its
+/// copy instead and falls back to that lookup when the archive lacks it.
 fn menu_movie_bytes<'a>(
     assets: &'a crate::assets::asset_manager::AssetManager,
     asset_name: &str,
@@ -364,7 +365,7 @@ fn menu_movie_bytes<'a>(
         .map(|bytes| (bytes, RA2_MOVIE_ARCHIVE));
     if ra2_look && red_alert_2_copy.is_none() {
         log::warn!(
-            "{asset_name} is missing from {RA2_MOVIE_ARCHIVE}; the Red Alert 2 Look shows the Yuri's Revenge loop"
+            "{asset_name} is missing from {RA2_MOVIE_ARCHIVE}; RA2 Loading & Menu Movie plays the Yuri's Revenge loop instead"
         );
     }
     red_alert_2_copy.or_else(|| assets.get_with_source_ref(asset_name))
@@ -988,7 +989,7 @@ mod tests {
         let assets = AssetManager::new(&retail_dir, MediaArchiveMode::STOCK_DIGITAL)
             .expect("load retail RA2/YR assets");
         // The large loop ships in both games' archives: normal priority plays
-        // Yuri's Revenge's, the Red Alert 2 Look the original's.
+        // Yuri's Revenge's, the RA2 Loading & Menu Movie option the original's.
         let large = MainMenuMovieBase::Ra2tsL.asset_name();
         let (yr, yr_source) = menu_movie_bytes(&assets, large, false).expect("YR large loop");
         let (ra2, ra2_source) = menu_movie_bytes(&assets, large, true).expect("RA2 large loop");

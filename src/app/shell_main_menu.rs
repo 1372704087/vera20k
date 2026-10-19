@@ -63,6 +63,10 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
         // paint loads the other game's copy; the splash follows next launch.
         self.persistence.options_profile.ra2_look = ra2_look;
     }
+    fn store_shift_queue(&mut self, shift_queue: bool) {
+        // The next cameo press reads it; Options' accept writes it out.
+        self.persistence.options_profile.shift_queue = shift_queue;
+    }
 }
 
 struct AppStateLauncherParentOperations<'a> {

@@ -6827,6 +6827,14 @@ impl Simulation {
         &self.frame_profile
     }
 
+    /// Start a fresh sample window while measurement stays on. Report points
+    /// close one window per capture, so each point covers the time since the
+    /// previous point instead of the whole elapsed match.
+    #[cfg(feature = "telemetry")]
+    pub fn reset_frame_profile(&mut self) {
+        self.frame_profile.reset();
+    }
+
     /// Install the sole audio owner's read-only pending-interest projection
     /// immediately before an admitted frame. No voice names/state live here.
     pub fn prepare_unit_voice_visits(&mut self, owners: std::collections::BTreeSet<u64>) {

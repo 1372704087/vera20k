@@ -1097,9 +1097,12 @@ pub(crate) fn superweapon_launch_cue(
         // Cases 3, 5, 6 and 8 reach neither a `VocClass` nor a `VoxClass` call.
         // GenericWarhead has no default Ares launch sound/EVA; custom Ares
         // audio overrides are outside this initial payload implementation.
-        K::ChronoSphere | K::ParaDrop | K::AmerParaDrop | K::SpyPlane | K::GenericWarhead => {
-            SuperWeaponLaunchCue::default()
-        }
+        K::ChronoSphere
+        | K::ParaDrop
+        | K::AmerParaDrop
+        | K::SpyPlane
+        | K::GenericWarhead
+        | K::UnitDelivery => SuperWeaponLaunchCue::default(),
     }
 }
 

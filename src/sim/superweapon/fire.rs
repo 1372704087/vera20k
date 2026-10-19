@@ -73,6 +73,11 @@ impl Simulation {
         if super::targeting::check(self, rules, owner, sw, cell, automatic).is_err() {
             return false;
         }
+        if sw.kind == SuperWeaponKind::UnitDelivery
+            && !super::unit_delivery::admits(self, rules, owner, sw, cell)
+        {
+            return false;
+        }
         let paired = sw
             .post_click
             .then(|| pre_dependent(self, rules, sw))
@@ -201,6 +206,18 @@ fn launch(
 ) {
     use super::paradrop::ParaDropKind;
     match sw.kind {
+        SuperWeaponKind::UnitDelivery => {
+            super::unit_delivery::launch(
+                sim,
+                rules,
+                owner,
+                sw_type_id,
+                sw,
+                (rx, ry),
+                overlay_registry,
+                frame_effects,
+            );
+        }
         SuperWeaponKind::MultiMissile => {
             super::nuke::launch(sim, rules, owner, sw_type_id, sw, (rx, ry));
         }

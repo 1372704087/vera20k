@@ -4470,6 +4470,15 @@ impl RuleSet {
                 super_weapon.building_requirements = requirements.cloned();
             }
         }
+        for (name, delivery) in processed.unit_delivery_states() {
+            if let Some(sw) = rules
+                .super_weapons
+                .values_mut()
+                .find(|sw| sw.id.eq_ignore_ascii_case(name))
+            {
+                sw.unit_delivery = delivery.cloned();
+            }
+        }
         // Equal truncated stored IDs share one projected type, which the last
         // such member's state is written to last.
         for (name, warhead) in processed.generic_super_weapon_warhead_states() {
@@ -4653,6 +4662,22 @@ impl RuleSet {
         self.general.scold_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
+        for sw in self.super_weapons.values_mut() {
+            if let Some(delivery) = sw.unit_delivery.as_mut() {
+                // Ares NullableIdx<VocClass>: unknown retains the previous
+                // resolved cue; an explicit none sentinel clears it. The
+                // retained type INI owns the ordered read history.
+                delivery.activation_sound = ini.section(&sw.id).and_then(|section| {
+                    section.read_string_with("SW.ActivationSound", 2048, None, |current, name| {
+                        if crate::rules::ini_parser::is_native_none_type_name(name) {
+                            None
+                        } else {
+                            sounds.get(name).map(|entry| entry.id.clone()).or(current)
+                        }
+                    })
+                });
+            }
+        }
         for object in &mut self.object_list {
             let section = ini.section(&object.id);
             object.bind_scalar_sound_references(section, sounds);
@@ -5771,6 +5796,19 @@ impl RuleSet {
         if !building_requirements.is_empty() {
             "Ares.SuperWeaponBuildingRequirements".hash(&mut hasher);
             building_requirements.hash(&mut hasher);
+        }
+        let deliveries = self
+            .super_weapons
+            .iter()
+            .filter_map(|(id, sw)| {
+                sw.unit_delivery
+                    .as_ref()
+                    .map(|delivery| (id.to_ascii_uppercase(), delivery))
+            })
+            .collect::<BTreeMap<_, _>>();
+        if !deliveries.is_empty() {
+            "Ares.UnitDelivery".hash(&mut hasher);
+            deliveries.hash(&mut hasher);
         }
         self.weapons
             .iter()
@@ -7674,6 +7712,61 @@ SpawnCount=3
             None,
             "empty CloakSound preserves the native invalid-index default"
         );
+    }
+
+    #[test]
+    fn unit_delivery_negative_deferment_keeps_the_twenty_frame_fallback() {
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[SuperWeaponTypes]\n0=Delivery\n[Delivery]\nType=UnitDelivery\nSW.Deferment=-1",
+        ));
+        layers.push(
+            crate::rules::native_processing::RulesLayerKind::Scenario,
+            IniFile::from_str("[Delivery]\nRechargeTime=2"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        assert_eq!(
+            rules
+                .super_weapon("Delivery")
+                .unwrap()
+                .unit_delivery
+                .as_ref()
+                .unwrap()
+                .deferment,
+            20
+        );
+    }
+
+    #[test]
+    fn unit_delivery_activation_sound_binding_keeps_known_values_across_unknown_layers() {
+        let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(
+            "[SoundList]\n0=DeliveryCue\n",
+        ));
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[SuperWeaponTypes]\n0=Delivery\n[Delivery]\nType=UnitDelivery\nSW.ActivationSound=deliverycue",
+        ));
+        layers.push(
+            crate::rules::native_processing::RulesLayerKind::Scenario,
+            IniFile::from_str("[Delivery]\nSW.ActivationSound=Unknown"),
+        );
+        let inspect = |layers: &RulesLayerStack| {
+            let processed = layers.process_with_fixed_art(&IniFile::empty()).unwrap();
+            let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
+            rules.bind_type_sound_references(processed.ini(), &sounds);
+            rules
+                .super_weapon("Delivery")
+                .unwrap()
+                .unit_delivery
+                .as_ref()
+                .unwrap()
+                .activation_sound
+                .clone()
+        };
+        assert_eq!(inspect(&layers).as_deref(), Some("DeliveryCue"));
+        layers.push(
+            crate::rules::native_processing::RulesLayerKind::Scenario,
+            IniFile::from_str("[Delivery]\nSW.ActivationSound=none"),
+        );
+        assert_eq!(inspect(&layers), None);
     }
 
     #[test]

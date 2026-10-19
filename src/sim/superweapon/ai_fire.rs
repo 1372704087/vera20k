@@ -100,6 +100,7 @@ impl AiFireArm {
             SuperWeaponKind::ParaDrop
             | SuperWeaponKind::AmerParaDrop
             | SuperWeaponKind::SpyPlane
+            | SuperWeaponKind::UnitDelivery
             | SuperWeaponKind::PsychicReveal => Self::GroundRallyPoint,
             SuperWeaponKind::PsychicDominator => Self::PsychicDominator,
             SuperWeaponKind::GeneticConverter => Self::GeneticMutator,
@@ -176,6 +177,11 @@ pub(crate) fn try_fire(
         // Reject extension-gated types before target search can consume RNG.
         if sw.building_requirements.is_some()
             && !super::building_requirements_met(sim, rules, owner, sw)
+        {
+            continue;
+        }
+        if sw.kind == SuperWeaponKind::UnitDelivery
+            && !super::unit_delivery::configured(sim, rules, owner, sw)
         {
             continue;
         }

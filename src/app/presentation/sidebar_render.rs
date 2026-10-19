@@ -219,7 +219,7 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         .match_state
         .match_presentation
         .sidebar_projection
-        .set_cameo_frame(sim.session.binary_frame as i32);
+        .set_cameo_frame(sim.session.binary_frame() as i32);
     state
         .match_state
         .match_presentation
@@ -398,7 +398,7 @@ pub(crate) fn refresh_sidebar_cameo_draw_state(state: &mut AppState) {
         .match_state
         .sim_runtime
         .as_ref()
-        .is_none_or(|runtime| runtime.simulation.session.current_house.is_none())
+        .is_none_or(|runtime| runtime.simulation.session.current_house().is_none())
     {
         return;
     }
@@ -773,7 +773,7 @@ pub(crate) fn sidebar_theme_for_owner(
         owner,
         &simulation.interner,
     )?;
-    match live_house.side_index {
+    match live_house.side_index() {
         0 => Some(crate::render::sidebar_chrome::SidebarTheme::Allied),
         1 => Some(crate::render::sidebar_chrome::SidebarTheme::Soviet),
         2 => Some(crate::render::sidebar_chrome::SidebarTheme::Yuri),
@@ -903,7 +903,7 @@ mod tests {
         let owner = sim.intern("Americans");
         sim.houses
             .register(HouseState::new(owner, 0, None, true, 1000, 10));
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         let infantry = sim.interner.get("E1").unwrap();
         let cameo = Cameo {
             id: CameoId::Object(infantry),

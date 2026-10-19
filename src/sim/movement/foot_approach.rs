@@ -139,7 +139,7 @@ impl Simulation {
             is_human: self
                 .houses
                 .get(&actor.owner())
-                .is_some_and(|house| house.is_human),
+                .is_some_and(|house| house.is_human()),
             passive: actor.passive_scan.acquired(),
         };
         Some((facts, target))
@@ -158,7 +158,7 @@ impl Simulation {
             .is_some_and(|object| {
                 object_is_crushable_by(
                     object.omni_crusher,
-                    CrushTarget::from_entity(victim, self.session.binary_frame),
+                    CrushTarget::from_entity(victim, self.session.binary_frame()),
                     |owner| {
                         crate::sim::combat::combat_weapon::is_ally_by_object(
                             Some(&self.house_alliances),

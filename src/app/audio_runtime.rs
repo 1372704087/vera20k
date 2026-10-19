@@ -442,7 +442,7 @@ pub(crate) fn bind_match_theme_context(state: &mut crate::app::AppState) {
             owner,
             &simulation.interner,
         )
-        .map(|house| i32::from(house.side_index))
+        .map(|house| i32::from(house.side_index()))
     });
     state.audio.theme.begin_scenario(
         ThemeAllowContext {

@@ -968,7 +968,7 @@ fn finish_order(
             .match_state
             .sim_runtime
             .as_ref()
-            .map(|rt| rt.simulation.session.binary_frame)
+            .map(|rt| rt.simulation.session.binary_frame())
     {
         state
             .match_state
@@ -1407,7 +1407,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
         let resources = &rt.resources;
         let sim = &mut rt.simulation;
-        let execute_tick = sim.session.tick;
+        let execute_tick = sim.session.tick();
         if selected_ids.is_empty() {
             return false;
         }
@@ -3114,7 +3114,7 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = Some(americans);
+        sim.session.set_current_house_for_test(Some(americans));
         let ivan = sim
             .spawn_object("IVAN", "Americans", 3, 5, 0, &rules)
             .unwrap();
@@ -3155,7 +3155,8 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = sim.interner.get("Americans");
+        sim.session
+            .set_current_house_for_test(sim.interner.get("Americans"));
         let seal = sim
             .spawn_object("GHOST", "Americans", 3, 5, 0, &rules)
             .unwrap();
@@ -3284,7 +3285,8 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = sim.interner.get("Americans");
+        sim.session
+            .set_current_house_for_test(sim.interner.get("Americans"));
         let mut spawn = |kind: &str, owner: &str, rx: u16| {
             sim.spawn_object(kind, owner, rx, 5, 0, &rules).unwrap()
         };
@@ -3387,7 +3389,8 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = sim.interner.get("Americans");
+        sim.session
+            .set_current_house_for_test(sim.interner.get("Americans"));
         let mut spawn = |kind: &str, owner: &str, rx: u16, ry: u16| {
             sim.spawn_object(kind, owner, rx, ry, 0, &rules).unwrap()
         };
@@ -3687,7 +3690,8 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = sim.interner.get("Americans");
+        sim.session
+            .set_current_house_for_test(sim.interner.get("Americans"));
         let agent = sim
             .spawn_object("AGENT", "Americans", 3, 5, 0, &rules)
             .unwrap();
@@ -4309,7 +4313,7 @@ mod tests {
             sim.houses.register(house);
         }
         let owner = sim.interner.get("Americans").unwrap();
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         crate::sim::arena_fixture::flat_ground(&mut sim, rules);
         let first = sim
             .spawn_object("GAWEAP", "Americans", 6, 6, 0, rules)
@@ -4415,7 +4419,7 @@ mod tests {
         let mut sim = Simulation::new();
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         let reactor = sim
             .spawn_object_limbo_at_height("YAPOWR", "Americans", 10, 10, 0, 0, &rules)
             .expect("Bio Reactor builds");
@@ -4462,7 +4466,7 @@ mod tests {
         let mut sim = Simulation::new();
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         let ifv = sim
             .spawn_object_limbo_at_height("IFV", "Americans", 10, 10, 0, 0, &rules)
             .expect("transport builds");
@@ -4521,7 +4525,7 @@ mod tests {
             .spawn_object_limbo_at_height("SCHP", "Americans", 10, 10, 0, 0, rules)
             .expect("retail Siege Chopper builds");
         let owner = sim.interner.get("Americans").unwrap();
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         let hover = HoverTargetKindWithId {
             kind: HoverTargetKind::FriendlyUnit,
             stable_id: id,
@@ -4628,7 +4632,7 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         let goals = |sim: &Simulation, id| {
             (
                 ordinary_cell_move_goal(sim, rules, None, owner, id, (14, 12), false),
@@ -4679,7 +4683,7 @@ mod tests {
             .mission_leaf
             .set_infantry_doing_verified(0)
             .unwrap();
-        sim.session.current_house = None;
+        sim.session.set_current_house_for_test(None);
         assert_eq!(goals(&sim, gi), (None, None));
     }
 
@@ -4718,7 +4722,7 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = Some(americans);
+        sim.session.set_current_house_for_test(Some(americans));
         let mut spawn = |kind: &str, owner: &str, rx: u16| {
             sim.spawn_object(kind, owner, rx, 5, 0, &rules).unwrap()
         };
@@ -4830,7 +4834,8 @@ mod tests {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = Some(sim.interner.intern("Americans"));
+        sim.session
+            .set_current_house_for_test(Some(sim.interner.intern("Americans")));
         let mut terrain = crate::map::resolved_terrain::test_grid(20, 20, |rx, ry| {
             crate::map::resolved_terrain::ResolvedTerrainCell {
                 speed_costs: crate::map::resolved_terrain::TEST_OPEN_SPEED_COSTS,
@@ -5022,7 +5027,8 @@ mod tests {
             let (mut sim, rules, engineer, hover) =
                 engineer_hut_click_fixture("hostile", true, true, false, flags, "");
             if gate == "nonlocal" {
-                sim.session.current_house = Some(sim.interner.intern("Soviets"));
+                sim.session
+                    .set_current_house_for_test(Some(sim.interner.intern("Soviets")));
             } else {
                 assert!(rules.object("CABHUT").unwrap().is_1x1_with_undeploy());
             }
@@ -5118,7 +5124,8 @@ mod tests {
             );
             let (mut sim, rules, engineer, hover) =
                 engineer_hut_click_fixture("hostile", true, true, false, "", &actor_flags);
-            sim.session.binary_frame = gates["frame"].as_u64().unwrap_or(0) as u32;
+            sim.session
+                .set_binary_frame_for_test(gates["frame"].as_u64().unwrap_or(0) as u32);
             if gates["bunker"] == true {
                 // Typed existing owner state: positive native pointer control,
                 // not an assertion of ordinary Infantry bunker installation.
@@ -5399,7 +5406,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session.current_house = Some(sim.entities().get(stationary).unwrap().owner());
+        sim.session
+            .set_current_house_for_test(Some(sim.entities().get(stationary).unwrap().owner()));
         sim.entities_mut()
             .get_mut(stationary)
             .unwrap()

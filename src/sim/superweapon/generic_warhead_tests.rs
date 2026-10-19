@@ -57,7 +57,7 @@ fn fixture(extra: &str, owner_name: &str) -> (Simulation, RuleSet, InternedId, I
     let mut instance = SuperWeaponInstance::new(sw_type, owner, 0);
     instance.is_active = true;
     instance.is_ready = true;
-    instance.charge_start_tick = sim.session.binary_frame as i32;
+    instance.charge_start_tick = sim.session.binary_frame() as i32;
     instance.charge_duration = 900;
     sim.super_weapons
         .entry(owner)
@@ -169,7 +169,7 @@ fn ares_generic_warhead_source_obeys_damage_self() {
             if damage_self { "yes" } else { "no" }
         );
         let (mut sim, rules, owner, sw_type, _) = fixture(&extra, "Russians");
-        let source = sim.houses[&owner].base_projection.buildings()[0];
+        let source = sim.houses[&owner].base_projection().buildings()[0];
         assert!(fire(&mut sim, &rules, owner, sw_type, (6, 6)));
         assert_eq!(
             sim.entities().get(source).unwrap().health.current(),
@@ -185,7 +185,7 @@ fn generic_warhead_source_destruction_keeps_single_charge_cleanup() {
             "[Strike]\nSW.Damage=250\n[LAUNCHER]\nDamageSelf=yes\n",
             "Russians",
         );
-        let source = sim.houses[&owner].base_projection.buildings()[0];
+        let source = sim.houses[&owner].base_projection().buildings()[0];
         sim.super_weapons
             .get_mut(&owner)
             .unwrap()
@@ -222,7 +222,10 @@ fn ares_generic_warhead_ai_offensive_and_none_use_normal_firing() {
         let (mut sim, rules, owner, sw_type, target) =
             fixture(&format!("[Strike]\nSW.AITargeting={mode}\n"), "Russians");
         let enemy = sim.interner.intern("Americans");
-        sim.houses.get_mut(&owner).unwrap().enemy_house = Some(enemy);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_enemy_house_for_test(Some(enemy));
         crate::sim::superweapon::ai_fire::try_fire(
             &mut sim,
             &rules,
@@ -244,7 +247,7 @@ fn ares_generic_warhead_queued_command_runs_through_bound_frame() {
     sim.input_delay_ticks = 0;
     let command = CommandEnvelope::new(
         owner,
-        sim.session.tick + 1,
+        sim.session.tick() + 1,
         Command::LaunchSuperWeapon {
             sw_type_id: sw_type,
             target_rx: 15,
@@ -358,7 +361,10 @@ fn mono_player_and_ai_queries_keep_independent_requirements() {
             .is_ok()
     );
     let enemy = sim.interner.intern("Americans");
-    sim.houses.get_mut(&owner).unwrap().enemy_house = Some(enemy);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_enemy_house_for_test(Some(enemy));
     crate::sim::superweapon::ai_fire::try_fire(
         &mut sim,
         &rules,

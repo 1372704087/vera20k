@@ -122,7 +122,7 @@ fn script37_caches_native_next_and_uses_ordered_limbo_uninit_before_drain() {
                 matches!(event, SimSoundEvent::ObjectSoundDetached { owner } if *owner == member)
             ).count(), 1, "FootLimbo detaches its sound once; UnInit's repeated Limbo does not");
         }
-        assert_eq!(sim.houses[&owner].stats.units_lost(), 0);
+        assert_eq!(sim.houses[&owner].stats().units_lost(), 0);
         sim.process_pending_delete_with(Some(&rules), None, Default::default(), 1, true);
         assert!(
             members
@@ -130,7 +130,7 @@ fn script37_caches_native_next_and_uses_ordered_limbo_uninit_before_drain() {
                 .all(|member| !sim.substrate.entities.contains(*member))
         );
         assert_eq!(
-            sim.houses[&owner].stats.units_lost(),
+            sim.houses[&owner].stats().units_lost(),
             0,
             "healthy scripted disposal creates no loss"
         );

@@ -167,7 +167,7 @@ impl<'a> FireSubject<'a> {
     }
 
     fn frame(&self) -> u32 {
-        self.world.session.binary_frame
+        self.world.session.binary_frame()
     }
 
     fn speed_rules(&self) -> crate::sim::movement::SpeedRules<'_> {
@@ -299,7 +299,7 @@ impl<'a> FireSubject<'a> {
             // T45: the object's own rearm countdown (`+0x2EC`).
             rearming: firer
                 .rearm_timer
-                .remaining(self.world.session.binary_frame as i32)
+                .remaining(self.world.session.binary_frame() as i32)
                 != 0,
             ammo: firer.ammo().map_or(-1, |ammo| ammo.current()),
             cloak_state: firer.cloak.as_ref().map_or(0, |cloak| cloak.state()),
@@ -313,7 +313,7 @@ impl<'a> FireSubject<'a> {
                 &self.world.houses,
                 firer.owner(),
             )
-            .is_some_and(|house| house.is_human),
+            .is_some_and(|house| house.is_human()),
             paralyzed: firer.parasite.is_paralyzed(frame),
             spawns: firer.spawn_manager.as_ref().map(|manager| SpawnCounts {
                 not_regenerating: manager.count_alive_spawns() as i32,

@@ -147,7 +147,8 @@ fn all03_authored_nuke_order_preserves_current_timer_and_recharges_at_override()
         let mut sim = Simulation::with_seed(0);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
-        sim.session.binary_frame = int(&sequence["initial_frame"]) as u32;
+        sim.session
+            .set_binary_frame_for_test(int(&sequence["initial_frame"]) as u32);
         crate::sim::scenario_bootstrap::initialize_map_roster_houses(
             &mut sim,
             &roster,
@@ -163,8 +164,14 @@ fn all03_authored_nuke_order_preserves_current_timer_and_recharges_at_override()
         let sw = rules.super_weapon("NukeSpecial").unwrap();
         // The native control supplies these already-admitted AI/power priors;
         // it does not execute the whole ALL03 power puzzle/House scheduler.
-        sim.houses.get_mut(&owner).unwrap().enemy_house = Some(enemy);
-        sim.houses.get_mut(&owner).unwrap().player_control = false;
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_enemy_house_for_test(Some(enemy));
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_player_control_for_test(false);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false),
         );
@@ -184,7 +191,8 @@ fn all03_authored_nuke_order_preserves_current_timer_and_recharges_at_override()
         let mut ordinal = 0;
         for row in sequence["rows"].as_array().unwrap() {
             let stage = row["stage"].as_str().unwrap();
-            sim.session.binary_frame = int(&row["frame"]) as u32;
+            sim.session
+                .set_binary_frame_for_test(int(&row["frame"]) as u32);
             match stage {
                 "grant" => superweapon::grant_provided_supers(&mut sim, &rules, owner),
                 "before_elapsed_ai" | "elapsed_ai" => {
@@ -220,7 +228,10 @@ fn all03_authored_nuke_order_preserves_current_timer_and_recharges_at_override()
                     // Full House enemy selection/cadence is outside the
                     // original control, which supplies the chosen enemy here.
                     assert_eq!(row["enemy_index"], 0);
-                    sim.houses.get_mut(&owner).unwrap().enemy_house = Some(enemy);
+                    sim.houses
+                        .get_mut(&owner)
+                        .unwrap()
+                        .set_enemy_house_for_test(Some(enemy));
                 }
                 _ if stage.starts_with("execute") => {
                     let action =

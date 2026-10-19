@@ -144,11 +144,12 @@ fn replay(row: &Value, plant: bool) -> Replay {
     let owner = sim.interner.intern(OWNER);
     let enemy = sim.interner.intern(ENEMY);
     let mut computer = HouseState::new(owner, 0, None, false, 0, 10);
-    computer.enemy_house = Some(enemy);
+    computer.set_enemy_house_for_test(Some(enemy));
     sim.houses.register(computer);
     sim.houses
         .register(HouseState::new(enemy, 1, None, true, 0, 10));
-    sim.session.binary_frame = u32::try_from(int(&row["frame"])).unwrap();
+    sim.session
+        .set_binary_frame_for_test(u32::try_from(int(&row["frame"])).unwrap());
     let mut power = PowerState::default();
     power.total_output = int(&row["output"]);
     power.total_drain = int(&row["drain"]);

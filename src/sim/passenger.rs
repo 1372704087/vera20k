@@ -739,7 +739,7 @@ pub(crate) fn building_can_be_occupied_by(
 fn owner_is_multiplay_passive(owner: InternedId, houses: &crate::sim::houses::Houses) -> bool {
     houses
         .get(&owner)
-        .is_some_and(|house| house.multiplay_passive)
+        .is_some_and(|house| house.multiplay_passive())
 }
 
 /// The passenger, building, their types and the building's cargo, by id:
@@ -1098,7 +1098,7 @@ pub fn add_garrison_occupant(
         sim.sound_events
             .push(SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry });
     }
-    if sim.houses.get(&owner).is_some_and(|house| house.is_human)
+    if sim.houses.get(&owner).is_some_and(|house| house.is_human())
         && let Some(pax) = sim.substrate.entities.get_mut(pax_id)
     {
         pax.building_entry.clear_occupy_seeks();
@@ -1126,7 +1126,7 @@ fn receive_gunner(sim: &mut Simulation, rules: &RuleSet, transport_id: u64, pax_
     // tests nonzero, including a paused signed duration, rather than >0.
     let donor_rearming = passenger
         .rearm_timer
-        .remaining(sim.session.binary_frame as i32)
+        .remaining(sim.session.binary_frame() as i32)
         != 0;
     if sim.temporal_receive_gunner(transport_id, pax_id) {
         if let Some(transport) = sim.substrate.entities.get_mut(transport_id) {
@@ -1164,7 +1164,7 @@ fn remove_gunner(sim: &mut Simulation, rules: &RuleSet, transport_id: u64, pax_i
     // passenger's current burst/rank/House are read after LetGo below.
     let donor_rearming = transport
         .rearm_timer
-        .remaining(sim.session.binary_frame as i32)
+        .remaining(sim.session.binary_frame() as i32)
         != 0;
     if let Some(pax_id) = pax_id
         && sim.temporal_remove_gunner(transport_id, pax_id)
@@ -1225,7 +1225,7 @@ fn rearm_transferred_gunner(sim: &mut Simulation, rules: &RuleSet, receiver: u64
         live,
         burst_index,
     );
-    let frame = sim.session.binary_frame as i32;
+    let frame = sim.session.binary_frame() as i32;
     if let Some(actor) = sim.substrate.entities.get_mut(receiver) {
         actor.rearm_timer.start(frame, rof);
     }

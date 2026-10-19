@@ -531,7 +531,7 @@ pub(super) fn time_to_build_inputs(
     let factory_count = sim
         .houses
         .get(&owner)
-        .map_or(0, |house| house.tracking.factory_count(slot));
+        .map_or(0, |house| house.tracking().factory_count(slot));
     TimeToBuildInputs {
         cost: obj.cost,
         build_speed: rules.production.build_speed,
@@ -1352,7 +1352,7 @@ impl FactoryRegistry {
             // cadence (gamemd re-checks affordability each step; advance_one_step's
             // on_hold gate exists for the off-path clone callers).
             f.on_hold = false;
-            let outcome = f.advance_one_step(&mut house.economy);
+            let outcome = f.advance_one_step(house.economy_mut());
 
             // Completion clears the rate and restarts the timer empty
             // (`0x004C9C0C..0x004C9C25`); the object is held for delivery.
@@ -1393,7 +1393,7 @@ impl FactoryRegistry {
                 }
                 factory.on_hold = false;
                 if !matches!(
-                    factory.advance_one_step(&mut house.economy),
+                    factory.advance_one_step(house.economy_mut()),
                     StepOutcome::Stepped
                 ) {
                     break;
@@ -1525,8 +1525,8 @@ fn native_e2_head(
         "stage": f.progress, "rate": f.step_rate_frames,
         "timer_start": f.step_timer.start_frame(), "timer_duration": f.step_timer.duration(),
         "balance": f.balance, "on_hold": f.on_hold, "suspended": f.suspended,
-        "changed": f.changed, "latch": f.auto_resume_blocked, "credits": houses[&owner].economy.credits(),
-        "spent": houses[&owner].economy.spent_credits(),
+        "changed": f.changed, "latch": f.auto_resume_blocked, "credits": houses[&owner].economy().credits(),
+        "spent": houses[&owner].economy().spent_credits(),
         "held_type": f.object.as_ref().map(|obj| { assert_eq!(obj.type_id, type_id); "E2" }),
         "held_id": f.object.as_ref().and_then(|obj| obj.entity_id),
         "queue": f.queue.iter().map(|entry| { assert_eq!(entry.type_id, type_id); "E2" }).collect::<Vec<_>>()
@@ -1621,7 +1621,7 @@ mod tests {
                 int(initial, "credits") + int(initial, "spent"),
                 10,
             );
-            house.economy.spend_money(int(initial, "spent"));
+            house.economy_mut().spend_money(int(initial, "spent"));
             let mut houses = [house].into_iter().collect::<crate::sim::houses::Houses>();
             assert_eq!(native_e2_head(&reg, &houses, owner, type_id), *initial);
             for phase in row["phases"].as_array().unwrap() {
@@ -1631,7 +1631,7 @@ mod tests {
                 let ((), draws) = trace_draws(|| match name {
                     "system_suspend_kernel" => assert!(reg.suspend(owner, category, frame, false)),
                     "external_spend_wallet" => {
-                        let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                        let economy = houses.get_mut(&owner).unwrap().economy_mut();
                         economy.spend_money(economy.credits());
                     }
                     "resume_kernel" => {
@@ -1654,7 +1654,7 @@ mod tests {
                             time_to_build,
                             frame,
                             row["inputs"]["held_start"].as_bool().unwrap(),
-                            houses[&owner].economy.credits(),
+                            houses[&owner].economy().credits(),
                         );
                         assert_eq!(actual, native_return, "{label}");
                     }
@@ -2002,7 +2002,7 @@ mod tests {
                 int(initial, "credits") + int(initial, "spent"),
                 10,
             );
-            house.economy.spend_money(int(initial, "spent"));
+            house.economy_mut().spend_money(int(initial, "spent"));
             let mut houses = [house].into_iter().collect::<crate::sim::houses::Houses>();
             let project = |reg: &FactoryRegistry, houses: &crate::sim::houses::Houses| {
                 native_e2_head(reg, houses, owner, type_id)
@@ -2037,15 +2037,15 @@ mod tests {
                             ttb(),
                             frame,
                             false,
-                            houses[&owner].economy.credits(),
+                            houses[&owner].economy().credits(),
                         );
                     }
                     "completed_same_type_begin" => {
                         // Native Resume refuses before reading Time_To_Build.
-                        reg.resume(holder, 0, frame, false, houses[&owner].economy.credits());
+                        reg.resume(holder, 0, frame, false, houses[&owner].economy().credits());
                     }
                     "spend_wallet" => {
-                        let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                        let economy = houses.get_mut(&owner).unwrap().economy_mut();
                         economy.spend_money(economy.credits());
                     }
                     "paused_ai" | "refreshed_paused_ai" | "same_frame_ai" | "next_frame_ai" => {
@@ -2121,7 +2121,7 @@ mod tests {
             let mut attempts = Vec::new();
             let mut order_results = Vec::new();
             for frame in start_frame..=row["last_frame"].as_u64().unwrap() as u32 {
-                let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                let economy = houses.get_mut(&owner).unwrap().economy_mut();
                 economy.add_credits(deposits.get(&frame).copied().unwrap_or(0));
                 // A SUSPEND is `Suspend(1)`; a resume is Begin_Production's
                 // same-type build start, which VERA takes only for a user hold.
@@ -2134,7 +2134,7 @@ mod tests {
                             time_to_build(&inputs),
                             frame,
                             false,
-                            houses[&owner].economy.credits(),
+                            houses[&owner].economy().credits(),
                         )
                     };
                     let f = &reg.factories[&FactoryHolder::House(owner, category)];
@@ -2155,7 +2155,7 @@ mod tests {
                 reg.step_all(&mut houses, frame);
                 let f = &reg.factories[&FactoryHolder::House(owner, category)];
                 if f.step_timer.start_frame() != before {
-                    let credits = houses[&owner].economy.credits();
+                    let credits = houses[&owner].economy().credits();
                     attempts.push(serde_json::json!([frame, f.progress, f.on_hold, credits]));
                 }
             }
@@ -2174,7 +2174,7 @@ mod tests {
                 "{label}: the holds and resumes"
             );
             let f = &reg.factories[&FactoryHolder::House(owner, category)];
-            let economy = &houses[&owner].economy;
+            let economy = houses[&owner].economy();
             let end = &row["final"];
             assert_eq!(
                 (
@@ -3018,7 +3018,7 @@ mod tests {
             (soldier_factory.progress, soldier_factory.on_hold),
             (0, true)
         );
-        assert_eq!(houses[&owner].economy.credits(), 0);
+        assert_eq!(houses[&owner].economy().credits(), 0);
     }
 
     /// Original `TechnoClass::Time_To_Build @ 0x006F47A0` totals from

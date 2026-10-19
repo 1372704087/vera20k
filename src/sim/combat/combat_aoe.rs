@@ -3203,7 +3203,7 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut target_house = HouseState::new(american, 0, Some(american), true, 0, 10);
-        target_house.difficulty = HouseDifficulty::Normal;
+        target_house.set_difficulty_for_test(HouseDifficulty::Normal);
         commit.houses.register(target_house);
         let (death, pings) = commit.run(
             &aoe.hits,
@@ -3495,10 +3495,10 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut normal = HouseState::new(normal_house, 0, None, false, 0, 10);
-        normal.difficulty = HouseDifficulty::Normal;
+        normal.set_difficulty_for_test(HouseDifficulty::Normal);
         commit.houses.register(normal);
         let mut easy = HouseState::new(easy_house, 0, None, false, 0, 10);
-        easy.difficulty = HouseDifficulty::Easy;
+        easy.set_difficulty_for_test(HouseDifficulty::Easy);
         commit.houses.register(easy);
         let (death, _) = commit.run(
             &aoe.hits,
@@ -3835,7 +3835,7 @@ mod tests {
                     ),
                 );
             }
-            world.session.binary_frame = 100;
+            world.session.set_binary_frame_for_test(100);
             world.main_rng = SimRng::new(7).into();
             world.scenario_rng = SimRng::new(1);
             // Some(false) models campaign PlayerControl without IsHuman.
@@ -3844,7 +3844,7 @@ mod tests {
             );
             let mut house =
                 HouseState::new(victim_house, 0, None, human_control == Some(true), 0, 10);
-            house.player_control = human_control.is_some();
+            house.set_player_control_for_test(human_control.is_some());
             world.houses.register(house);
             if team {
                 let script = world.interner.intern("ScatterFixture");
@@ -4528,7 +4528,7 @@ mod tests {
         sim.production
             .tiberium_spawning_terrain_cells
             .insert((5, 5));
-        sim.session.no_damage = true;
+        sim.session.set_no_damage_for_test(true);
         let outer_ref = sim.interner.intern("OUTERWH");
         let before_hash = sim.state_hash();
         let before_rng = sim.scenario_rng.state();

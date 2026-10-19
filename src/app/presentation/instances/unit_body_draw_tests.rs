@@ -33,7 +33,7 @@ fn body_draw_against_seed(
         &sim.interner,
         Some(rules),
         EntityDrawBand::Ground,
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
         crate::render::draw_state::ObserverDrawContext::default(),
     ) else {
         return Ok(None);
@@ -129,7 +129,7 @@ Turret=yes
     latch_unloading_image(&mut sim, plain, "GUNNED");
     assert_eq!(draw(&sim, plain), Ok(Some(("GUNNED".to_string(), true))));
     let entity = sim.entities().get(plain).unwrap();
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     let ground = EntityDrawBand::Ground;
     let (_, body) = unit_body_draw(
         entity,
@@ -373,7 +373,7 @@ fn retail_spy_plane_flight_counter_reaches_both_physical_hva_frames_on_gpu() {
         ready(scene.sim()),
         "stock NARADR must naturally charge its Super"
     );
-    let launch_tick = scene.sim().session.tick + 1;
+    let launch_tick = scene.sim().session.tick() + 1;
     scene.runtime.simulation.queue_command(CommandEnvelope::new(
         owner,
         launch_tick,
@@ -403,7 +403,7 @@ fn retail_spy_plane_flight_counter_reaches_both_physical_hva_frames_on_gpu() {
             || !crate::sim::movement::motion_query::is_moving_now(
                 plane,
                 None,
-                sim.session.binary_frame,
+                sim.session.binary_frame(),
             )
         {
             continue;
@@ -412,7 +412,7 @@ fn retail_spy_plane_flight_counter_reaches_both_physical_hva_frames_on_gpu() {
         let parent = NativeDisplayOrder::from_display(sim.display_layers())
             .object_draw(plane.stable_id(), SpriteEncoding::Voxel)
             .unwrap();
-        samples.push((plane.clone(), band, parent, sim.session.binary_frame));
+        samples.push((plane.clone(), band, parent, sim.session.binary_frame()));
         if samples.len() == 2 {
             break;
         }

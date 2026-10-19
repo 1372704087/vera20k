@@ -92,7 +92,7 @@ pub fn human_player_count(sim: &Simulation) -> i32 {
     i32::try_from(
         sim.houses
             .values()
-            .filter(|house| house.is_human && !house.multiplay_passive)
+            .filter(|house| house.is_human() && !house.multiplay_passive())
             .count(),
     )
     .unwrap_or(i32::MAX)
@@ -3166,7 +3166,7 @@ pub(crate) mod tests {
         let mut add = |name: &str, is_human: bool, passive: bool| {
             let id = sim.interner.intern(name);
             let mut house = HouseState::new(id, 0, None, is_human, 10_000, 10);
-            house.multiplay_passive = passive;
+            house.set_multiplay_passive_for_test(passive);
             sim.houses.register(house);
         };
         add("Local", true, false);

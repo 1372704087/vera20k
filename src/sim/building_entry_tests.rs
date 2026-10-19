@@ -746,7 +746,10 @@ fn a_bio_reactor_unload_command_reveals_its_passenger() {
     let rules = rules();
     let (mut sim, grid) = arena(&rules);
     let owner = sim.interner.get("YuriCountry").unwrap();
-    sim.houses.get_mut(&owner).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_human_for_test(true);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let passengers: Vec<_> = (0..5)
         .map(|index| spawn(&mut sim, &rules, "INIT", "YuriCountry", 6 + index * 2, 10))
@@ -762,9 +765,9 @@ fn a_bio_reactor_unload_command_reveals_its_passenger() {
             entity(sim, passenger).passenger_role.inside_transport_id() == Some(reactor)
         }));
     }
-    assert_eq!(sim.houses[&owner].tracking.infantry(), 0);
+    assert_eq!(sim.houses[&owner].tracking().infantry(), 0);
     assert_eq!(
-        sim.houses[&owner].tracking.owned_count(
+        sim.houses[&owner].tracking().owned_count(
             EntityCategory::Infantry,
             entity(&sim, passengers[0]).type_ref()
         ),
@@ -847,9 +850,9 @@ fn a_bio_reactor_unload_command_reveals_its_passenger() {
         assert!(passenger.house_tracking_latches().is_counted());
         assert!(!passenger.house_tracking_latches().is_absorbed());
     }
-    assert_eq!(sim.houses[&owner].tracking.infantry(), 5);
+    assert_eq!(sim.houses[&owner].tracking().infantry(), 5);
     assert_eq!(
-        sim.houses[&owner].tracking.owned_count(
+        sim.houses[&owner].tracking().owned_count(
             EntityCategory::Infantry,
             entity(&sim, departed[0]).type_ref()
         ),
@@ -903,7 +906,10 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
     );
     let (mut sim, grid) = arena(&rules);
     let owner = sim.interner.get("YuriCountry").unwrap();
-    sim.houses.get_mut(&owner).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_human_for_test(true);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let passenger = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
     assert!(seek(&mut sim, &rules, passenger));
@@ -1493,12 +1499,12 @@ fn a_player_control_only_bio_reactor_owner_does_not_clear_the_seek_latch() {
     let (mut sim, grid) = arena(&rules);
     let owner = sim.interner.get("YuriCountry").unwrap();
     let house = sim.houses.get_mut(&owner).unwrap();
-    house.is_human = false;
-    house.player_control = true;
+    house.set_is_human_for_test(false);
+    house.set_player_control_for_test(true);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     assert!(sim.owner_is_human(owner));
-    assert!(!sim.houses[&owner].is_human);
+    assert!(!sim.houses[&owner].is_human());
 
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let passenger = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
@@ -1548,10 +1554,10 @@ fn absorbed_infantry_tracking_is_restored_after_building_death_and_sale() {
             entity(sim, passenger).passenger_role.inside_transport_id() == Some(reactor)
         }));
         let infantry_type = entity(&sim, passenger).type_ref();
-        assert_eq!(sim.houses[&owner].tracking.infantry(), 0);
+        assert_eq!(sim.houses[&owner].tracking().infantry(), 0);
         assert_eq!(
             sim.houses[&owner]
-                .tracking
+                .tracking()
                 .owned_count(EntityCategory::Infantry, infantry_type),
             1
         );
@@ -1586,10 +1592,10 @@ fn absorbed_infantry_tracking_is_restored_after_building_death_and_sale() {
         assert!(released.lifecycle.cell_marked());
         assert!(released.house_tracking_latches().is_counted());
         assert!(!released.house_tracking_latches().is_absorbed());
-        assert_eq!(sim.houses[&owner].tracking.infantry(), 1);
+        assert_eq!(sim.houses[&owner].tracking().infantry(), 1);
         assert_eq!(
             sim.houses[&owner]
-                .tracking
+                .tracking()
                 .owned_count(EntityCategory::Infantry, infantry_type),
             1
         );
@@ -2848,9 +2854,11 @@ fn script64_enters_a_neutral_civilian_building_outside_the_own_house_list() {
     let (mut sim, grid) = arena(&rules);
     let neutral = sim.interner.intern("Neutral");
     let mut house = HouseState::new(neutral, 2, Some(neutral), false, 0, 10);
-    house.multiplay_passive =
-        crate::sim::house_state::resolve_multiplay_passive(Some(&rules), Some("Neutral"));
-    assert!(house.multiplay_passive, "production Country reader");
+    house.set_multiplay_passive_for_test(crate::sim::house_state::resolve_multiplay_passive(
+        Some(&rules),
+        Some("Neutral"),
+    ));
+    assert!(house.multiplay_passive(), "production Country reader");
     sim.houses.register(house);
     let own = spawn(&mut sim, &rules, "NABNKR", "YuriCountry", 24, 10);
     let civilian = spawn(&mut sim, &rules, "CAGAS01", "Neutral", 16, 10);
@@ -2985,9 +2993,14 @@ fn retail_all01_script64_conscript_admits_a_map_civilian_garrison() {
     let (mut sim, _) = arena(&rules);
     let neutral = sim.interner.intern("Neutral");
     let mut house = HouseState::new(neutral, 2, Some(neutral), false, 0, 10);
-    house.multiplay_passive =
-        crate::sim::house_state::resolve_multiplay_passive(Some(&rules), Some("Neutral"));
-    assert!(house.multiplay_passive, "retained campaign Country reader");
+    house.set_multiplay_passive_for_test(crate::sim::house_state::resolve_multiplay_passive(
+        Some(&rules),
+        Some("Neutral"),
+    ));
+    assert!(
+        house.multiplay_passive(),
+        "retained campaign Country reader"
+    );
     sim.houses.register(house);
     let building = spawn(&mut sim, &rules, &civilian.type_id, "Neutral", 16, 10);
     let conscript = spawn(&mut sim, &rules, "E2", "YuriCountry", 10, 10);

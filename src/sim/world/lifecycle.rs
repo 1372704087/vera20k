@@ -1575,7 +1575,7 @@ impl Simulation {
         if entity.category() == EntityCategory::Structure
             && game_mode_nonzero
             && self.houses.get(&entity.owner()).is_some_and(|house| {
-                !house.is_controlled_by_human(game_mode_nonzero) && !house.multiplay_passive
+                !house.is_controlled_by_human(game_mode_nonzero) && !house.multiplay_passive()
             })
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
@@ -1825,7 +1825,7 @@ impl Simulation {
             return;
         }
         let _filled = house
-            .base_plan
+            .base_plan_mut()
             .fill_successful_building(type_index, packed_cell, has_undeploy_target)
             .is_some();
         #[cfg(any(test, feature = "test-support"))]
@@ -1861,7 +1861,7 @@ impl Simulation {
             return;
         }
         if let Some(house) = self.houses.get_mut(&owner) {
-            house.base_plan.invalidate_limbo_building(
+            house.base_plan_mut().invalidate_limbo_building(
                 type_index,
                 packed_cell,
                 is_base_defense,
@@ -1890,7 +1890,7 @@ impl Simulation {
         };
         let edge = crate::sim::house_state::determine_waypoint_edge(anchor, bounds);
         if let Some(house) = self.houses.get_mut(&owner) {
-            house.waypoint_edge = edge;
+            house.assign_waypoint_edge(edge);
         }
     }
 
@@ -2042,7 +2042,7 @@ impl Simulation {
         );
         if let Some(house) = self.houses.get_mut(&owner) {
             house
-                .base_reservation
+                .base_reservation_mut()
                 .update_bounds(rect.x, rect.y, rect.width, rect.height);
         } else {
             debug_assert!(false, "base-reservation owner must have HouseState");
@@ -2075,9 +2075,9 @@ impl Simulation {
             let packed = packed_reservation_coord(x, y);
             if let Some(house) = self.houses.get_mut(&owner) {
                 match neighbor_mask {
-                    0x0000_00ff => house.base_reservation.remove_perimeter_cell(packed),
+                    0x0000_00ff => house.base_reservation_mut().remove_perimeter_cell(packed),
                     1..=0x0000_00fe => house
-                        .base_reservation
+                        .base_reservation_mut()
                         .append_perimeter_cell_if_absent(packed),
                     0 | u32::MAX => {}
                     _ => unreachable!("neighbor mask is eight bits or the absent-center sentinel"),
@@ -2108,19 +2108,19 @@ impl Simulation {
             match neighbor_mask {
                 0x0000_00ff => {
                     if let Some(house) = self.houses.get_mut(&owner) {
-                        house.base_reservation.remove_perimeter_cell(packed);
+                        house.base_reservation_mut().remove_perimeter_cell(packed);
                     }
                 }
                 1..=0x0000_00fe => {
                     if let Some(house) = self.houses.get_mut(&owner) {
                         house
-                            .base_reservation
+                            .base_reservation_mut()
                             .append_perimeter_cell_if_absent(packed);
                     }
                 }
                 0 | u32::MAX => {
                     if let Some(house) = self.houses.get_mut(&owner) {
-                        house.base_reservation.remove_perimeter_cell(packed);
+                        house.base_reservation_mut().remove_perimeter_cell(packed);
                     }
                     // Native resolves the center again before the extra clear.
                     self.substrate.base_reservations.clear(
@@ -3561,7 +3561,9 @@ impl Simulation {
             {
                 let owner = entity.owner();
                 if let Some(house) = self.houses.get_mut(&owner) {
-                    house.tracking.limbo_airport_docks(object.number_of_docks);
+                    house
+                        .tracking_mut()
+                        .limbo_airport_docks(object.number_of_docks);
                 }
             }
         }
@@ -3666,7 +3668,7 @@ impl Simulation {
             && !dont_score
             && let Some(house) = self.houses.get_mut(&owner)
         {
-            house.stats.record_loss(category);
+            house.stats_mut().record_loss(category);
         }
     }
 

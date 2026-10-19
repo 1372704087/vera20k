@@ -209,7 +209,7 @@ fn build_campaign_score_screen_model(
             .simulation
             .houses
             .values()
-            .map(|house| (house.player_control, house.stats.kills()))
+            .map(|house| (house.player_control(), house.stats().kills()))
             .collect::<Vec<_>>()
     });
     let side = state
@@ -222,7 +222,7 @@ fn build_campaign_score_screen_model(
                 .session
                 .current_house()
                 .and_then(|owner| runtime.simulation.houses.get(&owner))
-                .map(|house| house.side_index)
+                .map(|house| house.side_index())
         })
         .unwrap_or(0);
     build_campaign_score_screen_model_from_sources(
@@ -380,7 +380,7 @@ fn resolve_score_rows(
             let is_human = sim
                 .houses
                 .get(&raw.owner)
-                .is_some_and(|house| house.is_human);
+                .is_some_and(|house| house.is_human());
             let fallback = raw.country.and_then(&country_name);
             let color = sources
                 .colors
@@ -462,7 +462,7 @@ fn build_score_screen_model(
         .as_deref()
         .and_then(|owner| sim.interner.get(owner))
         .and_then(|owner| sim.houses.get(&owner))
-        .map_or(0, |house| house.side_index);
+        .map_or(0, |house| house.side_index());
 
     ScoreScreenModel {
         // A stock offline skirmish takes the skirmish heading; the networked

@@ -285,7 +285,7 @@ impl Simulation {
                 .houses
                 .get(&owner)
                 .ok_or(MultiplayerChecksumError::MissingHouse(owner))?;
-            checksum.fold_house(u8::from(house.map_is_clear));
+            checksum.fold_house(u8::from(house.map_is_clear()));
         }
 
         // Layers 0..4 in index order, each in its stored member order.

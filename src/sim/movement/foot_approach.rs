@@ -139,7 +139,7 @@ impl Simulation {
             is_human: self
                 .houses
                 .get(&actor.owner())
-                .is_some_and(|house| house.is_human),
+                .is_some_and(|house| house.is_human()),
             passive: actor.passive_scan.acquired(),
         };
         Some((facts, target))

@@ -66,7 +66,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
     install_ground(&mut sim, &rules, &terrain_rules, None);
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
-    house.difficulty = HouseDifficulty::Hard;
+    house.set_difficulty_for_test(HouseDifficulty::Hard);
     house.project_country_mults(&rules, &sim.interner);
     sim.houses.register(house);
     sim.session.set_current_house_for_test(Some(owner));

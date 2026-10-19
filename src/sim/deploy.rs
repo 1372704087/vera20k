@@ -325,7 +325,7 @@ impl Simulation {
                         || (self
                             .houses
                             .get(&entity.owner())
-                            .is_some_and(|house| house.is_human)
+                            .is_some_and(|house| house.is_human())
                             && cell(own).land_type() == LandType::Water.as_index())
                     {
                         return false;

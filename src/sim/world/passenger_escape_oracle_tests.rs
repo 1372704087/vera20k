@@ -146,7 +146,7 @@ fn scene(input: &Value) -> Scene {
     let human = input["human"] == true;
     let americans = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(americans, 0, None, human, 0, 10);
-    house.player_control = human;
+    house.set_player_control_for_test(human);
     sim.houses.register(house);
     let foreign = sim.interner.intern("Foreign");
     sim.houses

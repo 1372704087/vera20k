@@ -1747,7 +1747,7 @@ impl Simulation {
         let defeated = |sim: &Self, house: InternedId| {
             sim.houses
                 .get(&house)
-                .is_some_and(|state| state.is_defeated)
+                .is_some_and(|state| state.is_defeated())
         };
         let owner = if owner.is_none_or(|house| defeated(self, house)) {
             match self.civilian_side_house(rules) {
@@ -1821,7 +1821,10 @@ impl Simulation {
             }
             self.foot_mark_put(infantry, Some(rules), overlay_registry, frame_effects);
         }
-        let human = self.houses.get(&owner).is_some_and(|house| house.is_human);
+        let human = self
+            .houses
+            .get(&owner)
+            .is_some_and(|house| house.is_human());
         if !human && let Some(entity) = self.substrate.entities.get_mut(infantry) {
             crate::sim::mission::authority::queue_entity_mission_deferred(
                 entity,

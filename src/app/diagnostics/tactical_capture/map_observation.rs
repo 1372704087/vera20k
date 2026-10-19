@@ -355,7 +355,7 @@ fn diplomacy_row(sim: &crate::sim::world::Simulation, owner: &str) -> Value {
         })
         .collect();
     let enemy = crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-        .and_then(|house| house.enemy_house)
+        .and_then(|house| house.enemy_house())
         .map(|enemy| sim.interner.resolve(enemy));
     json!({"allies": allies, "enemy": enemy})
 }
@@ -1671,7 +1671,7 @@ impl MapCommandBarThumbState {
             rect: [gadget.rect.x, gadget.rect.y, gadget.rect.w, gadget.rect.h],
             disabled: gadget.is_disabled,
             current_house: owner.map(|owner| sim.interner.resolve(owner).to_owned()),
-            side_index: house.map(|house| house.side_index),
+            side_index: house.map(|house| house.side_index()),
             local_player_defeated: sim.local_player_defeated(),
             input_locked: sim.session.input_locked(),
             has_lost: house.map(|house| house.has_lost()),
@@ -3117,8 +3117,8 @@ impl TacticalCaptureSession {
                     let house = sim.houses.get(house_id);
                     json!({"slot": slot, "house": sim.interner.resolve(*house_id),
                     "waypoint": sim.session.mp_start_waypoints().get(slot),
-                    "country": house.and_then(|h| h.country).map(|c| sim.interner.resolve(c)),
-                    "human": house.map(|h| h.is_human), "difficulty": house.map(|h| h.difficulty)})
+                    "country": house.and_then(|h| h.country()).map(|c| sim.interner.resolve(c)),
+                    "human": house.map(|h| h.is_human()), "difficulty": house.map(|h| h.difficulty())})
                 })
                 .collect();
             for start in std::iter::once(profile.launch.local_slot().start_position).chain(
@@ -4109,9 +4109,9 @@ impl TacticalCaptureSession {
                 )
                 .map(|house| {
                     json!({
-                        "credits": house.economy.credits(),
-                        "spent_credits": house.economy.spent_credits(),
-                        "score": house.economy.score(),
+                        "credits": house.economy().credits(),
+                        "spent_credits": house.economy().spent_credits(),
+                        "score": house.economy().score(),
                     })
                 });
                 // Missing Houses stay explicit rather than inventing a zero

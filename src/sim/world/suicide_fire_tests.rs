@@ -423,7 +423,7 @@ fn ordinary_terror_attack_finishes_die2_and_retires_its_source() {
             .unwrap();
         assert!(output.tick.frame_committed);
         assert!(
-            !scene.sim.houses.get(&owner).unwrap().is_defeated,
+            !scene.sim.houses.get(&owner).unwrap().is_defeated(),
             "ordinary source cleanup must not be a house-defeat removal"
         );
         assert!(

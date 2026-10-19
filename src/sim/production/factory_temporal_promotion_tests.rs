@@ -341,12 +341,12 @@ fn retail_mobile_promotion_uses_offline_held_start_and_online_backup() {
                     expected_promoted["latch"].as_bool().unwrap()
                 );
                 assert_eq!(
-                    runtime.simulation.houses[&owner].economy.credits() as i64,
+                    runtime.simulation.houses[&owner].economy().credits() as i64,
                     expected_promoted["credits"].as_i64().unwrap()
                 );
             }
             let balance = held.balance;
-            let wallet = runtime.simulation.houses[&owner].economy.clone();
+            let wallet = runtime.simulation.houses[&owner].economy().clone();
             for _ in 0..8 {
                 frame(&mut runtime, owner, &[]);
             }
@@ -357,7 +357,8 @@ fn retail_mobile_promotion_uses_offline_held_start_and_online_backup() {
                 "{label}: frozen progress/debt"
             );
             assert_eq!(
-                runtime.simulation.houses[&owner].economy, wallet,
+                *runtime.simulation.houses[&owner].economy(),
+                wallet,
                 "{label}: frozen spend"
             );
             runtime.simulation.temporal_let_go(attacker);

@@ -374,8 +374,8 @@ mod tests {
             assert!(!sim.fog.is_cell_visible(local, rx, ry));
             assert!(!sim.fog.is_cell_revealed(ai, rx, ry));
         }
-        assert!(!sim.houses[&local].map_is_clear);
-        assert!(!sim.houses[&ai].map_is_clear);
+        assert!(!sim.houses[&local].map_is_clear());
+        assert!(!sim.houses[&ai].map_is_clear());
         assert_eq!(sim.scenario_rng.state(), scenario_rng_before);
         assert_eq!(sim.main_rng.state(), main_rng_before);
     }
@@ -439,7 +439,7 @@ mod tests {
                 "the CellIterator never walks storage outside the Size diamond"
             );
         }
-        assert!(!sim.houses[&local].map_is_clear);
+        assert!(!sim.houses[&local].map_is_clear());
     }
 
     fn test_battle_mode() -> SkirmishLaunchMode {
@@ -1185,7 +1185,7 @@ mod tests {
 
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((authored.rx, authored.ry))
         );
         assert_eq!(
@@ -1194,7 +1194,7 @@ mod tests {
                 "Computer1",
                 &sim.interner,
             )
-            .and_then(|house| house.base_center),
+            .and_then(|house| house.base_center()),
             Some((
                 projection.final_gathered_starts()[1].rx,
                 projection.final_gathered_starts()[1].ry,
@@ -1229,7 +1229,7 @@ mod tests {
         assert_eq!(sim.houses.len(), 4);
         let current_iq = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.current_iq)
+                .map(|house| house.current_iq())
         };
         assert_eq!(current_iq("Player"), Some(0));
         assert_eq!(current_iq("Computer1"), Some(rules.general.max_iq_levels));
@@ -1340,7 +1340,7 @@ mod tests {
             .interner
             .get("Computer1")
             .expect("pre-created first AI house");
-        assert_eq!(sim.houses[&computer].tracking.buildings(), 1);
+        assert_eq!(sim.houses[&computer].tracking().buildings(), 1);
         assert_eq!(
             sim.substrate.base_reservations.raw_mask(None, 28, 38),
             2,
@@ -1383,13 +1383,13 @@ mod tests {
         sim.houses
             .get_mut(&passive_ai)
             .expect("passive AI house")
-            .multiplay_passive = true;
+            .set_multiplay_passive_for_test(true);
         for owner in ["Neutral", "Special"] {
             let owner = sim.interner.get(owner).expect("special house");
             sim.houses
                 .get_mut(&owner)
                 .expect("special HouseState")
-                .multiplay_passive = true;
+                .set_multiplay_passive_for_test(true);
         }
         let observer = sim.interner.intern("Observer");
         sim.houses
@@ -1399,7 +1399,7 @@ mod tests {
 
         let credits = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.economy.credits())
+                .map(|house| house.economy().credits())
         };
         assert_eq!(credits("Player"), Some(10_000));
         assert_eq!(credits("Computer1"), Some(50_000), "Hard: +400%");
@@ -1435,17 +1435,17 @@ mod tests {
         sim.houses
             .get_mut(&ai)
             .expect("AI house")
-            .economy
+            .economy_mut_for_test()
             .set_credits_for_test(12_345);
 
         rules.general.multiplayer_ai_cm = Vec::new();
         apply_skirmish_ai_opening_credits(&mut sim, &rules);
-        assert_eq!(sim.houses[&ai].economy.credits(), 12_345);
+        assert_eq!(sim.houses[&ai].economy().credits(), 12_345);
 
         // 7 * 0.01 * 12345 = 864.15... -> 864 under chop.
         rules.general.multiplayer_ai_cm = vec![7, 0, 0];
         apply_skirmish_ai_opening_credits(&mut sim, &rules);
-        assert_eq!(sim.houses[&ai].economy.credits(), 12_345 + 864);
+        assert_eq!(sim.houses[&ai].economy().credits(), 12_345 + 864);
     }
 
     #[test]
@@ -1469,7 +1469,7 @@ mod tests {
 
         let side = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.side_index)
+                .map(|house| house.side_index())
         };
         assert_eq!(side("Player"), Some(0));
         assert_eq!(side("Computer1"), Some(1));
@@ -1479,7 +1479,7 @@ mod tests {
 
         let country = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .and_then(|house| house.country)
+                .and_then(|house| house.country())
                 .map(|country| sim.interner.resolve(country).to_string())
         };
         assert_eq!(country("Neutral"), Some("Neutral".to_string()));
@@ -1667,7 +1667,7 @@ mod tests {
         assert_eq!(result.spawned_mcvs, 0);
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((30, 10)),
             "the Auto human takes the first farthest free tie, not the AI reservation"
         );
@@ -1677,7 +1677,7 @@ mod tests {
                 "Computer1",
                 &sim.interner,
             )
-            .and_then(|house| house.base_center),
+            .and_then(|house| house.base_center()),
             Some((10, 10)),
             "standard Battle honors the AI's preassigned table entry"
         );
@@ -1938,12 +1938,12 @@ mod tests {
         assert_eq!(sim.entities().len(), 0);
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((30, 30))
         );
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Computer1", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((10, 10))
         );
     }
@@ -2171,7 +2171,7 @@ mod tests {
 
         let difficulty = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.difficulty)
+                .map(|house| house.difficulty())
         };
         assert_eq!(difficulty("Player"), Some(HouseDifficulty::Normal));
         assert_eq!(difficulty("Computer1"), Some(HouseDifficulty::Hard));
@@ -2179,7 +2179,7 @@ mod tests {
         assert_eq!(difficulty("Computer3"), Some(HouseDifficulty::Easy));
         let current_iq = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.current_iq)
+                .map(|house| house.current_iq())
         };
         assert_eq!(current_iq("Player"), Some(0));
         assert_eq!(current_iq("Computer1"), Some(rules.general.max_iq_levels));
@@ -2279,7 +2279,7 @@ mod tests {
         assert_eq!(result.spawned_mcvs, 2);
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((45, 45))
         );
         assert_eq!(entity_position_for_owner(&sim, "Player"), Some((45, 45)));
@@ -2323,7 +2323,7 @@ mod tests {
         assert_eq!(result.spawned_mcvs, 2);
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((45, 45))
         );
         assert_eq!(
@@ -2400,7 +2400,7 @@ mod tests {
         );
         assert_eq!(
             crate::sim::house_state::house_state_for_owner(&sim.houses, "Player", &sim.interner)
-                .and_then(|house| house.base_center),
+                .and_then(|house| house.base_center()),
             Some((100, 75)),
             "fallback placement must not rewrite the assigned base center"
         );
@@ -2481,7 +2481,7 @@ mod tests {
             &sim.interner,
         )
         .expect("launch house")
-        .base_center = Some((32, 32));
+        .set_base_center_for_test(Some((32, 32)));
 
         let mut terrain = test_terrain(64, 64);
         for ry in 0..terrain.height() {
@@ -2567,7 +2567,7 @@ mod tests {
         // Computer1 has no infantry, stops at 3xHTNK = 300 and is credited 34.
         let credits = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.economy.credits())
+                .map(|house| house.economy().credits())
         };
         assert_eq!(credits("Player"), Some(10_000));
         assert_eq!(credits("Computer1"), Some(10_034));
@@ -2609,7 +2609,7 @@ mod tests {
         assert_eq!(sim.entities().len(), 8);
         let credits = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.economy.credits())
+                .map(|house| house.economy().credits())
         };
         assert_eq!(credits("Player"), Some(10_000));
         assert_eq!(credits("Computer1"), Some(10_000));
@@ -2644,7 +2644,7 @@ mod tests {
 
         let credits = |owner: &str| {
             crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner)
-                .map(|house| house.economy.credits())
+                .map(|house| house.economy().credits())
         };
         assert_eq!(credits("Player"), Some(10_000));
         assert_eq!(credits("Computer1"), Some((10_000 + 34) * 5));
@@ -2730,7 +2730,7 @@ mod tests {
         for (owner, expected_cell) in &expected_cells {
             assert_eq!(
                 crate::sim::house_state::house_state_for_owner(&sim.houses, owner, &sim.interner,)
-                    .and_then(|house| house.base_center),
+                    .and_then(|house| house.base_center()),
                 Some(*expected_cell),
                 "{owner} must retain its authored base center"
             );

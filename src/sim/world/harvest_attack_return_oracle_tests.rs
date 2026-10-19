@@ -158,7 +158,12 @@ impl Replay {
                 control["deploys_into"] == true
             );
             let owner = entity.owner();
-            scene.sim.houses.get_mut(&owner).unwrap().current_iq = int(&control["house_iq"]);
+            scene
+                .sim
+                .houses
+                .get_mut(&owner)
+                .unwrap()
+                .set_current_iq_for_test(int(&control["house_iq"]));
         }
         // Unit construction consumes shared stream work in Rust. All fixture
         // allocations precede the declared original Scenario seed/prestate.

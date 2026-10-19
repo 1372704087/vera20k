@@ -3203,7 +3203,7 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut target_house = HouseState::new(american, 0, Some(american), true, 0, 10);
-        target_house.difficulty = HouseDifficulty::Normal;
+        target_house.set_difficulty_for_test(HouseDifficulty::Normal);
         commit.houses.register(target_house);
         let (death, pings) = commit.run(
             &aoe.hits,
@@ -3495,10 +3495,10 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut normal = HouseState::new(normal_house, 0, None, false, 0, 10);
-        normal.difficulty = HouseDifficulty::Normal;
+        normal.set_difficulty_for_test(HouseDifficulty::Normal);
         commit.houses.register(normal);
         let mut easy = HouseState::new(easy_house, 0, None, false, 0, 10);
-        easy.difficulty = HouseDifficulty::Easy;
+        easy.set_difficulty_for_test(HouseDifficulty::Easy);
         commit.houses.register(easy);
         let (death, _) = commit.run(
             &aoe.hits,
@@ -3844,7 +3844,7 @@ mod tests {
             );
             let mut house =
                 HouseState::new(victim_house, 0, None, human_control == Some(true), 0, 10);
-            house.player_control = human_control.is_some();
+            house.set_player_control_for_test(human_control.is_some());
             world.houses.register(house);
             if team {
                 let script = world.interner.intern("ScatterFixture");

@@ -114,14 +114,14 @@ fn brute_smash_emits_debris(elite: bool, expected: SmashDebrisExpectation) {
     }
     let source = sim.substrate.entities.get(brute).unwrap();
     let owner = source.owner();
-    assert!(sim.houses.get(&owner).unwrap().is_human);
+    assert!(sim.houses.get(&owner).unwrap().is_human());
     assert_eq!(source.attack_target.target(), None);
     let target = sim.substrate.entities.get(tank).unwrap();
     let target_owner = target.owner();
     // Unit EnterIdle738B67..738BD3 picks AreaGuard for this arena's armed,
     // unteamed computer tank: its stock skirmish IQ reaches GuardArea.
     // Techno Unlimbo6F6E2A..6F6E4F promotes that ordinary idle selection.
-    assert!(sim.houses.get(&target_owner).unwrap().current_iq >= rules.general.iq_guard_area);
+    assert!(sim.houses.get(&target_owner).unwrap().current_iq() >= rules.general.iq_guard_area);
     assert_eq!(
         target.mission.current(),
         MissionId::from_known(MissionType::AreaGuard)

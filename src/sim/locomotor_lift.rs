@@ -530,7 +530,7 @@ impl Simulation {
         let hunts = self.substrate.entities.get(target).is_some_and(|entity| {
             self.houses
                 .get(&entity.owner())
-                .is_some_and(|house| !house.is_human && !gatherer && !house.multiplay_passive)
+                .is_some_and(|house| !house.is_human() && !gatherer && !house.multiplay_passive())
         });
         if hunts {
             let _ = self.mission_queue_exact(

@@ -101,7 +101,7 @@ fn production_authoritative_hash_includes_factory_fields() {
     for m in econ_muts {
         let mut sim = mid_build();
         let owner = sim.interner.intern("Americans");
-        m(&mut sim.houses.get_mut(&owner).unwrap().economy);
+        m(sim.houses.get_mut(&owner).unwrap().economy_mut());
         assert_ne!(
             base,
             sim.state_hash(),
@@ -141,7 +141,7 @@ fn snapshot_roundtrip_factory_registry() {
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .set_score_for_test(12_345);
     // Native in-scenario load resets Scenario RNG; isolate factory persistence
     // by comparing against that same post-load baseline.
@@ -232,7 +232,7 @@ fn queue_advances_only_after_delivery() {
     f.suspended = false;
     // The credits mirror is retired, so a cloned economy starts at 0 — fund the oracle
     // explicitly so the per-step charge can actually complete the build.
-    let mut oracle = sim.houses[&owner].economy.clone();
+    let mut oracle = sim.houses[&owner].economy().clone();
     oracle.set_credits_for_test(700);
     assert!(
         (0..PRODUCTION_STEPS)

@@ -273,8 +273,14 @@ fn unavailable_ai_does_not_enter_target_search_or_draw_rng() {
     let rules = rules_with("");
     let mut sim = world(&rules);
     let owner = sim.interner.get(OWNER).unwrap();
-    sim.houses.get_mut(&owner).unwrap().is_human = false;
-    sim.houses.get_mut(&owner).unwrap().player_control = false;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_human_for_test(false);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_player_control_for_test(false);
     assert!(!sim.houses[&owner].is_controlled_by_human(sim.session.game_mode_nonzero()));
     ready(&mut sim, NORMAL);
     let before = sim.state_hash();

@@ -508,7 +508,7 @@ fn manual_primary_native_histories_preserve_retained_flags_consumers_and_streams
                 let mut houses_before = sim.houses.clone();
                 let edges_before: Vec<_> = owners
                     .iter()
-                    .map(|owner| sim.houses[owner].waypoint_edge)
+                    .map(|owner| sim.houses[owner].waypoint_edge())
                     .collect();
                 sim.sound_events.clear();
                 let mut event = None;
@@ -591,8 +591,10 @@ fn manual_primary_native_histories_preserve_retained_flags_consumers_and_streams
                     .any(|effect| effect["event"] == "determine_edge");
                 for owner in owners {
                     if has_edge {
-                        houses_before.get_mut(&owner).unwrap().waypoint_edge =
-                            sim.houses[&owner].waypoint_edge;
+                        houses_before
+                            .get_mut(&owner)
+                            .unwrap()
+                            .set_waypoint_edge_for_test(sim.houses[&owner].waypoint_edge());
                     }
                 }
                 assert_eq!(
@@ -604,7 +606,7 @@ fn manual_primary_native_histories_preserve_retained_flags_consumers_and_streams
                     assert_eq!(
                         owners
                             .iter()
-                            .map(|owner| sim.houses[owner].waypoint_edge)
+                            .map(|owner| sim.houses[owner].waypoint_edge())
                             .collect::<Vec<_>>(),
                         edges_before,
                         "{context}: no edge write"

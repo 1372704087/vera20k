@@ -452,8 +452,15 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
                 None,
             );
         }
-        sim.houses.get_mut(&owner).unwrap().player_control = false;
-        sim.houses.get_mut(&owner).unwrap().economy.add_credits(100);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_player_control_for_test(false);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut()
+            .add_credits(100);
         let other = sim.interner.intern("Russians");
         sim.houses
             .register(HouseState::new(other, 1, Some(other), false, 200, 10));
@@ -522,8 +529,8 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
         }
         assert_eq!(
             json!([
-                sim.houses[&owner].economy.credits(),
-                sim.houses[&other].economy.credits()
+                sim.houses[&owner].economy().credits(),
+                sim.houses[&other].economy().credits()
             ]),
             case["balances"],
             "{name}: real AddCredits"
@@ -851,7 +858,10 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         .spawn_object_at_height("E1", "Americans", 20, 20, 0, 0, &rules)
         .unwrap();
     let house = sim.substrate.entities.get(actor).unwrap().owner();
-    sim.houses.get_mut(&house).unwrap().player_control = false;
+    sim.houses
+        .get_mut(&house)
+        .unwrap()
+        .set_player_control_for_test(false);
     supply_rng(&mut sim, &native["placement_controls"][0]["rng_before"]);
     let live = *sim
         .trigger_runtime
@@ -899,7 +909,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         assert_eq!(cell.overlay_id, Some(wood));
         assert_eq!(cell.overlay_data, 0);
     }
-    let before = sim.houses[&house].economy.credits();
+    let before = sim.houses[&house].economy().credits();
     assert!(sim.pickup_crate_at(
         actor,
         (16, 15),
@@ -914,7 +924,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         .find(|row| row["input"]["name"] == "ordinary_money")
         .unwrap();
     assert_eq!(
-        sim.houses[&house].economy.credits().wrapping_sub(before),
+        sim.houses[&house].economy().credits().wrapping_sub(before),
         integer(&ordinary["credit_calls"][0]["amount"])
     );
     assert!(sim.trigger_runtime.dirty[3]);

@@ -195,7 +195,7 @@ pub(super) fn radar_pixel_candidate_eligible(
     if object.is_some_and(|object| object.insignificant && !object.radar_visible)
         && !houses
             .get(&entity.owner())
-            .is_some_and(|house| !house.multiplay_passive)
+            .is_some_and(|house| !house.multiplay_passive())
     {
         return false;
     }

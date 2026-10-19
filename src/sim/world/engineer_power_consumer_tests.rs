@@ -124,7 +124,7 @@ fn fixture(radar: bool) -> (Simulation, RuleSet, InternedId) {
     .unwrap();
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, Some(owner), true, 5000, 10);
-    house.current_iq = 1;
+    house.set_current_iq_for_test(1);
     sim.houses.register(house);
     building(&mut sim, PLANT, owner, "GAPOWR", 374);
     building(&mut sim, DRAIN, owner, "DRAIN", 500);
@@ -137,7 +137,7 @@ fn fixture(radar: bool) -> (Simulation, RuleSet, InternedId) {
     let gapowr = sim.interner.intern("GAPOWR");
     let house = sim.houses.get_mut(&owner).unwrap();
     house
-        .tracking
+        .tracking_mut()
         .set_active_for_test(EntityCategory::Structure, gapowr, 1);
     sim.substrate
         .entities
@@ -220,7 +220,7 @@ fn assert_joined(sim: &Simulation, rules: &RuleSet, owner: InternedId, native: &
         "{boundary}: local derived radar projection"
     );
     assert_eq!(
-        sim.houses[&owner].eva_low_power_guard,
+        sim.houses[&owner].eva_low_power_guard(),
         native["eva_guard"] == 1,
         "{boundary}: local EVA guard"
     );
@@ -262,12 +262,12 @@ fn assert_joined(sim: &Simulation, rules: &RuleSet, owner: InternedId, native: &
         "{boundary}: suspended"
     );
     assert_eq!(
-        sim.houses[&owner].economy.credits(),
+        sim.houses[&owner].economy().credits(),
         int(&expected["credits"]),
         "{boundary}: credits"
     );
     assert_eq!(
-        sim.houses[&owner].economy.spent_credits(),
+        sim.houses[&owner].economy().spent_credits(),
         int(&expected["spent"]),
         "{boundary}: spending"
     );
@@ -316,12 +316,12 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(int(&pending["credits"]));
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_spent_for_test(int(&pending["spent"]));
         sim.substrate
             .entities
@@ -459,7 +459,7 @@ fn native_local_radar_projection_uses_represented_provider_predicates_and_house_
         if flag(input, "second", false) {
             building(&mut sim, SECOND_RADAR, owner, "RADAR", 500);
             assert_eq!(
-                sim.houses[&owner].base_projection.buildings(),
+                sim.houses[&owner].base_projection().buildings(),
                 &[PLANT, DRAIN, RADAR, PRODUCER, SECOND_RADAR]
             );
             assert_eq!(
@@ -494,7 +494,7 @@ fn native_local_radar_projection_uses_represented_provider_predicates_and_house_
                 int(&outage[2]),
             ));
         }
-        let order = sim.houses[&owner].base_projection.buildings();
+        let order = sim.houses[&owner].base_projection().buildings();
         power_system::assess_house_radar_projection(
             &mut state,
             &sim.substrate.entities,
@@ -536,14 +536,17 @@ fn native_local_low_power_advice_guard_and_eight_speed_delay_values() {
         sim.session.set_binary_frame_for_test(196);
         sim.session.game_options_mut_for_test().game_speed =
             input["speed"].as_i64().unwrap_or(1) as i32;
-        sim.houses.get_mut(&owner).unwrap().eva_low_power_guard = int(&input["guard"]) != 0;
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_eva_low_power_guard_for_test(int(&input["guard"]) != 0);
         // The supplied `+0x5550` GAPOWR count, independent of the retained
         // House power totals.
         let gapowr = sim.interner.intern("GAPOWR");
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .tracking
+            .tracking_mut()
             .set_active_for_test(
                 EntityCategory::Structure,
                 gapowr,
@@ -556,7 +559,7 @@ fn native_local_low_power_advice_guard_and_eight_speed_delay_values() {
         sim.power_states.insert(owner, state);
         house_eva::update_house_eva(&mut sim, &rules, owner);
         assert_eq!(
-            sim.houses[&owner].eva_low_power_guard,
+            sim.houses[&owner].eva_low_power_guard(),
             row["output"]["eva_guard"] == 1,
             "{input}"
         );
@@ -581,7 +584,7 @@ fn native_local_low_power_advice_guard_and_eight_speed_delay_values() {
         assert_eq!(lines, native_lines, "{input}: local EVA requests");
         if native_lines.contains(&EVA_LOW_POWER) {
             assert_eq!(
-                house_eva::speak_delay_frames(&rules, &sim.session.game_options()),
+                house_eva::speak_delay_frames(&rules, sim.session.game_options()),
                 int(&row["output"]["low_power_timer"][2]),
                 "{input}: original advice's delay input"
             );

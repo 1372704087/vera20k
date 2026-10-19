@@ -209,11 +209,7 @@ pub use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::actions::ActionMap;
 use crate::map::entities::EntityCategory;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::events::EventMap;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::overlay::OverlayEntry;
 use crate::map::playfield::PlayfieldBounds;
@@ -385,12 +381,6 @@ pub enum TickLane {
 /// Live definitions and mutable Trigger/Tag state belong to `Simulation`.
 #[derive(Clone, Copy)]
 pub struct TriggerInputs<'a> {
-    // Legacy focused fixtures finish their test-only definition installation
-    // on first dispatch. Production uses the installed live registry only.
-    #[cfg(any(test, feature = "test-support"))]
-    pub events: &'a EventMap,
-    #[cfg(any(test, feature = "test-support"))]
-    pub actions: &'a ActionMap,
     /// Bound match rules used by action callbacks that share ordinary Techno
     /// runtime calculations (not reparsed or substituted by trigger data).
     pub rules: Option<&'a RuleSet>,
@@ -6819,8 +6809,9 @@ impl Simulation {
     ///
     /// This is the sole Main_Tick-shaped entry point, reached in production
     /// only through `advance_app_frame` (F09). The fixture-only `advance_tick`
-    /// adapter and the replay fixture runners are `#[cfg(test)]`; gameplay
-    /// supplies its map definitions through `trigger_inputs`.
+    /// adapter and the replay fixture runners are `#[cfg(test)]`. Triggers
+    /// poll only with `trigger_inputs`, against the definitions the trigger
+    /// runtime installed at scenario init.
     pub(crate) fn advance_master_frame(
         &mut self,
         commands: &[CommandEnvelope],

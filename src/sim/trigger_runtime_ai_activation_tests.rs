@@ -26,7 +26,7 @@ fn authored_ai_trigger_actions_change_only_the_selected_house_latch() {
         }
         // Incoming House is Country0; the action's Country7 operand selects
         // House1 instead. 6E45E0 is the existing selector for both actions.
-        let map = super::tests::install_event_ingress_map(
+        super::tests::install_event_ingress_map(
             &mut sim,
             &rules,
             &format!(
@@ -50,8 +50,6 @@ fn authored_ai_trigger_actions_change_only_the_selected_house_latch() {
         );
         let _ = sim.advance_triggers(
             TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
                 rules: Some(&rules),
             },
             Some(&registry),
@@ -1266,7 +1264,7 @@ fn house_team_controls_ordered_tag_history_preserves_native_due_selection_and_sa
     sim.houses.get_mut(&houses[0]).unwrap().enemy_house = Some(houses[1]);
     let (old_team, types) = install_team_scene(&mut sim, houses[0]);
     let old_team_bytes = save_codec::serialize(sim.team_script_vm.team(old_team).unwrap()).unwrap();
-    let map = super::tests::install_event_ingress_map(
+    super::tests::install_event_ingress_map(
         &mut sim,
         &rules,
         "[Triggers]\nAI=Country0,<none>,AI,0,1,1,1,0\n[Events]\nAI=1,13,0,0\n\
@@ -1280,8 +1278,6 @@ fn house_team_controls_ordered_tag_history_preserves_native_due_selection_and_sa
     let untouched = save_codec::serialize(&sim.houses[&houses[2]]).unwrap();
     sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         Some(&registry),

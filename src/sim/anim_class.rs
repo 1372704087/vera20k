@@ -6196,12 +6196,7 @@ mod tests {
                 .anim_ids,
         );
     }
-    fn waypoint_cue_flare_scene() -> (
-        Simulation,
-        RuleSet,
-        crate::map::map_file::MapFile,
-        crate::sim::intern::InternedId,
-    ) {
+    fn waypoint_cue_flare_scene() -> (Simulation, RuleSet, crate::sim::intern::InternedId) {
         // Custom DropZone binding from the original connected controls. ART and
         // the five-frame SHP metadata are physical ARRWSE inputs; no GPU claim.
         let mut rules=RuleSet::from_ini(&IniFile::from_str(
@@ -6240,20 +6235,12 @@ mod tests {
             None,
         );
         sim.classify_map_triggers(Some(&rules));
-        (sim, rules, map, player)
+        (sim, rules, player)
     }
 
-    fn waypoint_cue_spring_flare(
-        sim: &mut Simulation,
-        rules: &RuleSet,
-        map: &crate::map::map_file::MapFile,
-    ) -> AnimId {
+    fn waypoint_cue_spring_flare(sim: &mut Simulation, rules: &RuleSet) -> AnimId {
         sim.advance_triggers(
-            crate::sim::world::TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
-                rules: Some(rules),
-            },
+            crate::sim::world::TriggerInputs { rules: Some(rules) },
             None,
             crate::sim::world::FrameEffects::default(),
         );
@@ -6269,9 +6256,9 @@ mod tests {
 
     #[test]
     fn waypoint_cue_flare_uses_tail_slot_reveals_current_house_and_keeps_first_start() {
-        let (mut sim, rules, map, player) = waypoint_cue_flare_scene();
+        let (mut sim, rules, player) = waypoint_cue_flare_scene();
         assert!(!sim.fog.is_cell_revealed(player, 10, 10));
-        let id = waypoint_cue_spring_flare(&mut sim, &rules, &map);
+        let id = waypoint_cue_spring_flare(&mut sim, &rules);
         let anim = sim.anim(id).unwrap();
         assert_eq!(
             anim.world_coord,
@@ -6303,7 +6290,7 @@ mod tests {
     fn waypoint_cue_flare_ground_building_ends_before_first_guard_and_deck_does_not() {
         use crate::sim::movement::locomotor::MovementLayer;
         for layer in [MovementLayer::Ground, MovementLayer::Bridge] {
-            let (mut sim, rules, map, player) = waypoint_cue_flare_scene();
+            let (mut sim, rules, player) = waypoint_cue_flare_scene();
             if layer == MovementLayer::Bridge {
                 let terrain = sim.resolved_terrain.as_mut().unwrap();
                 let cell = terrain.native_cell_identity((10, 10));
@@ -6335,7 +6322,7 @@ mod tests {
                 None,
                 crate::sim::occupancy::CellListInsertion::AppendBuilding,
             );
-            let id = waypoint_cue_spring_flare(&mut sim, &rules, &map);
+            let id = waypoint_cue_spring_flare(&mut sim, &rules);
             assert_eq!(
                 sim.anim(id).unwrap().world_coord.z,
                 if layer == MovementLayer::Bridge {

@@ -9,6 +9,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::{Hash, Hasher};
 
+#[cfg(any(test, feature = "test-support"))]
+use crate::map::actions::ActionMap;
 use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSelector};
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::events::EventCondition;
@@ -635,8 +637,6 @@ pub struct TriggerRuntime {
     definitions_prepared: bool,
     classified: bool,
     #[cfg(any(test, feature = "test-support"))]
-    fixture_awaiting_records: bool,
-    #[cfg(any(test, feature = "test-support"))]
     fixture_difficulty: Option<i32>,
     #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
@@ -1040,11 +1040,21 @@ impl Simulation {
             .map_or(1, |(player, _)| player.table_index() as i32)
     }
 
-    /// Legacy unit fixtures declare one synthetic Tag per Trigger. This seam
-    /// supplies fixture definitions only; construction, polling and actions use
-    /// the same production owner. Map loading always uses the physical reader.
+    /// Legacy unit fixtures declare one synthetic Tag per Trigger instead of
+    /// a `[Tags]` section. This seam installs those complete definitions,
+    /// events and actions included, from the production record readers'
+    /// output, as `initialize_trigger_definitions` does for a map; Fill
+    /// (`classify_map_triggers`) stays the fixture's next step. Construction,
+    /// polling and actions use the same production owner. Map loading always
+    /// uses the physical reader.
     #[cfg(any(test, feature = "test-support"))]
-    fn initialize_map_triggers(&mut self, triggers: &TriggerMap, locals: &LocalVariableMap) {
+    fn initialize_fixture_trigger_definitions(
+        &mut self,
+        triggers: &TriggerMap,
+        events: &EventMap,
+        actions: &ActionMap,
+        locals: &LocalVariableMap,
+    ) {
         let mut ids: Vec<_> = triggers.keys().collect();
         ids.sort();
         let mut definitions = RuntimeDefinitions::default();
@@ -1070,6 +1080,24 @@ impl Simulation {
                 trigger: Some(index),
             });
         }
+        // The range is fixed first: Types an action reference allocates get
+        // no records.
+        for index in 0..definitions.trigger_types.len() {
+            let id = definitions.trigger_types[index].id.clone();
+            let conditions = events
+                .get(&id)
+                .map_or_else(Vec::new, |record| record.conditions().to_vec());
+            let entries = actions
+                .get(&id)
+                .map_or_else(Vec::new, |record| record.entries().to_vec());
+            let resolved = entries
+                .into_iter()
+                .map(|entry| definitions.resolve_action(entry, None, None))
+                .collect();
+            let typ = &mut definitions.trigger_types[index];
+            typ.events = conditions.into_iter().map(RuntimeEvent::from).collect();
+            typ.actions = resolved;
+        }
         self.trigger_runtime = TriggerRuntime {
             definitions,
             definitions_prepared: true,
@@ -1078,43 +1106,8 @@ impl Simulation {
                 .filter(|v| v.initially_set)
                 .map(|v| v.index)
                 .collect(),
-            fixture_awaiting_records: true,
             ..TriggerRuntime::default()
         };
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    fn install_pending_trigger_fixture(&mut self, inputs: TriggerInputs<'_>) {
-        if !self.trigger_runtime.fixture_awaiting_records {
-            return;
-        }
-        let count = self.trigger_runtime.definitions.trigger_types.len();
-        for index in 0..count {
-            let id = self.trigger_runtime.definitions.trigger_types[index]
-                .id
-                .clone();
-            let events = inputs
-                .events
-                .get(&id)
-                .map_or_else(Vec::new, |r| r.conditions().to_vec());
-            let entries = inputs
-                .actions
-                .get(&id)
-                .map_or_else(Vec::new, |r| r.entries().to_vec());
-            let actions = entries
-                .into_iter()
-                .map(|entry| {
-                    self.trigger_runtime
-                        .definitions
-                        .resolve_action(entry, None, None)
-                })
-                .collect();
-            let typ = &mut self.trigger_runtime.definitions.trigger_types[index];
-            typ.events = events.into_iter().map(RuntimeEvent::from).collect();
-            typ.actions = actions;
-        }
-        self.trigger_runtime.fixture_awaiting_records = false;
-        self.classify_map_triggers(inputs.rules);
     }
 
     /// Original Tag6E52A0 includes pending-but-not-yet-destroyed instances.
@@ -2699,8 +2692,6 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Vec<TriggerEffect> {
-        #[cfg(any(test, feature = "test-support"))]
-        self.install_pending_trigger_fixture(inputs);
         let mut effects = Vec::new();
         self.trigger_runtime.logic_cursor = 0;
         while let Some(&tag) = self

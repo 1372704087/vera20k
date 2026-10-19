@@ -209,8 +209,6 @@ fn counted_tag_create_then_stop_reaches_the_normal_ai_and_late_delete_drain() {
     sim.session.set_started(true);
     sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         None,

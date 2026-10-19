@@ -148,8 +148,6 @@ fn counted_trigger_dispatches_both_strikes_then_continues() {
     sim.session.set_started(true);
     sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         None,

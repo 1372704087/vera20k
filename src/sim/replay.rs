@@ -835,9 +835,9 @@ impl ReplayRunner {
     }
 
     /// Fixture-only replay through the same master-frame admission gameplay
-    /// uses, with caller-owned static map trigger definitions. Diagnostic
-    /// logs own commands and hashes. Production replay execution is
-    /// `run_runtime`.
+    /// uses; `trigger_inputs` polls the simulation's installed triggers.
+    /// Diagnostic logs own commands and hashes. Production replay execution
+    /// is `run_runtime`.
     pub(crate) fn run_fixture_master_frame(
         sim: &mut Simulation,
         replay: &ReplayLog,

@@ -698,8 +698,6 @@ fn funds_events_match_original_house_logic_and_cleanup_histories() {
                 // succeed on frame3750, which is not an eighth-frame poll.
                 sim.advance_triggers(
                     TriggerInputs {
-                        events: &Default::default(),
-                        actions: &Default::default(),
                         rules: Some(&rules),
                     },
                     Some(&overlay),
@@ -1748,8 +1746,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
             67,
             TickLane::Ordinary,
             Some(TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
                 rules: Some(&rules),
             }),
             FrameEffects::default(),
@@ -1774,8 +1770,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         67,
         TickLane::Ordinary,
         Some(TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         }),
         FrameEffects::default(),
@@ -1846,8 +1840,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         67,
         TickLane::Ordinary,
         Some(TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         }),
         FrameEffects::default(),
@@ -3624,8 +3616,6 @@ fn physical_retail_sov01_registration_and_enable_timers_match_original_at_all_di
         let boundary = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             sim.advance_triggers(
                 TriggerInputs {
-                    events: &map.events,
-                    actions: &map.actions,
                     rules: Some(&rules),
                 },
                 None,
@@ -4253,8 +4243,6 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                     "poll" => {
                         effects = sim.advance_triggers(
                             TriggerInputs {
-                                events: &HashMap::new(),
-                                actions: &HashMap::new(),
                                 rules: Some(&rules),
                             },
                             None,

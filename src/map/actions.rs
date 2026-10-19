@@ -136,8 +136,8 @@ impl ActionEntry {
     }
 }
 
-/// One `[Actions]` record. Saved scenario resources serialize this layout.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// One `[Actions]` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapAction {
     id: String,
     fields: Vec<String>,

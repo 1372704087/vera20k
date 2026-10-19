@@ -328,8 +328,6 @@ fn counted_tag_pauses_drivers_preserves_saved_gate_and_reenables_due_timers() {
     sim.session.set_started(true);
     sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         Some(registry),

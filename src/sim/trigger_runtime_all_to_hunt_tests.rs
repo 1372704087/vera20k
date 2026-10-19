@@ -6,7 +6,6 @@ use crate::map::entities::EntityCategory;
 use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
 use crate::sim::{combat::Health, game_entity::GameEntity, house_state::HouseState};
 use serde_json::Value;
-use std::collections::HashMap;
 
 fn corpus() -> &'static Value {
     let result = crate::test_fixture::json("tools/spatial_oracle/trigger_all_to_hunt.json");
@@ -399,8 +398,6 @@ fn all_to_hunt_retail_all06_elapsed_enable_chain_releases_existing_gattling_team
         sim.session.binary_frame = frame;
         sim.advance_triggers(
             TriggerInputs {
-                events: &HashMap::new(),
-                actions: &HashMap::new(),
                 rules: Some(&rules),
             },
             None,

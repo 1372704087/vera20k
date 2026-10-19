@@ -54,15 +54,8 @@ fn map_music_action_follows_native_read_and_queue() {
         sim.initialize_trigger_definitions(&map, &TeamAiIniRegistry::default(), None, None);
         sim.classify_map_triggers(None);
         sim.set_trigger_variable(false, 9, true);
-        let effects = sim.advance_triggers(
-            TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
-                rules: None,
-            },
-            None,
-            FrameEffects::default(),
-        );
+        let effects =
+            sim.advance_triggers(TriggerInputs { rules: None }, None, FrameEffects::default());
         assert_eq!(effects.len(), actions.len(), "{case}");
 
         let prior = &fixture["default_prior"];

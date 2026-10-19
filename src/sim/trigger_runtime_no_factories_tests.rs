@@ -479,8 +479,6 @@ fn no_factories_retail_sov02_delay_reaches_existing_sale_and_hunt_after_restore(
         sim.session.binary_frame = frame;
         sim.advance_triggers(
             TriggerInputs {
-                events: &Default::default(),
-                actions: &Default::default(),
                 rules: Some(&rules),
             },
             None,

@@ -103,8 +103,6 @@ fn counted_action94_uses_ground_then_real_frame_damage_and_cleanup() {
     sim.session.set_started(true);
     sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         None,

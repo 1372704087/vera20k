@@ -11,16 +11,15 @@ use std::collections::HashMap;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ini_value::{crt_atoi, strtok, truncate_native_bytes};
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct TriggerDifficulty {
     easy: bool,
     medium: bool,
     hard: bool,
 }
 
-/// One `[Triggers]` header as TriggerType::ReadINI takes it. Saved scenario
-/// resources serialize this layout.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// One `[Triggers]` header as TriggerType::ReadINI takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapTrigger {
     id: String,
     fields: Vec<String>,

@@ -761,8 +761,6 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
     let previous_actions = sim.trigger_runtime.action_trace.len();
     let effects = sim.advance_triggers(
         TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
             rules: Some(&rules),
         },
         Some(&overlays),

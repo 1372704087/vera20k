@@ -538,7 +538,6 @@ mod tests {
             events: std::collections::HashMap::new(),
             actions: std::collections::HashMap::new(),
             local_variables: std::collections::HashMap::new(),
-            trigger_graph: crate::map::trigger_graph::TriggerGraph::default(),
             special_flags: crate::map::basic::SpecialFlagsSection::default(),
             ini: IniFile::from_str(""),
         }

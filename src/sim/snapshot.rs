@@ -1163,7 +1163,11 @@ use crate::util::save_codec;
 // cliff, rough and road copies of that LandType.
 // 431 -> 432: the VERA-only Boarding passenger relation is gone, which
 // renumbers the later PassengerRole and carrier-relation variants.
-const SNAPSHOT_VERSION: u32 = 432;
+// 432 -> 436 (433, 434 and 435 belong to concurrent changes): saved scenario
+// resources drop their copies of the map's [Triggers], [Events] and [Actions]
+// records and the always-empty trigger graph. The trigger runtime saved with
+// the Simulation is the only owner of those definitions.
+const SNAPSHOT_VERSION: u32 = 436;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4873,7 +4877,8 @@ mod tests {
         // pointers and lists.
         // 430 -> 431: no derived land caches beside that LandType.
         // 431 -> 432: the Boarding passenger relation is gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 432);
+        // 432 -> 436: no trigger-record copies in saved scenario resources.
+        assert_eq!(super::SNAPSHOT_VERSION, 436);
     }
 
     #[test]

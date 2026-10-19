@@ -157,7 +157,7 @@ fn walk_tube_target(
     tube: &TubeFact,
     terrain: &ResolvedTerrainGrid,
 ) -> Result<DriveCoord, String> {
-    let (dx, dy) = direction_delta(tube.path_steps[0]);
+    let (dx, dy) = crate::util::direction::cell_delta_unchecked(tube.path_steps[0] as u8);
     let [x, y] = ground_pose::position_world_xy(position);
     Ok(DriveCoord {
         x: x.wrapping_add(dx.wrapping_mul(256)),
@@ -175,7 +175,7 @@ fn track_tube_target(
     tube: &TubeFact,
     terrain: &ResolvedTerrainGrid,
 ) -> Result<DriveCoord, String> {
-    let (dx, dy) = direction_delta(tube.path_steps[0]);
+    let (dx, dy) = crate::util::direction::cell_delta_unchecked(tube.path_steps[0] as u8);
     let cell_x = (tube.entry.0 as i16).wrapping_add(dx as i16);
     let cell_y = (tube.entry.1 as i16).wrapping_add(dy as i16);
     Ok(DriveCoord {
@@ -461,7 +461,7 @@ fn tick_active_tube_object(
     }
 
     let next_raw = tube.path_steps[usize::from(state.cursor)];
-    let (dx, dy) = direction_delta(next_raw);
+    let (dx, dy) = crate::util::direction::cell_delta_unchecked(next_raw as u8);
     let old_target = state.target;
     state.target.x = state.target.x.wrapping_add(dx.wrapping_mul(256));
     state.target.y = state.target.y.wrapping_add(dy.wrapping_mul(256));
@@ -897,10 +897,6 @@ fn live_z_step(terrain: &ResolvedTerrainGrid, tube: &TubeFact) -> Option<i32> {
 fn floor_at_cell_center(terrain: &ResolvedTerrainGrid, cell: (u16, u16)) -> Option<i32> {
     let center = DriveCoord::cell(cell.0, cell.1, 0);
     ground_pose::ground_surface_z_at([center.x, center.y], false, Some(terrain), None)
-}
-
-fn direction_delta(raw: i32) -> (i32, i32) {
-    crate::util::direction::DIRECTION_DELTAS[(raw & 7) as usize]
 }
 
 fn advance_amount(

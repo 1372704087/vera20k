@@ -22,8 +22,8 @@ const SPY_PLANE: &str = "SpyPlaneSpecial";
 const TARGET: (u16, u16) = (40, 40);
 const FLY: &str = "{4A582746-9839-11D1-B709-00A024DDAFD1}";
 
-pub(super) fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+pub(super) fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 pub(super) fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -473,7 +473,7 @@ fn mission_plane(sim: &mut Simulation, rules: &RuleSet, row: &Value) -> u64 {
             plane.position.set_exact_z_leptons_for_test(Some(1500));
             let entities = &sim.substrate.entities;
             let plane = entities.get(id).unwrap();
-            if crate::sim::combat::object_distance_to(plane, &target, entities) == Some(distance) {
+            if crate::sim::combat::object_distance_to(plane, &target, &sim) == Some(distance) {
                 placed = true;
                 break 'search;
             }
@@ -546,18 +546,7 @@ fn spyplane_missions_match_native() {
         let id = mission_plane(&mut sim, &rules, row);
         if flag(row, "latched") {
             // A snapshot held from before, as the row's `+0x250` stands for.
-            let config = sim.sight_reveal_config(Some(&rules));
-            let plane = sim.substrate.entities.get(id).unwrap();
-            crate::sim::vision::force_refresh_entity_vision(
-                &mut sim.fog,
-                plane,
-                &config,
-                None,
-                sim.resolved_terrain.as_ref(),
-                false,
-                &sim.interner,
-                4,
-            );
+            sim.refresh_object_sight(id, Some(&rules), 4);
         }
         let opposite = pick.map(|pick| {
             let opposite = edge(pick);
@@ -591,13 +580,13 @@ fn spyplane_missions_match_native() {
         assert_eq!(plane.navigation.nav_com(), nav, "{row}");
         let radius = sim
             .fog
-            .sight_admissions
+            .sight_admissions_for_test()
             .get(&(id, americans))
             .map_or(0, |admission| admission.radius);
         let revealed = events(row, "reveal")
             .filter(|event| event[8] == 0)
             .last()
-            .map_or(0, |event| int(&event[2]).min(10));
+            .map_or(0, |event| int(&event[2]));
         assert_eq!(i32::from(radius), revealed, "{row}");
         let sounds = events(row, "play_at")
             .filter(|event| int(&event[1]) >= 0)
@@ -658,16 +647,16 @@ fn retail_spy_plane_photographs_the_target_and_leaves() {
     let mut frames = 0;
     let mut snapshots = 0;
     let mut overfly = None;
+    let mut saw_body_counter_advance = false;
     while sim.substrate.entities.contains(plane) {
         sim.sound_events.clear();
         step(&mut sim, &rules);
         frames += 1;
         snapshots += camera_sounds(&sim);
-        let current = sim
-            .substrate
-            .entities
-            .get(plane)
-            .map(|entity| entity.mission.current());
+        let current = sim.substrate.entities.get(plane).map(|entity| {
+            saw_body_counter_advance |= entity.body_frame_counter.get() != 0;
+            entity.mission.current()
+        });
         if overfly.is_none() && current == Some(MissionId::from_known(MissionType::SpyplaneOverfly))
         {
             overfly = Some(revealed(&sim));
@@ -676,6 +665,10 @@ fn retail_spy_plane_photographs_the_target_and_leaves() {
         assert!(frames < 3000, "the plane never left");
     }
     let at_overfly = overfly.expect("no Overfly");
+    assert!(
+        saw_body_counter_advance,
+        "Aircraft414DA3 reaches Foot4DA886: the flying SPYP body counter must advance"
+    );
     assert!(snapshots > 0, "no snapshot");
     assert!(sim.fog.is_cell_revealed(americans, TARGET.0, TARGET.1));
     // Overfly photographs on past the target, silently.

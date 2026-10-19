@@ -17,7 +17,7 @@
 //! (`movement::jumpjet_movement::jumpjet_flight`) and its impact notice finishes it
 //! ([`Simulation::jumpjet_crash_impact`]). A `Crashable=` `JumpJet=`
 //! infantryman crashes from `InfantryClass::ReceiveDamage` (`0x005185F1`,
-//! `world::infantry_terminal`) and falls and lands in its AirDeath actions
+//! `world::infantry_death`) and falls and lands in its AirDeath actions
 //! (`movement::infantry_action`).
 //!
 //! While it falls a wreck keeps the AI its native IsAlive (`+0x90`) gates: the
@@ -537,7 +537,7 @@ impl Simulation {
             .as_ref()
             .and_then(|terrain| terrain.cell(entity.position.rx(), entity.position.ry()))
             .is_some_and(|cell| {
-                cell.yr_cell_land_type == crate::rules::terrain_rules::LandType::Water.as_index()
+                cell.land_type() == crate::rules::terrain_rules::LandType::Water.as_index()
             });
         let object = self.object_type(entity.type_ref(), rules);
         let sound = if water {
@@ -550,7 +550,7 @@ impl Simulation {
                 .or_else(|| rules.general.impact_land_sound.clone())
         };
         if let Some(sound_id) = sound {
-            let event = voc_at(entity, sound_id, None);
+            let event = super::SimSoundEvent::voc_at(sound_id, &entity.position);
             self.sound_events.push(event);
         }
     }
@@ -585,7 +585,8 @@ impl Simulation {
             if let Some(voice) = voice
                 && human
             {
-                let event = voc_at(entity, voice, Some([owner, owner]));
+                let event =
+                    super::SimSoundEvent::voc_at_for(voice, Some([owner, owner]), &entity.position);
                 self.sound_events.push(event);
             }
             if let Some(sound) = crashing_sound {
@@ -719,24 +720,5 @@ impl Simulation {
             context,
         );
         self.uninit_with_context(victim, context);
-    }
-}
-
-/// `VocClass::PlayAt @ 0x007509E0` of a rules-named sound at the object's
-/// Location, with no handle.
-fn voc_at(
-    entity: &crate::sim::game_entity::GameEntity,
-    sound_id: String,
-    audible_to: Option<[crate::sim::intern::InternedId; 2]>,
-) -> super::SimSoundEvent {
-    let location = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
-    super::SimSoundEvent::VocAt {
-        sound_id,
-        audible_to,
-        rx: entity.position.rx(),
-        ry: entity.position.ry(),
-        sub_x: entity.position.sub_x(),
-        sub_y: entity.position.sub_y(),
-        world_z_leptons: location.z,
     }
 }

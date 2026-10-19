@@ -623,6 +623,21 @@ impl TeamScriptState {
         self.team_type_id
     }
 
+    #[cfg(feature = "telemetry")]
+    pub(crate) fn task_force_id(&self) -> Option<InternedId> {
+        self.task_force_id
+    }
+
+    #[cfg(feature = "telemetry")]
+    pub(crate) fn under_strength(&self) -> bool {
+        self.under_strength
+    }
+
+    #[cfg(feature = "telemetry")]
+    pub(crate) fn is_suspended(&self) -> bool {
+        self.suspended
+    }
+
     pub fn script_id(&self) -> InternedId {
         self.script_id
     }
@@ -631,6 +646,7 @@ impl TeamScriptState {
         self.cursor
     }
 
+    #[cfg(test)]
     pub fn advance_pending(&self) -> bool {
         self.advance_pending
     }
@@ -650,6 +666,7 @@ impl TeamScriptState {
             .map(|pair| pair[1].id)
     }
 
+    #[cfg(test)]
     pub fn member_count(&self) -> usize {
         self.members.len()
     }
@@ -672,14 +689,17 @@ impl TeamScriptState {
         )
     }
 
+    #[cfg(test)]
     pub fn succeeded(&self) -> bool {
         self.succeeded
     }
 
+    #[cfg(test)]
     pub fn refusal(&self) -> Option<TeamScriptRefusal> {
         self.refusal
     }
 
+    #[cfg(any(test, feature = "telemetry"))]
     pub fn formed(&self) -> bool {
         self.formed
     }
@@ -866,6 +886,13 @@ impl TeamScriptVm {
         self.teams.values()
     }
 
+    /// TeamType6F1F70: first live registry entry of this exact type, without
+    /// owner, member, formed, health or limbo filtering. Steam3e81a617.
+    pub(crate) fn first_team_of_type(&self, id: InternedId) -> Option<&TeamScriptState> {
+        self.teams_in_order()
+            .find(|team| team.team_type_id() == Some(id))
+    }
+
     pub(crate) fn team_type_definition(&self, id: InternedId) -> Option<&TeamTypeDefinition> {
         self.team_types.get(&id)
     }
@@ -1046,6 +1073,14 @@ impl TeamScriptVm {
         }
     }
 
+    /// HasOccurred23 at71EEA9 scans Team+24, head+54 and leaving byte+82.
+    /// The Team owner supplies the same live query before Recalc destroys it.
+    pub(crate) fn has_empty_leaving_team(&self, team_type: Option<InternedId>) -> bool {
+        self.teams_in_order().any(|team| {
+            team.team_type_id == team_type && team.members.is_empty() && team.leaving_map
+        })
+    }
+
     /// The object's destructor: its team to rejoin goes with it.
     pub(crate) fn object_deleted(&mut self, entity_id: u64) {
         self.rejoin_team.remove(&entity_id);
@@ -1129,6 +1164,20 @@ impl TeamScriptVm {
             self.member_team.remove(&entity_id);
         }
         Some(member)
+    }
+
+    /// gamemd.exe Detach70D554..70D57B walks the live Team roster after the Techno
+    /// sweep, clearing only matching +3C/+40. Unlike AssignMissionTarget
+    /// 6E9050, it issues no member orders and preserves zone/membership.
+    pub(crate) fn detach_target(&mut self, target: TeamTarget) {
+        for team in self.teams.values_mut().rev() {
+            if team.mission_target == Some(target) {
+                team.mission_target = None;
+            }
+            if team.focus == Some(target) {
+                team.focus = None;
+            }
+        }
     }
 
     /// `TeamClass::PointerExpired @ 0x006EAE60` for every team, as the
@@ -1514,13 +1563,15 @@ pub(crate) fn join_team_for_test(
 }
 
 #[cfg(test)]
+mod firesale_retail_tests;
+#[cfg(test)]
 mod oracle_tests;
 #[cfg(test)]
 mod path_threat_input_tests;
 #[cfg(test)]
 mod recruit_oracle_tests;
 #[cfg(test)]
-mod reinforcements_tests;
+pub(crate) mod reinforcements_tests;
 
 #[cfg(test)]
 mod tests {

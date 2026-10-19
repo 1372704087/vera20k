@@ -2,8 +2,8 @@
 //! dispatch, in live actor order: states 0/1/3's fire-location search,
 //! approach steering and destination transactions, and state 10's exit
 //! (`aircraft::attack_mission::exit_visit`). State 1 consumes Scenario RNG;
-//! state 3 returns a one-tick delay. States 4..9 run in the combat phase
-//! (`combat::aircraft_release`).
+//! state 3 returns a one-tick delay. States 4..9 run through the receiver
+//! (`combat::aircraft_release`), in the same dispatch.
 use super::{FrameEffects, Simulation};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -27,7 +27,7 @@ impl Simulation {
                 .expect("aircraft dispatch")
                 .attack_target
                 .target(),
-            &self.substrate.entities,
+            self,
         );
         (if present { 1 } else { 10 }, 1)
     }
@@ -46,11 +46,9 @@ impl Simulation {
         let target = entity
             .attack_target
             .target()
-            .filter(|&target| {
-                crate::sim::combat::target_present(Some(target), &self.substrate.entities)
-            })
+            .filter(|&target| crate::sim::combat::target_present(Some(target), self))
             .map(NavTargetRef::from);
-        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current());
+        let ammo = entity.ammo().map_or(-1, |a| a.current());
         let state = if target.is_some() && ammo != 0 {
             let destination = self.aircraft_find_fire_location(id, target, rules);
             self.assign_aircraft_destination(id, destination, rules, effects);
@@ -101,16 +99,14 @@ impl Simulation {
             .entities
             .get(id)
             .expect("aircraft approach owner");
-        let Some(target) = entity.attack_target.target().filter(|&target| {
-            crate::sim::combat::target_present(Some(target), &self.substrate.entities)
-        }) else {
+        let Some(target) = entity
+            .attack_target
+            .target()
+            .filter(|&target| crate::sim::combat::target_present(Some(target), self))
+        else {
             return 10;
         };
-        if entity
-            .aircraft_ammo
-            .as_ref()
-            .is_some_and(|a| a.current() == 0)
-        {
+        if entity.ammo().is_some_and(|a| a.current() == 0) {
             return 10;
         }
         let object = self
@@ -121,9 +117,8 @@ impl Simulation {
             let weapon = combat_weapon::primary_for_tier(object, entity.veterancy.rank())
                 .and_then(|name| rules.weapon(name))
                 .expect("strafe classifier's weapon");
-            let distance =
-                crate::sim::combat::object_distance_to(entity, &target, &self.substrate.entities)
-                    .expect("live aircraft Target");
+            let distance = crate::sim::combat::object_distance_to(entity, &target, self)
+                .expect("live aircraft Target");
             if distance < weapon.range_leptons {
                 return 4;
             }
@@ -143,19 +138,11 @@ impl Simulation {
         let Some(nav) = entity.navigation.nav_com() else {
             return 1;
         };
-        let distance = crate::sim::combat::object_distance_to(
-            entity,
-            &TargetKind::from(nav),
-            &self.substrate.entities,
-        )
-        .expect("live aircraft NavCom");
+        let distance = crate::sim::combat::object_distance_to(entity, &TargetKind::from(nav), self)
+            .expect("live aircraft NavCom");
         let facing = if distance < 512 {
-            crate::sim::movement::turret::facing_toward_target(
-                entity,
-                &target,
-                &self.substrate.entities,
-            )
-            .expect("live approach Target")
+            crate::sim::movement::turret::facing_toward_target(entity, &target, self)
+                .expect("live approach Target")
         } else {
             let object = self.interner.object_type(entity.type_ref(), rules).unwrap();
             let snap = crate::sim::combat::build_attacker_snapshot(entity, target, None);
@@ -194,19 +181,6 @@ impl Simulation {
         }
     }
 
-    /// [`attack_mission::strike_leaves`], taken here because VERA's combat
-    /// phase visits only an object that holds a target: whether the combat
-    /// phase runs the strike visit, else the aircraft leaves for state 10.
-    /// `AircraftClass::Mission_Attack @ 0x00417FE0`'s strike-state test of TarCom (`+0x2B4`)
-    /// and Ammo (`+0x2FC`, state 4 at `0x004182A3`).
-    pub(crate) fn aircraft_strikes(&self, id: u64, state: u8) -> bool {
-        let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
-        let attack = entity.attack_target.target();
-        let target = crate::sim::combat::target_present(attack, &self.substrate.entities);
-        let ammo = entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current());
-        attack.is_some() && !attack_mission::strike_leaves(state, target, ammo)
-    }
-
     /// State 10 (`0x00418BEC`) after the entry prefix.
     pub(crate) fn aircraft_exit(
         &mut self,
@@ -217,11 +191,8 @@ impl Simulation {
     ) -> (u8, i32) {
         let entity = self.substrate.entities.get(id).expect("aircraft dispatch");
         let facts = attack_mission::ExitFacts {
-            ammo: entity.aircraft_ammo.as_ref().map_or(-1, |a| a.current()),
-            target: crate::sim::combat::target_present(
-                entity.attack_target.target(),
-                &self.substrate.entities,
-            ),
+            ammo: entity.ammo().map_or(-1, |a| a.current()),
+            target: crate::sim::combat::target_present(entity.attack_target.target(), self),
             leaves_map: entity.is_mission_only(),
             human: self.owner_is_human(entity.owner()),
             airstrike: entity.airstrike_link().is_some(),

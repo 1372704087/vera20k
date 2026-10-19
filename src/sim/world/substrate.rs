@@ -20,7 +20,7 @@ use crate::sim::anim_class::AnimStore;
 use crate::sim::cell_rect::CellReservationGrid;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::occupancy::{
-    AirSlotGrid, CellOccupationGrid, HiddenOccupationGrid, OccupancyGrid, RawCellOccupationGrid,
+    AirSlotGrid, HiddenOccupationGrid, OccupancyGrid, RawCellOccupationGrid,
 };
 use crate::sim::particles::ParticleSystemStore;
 use crate::sim::voxel_anim::VoxelAnimStore;
@@ -34,6 +34,7 @@ pub enum DeferredDeleteTicket {
     Overlay(u64),
     Tag(usize),
     Trigger(usize),
+    DiskLaser(u64),
 }
 
 /// Serialized, ordered authority for every725C70 enqueue. Registry membership
@@ -62,6 +63,9 @@ impl DeferredDeleteQueue {
     }
     pub(crate) fn queue_trigger(&mut self, id: usize) {
         self.append(DeferredDeleteTicket::Trigger(id));
+    }
+    pub(super) fn queue_disk_laser(&mut self, id: u64) {
+        self.append(DeferredDeleteTicket::DiskLaser(id));
     }
     pub(crate) fn queue_overlay(&mut self, id: u64) -> Result<(), ()> {
         #[cfg(any(test, feature = "test-support"))]
@@ -332,6 +336,7 @@ impl EnterOrderCounter {
 pub(crate) enum ObjectKind {
     Anim,
     VoxelAnim,
+    Spotlight,
     ParticleSystem,
     Terrain,
     Projectile,
@@ -362,13 +367,9 @@ pub struct ObjectSubstrate {
     /// Cell483C10/4839F0 saves and swizzles its ground/deck heads; rebuilding
     /// from current locomotor phase or terrain cannot recover those histories.
     pub occupancy: OccupancyGrid,
-    /// Independent ground/deck vehicle-occupation bit planes. Rebuilt from
-    /// entity lifecycle and serialized Drive footprint state after load.
-    #[serde(skip)]
-    pub(crate) cell_occupation: CellOccupationGrid,
-    /// Authoritative raw CellClass occupation bytes. Unlike the owner-aware
-    /// Drive compatibility cache above, these destructive OR/AND-not bytes are
-    /// serialized verbatim and are never rebuilt from entity lists.
+    /// Authoritative raw CellClass occupation bytes. These destructive
+    /// OR/AND-not bytes are serialized verbatim and are never rebuilt from
+    /// entity lists.
     #[serde(default)]
     pub(crate) raw_cell_occupation: RawCellOccupationGrid,
     /// Separate authoritative building hidden-object counters. Serialized
@@ -398,6 +399,8 @@ pub struct ObjectSubstrate {
     /// `AbstractClass::Create_ID` and `ObjectClass::Unlimbo`.
     #[serde(default)]
     pub(crate) voxel_anims: VoxelAnimStore,
+    #[serde(default)]
+    pub(crate) spotlights: super::spotlight::SpotlightStore,
     /// ParticleSystemClass registry. Systems share the global object-ID
     /// namespace and LogicVector; individual particles remain container-owned.
     #[serde(default)]
@@ -441,7 +444,6 @@ impl ObjectSubstrate {
             logic: LogicVector::new(),
             display: Default::default(),
             occupancy: OccupancyGrid::new(),
-            cell_occupation: CellOccupationGrid::new(),
             raw_cell_occupation: RawCellOccupationGrid::new(),
             hidden_occupation: HiddenOccupationGrid::new(),
             air_slots: AirSlotGrid::default(),
@@ -449,6 +451,7 @@ impl ObjectSubstrate {
             entities: EntityStore::new(),
             anims: AnimStore::default(),
             voxel_anims: VoxelAnimStore::default(),
+            spotlights: Default::default(),
             particle_systems: ParticleSystemStore::default(),
             pending_delete: DeferredDeleteQueue::default(),
         }
@@ -539,6 +542,24 @@ impl ObjectSubstrate {
             ry.hash(hasher);
             owner.hash(hasher);
         }
+    }
+
+    /// `CellClass @ 0x00487E00`: does the Cell hide what stands on it? Its
+    /// hidden-occupation count (`+0x100`) is nonzero, except a Cell whose
+    /// ground object list (`+0xE4`) holds a Building and whose count is
+    /// exactly 1, the building's own contribution. The building walk is
+    /// gated on GameActive (`0x00A8E9A0`), which holds during the AI.
+    pub(crate) fn cell_hides_objects(&self, rx: u16, ry: u16) -> bool {
+        let count = self.hidden_occupation.count(rx, ry);
+        let building = self
+            .occupancy
+            .first_building_on_layer(
+                rx,
+                ry,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            )
+            .is_some();
+        count != 0 && !(building && count == 1)
     }
 
     pub(crate) fn fold_hidden_occupation(&self, hasher: &mut impl std::hash::Hasher) {

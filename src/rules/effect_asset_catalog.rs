@@ -21,18 +21,6 @@ pub struct EffectAssetFrameCounts {
     available: u16,
 }
 
-impl EffectAssetFrameCounts {
-    /// Literal unsigned frame count declared at SHP header offset `+6`.
-    pub fn raw(self) -> u16 {
-        self.raw
-    }
-
-    /// Existing effect-visible count after the AnimType body/shadow split.
-    pub fn available(self) -> u16 {
-        self.available
-    }
-}
-
 /// Deterministic match input derived from particle image SHPs.
 ///
 /// Keys are trimmed, uppercase asset IDs. A `BTreeMap` is deliberate: binding
@@ -100,7 +88,8 @@ impl EffectAssetCatalog {
     }
 
     /// Consumer-visible frame count (particle image timing).
-    pub fn effect_frame_count(&self, name: &str) -> Option<u16> {
+    #[cfg(test)]
+    fn effect_frame_count(&self, name: &str) -> Option<u16> {
         self.entry(name).map(|counts| counts.available)
     }
 
@@ -123,14 +112,7 @@ impl EffectAssetCatalog {
             .map(|(name, counts)| (name.as_str(), *counts))
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
+    #[cfg(any(test, feature = "test-support"))]
     fn entry(&self, name: &str) -> Option<&EffectAssetFrameCounts> {
         canonical_asset_id(name).and_then(|name| self.entries.get(&name))
     }
@@ -191,6 +173,10 @@ pub(crate) const ROCKET_TRAIL_ANIM: &str = "V3TRAIL";
 /// it by `AnimTypeClass::FindIndex @ 0x00427CB0` on the literal
 /// `0x0081AF8C` (`0x00467EB1`); no rules key names it.
 pub(crate) const NUKE_BALL_ANIM: &str = "NUKEBALL";
+
+/// Nuclear warning literal81907C: one-time Launch6CDB86 ->43B5E0 and
+/// Building Mission_Missile44C9DC. Both construct an ordinary AnimClass.
+pub(crate) const PSI_WARNING_ANIM: &str = "PSIWARN";
 
 /// ParasiteClass::UpdateSquidGrapple6298CC looks up this executable literal
 /// (83665C), independently of weapon AnimList and other authored roots.
@@ -255,9 +241,16 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
             .chain(&object.destroy_anims)
             .chain(&object.debris_anims)
             .chain(&object.deploying_anim)
+            .chain(&object.dead_bodies)
         {
             insert(name);
         }
+    }
+    // Infantry520BC6..520CA4 constructs its type's DeadBodies, else the
+    // General list. The completion owner must find bound physical shapes
+    // even when no warhead or other producer names these corpse animations.
+    for name in &rules.general.dead_bodies {
+        insert(name);
     }
     for name in &rules.general.metallic_debris {
         insert(name);
@@ -284,6 +277,7 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     insert(&rules.general.iron_curtain_invoke_anim);
     insert(&rules.general.force_shield_invoke_anim);
     insert(&rules.general.ion_blast_anim);
+    insert(&rules.general.ion_beam_anim);
     // The Chronosphere's source loop and both Chrono Warp blasts
     // (`sim::superweapon::chronosphere`).
     insert(&rules.general.chrono_placement_anim);
@@ -355,6 +349,7 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     // The nuke's buildup (`sim::superweapon::nuke`): without this root the
     // falling missile waited on no anim and struck one frame after landing.
     insert(NUKE_BALL_ANIM);
+    insert(PSI_WARNING_ANIM);
     insert(SQUID_GRAPPLE_ANIM);
     roots.into_iter().collect()
 }
@@ -537,11 +532,16 @@ mod tests {
         std::fs::write(root.path().join("BETA.SHP"), shp_with_undecodable_pixels(4))
             .expect("write chained SHP");
         let assets = AssetManager::from_loose_root_for_test(root.path());
-        let mut art = ArtRegistry::from_ini(&IniFile::from_str(
-            "[ALPHA]\nNext=BETA\n[BETA]\nRate=450\n[ABSENT]\nRate=450\n",
-        ));
+        let art = IniFile::from_str("[ALPHA]\nNext=BETA\n[BETA]\nRate=450\n[ABSENT]\nRate=450\n");
+        // The ordered Rules processor reads ALPHA's `Next=` with its ART body.
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str("[Animations]\n0=ALPHA\n1=BETA\n2=ABSENT\n"),
+            &art,
+        )
+        .expect("anim rules");
+        rules.install_art_data(ArtRegistry::from_ini(&art));
 
-        let skipped = art.bind_anim_class_assets(
+        let skipped = rules.bind_anim_class_assets(
             &["ABSENT".to_string(), "ALPHA".to_string()],
             &assets,
             "TEM",
@@ -549,11 +549,11 @@ mod tests {
         );
 
         assert_eq!(skipped, 1, "the missing sprite is counted, not fatal");
-        let bound = art.scheduler_anim_types();
+        let bound = rules.art().scheduler_anim_types();
         assert!(bound.contains("ALPHA"));
         assert!(bound.contains("BETA"), "Next= chain is bound with its root");
         assert!(!bound.contains("ABSENT"));
-        assert_eq!(art.anim_runtime_config("BETA").unwrap().end, 4);
+        assert_eq!(rules.art().anim_runtime_config("BETA").unwrap().end, 4);
     }
 
     fn catalog_hash(catalog: &EffectAssetCatalog) -> u64 {

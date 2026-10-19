@@ -52,8 +52,8 @@ const FIXTURE_ANIMS: [(&str, i32, i32); 9] = [
 /// The oracle's map: cells beyond its 60-cell Size stay real cells.
 const FIXTURE_MAP: u16 = 128;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -130,7 +130,7 @@ fn fixture_cell(x: u16, y: u16, spec: Option<&Value>) -> ResolvedTerrainCell {
         };
     }
     if let Some(land) = spec.get("land").and_then(Value::as_i64) {
-        cell.yr_cell_land_type = land as u8;
+        cell.land_type = land as u8;
     }
     cell
 }
@@ -175,7 +175,11 @@ fn fixture_world(
         off_108: span * 2,
     });
     sim.playfield_size_height = Some(size.1);
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    let terrain_key: Vec<_> = specs
+        .iter()
+        .map(|(at, spec)| (*at, spec.to_string()))
+        .collect();
+    crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, terrain_key);
     let mut ids = Vec::new();
     for (index, house) in houses.iter().enumerate() {
         let name = format!("H{index}");
@@ -194,6 +198,23 @@ fn fixture_world(
     }
     sim.session.current_house = player.map(|index| ids[index]);
     (sim, ids)
+}
+
+/// Shared declared map/House/animation priors for original Execute44/45
+/// controls and their production-trigger consumers. Two allied live Houses
+/// and one defeated House distinguish a NULL storm owner from an ally filter.
+pub(crate) fn trigger_control_fixture(
+    seed: i32,
+    size: (i32, i32),
+) -> (RuleSet, Simulation, Vec<InternedId>) {
+    let rules = fixture_rules();
+    let houses = [
+        serde_json::json!([3, false]),
+        serde_json::json!([3, false]),
+        serde_json::json!([4, true]),
+    ];
+    let (sim, ids) = fixture_world(&rules, seed, 1000, size, &[], &houses, Some(0));
+    (rules, sim, ids)
 }
 
 fn house_index(houses: &[InternedId], owner: Option<InternedId>) -> Option<usize> {
@@ -796,6 +817,7 @@ fn lighting_timing_rules(deferment: i32, duration: i32, rate: &str) -> RuleSet {
          LightningStormDuration={duration}\n\
          LightningHitDelay=1000\n\
          LightningScatterDelay=1000\n\
+         [AudioVisual]\n\
          AmbientChangeRate={rate}\n\
          AmbientChangeStep=.2\n"
     )))
@@ -1430,7 +1452,7 @@ fn a_fatal_strike_runs_the_death_transaction_inline() {
 /// Retail rules with the storm's SHP frame counts bound (`WCCLOUD1..3`,
 /// `WCLBOLT1..3`, `EXPLOLB`) and `WCLBOLT1.SHP`'s height (108x370), which
 /// sets the clouds' height.
-fn retail_rules() -> Option<RuleSet> {
+pub(crate) fn retail_rules() -> Option<RuleSet> {
     let mut rules = retail_rules_binding(&[
         ("WCCLOUD1", 59),
         ("WCCLOUD2", 60),

@@ -62,11 +62,8 @@ const SOUNDS: [(i64, &str); 2] = [(41, "OracleSellSound"), (9, "OraclePackupSoun
 
 const WALK: &str = "{4A582744-9839-11D1-B709-00A024DDAFD1}";
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_sale.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_sale.json")
 }
 
 fn skipped(row: &Value) -> bool {
@@ -190,7 +187,7 @@ fn crew_scene(input: &Value) -> (SlaveScene, Vec<u64>) {
                 .passenger_role
                 .cargo_mut()
                 .unwrap()
-                .board_forced(id, 1);
+                .board_forced_chain(&[(id, 1)]);
         }
     }
     production::begin_selling(sim, rules, refinery, false);

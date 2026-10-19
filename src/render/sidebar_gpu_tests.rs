@@ -6,6 +6,7 @@ use super::{
     frame_readback::PendingBgra8Readback,
     radar::surface::RadarSurface,
 };
+use crate::render::gpu::block_on;
 use bytemuck::Zeroable;
 use std::{mem::size_of, time::Duration};
 use wgpu::util::DeviceExt;
@@ -29,12 +30,11 @@ fn extent(s: [u32; 2]) -> wgpu::Extent3d {
 impl Gpu {
     fn new() -> Self {
         let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
-        let adapter =
-            pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
-                .expect("explicit sidebar GPU test requires adapter");
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions::default()))
+            .expect("explicit sidebar GPU test requires adapter");
         eprintln!("Sidebar GPU adapter: {:?}", adapter.get_info());
         let (device, queue) =
-            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
+            block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).unwrap();
         Self { device, queue }
     }
     fn texture(
@@ -436,7 +436,7 @@ fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
         .map(|frame| [frame * 5, 24, 64, 255].repeat(168 * 110))
         .collect();
     let mut radar = RadarPresentation::new(frames.clone(), 168, 110).unwrap();
-    radar.set_has_radar(true);
+    let _ = radar.set_has_radar(true);
     for frame in 0..32 {
         assert!(radar.advance_draw(frame * 64));
     }
@@ -505,7 +505,7 @@ fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
     let displayed = online(&frames[32], &source, line);
     radar.retain_online_content(&source, [140, 108], &[map], [line].into_iter(), origin);
     assert_pixels(&radar.surface.rgba, &displayed, "retained online output");
-    radar.set_has_radar(false);
+    let _ = radar.set_has_radar(false);
     assert!(radar.advance_draw(2032));
     assert_pixels(&retained(&radar.surface.rgba), &displayed, "pre-due loss");
     let changed_source = [80, 160, 208, 255].repeat(140 * 108);
@@ -521,7 +521,7 @@ fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
         &displayed,
         "internal map changes while closing",
     );
-    radar.set_has_radar(true);
+    let _ = radar.set_has_radar(true);
     assert!(!radar.advance_draw(2032));
     assert_pixels(
         &retained(&radar.surface.rgba),
@@ -544,7 +544,7 @@ fn production_radar_loss_and_reversal_preserve_final_gpu_pixels() {
         [line].into_iter(),
         origin,
     );
-    radar.set_has_radar(false);
+    let _ = radar.set_has_radar(false);
     assert!(radar.advance_draw(2080));
     assert_pixels(
         &retained(&radar.surface.rgba),

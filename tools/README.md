@@ -7,6 +7,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 
 | Job | Owner / entry point |
 | --- | --- |
+| Observe match populations, production, timings and logs in a local browser | [Read-only telemetry dashboard](telemetry-dashboard/README.md) |
 | Give a new worktree its ignored `ini/` and `config.toml`, or a clone its `config.toml`; report what the game, retail tests and oracles still need | `python -m tools.prepare_checkout` |
 | Run all Python tool and source-skill tests | `python -m tools.run_tests` (below) |
 | Inspect scenario ART ownership, native checks and retail load validation | [ART registry owner](art_registry_owner.md) |
@@ -45,39 +46,14 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 | Check shell UI matrices | [exact shell matrix](exact_shell_ui_matrix/README.md) |
 | Synchronize authoritative skill sources | `python tools/skill_sync.py --write`, then `--check` |
 
-## Optional UI builds
-
-Normal game and headless tool builds use no Cargo features. The standalone
-`mix-browser` and `bik-player` GUIs require `tools-ui`; enabling it does not
-enable the engine's diagnostic overlay. Build either tool through the runner,
-then resolve its executable rather than assuming a `target/` path:
-
-```sh
-python -m tools.cargo_run -- build --locked --release --features tools-ui --bin mix-browser
-python -m tools.cargo_run --resolve mix-browser --profile release
-python -m tools.cargo_run -- build --locked --release --features tools-ui --bin bik-player
-python -m tools.cargo_run --resolve bik-player --profile release
-```
-
-Run the resolved MIX browser directly. The Bink player accepts a filesystem path
-or an asset name as its first argument. `asset render` remains available without
-`tools-ui`, including TMP rendering to PNG and JSON reports.
-
-The in-engine diagnostic overlay is separately opt-in with `dev-ui`:
-
-```sh
-python -m tools.cargo_run -- build --locked --release --features dev-ui --bin vera20k
-```
-
-egui, egui-wgpu, egui-winit, eframe and rfd belong only to the optional UI
-builds. Their packages remain in `Cargo.lock` so those builds stay reproducible.
+## Dev chord builds
 
 The default `dev-overlays` feature carries the Ctrl+Shift dev chord, including
-the renderer-native diagnostic overlays (cell grid, heightmap, pathgrid, unit
-inspector, fog), the debug pause and quicksave/quickload. Development builds,
+the renderer-native diagnostic overlays (cell grid, heightmap, pathgrid, foot
+path, fog), the debug pause and quicksave/quickload. Development builds,
 captures and tests keep it; captures send literal Ctrl+Shift+M/N for
-quicksave/quickload. `dev-ui` implies it. The release workflow builds `vera20k`
-with `--no-default-features`, so shipped binaries carry no dev chord; build that
+quicksave/quickload. The release workflow builds `vera20k` with
+`--no-default-features`, so shipped binaries carry no dev chord; build that
 configuration locally with:
 
 ```sh
@@ -115,14 +91,21 @@ worktrees; independent repository clones do not share the lock.
 
 `cargo test` holds that lock only while Cargo compiles. Cargo hands each test
 executable to a recorder, and the runner starts them after releasing the lock, with
-the arguments, environment and working directory Cargo gave them. As with Cargo, a
-failure exits 101 and skips later executables unless `--no-fail-fast` is given. A
+the arguments, environment and working directory Cargo gave them. They run at the
+same time (the client suite fills the cores the core suite leaves idle near its
+end); the first streams its output and each later one prints when those before it
+end. Every executable runs to its end, and any failure exits 101. A
 second lock per checkout stays held until the tests finish, so another run from the
 same checkout waits instead of relinking a running test. A runner configured for the
 host target in Cargo configuration takes precedence; the tests then run under the lock.
 
 Each worktree has a separate cache under
-`<CARGO_TARGET_DIR or checkout/target>/owned-worktrees/<checkout-path-hash>`.
+`<cache root>/owned-worktrees/<checkout-path-hash>`, where the cache root is
+`CARGO_TARGET_DIR` when set and otherwise the `target/` of the repository's primary
+checkout (the parent of the common Git directory), never the worktree's own `target/`.
+A checkout therefore has one cache whichever session builds it, as long as every
+session either leaves the variable unset or points it at that same directory; the
+runner notes on stderr when the registry holds another cache for the checkout.
 The first build compiles dependencies into this namespace, costing time and disk;
 subsequent builds reuse it. Existing shared caches are neither deleted nor trusted.
 `--target-dir`, `--manifest-path`, `--config` and `--message-format` are reserved
@@ -158,10 +141,13 @@ worktree, so the runner starts one only when it can matter:
   (`AUTOMATIC_INTERVAL_SECONDS`), or at once when a volume is below the minimum
   or cannot be measured. Any applied pass counts, including one that ended
   blocked or partial; a dry run does not. `--trim-cache` always runs one.
+- **Skipped** while the newest applied pass found nothing removable, finished
+  within that interval and nothing deciding removability has changed since:
+  cache directories, registered roots and profiles, and protected executables.
 
 Between passes the cache can exceed its budgets; the free-space reserve is still
-measured on every invocation. Defaults are **32 GiB total compiler
-cache**, **4 GiB incremental cache**, and **16 GiB minimum free space** per cache
+measured on every invocation. Defaults are **40 GiB total compiler
+cache**, **16 GiB incremental cache**, and **12 GiB minimum free space** per cache
 volume. Set `VERA20K_CACHE_GIB`, `VERA20K_INCREMENTAL_GIB`, and
 `VERA20K_MIN_FREE_GIB`, or pass `--cache-gib`, `--incremental-gib`, and
 `--min-free-gib` before `--`; they set the policy the next pass applies. Sizes
@@ -190,8 +176,13 @@ The owner records every new target (including failed, unlabelled, check and cust
 target invocations) in `owned-builds/cache-roots.json`. Historical labelled roots
 are adopted only when their live checkout/common Git directory and namespace
 prove ownership. Unregistered, abandoned or unverifiable caches stay untouched.
-Only orphaned `deps/*.rcgu.o` and complete finalized incremental sessions are eligible;
-paths must belong to exact Cargo profile directories. Cross-target profiles require
+Only orphaned `deps/*.rcgu.o`, complete finalized incremental sessions and older
+Mach-O/ELF executables in `deps` are eligible; paths must belong to exact Cargo
+profile directories. An older executable is a `<name>-<16 hex>` file with a newer
+one of the same name beside it, no other link, and no preserved or latest record
+naming it; a checkout whose `cargo_run` holds its lock keeps all of them, since
+its recorded tests may still run. Objects only older executables name become
+eligible after those executables, never ahead of them. Cross-target profiles require
 an executable path reported by Cargo or retained in a preserved build manifest.
 Older sessions are considered first; newest sessions are eligible if pressure
 remains. Working sessions and sessions containing links or unknown files stay
@@ -200,8 +191,8 @@ is accounted for in registered caches and required debug-reference paths survive
 Unknown external hardlinks remain protected; the cleaner never unlinks a required
 debug path. Cache and reclaimed-space accounting counts each inode once, and
 removing an alias does not claim freed allocation while another alias remains. Source, assets, native evidence,
-executables, libraries, labels and debug sidecars are never deletion candidates.
-Every saved executable remains protected, including library-test binaries.
+libraries, labels, debug sidecars and other executables are never deletion
+candidates. Every saved executable remains protected, including library-test binaries.
 Already absent debug inputs are reported separately as degraded debugging support;
 their absence does not block deletion of independently verified orphan objects.
 Existing dependencies remain protected even when another input of the same binary

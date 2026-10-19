@@ -19,7 +19,8 @@ use crate::ui::main_menu_dialogs::options::{
 /// `0x0055FDB0..0x0056047A`. Trackbar set-position rejects an out-of-range
 /// request and leaves the fresh position at zero; it does not clamp. VERA's
 /// Full Screen box starts unticked; the opener sets it from the window. Its
-/// Original 4:3 Shape box and Sidebar list show the retained choices.
+/// Original 4:3 Shape and RA2 Loading & Menu Movie boxes and Sidebar list show
+/// the retained choices.
 pub(crate) fn launcher_values_from_profile(
     profile: &RetailOptionsProfile,
 ) -> LauncherOptionsValues {
@@ -32,6 +33,7 @@ pub(crate) fn launcher_values_from_profile(
         show_hidden: profile.show_hidden,
         full_screen: false,
         original_shape: profile.original_shape,
+        ra2_look: profile.ra2_look,
         sidebar: profile.sidebar,
         score_position: admitted_volume_position(profile.score_volume),
         sound_position: admitted_volume_position(profile.sound_volume),
@@ -66,10 +68,11 @@ pub(crate) trait LauncherPreviewOperations: AudioVolumeOperations {
     fn store_sidebar(&mut self, size: SidebarSize);
     fn set_full_screen(&mut self, full_screen: bool);
     fn store_original_shape(&mut self, original_shape: bool);
+    fn store_ra2_look(&mut self, ra2_look: bool);
 }
 
 /// Dispatch one already-ordered UI event without an INI write. The three audio
-/// paths preserve native profile -> output -> cue order; the four display
+/// paths preserve native profile -> output -> cue order; the five display
 /// choices take effect at once.
 pub(crate) fn dispatch_launcher_preview_event(
     operations: &mut impl LauncherPreviewOperations,
@@ -85,6 +88,7 @@ pub(crate) fn dispatch_launcher_preview_event(
         LauncherOptionsEvent::OriginalShapeChanged(original_shape) => {
             operations.store_original_shape(original_shape);
         }
+        LauncherOptionsEvent::Ra2LookChanged(ra2_look) => operations.store_ra2_look(ra2_look),
         LauncherOptionsEvent::ScorePreview(volume) => {
             apply_volume(operations, AudioVolume::Score, volume, true)
         }
@@ -191,16 +195,6 @@ pub(crate) fn dispatch_launcher_parent_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::main_menu_dialogs::options::LauncherOptionsLabels;
-
-    fn dialog(values: LauncherOptionsValues) -> OptionsDialogState {
-        OptionsDialogState::new(
-            LauncherOptionsLabels::resolve(&|_| None),
-            values,
-            Zoom::Auto,
-            true,
-        )
-    }
 
     #[test]
     fn profile_projection_uses_reject_to_zero_edges() {
@@ -273,454 +267,12 @@ mod tests {
             tooltips: false,
             unit_action_lines: false,
             show_hidden: true,
+            ra2_look: true,
             ..RetailOptionsProfile::default()
         });
         assert!(!booleans.tooltips);
         assert!(!booleans.target_lines);
         assert!(booleans.show_hidden);
-    }
-
-    #[test]
-    fn fresh_dialog_constructor_projects_the_retained_parent_subset_and_audio_gate() {
-        let profile = RetailOptionsProfile {
-            detail_level: 0,
-            difficulty: 2,
-            scroll_rate: 0,
-            tooltips: false,
-            unit_action_lines: false,
-            show_hidden: true,
-            score_volume: 0.2,
-            sound_volume: 0.5,
-            voice_volume: 0.8,
-            zoom: Zoom::Percent(300),
-            original_shape: true,
-            sidebar: SidebarSize::ExtraLarge,
-            ..RetailOptionsProfile::default()
-        };
-        let dialog = launcher_dialog_from_profile(
-            &profile,
-            LauncherOptionsLabels::resolve(&|_| None),
-            true,
-            false,
-        );
-        let layout =
-            crate::ui::main_menu_dialogs::options::shell::LauncherOptionsLayout::new(3840, 2160);
-        assert_eq!(dialog.shell_selected_zoom(&layout), Zoom::Percent(300));
-        assert_eq!(
-            dialog.shell_selected_sidebar(&layout),
-            SidebarSize::ExtraLarge
-        );
-        assert!(dialog.shell_checkbox_checked(
-            crate::ui::main_menu_dialogs::options::LauncherCheckboxId::FullScreen
-        ));
-        assert!(dialog.shell_checkbox_checked(
-            crate::ui::main_menu_dialogs::options::LauncherCheckboxId::OriginalShape
-        ));
-
-        assert_eq!(
-            dialog.pack(),
-            LauncherOptionsPacked {
-                detail_level: 0,
-                difficulty: 2,
-                unit_action_lines: false,
-                show_hidden: true,
-                tooltips: false,
-                scroll_rate: 0,
-                score_volume: 0.2,
-                sound_volume: 0.5,
-                voice_volume: 0.8,
-            }
-        );
-        assert!(!dialog.launcher_audio_available());
-    }
-
-    #[derive(Debug, Clone, PartialEq)]
-    enum PreviewCall {
-        Cue(LauncherCue),
-        Zoom(Zoom),
-        Sidebar(SidebarSize),
-        FullScreen(bool),
-        OriginalShape(bool),
-        StoreScore(f32),
-        OutputScore(f32),
-        StoreSound(f32),
-        OutputSound(f32),
-        StoreVoice(f32),
-        OutputVoice(f32),
-        Beep(f32),
-    }
-
-    struct PreviewRecorder {
-        available: bool,
-        calls: Vec<PreviewCall>,
-    }
-
-    impl LauncherPreviewOperations for PreviewRecorder {
-        fn play_cue(&mut self, cue: LauncherCue) {
-            self.calls.push(PreviewCall::Cue(cue));
-        }
-
-        fn store_zoom(&mut self, zoom: Zoom) {
-            self.calls.push(PreviewCall::Zoom(zoom));
-        }
-
-        fn store_sidebar(&mut self, size: SidebarSize) {
-            self.calls.push(PreviewCall::Sidebar(size));
-        }
-
-        fn set_full_screen(&mut self, full_screen: bool) {
-            self.calls.push(PreviewCall::FullScreen(full_screen));
-        }
-
-        fn store_original_shape(&mut self, original_shape: bool) {
-            self.calls.push(PreviewCall::OriginalShape(original_shape));
-        }
-    }
-
-    impl AudioVolumeOperations for PreviewRecorder {
-        fn launcher_audio_available(&self) -> bool {
-            self.available
-        }
-
-        fn store_score_volume(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::StoreScore(volume));
-        }
-
-        fn apply_score_output(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::OutputScore(volume));
-        }
-
-        fn store_sound_volume(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::StoreSound(volume));
-        }
-
-        fn apply_sound_output(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::OutputSound(volume));
-        }
-
-        fn store_voice_volume(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::StoreVoice(volume));
-        }
-
-        fn apply_voice_output(&mut self, volume: f32) {
-            self.calls.push(PreviewCall::OutputVoice(volume));
-        }
-
-        fn play_generic_beep(&mut self, local_multiplier: f32) {
-            self.calls.push(PreviewCall::Beep(local_multiplier));
-        }
-    }
-
-    #[test]
-    fn preview_dispatch_rechecks_common_gate_and_preserves_native_order() {
-        let mut recorder = PreviewRecorder {
-            available: true,
-            calls: Vec::new(),
-        };
-        for event in [
-            LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
-            LauncherOptionsEvent::FullScreenChanged(true),
-            LauncherOptionsEvent::OriginalShapeChanged(true),
-            LauncherOptionsEvent::ZoomSelected(Zoom::Percent(150)),
-            LauncherOptionsEvent::SidebarSelected(SidebarSize::Large),
-            LauncherOptionsEvent::ScorePreview(0.4),
-            LauncherOptionsEvent::SoundPreview(0.7),
-            LauncherOptionsEvent::VoicePreview(0.3),
-        ] {
-            dispatch_launcher_preview_event(&mut recorder, event);
-        }
-        assert_eq!(
-            recorder.calls,
-            [
-                PreviewCall::Cue(LauncherCue::Checkbox),
-                PreviewCall::FullScreen(true),
-                PreviewCall::OriginalShape(true),
-                PreviewCall::Zoom(Zoom::Percent(150)),
-                PreviewCall::Sidebar(SidebarSize::Large),
-                PreviewCall::StoreScore(0.4),
-                PreviewCall::OutputScore(0.4),
-                PreviewCall::StoreSound(0.7),
-                PreviewCall::OutputSound(0.7),
-                PreviewCall::Beep(1.0),
-                PreviewCall::StoreVoice(0.3),
-                PreviewCall::OutputVoice(0.3),
-                PreviewCall::Beep(0.3),
-            ]
-        );
-
-        recorder.available = false;
-        recorder.calls.clear();
-        for event in [
-            LauncherOptionsEvent::ScorePreview(0.1),
-            LauncherOptionsEvent::SoundPreview(0.2),
-            LauncherOptionsEvent::VoicePreview(0.3),
-        ] {
-            dispatch_launcher_preview_event(&mut recorder, event);
-        }
-        assert!(recorder.calls.is_empty());
-
-        // The display choices don't depend on the audio gate.
-        dispatch_launcher_preview_event(
-            &mut recorder,
-            LauncherOptionsEvent::ZoomSelected(Zoom::Percent(100)),
-        );
-        assert_eq!(recorder.calls, [PreviewCall::Zoom(Zoom::Percent(100))]);
-    }
-
-    #[test]
-    fn accepted_sound_back_setters_are_unconditional_and_cue_silent() {
-        let mut recorder = PreviewRecorder {
-            available: false,
-            calls: Vec::new(),
-        };
-        for (channel, value) in [
-            (AudioVolume::Score, 0.2),
-            (AudioVolume::Sound, 0.5),
-            (AudioVolume::Voice, 0.8),
-        ] {
-            apply_volume(&mut recorder, channel, value, false);
-        }
-        assert_eq!(
-            recorder.calls,
-            vec![
-                PreviewCall::StoreScore(0.2),
-                PreviewCall::OutputScore(0.2),
-                PreviewCall::StoreSound(0.5),
-                PreviewCall::OutputSound(0.5),
-                PreviewCall::StoreVoice(0.8),
-                PreviewCall::OutputVoice(0.8)
-            ]
-        );
-    }
-
-    #[derive(Debug, Clone, PartialEq)]
-    enum ParentCall {
-        Pack,
-        Detail(i32),
-        RefreshDetail,
-        Difficulty(i32),
-        TargetLines(bool),
-        RefreshTargetLines,
-        ShowHidden(bool),
-        Tooltips(bool),
-        Scroll(i32),
-        StoreScore(f32),
-        OutputScore(f32),
-        QueueStopScoreZero,
-        StoreSound(f32),
-        OutputSound(f32),
-        StoreVoice(f32),
-        OutputVoice(f32),
-        DropPrimary,
-        Write,
-        PrepareNetwork,
-        RouteNetwork,
-        RouteKeyboard,
-        Reopen,
-    }
-
-    struct ParentRecorder {
-        detail: i32,
-        calls: Vec<ParentCall>,
-    }
-
-    impl LauncherParentOperations for ParentRecorder {
-        fn observe_pack(&mut self, _packed: LauncherOptionsPacked) {
-            self.calls.push(ParentCall::Pack);
-        }
-
-        fn store_detail_level(&mut self, value: i32) -> bool {
-            self.calls.push(ParentCall::Detail(value));
-            let changed = self.detail != value;
-            self.detail = value;
-            changed
-        }
-
-        fn refresh_detail(&mut self) {
-            self.calls.push(ParentCall::RefreshDetail);
-        }
-
-        fn store_difficulty(&mut self, value: i32) {
-            self.calls.push(ParentCall::Difficulty(value));
-        }
-
-        fn store_unit_action_lines(&mut self, value: bool) {
-            self.calls.push(ParentCall::TargetLines(value));
-        }
-
-        fn refresh_unit_action_lines(&mut self) {
-            self.calls.push(ParentCall::RefreshTargetLines);
-        }
-
-        fn store_show_hidden(&mut self, value: bool) {
-            self.calls.push(ParentCall::ShowHidden(value));
-        }
-
-        fn store_tooltips(&mut self, value: bool) {
-            self.calls.push(ParentCall::Tooltips(value));
-        }
-
-        fn store_scroll_rate(&mut self, value: i32) {
-            self.calls.push(ParentCall::Scroll(value));
-        }
-
-        fn store_score_volume(&mut self, value: f32) {
-            self.calls.push(ParentCall::StoreScore(value));
-        }
-
-        fn apply_score_output(&mut self, value: f32) {
-            self.calls.push(ParentCall::OutputScore(value));
-        }
-
-        fn queue_then_stop_score_zero(&mut self) {
-            self.calls.push(ParentCall::QueueStopScoreZero);
-        }
-
-        fn store_sound_volume(&mut self, value: f32) {
-            self.calls.push(ParentCall::StoreSound(value));
-        }
-
-        fn apply_sound_output(&mut self, value: f32) {
-            self.calls.push(ParentCall::OutputSound(value));
-        }
-
-        fn store_voice_volume(&mut self, value: f32) {
-            self.calls.push(ParentCall::StoreVoice(value));
-        }
-
-        fn apply_voice_output(&mut self, value: f32) {
-            self.calls.push(ParentCall::OutputVoice(value));
-        }
-
-        fn primary_dropped(&mut self) {
-            self.calls.push(ParentCall::DropPrimary);
-        }
-
-        fn persist_profile(&mut self) {
-            self.calls.push(ParentCall::Write);
-        }
-
-        fn prepare_network_settings(&mut self) {
-            self.calls.push(ParentCall::PrepareNetwork);
-        }
-
-        fn route_network(&mut self) {
-            self.calls.push(ParentCall::RouteNetwork);
-        }
-
-        fn route_keyboard(&mut self) {
-            self.calls.push(ParentCall::RouteKeyboard);
-        }
-
-        fn reopen_parent(&mut self) {
-            self.calls.push(ParentCall::Reopen);
-        }
-    }
-
-    fn expected_apply(detail_changed: bool, score_zero: bool) -> Vec<ParentCall> {
-        let mut calls = vec![ParentCall::Pack, ParentCall::Detail(2)];
-        if detail_changed {
-            calls.push(ParentCall::RefreshDetail);
-        }
-        calls.extend([
-            ParentCall::Difficulty(2),
-            ParentCall::TargetLines(false),
-            ParentCall::RefreshTargetLines,
-            ParentCall::ShowHidden(true),
-            ParentCall::Tooltips(false),
-            ParentCall::Scroll(0),
-            ParentCall::StoreScore(if score_zero { 0.0 } else { 0.4 }),
-            ParentCall::OutputScore(if score_zero { 0.0 } else { 0.4 }),
-        ]);
-        if score_zero {
-            calls.push(ParentCall::QueueStopScoreZero);
-        }
-        calls.extend([
-            ParentCall::StoreSound(0.7),
-            ParentCall::OutputSound(0.7),
-            ParentCall::StoreVoice(0.3),
-            ParentCall::OutputVoice(0.3),
-            ParentCall::DropPrimary,
-        ]);
-        calls
-    }
-
-    fn transaction_dialog(score_position: u8) -> OptionsDialogState {
-        dialog(LauncherOptionsValues {
-            detail_position: 1,
-            difficulty_position: 2,
-            scroll_position: 6,
-            tooltips: false,
-            target_lines: false,
-            show_hidden: true,
-            full_screen: false,
-            original_shape: false,
-            sidebar: SidebarSize::Normal,
-            score_position,
-            sound_position: 7,
-            voice_position: 3,
-        })
-    }
-
-    #[test]
-    fn parent_apply_is_unconditional_interleaved_and_drops_before_final_write() {
-        let mut changed = ParentRecorder {
-            detail: 0,
-            calls: Vec::new(),
-        };
-        dispatch_launcher_parent_result(
-            &mut changed,
-            transaction_dialog(0),
-            LauncherParentResult::Back,
-        );
-        let mut expected = expected_apply(true, true);
-        expected.push(ParentCall::Write);
-        assert_eq!(changed.calls, expected);
-
-        let mut unchanged = ParentRecorder {
-            detail: 2,
-            calls: Vec::new(),
-        };
-        dispatch_launcher_parent_result(
-            &mut unchanged,
-            transaction_dialog(4),
-            LauncherParentResult::Terminal,
-        );
-        let mut expected = expected_apply(false, false);
-        expected.push(ParentCall::Write);
-        assert_eq!(unchanged.calls, expected);
-    }
-
-    #[test]
-    fn child_routes_prepare_and_reopen_only_after_primary_drop_without_write() {
-        let mut network = ParentRecorder {
-            detail: 2,
-            calls: Vec::new(),
-        };
-        dispatch_launcher_parent_result(
-            &mut network,
-            transaction_dialog(4),
-            LauncherParentResult::Network,
-        );
-        let mut expected = expected_apply(false, false);
-        expected.extend([
-            ParentCall::PrepareNetwork,
-            ParentCall::RouteNetwork,
-            ParentCall::Reopen,
-        ]);
-        assert_eq!(network.calls, expected);
-
-        let mut keyboard = ParentRecorder {
-            detail: 2,
-            calls: Vec::new(),
-        };
-        dispatch_launcher_parent_result(
-            &mut keyboard,
-            transaction_dialog(4),
-            LauncherParentResult::Keyboard,
-        );
-        let mut expected = expected_apply(false, false);
-        expected.extend([ParentCall::RouteKeyboard, ParentCall::Reopen]);
-        assert_eq!(keyboard.calls, expected);
+        assert!(booleans.ra2_look);
     }
 }

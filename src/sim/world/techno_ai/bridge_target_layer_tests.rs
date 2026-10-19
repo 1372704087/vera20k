@@ -15,11 +15,8 @@ use crate::sim::world::bridge_test_evidence::restored_retail;
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_target_composed.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_target_composed.json")
 }
 
 fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
@@ -27,12 +24,9 @@ fn supplied_world(rules: &RuleSet, case: &Value) -> Simulation {
     let obj = rules.object("FV").unwrap();
     assert_eq!(obj.weapon_list[0].as_deref(), Some("HoverMissile"));
     let weapon = rules.weapon("HoverMissile").unwrap();
+    assert_eq!(json!(weapon.range_leptons), input["weapon_range"]);
     assert_eq!(
-        json!((weapon.range * SimFixed::from_num(256)).to_num::<i32>()),
-        input["weapon_range"]
-    );
-    assert_eq!(
-        json!((weapon.minimum_range * SimFixed::from_num(256)).to_num::<i32>()),
+        json!(weapon.minimum_range_leptons),
         input["weapon_minimum_range"]
     );
     assert_eq!(rules.combat_damage.max_damage, 10_000);
@@ -546,7 +540,7 @@ pub(super) fn retail_hills_collapsed_scene(
     for xy in [(64, 69), (66, 69)] {
         let cell = pristine.cell(xy.0, xy.1).unwrap();
         assert_eq!(
-            (cell.level, cell.slope_type, cell.base_yr_cell_land_type),
+            (cell.level, cell.slope_type, cell.base_land_type),
             (6, 0, 7)
         );
         assert_eq!(cell.base_speed_costs.track, Some(100));

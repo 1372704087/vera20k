@@ -91,13 +91,6 @@ impl BridgeFlags {
     pub fn structural(self) -> bool {
         self.has(BRIDGE_FLAG_STRUCTURAL)
     }
-    /// `0x200` — native bridge-entry flag, also required along traversable
-    /// deck lanes by 0x004D9E08. The stamp sets Anchor/Forward1/Opposite and
-    /// clears Forward2; this is not merely an along-span endpoint marker.
-    #[inline]
-    pub fn bridgehead(self) -> bool {
-        self.has(BRIDGE_FLAG_TRANSITION)
-    }
 }
 
 #[derive(
@@ -265,10 +258,15 @@ impl BridgeCellFacts {
         self.has_flag(BRIDGE_FLAG_STRUCTURAL)
     }
 
+    /// `0x200` — native bridge-entry flag, also required along traversable
+    /// deck lanes by 0x004D9E08 (`TEST EDI,0x200` on CellClass+0x140). The
+    /// stamp sets Anchor/Forward1/Opposite and clears Forward2; this is not
+    /// merely an along-span endpoint marker.
     pub fn has_transition_flag(self) -> bool {
         self.has_flag(BRIDGE_FLAG_TRANSITION)
     }
 
+    #[cfg(test)]
     pub fn is_anchor_self(self) -> bool {
         self.has_flag(BRIDGE_FLAG_ANCHOR_SELF)
     }
@@ -668,11 +666,6 @@ mod tests {
                 flags.structural(),
                 facts.has_structural_bridge(),
                 "structural raw={raw:#x}"
-            );
-            assert_eq!(
-                flags.bridgehead(),
-                facts.has_transition_flag(),
-                "bridgehead raw={raw:#x}"
             );
         }
     }

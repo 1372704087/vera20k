@@ -7,11 +7,8 @@ use crate::rules::process_owner::NativeRulesProcessOwner;
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/ifv_turret_switching.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/ifv_turret_switching.json")
 }
 
 fn cached_ini(sections: &Value) -> IniFile {
@@ -71,8 +68,16 @@ fn native_gunner_reader_controls_match() {
         } else {
             ObjectCategory::Vehicle
         };
-        let object = ObjectType::from_ini_section(id, ini.section_or_empty(id), category);
-        assert_object(&object, &row["after"], name);
+        let section = ini.section_or_empty(id);
+        let mut config = GunnerTurrets::default();
+        config.apply_pass(id, section, category);
+        assert_config(&config, &row["after"], name);
+        let object = ObjectType::from_ini_section(id, section, category);
+        assert_eq!(
+            object.ifv_mode,
+            row["after"]["ifv_mode"].as_i64().unwrap() as i32,
+            "signed IFVMode: {name}"
+        );
     }
 }
 
@@ -115,6 +120,7 @@ fn production_root_langrule_mode_map_order_matches_native_reader_history() {
         Some(cached_ini(&history[1]["sections"])),
         IniFile::empty(),
         std::sync::Arc::default(),
+        Default::default(),
     )
     .unwrap();
     for index in [3, 4] {
@@ -183,6 +189,7 @@ fn retail_root_ifv_and_passengers_match_original_readers() {
         None,
         art,
         std::sync::Arc::default(),
+        Default::default(),
     )
     .unwrap();
     let (rules, _, _, _) = owner

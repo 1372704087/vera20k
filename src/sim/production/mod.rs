@@ -8,7 +8,6 @@
 //! - `factory_ai`: a computer house's production at its own factory buildings
 //! - `production_queue`: queue views and completed mobile delivery
 //! - `production_spawn`: the ExitObject arm a mobile product leaves through
-//! - `production_economy`: resource harvesting and credit delivery
 //! - `production_placement`: building placement
 //! - `production_repair`: building repair and the computer's low-credit sale
 //! - `production_sell`: building sale
@@ -18,7 +17,6 @@ mod can_build;
 mod factory;
 mod factory_ai;
 mod factory_lifecycle;
-mod production_economy;
 mod production_placement;
 mod production_queue;
 mod production_refinery;
@@ -34,14 +32,15 @@ mod wall_placement;
 pub use self::factory::{
     CancelOutcome, Factory, FactoryHolder, FactoryRegistry, FactoryView, PRODUCTION_STEPS,
     PendingObject, STEP_RATE_MAX, STEP_RATE_MIN, StepOutcome, TimeToBuildInputs,
-    category_for_object, time_to_build,
+    category_for_object, time_to_build, type_base_build_time,
 };
 pub use self::factory_lifecycle::suspend_production;
 pub use self::factory_lifecycle::{
     FactoryRestoreError, ready_building_entity_for_owner, validate_restored_factory_state,
 };
-pub use self::factory_lifecycle::{cancel_by_type_for_owner, enqueue_by_type};
-pub use self::production_economy::is_harvester_type;
+pub use self::factory_lifecycle::{
+    ProductionCancellation, cancel_production_for_owner, enqueue_by_type,
+};
 pub(crate) use self::production_placement::place_production_with_overlays;
 pub use self::production_placement::{
     active_producer_for_owner_category, cycle_active_producer_for_owner_category,
@@ -54,7 +53,7 @@ pub(in crate::sim) use self::production_queue::house_for_test;
 pub use self::production_queue::{
     build_options_for_owner, credits_for_owner, has_build_option_for_owner,
     power_balance_for_owner, publish_production_changes, queue_view_for_owner,
-    ready_buildings_for_owner, theoretical_power_for_owner,
+    ready_buildings_for_owner,
 };
 pub(crate) use self::production_refinery::spawn_building_free_unit;
 pub use self::production_repair::can_repair_building;
@@ -72,17 +71,22 @@ pub use self::production_sell::{SellOrder, can_sell_building};
 pub(crate) use self::production_sell::{
     archive_less_sale, sell_complete, sell_stage_one, techno_refund, type_refund, undeploy_target,
 };
-pub use self::production_tech::all_build_options_for_owner;
 pub use self::production_tech::{
-    building_base_foundation_cells, building_movement_blocking_cells, is_matching_factory,
+    CameoDrawState, all_build_options_for_owner, cameo_draw_state, construction_options_for_owner,
+    initial_construction_options,
+};
+pub use self::production_tech::{
+    building_base_foundation_cells, building_movement_blocking_cells,
     producer_candidates_for_owner_category,
 };
 pub use self::production_types::*;
 
 // Re-exports for external consumers (files outside production/ that previously
 // imported private submodules directly).
-pub use self::can_build::object_find_factory;
-pub(crate) use self::can_build::{CanBuild, can_build, find_factory, initialize_factory_primary};
+pub(crate) use self::can_build::{
+    CanBuild, can_build, initialize_factory_primary, toggle_factory_primary,
+};
+pub use self::can_build::{can_select_factory_primary, find_factory, object_find_factory};
 pub(crate) use self::factory_ai::{
     AiPlacementTimer, detach_all as detach_building_factory, factory_ai,
 };
@@ -93,16 +97,21 @@ pub(in crate::sim) use self::factory_lifecycle::construct_active_factory_fixture
 #[cfg(any(test, feature = "test-support"))]
 pub(in crate::sim) use self::factory_lifecycle::release_delivered_mobile;
 pub(in crate::sim) use self::factory_lifecycle::{
-    abandon_house_factories, recalculate_strips, refresh_factory_rates_for_house,
-    revalidate_and_step_factories,
+    abandon_house_factories, detach_building_production, recalculate_strips,
+    refresh_factory_rates_for_house, step_factories, update_factory_queue,
 };
-#[cfg(any(test, feature = "test-support"))]
 pub(in crate::sim) use self::production_queue::exit_produced_object;
-pub(crate) use self::wall_placement::stamp_wall_with_autofill;
+pub(crate) use self::production_tech::factory_category_for_building;
+pub(crate) use self::wall_placement::{
+    autofill_walls, linked_overlay_id as linked_wall_overlay_id,
+};
 
 #[cfg(test)]
 #[path = "production_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod industrial_plant_retail_tests;
 
 #[cfg(test)]
 #[path = "production_queue_tests.rs"]
@@ -119,3 +128,6 @@ mod replay_tests;
 #[cfg(test)]
 #[path = "factory_lifecycle_tests.rs"]
 mod lifecycle_tests;
+
+#[cfg(test)]
+mod manual_primary_tests;

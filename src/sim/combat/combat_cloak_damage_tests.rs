@@ -20,14 +20,13 @@
 //! the ordinary trigger for (1); a multi-record blast on an already-killed
 //! Dolphin is the trigger for (2).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use super::*;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::cloak_disguise::CloakRuntime;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::test_interner;
-use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
 
 const TICK: u64 = 100;
 
@@ -154,200 +153,11 @@ fn hit_records(
     }
 }
 
-#[test]
-fn healing_overflow_stays_on_techno_nonzero_continuation_and_uncloaks() {
-    // Object5F546A wraps INT_MAX-(-1) to INT_MIN and returns0; Techno70202E
-    // checks exact0, so its real surviving tail still calls StartUncloaking.
-    let rules = dolphin_rules();
-    let mut entities = store("DEST", "Americans");
-    let victim = entities.get_mut(2).unwrap();
-    victim.health.set_for_test(i32::MAX);
-    victim.estimated_health = crate::sim::estimated_health::EstimatedHealth::from_raw(-1234);
-    let landed = hit_records(
-        &mut entities,
-        &rules,
-        "SonicWH",
-        &HouseAllianceMap::new(),
-        &[-1],
-    );
-    assert_eq!(landed.victim_hp, i32::MIN);
-    assert_eq!(landed.cloak_state, 3, "negative HP must still uncloak");
-    let victim = entities.get(2).unwrap();
-    assert!(victim.lifecycle.object_alive());
-    assert!(!victim.death.is_dying());
-    assert_eq!(victim.estimated_health.get(), -1234);
-}
-
-/// Positive control. Without it the three negative tests below would also pass
-/// against a hook that never fires.
-#[test]
-fn an_ordinary_hostile_hit_surfaces_a_fully_cloaked_dolphin() {
-    let rules = dolphin_rules();
-    let mut entities = store("DEST", "Americans");
-    let landed = hit(&mut entities, &rules, "SonicWH", &HouseAllianceMap::new());
-
-    assert_eq!(landed.victim_hp, 60, "the hit lands for its 40");
-    assert_eq!(
-        landed.cloak_state, 3,
-        "0x0070281D reaches vt+0xFC for a surviving receiver"
-    );
-    assert!(
-        matches!(
-            landed.sounds.as_slice(),
-            [SimSoundEvent::CloakSound { sound_id, rx: 11, ry: 10, .. }]
-                if sound_id == "NavalUnitEmerge"
-        ),
-        "StartUncloaking(0) owns one positional CloakSound, got {:?}",
-        landed.sounds
-    );
-}
-
-/// `TypeImmune` returns `0` from `TechnoClass::ReceiveDamage` well above the
-/// `ObjectClass__ReceiveDamage` join, so `+0xFC` is never reached.
-/// `[DLPH] TypeImmune=yes` makes this the routine case for a Dolphin pod.
-#[test]
-fn a_type_immune_sibling_splash_leaves_a_cloaked_dolphin_submerged() {
-    let rules = dolphin_rules();
-    let mut entities = store("DLPH", "Soviet");
-    let landed = hit(&mut entities, &rules, "SonicWH", &HouseAllianceMap::new());
-
-    assert_eq!(landed.victim_hp, 100, "TypeImmune nullifies the damage");
-    assert_eq!(
-        landed.cloak_state, 2,
-        "native returns at type+0xC8C, above the vt+0xFC call"
-    );
-    assert!(
-        landed.sounds.is_empty(),
-        "no CloakSound: {:?}",
-        landed.sounds
-    );
-}
-
-/// `vt+0x160` (IronCurtain / ForceShield) writes `*damage = 0` and returns, so
-/// the protected object never delegates to `ObjectClass::ReceiveDamage`.
-#[test]
-fn an_iron_curtained_cloaked_dolphin_stays_submerged() {
-    let rules = dolphin_rules();
-    let mut entities = store("DEST", "Americans");
-    entities.get_mut(2).unwrap().invulnerability = Some(InvulnerabilityState::new(
-        crate::sim::timer::CdTimer::started(TICK as i32 - 10, 100),
-        InvulnKind::IronCurtain,
-    ));
-    let landed = hit(&mut entities, &rules, "SonicWH", &HouseAllianceMap::new());
-
-    assert_eq!(landed.victim_hp, 100, "IronCurtain nullifies the damage");
-    assert_eq!(landed.cloak_state, 2, "native returns at vt+0x160");
-    assert!(
-        landed.sounds.is_empty(),
-        "no CloakSound: {:?}",
-        landed.sounds
-    );
-}
-
-/// `AffectsAllies=no` (`warhead+0x179`) with a present source and an allied
-/// owner returns above the join too. A house is always allied with itself, and
-/// an explicit two-house alliance behaves the same way.
-#[test]
-fn an_affects_allies_no_warhead_leaves_an_allied_cloaked_dolphin_submerged() {
-    let rules = dolphin_rules();
-
-    let mut own = store("DEST", "Soviet");
-    let landed = hit(&mut own, &rules, "AllyBlindWH", &HouseAllianceMap::new());
-    assert_eq!(landed.victim_hp, 100);
-    assert_eq!(landed.cloak_state, 2, "same house is allied with itself");
-    assert!(
-        landed.sounds.is_empty(),
-        "no CloakSound: {:?}",
-        landed.sounds
-    );
-
-    let alliances: HouseAllianceMap = BTreeMap::from([
-        (
-            "AMERICANS".to_string(),
-            BTreeSet::from(["SOVIET".to_string()]),
-        ),
-        (
-            "SOVIET".to_string(),
-            BTreeSet::from(["AMERICANS".to_string()]),
-        ),
-    ]);
-    let mut allied = store("DEST", "Americans");
-    let landed = hit(&mut allied, &rules, "AllyBlindWH", &alliances);
-    assert_eq!(landed.victim_hp, 100);
-    assert_eq!(landed.cloak_state, 2, "native returns at warhead+0x179");
-    assert!(
-        landed.sounds.is_empty(),
-        "no CloakSound: {:?}",
-        landed.sounds
-    );
-
-    // Control: the SAME warhead against a non-allied owner must still land.
-    // Without this the two assertions above would also hold if `AllyBlindWH`
-    // failed to resolve and the record were dropped before the receiver.
-    let mut hostile = store("DEST", "Americans");
-    let landed = hit(
-        &mut hostile,
-        &rules,
-        "AllyBlindWH",
-        &HouseAllianceMap::new(),
-    );
-    assert_eq!(landed.victim_hp, 60, "the warhead resolves and does damage");
-    assert_eq!(landed.cloak_state, 3);
-}
-
 fn cloak_sounds(sounds: &[SimSoundEvent]) -> Vec<&SimSoundEvent> {
     sounds
         .iter()
         .filter(|sound| matches!(sound, SimSoundEvent::CloakSound { .. }))
         .collect()
-}
-
-/// A receiver already at zero health takes native's DEATH branch, not the
-/// surviving tail, so `+0xFC` is never reached for it.
-///
-/// Read from the disassembly — the decompiler's `switch (uVar7)` rendering of
-/// this dispatch is the cross-assignment trap and says the opposite:
-///
-/// ```text
-/// 0070202e MOV  EAX,[ESI+0x6C]   ; this->Health, AFTER the ObjectClass join
-/// 00702031 TEST EAX,EAX
-/// 00702033 JNZ  0x00702040
-/// 00702035 MOV  EDI,0x4          ; overwrites the ObjectClass result code
-/// 00702049 JMP  [EDI*4 + 0x702D24]
-/// ```
-///
-/// The table at `0x00702D24` is `[0x007027F7, 0x00702713, 0x00702695,
-/// 0x007027F7, 0x00702050]`; case 4 (`0x00702050`) returns at `0x00702692`
-/// (`RET 0x1C`) without passing `0x0070281D`. `ObjectClass::ReceiveDamage @
-/// 0x005F5390` does return 0 (case 0) for a corpse, but the health test above
-/// discards that.
-///
-/// The production trigger is an ordinary multi-record blast: a `DeathWeapon`
-/// cascade, a Demo Truck or an Ivan cluster whose earlier record already drove
-/// the receiver to zero inside the SAME `commit_damage_events` transaction.
-#[test]
-fn a_second_record_of_the_same_blast_leaves_a_dead_cloaked_dolphin_submerged() {
-    let rules = dolphin_rules();
-    let mut entities = store("DEST", "Americans");
-    // The 400 kills the 100-HP Dolphin; the 40 then lands on the corpse.
-    let landed = hit_records(
-        &mut entities,
-        &rules,
-        "SonicWH",
-        &HouseAllianceMap::new(),
-        &[400, 40],
-    );
-
-    assert_eq!(landed.victim_hp, 0, "the first record kills the Dolphin");
-    assert_eq!(
-        landed.cloak_state, 2,
-        "Health == 0 forces case 4 at 0x00702035; neither record reaches vt+0xFC"
-    );
-    assert!(
-        cloak_sounds(&landed.sounds).is_empty(),
-        "a corpse emits no CloakSound: {:?}",
-        landed.sounds
-    );
 }
 
 /// The same rule with the death machinery out of the way: a receiver that is

@@ -69,8 +69,6 @@ pub struct ArtEntry {
     /// Present ART Foundation resolved by native474DA0's fixed table.
     /// Missing retains the caller's current index; a present unknown is0.
     pub foundation: Option<u8>,
-    /// Overlay type produced by this BuildingType's art (`ToOverlay=`).
-    pub to_overlay: Option<String>,
     /// BibShape: separate SHP for the ground-level pad/bib under a building.
     pub bib_shape: Option<String>,
     /// Custom palette override from art.ini `Palette=`.
@@ -99,7 +97,7 @@ pub struct ArtEntry {
     /// at `0x00715FA4..0x00716005`): the firing ports an `OpenTopped=`
     /// transport lends its passengers, by cargo index. `None` where the
     /// coordinate read kept its default, Weapon[0]'s FLH (`+0x89C`); see
-    /// [`ArtEntry::open_topped_port_flh`]. Stock: only `[BFRT]`'s five gun
+    /// [`ArtEntry::alternate_fire_flh`]. Stock: only `[BFRT]`'s five gun
     /// ports.
     pub alternate_flh: [Option<Flh>; 5],
     /// `SecondSpawnOffset=` (`TechnoTypeClass+0xDB0`): the same art read's
@@ -171,8 +169,8 @@ pub struct ArtEntry {
     /// Parsed from DamageFireOffset0=X,Y .. DamageFireOffset7=X,Y in art.ini. Max 8.
     pub damage_fire_offsets: Vec<DamageFireOffset>,
     /// Building height in cell-height units (from `Height=` in art.ini).
-    /// Used for health bar vertical positioning: Dimension2.Z = (fh + Height) * 256
-    /// leptons, projected via CoordsToScreen as z_screen = (fh + Height) * 7.5 px.
+    /// BuildingType Dimension2 (464AF0) uses Height * 104 world leptons for Z;
+    /// its X/Y dimensions independently use the foundation's 256-lepton cells.
     pub height: i32,
     /// Fire port pixel offsets for garrison muzzle flashes.
     /// Parsed from `MuzzleFlash0=X,Y` through `MuzzleFlash9=X,Y` in art.ini.
@@ -244,7 +242,7 @@ impl ArtEntry {
     /// `AlternateFLH[k-1]` for `k <= 5`, else a zero FLH
     /// (`0x006F3AF5..0x006F3B21`). A slot the coordinate read left at its
     /// default holds Weapon[0]'s FLH as the weapon arm stored it (`+0x89C`).
-    pub(crate) fn open_topped_port_flh(
+    pub(crate) fn alternate_fire_flh(
         &self,
         port: usize,
         turret_count: i32,
@@ -325,6 +323,10 @@ pub struct AnimTypeRuntimeConfig {
     pub hide_if_no_ore: bool,
     pub is_animated_tiberium: bool,
     pub tiberium_spread_radius: i32,
+    /// The Type references (`TiberiumSpawnType=`, `Spawns=`, `Warhead=`,
+    /// `SpawnsParticle=`, `Next=`, `BounceAnim=`, `ExpireAnim=`,
+    /// `TrailerAnim=`) are the upper-cased stored IDs the ordered Rules
+    /// processor's factories answered (`AnimTypeReferences`).
     pub tiberium_spawn_type: Option<String>,
     /// Raw `MakeInfantry=` index. Native defaults to -1 and treats every
     /// other value as enabling the AnimClass cell-occupation lifecycle.
@@ -401,7 +403,8 @@ pub struct AnimTypeRuntimeConfig {
     /// Unlike every other key in this parser, `ReadINI` writes the field
     /// **only when the key is present** (`0x00427D00`: the store sits inside
     /// the `if (ReadString != 0)` arm), so an absent key keeps the
-    /// constructor's `-1`. `None` here is that `-1`.
+    /// constructor's `-1`. `None` here is that `-1`, or the factory's `-1`
+    /// for `<none>`.
     pub spawns_particle: Option<String>,
     /// art.ini `NumParticles=`, `AnimTypeClass+0x2D0`.
     pub num_particles: i32,
@@ -633,7 +636,8 @@ pub fn art_rate_to_delay_ms(ini_rate: i32) -> u32 {
 /// **`Translucency=N` therefore reads as "N percent *transparent*".** The source
 /// weight is `1 - N/100`, so `Translucency=25` is the *most* opaque of the three
 /// and `Translucency=75` the faintest. Reading the key as "N percent opaque"
-/// inverts every explosion, fire and wake in the game.
+/// inverts every explosion, fire and wake in the game. `AnimClass::DrawIt`
+/// picks the stage per draw ([`crate::sim::anim_class::anim_translucency_selection`]).
 pub const ANIM_DRAW_BITS_OPAQUE: u32 = 0x0;
 /// `Translucency=25` — source contributes three quarters.
 pub const ANIM_DRAW_BITS_TRANSLUCENT_25: u32 = 0x2;
@@ -641,18 +645,6 @@ pub const ANIM_DRAW_BITS_TRANSLUCENT_25: u32 = 0x2;
 pub const ANIM_DRAW_BITS_TRANSLUCENT_50: u32 = 0x4;
 /// `Translucency=75` — source contributes one quarter.
 pub const ANIM_DRAW_BITS_TRANSLUCENT_75: u32 = 0x6;
-
-/// Return the fixed draw-bit contribution for an art.ini `Translucency=` value.
-///
-/// `Translucent=` is an independent boolean and is not interpreted by this helper.
-pub const fn anim_fixed_translucency_draw_bits(translucency: i32) -> Option<u32> {
-    match translucency {
-        25 => Some(ANIM_DRAW_BITS_TRANSLUCENT_25),
-        50 => Some(ANIM_DRAW_BITS_TRANSLUCENT_50),
-        75 => Some(ANIM_DRAW_BITS_TRANSLUCENT_75),
-        _ => None,
-    }
-}
 
 /// Which palette an animation type's frames are baked/sampled against.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -682,89 +674,6 @@ pub const fn anim_draw_palette(config: &AnimTypeRuntimeConfig) -> AnimDrawPalett
     }
 }
 
-/// Progressive translucency ladder for `Translucent=yes` animation types.
-///
-/// `Translucent=yes` is **not** a constant blend: gamemd's animation draw path
-/// compares the current frame against fractions of the type's `End` and fades the
-/// animation out as it plays. An animation is opaque for its first fifth, then
-/// steps through three-quarters, one-half and one-quarter source weight. This is
-/// what makes a fire or a ship wake dissipate instead of vanishing in one frame.
-///
-/// The fraction comparisons are evaluated in native double precision against the
-/// literals 0.2 / 0.4 / 0.6 and are reproduced here rather than rewritten as
-/// integer cross-multiplication, because the two disagree at boundary frames for
-/// some `End` values. This is render material selection only — no simulation
-/// state, ordering or RNG depends on it.
-pub fn anim_progressive_translucency_draw_bits(current_frame: i32, end_frame: i32) -> u32 {
-    const OPAQUE_FRACTION: f64 = 0.2;
-    const QUARTER_FRACTION: f64 = 0.4;
-    const HALF_FRACTION: f64 = 0.6;
-
-    let frame = f64::from(current_frame);
-    let end = f64::from(end_frame);
-    if frame > end * HALF_FRACTION {
-        ANIM_DRAW_BITS_TRANSLUCENT_75
-    } else if frame > end * QUARTER_FRACTION {
-        ANIM_DRAW_BITS_TRANSLUCENT_50
-    } else if frame > end * OPAQUE_FRACTION {
-        ANIM_DRAW_BITS_TRANSLUCENT_25
-    } else {
-        ANIM_DRAW_BITS_OPAQUE
-    }
-}
-
-/// Draw-time `End` for the progressive translucency ladder.
-///
-/// gamemd's AnimType loader seeds `End` from the SHP header frame count, halving
-/// it for `Shadow=yes` (the back half of such a SHP holds the shadow frames), and
-/// an explicit art.ini `End=` overrides it. `bind_scheduler_anim_assets`
-/// reproduces that for the scheduler closure, so a bound config already carries
-/// the native value; for a type that has not been through asset binding, derive
-/// the same value from the caller's SHP frame count rather than reading the
-/// unbound zero.
-fn anim_draw_end_frame(config: &AnimTypeRuntimeConfig, shp_frame_count: i32) -> i32 {
-    if config.raw_shp_frame_count.is_some() {
-        return config.end;
-    }
-    if let Some(end) = config.explicit_end {
-        return end;
-    }
-    if config.shadow {
-        shp_frame_count / 2
-    } else {
-        shp_frame_count
-    }
-}
-
-/// Resolve an animation type's translucency draw bits for one drawn frame.
-///
-/// `Translucent=yes` takes the progressive ladder; otherwise an exact
-/// `Translucency=25/50/75` selects a fixed stage and anything else draws opaque.
-/// `shp_frame_count` is only consulted on the progressive path, and only when the
-/// type has not been bound to its SHP yet.
-///
-/// Two native gates are deliberately not modelled and are recorded here rather
-/// than approximated. gamemd skips this whole selection when the type's
-/// `TranslucencyDetailLevel` exceeds the extra-animations video setting; omitting
-/// the gate is equivalent to that setting being at maximum, which is its normal
-/// value in play, and the runtime value is UNCHECKED. gamemd also aborts the draw
-/// outright above a per-instance byte whose source was not traced; it is zero on a
-/// freshly constructed animation and Rust has no counterpart, so this behaves as
-/// that zero — identical for every path that reaches it with zero.
-pub fn anim_translucency_draw_bits(
-    config: &AnimTypeRuntimeConfig,
-    current_frame: i32,
-    shp_frame_count: i32,
-) -> u32 {
-    if config.translucent {
-        return anim_progressive_translucency_draw_bits(
-            current_frame,
-            anim_draw_end_frame(config, shp_frame_count),
-        );
-    }
-    anim_fixed_translucency_draw_bits(config.translucency).unwrap_or(ANIM_DRAW_BITS_OPAQUE)
-}
-
 /// Bits of a `CC_Draw_Shape` flag word that name the translucency family.
 ///
 /// gamemd-derived: `AnimClass::DrawIt` loads the producer's whole flag word out
@@ -791,25 +700,6 @@ pub const fn anim_translucency_source_alpha(draw_bits: u32) -> f32 {
         ANIM_DRAW_BITS_TRANSLUCENT_75 => 0.25,
         _ => 1.0,
     }
-}
-
-/// Alpha an animation sprite instance should carry for one drawn frame.
-///
-/// Single entry point for instance builders: resolve the draw bits for this
-/// frame, then convert them to the source weight the native blend applies. An
-/// animation with neither `Translucent=` nor a recognised `Translucency=` returns
-/// `1.0`, so wiring this in cannot change an opaque animation.
-#[cfg(any(test, feature = "test-support"))]
-pub fn anim_frame_source_alpha(
-    config: &AnimTypeRuntimeConfig,
-    current_frame: i32,
-    shp_frame_count: i32,
-) -> f32 {
-    anim_translucency_source_alpha(anim_translucency_draw_bits(
-        config,
-        current_frame,
-        shp_frame_count,
-    ))
 }
 
 fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
@@ -841,23 +731,22 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         hide_if_no_ore: section.read_bool("HideIfNoOre", false),
         is_animated_tiberium: section.read_bool("IsAnimatedTiberium", false),
         tiberium_spread_radius: section.read_int("TiberiumSpreadRadius", 0),
-        tiberium_spawn_type: section
-            .read_name("TiberiumSpawnType", 0x80)
-            .map(str::to_ascii_uppercase),
+        // The Type references (`TiberiumSpawnType=`, `Spawns=`, `Warhead=`,
+        // `SpawnsParticle=`, `Next=`, `BounceAnim=`, `ExpireAnim=`,
+        // `TrailerAnim=`) start null: the ordered Rules processor reads them
+        // with the AnimType's ART body, and `RuleSet` hands them over through
+        // [`ArtRegistry::apply_anim_type_references`].
+        tiberium_spawn_type: None,
         make_infantry: section.read_int("MakeInfantry", -1),
         bouncer: section.read_bool("Bouncer", false),
-        spawns: section
-            .read_name("Spawns", 0x80)
-            .map(str::to_ascii_uppercase),
+        spawns: None,
         spawn_count: section.read_int("SpawnCount", 0),
         running_frames: section.read_int("RunningFrames", 0),
         // gamemd-derived: `AnimTypeClass::ReadINI @ 0x00427D00` reads these
         // through `CCINIClass::ReadDouble` and each defaults to the value the
         // constructor (`AnimTypeClass::AnimTypeClass @ 0x00427530`) left.
         damage: section.read_double_bits("Damage", ANIM_DAMAGE_DEFAULT),
-        warhead: section
-            .read_name("Warhead", 0x80)
-            .map(str::to_ascii_uppercase),
+        warhead: None,
         damage_radius: section.read_int("DamageRadius", 0),
         elasticity: section.read_double_bits("Elasticity", ANIM_ELASTICITY_DEFAULT),
         min_z_vel: section.read_double_bits("MinZVel", ANIM_MIN_Z_VEL_DEFAULT),
@@ -872,24 +761,16 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         psi_warning: section.read_bool("PsiWarning", false),
         double_thick: section.read_bool("DoubleThick", false),
         flamer: section.read_bool("Flamer", false),
-        spawns_particle: section
-            .read_name("SpawnsParticle", 0x20)
-            .map(str::to_ascii_uppercase),
+        spawns_particle: None,
         num_particles: section.read_int("NumParticles", 0),
         // Both constructor defaults are 1, not 0.
         should_fog_remove: section.read_bool("ShouldFogRemove", true),
         should_use_cell_drawer: section.read_bool("ShouldUseCellDrawer", true),
         detail_level: section.read_int("DetailLevel", 0),
-        next: section.read_name("Next", 0x80).map(str::to_ascii_uppercase),
-        bounce_anim: section
-            .read_name("BounceAnim", 0x80)
-            .map(str::to_ascii_uppercase),
-        expire_anim: section
-            .read_name("ExpireAnim", 0x80)
-            .map(str::to_ascii_uppercase),
-        trailer_anim: section
-            .read_name("TrailerAnim", 0x80)
-            .map(str::to_ascii_uppercase),
+        next: None,
+        bounce_anim: None,
+        expire_anim: None,
+        trailer_anim: None,
         trailer_seperation: section.read_int("TrailerSeperation", 0),
         // ReadMinMax (`0x004280D4`); `None` marks an absent key.
         random_loop_delay: section.is_present("RandomLoopDelay").then(|| {
@@ -982,8 +863,9 @@ pub struct ResolvedObjectArt<'a> {
     /// Final image id after art.ini `Image=` override.
     pub image_id: String,
     /// Section id whose metadata should be used for overlays/bibs/anims.
+    #[cfg(test)]
     pub metadata_section_id: String,
-    /// Parsed art entry for `metadata_section_id`, if present.
+    /// Parsed art entry for the metadata section, if present.
     pub entry: Option<&'a ArtEntry>,
 }
 
@@ -999,11 +881,6 @@ pub struct ArtRegistry {
     can_hide_things: HashMap<String, bool>,
     /// section ID (uppercase) -> `OccupyHeight=`, defaulting to art `Height=`.
     occupy_heights: HashMap<String, i32>,
-    /// section ID (uppercase) -> generic AnimType frame delay from `Rate=`.
-    /// Missing `Rate=` keeps the gamemd constructor default of one logic frame.
-    rates_ms: HashMap<String, u16>,
-    /// section ID (uppercase) -> native AnimType frame delay in logic frames.
-    rates_logic_frames: HashMap<String, u16>,
     /// section ID (uppercase) -> generic AnimType runtime metadata.
     anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig>,
     /// Full deterministic Next/Trailer closure reachable from scheduler-owned roots.
@@ -1041,7 +918,7 @@ fn resolve_loaded_bounds(
             count: raw_count,
         });
     }
-    let header_end = if shadow { raw_count / 2 } else { raw_count };
+    let header_end = header_end(raw_count, shadow);
     // Native copies the loader-derived End into LoopEnd before applying the
     // explicit INI End and LoopEnd keys.
     let loaded_end = explicit_end.unwrap_or(header_end);
@@ -1049,6 +926,27 @@ fn resolve_loaded_bounds(
     validate_loaded_bound(name, "End", loaded_end, raw_count)?;
     validate_loaded_bound(name, "LoopEnd", loaded_loop_end, raw_count)?;
     Ok((loaded_end, loaded_loop_end))
+}
+
+/// The End the loader takes from a SHP header of `raw_count` frames: the back
+/// half of a `Shadow=yes` SHP holds the shadow frames.
+const fn header_end(raw_count: i32, shadow: bool) -> i32 {
+    if shadow { raw_count / 2 } else { raw_count }
+}
+
+impl AnimTypeRuntimeConfig {
+    /// AnimType `End` (`+0x2C0`), which `AnimClass::DrawIt`'s `Translucent=`
+    /// ladder divides (`0x004230AC`). A bound type carries the loaded value;
+    /// for one not yet bound, it is what binding would load from a SHP of
+    /// `shp_frame_count` frames ([`resolve_loaded_bounds`]): an explicit `End=`,
+    /// else the header count, halved for `Shadow=yes`.
+    pub fn loaded_end(&self, shp_frame_count: i32) -> i32 {
+        if self.raw_shp_frame_count.is_some() {
+            return self.end;
+        }
+        self.explicit_end
+            .unwrap_or(header_end(shp_frame_count, self.shadow))
+    }
 }
 
 /// Verified `TacticalClass::IsometricPixelToWorld` transform for the initialized
@@ -1108,8 +1006,6 @@ impl ArtRegistry {
         let mut entry_names: HashMap<String, String> = HashMap::new();
         let mut can_hide_things: HashMap<String, bool> = HashMap::new();
         let mut occupy_heights: HashMap<String, i32> = HashMap::new();
-        let mut rates_ms: HashMap<String, u16> = HashMap::new();
-        let mut rates_logic_frames: HashMap<String, u16> = HashMap::new();
         let mut anim_runtime_configs: HashMap<String, AnimTypeRuntimeConfig> = HashMap::new();
         let mut damage_fire_offsets_valid = true;
 
@@ -1138,8 +1034,6 @@ impl ArtRegistry {
             let foundation = section
                 .is_present("Foundation")
                 .then(|| crate::rules::foundation::read_foundation(section, 0));
-            let to_overlay: Option<String> =
-                section.read_name("ToOverlay", 0x80).map(str::to_owned);
             let bib_shape: Option<String> = section.read_name("BibShape", 0x40).map(str::to_owned);
             let palette: Option<String> = section
                 .read_name("Palette", 0x20)
@@ -1230,12 +1124,6 @@ impl ArtRegistry {
             let [fire_up, fire_prone, secondary_fire, secondary_prone] = discharge_frames;
             let report = section.read_name("Report", 0x80).map(str::to_owned);
             let start_sound = section.read_name("StartSound", 0x80).map(str::to_owned);
-            let rate = read_anim_rate(section);
-            let rate_ms: u16 = rate.map_or(DEFAULT_ART_RATE_MS, |rate| {
-                art_rate_to_delay_ms(rate) as u16
-            });
-            let rate_logic_frames: u16 =
-                rate.map_or(DEFAULT_ART_RATE_LOGIC_FRAMES, art_rate_to_logic_frames);
             let anim_runtime_config = parse_anim_runtime_config(section);
             let extra_light: i32 = section.read_int("ExtraLight", 0);
             let queueing_cell = section.read_minmax("QueueingCell", [0, 0]);
@@ -1312,8 +1200,6 @@ impl ArtRegistry {
             let section_key = section_name.to_uppercase();
             can_hide_things.insert(section_key.clone(), can_hide);
             occupy_heights.insert(section_key.clone(), occupy_height);
-            rates_ms.insert(section_key.clone(), rate_ms);
-            rates_logic_frames.insert(section_key.clone(), rate_logic_frames);
             anim_runtime_configs.insert(section_key.clone(), anim_runtime_config);
             entry_names.insert(section_key, section_name.to_owned());
             entries.insert(
@@ -1345,7 +1231,6 @@ impl ArtRegistry {
                     buildup: Some(section.read_string("Buildup", "", 16))
                         .filter(|name| !name.is_empty()),
                     foundation,
-                    to_overlay,
                     bib_shape,
                     palette,
                     sequence,
@@ -1398,8 +1283,6 @@ impl ArtRegistry {
             entry_names,
             can_hide_things,
             occupy_heights,
-            rates_ms,
-            rates_logic_frames,
             anim_runtime_configs,
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid,
@@ -1413,8 +1296,6 @@ impl ArtRegistry {
             entry_names: HashMap::new(),
             can_hide_things: HashMap::new(),
             occupy_heights: HashMap::new(),
-            rates_ms: HashMap::new(),
-            rates_logic_frames: HashMap::new(),
             anim_runtime_configs: HashMap::new(),
             scheduler_anim_types: BTreeSet::new(),
             damage_fire_offsets_valid: true,
@@ -1439,18 +1320,6 @@ impl ArtRegistry {
             .unwrap_or(current)
     }
 
-    /// Generic AnimType frame delay for an art section, from `Rate=`.
-    pub fn rate_ms(&self, image_id: &str) -> Option<u16> {
-        self.rates_ms.get(&image_id.to_uppercase()).copied()
-    }
-
-    /// Generic AnimType frame delay in native logic frames for an art section.
-    pub fn rate_logic_frames(&self, image_id: &str) -> Option<u16> {
-        self.rates_logic_frames
-            .get(&image_id.to_uppercase())
-            .copied()
-    }
-
     /// Generic native-like AnimType runtime metadata for an art section.
     pub fn anim_runtime_config(&self, image_id: &str) -> Option<&AnimTypeRuntimeConfig> {
         self.anim_runtime_configs.get(&image_id.to_uppercase())
@@ -1471,6 +1340,28 @@ impl ArtRegistry {
             config.art_body_read = false;
             config.image = name.clone();
             self.anim_runtime_configs.insert(key, config);
+        }
+    }
+
+    /// Apply the canonical RulesClass processing receipt's AnimType references
+    /// ([`AnimTypeReferences`]), in AnimType registry order. A name's first
+    /// slot wins, as in [`Self::apply_anim_type_read_states`]; a type whose
+    /// ART body was never read carries the constructor's nulls.
+    ///
+    /// [`AnimTypeReferences`]: crate::rules::native_processing::AnimTypeReferences
+    pub(crate) fn apply_anim_type_references(
+        &mut self,
+        states: &[(String, crate::rules::native_processing::AnimTypeReferences)],
+    ) {
+        let mut seen = BTreeSet::new();
+        for (name, references) in states {
+            let key = name.to_ascii_uppercase();
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            if let Some(config) = self.anim_runtime_configs.get_mut(&key) {
+                references.apply_to(config);
+            }
         }
     }
 
@@ -1550,6 +1441,7 @@ impl ArtRegistry {
                         pending.extend(config.trailer_anim.iter().cloned());
                         pending.extend(config.bounce_anim.iter().cloned());
                         pending.extend(config.expire_anim.iter().cloned());
+                        pending.extend(config.spawns.iter().cloned());
                     }
                     self.scheduler_anim_types.insert(name);
                 }
@@ -1658,6 +1550,10 @@ impl ArtRegistry {
             if let Some(expire) = config.expire_anim {
                 pending.push_back(expire);
             }
+            //AnimAI423F37..423FC4 constructs landing children as AnimClass.
+            if let Some(child) = config.spawns {
+                pending.push_back(child);
+            }
         }
 
         self.scheduler_anim_types = resolved;
@@ -1746,6 +1642,7 @@ impl ArtRegistry {
         ResolvedObjectArt {
             base_art_id,
             image_id,
+            #[cfg(test)]
             metadata_section_id,
             entry,
         }
@@ -2421,6 +2318,44 @@ mod anim_runtime_metadata_tests {
     use super::*;
     use crate::assets::asset_manager::{AssetManager, MediaArchiveMode};
 
+    /// `art` installed the production way: the ordered Rules processor reads
+    /// the fixed-ART Type references of every section `art` holds, each listed
+    /// as an AnimType, and `RuleSet` hands them to the registry.
+    fn installed(art: &str) -> crate::rules::ruleset::RuleSet {
+        let art = IniFile::from_str(art);
+        let animations: String = art
+            .section_names()
+            .iter()
+            .enumerate()
+            .map(|(index, name)| format!("{index}={name}\n"))
+            .collect();
+        let mut rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(&format!("[Animations]\n{animations}")),
+            &art,
+        )
+        .unwrap();
+        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules
+    }
+
+    /// Retail RULESMD over ARTMD from the archives, installed as the loader
+    /// installs it: the AnimTypes' references come from the ordered Rules
+    /// processor.
+    fn installed_retail(assets: &AssetManager) -> crate::rules::ruleset::RuleSet {
+        let read = |name: &str| {
+            IniFile::from_bytes(assets.get_ref(name).expect("retail INI"))
+                .expect("parse retail INI")
+        };
+        let artmd = read("ARTMD.INI");
+        let mut rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+            &read("RULESMD.INI"),
+            &artmd,
+        )
+        .expect("retail rules");
+        rules.install_art_data(ArtRegistry::from_ini(&artmd));
+        rules
+    }
+
     #[test]
     fn building_body_fields_match_original_native_readers() {
         #[derive(serde::Deserialize)]
@@ -2494,15 +2429,15 @@ mod anim_runtime_metadata_tests {
 
     #[test]
     fn normalizes_anim_spawn_metadata_refs_to_uppercase() {
-        let ini = IniFile::from_str(
+        let rules = installed(
             "[DBRIS1LG]\n\
              TrailerAnim=smokey2\n\
              BounceAnim=twlt026\n\
              ExpireAnim=twlt036\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
 
-        let config = reg
+        let config = rules
+            .art()
             .anim_runtime_config("DBRIS1LG")
             .expect("DBRIS1LG runtime metadata");
         assert_eq!(config.trailer_anim.as_deref(), Some("SMOKEY2"));
@@ -2541,7 +2476,7 @@ mod anim_runtime_metadata_tests {
 
     #[test]
     fn anim_spawn_metadata_preserves_existing_next_random_and_rate_fields() {
-        let ini = IniFile::from_str(
+        let rules = installed(
             "[METSTRAL]\n\
              Rate=300\n\
              Normalized=yes\n\
@@ -2549,9 +2484,9 @@ mod anim_runtime_metadata_tests {
              RandomLoopDelay=2,5\n\
              RandomRate=300,900\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
 
-        let config = reg
+        let config = rules
+            .art()
             .anim_runtime_config("METSTRAL")
             .expect("METSTRAL runtime metadata");
         assert_eq!(config.rate_logic_frames, 3);
@@ -2708,18 +2643,6 @@ mod anim_runtime_metadata_tests {
     }
 
     #[test]
-    fn gsi_02_13_maps_only_exact_fixed_translucency_values_to_draw_bits() {
-        assert_eq!(anim_fixed_translucency_draw_bits(25), Some(0x2));
-        assert_eq!(anim_fixed_translucency_draw_bits(50), Some(0x4));
-        assert_eq!(anim_fixed_translucency_draw_bits(75), Some(0x6));
-        assert_eq!(anim_fixed_translucency_draw_bits(1), None);
-        assert_eq!(anim_fixed_translucency_draw_bits(26), None);
-        assert_eq!(anim_fixed_translucency_draw_bits(100), None);
-        assert_eq!(anim_fixed_translucency_draw_bits(0), None);
-        assert_eq!(anim_fixed_translucency_draw_bits(-25), None);
-    }
-
-    #[test]
     fn translucency_draw_bits_invert_the_ini_percentage_into_source_weight() {
         // Translucency=N is N percent TRANSPARENT: 25 is the most opaque stage.
         assert_eq!(
@@ -2760,113 +2683,35 @@ mod anim_runtime_metadata_tests {
     }
 
     #[test]
-    fn stock_fixed_translucency_sections_resolve_to_their_blend_and_others_stay_opaque() {
-        // BURN-S/M/L are the burning-building fires: Translucency=25, no
-        // Translucent=, so every frame draws at three-quarter source weight.
+    fn loaded_end_is_the_bound_end_or_what_binding_would_load() {
         let ini = IniFile::from_str(
-            "[BURN-S]\n\
-             Layer=ground\n\
-             Translucency=25\n\
-             [FIRE3]\n\
-             Translucency=50\n\
-             [PLAIN]\n\
-             Layer=ground\n",
+            "[WAKE]\nTranslucent=yes\n\
+             [SHADOWED]\nTranslucent=yes\nShadow=yes\n\
+             [CAPPED]\nTranslucent=yes\nEnd=10\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
-
-        let burn = reg.anim_runtime_config("BURN-S").unwrap();
-        for frame in [0, 1, 30, 61] {
-            assert_eq!(anim_frame_source_alpha(burn, frame, 62), 0.75);
-        }
-
-        let fire = reg.anim_runtime_config("FIRE3").unwrap();
-        assert_eq!(anim_frame_source_alpha(fire, 3, 8), 0.5);
-
-        // An animation carrying neither key must be untouched by this path.
-        let plain = reg.anim_runtime_config("PLAIN").unwrap();
-        assert_eq!(anim_frame_source_alpha(plain, 3, 8), 1.0);
-    }
-
-    #[test]
-    fn translucent_yes_fades_progressively_instead_of_holding_one_blend() {
-        let ini = IniFile::from_str("[WAKE1]\nFlat=yes\nTranslucent=yes\n");
         let mut reg = ArtRegistry::from_ini(&ini);
-        // End comes from the SHP header once the type is bound.
-        reg.bind_anim_frame_count_for_test("WAKE1", 10);
-        let wake = reg.anim_runtime_config("WAKE1").unwrap();
-
-        // (current frame, expected source weight) against End = 10.
-        let ladder = [
-            (0, 1.0),
-            (1, 1.0),
-            (2, 1.0),
-            (3, 0.75),
-            (4, 0.75),
-            (5, 0.5),
-            (6, 0.5),
-            (7, 0.25),
-            (10, 0.25),
-        ];
-        for (frame, expected) in ladder {
-            assert_eq!(
-                anim_frame_source_alpha(wake, frame, 10),
-                expected,
-                "frame {frame} of a Translucent=yes animation"
-            );
-        }
-    }
-
-    #[test]
-    fn translucent_yes_takes_precedence_over_a_numeric_translucency_on_the_same_section() {
-        // Stock SMKPUFF and NUKETO carry both keys; the boolean wins, so their
-        // numeric value never selects a blend and frame 0 is opaque.
-        let ini = IniFile::from_str("[SMKPUFF]\nTranslucent=yes\nTranslucency=50\n");
-        let mut reg = ArtRegistry::from_ini(&ini);
-        reg.bind_anim_frame_count_for_test("SMKPUFF", 10);
-        let smoke = reg.anim_runtime_config("SMKPUFF").unwrap();
-
-        assert_eq!(anim_frame_source_alpha(smoke, 0, 10), 1.0);
-        assert_eq!(anim_frame_source_alpha(smoke, 9, 10), 0.25);
-    }
-
-    #[test]
-    fn progressive_end_uses_the_shp_frame_count_until_the_type_is_bound() {
-        let ini = IniFile::from_str("[WAKE2]\nTranslucent=yes\n");
-        let reg = ArtRegistry::from_ini(&ini);
-        let wake = reg.anim_runtime_config("WAKE2").unwrap();
-
-        // Unbound: End is derived from the caller's SHP frame count, so the
-        // ladder still runs instead of collapsing onto End = 0.
-        assert_eq!(anim_frame_source_alpha(wake, 1, 10), 1.0);
-        assert_eq!(anim_frame_source_alpha(wake, 5, 10), 0.5);
-    }
-
-    #[test]
-    fn progressive_end_honours_explicit_end_and_the_shadow_half_split() {
-        let ini = IniFile::from_str(
-            "[SHADOWED]\n\
-             Translucent=yes\n\
-             Shadow=yes\n\
-             [CAPPED]\n\
-             Translucent=yes\n\
-             End=10\n",
+        // Unbound: the caller's SHP count, halved for Shadow=yes, unless End=
+        // is explicit.
+        assert_eq!(reg.anim_runtime_config("WAKE").unwrap().loaded_end(10), 10);
+        assert_eq!(
+            reg.anim_runtime_config("SHADOWED").unwrap().loaded_end(20),
+            10
         );
-        let reg = ArtRegistry::from_ini(&ini);
-
-        // Shadow=yes puts the shadow frames in the back half of the SHP, so the
-        // drawn animation ends at half the header count.
-        let shadowed = reg.anim_runtime_config("SHADOWED").unwrap();
-        assert_eq!(anim_frame_source_alpha(shadowed, 5, 20), 0.5);
-        assert_eq!(anim_frame_source_alpha(shadowed, 2, 20), 1.0);
-
-        // An explicit End= overrides the header count either way.
-        let capped = reg.anim_runtime_config("CAPPED").unwrap();
-        assert_eq!(anim_frame_source_alpha(capped, 5, 100), 0.5);
+        assert_eq!(
+            reg.anim_runtime_config("CAPPED").unwrap().loaded_end(100),
+            10
+        );
+        // Bound: the loaded End, whatever count the caller passes.
+        reg.bind_anim_frame_count_for_test("SHADOWED", 30);
+        assert_eq!(
+            reg.anim_runtime_config("SHADOWED").unwrap().loaded_end(20),
+            15
+        );
     }
 
     #[test]
     fn anim_runtime_metadata_parses_tiberium_declaration_cluster() {
-        let ini = IniFile::from_str(
+        let rules = installed(
             "[TIBERIUM]\n\
              TiberiumChainReaction=yes\n\
              IsTiberium=true\n\
@@ -2877,7 +2722,7 @@ mod anim_runtime_metadata_tests {
              [UNRELATED]\n\
              Rate=900\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
+        let reg = rules.art();
 
         let tiberium = reg.anim_runtime_config("TIBERIUM").unwrap();
         assert!(tiberium.tiberium_chain_reaction);
@@ -2905,9 +2750,8 @@ mod anim_runtime_metadata_tests {
         );
         let assets = AssetManager::new(&ra2_dir, MediaArchiveMode::STOCK_DIGITAL)
             .expect("load retail RA2/YR archive stack");
-        let artmd_bytes = assets.get_ref("ARTMD.INI").expect("load retail ARTMD.INI");
-        let artmd = IniFile::from_bytes(artmd_bytes).expect("parse retail ARTMD.INI");
-        let registry = ArtRegistry::from_ini(&artmd);
+        let rules = installed_retail(&assets);
+        let registry = rules.art();
 
         assert!(
             registry
@@ -2948,9 +2792,8 @@ mod anim_runtime_metadata_tests {
         );
         let assets = AssetManager::new(&ra2_dir, MediaArchiveMode::STOCK_DIGITAL)
             .expect("load retail RA2/YR archive stack");
-        let artmd_bytes = assets.get_ref("ARTMD.INI").expect("load retail ARTMD.INI");
-        let artmd = IniFile::from_bytes(artmd_bytes).expect("parse retail ARTMD.INI");
-        let registry = ArtRegistry::from_ini(&artmd);
+        let rules = installed_retail(&assets);
+        let registry = rules.art();
 
         let debris = registry
             .anim_runtime_config("DBRIS1LG")
@@ -2985,13 +2828,17 @@ mod anim_runtime_metadata_tests {
 
         // The counts this module's `alt_palette` / `use_normal_light` docs
         // claim, derived rather than asserted from memory. gamemd's INI key
-        // lookup is case-sensitive, so only the exact spellings count.
-        let alt_palette = registry
+        // lookup is case-sensitive, so only the exact spellings count. They
+        // count artmd.ini sections, so they read the raw ART parse.
+        let artmd_bytes = assets.get_ref("ARTMD.INI").expect("load retail ARTMD.INI");
+        let artmd = IniFile::from_bytes(artmd_bytes).expect("parse retail ARTMD.INI");
+        let raw = ArtRegistry::from_ini(&artmd);
+        let alt_palette = raw
             .anim_runtime_configs
             .values()
             .filter(|config| config.alt_palette)
             .count();
-        let use_normal_light = registry
+        let use_normal_light = raw
             .anim_runtime_configs
             .values()
             .filter(|config| config.use_normal_light)
@@ -3009,7 +2856,7 @@ mod anim_runtime_metadata_tests {
     /// never an integer: the stock population is `.003`-scale.
     #[test]
     fn anim_double_keys_keep_their_fraction() {
-        let ini = IniFile::from_str(
+        let rules = installed(
             "[DEBRIS]\n\
              Damage=20\n\
              Warhead=he\n\
@@ -3020,7 +2867,7 @@ mod anim_runtime_metadata_tests {
              [BURNER]\n\
              Damage=.003\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
+        let reg = rules.art();
 
         let debris = reg.anim_runtime_config("DEBRIS").unwrap();
         assert_eq!(f64::from_bits(debris.damage.bits()), 20.0);
@@ -3093,7 +2940,7 @@ mod anim_runtime_metadata_tests {
 
     #[test]
     fn anim_middle_effect_flags_and_particle_spawn_parse() {
-        let ini = IniFile::from_str(
+        let rules = installed(
             "[VIRUSD]\n\
              SpawnsParticle=  gasCloud  \n\
              NumParticles=8\n\
@@ -3108,8 +2955,7 @@ mod anim_runtime_metadata_tests {
              IsVeins=yes\n\
              IsFlamingGuy=yes\n",
         );
-        let reg = ArtRegistry::from_ini(&ini);
-        let config = reg.anim_runtime_config("VIRUSD").unwrap();
+        let config = rules.art().anim_runtime_config("VIRUSD").unwrap();
         assert_eq!(config.spawns_particle.as_deref(), Some("GASCLOUD"));
         assert_eq!(config.num_particles, 8);
         assert!(config.scorch);

@@ -70,7 +70,7 @@ const OPENED: RadarEventRequest =
 
 /// The cells the computer house's Iron Curtain shows the current house.
 fn alternate_cells(sim: &Simulation, id: u64, viewer: InternedId) -> Vec<(u16, u16)> {
-    sim.fog.alternate_sight_admissions[&(id, viewer)]
+    sim.fog.alternate_sight_admissions_for_test()[&(id, viewer)]
         .cells
         .clone()
 }
@@ -101,11 +101,16 @@ fn a_computer_houses_opening_shows_the_current_house_its_sight_until_it_dies() {
             .actually_placed()
     );
     assert_eq!(radar_events(&sim), [OPENED]);
-    let keys: Vec<_> = sim.fog.alternate_sight_admissions.keys().copied().collect();
+    let keys: Vec<_> = sim
+        .fog
+        .alternate_sight_admissions_for_test()
+        .keys()
+        .copied()
+        .collect();
     assert_eq!(keys, [(id, americans)]);
     // `Sight=4`, on flat ground with no veterancy.
     assert_eq!(
-        sim.fog.alternate_sight_admissions[&(id, americans)].radius,
+        sim.fog.alternate_sight_admissions_for_test()[&(id, americans)].radius,
         4
     );
     let cells = alternate_cells(&sim, id, americans);
@@ -115,13 +120,13 @@ fn a_computer_houses_opening_shows_the_current_house_its_sight_until_it_dies() {
     }
     assert!(!sim.fog.is_cell_revealed(americans, FAR.0, FAR.1));
 
-    // The per-frame sight refresh admits the owner's own sight on its map and
-    // leaves this one in place.
+    // The frame pass keeps the owner's own sight, which its Unlimbo opened
+    // on its map, and leaves this one in place.
     let russians = sim.interner.get("Russians").unwrap();
     let config = sim.sight_reveal_config(Some(&rules));
     sim.refresh_fog(&config, Some(&rules));
-    assert!(sim.fog.sight_admissions.contains_key(&(id, russians)));
-    assert!(!sim.fog.sight_admissions.contains_key(&(id, americans)));
+    assert!(sim.fog.sight_is_latched(id, russians));
+    assert!(!sim.fog.sight_is_latched(id, americans));
     for &(x, y) in &cells {
         assert!(sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
     }
@@ -131,24 +136,24 @@ fn a_computer_houses_opening_shows_the_current_house_its_sight_until_it_dies() {
         .unwrap()
         .sim;
     assert_eq!(
-        loaded.fog.alternate_sight_admissions,
-        sim.fog.alternate_sight_admissions
+        loaded.fog.alternate_sight_admissions_for_test(),
+        sim.fog.alternate_sight_admissions_for_test()
     );
     let hash = sim.state_hash();
-    let admitted = std::mem::take(&mut sim.fog.alternate_sight_admissions);
+    let admitted = std::mem::take(sim.fog.alternate_sight_admissions_mut_for_test());
     assert_ne!(sim.state_hash(), hash);
-    sim.fog.alternate_sight_admissions = admitted;
+    *sim.fog.alternate_sight_admissions_mut_for_test() = admitted;
     assert_eq!(sim.state_hash(), hash);
 
     // DestructionEffects step 5 takes the sight back; the cells stay explored.
     sim.building_destruction_anims(&rules, id, &mut Vec::new(), |_, _| {});
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
     for &(x, y) in &cells {
         assert!(sim.fog.is_cell_revealed(americans, x, y), "{x},{y}");
         assert!(!sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
     }
     sim.techno_limbo_with_context(id, UninitContext::new(Some(&rules), None));
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
 }
 
 #[test]
@@ -168,7 +173,7 @@ fn a_human_houses_opening_shows_no_one_else_its_sight() {
             .actually_placed()
     );
     assert!(radar_events(&sim).is_empty());
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
 }
 
 #[test]
@@ -180,7 +185,7 @@ fn captures_keep_the_sight_and_a_shroud_reset_shows_it_again() {
     let id = sim
         .spawn_object("NAIRON", "Russians", SITE.0, SITE.1, 0, &rules)
         .unwrap();
-    let admitted = sim.fog.alternate_sight_admissions.clone();
+    let admitted = sim.fog.alternate_sight_admissions_for_test().clone();
     let cells = alternate_cells(&sim, id, americans);
 
     // ChangeOwner's ReReveal(0, 0, 0, 0) keeps it; the reopening for another
@@ -192,7 +197,7 @@ fn captures_keep_the_sight_and_a_shroud_reset_shows_it_again() {
         confederation
     );
     assert_eq!(radar_events(&sim), [OPENED]);
-    assert_eq!(sim.fog.alternate_sight_admissions, admitted);
+    assert_eq!(sim.fog.alternate_sight_admissions_for_test(), &admitted);
 
     // A whole-map reveal, then a reset: the reset covers the map again except
     // where the re-admission callback shows the alternate sight.
@@ -203,19 +208,19 @@ fn captures_keep_the_sight_and_a_shroud_reset_shows_it_again() {
     for &(x, y) in &cells {
         assert!(sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
     }
-    assert_eq!(sim.fog.alternate_sight_admissions, admitted);
+    assert_eq!(sim.fog.alternate_sight_admissions_for_test(), &admitted);
 
     // The human's capture raises no radar event and keeps the sight too.
     sim.sound_events.clear();
     sim.change_owner_with_rules(id, americans, &rules, None, FrameEffects::default());
     assert!(radar_events(&sim).is_empty());
-    assert_eq!(sim.fog.alternate_sight_admissions, admitted);
+    assert_eq!(sim.fog.alternate_sight_admissions_for_test(), &admitted);
 
     // A human's building skips step 5; its Limbo takes the sight back.
     sim.building_destruction_anims(&rules, id, &mut Vec::new(), |_, _| {});
-    assert_eq!(sim.fog.alternate_sight_admissions, admitted);
+    assert_eq!(sim.fog.alternate_sight_admissions_for_test(), &admitted);
     sim.techno_limbo_with_context(id, UninitContext::new(Some(&rules), None));
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
     for &(x, y) in &cells {
         assert!(sim.fog.is_cell_revealed(americans, x, y), "{x},{y}");
         assert!(!sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
@@ -248,7 +253,7 @@ fn an_allys_building_shows_both_sights_and_takes_both_back() {
         .unwrap();
     let config = sim.sight_reveal_config(Some(&rules));
     sim.refresh_fog(&config, Some(&rules));
-    assert!(sim.fog.sight_admissions.contains_key(&(id, americans)));
+    assert!(sim.fog.sight_is_latched(id, americans));
     let cells = alternate_cells(&sim, id, americans);
 
     for &cell in &cells {
@@ -260,8 +265,13 @@ fn an_allys_building_shows_both_sights_and_takes_both_back() {
         assert_eq!(counter(&sim, americans, (x, y)), -1, "{x},{y}");
     }
     sim.building_destruction_anims(&rules, id, &mut Vec::new(), |_, _| {});
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
-    assert!(!sim.fog.sight_admissions.keys().any(|key| key.0 == id));
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
+    assert!(
+        !sim.fog
+            .sight_admissions_for_test()
+            .iter()
+            .any(|(key, source)| key.0 == id && source.latched)
+    );
     for &(x, y) in &cells {
         assert!(!sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
         assert_eq!(counter(&sim, americans, (x, y)), 0, "{x},{y}");
@@ -300,7 +310,7 @@ fn a_computer_buildings_death_takes_its_sight_off_the_current_houses_map_twice()
     let config = sim.sight_reveal_config(Some(&rules));
     sim.refresh_fog(&config, Some(&rules));
     assert!(
-        sim.fog.sight_admissions[&(gi, americans)]
+        sim.fog.sight_admissions_for_test()[&(gi, americans)]
             .cells
             .contains(&post)
     );
@@ -328,8 +338,13 @@ fn a_computer_buildings_death_takes_its_sight_off_the_current_houses_map_twice()
     );
     assert_eq!(counter(&sim, americans, post), 0);
     assert!(sim.fog.is_cell_visible(americans, post.0, post.1));
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
-    assert!(!sim.fog.sight_admissions.keys().any(|key| key.0 == id));
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
+    assert!(
+        !sim.fog
+            .sight_admissions_for_test()
+            .iter()
+            .any(|(key, source)| key.0 == id && source.latched)
+    );
 }
 
 /// A sold building leaves through Limbo alone. Its `RevealToAll=` branch
@@ -363,8 +378,13 @@ fn a_sold_allys_building_leaves_its_shared_sight_counted() {
 
     sim.techno_limbo_with_context(id, UninitContext::new(Some(&rules), None));
     sim.refresh_fog(&config, Some(&rules));
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
-    assert!(!sim.fog.sight_admissions.keys().any(|key| key.0 == id));
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
+    assert!(
+        !sim.fog
+            .sight_admissions_for_test()
+            .iter()
+            .any(|(key, source)| key.0 == id && source.latched)
+    );
     for &(x, y) in &cells {
         assert_eq!(counter(&sim, americans, (x, y)), -1, "{x},{y}");
         assert!(sim.fog.is_cell_revealed(americans, x, y), "{x},{y}");
@@ -384,8 +404,10 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
     let Some((rules, mut sim, americans)) = world() else {
         return;
     };
-    // Its Unlimbo queues Construction (`0x006F6E2A`, `0x0044D6BD..0x0044D6D0`)
-    // before its DiscoveredBy(owner), which therefore leaves it shut.
+    // Original5678E0 rejects noncurrent ordinary sight before its Cell
+    // callbacks. Thus no invented owner-plane Discover can open this AI
+    // building before Unlimbo queues Construction (6F6E2A/44D6BD..D0) and
+    // the real later owner discovery440E76 leaves it shut.
     let id = sim
         .construct_object_limbo_at_height(
             "NAIRON",
@@ -398,7 +420,7 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
-    assert_eq!(
+    let (revealed, calls) = trace_reveal_calls(|| {
         sim.reveal_constructed_object_at_height(
             id,
             SITE.0,
@@ -408,14 +430,27 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
             PlacementEvidence::EvaluateMark,
             &rules,
             FrameEffects::default(),
-        ),
-        Some(id)
+        )
+    });
+    assert_eq!(revealed, Some(id));
+    assert!(
+        calls.notifications.is_empty(),
+        "noncurrent logical sight is not a native5865F0 call"
+    );
+    let russians = sim.interner.get("Russians").unwrap();
+    assert!(
+        sim.fog.sight_is_latched(id, russians),
+        "70AF50 caches before Map admission"
+    );
+    assert!(
+        sim.fog.is_cell_revealed(russians, SITE.0, SITE.1),
+        "logical query projection is retained"
     );
     let building = sim.substrate.entities.get(id).unwrap();
     assert_eq!((building.position.rx(), building.position.ry()), SITE);
     assert!(building.building_up());
     assert!(!building.building_art.actually_placed());
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
 
     sim.reset_shroud_for_owner(americans, &rules);
     let cells = alternate_cells(&sim, id, americans);
@@ -433,7 +468,7 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
 
     sim.building_destruction_anims(&rules, id, &mut Vec::new(), |_, _| {});
     sim.techno_limbo_with_context(id, UninitContext::new(Some(&rules), None));
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
     for &(x, y) in &cells {
         assert_eq!(counter(&sim, americans, (x, y)), 0, "{x},{y}");
         assert!(sim.fog.is_cell_revealed(americans, x, y), "{x},{y}");
@@ -455,7 +490,7 @@ fn a_shroud_reset_shows_a_superweapon_a_computer_captured_from_the_human() {
         .unwrap();
     sim.change_owner_with_rules(id, russians, &rules, None, FrameEffects::default());
     assert_eq!(radar_events(&sim), [OPENED]);
-    assert!(sim.fog.alternate_sight_admissions.is_empty());
+    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
 
     sim.reset_shroud_for_owner(americans, &rules);
     let cells = alternate_cells(&sim, id, americans);

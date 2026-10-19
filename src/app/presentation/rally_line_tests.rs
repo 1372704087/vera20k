@@ -912,7 +912,11 @@ fn production_rally_workload_timing() {
                 Some(&sim),
                 rules.as_ref(),
                 Some(&palette),
+                &HouseColorMap::new(),
+                0,
                 view,
+                None,
+                &mut |_| 127,
             );
             let build_ms = begin.elapsed().as_secs_f64() * 1000.;
             assert_eq!(!actual.is_empty(), active && selected);

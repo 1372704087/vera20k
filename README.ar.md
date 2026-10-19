@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="الصورة الرئيسية لمشروع VERA20k" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="الصورة الرئيسية لمشروع VERA20K" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <strong lang="ar" dir="rtl">العربية</strong> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -12,30 +12,48 @@
 
 <div dir="rtl">
 
-# VERA20k
+# VERA20K
 
-يعيد VERA20k، وهو مشروع يقوده المجتمع، كتابة المحرك الأصلي، `gamemd.exe`. يستخدم ملفات اللعبة
+يعيد VERA20K، وهو مشروع يقوده المجتمع، كتابة المحرك الأصلي، `gamemd.exe`. يستخدم ملفات اللعبة
 الأصلية، لذا ستحتاج إلى نسختك الخاصة من Red Alert 2: Yuri's Revenge.
 
-VERA20k من صنع اللاعبين ومن أجلهم، وللاعبين الكلمة الأخيرة في تحديد مساره.
+VERA20K من صنع اللاعبين ومن أجلهم، وللاعبين الكلمة الأخيرة في تحديد مساره.
 
-<img src="docs/images/vera20k-screenshots.png" alt="شاشة إعداد المناوشات ومشهد من اللعب في VERA20k" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="شاشة إعداد المناوشات ومشهد من اللعب في VERA20K" width="100%">
 
 ## أهداف المشروع
 
 1. الحفاظ على أسلوب اللعب والمظهر والأجواء في لعبة Red Alert 2: Yuri's Revenge الأصلية.
 2. دعم معارك أكبر: حتى **30 لاعبًا** و**20,000 وحدة** على خرائط بحجم 500×500.
-3. إضافة ميزات معروفة من ألعاب الاستراتيجية في الوقت الحقيقي (RTS)، قديمة وحديثة، وأخرى لم يسبق لها مثيل.
+3. إضافة ميزات معروفة من ألعاب الاستراتيجية في الوقت الحقيقي (RTS)، وأخرى لم يسبق لها مثيل.
 4. عميل مدمج للعب متعدد اللاعبين
 
 ## الوضع الحالي
 
-**في مرحلة متوسطة من التطوير.** يمكن لعب المناوشات محليًا على Windows ضد ذكاء اصطناعي بسيط.
-خرائط اللعبة الأصلية والخرائط العشوائية والقوائم وبناء القواعد وجمع الموارد والقتال وحفظ اللعبة
-وتحميلها موجودة، لكن ما زال هناك الكثير لإصلاحه وإكماله.
+**قيد التطوير النشط.**
 
-ما زال اللعب الجماعي والحملات والذكاء الاصطناعي الأصلي غير متوفر. تحتاج الطائرات والتحكم بالعقول
-والجسور وعدة أسلحة وتأثيرات إلى مزيد من العمل. لم نعرض بعد معارك تضم 30 لاعبًا و20,000 وحدة.
+- **المناوشات:** قابلة للعب على Windows وLinux وmacOS، مع خرائط اللعبة الأصلية والخرائط العشوائية،
+  وبناء القواعد وجمع الموارد والقتال وحفظ اللعبة وتحميلها.
+- **الحملات:** يمكن بدء المهام؛ ما زال الدعم غير مكتمل.
+- **الذكاء الاصطناعي:** تتولى أجزاء من الذكاء الاصطناعي الأصلي بناء القواعد وتنفيذ هجمات مبرمجة.
+- **العمل المستمر:** تحسين دقة أسلوب اللعب والرسوم والأداء.
+- **اللعب الجماعي:** اللعب عبر الشبكة غير متاح بعد.
+- **حجم المعارك:** لم تُعرض بعد معارك تضم 30 لاعبًا و20,000 وحدة.
+
+## البنية المعمارية
+
+يتكون المحرك من ثلاثة أجزاء رئيسية:
+
+- **المحاكاة:** تتولى إدارة حالة اللعب ومنطقه.
+- **التصيير:** مسار تصيير جديد تمامًا يعتمد على معالج الرسوميات ويستخدم موارد اللعبة الأصلية،
+  بُني للحفاظ على المظهر الأصلي.
+- **التطبيق:** يتولى الإدخال والقوائم والصوت والتكامل مع المنصة، ويربط الأنظمة ببعضها.
+
+يدعم هذا الفصل حتمية اللعب.
+
+توضح الأسهم تدفق البيانات:
+
+![يرسل التطبيق الأوامر إلى المحاكاة التي تعيد حالة العالم، ويرسل بيانات الرسم إلى التصيير.](docs/images/architecture.ar.png)
 
 ## البناء والتشغيل
 
@@ -47,7 +65,7 @@ VERA20k من صنع اللاعبين ومن أجلهم، وللاعبين الك
   `xcode-select --install`؛ وعلى Debian وUbuntu الأمر `sudo apt install build-essential libasound2-dev pkg-config`.
 - **الرسوميات:** بطاقة رسوميات تدعم Vulkan أو DirectX 12 أو Metal.
 
-وقد استُخدم VERA20k للعب على Windows وLinux وmacOS.
+وقد استُخدم VERA20K للعب على Windows وLinux وmacOS.
 
 <div dir="ltr">
 
@@ -61,14 +79,16 @@ cargo run --release --bin vera20k
 
 </div>
 
-اكتب مسار `ra2_dir` بشرطات مائلة عادية (/)، مثل `C:/Games/RA2`. استخدم `--release` للعب؛ فنسخ debug بطيئة جدًا.
-يُحفظ السجل في `logs/ra2.log`.
-
 ## كيف نعمل
 
 يكتب معظم الكود وكلاء برمجة بالذكاء الاصطناعي، يستخدمون Ghidra لدراسة المحرك الأصلي،
 ثم ينقلون سلوكه إلى Rust ويتحققون منه باستخدام [أدوات المقارنة](tools/native_oracle.md) واختبارات اللعب.
 يتبع الوكلاء [AGENTS.md](AGENTS.md).
+
+## التخصيص
+
+ينبغي أن تكون الميزات الاختيارية (مثل ميزات Ares) قابلة للضبط عبر ملفات INI،
+مع مفاتيح تشغيل وإيقاف في العميل حيثما كان ذلك مناسبًا.
 
 ## المساهمة
 
@@ -76,13 +96,16 @@ cargo run --release --bin vera20k
 جنبًا إلى جنب مع الأصل وإخبارنا بما يبدو غير صحيح. افتح PR وسنتولى الأمر من هناك.
 النقاش يجري على [Discord](https://discord.gg/kmjRUn5m5F) وفي مجموعة QQ (1097193563).
 
-منطق اللعب في `src/sim/`، والرسم في `src/render/`، والقوائم والإدخال في `src/app/` و`src/ui/`؛
-ولا تحتاج إلى أدوات Python الموجودة في `tools/`.
+## الدعم
 
-لتجربة تعديلاتك داخل اللعبة، شغّل `cargo run --profile fast --bin vera20k`. هذا البناء مُحسَّن مثل `--release`،
-لكنه يعيد بناء ما غيّرته فقط، فتعود إلى اللعب أسرع. قِس الأداء باستخدام `--release`.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="ادعم VERA20K عبر PayPal" height="40"></a>
 
-تُرخَّص المساهمات بموجب GPLv3 مثل بقية المشروع؛ ولا توجد اتفاقية CLA.
+تُوزَّع جميع التبرعات المستلمة على
+المساهمين وفقًا [لسجل مساهمات TIBTRE](https://github.com/YuriPlanet/tibtre-ledger).
+
+تُرسل الدفعات إلى المساهمين عبر:
+
+<p><img src="https://img.shields.io/badge/PayPal-003087?style=flat&amp;logo=paypal&amp;logoColor=white" alt="PayPal" height="20"> <img src="https://img.shields.io/badge/China_UnionPay-E21836?style=flat" alt="China UnionPay" height="20"> <img src="https://img.shields.io/badge/Alipay-1677FF?style=flat&amp;logo=alipay&amp;logoColor=white" alt="Alipay" height="20"> <img src="https://img.shields.io/badge/Vipps-FF5B24?style=flat" alt="Vipps" height="20"> <img src="https://img.shields.io/badge/SEPA-2D4B9A?style=flat&amp;logo=sepa&amp;logoColor=white" alt="SEPA" height="20"> <img src="https://img.shields.io/badge/Bitcoin-F7931A?style=flat&amp;logo=bitcoin&amp;logoColor=white" alt="Bitcoin" height="20"></p>
 
 ## شكر ومعلومات قانونية
 
@@ -92,7 +115,7 @@ cargo run --release --bin vera20k
 
 المشروع مرخّص بموجب [GPLv3](LICENSE-GPL). لا يحتوي هذا المستودع على أي ملفات للعبة. تُعد
 Command & Conquer وRed Alert علامتين تجاريتين لشركة Electronic Arts Inc.، وتعرض لقطات الشاشة
-رسومات من اللعبة تملكها Electronic Arts. لا يتبع VERA20k شركة Electronic Arts ولا يحظى بتأييدها.
+رسومات من اللعبة تملكها Electronic Arts. لا يتبع VERA20K شركة Electronic Arts ولا يحظى بتأييدها.
 
 ترجمة لـ [README.md](README.md)؛ يُرجى تحديثها مع النسخة الإنجليزية.
 

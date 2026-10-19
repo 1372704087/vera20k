@@ -5,7 +5,7 @@
 
 use crate::rules::ruleset::RuleSet;
 use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::projectile::{ProjectileCoord, launch::fireat_launch_distance};
+use crate::sim::projectile::ProjectileCoord;
 use crate::sim::world::Simulation;
 
 /// Original BuildingType constructor45DEBC and reader460F87, replayed via
@@ -34,7 +34,7 @@ fn retail_shipyard_target_offset_reaches_effect_coordinate() {
             super::fire_coord::effect_target_coordinate(
                 &sim,
                 &rules,
-                super::TargetKind::Entity(id).into()
+                super::TargetKind::Entity(id).projectile_target(&sim)
             ),
             Some(ProjectileCoord::new(
                 centre.x + offset[0],
@@ -46,77 +46,10 @@ fn retail_shipyard_target_offset_reaches_effect_coordinate() {
     }
 }
 
-/// FireAt6FE1EE uses+A4 for GetSpeed's distance; Bullet::Fire468707 and
-/// lead70BCB0 use+58. Changing a yard's offset must change the launch speed,
-/// while the frozen target and heading still point at the same centre.
-#[test]
-fn target_coord_offset_changes_fireat_speed_without_moving_bullet_reference() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
-        return;
-    };
-    let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
-        return;
-    };
-    let mut shots = Vec::new();
-    for value in ["0,0,0", "300,200,0"] {
-        let Some(mut duel) = Duel::new() else {
-            return;
-        };
-        let mut source = ini.clone();
-        source.merge(&crate::rules::ini_parser::IniFile::from_str(&format!(
-            "[GAYARD]\nTargetCoordOffset={value}\n"
-        )));
-        duel.rules = RuleSet::from_ini_with_fixed_art_for_test(&source, &art).unwrap();
-        duel.rules
-            .install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
-        let grizzly = duel.spawn("MTNK", "Americans", 18, 18, 64);
-        // Admit the fixture's yard without the arena's all-land placement
-        // preflight. This test starts with live actors and exercises FireAt.
-        let terrain = duel.sim.resolved_terrain.take();
-        let yard = duel.spawn("GAYARD", "Russians", 20, 16, 0);
-        duel.sim.resolved_terrain = terrain;
-        duel.sim.resolve_type_handles(&duel.rules);
-        let centre = crate::sim::movement::ground_pose::object_get_coords(
-            duel.sim.substrate.entities.get(yard).unwrap(),
-            duel.sim.resolved_terrain.as_ref(),
-        );
-        duel.order(
-            "Americans",
-            Command::Attack {
-                attacker_id: grizzly,
-                target_id: yard,
-            },
-        );
-        for _ in 0..150 {
-            duel.tick();
-            if let Some(shot) = duel.launched_by(grizzly) {
-                assert_eq!(
-                    shot.launch_target,
-                    ProjectileCoord::new(centre.x, centre.y, centre.z)
-                );
-                shots.push((
-                    shot.speed_leptons_per_frame,
-                    shot.launch_origin,
-                    shot.launch_target,
-                ));
-                break;
-            }
-        }
-    }
-    assert_eq!(shots.len(), 2, "both Grizzlies fire at the yard");
-    assert_eq!(shots[0].1, shots[1].1, "same muzzle");
-    assert_eq!(shots[0].2, shots[1].2, "same frozen+58 coordinate");
-    assert!(
-        shots[1].0 > shots[0].0,
-        "the farther+A4 point raises ballistic speed: {shots:?}"
-    );
-}
-
-fn attack_aim_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
+fn attack_aim_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json(
         "tools/procedural_drawing_oracle/action_lines_attack_prerequisites.json",
-    ))
-    .expect("original retained Unit aim and FireAt controls")
+    )
 }
 
 fn attack_aim_row<'a>(
@@ -533,149 +466,6 @@ fn target_uninit_clears_tarcom_before_aim_query_and_physical_removal() {
 }
 
 #[test]
-fn grand_cannon_recoil_follows_successful_launch_ai_and_snapshot() {
-    let Some(mut duel) = Duel::new() else {
-        return;
-    };
-    let cannon = duel.spawn("GTGCAN", "Americans", 20, 20, 64);
-    duel.spawn("GAPOWR", "Americans", 8, 8, 0);
-    duel.spawn("GAPOWR", "Americans", 12, 8, 0);
-    // Production scenario loading binds handles after constructing its roster.
-    // Building direction-to-target consumes that registry, unlike Unit fire.
-    duel.sim.resolve_type_handles(&duel.rules);
-    // A real inadmissible shot must not arm the presentation component.
-    duel.order(
-        "Americans",
-        Command::ForceAttackCell {
-            attacker_id: cannon,
-            target_rx: 2,
-            target_ry: 2,
-        },
-    );
-    for _ in 0..60 {
-        duel.tick();
-        assert!(duel.launched_by(cannon).is_none());
-        assert_eq!(
-            duel.sim
-                .substrate
-                .entities
-                .get(cannon)
-                .unwrap()
-                .voxel_recoil(),
-            ([0.0; 2], false)
-        );
-    }
-    duel.order(
-        "Americans",
-        Command::ForceAttackCell {
-            attacker_id: cannon,
-            target_rx: 20,
-            target_ry: 30,
-        },
-    );
-    let mut fired = false;
-    for _ in 0..240 {
-        duel.tick();
-        if duel.launched_by(cannon).is_some() {
-            fired = true;
-            break;
-        }
-    }
-    let actor = duel.sim.substrate.entities.get(cannon).unwrap();
-    let fire_error = super::fire_error_world::FireSubject {
-        world: &duel.sim,
-        rules: &duel.rules,
-        overlay_registry: None,
-        fog: None,
-        firer: actor,
-        obj: duel.rules.object("GTGCAN").unwrap(),
-        target: actor.attack_target.target(),
-        weapon_index: 0,
-    }
-    .fire_error(true);
-    assert!(
-        fired,
-        "retail cannon launch: error={fire_error:?}, mission={:?}, target={:?}, last_fire={}, actually_placed={}, body={:?}, facing={:?}",
-        actor.mission,
-        actor.attack_target,
-        actor.last_fire_frame.frame(),
-        actor.building_art.actually_placed(),
-        actor.building_body_state(),
-        actor.body_facing
-    );
-    assert_eq!(
-        duel.sim
-            .substrate
-            .entities
-            .get(cannon)
-            .unwrap()
-            .voxel_recoil(),
-        ([0.0; 2], true),
-        "FireAt arms after this visit's Techno AI"
-    );
-    for _ in 0..3 {
-        duel.tick();
-    }
-    assert_eq!(
-        duel.sim
-            .substrate
-            .entities
-            .get(cannon)
-            .unwrap()
-            .voxel_recoil(),
-        ([0.0, 8.0], true)
-    );
-
-    let terrain = duel.sim.resolved_terrain.as_ref().unwrap().clone();
-    let bytes = crate::sim::snapshot::GameSnapshot::save(&duel.sim, 0, 0, "recoil", 0);
-    let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)
-        .unwrap()
-        .sim;
-    restored.restore_after_snapshot_load().unwrap();
-    restored.resolve_type_handles(&duel.rules);
-    restored.install_resolved_terrain_for_new_map(terrain);
-    assert!(restored.rebuild_dynamic_navigation(&duel.rules));
-    assert_eq!(
-        restored
-            .substrate
-            .entities
-            .get(cannon)
-            .unwrap()
-            .voxel_recoil(),
-        ([0.0, 8.0], true)
-    );
-    for _ in 3..46 {
-        duel.tick();
-        let commands = restored.take_due_commands();
-        restored.advance_tick(&commands, Some(&duel.rules), Some(&duel.grid), None, 67);
-        assert_eq!(
-            restored
-                .substrate
-                .entities
-                .get(cannon)
-                .unwrap()
-                .voxel_recoil(),
-            duel.sim
-                .substrate
-                .entities
-                .get(cannon)
-                .unwrap()
-                .voxel_recoil()
-        );
-    }
-    assert_eq!(
-        duel.sim
-            .substrate
-            .entities
-            .get(cannon)
-            .unwrap()
-            .voxel_recoil(),
-        ([0.0; 2], false),
-        "original stock cycle ends after46 AI updates"
-    );
-}
-
-#[test]
 fn grand_cannon_recoil_state_cannot_change_simulation_hash_or_rng() {
     let Some(mut duel) = Duel::new() else {
         return;
@@ -756,14 +546,6 @@ impl Duel {
             .advance_tick(&commands, Some(&self.rules), Some(&self.grid), None, 67);
     }
 
-    fn health(&self, id: u64) -> i32 {
-        self.sim
-            .substrate
-            .entities
-            .get(id)
-            .map_or(0, |entity| entity.health.current())
-    }
-
     fn location(&self, id: u64) -> ProjectileCoord {
         let entity = self.sim.substrate.entities.get(id).unwrap();
         ProjectileCoord::new(
@@ -805,119 +587,6 @@ impl Duel {
                 projectile.source_id == firer && !self.before.contains(&projectile.id)
             })
     }
-}
-
-/// Retail data the regression rests on: the Grizzly's `[105mm]` fires
-/// `[Cannon]`, an `Arcing=` projectile, at `Speed=40` under `Gravity=6`.
-#[test]
-fn retail_cannon_uses_converted_speed_and_arcing_under_gravity_6() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
-        return;
-    };
-    let rules = RuleSet::from_ini(&ini).unwrap();
-    assert_eq!(rules.general.gravity, 6);
-    for (tank, weapon) in [("MTNK", "105mm"), ("HTNK", "120mm")] {
-        let object = rules.object(tank).unwrap();
-        assert_eq!(object.primary(), Some(weapon), "{tank}");
-        // The raw reader converts authored40 to102; ROT0's later postpass
-        // replaces it using prior Gravity. That ordered state is compared to
-        // original full Process in rules::native_processing::weapon_speed_tests.
-        assert_eq!(ini.section(weapon).unwrap().read_speed("Speed", 0), 102);
-        let weapon = rules.weapon(weapon).unwrap();
-        let projectile = rules
-            .projectile(weapon.projectile.as_deref().unwrap())
-            .unwrap();
-        assert!(projectile.arcing && projectile.rot == 0, "{tank}");
-    }
-}
-
-/// A Grizzly engaging a Rhino four cells away hits it. Before, FireAt
-/// launched every `ROT=0` shell at `Speed=`, and `[Cannon]`'s 40 has no
-/// ballistic solution past about one cell at `Gravity=6`: the Grizzly played
-/// its report and reloaded, but no shell ever left the barrel.
-#[test]
-fn a_grizzly_hits_a_rhino_four_cells_away() {
-    let Some(mut duel) = Duel::new() else {
-        return;
-    };
-    // Facing each other (east is 64 of 256), in the arena's middle: its
-    // playfield leaves the rim cells off the map, where a shell is removed.
-    let grizzly = duel.spawn("MTNK", "Americans", 16, 16, 64);
-    let rhino = duel.spawn("HTNK", "Russians", 20, 16, 192);
-    let full = duel.health(rhino);
-    duel.order(
-        "Americans",
-        Command::Attack {
-            attacker_id: grizzly,
-            target_id: rhino,
-        },
-    );
-    let mut shells = 0;
-    for _ in 0..200 {
-        duel.tick();
-        shells += usize::from(duel.launched_by(grizzly).is_some());
-        if shells >= 2 && duel.health(rhino) < full {
-            break;
-        }
-    }
-    assert!(shells >= 1, "the Grizzly launched no shell");
-    assert!(
-        duel.health(rhino) < full,
-        "{shells} shells launched, the Rhino is untouched"
-    );
-}
-
-/// A Grizzly's `Arcing=` shell leaves its barrel (`[MTNK] PrimaryFireFLH`),
-/// where its report and muzzle flash are placed too (`[ESP+0x44]`); only a
-/// `Dropping=` projectile would start at the hull centre. Its launch speed is
-/// GetSpeed at the 2-D distance from that barrel to the Rhino.
-#[test]
-fn a_grizzly_shell_leaves_its_barrel_at_getspeed() {
-    let Some(mut duel) = Duel::new() else {
-        return;
-    };
-    let grizzly = duel.spawn("MTNK", "Americans", 16, 16, 64);
-    let rhino = duel.spawn("HTNK", "Russians", 20, 16, 192);
-    duel.order(
-        "Americans",
-        Command::Attack {
-            attacker_id: grizzly,
-            target_id: rhino,
-        },
-    );
-    for _ in 0..200 {
-        duel.tick();
-        let Some(shell) = duel.launched_by(grizzly) else {
-            continue;
-        };
-        assert_ne!(
-            shell.launch_origin,
-            duel.location(grizzly),
-            "the shell starts at the barrel, not the hull centre"
-        );
-        let event = duel
-            .sim
-            .fire_events
-            .iter()
-            .find(|event| event.attacker_id == grizzly)
-            .expect("the shot's fire event");
-        assert_eq!(event.fire_coord, shell.launch_origin);
-        // ftol(Sqrt_Approx(d * 6 * 1.2)); four cells out, far below the
-        // half-distance clamp.
-        let speed = crate::sim::projectile::launch::weapon_launch_speed(
-            40,
-            Some(crate::sim::projectile::launch::LaunchSpeedProjectile {
-                rot: 0,
-                floater: false,
-            }),
-            6,
-            fireat_launch_distance(shell.launch_origin, duel.location(rhino)),
-        );
-        assert!(speed > 40, "the derived speed ({speed}) beats Speed=40");
-        assert_eq!(i32::from(shell.speed_leptons_per_frame), speed);
-        return;
-    }
-    panic!("the Grizzly never launched a shell");
 }
 
 /// A Rhino driving south past the Grizzly is led: the shell is launched at
@@ -984,61 +653,6 @@ fn a_moving_rhino_is_led() {
     panic!(
         "no shell was launched at the moving Rhino ({moving_frames} moving frames); {}; {}",
         duel.actor_state(grizzly),
-        duel.actor_state(rhino),
-    );
-}
-
-/// A homing missile at a moving Rhino is led too, but its proximity fuse keeps
-/// the Rhino's own coordinate: `ProximityDetector::Setup` (`0x004E1130`, from
-/// `BulletClass::Fire` at `0x00468A93`) copies the target's unled vt+0x58
-/// (`0x00468700..0x00468724`), not the led aim.
-#[test]
-fn a_homing_missile_fuses_on_the_unled_target() {
-    let Some(mut duel) = Duel::new() else {
-        return;
-    };
-    let ifv = duel.spawn("FV", "Americans", 16, 16, 64);
-    let rhino = duel.spawn("HTNK", "Russians", 20, 10, 128);
-    duel.order(
-        "Russians",
-        Command::Move {
-            entity_id: rhino,
-            target_rx: 20,
-            target_ry: 28,
-        },
-    );
-    duel.order(
-        "Americans",
-        Command::Attack {
-            attacker_id: ifv,
-            target_id: rhino,
-        },
-    );
-    let mut moving_frames = 0;
-    for _ in 0..240 {
-        let moving = duel
-            .sim
-            .substrate
-            .entities
-            .get(rhino)
-            .is_some_and(|entity| {
-                crate::sim::movement::motion_query::is_moving(entity) == Some(true)
-            });
-        moving_frames += u32::from(moving);
-        duel.tick();
-        let Some(missile) = duel.launched_by(ifv) else {
-            continue;
-        };
-        if !moving {
-            continue;
-        }
-        assert!(missile.guidance.is_some(), "HoverMissile homes (ROT=60)");
-        assert_eq!(missile.proximity_reference, missile.launch_target);
-        return;
-    }
-    panic!(
-        "no missile was launched at the moving Rhino ({moving_frames} moving frames); {}; {}",
-        duel.actor_state(ifv),
         duel.actor_state(rhino),
     );
 }

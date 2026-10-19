@@ -62,6 +62,7 @@ impl Simulation {
                 .is_some_and(|object| object.dock_unload);
         if !tethered || break_tether {
             radio::transmit_to_contact(self, id, RadioMessage::Break, rules, frame_effects);
+            crate::sim::docking::bunker_link::cancel_approach(self, id);
         }
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             if break_tether {
@@ -105,9 +106,9 @@ impl Simulation {
     /// exact authority with `commence_now = 0` — the
     /// native event-execute shape (Queue `0x004C73B9=dynamic/0`). Promotion to
     /// `current` happens at the per-object AI host's Ready→Commence. Used by
-    /// the shared MegaMission command funnel (Move, Attack, ForceAttack,
-    /// ForceAttackCell, AttackMove, Guard, RepairAtDepot, EnterTransport, PlantC4,
-    /// CaptureBuilding). Stop has its own no-queue Event6 route above.
+    /// the MEGAMISSION event arm (`Simulation::apply_megamission_command`,
+    /// through [`Self::queue_megamission`]) and the transport unload's
+    /// passenger moves. Stop has its own no-queue Event6 route above.
     pub fn queue_order_mission(&mut self, id: u64, mission: MissionType) {
         let now = self.session.binary_frame;
         // A missing receiver performs no write (same as the native event path
@@ -151,9 +152,9 @@ impl Simulation {
     /// store to `+0x2B8` or `+0x5A8`. Clearing there would leave a unit parked
     /// after a Stop where retail resumes its archived move on the next Restore.
     ///
-    /// HarvestCell uses the shared pre-queue prefix and Foot clears, but its
-    /// legacy mission path still bypasses the Suspended clears here. EjectBunker
-    /// and dormant aircraft passenger Unload also bypass the prefix. These
+    /// HarvestCell also uses this funnel, retaining its unload-latch reset
+    /// after radio Break. EjectBunker and dormant aircraft passenger Unload
+    /// still bypass the prefix. These
     /// pre-existing command routes can Restore a cancelled archive; their
     /// complete DTO/mission migration is separate from ordinary Unit depot
     /// servicing.
@@ -173,6 +174,11 @@ impl Simulation {
     ) {
         let queued =
             self.begin_megamission_retask(id, mission, target, destination, rules, frame_effects);
+        // Retain the existing miner adapter after radio Break, before Queue.
+        // Both ordinary and planned Harvest use this same event prefix.
+        if mission == MissionType::Harvest {
+            crate::sim::miner::clear_unload_latch(self, id);
+        }
         self.queue_order_mission(id, queued);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.suspended_attack_target.clear();

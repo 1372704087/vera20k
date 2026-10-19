@@ -13,10 +13,13 @@
 //! contacts and tethers, the facing destination, the location, the transmit
 //! sequence, the dispatch delay (the Rate base plus one Scenario draw), and
 //! for a warp its ChronoOut/ChronoIn sounds, WarpOut animations and the
-//! warp-in byte frame by frame.
+//! warp-in byte frame by frame. A setter row that reaches Teleport Move_To
+//! also compares the resolver's Marked coordinate (`+0x28`) and the occupy
+//! bit 0x20 of every cell; the harness stubs Find_Nearby_Passable_Cell at
+//! `0x00719185`, so the replay hands its answer to the Rust search
+//! (`fresh_oracle_seam::install_nearby_only`) and compares the arguments.
 //!
-//! Not compared: the Teleport destination's occupy-bit reservation and COM
-//! reference counts (residuals on `teleport_move_to`), and the
+//! Not compared: COM reference counts, and the
 //! Enter_Idle_Mode a non-harvester's warp-in expiry runs (`0x00719BF0`; a
 //! harvester never reaches it). The legacy native producer records
 //! `enter_idle_mode(0,1)` then returns without executing Unit738970
@@ -36,6 +39,7 @@ use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::miner::{CargoBale, MinerState, ResourceType};
+use crate::sim::movement::fresh_oracle_seam::{self, FreshCallRecord};
 use crate::sim::movement::teleport_movement::{TeleportPhase, TeleportState};
 use crate::sim::radio;
 use crate::sim::world::SimSoundEvent;
@@ -44,17 +48,9 @@ use serde_json::Value;
 /// Rows whose native prestate or path VERA does not represent:
 /// - `lifted_2b0`: +0x2B0 (a lifted owner) has no Rust producer and reads
 ///   clear.
-/// - `pad_cannot_enter*`: Teleport Move_To's destination resolution
-///   (`0x00718B70`) — the Can_Enter_Cell refusal of a cell whose occupy bit
-///   is set with no Unit in its list, and the nearby-cell fallback.
 /// - `move_to_guard_deploying`: Move_To's `vt+0x37C` (the EMP lock or the
 ///   Unit death-frame counter +0x6D8), unrepresented as for the Drive.
-const UNREPRESENTED: [&str; 4] = [
-    "lifted_2b0",
-    "pad_cannot_enter",
-    "pad_cannot_enter_no_cell",
-    "move_to_guard_deploying",
-];
+const UNREPRESENTED: [&str; 2] = ["lifted_2b0", "move_to_guard_deploying"];
 
 pub(super) const CMIN: &str = "[CMIN]\nStrength=400\nSpeed=4\nROT=5\nHarvester=yes\nTeleporter=yes\n\
     Dock=GAREFN\nStorage=20\nMovementZone=Crusher\nUnloadingClass=CMON\n\
@@ -65,11 +61,8 @@ pub(super) const CMIN: &str = "[CMIN]\nStrength=400\nSpeed=4\nROT=5\nHarvester=y
     ChronoInSound=CminIn\nChronoOutSound=CminOut\n\
     Locomotor={4A582747-9839-11D1-B709-00A024DDAFD1}\n";
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/cmin_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/cmin_dock.json")
 }
 
 fn skipped(row: &Value) -> bool {
@@ -176,6 +169,11 @@ fn cmin_scene(input: &Value) -> Scene {
 /// [`cmin_scene`]'s prestate on a built scene.
 pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
     let frame = s.sim.session.binary_frame;
+    // The occupy bit 0x20 the oracle writes on its reserved cells (+0x124).
+    for reserved in input["reserved"].as_array().into_iter().flatten() {
+        let (x, y) = cell(reserved);
+        s.sim.substrate.raw_cell_occupation.mark_ground(x, y, 0x20);
+    }
     if input["pad_unit"] == true {
         // A second Unit listed first in the pad cell (Get_Unit finds it).
         let tank = s
@@ -235,7 +233,9 @@ pub(super) fn dress_cmin(s: &mut Scene, input: &Value) {
             .set_paralysis_for_test(crate::sim::timer::CdTimer::started(frame as i32, 30));
     }
     if input["warp_out"] == true {
-        entity.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(s.other);
+        entity.set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            s.other,
+        ));
     }
     if input["latch_27c"] == true {
         // Techno+0x27C, which only the Chronosphere's warp writes in VERA:
@@ -418,6 +418,152 @@ fn active(s: &Scene) -> LocomotorKind {
         .active_kind()
 }
 
+/// The occupy bit 0x20 (ground, deck) of every cell of the oracle's 32x32
+/// map, y-major as its `state` lists them.
+fn occupy_bits(s: &Scene) -> Vec<(bool, bool)> {
+    let raw = &s.sim.substrate.raw_cell_occupation;
+    (0..32u16)
+        .flat_map(|y| (0..32u16).map(move |x| (x, y)))
+        .map(|(x, y)| {
+            (
+                raw.ground_bits(x, y) & 0x20 != 0,
+                raw.deck_bits(x, y) & 0x20 != 0,
+            )
+        })
+        .collect()
+}
+
+/// Teleport Move_To's resolver (`0x00718B70`) against the oracle: Marked
+/// (`+0x28`, which a Teleport a Drive suspends keeps) and the occupy bit 0x20
+/// of every cell. A cell the oracle's raw receivers named or left reserved
+/// takes its final bit; every other cell keeps the bit it had (the miner's
+/// spawn cell holds a Rust-only one).
+fn compare_resolver(s: &Scene, row: &Value, before: &[(bool, bool)], context: &str) {
+    let state = &row["state"];
+    let locomotor = s
+        .sim
+        .substrate
+        .entities
+        .get(s.miner)
+        .unwrap()
+        .locomotor
+        .as_ref()
+        .unwrap();
+    let teleport = locomotor
+        .teleport_runtime()
+        .or_else(|| locomotor.piggyback().as_deref()?.teleport_runtime())
+        .expect("the miner's Teleport");
+    assert_eq!(
+        teleport
+            .resolved_destination()
+            .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 }),
+        coord(&state["teleport"]["resolved"]),
+        "{context}: Marked"
+    );
+    let listed = |key: &str| -> Vec<(u16, u16)> {
+        state[key].as_array().unwrap().iter().map(cell).collect()
+    };
+    let (ground, deck) = (listed("reserved"), listed("reserved_deck"));
+    let touched: Vec<(u16, u16)> = row["events"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e[0] == "reserve" || e[0] == "unreserve")
+        .map(|e| cell(&e[1]))
+        .chain(ground.iter().copied())
+        .collect();
+    for (index, bits) in occupy_bits(s).into_iter().enumerate() {
+        let at = ((index % 32) as u16, (index / 32) as u16);
+        let expected = if touched.contains(&at) {
+            (ground.contains(&at), deck.contains(&at))
+        } else {
+            before[index]
+        };
+        assert_eq!(bits, expected, "{context}: occupy bit 0x20 at {at:?}");
+    }
+}
+
+/// The Unit arm's Find_Nearby_Passable_Cell calls (`0x0071913C..0x00719185`)
+/// against the oracle's record of their arguments: the seed, SpeedType
+/// (`+0x67C`), MovementZone (`+0x5B4`), the deck byte, a 1x1 footprint, no
+/// overlay, height or obstacle gate, and bridge cells allowed. The harness
+/// answers GetZoneID (`0x00719137`) itself, so the zone passed must be the
+/// scene's answer for the cell, MovementZone and deck byte it was asked.
+fn compare_nearby(s: &Scene, events: &[Value], records: &[FreshCallRecord], context: &str) {
+    let native: Vec<&Value> = events
+        .iter()
+        .filter(|e| e[0] == "teleport_fnpc_args")
+        .collect();
+    let asked: Vec<&Value> = events
+        .iter()
+        .filter(|e| e[0] == "movement_zone_type")
+        .collect();
+    let calls: Vec<&FreshCallRecord> = records
+        .iter()
+        .filter(|r| matches!(r, FreshCallRecord::NearbyCell { .. }))
+        .collect();
+    assert_eq!(calls.len(), native.len(), "{context}: FNPC calls");
+    assert_eq!(asked.len(), native.len(), "{context}: GetZoneID calls");
+    for ((call, native), asked) in calls.into_iter().zip(native).zip(asked) {
+        let &FreshCallRecord::NearbyCell {
+            seed,
+            speed_type,
+            zone,
+            movement_zone,
+            bridge_aware_zone,
+            footprint,
+            allow_bridge_cells,
+            check_height,
+            check_occupancy,
+            target_cell,
+            reject_any_overlay,
+        } = call
+        else {
+            unreachable!()
+        };
+        let (x, y) = cell(&native[1]);
+        assert_eq!(seed, (i32::from(x), i32::from(y)), "{context}: FNPC seed");
+        let arg = |index: usize| native[2][index].as_i64().unwrap();
+        assert_eq!(
+            [
+                speed_type as i64,
+                i64::from(movement_zone as i8),
+                i64::from(bridge_aware_zone),
+                i64::from(footprint.width),
+                i64::from(footprint.height),
+                i64::from(reject_any_overlay),
+                i64::from(check_height),
+                // The obstacle gate, which VERA's search has no argument for.
+                0,
+                i64::from(allow_bridge_cells),
+            ],
+            [0, 2, 3, 4, 5, 6, 7, 8, 9].map(arg),
+            "{context}: FNPC SpeedType, MovementZone, deck, footprint and gates"
+        );
+        // Outside the oracle's record: the zero target cell and no final
+        // occupancy test (`0x00719141..0x00719151`).
+        assert_eq!((target_cell, check_occupancy), (None, false), "{context}");
+        let zone_cell = cell(&asked[1]);
+        assert_eq!(
+            (i32::from(zone_cell.0), i32::from(zone_cell.1)),
+            seed,
+            "{context}: GetZoneID cell"
+        );
+        assert_eq!(
+            [asked[2].as_i64().unwrap(), asked[3].as_i64().unwrap()],
+            [i64::from(movement_zone as i8), i64::from(bridge_aware_zone)],
+            "{context}: GetZoneID MovementZone and deck"
+        );
+        let scene_zone = s.sim.zone_grid.as_ref().unwrap().get_zone_id_native(
+            s.sim.resolved_terrain.as_ref().unwrap(),
+            zone_cell,
+            movement_zone,
+            bridge_aware_zone,
+        );
+        assert_eq!(zone, scene_zone, "{context}: GetZoneID answer passed on");
+    }
+}
+
 #[test]
 fn unit_setter_teleporter_arm_matches_the_original_assign_destination() {
     let corpus = corpus();
@@ -427,8 +573,24 @@ fn unit_setter_teleporter_arm_matches_the_original_assign_destination() {
         }
         let input = &row["input"];
         let context = input["name"].as_str().unwrap().to_string();
-        let mut s = cmin_scene(input);
+        let events = row["events"].as_array().unwrap();
+        // A supplied Find_Nearby_Passable_Cell answer goes to the Rust search
+        // itself, so the scene keeps the fixture's land rows.
+        let mut scene_input = input.clone();
+        let nearby = scene_input.as_object_mut().unwrap().remove("passable");
+        let mut s = cmin_scene(&scene_input);
         let before = active(&s);
+        let bits_before = occupy_bits(&s);
+        if let Some(answers) = &nearby {
+            fresh_oracle_seam::install_nearby_only(
+                answers
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|answer| (!answer.is_null()).then(|| cell(answer)))
+                    .collect(),
+            );
+        }
         match input.get("dest").filter(|d| !d.is_null()) {
             Some(dest) => {
                 s.sim.set_unit_destination(
@@ -451,21 +613,82 @@ fn unit_setter_teleporter_arm_matches_the_original_assign_destination() {
                 );
             }
         }
-        compare_swap(before, &s, row["events"].as_array().unwrap(), &context);
+        let (records, unused) = if nearby.is_some() {
+            fresh_oracle_seam::finish()
+        } else {
+            (Vec::new(), 0)
+        };
+        compare_swap(before, &s, events, &context);
         compare_cmin(&s, &row["state"], &context, true);
-        if input["latch_27c"] == true {
-            // The latched resolver's raw PUTs: Marked as it stood (the null
-            // coordinate's cell) and Location.
-            for reserved in row["state"]["reserved"].as_array().unwrap() {
-                let (x, y) = cell(reserved);
-                assert_ne!(
-                    s.sim.substrate.raw_cell_occupation.ground_bits(x, y) & 0x20,
-                    0,
-                    "{context}: raw PUT at ({x}, {y})"
-                );
-            }
+        if events
+            .iter()
+            .any(|e| e[0] == "move_to" && e[1] == "teleport")
+        {
+            compare_resolver(&s, row, &bits_before, &context);
         }
+        compare_nearby(&s, events, &records, &context);
+        assert_eq!(unused, 0, "{context}: every supplied FNPC answer used");
     }
+}
+
+/// A retarget while the Unit holds Marked (`+0x28`), as every Chrono Miner
+/// trip after its first does: Marked survives Stop and the Drive stash. No
+/// corpus row starts with a Marked, so this follows the instructions.
+/// ResolveDestination REMOVEs at the old Marked and, for a cell it can take,
+/// again at `0x007191B5` before PUTting the new one. When the search finds
+/// none, Marked stays (`0x00719190..0x007191A9`): the tail PUTs it and
+/// Move_To arms it (`0x00719249..0x0071927F`), so the miner warps to its
+/// previous destination.
+#[test]
+fn a_teleport_unit_retarget_releases_or_rearms_its_prior_marked() {
+    let marked = |s: &Scene| {
+        let entity = s.sim.substrate.entities.get(s.miner).unwrap();
+        let teleport = entity.locomotor.as_ref().unwrap().teleport_runtime();
+        teleport.unwrap().resolved_destination()
+    };
+    let armed = |s: &Scene| {
+        let entity = s.sim.substrate.entities.get(s.miner).unwrap();
+        let warp = entity.teleport_state();
+        warp.filter(|warp| warp.phase() == TeleportPhase::Relocate)
+            .and_then(|warp| warp.target_cell())
+    };
+    let reserved = |s: &Scene, (x, y): (u16, u16)| {
+        s.sim.substrate.raw_cell_occupation.ground_bits(x, y) & 0x20 != 0
+    };
+    let order = |s: &mut Scene, (x, y): (u16, u16)| {
+        s.sim.set_unit_destination(
+            s.miner,
+            NavTargetRef::cell(x, y),
+            &s.rules,
+            true,
+            crate::sim::world::FrameEffects::default(),
+        );
+    };
+    let (pad, other) = ((9, 10), (14, 12));
+
+    let mut s = cmin_scene(&serde_json::json!({ "name": "prior_marked" }));
+    order(&mut s, pad);
+    assert_eq!(marked(&s), Some(DriveCoord::cell(9, 10, 0)));
+    order(&mut s, other);
+    assert_eq!(marked(&s), Some(DriveCoord::cell(14, 12, 0)));
+    assert!(!reserved(&s, pad), "the old Marked is released");
+    assert!(reserved(&s, other));
+    assert_eq!(armed(&s), Some(other));
+
+    // Another unit holds the pad and the search finds no cell.
+    let mut s = cmin_scene(&serde_json::json!({ "name": "prior_marked_no_cell" }));
+    order(&mut s, other);
+    s.sim
+        .substrate
+        .raw_cell_occupation
+        .mark_ground(pad.0, pad.1, 0x20);
+    fresh_oracle_seam::install_nearby_only(vec![None]);
+    order(&mut s, pad);
+    let (_, unused) = fresh_oracle_seam::finish();
+    assert_eq!(unused, 0, "the refused pad searched");
+    assert_eq!(marked(&s), Some(DriveCoord::cell(14, 12, 0)));
+    assert!(reserved(&s, other), "the kept Marked is PUT again");
+    assert_eq!(armed(&s), Some(other), "the miner warps to its old Marked");
 }
 
 #[test]
@@ -677,8 +900,14 @@ fn mission_harvest_teleporter_arms_match_the_original_dispatch() {
             vec![s.other]
         };
         for id in offline {
-            s.sim.substrate.entities.get_mut(id).unwrap().temporal =
-                crate::sim::temporal::TemporalState::warped_by_for_test(s.miner);
+            s.sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+                    s.miner,
+                ));
         }
         let status = input["status"].as_u64().unwrap();
         fill(&mut s, status);

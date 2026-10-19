@@ -97,8 +97,17 @@ pub(crate) struct AttackerSnapshot {
     pub building_shot: Option<super::BuildingShot>,
 }
 
-/// Acquire the best currently valid target for one attacker entity.
-/// Reports the target and whether the concrete dispatch reached Foot.
+/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, the one
+/// port every scan asks: `TechnoClass::Retaliate_And_Scan @ 0x00709820`
+/// (vt+0x39C for every class, Aircraft included) and the direct `+0x3C4`
+/// calls (team script actions, Mission_Rescue, the aircraft's own
+/// Mission_Hunt and others). Neither `Greatest_Threat` nor the Foot override
+/// (`0x004D9920`) tests ammo or `Is_Armed`. A caller that wants an armed
+/// scanner asks `CanAcquireTarget @ 0x007091D0` first (the passive gate, Foot
+/// Mission_AreaGuard at `0x004D6ED9`), whose `Is_Armed` has no ammo term;
+/// Foot Mission_Hunt (`0x004D5392`) and Arrival_Target_Handler scan without
+/// it, and Aircraft Mission_Hunt (`0x00414A80`) checks its own ammo. Reports
+/// the target and whether the concrete dispatch reached Foot.
 ///
 /// `terrain` is threaded through for the 3D InRange check; when `None`
 /// (headless tests, no map loaded), the range check falls back to the
@@ -122,64 +131,6 @@ pub(crate) struct AttackerSnapshot {
 ///
 /// `zone_grid` is `MapClass`'s per-movement-zone connectivity, which mask 0 uses
 /// to refuse candidates its own movement zone cannot reach.
-pub(crate) fn acquire_best_target_for_entity(
-    entities: &EntityStore,
-    occupancy: &crate::sim::occupancy::OccupancyGrid,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    attacker_id: u64,
-    fog: Option<&FogState>,
-    terrain: Option<&ResolvedTerrainGrid>,
-    require_playfield_membership: bool,
-    mask: ScanMission,
-    zone_grid: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
-    los: super::line_of_fire::LineOfFireInputs<'_>,
-    fire_world: Option<&crate::sim::world::Simulation>,
-    scan_coord: Option<[i32; 3]>,
-) -> super::greatest_threat::ThreatScanOutcome {
-    let Some(entity) = entities.get(attacker_id) else {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    };
-    // Aircraft with 0 ammo should not acquire new targets — need to reload.
-    if let Some(ref ammo) = entity.aircraft_ammo
-        && ammo.current() == 0
-    {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    }
-    let Some(obj) = interner.object_type(entity.type_ref(), rules) else {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    };
-    // Native `TechnoClass::Greatest_Threat @ 0x006F8DF0` has no weapon
-    // early-out of its own; the armed requirement sits upstream in
-    // `TechnoClass::CanAcquireTarget @ 0x007091D0`, whose last term is
-    // `Is_Armed` (vtable `+0x2AC`). This is the same predicate, kept here
-    // because VERA's acquisition entry is also reached from the order and
-    // deployed-reacquire paths. It must NOT read `Primary=`: a `TurretCount>0`
-    // type never parses that key (`TechnoTypeClass::ReadINI @ 0x007128B2`), so
-    // `[SREF]` and `[YAGGUN]` were classified unarmed and could never acquire.
-    if !super::combat_weapon::is_armed(entity, obj) {
-        return super::greatest_threat::ThreatScanOutcome::default();
-    }
-    greatest_threat_for_entity(
-        entities,
-        occupancy,
-        rules,
-        interner,
-        attacker_id,
-        fog,
-        terrain,
-        require_playfield_membership,
-        mask,
-        zone_grid,
-        los,
-        fire_world,
-        scan_coord,
-    )
-}
-
-/// `attacker_id`'s `Greatest_Threat` through its `+0x3C4` override, without
-/// the passive block's gates: team script action 0 calls the override
-/// directly (`0x006ED15E`).
 pub(crate) fn greatest_threat_for_entity(
     entities: &EntityStore,
     occupancy: &crate::sim::occupancy::OccupancyGrid,
@@ -206,61 +157,13 @@ pub(crate) fn greatest_threat_for_entity(
         scan_mission: mask,
         ..build_attacker_snapshot(entity, TargetKind::Entity(0), None)
     };
-    acquire_best_target(
+    super::greatest_threat::greatest_threat(
         entities,
         occupancy,
         rules,
         interner,
         &snapshot,
         obj,
-        fog,
-        terrain,
-        require_playfield_membership,
-        zone_grid,
-        los,
-        fire_world,
-        scan_coord,
-    )
-}
-
-/// `TechnoClass::Greatest_Threat @ 0x006F8DF0` — pick the best hostile target
-/// for one attacker snapshot. Returns the winning candidate's stable entity id.
-///
-/// The walk, the per-cell single-candidate rule, the gate ladder and the
-/// weighted score all live in [`super::greatest_threat`]; this is the adapter
-/// the acquisition and retarget call sites already speak to.
-///
-/// This replaces VERA's own `(distance², threat_class, stable_id)` nearest-first
-/// key, which had no native counterpart: gamemd scores each candidate and keeps
-/// the maximum, walking outward one cell ring at a time and stopping early once
-/// something has been found. The consequences a player sees are that value now
-/// beats proximity — a Grizzly on Guard shoots the engineer walking past instead
-/// of the wall segment beside it, because the wall is refused outright and the
-/// engineer scores highest — and that a base defence with several attackers in
-/// reach commits to the one in the innermost band rather than the nearest by
-/// Euclidean distance.
-pub(crate) fn acquire_best_target(
-    entities: &EntityStore,
-    occupancy: &crate::sim::occupancy::OccupancyGrid,
-    rules: &RuleSet,
-    interner: &StringInterner,
-    attacker: &AttackerSnapshot,
-    attacker_obj: &ObjectType,
-    fog: Option<&FogState>,
-    terrain: Option<&ResolvedTerrainGrid>,
-    require_playfield_membership: bool,
-    zone_grid: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
-    los: super::line_of_fire::LineOfFireInputs<'_>,
-    fire_world: Option<&crate::sim::world::Simulation>,
-    scan_coord: Option<[i32; 3]>,
-) -> super::greatest_threat::ThreatScanOutcome {
-    super::greatest_threat::greatest_threat(
-        entities,
-        occupancy,
-        rules,
-        interner,
-        attacker,
-        attacker_obj,
         fog,
         terrain,
         require_playfield_membership,
@@ -424,8 +327,7 @@ pub(crate) fn should_retaliate(
         source.owner(),
     );
     if allied
-        || crate::sim::cloak_disguise::object_disguised_to(
-            source,
+        || source.is_disguised_to(
             victim.owner(),
             Some(&world.fog),
             Some(&world.house_alliances),
@@ -441,7 +343,7 @@ pub(crate) fn should_retaliate(
         world,
         rules,
         overlay_registry: None,
-        fog: Some(world.fog.fire_view()),
+        fog: Some(world.fog.fire_view(&world.house_alliances)),
         firer: victim,
         obj: victim_type,
         target: Some(TargetKind::Entity(source_id)),
@@ -596,129 +498,5 @@ pub(crate) fn build_attacker_snapshot(
         garrison,
         scan_mission: threat_range::scan_mission_for(entity),
         building_shot: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::rules::ini_parser::IniFile;
-    use crate::sim::intern::test_interner;
-
-    /// Stock key shape for the two `TurretCount>0` types that carry NO live
-    /// `Primary=`, copied from retail `ini/rulesmd.ini`:
-    ///
-    /// ```text
-    /// [SREF]    ; Primary=Comet          <- commented out by Westwood
-    ///           ; ElitePrimary=SuperComet
-    ///           TurretCount=4  WeaponCount=1  Weapon1=Comet
-    /// [YAGGUN]  (no Primary=, no Secondary= anywhere in the section)
-    ///           IsGattling=yes  TurretCount=1  WeaponCount=6  Weapon1=AGGattling ...
-    /// ```
-    ///
-    /// `TechnoTypeClass::ReadINI @ 0x007128B2` branches on `TurretCount > 0`
-    /// and jumps past the `Primary=` block, so those keys are never read for
-    /// either type and `obj.primary()`/`obj.secondary()` stay `None`.
-    fn gunner_rules() -> RuleSet {
-        RuleSet::from_ini(&IniFile::from_str(
-            "[VehicleTypes]\n0=SREF\n1=HTNK\n\
-             [BuildingTypes]\n0=YAGGUN\n\
-             [WeaponTypes]\n0=Comet\n1=AGGattling\n\
-             [SREF]\nStrength=300\nArmor=heavy\nCost=1200\n\
-             TurretCount=4\nWeaponCount=1\nWeapon1=Comet\nEliteWeapon1=Comet\n\
-             [YAGGUN]\nStrength=810\nArmor=steel\nCost=1000\n\
-             IsGattling=yes\nTurretCount=1\nWeaponCount=6\nWeapon1=AGGattling\n\
-             [HTNK]\nStrength=400\nArmor=heavy\nCost=900\nPrimary=Comet\n\
-             [Comet]\nDamage=100\nROF=110\nRange=6\nWarhead=WH\n\
-             [AGGattling]\nDamage=15\nROF=10\nRange=6\nWarhead=WH\n\
-             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        ))
-        .expect("gunner fixture")
-    }
-
-    /// GSI-08.02 regression: the Prism Tank and the Gattling Cannon must read
-    /// as armed. `TechnoClass::Is_Armed @ 0x00701120` resolves ONE slot through
-    /// `GetCurrentWeapon @ 0x0070E1A0`, which for a `TurretCount>0` type is
-    /// `GetWeapon(CurrentWeaponNumber)`.
-    ///
-    /// This also pins the storage fact the whole crate now depends on:
-    /// `Weapon1=` writes the same `TechnoTypeClass+0x898` field that `Primary=`
-    /// does (`TechnoTypeClass::ReadINI`, cursor `0x007128D6 LEA EDI,[EBP+0xA94]`
-    /// storing at `0x0071294A MOV [EDI-0x1FC],EAX`, and `0xA94-0x1FC = 0x898`),
-    /// so `obj.primary()` reads as the native field for these two types even
-    /// though neither section authors a live `Primary=` key.
-    #[test]
-    fn gsi_08_02_stock_sref_and_yaggun_are_armed_through_weapon_one() {
-        let rules = gunner_rules();
-        let sref_obj = rules.object("SREF").expect("SREF");
-        let yaggun_obj = rules.object("YAGGUN").expect("YAGGUN");
-
-        // Same storage: `Weapon1=` lands in the `Primary` field, `Weapon2=` in
-        // `Secondary`. SREF stops at `WeaponCount=1`, so its slot 1 is empty.
-        assert_eq!(sref_obj.primary(), Some("Comet"));
-        assert_eq!(sref_obj.secondary(), None);
-        assert_eq!(yaggun_obj.primary(), Some("AGGattling"));
-
-        let mut sref = GameEntity::test_default(1, "SREF", "Americans", 5, 5);
-        sref.set_category_for_test(EntityCategory::Unit);
-        let yaggun = GameEntity::test_default_of_category(
-            2,
-            "YAGGUN",
-            "YuriCountry",
-            9,
-            9,
-            EntityCategory::Structure,
-        );
-
-        assert!(super::super::combat_weapon::is_armed(&sref, sref_obj));
-        assert!(super::super::combat_weapon::is_armed(&yaggun, yaggun_obj));
-    }
-
-    /// The gate this file owns: a Prism Tank must get past
-    /// `acquire_best_target_for_entity`'s armed check and pick the enemy tank
-    /// next to it. Against the old predicate — which read the raw
-    /// `Primary=`/`Secondary=` INI keys instead of the weapon-array fields they
-    /// name — this returns `None`, and a Prism Tank on Guard never opened fire
-    /// on anything that walked past.
-    #[test]
-    fn gsi_08_02_sref_acquires_a_target_through_the_armed_gate() {
-        let rules = gunner_rules();
-        let mut entities = EntityStore::new();
-
-        let mut sref = GameEntity::test_default(1, "SREF", "Americans", 5, 5);
-        sref.set_category_for_test(EntityCategory::Unit);
-        sref.lifecycle.set_in_limbo_for_test(false);
-        sref.lifecycle.set_cell_marked(true);
-        entities.insert(sref);
-
-        let mut enemy = GameEntity::test_default(2, "HTNK", "Russians", 6, 5);
-        enemy.set_category_for_test(EntityCategory::Unit);
-        enemy.lifecycle.set_in_limbo_for_test(false);
-        enemy.lifecycle.set_cell_marked(true);
-        entities.insert(enemy);
-
-        // Snapshot the thread-local test interner only after `test_default`
-        // has interned both owners and both type names.
-        let interner = test_interner();
-
-        assert_eq!(
-            acquire_best_target_for_entity(
-                &entities,
-                &crate::sim::occupancy::OccupancyGrid::rebuild(&entities),
-                &rules,
-                &interner,
-                1,
-                None,
-                None,
-                false,
-                ScanMission::Guard,
-                None,
-                crate::sim::combat::line_of_fire::LineOfFireInputs::default(),
-                None,
-                None,
-            )
-            .target(),
-            Some(2)
-        );
     }
 }

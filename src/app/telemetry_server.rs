@@ -1,70 +1,45 @@
-//! Telemetry server: the browser dashboard's transport.
+//! Read-only, loopback dashboard transport. The app publishes bounded JSON
+//! snapshots; browsers can only receive them. No message can mutate the game.
 //!
-//! A std-only WebSocket + static-file server on one port. It exists so the
-//! visualization frontend can watch a live match from any browser without
-//! touching the deterministic simulation: the app publishes
-//! `sim::telemetry::TelemetrySnapshot` JSON at dashboard rate and this server
-//! fans it out to connected clients.
-//!
-//! ## Deliberate simplifications (a debug tool, not a product server)
-//!
-//! - **No async runtime.** One accept thread plus one writer thread per
-//!   client, all on `std::thread`; the payload is small and the cadence is
-//!   5–10 Hz. `publish` serializes once on the caller's thread and hands the
-//!   same string to every client queue.
-//! - **Slow clients drop frames, never block the game.** Each client queue
-//!   holds [`CLIENT_QUEUE_DEPTH`] snapshots; a full queue drops the new
-//!   frame. A dead client is pruned when its queue write fails.
-//! - **Inbound frames are commands, not chat.** Each client's writer thread
-//!   also reads masked text frames (bounded at [`MAX_INBOUND_FRAME`]) and
-//!   decodes them as [`DebugCommand`]s onto one bounded queue; the game
-//!   thread drains it once per frame. Anything else (ping/pong/binary,
-//!   malformed JSON, oversized frames) is ignored or closes that client.
-//! - **Stop is polled.** The listener is nonblocking and the accept loop
-//!   sleeps [`ACCEPT_POLL`], so `Drop` joins the thread within one poll.
-//! - **Loopback by default.** Nobody authenticates to this port, so binding it
-//!   to a non-loopback address needs `VERA_TELEMETRY_ALLOW_REMOTE`; see
-//!   [`check_public_bind`].
-//!
-//! ## Dependency rules
-//! - Part of the app layer; depends on `sim::telemetry` types, the
-//!   [`crate::app::telemetry`] command types, and `std` only.
+//! Admission follows RFC 6455 with a per-server OS-random credential and exact
+//! Host/Origin checks. Only fixed public dashboard assets are served over HTTP.
+//! The accept thread owns every worker/socket, caps concurrency, reaps finished
+//! workers, and shuts down and joins the remainder when the server is dropped.
+//! References: https://www.rfc-editor.org/rfc/rfc6455.html and
+//! https://docs.rs/getrandom/0.3.4/getrandom/fn.fill.html.
 
-use std::io::{Read, Write};
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::fmt::Write as _;
+use std::io::{self, Read, Write};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, RecvTimeoutError, SyncSender};
+use std::sync::mpsc::{self, SyncSender, TryRecvError, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::app::telemetry::DebugCommand;
-
-/// RFC 6455 handshake GUID, concatenated to the client's key before the
-/// SHA-1 digest.
 const WS_MAGIC: &str = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-/// Request heads larger than this are refused rather than buffered.
+const PROTOCOL: &str = "vera-telemetry.v1";
+const AUTH_PREFIX: &str = "vera-auth.";
 const MAX_HTTP_HEAD: usize = 8 * 1024;
-/// Snapshots buffered per client before frames start dropping.
+const MAX_HTTP_LINE: usize = 2048;
+const MAX_HEADERS: usize = 32;
+const MAX_WORKERS: usize = 8;
 const CLIENT_QUEUE_DEPTH: usize = 4;
-/// Accept-loop poll interval; bounds `Drop`'s join wait.
-const ACCEPT_POLL: Duration = Duration::from_millis(50);
-/// Writer-thread wake interval for the stop check.
-const WRITER_POLL: Duration = Duration::from_millis(250);
-/// Read timeout while polling the client socket for command frames; the
-/// write path stays blocking.
-const INBOUND_READ_TIMEOUT: Duration = Duration::from_millis(1);
-/// Command frames larger than this are a protocol violation (a switch click
-/// is well under 100 bytes).
-const MAX_INBOUND_FRAME: usize = 4096;
-/// Commands buffered for the game thread; a full queue drops the newest.
-const COMMAND_QUEUE_DEPTH: usize = 64;
-/// Commands handed to the app in one drain (bounds per-frame work).
-const MAX_COMMANDS_PER_DRAIN: usize = 32;
+const MAX_SNAPSHOT: usize = 8 * 1024 * 1024;
+const MAX_STATIC_FILE: usize = 8 * 1024 * 1024;
+const MAX_INBOUND_BUFFER: usize = 2048;
+const MAX_CONTROL_BATCH: usize = 8;
+const MAX_CONTROLS_PER_SECOND: usize = 128;
+const POLL: Duration = Duration::from_millis(50);
+const IO_DEADLINE: Duration = Duration::from_secs(2);
 
-/// Compute the `Sec-WebSocket-Accept` value for a client's
-/// `Sec-WebSocket-Key`: base64 of SHA-1(key + magic GUID).
+pub const ENV_ADDR: &str = "VERA_TELEMETRY_ADDR";
+pub const ENV_WEB_ROOT: &str = "VERA_TELEMETRY_WEB";
+pub const DEFAULT_WEB_ROOT: &str = "tools/telemetry-dashboard";
+pub const DEFAULT_PORT: u16 = 9741;
+
+/// RFC 6455 accept digest; SHA-1 here is protocol framing, not authentication.
 pub fn websocket_accept_key(client_key: &str) -> String {
     use sha1::{Digest, Sha1};
     let mut hasher = Sha1::new();
@@ -73,13 +48,10 @@ pub fn websocket_accept_key(client_key: &str) -> String {
     base64_encode(&hasher.finalize())
 }
 
-/// Encode one server-to-client text WebSocket frame (unmasked, as RFC 6455
-/// requires of servers). Handles all three payload-length classes.
 pub fn encode_text_frame(payload: &str) -> Vec<u8> {
-    let bytes = payload.as_bytes();
-    let mut frame = Vec::with_capacity(bytes.len() + 10);
-    frame.push(0x81); // FIN + opcode 1 (text)
-    match bytes.len() {
+    let mut frame = Vec::with_capacity(payload.len() + 10);
+    frame.push(0x81);
+    match payload.len() {
         len @ 0..=125 => frame.push(len as u8),
         len @ 126..=65535 => {
             frame.push(126);
@@ -90,28 +62,26 @@ pub fn encode_text_frame(payload: &str) -> Vec<u8> {
             frame.extend_from_slice(&(len as u64).to_be_bytes());
         }
     }
-    frame.extend_from_slice(bytes);
+    frame.extend_from_slice(payload.as_bytes());
     frame
 }
 
-/// Standard base64 (RFC 4648) — the only alphabet the handshake needs.
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let b0 = u32::from(chunk[0]);
-        let b1 = chunk.get(1).copied().map(u32::from).unwrap_or(0);
-        let b2 = chunk.get(2).copied().map(u32::from).unwrap_or(0);
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-        out.push(ALPHABET[(triple >> 18) as usize & 0x3F] as char);
-        out.push(ALPHABET[(triple >> 12) as usize & 0x3F] as char);
+        let value = (u32::from(chunk[0]) << 16)
+            | (u32::from(chunk.get(1).copied().unwrap_or(0)) << 8)
+            | u32::from(chunk.get(2).copied().unwrap_or(0));
+        out.push(ALPHABET[(value >> 18) as usize & 63] as char);
+        out.push(ALPHABET[(value >> 12) as usize & 63] as char);
         out.push(if chunk.len() > 1 {
-            ALPHABET[(triple >> 6) as usize & 0x3F] as char
+            ALPHABET[(value >> 6) as usize & 63] as char
         } else {
             '='
         });
         out.push(if chunk.len() > 2 {
-            ALPHABET[triple as usize & 0x3F] as char
+            ALPHABET[value as usize & 63] as char
         } else {
             '='
         });
@@ -119,755 +89,696 @@ fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-/// Shared server state: the client registry, the command intake and the stop
-/// flag.
+// Deliberately no Debug implementation: the secret never enters logs/snapshots.
+struct Admission {
+    authority: String,
+    localhost: String,
+    secret: [u8; 32],
+}
+
+impl Admission {
+    fn host_allowed(&self, host: &str) -> bool {
+        host == self.authority || host == self.localhost
+    }
+
+    fn bootstrap_url(&self) -> String {
+        let mut url = format!("http://{}/#token=", self.authority);
+        for byte in self.secret {
+            write!(url, "{byte:02x}").expect("write to String");
+        }
+        url
+    }
+
+    fn authenticates(&self, protocols: &str) -> bool {
+        let mut protocol = false;
+        let mut credential = None;
+        for item in protocols.split(',').map(str::trim) {
+            if item == PROTOCOL && !protocol {
+                protocol = true;
+            } else if let Some(token) = item.strip_prefix(AUTH_PREFIX)
+                && credential.is_none()
+            {
+                credential = Some(token);
+            } else {
+                return false;
+            }
+        }
+        let Some(token) = credential.filter(|token| token.len() == 64) else {
+            return false;
+        };
+        let mut decoded = [0_u8; 32];
+        for (byte, pair) in decoded.iter_mut().zip(token.as_bytes().chunks_exact(2)) {
+            let hex = |value: u8| match value {
+                b'0'..=b'9' => Some(value - b'0'),
+                b'a'..=b'f' => Some(value - b'a' + 10),
+                _ => None,
+            };
+            let (Some(high), Some(low)) = (hex(pair[0]), hex(pair[1])) else {
+                return false;
+            };
+            *byte = high * 16 + low;
+        }
+        // Compare every decoded byte, without a secret-dependent early return.
+        let difference = decoded
+            .iter()
+            .zip(self.secret)
+            .fold(0, |difference, (a, b)| difference | (a ^ b));
+        protocol && difference == 0
+    }
+}
+
+struct Client {
+    id: u64,
+    sender: SyncSender<Arc<[u8]>>,
+}
+
 struct Shared {
-    clients: Mutex<Vec<SyncSender<String>>>,
-    /// Bounded intake for browser commands; the game thread drains it.
-    command_tx: Mutex<SyncSender<DebugCommand>>,
+    clients: Mutex<Vec<Client>>,
     stop: AtomicBool,
+    admission: Admission,
+    web_root: PathBuf,
 }
 
 impl Shared {
-    fn clients(&self) -> MutexGuard<'_, Vec<SyncSender<String>>> {
-        // A panicking writer must not poison the registry for the game thread.
+    fn clients(&self) -> MutexGuard<'_, Vec<Client>> {
         self.clients
             .lock()
             .unwrap_or_else(|poison| poison.into_inner())
     }
 
-    fn command_tx(&self) -> MutexGuard<'_, SyncSender<DebugCommand>> {
-        self.command_tx
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+    fn stopped(&self) -> bool {
+        self.stop.load(Ordering::Acquire)
     }
 }
 
-/// A running telemetry server. Dropping it stops the accept thread and every
-/// client writer within one poll interval.
 pub struct TelemetryServer {
     addr: SocketAddr,
     shared: Arc<Shared>,
     accept_thread: Option<thread::JoinHandle<()>>,
-    /// The game-thread end of the command queue; only this thread drains it.
-    commands: Mutex<mpsc::Receiver<DebugCommand>>,
-    /// Directory this server hands out files from. The end-of-match report
-    /// writes under it so the dashboard can link the file it just wrote.
-    web_root: PathBuf,
 }
 
 impl TelemetryServer {
-    /// Bind `addr` and serve the dashboard files from `web_root`.
-    ///
-    /// A non-loopback `addr` is refused unless [`ENV_ALLOW_REMOTE`] is set; see
-    /// [`check_public_bind`]. Both entry points come through here, so neither
-    /// can forget the policy.
-    pub fn start(addr: SocketAddr, web_root: PathBuf) -> std::io::Result<Self> {
-        check_public_bind(addr, std::env::var_os(ENV_ALLOW_REMOTE).is_some())?;
+    pub fn start(addr: SocketAddr, web_root: PathBuf) -> io::Result<Self> {
+        if !addr.ip().is_loopback() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "dashboard requires a loopback address",
+            ));
+        }
+        let web_root = web_root.canonicalize()?;
+        if !web_root.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "dashboard root is not a directory",
+            ));
+        }
+        let mut secret = [0_u8; 32];
+        getrandom::fill(&mut secret)
+            .map_err(|_| io::Error::other("dashboard credential generation failed"))?;
         let listener = TcpListener::bind(addr)?;
-        let bound = listener.local_addr()?;
         listener.set_nonblocking(true)?;
-        let (command_tx, command_rx) = mpsc::sync_channel::<DebugCommand>(COMMAND_QUEUE_DEPTH);
+        let addr = listener.local_addr()?;
         let shared = Arc::new(Shared {
             clients: Mutex::new(Vec::new()),
-            command_tx: Mutex::new(command_tx),
             stop: AtomicBool::new(false),
+            admission: Admission {
+                authority: addr.to_string(),
+                localhost: format!("localhost:{}", addr.port()),
+                secret,
+            },
+            web_root,
         });
         let accept_shared = Arc::clone(&shared);
-        // The accept loop owns its own copy: the server keeps the root so the
-        // end-of-match report can write into the directory it serves from.
         let accept_thread = thread::Builder::new()
-            .name("telemetry-accept".to_string())
-            .spawn({
-                let serve_root = web_root.clone();
-                move || accept_loop(listener, accept_shared, serve_root)
-            })?;
+            .name("telemetry-accept".into())
+            .spawn(move || accept_loop(listener, accept_shared))?;
         Ok(Self {
-            addr: bound,
+            addr,
             shared,
             accept_thread: Some(accept_thread),
-            commands: Mutex::new(command_rx),
-            web_root,
         })
     }
 
-    /// The directory this server serves files from.
-    pub fn web_root(&self) -> &Path {
-        &self.web_root
-    }
-
-    /// The bound address (equals the requested one unless port 0 was asked).
     pub fn addr(&self) -> SocketAddr {
         self.addr
     }
 
-    /// Fan one serialized snapshot out to every client, pruning the dead.
-    /// Never blocks: a full client queue drops this frame.
+    /// Display locally once; never send this URL through the telemetry log tee.
+    pub fn bootstrap_url(&self) -> String {
+        self.shared.admission.bootstrap_url()
+    }
+
+    /// Bounded, nonblocking fanout. Full queues drop a snapshot, not the client.
     pub fn publish(&self, json: String) {
+        if json.len() > MAX_SNAPSHOT || self.shared.stopped() {
+            return;
+        }
+        let frame: Arc<[u8]> = encode_text_frame(&json).into();
         self.shared
             .clients()
-            .retain(|client| client.try_send(json.clone()).is_ok());
+            .retain(|client| match client.sender.try_send(Arc::clone(&frame)) {
+                Ok(()) | Err(TrySendError::Full(_)) => true,
+                Err(TrySendError::Disconnected(_)) => false,
+            });
     }
 
-    /// Whether a browser is listening right now. Capture leaves the log ring
-    /// untouched while nobody is, so a reader that connects later still finds
-    /// the backlog instead of an empty console.
     pub fn has_clients(&self) -> bool {
         !self.shared.clients().is_empty()
-    }
-
-    /// Take the browser commands that arrived since the last call. Called
-    /// from the game thread once per frame; never blocks.
-    pub fn drain_commands(&self) -> Vec<DebugCommand> {
-        let commands = self
-            .commands
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner());
-        let mut drained = Vec::new();
-        while drained.len() < MAX_COMMANDS_PER_DRAIN {
-            match commands.try_recv() {
-                Ok(command) => drained.push(command),
-                Err(_) => break,
-            }
-        }
-        drained
     }
 }
 
 impl Drop for TelemetryServer {
     fn drop(&mut self) {
-        self.shared.stop.store(true, Ordering::Relaxed);
+        self.shared.stop.store(true, Ordering::Release);
         if let Some(thread) = self.accept_thread.take() {
             let _ = thread.join();
         }
     }
 }
 
-fn accept_loop(listener: TcpListener, shared: Arc<Shared>, web_root: PathBuf) {
-    while !shared.stop.load(Ordering::Relaxed) {
+struct Worker {
+    socket: TcpStream,
+    thread: thread::JoinHandle<()>,
+}
+
+fn accept_loop(listener: TcpListener, shared: Arc<Shared>) {
+    let mut workers: Vec<Worker> = Vec::new();
+    let mut next_id = 0_u64;
+    while !shared.stopped() {
+        let mut index = 0;
+        while index < workers.len() {
+            if workers[index].thread.is_finished() {
+                let worker = workers.swap_remove(index);
+                let _ = worker.thread.join();
+            } else {
+                index += 1;
+            }
+        }
         match listener.accept() {
             Ok((stream, _)) => {
-                stream.set_nodelay(true).ok();
-                if let Err(error) = serve_connection(stream, &shared, &web_root) {
-                    log::debug!("telemetry connection closed: {error}");
+                if shared.stopped() || workers.len() == MAX_WORKERS {
+                    let _ = stream.shutdown(Shutdown::Both);
+                    continue;
+                }
+                let Ok(socket) = stream.try_clone() else {
+                    continue;
+                };
+                let state = Arc::clone(&shared);
+                let id = next_id;
+                next_id = next_id.wrapping_add(1);
+                let worker = thread::Builder::new()
+                    .name("telemetry-client".into())
+                    .spawn(move || {
+                        let mut stream = stream;
+                        let _ = serve_connection(&mut stream, &state, id);
+                        let _ = stream.shutdown(Shutdown::Both);
+                        state.clients().retain(|client| client.id != id);
+                    });
+                if let Ok(thread) = worker {
+                    workers.push(Worker { socket, thread });
                 }
             }
-            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-                thread::sleep(ACCEPT_POLL);
-            }
-            Err(error) => {
-                log::warn!("telemetry accept failed: {error}");
-                thread::sleep(ACCEPT_POLL);
-            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(_) => thread::sleep(POLL),
         }
     }
+    for worker in &workers {
+        let _ = worker.socket.shutdown(Shutdown::Both);
+    }
+    for worker in workers {
+        let _ = worker.thread.join();
+    }
+    shared.clients().clear();
 }
 
-/// Serve one accepted connection: either the WebSocket upgrade on `/ws` or a
-/// static file, then close.
-fn serve_connection(
-    mut stream: TcpStream,
-    shared: &Arc<Shared>,
-    web_root: &Path,
-) -> std::io::Result<()> {
-    let head = read_request_head(&mut stream)?;
-    let Some((method, target)) = request_line(&head) else {
-        return serve_status(&mut stream, 400, "bad request");
-    };
-    if method != "GET" {
-        return serve_status(&mut stream, 405, "method not allowed");
+fn check_progress(stop: &AtomicBool, deadline: Instant) -> io::Result<()> {
+    if stop.load(Ordering::Acquire) {
+        Err(io::Error::new(
+            io::ErrorKind::Interrupted,
+            "dashboard stopped",
+        ))
+    } else if Instant::now() >= deadline {
+        Err(io::Error::new(
+            io::ErrorKind::TimedOut,
+            "dashboard I/O deadline",
+        ))
+    } else {
+        Ok(())
     }
-    let path = target.split('?').next().unwrap_or(target);
-    if path == "/ws" {
-        return upgrade_websocket(&mut stream, &head, shared);
-    }
-    serve_static(&mut stream, web_root, path)
 }
 
-/// Read request bytes up to the head terminator, capped at
-/// [`MAX_HTTP_HEAD`].
-fn read_request_head(stream: &mut TcpStream) -> std::io::Result<String> {
-    let mut buf = [0u8; MAX_HTTP_HEAD];
-    let mut filled = 0usize;
+fn retryable(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted
+    )
+}
+
+fn write_until(
+    writer: &mut impl Write,
+    mut bytes: &[u8],
+    stop: &AtomicBool,
+    deadline: Instant,
+) -> io::Result<()> {
+    while !bytes.is_empty() {
+        check_progress(stop, deadline)?;
+        match writer.write(bytes) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::WriteZero,
+                    "dashboard peer stopped reading",
+                ));
+            }
+            Ok(written) => bytes = &bytes[written..],
+            Err(error) if retryable(&error) => (),
+            Err(error) => return Err(error),
+        }
+    }
+    check_progress(stop, deadline)
+}
+
+fn read_request_head(
+    reader: &mut impl Read,
+    stop: &AtomicBool,
+    deadline: Instant,
+) -> io::Result<(String, Vec<u8>)> {
+    let mut bytes = Vec::with_capacity(MAX_HTTP_HEAD);
+    let mut chunk = [0_u8; 1024];
     loop {
-        let read = stream.read(&mut buf[filled..])?;
-        if read == 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                "connection closed before the request head",
+        check_progress(stop, deadline)?;
+        let capacity = (MAX_HTTP_HEAD - bytes.len()).min(chunk.len());
+        if capacity == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "HTTP head too large",
             ));
         }
-        filled += read;
-        if let Some(end) = find_subsequence(&buf[..filled], b"\r\n\r\n") {
-            return String::from_utf8(buf[..end].to_vec())
-                .map_err(|_| std::io::Error::other("request head is not UTF-8"));
-        }
-        if filled == buf.len() {
-            return Err(std::io::Error::other("request head too large"));
+        match reader.read(&mut chunk[..capacity]) {
+            Ok(0) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "incomplete HTTP head",
+                ));
+            }
+            Ok(read) => {
+                check_progress(stop, deadline)?;
+                bytes.extend_from_slice(&chunk[..read]);
+                if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
+                    let tail = bytes.split_off(end + 4);
+                    bytes.truncate(end);
+                    let head = String::from_utf8(bytes).map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidData, "non-ASCII HTTP head")
+                    })?;
+                    return Ok((head, tail));
+                }
+            }
+            Err(error) if retryable(&error) => (),
+            Err(error) => return Err(error),
         }
     }
 }
 
-/// First line of the request head: `("GET", "/path")`.
-fn request_line(head: &str) -> Option<(&str, &str)> {
-    let line = head.lines().next()?;
-    let mut parts = line.split_whitespace();
-    let method = parts.next()?;
-    let target = parts.next()?;
-    Some((method, target))
+struct Request<'a> {
+    path: &'a str,
+    headers: Vec<(&'a str, &'a str)>,
 }
 
-/// Header value lookup, case-insensitive on the name (RFC 7230 §3.2).
-fn header_value<'a>(head: &'a str, name: &str) -> Option<&'a str> {
-    head.lines()
-        .skip(1)
-        .filter_map(|line| line.split_once(':'))
-        .find(|(key, _)| key.trim().eq_ignore_ascii_case(name))
-        .map(|(_, value)| value.trim())
+impl<'a> Request<'a> {
+    fn parse(head: &'a str) -> Option<Self> {
+        let mut lines = head.split("\r\n");
+        let first = lines.next()?;
+        if first.len() > MAX_HTTP_LINE {
+            return None;
+        }
+        let mut words = first.split(' ');
+        if words.next()? != "GET" {
+            return None;
+        }
+        let path = words.next()?;
+        if words.next()? != "HTTP/1.1"
+            || words.next().is_some()
+            || !path.starts_with('/')
+            || !path.bytes().all(|byte| (33..=126).contains(&byte))
+        {
+            return None;
+        }
+        let mut headers: Vec<(&str, &str)> = Vec::new();
+        for line in lines {
+            if headers.len() == MAX_HEADERS || line.len() > MAX_HTTP_LINE {
+                return None;
+            }
+            let (name, value) = line.split_once(':')?;
+            if name.is_empty()
+                || !name.bytes().all(http_token)
+                || !value
+                    .bytes()
+                    .all(|byte| byte == b'\t' || (32..=126).contains(&byte))
+                || headers
+                    .iter()
+                    .any(|(prior, _)| prior.eq_ignore_ascii_case(name))
+            {
+                return None;
+            }
+            headers.push((name, value.trim_matches([' ', '\t'])));
+        }
+        let request = Self { path, headers };
+        if request.header("Transfer-Encoding").is_some()
+            || request
+                .header("Content-Length")
+                .is_some_and(|value| value != "0")
+        {
+            return None;
+        }
+        Some(request)
+    }
+
+    fn header(&self, key: &str) -> Option<&'a str> {
+        self.headers
+            .iter()
+            .find(|(name, _)| name.eq_ignore_ascii_case(key))
+            .map(|(_, value)| *value)
+    }
+
+    fn admitted_host(&self, admission: &Admission) -> bool {
+        self.header("Host").is_some_and(|host| {
+            admission.host_allowed(host)
+                && self
+                    .header("Origin")
+                    .is_none_or(|origin| origin == format!("http://{host}"))
+        })
+    }
+
+    fn websocket_key(&self, admission: &Admission) -> Option<&'a str> {
+        if !self.admitted_host(admission)
+            || self.header("Origin").is_none()
+            || self.header("Sec-WebSocket-Version")? != "13"
+            || !self.header("Upgrade")?.eq_ignore_ascii_case("websocket")
+            || !self
+                .header("Connection")?
+                .split(',')
+                .any(|token| token.trim().eq_ignore_ascii_case("upgrade"))
+            || !admission.authenticates(self.header("Sec-WebSocket-Protocol")?)
+        {
+            return None;
+        }
+        let key = self.header("Sec-WebSocket-Key")?;
+        if key.len() != 24 {
+            return None;
+        }
+        let decoded = crate::util::base64::base64_decode(key).ok()?;
+        (decoded.len() == 16 && base64_encode(&decoded) == key).then_some(key)
+    }
 }
 
-/// Complete the RFC 6455 upgrade and register a client writer.
-fn upgrade_websocket(
-    stream: &mut TcpStream,
-    head: &str,
-    shared: &Arc<Shared>,
-) -> std::io::Result<()> {
-    let Some(key) = header_value(head, "Sec-WebSocket-Key") else {
-        return serve_status(stream, 400, "missing Sec-WebSocket-Key");
+fn http_token(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+}
+
+fn serve_connection(stream: &mut TcpStream, shared: &Shared, id: u64) -> io::Result<()> {
+    stream.set_nodelay(true)?;
+    stream.set_read_timeout(Some(POLL))?;
+    stream.set_write_timeout(Some(POLL))?;
+    let (head, tail) = match read_request_head(stream, &shared.stop, Instant::now() + IO_DEADLINE) {
+        Ok(request) => request,
+        Err(_) => return serve_status(stream, shared, 400, "bad request"),
+    };
+    let Some(request) = Request::parse(&head) else {
+        return serve_status(stream, shared, 400, "bad request");
+    };
+    if !request.admitted_host(&shared.admission) {
+        return serve_status(stream, shared, 403, "forbidden");
+    }
+    if request.path != "/ws" {
+        return serve_static(stream, shared, request.path);
+    }
+    let Some(key) = request.websocket_key(&shared.admission) else {
+        return serve_status(stream, shared, 403, "forbidden");
     };
     let response = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\n\r\n",
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {}\r\nSec-WebSocket-Protocol: {PROTOCOL}\r\n\r\n",
         websocket_accept_key(key)
     );
-    stream.write_all(response.as_bytes())?;
-    let (tx, rx) = mpsc::sync_channel::<String>(CLIENT_QUEUE_DEPTH);
-    shared.clients().push(tx);
-    let writer_shared = Arc::clone(shared);
-    let writer_stream = stream.try_clone()?;
-    thread::Builder::new()
-        .name("telemetry-writer".to_string())
-        .spawn(move || writer_loop(writer_stream, rx, writer_shared))?;
+    let (sender, receiver) = mpsc::sync_channel(CLIENT_QUEUE_DEPTH);
+    shared.clients().push(Client { id, sender });
+    write_until(
+        stream,
+        response.as_bytes(),
+        &shared.stop,
+        Instant::now() + IO_DEADLINE,
+    )?;
+    writer_loop(stream, receiver, shared, tail)
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum ControlFrame {
+    Ping(Vec<u8>),
+    Pong,
+    Close(Vec<u8>),
+}
+
+/// The only accepted inbound payload is RFC control traffic. Reject data at
+/// its header, before buffering its declared length or interpreting its bytes.
+fn parse_client_frame(bytes: &[u8]) -> Result<Option<(ControlFrame, usize)>, u16> {
+    if bytes.len() < 2 {
+        return Ok(None);
+    }
+    if bytes[0] & 0x70 != 0 || bytes[1] & 0x80 == 0 {
+        return Err(1002);
+    }
+    let opcode = bytes[0] & 15;
+    if matches!(opcode, 1 | 2) {
+        return Err(1008);
+    }
+    if bytes[0] & 0x80 == 0 || !matches!(opcode, 8..=10) {
+        return Err(1002);
+    }
+    let len = usize::from(bytes[1] & 127);
+    if len > 125 {
+        return Err(1002);
+    }
+    let end = 6 + len;
+    if bytes.len() < end {
+        return Ok(None);
+    }
+    let payload: Vec<u8> = bytes[6..end]
+        .iter()
+        .enumerate()
+        .map(|(i, byte)| byte ^ bytes[2 + i % 4])
+        .collect();
+    let frame = match opcode {
+        9 => ControlFrame::Ping(payload),
+        10 => ControlFrame::Pong,
+        _ => {
+            if payload.len() == 1 {
+                return Err(1002);
+            }
+            if payload.len() >= 2 {
+                let code = u16::from_be_bytes([payload[0], payload[1]]);
+                if !((1000..=1014).contains(&code) && !matches!(code, 1004..=1006)
+                    || (3000..=4999).contains(&code))
+                {
+                    return Err(1002);
+                }
+                if std::str::from_utf8(&payload[2..]).is_err() {
+                    return Err(1007);
+                }
+            }
+            ControlFrame::Close(payload)
+        }
+    };
+    Ok(Some((frame, end)))
+}
+
+fn write_control(
+    stream: &mut TcpStream,
+    shared: &Shared,
+    opcode: u8,
+    payload: &[u8],
+) -> io::Result<()> {
+    let mut bytes = Vec::with_capacity(payload.len() + 2);
+    bytes.extend_from_slice(&[0x80 | opcode, payload.len() as u8]);
+    bytes.extend_from_slice(payload);
+    write_until(stream, &bytes, &shared.stop, Instant::now() + IO_DEADLINE)
+}
+
+fn writer_loop(
+    stream: &mut TcpStream,
+    receiver: mpsc::Receiver<Arc<[u8]>>,
+    shared: &Shared,
+    mut inbound: Vec<u8>,
+) -> io::Result<()> {
+    let mut chunk = [0_u8; 1024];
+    let mut window = Instant::now();
+    let mut controls = 0;
+    while !shared.stopped() {
+        let mut processed = 0;
+        while processed < MAX_CONTROL_BATCH && !shared.stopped() {
+            let parsed = match parse_client_frame(&inbound) {
+                Ok(parsed) => parsed,
+                Err(code) => return write_control(stream, shared, 8, &code.to_be_bytes()),
+            };
+            let Some((frame, consumed)) = parsed else {
+                break;
+            };
+            inbound.drain(..consumed);
+            processed += 1;
+            if window.elapsed() >= Duration::from_secs(1) {
+                window = Instant::now();
+                controls = 0;
+            }
+            controls += 1;
+            if controls > MAX_CONTROLS_PER_SECOND {
+                return write_control(stream, shared, 8, &1008_u16.to_be_bytes());
+            }
+            match frame {
+                ControlFrame::Ping(payload) => write_control(stream, shared, 10, &payload)?,
+                ControlFrame::Pong => (),
+                ControlFrame::Close(payload) => return write_control(stream, shared, 8, &payload),
+            }
+        }
+        match receiver.try_recv() {
+            Ok(frame) => write_until(stream, &frame, &shared.stop, Instant::now() + IO_DEADLINE)?,
+            Err(TryRecvError::Disconnected) => return Ok(()),
+            Err(TryRecvError::Empty) => (),
+        }
+        if processed == MAX_CONTROL_BATCH {
+            continue;
+        }
+        match stream.read(&mut chunk) {
+            Ok(0) => return Ok(()),
+            Ok(count) => {
+                if inbound.len() + count > MAX_INBOUND_BUFFER {
+                    return write_control(stream, shared, 8, &1009_u16.to_be_bytes());
+                }
+                inbound.extend_from_slice(&chunk[..count]);
+            }
+            Err(error) if retryable(&error) => (),
+            Err(error) => return Err(error),
+        }
+    }
     Ok(())
 }
 
-fn writer_loop(mut stream: TcpStream, rx: mpsc::Receiver<String>, shared: Arc<Shared>) {
-    // Command frames are read on this same socket. A short read timeout keeps
-    // the write path blocking while the poll stays cheap.
-    stream.set_read_timeout(Some(INBOUND_READ_TIMEOUT)).ok();
-    let mut inbound = InboundBuffer::default();
-    loop {
-        match inbound.poll(&mut stream) {
-            Ok(payloads) => {
-                for payload in payloads {
-                    match serde_json::from_slice::<DebugCommand>(&payload) {
-                        Ok(command) => {
-                            if shared.command_tx().try_send(command).is_err() {
-                                log::debug!("telemetry command queue full; one command dropped");
-                            }
-                        }
-                        Err(error) => log::debug!("telemetry command ignored: {error}"),
-                    }
-                }
-            }
-            // Peer closed or violated the protocol: the registry prunes the
-            // sender on the next publish.
-            Err(_) => break,
+fn public_asset(path: &str) -> Option<(&'static str, &'static str)> {
+    // An exact allowlist also rejects encoded traversal, Windows prefixes,
+    // alternate separators, queries, source files and generated reports.
+    match path {
+        "/" | "/index.html" => Some(("index.html", "text/html; charset=utf-8")),
+        "/dashboard.css" => Some(("dashboard.css", "text/css; charset=utf-8")),
+        "/dashboard.js" => Some(("dashboard.js", "text/javascript; charset=utf-8")),
+        "/starfield.js" => Some(("starfield.js", "text/javascript; charset=utf-8")),
+        "/i18n.js" => Some(("i18n.js", "text/javascript; charset=utf-8")),
+        "/map3d.js" => Some(("map3d.js", "text/javascript; charset=utf-8")),
+        "/types.js" => Some(("types.js", "text/javascript; charset=utf-8")),
+        "/vendor/three.core.js" => Some(("vendor/three.core.js", "text/javascript; charset=utf-8")),
+        "/vendor/three.module.js" => {
+            Some(("vendor/three.module.js", "text/javascript; charset=utf-8"))
         }
-        match rx.recv_timeout(WRITER_POLL) {
-            Ok(json) => {
-                let frame = encode_text_frame(&json);
-                if stream.write_all(&frame).is_err() {
-                    break; // peer went away; the registry prunes the sender
-                }
-            }
-            Err(RecvTimeoutError::Timeout) => {
-                if shared.stop.load(Ordering::Relaxed) {
-                    break;
-                }
-            }
-            Err(RecvTimeoutError::Disconnected) => break,
-        }
+        _ => None,
     }
 }
 
-/// Bytes read from one browser since the last complete frame.
-#[derive(Default)]
-struct InboundBuffer {
-    bytes: Vec<u8>,
+fn asset_bytes(root: &Path, relative: &str) -> io::Result<Vec<u8>> {
+    let path = root.join(relative).canonicalize()?;
+    if !path.starts_with(root) {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            "asset outside dashboard",
+        ));
+    }
+    let metadata = std::fs::metadata(&path)?;
+    if !metadata.is_file() || metadata.len() > MAX_STATIC_FILE as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid dashboard asset",
+        ));
+    }
+    let file = std::fs::File::open(path)?;
+    let opened = file.metadata()?;
+    if !opened.is_file() || opened.len() > MAX_STATIC_FILE as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid dashboard asset",
+        ));
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_STATIC_FILE as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_STATIC_FILE {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "dashboard asset too large",
+        ));
+    }
+    Ok(bytes)
 }
 
-impl InboundBuffer {
-    /// Read whatever is pending and return every complete text payload.
-    /// `Err` means the client closed or broke the protocol.
-    fn poll(&mut self, stream: &mut TcpStream) -> std::io::Result<Vec<Vec<u8>>> {
-        let mut payloads = Vec::new();
-        let mut scratch = [0u8; 1024];
-        loop {
-            loop {
-                match parse_client_frame(&self.bytes) {
-                    Ok(Some((payload, consumed))) => {
-                        self.bytes.drain(..consumed);
-                        if let Some(payload) = payload {
-                            payloads.push(payload);
-                        }
-                    }
-                    Ok(None) => break,
-                    Err(reason) => return Err(std::io::Error::other(reason)),
-                }
-            }
-            match stream.read(&mut scratch) {
-                Ok(0) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::UnexpectedEof,
-                        "client closed the socket",
-                    ));
-                }
-                Ok(read) => {
-                    self.bytes.extend_from_slice(&scratch[..read]);
-                    if self.bytes.len() > MAX_INBOUND_FRAME * 2 {
-                        return Err(std::io::Error::other("inbound buffer overflow"));
-                    }
-                }
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                    ) =>
-                {
-                    return Ok(payloads);
-                }
-                Err(error) => return Err(error),
-            }
-        }
-    }
-}
-
-/// Parse one client-to-server frame from the front of `buf`.
-///
-/// `Ok(None)` means "need more bytes"; `Ok(Some((payload, consumed)))` is one
-/// complete frame, where `payload` is `None` for control/binary frames we do
-/// not consume. `Err` is a protocol violation (unmasked or fragmented client
-/// frame, oversized payload, close frame).
-fn parse_client_frame(buf: &[u8]) -> Result<Option<(Option<Vec<u8>>, usize)>, &'static str> {
-    if buf.len() < 2 {
-        return Ok(None);
-    }
-    let first = buf[0];
-    if first & 0x80 == 0 {
-        return Err("fragmented client frames are not supported");
-    }
-    let opcode = first & 0x0F;
-    let second = buf[1];
-    if second & 0x80 == 0 {
-        return Err("client frames must be masked");
-    }
-    let mut len = u64::from(second & 0x7F);
-    let mut header = 2usize;
-    if len == 126 {
-        if buf.len() < 4 {
-            return Ok(None);
-        }
-        len = u64::from(u16::from_be_bytes([buf[2], buf[3]]));
-        header = 4;
-    } else if len == 127 {
-        if buf.len() < 10 {
-            return Ok(None);
-        }
-        let mut bytes = [0u8; 8];
-        bytes.copy_from_slice(&buf[2..10]);
-        len = u64::from_be_bytes(bytes);
-        header = 10;
-    }
-    if len > MAX_INBOUND_FRAME as u64 {
-        return Err("command frame too large");
-    }
-    let total = header + 4 + len as usize;
-    if buf.len() < total {
-        return Ok(None);
-    }
-    let mask = [
-        buf[header],
-        buf[header + 1],
-        buf[header + 2],
-        buf[header + 3],
-    ];
-    let mut payload = buf[header + 4..total].to_vec();
-    for (index, byte) in payload.iter_mut().enumerate() {
-        *byte ^= mask[index % 4];
-    }
-    match opcode {
-        0x1 => Ok(Some((Some(payload), total))),
-        0x8 => Err("client sent a close frame"),
-        0x0 | 0x2 | 0x9 | 0xA => Ok(Some((None, total))),
-        _ => Err("unsupported opcode"),
-    }
-}
-
-/// Serve a dashboard file from the web root. Paths are confined to the root:
-/// no `..` components, no absolute escapes, and a directory or the root
-/// itself answers with `index.html`.
-fn serve_static(stream: &mut TcpStream, web_root: &Path, path: &str) -> std::io::Result<()> {
-    let relative = path.trim_start_matches('/');
-    let relative = if relative.is_empty() {
-        "index.html"
-    } else {
-        relative
+fn serve_static(stream: &mut TcpStream, shared: &Shared, path: &str) -> io::Result<()> {
+    let Some((relative, content_type)) = public_asset(path) else {
+        return serve_status(stream, shared, 404, "not found");
     };
-    if relative.split(['/', '\\']).any(|part| part == "..") {
-        return serve_status(stream, 404, "not found");
-    }
-    let file_path = web_root.join(relative);
-    let body = match std::fs::read(&file_path) {
-        Ok(body) => body,
-        Err(_) => return serve_status(stream, 404, "not found"),
+    let Ok(bytes) = asset_bytes(&shared.web_root, relative) else {
+        return serve_status(stream, shared, 404, "not found");
     };
-    let content_type = content_type_for(&file_path);
-    // A dev tool serves its freshest files: no cache headers at all would let
-    // browsers heuristic-cache the dashboard across rebuilds.
-    let header = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
-        body.len()
+    serve_response(stream, shared, 200, "OK", content_type, &bytes)
+}
+
+fn serve_status(
+    stream: &mut TcpStream,
+    shared: &Shared,
+    status: u16,
+    reason: &str,
+) -> io::Result<()> {
+    serve_response(
+        stream,
+        shared,
+        status,
+        reason,
+        "text/plain; charset=utf-8",
+        reason.as_bytes(),
+    )
+}
+
+fn serve_response(
+    stream: &mut TcpStream,
+    shared: &Shared,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> io::Result<()> {
+    let authority = &shared.admission.authority;
+    let localhost = &shared.admission.localhost;
+    let head = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nX-Frame-Options: DENY\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws://{authority} ws://{localhost}; frame-ancestors 'none'; object-src 'none'; base-uri 'none'\r\nConnection: close\r\n\r\n",
+        bytes.len()
     );
-    stream.write_all(header.as_bytes())?;
-    stream.write_all(&body)
+    let deadline = Instant::now() + IO_DEADLINE;
+    write_until(stream, head.as_bytes(), &shared.stop, deadline)?;
+    write_until(stream, bytes, &shared.stop, deadline)
 }
 
-fn serve_status(stream: &mut TcpStream, code: u16, reason: &str) -> std::io::Result<()> {
-    let body = reason.as_bytes();
-    let header = format!(
-        "HTTP/1.1 {code} {reason}\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    stream.write_all(header.as_bytes())?;
-    stream.write_all(body)
-}
-
-fn content_type_for(path: &Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()) {
-        Some("html") => "text/html; charset=utf-8",
-        Some("js" | "mjs") => "text/javascript",
-        Some("css") => "text/css",
-        Some("json") => "application/json",
-        Some("map") => "application/json",
-        _ => "application/octet-stream",
-    }
-}
-
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|window| window == needle)
-}
-
-/// The environment variable naming the bind address (e.g.
-/// `127.0.0.1:9741`). Unset means no server.
-pub const ENV_ADDR: &str = "VERA_TELEMETRY_ADDR";
-/// The environment variable naming the dashboard directory. Defaults to
-/// `tools/telemetry-dashboard` (run from the repo root).
-pub const ENV_WEB_ROOT: &str = "VERA_TELEMETRY_WEB";
-/// Setting this (to any value) allows a bind that is not loopback.
-pub const ENV_ALLOW_REMOTE: &str = "VERA_TELEMETRY_ALLOW_REMOTE";
-/// Default dashboard directory, relative to the working directory.
-pub const DEFAULT_WEB_ROOT: &str = "tools/telemetry-dashboard";
-
-/// Refuse a non-loopback bind unless the operator opted in.
-///
-/// The server authenticates nobody and hands out every file under its web
-/// root, and the end-of-match report writes into `<web root>/reports/` — so a
-/// LAN bind publishes the dashboard, the live snapshot stream and every stored
-/// report to that whole network. Watching from another machine is a real
-/// workflow, so it stays available behind this flag rather than being cut off.
-///
-/// Pure so both entry points and the test reach it without touching the
-/// environment or opening a socket.
-fn check_public_bind(addr: SocketAddr, allow_remote: bool) -> std::io::Result<()> {
-    if addr.ip().is_loopback() || allow_remote {
-        return Ok(());
-    }
-    Err(std::io::Error::new(
-        std::io::ErrorKind::PermissionDenied,
-        format!(
-            "{addr} is not a loopback address. The dashboard authenticates nobody and serves \
-             every file under its web root, including the reports written to \
-             <web root>/reports/. Set {ENV_ALLOW_REMOTE}=1 to bind it anyway."
-        ),
-    ))
-}
-
-/// Resolve a `VERA_TELEMETRY_ADDR` value: either a full `ip:port` or a bare IP,
-/// in which case [`DEFAULT_PORT`] is used.
 fn resolve_bind(raw: &str) -> Result<SocketAddr, String> {
-    if let Ok(addr) = raw.parse::<SocketAddr>() {
-        return Ok(addr);
-    }
-    raw.parse::<IpAddr>()
-        .map(|ip| SocketAddr::new(ip, DEFAULT_PORT))
-        .map_err(|error| {
-            format!("{ENV_ADDR}={raw} is neither an ip:port pair nor a bare ip: {error}")
+    raw.parse::<SocketAddr>()
+        .or_else(|_| {
+            raw.parse::<IpAddr>()
+                .map(|ip| SocketAddr::new(ip, DEFAULT_PORT))
         })
+        .map_err(|_| format!("{ENV_ADDR} must be a numeric IP address or IP:port"))
 }
 
-/// Start a server from the environment, if `VERA_TELEMETRY_ADDR` is set.
-///
-/// A value that is set but unusable is reported as an error rather than
-/// returning `None`: the operator asked for a dashboard, and silently starting
-/// no server leaves them with nothing to debug.
 pub fn start_from_env() -> Option<Result<TelemetryServer, String>> {
     let raw = std::env::var(ENV_ADDR).ok()?;
     let addr = match resolve_bind(&raw) {
         Ok(addr) => addr,
         Err(error) => return Some(Err(error)),
     };
-    let web_root = std::env::var_os(ENV_WEB_ROOT)
+    let root = std::env::var_os(ENV_WEB_ROOT)
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from(DEFAULT_WEB_ROOT));
-    Some(
-        TelemetryServer::start(addr, web_root)
-            .map_err(|error| format!("telemetry server on {addr}: {error}")),
-    )
+    Some(TelemetryServer::start(addr, root).map_err(|error| format!("telemetry server: {error}")))
 }
-
-/// Port used when `VERA_TELEMETRY_ADDR` names a bare IP.
-pub const DEFAULT_PORT: u16 = 9741;
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accept_key_matches_the_rfc6455_vector() {
-        // RFC 6455 §1.3 worked example.
-        assert_eq!(
-            websocket_accept_key("dGhlIHNhbXBsZSBub25jZQ=="),
-            "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
-        );
-    }
-
-    #[test]
-    fn public_bind_needs_the_opt_in() {
-        let loopback: SocketAddr = "127.0.0.1:9741".parse().unwrap();
-        let any: SocketAddr = "0.0.0.0:9741".parse().unwrap();
-        let lan: SocketAddr = "192.168.1.20:9741".parse().unwrap();
-        assert!(check_public_bind(loopback, false).is_ok());
-        assert!(check_public_bind("[::1]:9741".parse().unwrap(), false).is_ok());
-        let refused = check_public_bind(any, false).unwrap_err();
-        assert_eq!(refused.kind(), std::io::ErrorKind::PermissionDenied);
-        // The refusal has to name the way through, not just say no.
-        assert!(refused.to_string().contains(ENV_ALLOW_REMOTE));
-        assert!(check_public_bind(any, true).is_ok());
-        assert!(check_public_bind(lan, true).is_ok());
-    }
-
-    #[test]
-    fn bind_address_accepts_a_bare_ip_and_reports_a_bad_one() {
-        assert_eq!(resolve_bind("127.0.0.1").unwrap().port(), DEFAULT_PORT);
-        assert_eq!(
-            resolve_bind("10.0.0.5:1234").unwrap(),
-            "10.0.0.5:1234".parse::<SocketAddr>().unwrap()
-        );
-        // Set-but-unusable must surface as an error: the caller starts no
-        // server either way, and a silent one is undebuggable.
-        assert!(resolve_bind("localhost").is_err());
-        assert!(resolve_bind("").is_err());
-        assert!(resolve_bind("127.0.0.1:99999").is_err());
-    }
-
-    #[test]
-    fn text_frame_encodes_all_length_classes() {
-        let short = encode_text_frame("hi");
-        assert_eq!(short, vec![0x81, 0x02, b'h', b'i']);
-
-        let medium_payload = "x".repeat(200);
-        let medium = encode_text_frame(&medium_payload);
-        assert_eq!(medium[0], 0x81);
-        assert_eq!(medium[1], 126);
-        assert_eq!(&medium[2..4], &200u16.to_be_bytes());
-        assert_eq!(medium.len(), 4 + 200);
-
-        let long_payload = "y".repeat(70_000);
-        let long = encode_text_frame(&long_payload);
-        assert_eq!(long[1], 127);
-        assert_eq!(&long[2..10], &70_000u64.to_be_bytes());
-        assert_eq!(long.len(), 10 + 70_000);
-    }
-
-    /// A raw test client: performs the upgrade, then reads one text frame's
-    /// payload.
-    struct TestClient {
-        stream: TcpStream,
-    }
-
-    impl TestClient {
-        fn connect(addr: SocketAddr, path: &str) -> std::io::Result<Self> {
-            let mut stream = TcpStream::connect(addr)?;
-            write!(
-                stream,
-                "GET {path} HTTP/1.1\r\nHost: localhost\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n"
-            )?;
-            let mut byte = [0u8; 1];
-            // The 101 response is short; read until the accept header ends.
-            let mut head = String::new();
-            loop {
-                let read = stream.read(&mut byte)?;
-                if read == 0 {
-                    break;
-                }
-                head.push(byte[0] as char);
-                if head.ends_with("\r\n\r\n") {
-                    break;
-                }
-            }
-            assert!(head.starts_with("HTTP/1.1 101"), "upgrade failed: {head:?}");
-            assert!(head.contains("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="));
-            Ok(Self { stream })
-        }
-
-        /// Send one masked text frame, as a browser must.
-        fn send_text(&mut self, payload: &str) {
-            let mask = [0x12u8, 0x34, 0x56, 0x78];
-            let bytes = payload.as_bytes();
-            assert!(bytes.len() <= 125, "test payload stays in the short class");
-            let mut frame = vec![0x81u8, 0x80 | bytes.len() as u8];
-            frame.extend_from_slice(&mask);
-            for (index, byte) in bytes.iter().enumerate() {
-                frame.push(byte ^ mask[index % 4]);
-            }
-            self.stream.write_all(&frame).expect("write command frame");
-        }
-
-        fn read_frame_payload(&mut self) -> String {
-            let mut header = [0u8; 2];
-            self.stream.read_exact(&mut header).expect("frame header");
-            assert_eq!(header[0], 0x81, "expected a FIN text frame");
-            let len = match header[1] {
-                len @ 0..=125 => len as u64,
-                126 => {
-                    let mut ext = [0u8; 2];
-                    self.stream.read_exact(&mut ext).expect("extended length");
-                    u64::from(u16::from_be_bytes(ext))
-                }
-                127 => {
-                    let mut ext = [0u8; 8];
-                    self.stream.read_exact(&mut ext).expect("extended length");
-                    u64::from_be_bytes(ext)
-                }
-                other => panic!("unexpected length marker {other}"),
-            };
-            let mut payload = vec![0u8; len as usize];
-            self.stream.read_exact(&mut payload).expect("frame payload");
-            String::from_utf8(payload).expect("payload is UTF-8 JSON")
-        }
-    }
-
-    fn http_get(addr: SocketAddr, path: &str) -> (String, String) {
-        let mut stream = TcpStream::connect(addr).expect("connect");
-        write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").expect("write request");
-        let mut response = String::new();
-        stream.read_to_string(&mut response).expect("read response");
-        let (head, body) = response.split_once("\r\n\r\n").expect("head/body split");
-        (head.to_string(), body.to_string())
-    }
-
-    #[test]
-    fn server_serves_web_root_and_rejects_escapes() {
-        let root = std::env::temp_dir().join(format!("vera-telemetry-test-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("temp dir");
-        std::fs::write(root.join("index.html"), "<html>dashboard</html>").expect("write index");
-
-        let server = TelemetryServer::start("127.0.0.1:0".parse().unwrap(), root.clone())
-            .expect("server starts");
-        let addr = server.addr();
-
-        let (head, body) = http_get(addr, "/");
-        assert!(head.starts_with("HTTP/1.1 200"), "{head}");
-        assert!(head.contains("text/html"));
-        assert_eq!(body, "<html>dashboard</html>");
-
-        let (head, _) = http_get(addr, "/../Cargo.toml");
-        assert!(head.starts_with("HTTP/1.1 404"), "{head}");
-
-        let (head, _) = http_get(addr, "/vendor/three.module.js");
-        assert!(head.starts_with("HTTP/1.1 404"), "{head}");
-
-        drop(server);
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn parse_client_frame_unmasks_and_rejects_unmasked() {
-        // Masked "hi": 0x81, MASK|2, key, 'h'^k0, 'i'^k1.
-        let mut masked = vec![0x81u8, 0x82, 1, 2, 3, 4];
-        masked.push(b'h' ^ 1);
-        masked.push(b'i' ^ 2);
-        let (payload, consumed) = parse_client_frame(&masked).unwrap().unwrap();
-        assert_eq!(payload.as_deref(), Some(&b"hi"[..]));
-        assert_eq!(consumed, masked.len());
-
-        // An unmasked client frame is a protocol violation (RFC 6455 §5.1).
-        assert!(parse_client_frame(&[0x81, 0x02, b'h', b'i']).is_err());
-        // A partial frame asks for more bytes rather than failing.
-        assert!(parse_client_frame(&masked[..4]).unwrap().is_none());
-    }
-
-    #[test]
-    fn browser_commands_reach_the_server_queue() {
-        use crate::app::telemetry::{DebugCommand, DebugSwitch};
-
-        let root = std::env::temp_dir().join(format!("vera-telemetry-cmd-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("temp dir");
-        let server = TelemetryServer::start("127.0.0.1:0".parse().unwrap(), root.clone())
-            .expect("server starts");
-        let addr = server.addr();
-
-        let mut client = TestClient::connect(addr, "/ws").expect("upgrade");
-        client.send_text(r#"{"cmd":"toggle","switch":"heightmap"}"#);
-        client.send_text(r#"{"cmd":"frame_step"}"#);
-
-        // The writer thread polls the socket on its wake interval; give it one.
-        let mut received = Vec::new();
-        for _ in 0..40 {
-            received.extend(server.drain_commands());
-            if received.len() >= 2 {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(25));
-        }
-        assert_eq!(
-            received,
-            vec![
-                DebugCommand::Toggle {
-                    switch: DebugSwitch::Heightmap
-                },
-                DebugCommand::FrameStep,
-            ]
-        );
-
-        drop(client);
-        drop(server);
-        std::fs::remove_dir_all(&root).ok();
-    }
-
-    #[test]
-    fn server_publishes_snapshots_to_websocket_clients() {
-        let root = std::env::temp_dir().join(format!("vera-telemetry-ws-{}", std::process::id()));
-        std::fs::create_dir_all(&root).expect("temp dir");
-        let server = TelemetryServer::start("127.0.0.1:0".parse().unwrap(), root.clone())
-            .expect("server starts");
-        let addr = server.addr();
-
-        let mut client = TestClient::connect(addr, "/ws").expect("upgrade");
-        let snapshot = crate::sim::world::Simulation::new().telemetry_snapshot();
-        server.publish(serde_json::to_string(&snapshot).expect("serialize"));
-        let received: serde_json::Value =
-            serde_json::from_str(&client.read_frame_payload()).expect("payload parses as JSON");
-        assert_eq!(
-            received["version"],
-            crate::sim::telemetry::TELEMETRY_SCHEMA_VERSION
-        );
-        assert_eq!(received["entities_total"], 0);
-
-        drop(client);
-        drop(server);
-        std::fs::remove_dir_all(&root).ok();
-    }
-}
+#[path = "telemetry_server_tests.rs"]
+mod tests;

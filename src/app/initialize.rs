@@ -195,14 +195,14 @@ impl App {
         );
         terrain_draw_renderer.generate_ion_blast_frames(&gpu.device, &gpu.queue);
         let combat_light_renderer = crate::render::combat_light::CombatLightRenderer::new(&gpu);
-        let mut bit_font = BitFont::fallback_5x7(&gpu, &batch_renderer);
+        let mut bit_font = BitFont::fallback_5x7(&gpu.device, &gpu.queue, &batch_renderer);
         let depth_view: wgpu::TextureView = gpu.create_depth_texture();
         let shell_surface_presenter =
             crate::render::shell_surface_present::ShellSurfacePresenter::new(&gpu)?;
         let input_delay_ticks: u64 = game_config
             .as_ref()
-            .map(|cfg| cfg.gameplay.input_delay_ticks.max(1) as u64)
-            .unwrap_or(2);
+            .map(|cfg| u64::from(cfg.gameplay.input_delay_ticks))
+            .unwrap_or_else(|| u64::from(crate::util::config::default_input_delay_ticks()));
         // Ordinary gamemd chrome is one physical render pixel per asset pixel.
         // 6A5090/6A5130 change row capacity on resize, never artwork scale.
         let ui_scale = 1.0;
@@ -248,7 +248,7 @@ impl App {
             })
         });
         if let Some(fnt) = startup_fnt.as_ref() {
-            bit_font = BitFont::from_fnt(&gpu, &batch_renderer, fnt);
+            bit_font = BitFont::from_fnt(&gpu.device, &gpu.queue, &batch_renderer, fnt);
         }
         let outcome_banner_art = startup_asset_manager.as_ref().and_then(|assets| {
             crate::app::presentation::outcome_banner::OutcomeBannerArt::build(
@@ -271,6 +271,7 @@ impl App {
                         fnt,
                         gpu.config.width,
                         gpu.config.height,
+                        options_profile.ra2_look,
                     )
                     .map_err(|err| log::warn!("Could not build retail startup splash: {err:#}"))
                     .ok()
@@ -535,7 +536,10 @@ impl App {
                     combat_lights: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
+                    talk_bubble: Default::default(),
                     electric_bolts: Default::default(),
+                    radiation_beams: Default::default(),
+                    superweapon_range_pulse: Default::default(),
                     detail: Default::default(),
                     hidden_super_anims: Default::default(),
                     super_timer_blinks: Default::default(),
@@ -543,6 +547,7 @@ impl App {
                     radar_anim: None,
                     radar_movies: Default::default(),
                     chrono_screen: Default::default(),
+                    scenario_pause: Default::default(),
                     radar_animation_source: None,
                     radar_content_insets: None,
                     has_radar: false,
@@ -555,7 +560,6 @@ impl App {
                     terrain_grid: None,
                     height_map: BTreeMap::new(),
                     bridge_height_map: BTreeMap::new(),
-                    installed_playfield_authority: None,
                     overlays: Default::default(),
                     terrain_objects: Vec::new(),
                     overlay_names: BTreeMap::new(),
@@ -575,9 +579,12 @@ impl App {
                 },
                 match_audio: Default::default(),
                 match_diagnostics: Default::default(),
+                #[cfg(feature = "telemetry-dashboard")]
                 telemetry_timing: Default::default(),
+                #[cfg(feature = "telemetry-dashboard")]
                 telemetry_tick_rate: Default::default(),
                 map_basic: BasicSection::default(),
+                map_ranking: crate::map::ranking::RankingSection::default(),
                 loaded_map_source: None,
                 loaded_map_hash: None,
                 scenario_outcome: None,
@@ -592,8 +599,7 @@ impl App {
                 // (in the presentation owner) is the single source of truth; seed it
                 // from the skirmish-setup speed (internal 1) and derive
                 // `sim_speed_tps` from the same value, so the Options slider
-                // reflects the current pace. The resulting tps is unchanged from
-                // the prior `default_yr_skirmish_tps()` (= GS1 -> 63).
+                // reflects the current pace (GS1 -> 63 tps).
                 sim_speed_tps: crate::app::types::tps_for_game_speed(
                     crate::app::types::DEFAULT_YR_SKIRMISH_GAME_SPEED,
                 ),
@@ -656,7 +662,9 @@ impl App {
                 wol_welcome: None,
                 wol_welcome_art: None,
                 score_page: None,
+                campaign_score_page: None,
                 score_art: None,
+                campaign_score_art: None,
                 finished_game_count: 0,
                 shell_route: Default::default(),
             },
@@ -702,45 +710,14 @@ impl App {
         // for round-trip; physical output owners provide the safe gain clamp.
         apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
         Self::sync_zoom_pass(&mut state);
-
-        // The dashboard transport is process-scoped diagnostics state: it
-        // starts only when the environment names an address, and never
-        // perturbs the run it watches. Builds without the feature carry no
-        // listener at all — see `telemetry-dashboard` in the workspace
-        // manifest.
+        #[cfg(feature = "telemetry-dashboard")]
         attach_dashboard(&mut state);
 
         if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
             // The developer shortcut carries an authored-map sandbox through
-            // the unverified legacy Battle loader; this is not campaign
-            // admission. A house that owns nothing is defeated on the first
-            // defeat pass, so the bare form only survives on fixture maps —
-            // `RA2_QUICKPLAY_AI=1` stages a real opponent instead.
-            let playable = std::env::var("RA2_QUICKPLAY_AI").ok();
-            let ai_count = playable
-                .as_deref()
-                .and_then(|value| value.parse::<usize>().ok())
-                .unwrap_or(if playable.is_some() { 1 } else { 0 });
-            log::info!(
-                "Quickplay sandbox: {quickplay} ({})",
-                if ai_count > 0 {
-                    format!("{ai_count} AI opponents, native starting forces")
-                } else {
-                    "solo fixture — ends at once unless the map's objects belong to the player house"
-                        .to_string()
-                }
-            );
+            // the unverified legacy Battle loader. It has no artificial AI
+            // opponent or starting forces; this is not campaign admission.
             let session = quickplay_launch_session(quickplay);
-            log::info!(
-                "Quickplay session: {} opponent slot(s), {} valid pre-fill AI slot(s)",
-                session.opponents.len(),
-                session
-                    .pre_fill_house_roster
-                    .ai_slots()
-                    .iter()
-                    .filter(|slot| slot.valid)
-                    .count()
-            );
             let mut clock = crate::app::match_bootstrap::OrdinaryMatchSeedClock;
             let seed = crate::app::match_bootstrap::read_match_seed(&mut clock);
             let request = crate::app::loading::pump::LoadingRequest::unverified_legacy_skirmish(
@@ -753,102 +730,12 @@ impl App {
     }
 }
 
-/// Bind the browser dashboard's transport, if this build has one and the
-/// environment names an address for it. A pair rather than one `#[cfg]`
-/// statement because the assignment it performs cannot carry an attribute.
-#[cfg(feature = "telemetry-dashboard")]
-fn attach_dashboard(state: &mut crate::app::AppState) {
-    state.diag.telemetry_server = match crate::app::telemetry_server::start_from_env() {
-        Some(Ok(server)) => {
-            log::info!("telemetry dashboard at http://{}", server.addr());
-            Some(server)
-        }
-        Some(Err(error)) => {
-            log::error!("{error}");
-            None
-        }
-        None => None,
-    };
-}
-
-#[cfg(not(feature = "telemetry-dashboard"))]
-fn attach_dashboard(_state: &mut crate::app::AppState) {}
-
 /// `RA2_QUICKPLAY=<map>`: VERA-internal authored-map sandbox using the legacy
 /// Battle loader, with one local house and no generated opponents or forces.
-///
-/// That shape only survives on a map whose objects the local house owns. On a
-/// map that gives them to `Neutral` (every stock multiplayer map) the local
-/// house holds nothing, so the first defeat pass ends the match with "You have
-/// Lost" within about a second — a sandbox that is never watchable.
-///
-/// `RA2_QUICKPLAY_AI=<n>` stages a real skirmish instead: `n` AI opponents
-/// (1..=7, default 1) plus the native starting forces, so every house holds
-/// something and the match runs. Opt-in because the bare form's exact unit set
-/// is a pixel-comparison fixture.
 fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::SkirmishLaunchSession {
     use crate::skirmish_launch::{
-        AiDifficulty, LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster,
-        SkirmishAiSlot, SkirmishLaunchMode, SkirmishLaunchOptions, SkirmishLaunchSession,
-        SkirmishLocalSlot,
-    };
-    let staged = std::env::var("RA2_QUICKPLAY_AI").ok();
-    let playable = staged.as_deref().is_some_and(|value| value != "0");
-    let ai_count = staged
-        .as_deref()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(1)
-        .clamp(1, crate::skirmish_launch::SKIRMISH_AI_SLOT_COUNT);
-    // Distinct colour slots that never collide with the local DarkBlue (2);
-    // distinct Soviet-bloc and Allied countries so the roster reads well.
-    const AI_COUNTRIES: [LaunchCountry; 7] = [
-        LaunchCountry::Russia,
-        LaunchCountry::Iraq,
-        LaunchCountry::Libya,
-        LaunchCountry::Cuba,
-        LaunchCountry::Yuri,
-        LaunchCountry::France,
-        LaunchCountry::Korea,
-    ];
-    const AI_COLORS: [u8; 7] = [1, 3, 4, 5, 6, 7, 0];
-    let (opponents, pre_fill_house_roster, stage_options) = if playable {
-        // Native starting forces: an MCV plus a handful of units at each start.
-        // `bases` also spaces the houses out and gives the AI something to lose
-        // other than immediately. Start positions are Auto: the loader assigns
-        // valid waypoints, which matters on maps with fewer marked starts than
-        // the requested opponent count.
-        (
-            (0..ai_count)
-                .map(|index| SkirmishAiSlot {
-                    country: AI_COUNTRIES[index % AI_COUNTRIES.len()],
-                    country_random: false,
-                    color_index: AI_COLORS[index % AI_COLORS.len()],
-                    color_random: false,
-                    start_position: LaunchStartPosition::Auto,
-                    team: LaunchTeam::None,
-                    difficulty: AiDifficulty::Normal,
-                })
-                .collect(),
-            PreFillHouseRoster::from_compact_skirmish(ai_count),
-            SkirmishLaunchOptions {
-                bases: true,
-                unit_count: 10,
-                ..SkirmishLaunchOptions::default()
-            },
-        )
-    } else {
-        (
-            Vec::new(),
-            PreFillHouseRoster::from_compact_skirmish(0),
-            SkirmishLaunchOptions {
-                // VERA developer shortcut: fixture maps carry their own objects.
-                // Both native starting-force gates must be off: UnitCount=0 alone
-                // still adds an MCV at each start and reveals an extra radar area.
-                bases: false,
-                unit_count: 0,
-                ..SkirmishLaunchOptions::default()
-            },
-        )
+        LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode, SkirmishLaunchOptions,
+        SkirmishLaunchSession, SkirmishLocalSlot,
     };
     SkirmishLaunchSession {
         mode: SkirmishLaunchMode {
@@ -875,12 +762,18 @@ fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::Ski
             start_position: LaunchStartPosition::Position(0),
             team: LaunchTeam::None,
         },
-        // Zero opponents is the capture fixture: an AI house that owns nothing
-        // would auto-defeat and end the session. `RA2_QUICKPLAY_AI` swaps in a
-        // real opponent (and forces) for a watchable match.
-        opponents,
-        pre_fill_house_roster,
-        options: stage_options,
+        // An empty AI house is still a contender: its automatic defeat would
+        // award victory to the fixture owner and end the comparison session.
+        opponents: Vec::new(),
+        pre_fill_house_roster: crate::skirmish_launch::PreFillHouseRoster::from_compact_skirmish(0),
+        options: SkirmishLaunchOptions {
+            // VERA developer shortcut: fixture maps carry their own objects.
+            // Both native starting-force gates must be off: UnitCount=0 alone
+            // still adds an MCV at each start and reveals an extra radar area.
+            bases: false,
+            unit_count: 0,
+            ..SkirmishLaunchOptions::default()
+        },
     }
 }
 
@@ -1218,4 +1111,21 @@ mod tests {
         assert!(options_projection.unit_action_lines);
         assert!(options_projection.tooltips);
     }
+}
+
+/// The credential is printed only to the local terminal, outside captured logs.
+#[cfg(feature = "telemetry-dashboard")]
+fn attach_dashboard(state: &mut crate::app::AppState) {
+    state.diag.telemetry_server = match crate::app::telemetry_server::start_from_env() {
+        Some(Ok(server)) => {
+            crate::util::logging::enable_telemetry_capture();
+            eprintln!("Read-only telemetry dashboard: {}", server.bootstrap_url());
+            Some(server)
+        }
+        Some(Err(error)) => {
+            log::error!("Telemetry dashboard could not start: {error}");
+            None
+        }
+        None => None,
+    };
 }

@@ -15,7 +15,6 @@
 //! file load or object COM Load sequence.
 
 use crate::map::playfield::PlayfieldBounds;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::retail_ini_fixture::retail_battle_rules_for_map;
@@ -35,6 +34,7 @@ use crate::sim::rng::SimRng;
 use crate::sim::snapshot::GameSnapshot;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
+use crate::util::retail_trig::TrigTable;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -194,11 +194,7 @@ fn supplied_world(
                 .unwrap();
             terrain.slope_type = signed(&world["default_slope"]) as u8;
             terrain.land_type = land;
-            terrain.yr_cell_land_type = land;
             terrain.base_land_type = land;
-            terrain.base_yr_cell_land_type = land;
-            terrain.terrain_class = semantics.terrain_class;
-            terrain.base_terrain_class = semantics.terrain_class;
             terrain.speed_costs = semantics.speed_costs;
             terrain.base_speed_costs = semantics.speed_costs;
         }
@@ -216,8 +212,6 @@ fn supplied_world(
             .cell_mut(at.0, at.1)
             .unwrap();
         terrain.land_type = land;
-        terrain.yr_cell_land_type = land;
-        terrain.terrain_class = semantics.terrain_class;
         terrain.speed_costs = semantics.speed_costs;
         // The native input writes cached Cell+EC only. Its empty tile array
         // still supplies Clear on the next actual Mark/Recalc; this is not a
@@ -816,6 +810,7 @@ fn execute_step(
                     impact: false,
                     crash_latched: false,
                     bridge_state_changed: false,
+                    per_cell_error: None,
                 };
                 let phase = match label {
                     "state1_decision" => jumpjet_flight::state1_ascend(runtime, &mut host),
@@ -834,6 +829,7 @@ fn execute_step(
                 Some(registry),
                 crate::sim::world::FrameEffects::default(),
             )
+            .unwrap()
             .unwrap();
         }
         unknown => panic!("unrepresented native command {unknown}"),
@@ -905,6 +901,7 @@ fn stock_shad_state1_scatter_publishes_before_following_translate() {
                     Some(&registry),
                     crate::sim::world::FrameEffects::default()
                 )
+                .unwrap()
                 .is_some()
             );
         }

@@ -118,9 +118,13 @@ pub(crate) struct FrontendState {
     /// for result screens with no native score analogue (a load failure, a
     /// trigger-driven campaign end), which keep the non-art fallback.
     pub(crate) score_page: Option<crate::ui::score_shell::ScorePage>,
+    /// Campaign victory dialog `0x103`, separate from Skirmish score dialog `0x108`.
+    pub(crate) campaign_score_page: Option<crate::ui::campaign_score_shell::CampaignScorePage>,
     /// `0x108`'s side art, loaded for the open page (`0x0072D730`) and
     /// released with it (`0x0072D780`).
     pub(crate) score_art: Option<crate::render::main_menu_shell_chrome::ScoreArt>,
+    /// Campaign `0x103` side background, released when its page closes.
+    pub(crate) campaign_score_art: Option<crate::render::main_menu_shell_chrome::CampaignScoreArt>,
     /// Number of matches finished this session — the score screen's `Game: n`.
     /// gamemd increments the same counter as it tears the scenario down.
     pub(crate) finished_game_count: u32,

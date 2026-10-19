@@ -51,8 +51,8 @@ use super::terrain_updates::{RadarTerrainUpdateLayers, stage_radar_terrain_dirty
 #[cfg(test)]
 use super::tracker::RadarTrackerEntry;
 use super::tracker::{
-    RadarProjectionFacts, RetainedRadarTracker, radar_entity_owner_color,
-    radar_pixel_candidate_eligible,
+    RadarProjectionFacts, RetainedRadarTracker, radar_combat_flash_inverts,
+    radar_entity_owner_color, radar_pixel_candidate_eligible,
 };
 use super::viewport::NativeRadarViewportState;
 use super::visibility::build_radar_object_update;
@@ -364,8 +364,10 @@ impl MinimapRenderer {
         houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
         house_colors: &HouseColorMap,
         sim_tick: u64,
+        binary_frame: u32,
         local_owner: Option<InternedId>,
         fog: &FogState,
+        alliances: &crate::map::houses::HouseAllianceMap,
         full_visibility: bool,
         game_mode_nonzero: bool,
         rules: Option<&RuleSet>,
@@ -513,6 +515,7 @@ impl MinimapRenderer {
                     houses,
                     local_owner,
                     fog,
+                    alliances,
                     full_visibility,
                     game_mode_nonzero,
                     rules,
@@ -535,6 +538,7 @@ impl MinimapRenderer {
                 houses,
                 local_owner,
                 fog,
+                alliances,
                 full_visibility,
                 game_mode_nonzero,
                 rules,
@@ -570,6 +574,7 @@ impl MinimapRenderer {
                 houses,
                 local_owner,
                 fog,
+                alliances,
                 full_visibility,
                 game_mode_nonzero,
                 rules,
@@ -586,7 +591,7 @@ impl MinimapRenderer {
                 entity.owner() == observer
                     || interner.is_some_and(|interner| {
                         crate::map::houses::is_allied_with(
-                            &fog.alliances,
+                            alliances,
                             interner.resolve(entity.owner()),
                             interner.resolve(observer),
                         )
@@ -600,6 +605,12 @@ impl MinimapRenderer {
                 local_owner,
                 owner_allied_with_observer,
             );
+            let color = if radar_combat_flash_inverts(entity, local_owner, binary_frame, rules) {
+                crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+                    .invert_rgba8(color)
+            } else {
+                color
+            };
             if entry.x >= 0
                 && entry.y >= 0
                 && let Some((x, y)) =

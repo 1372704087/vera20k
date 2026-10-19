@@ -22,7 +22,6 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::combat_targeting::greatest_threat_for_entity;
 use crate::sim::combat::greatest_threat::{
     HOUSE_SELECTS_OWN_COEFFICIENTS, ThreatCoefficients, ThreatReference, calculate_threat_score,
 };
@@ -137,7 +136,17 @@ fn retained_reader_ini(ini: IniFile, unread_weapons: bool, constructor_idle: boo
     IniFile::from_str(&text)
 }
 
+/// Its inputs are the fixed retail files and the oracle, so each context's
+/// rules are built once per test process; every caller gets its own copy.
 fn rules_with_native_reader_context(unread_weapons: bool, context: &str) -> Option<RuleSet> {
+    crate::test_fixture::once_per_process(
+        ("foot mission rules", unread_weapons, context.to_owned()),
+        || build_rules_with_native_reader_context(unread_weapons, context),
+    )
+    .map(RuleSet::with_fresh_serial)
+}
+
+fn build_rules_with_native_reader_context(unread_weapons: bool, context: &str) -> Option<RuleSet> {
     let native = oracle();
     let constructor_idle = match context {
         "handler_rules_before_physical" => true,
@@ -211,7 +220,7 @@ fn rules_with_native_reader_context(unread_weapons: bool, context: &str) -> Opti
         signed(&native["e1_ctor"]["health"])
     );
     assert_eq!(
-        rules.weapon("M60").unwrap().range.to_num::<i32>() * 256,
+        rules.weapon("M60").unwrap().range_leptons,
         signed(&native["mission_inputs"][0]["e1_range"])
     );
     assert_eq!(
@@ -1038,7 +1047,6 @@ fn original_concrete_greatest_threat_matches_winner_latch_and_three_rng_streams(
             fixture.actor,
             mask,
             Some(xyz(&scan["point_xyz"])),
-            greatest_threat_for_entity,
         );
         assert_eq!(actual, expected, "{name}: original class-dispatched winner");
         let actor = fixture.sim.substrate.entities.get(fixture.actor).unwrap();
@@ -1341,7 +1349,7 @@ fn install_recorded_anytown_query_state(
             signed(&receipt["slope"]),
             "{name}: physical slope"
         );
-        cell.yr_cell_land_type = signed(&receipt["land"]) as u8;
+        cell.land_type = signed(&receipt["land"]) as u8;
         let identity = terrain.native_cell_identity((x as i16, y as i16));
         terrain.write_native_cell_flags(identity, receipt["flags"].as_u64().unwrap() as u32);
     }
@@ -1889,7 +1897,6 @@ fn original_full_retail_rescue_matches_native_scan_hit_and_empty_prefix() {
                 fixture.actor,
                 ScanMission::Hunt,
                 Some(xyz(&scan["anchor_xyz"])),
-                greatest_threat_for_entity,
             );
             assert_eq!(actual, None, "{name}: original concrete scan return");
             assert_foot_projection(&fixture, row);
@@ -2265,7 +2272,7 @@ fn dying_infantry_visits_shared_native_clock() {
     fixture.sim.session.binary_frame = signed(&frame["native_frame"]) as u32;
     fixture.sim.begin_infantry_death_sequence(
         fixture.actor,
-        crate::sim::world::infantry_terminal::InfantryDeathSequence::Die1,
+        crate::sim::world::InfantryDeathSequence::Die1,
         &rules,
         crate::sim::world::FrameEffects::default(),
     );

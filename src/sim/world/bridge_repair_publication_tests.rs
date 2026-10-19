@@ -213,7 +213,7 @@ fn command_repair_fixture(with_aircraft: bool, with_team: bool) {
             .unwrap()
             .navigation
             .nav_com(),
-        Some(crate::sim::components::NavTargetRef::Building { id: hut }),
+        Some(crate::sim::components::NavTargetRef::object(hut)),
         "the real order publishes Foot NavCom before head selection"
     );
     let mut saw_boundary_before_completion = false;
@@ -736,7 +736,7 @@ pub(in crate::sim::world) fn ready_engineer(
     .unwrap();
     let e = sim.substrate.entities.get_mut(id).unwrap();
     e.navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: hut }));
     let head = DriveCoord::cell(16, 15, 0);
     e.locomotor
         .as_mut()
@@ -1080,7 +1080,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
         e.navigation
             .set_nav_com_aux_for_test(Some(NavTargetRef::Cell { rx: 19, ry: 19 }));
         e.navigation
-            .push_nav_queue_for_test(NavTargetRef::Building { id: hut });
+            .push_nav_queue_for_test(NavTargetRef::Object { id: hut });
         e.navigation
             .push_nav_queue_for_test(NavTargetRef::Cell { rx: 16, ry: 15 });
         e.mark_live_contact_with(hut);
@@ -1099,7 +1099,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
         .get_mut(hut)
         .unwrap()
         .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: hut }));
     sim.expire_infantry_bridge_hut_targets(
         hut,
         &rules,
@@ -1130,7 +1130,7 @@ fn repair_pointer_expiry_uses_descending_infantry_registry_and_preserves_paid_he
             .unwrap()
             .navigation
             .nav_com(),
-        Some(NavTargetRef::Building { id: hut })
+        Some(NavTargetRef::Object { id: hut })
     );
 }
 
@@ -1153,7 +1153,7 @@ fn repair_pointer_expiry_keeps_sensor_and_occupier_exceptions_and_current_nav_ga
                 .set_nav_com_for_test(Some(NavTargetRef::Cell { rx: 16, ry: 15 }));
         }
         e.navigation
-            .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: hut }));
+            .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: hut }));
         let before = e.navigation.clone();
         sim.expire_infantry_bridge_hut_targets(
             hut,
@@ -1672,7 +1672,8 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                 None,
                 None,
                 crate::sim::world::FrameEffects::default(),
-            );
+            )
+            .unwrap();
             assert_eq!(
                 sim.substrate
                     .entities

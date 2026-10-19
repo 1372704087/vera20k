@@ -143,7 +143,7 @@
   }
   .nav-item.on svg { filter: drop-shadow(0 0 5px rgba(111, 183, 255, 0.7)); }
 
-  /* Right cluster: readings, link state, language, menu. */
+  /* Right cluster: readings, link state and language. */
   .head-meta {
     display: flex; align-items: center; gap: 14px;
     margin-left: auto; padding-left: 12px;
@@ -194,7 +194,6 @@
     background: linear-gradient(160deg, rgba(120, 180, 255, 0.28), rgba(130, 120, 255, 0.12));
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
   }
-  #menu-open { margin-left: 10px; }
 
   /* ------------------------------------------------------------------ wall */
   main {
@@ -207,10 +206,11 @@
     /* The bottom row is sized to the frame panel's own content — a wedge, its
        legend and one strip of totals — not to whatever is left over, so the
        panel stays as tight as the reference instead of holding dead space. */
-    grid-template-rows: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.78fr);
+    grid-template-rows: minmax(230px, 1fr) minmax(230px, 1fr) minmax(230px, 0.78fr);
+    overflow-y: auto;
     grid-template-areas:
       "cost    map     terrain"
-      "pop     map     events"
+      "pop     map     terrain"
       "report  report  report";
     gap: 10px;
     padding: 10px 12px 12px;
@@ -371,20 +371,11 @@
   #cost { grid-area: cost; }
   #battlefield { grid-area: map; }
   #terrain-panel { grid-area: terrain; }
-  #events-panel { grid-area: events; }
   #pop-panel { grid-area: pop; }
-  /* The bottom row is split in two: the frame-occupancy panel on the left at
-     roughly the size the reference screenshot showed, and a spare slot beside
-     it. The split lives here rather than in the wall grid so the ratio is a
-     local decision, not a reshuffle of every column above. */
   .bottom-row {
     grid-area: report;
     display: grid;
-    /* The frame panel ends just past its legend — the red line the user drew.
-       The spare slot takes everything else rather than being squeezed to a
-       strip, so it has room when its contents are decided. */
-    grid-template-columns: minmax(0, 0.6fr) minmax(0, 1fr);
-    gap: 10px;
+    grid-template-columns: minmax(0, 1fr);
     min-height: 0;
   }
 
@@ -513,18 +504,11 @@
     letter-spacing: 0.08em;
   }
   .sub:first-child { margin-top: 0; padding-top: 0; border-top: none; }
-  #terrain, #events { overflow-y: auto; min-height: 0; flex: 1; }
+  #terrain { overflow-y: auto; min-height: 0; flex: 1; }
   /* Panels whose content can outgrow the fixed wall cell scroll inside it;
      without this the table is simply clipped (overflow: hidden) and the wheel
      does nothing. */
   .scroll { overflow-y: auto; min-height: 0; flex: 1; }
-  .event-list { max-height: none; overflow-y: visible; }
-  .event {
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 11px; padding: 1px 0;
-    white-space: pre-wrap; word-break: break-all;
-    color: #b6cdea;
-  }
   .empty { color: var(--dim); font-style: italic; padding: 8px 0; }
 
   /* ------------------------------------------------------------- population */
@@ -550,13 +534,9 @@
   .legend span { display: inline-flex; align-items: center; gap: 5px; }
   .legend i { width: 8px; height: 8px; display: inline-block; }
 
-  /* ------------------------------------------------------- frame occupancy */
-  /* One panel, two pages: the whole frame (simulation phases plus everything
-     outside them) and the simulation alone. Both read the same live
-     accumulator the end-of-match report freezes. The wedge sits left, its
-     legend beside it, and the totals strip closes the panel along the bottom.
-     The pie is capped so the legend stops where the reference screenshot had
-     it instead of stretching across the whole panel. */
+  /* --------------------------------------------------------- measured costs */
+  /* Independent render and simulation distributions share the visual layout.
+     The wedge sits left, its legend beside it, with each sample count below. */
   .pie {
     margin: 0;
     display: grid;
@@ -624,15 +604,6 @@
     border-bottom: 0; padding: 0;
   }
 
-  /* ------------------------------------------------------- spare slot (右) */
-  /* A second panel beside the frame occupancy one. Its contents are not
-     decided yet, so it only holds a placeholder and keeps the row balanced. */
-  .extra-body {
-    flex: 1; min-height: 0;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--dim);
-  }
-  .extra-body .hint { margin: 0; font-size: 11.5px; letter-spacing: 0.04em; }
   .split-summary .row {
     display: flex; justify-content: space-between; gap: 10px;
     padding: 1px 0; border-bottom: 1px dashed rgba(160, 196, 255, 0.12);
@@ -658,73 +629,6 @@
     color: var(--amber); border-color: rgba(255, 202, 116, 0.45);
     background: rgba(255, 202, 116, 0.08);
   }
-
-  /* ---------------------------------------------------------------- switches */
-  .switches { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .switches + .switches { margin-top: 8px; }
-  .switch {
-    display: inline-block;
-    text-decoration: none;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--dim);
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 4px 11px;
-    font: inherit; font-size: 11.5px; cursor: pointer;
-    letter-spacing: 0.06em;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10);
-    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-  }
-  .switch:hover:not(:disabled) { color: var(--text); border-color: var(--line-strong); }
-  .switch.on {
-    color: #ffffff; border-color: rgba(180, 210, 255, 0.36);
-    background: linear-gradient(160deg, rgba(120, 180, 255, 0.30), rgba(130, 120, 255, 0.14));
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34), 0 4px 14px -6px rgba(90, 150, 255, 0.85);
-  }
-  .switch:disabled { opacity: 0.32; cursor: default; }
-  .switch.step { padding: 4px 8px; }
-  .switch-value { color: var(--dim); font-size: 11px; padding: 0 2px; font-variant-numeric: tabular-nums; }
-
-  /* ------------------------------------------------------------------ menu */
-  .menu {
-    position: fixed; inset: 0; z-index: 10;
-    display: none; background: rgba(3, 6, 14, 0.62);
-    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  }
-  .menu.open { display: flex; justify-content: flex-end; }
-  .menu-panel {
-    position: relative;
-    width: min(560px, 94vw); height: 100%; overflow-y: auto;
-    background: linear-gradient(180deg, rgba(20, 29, 58, 0.96), rgba(9, 13, 28, 0.98));
-    border-left: 1px solid var(--glass-edge);
-    box-shadow: inset 1px 0 0 var(--glass-top), -18px 0 60px -20px rgba(0, 0, 0, 0.9);
-    padding: 16px 18px;
-  }
-  .menu-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-  .menu-head h2 {
-    display: flex; align-items: center; gap: 8px;
-    font-size: 13px; letter-spacing: 0.24em; color: #eaf2ff;
-  }
-  .menu-head h2::before {
-    content: ""; width: 3px; height: 14px; border-radius: 2px;
-    background: linear-gradient(180deg, var(--cyan), var(--blue));
-    box-shadow: 0 0 9px rgba(111, 183, 255, 0.8);
-  }
-  .menu-panel section { background: transparent; border: none; padding: 0 0 16px; }
-  .menu-panel section h2 {
-    font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
-    color: var(--title); margin-bottom: 10px;
-  }
-  .keys { columns: 1; column-gap: 24px; }
-  .keys dl { margin: 0 0 10px; break-inside: avoid; }
-  .keys dt {
-    font-family: ui-monospace, Consolas, monospace;
-    font-size: 11px; color: var(--amber);
-    display: inline-block; min-width: 64px;
-  }
-  .keys dd { display: inline; color: var(--text); font-size: 12px; }
-  .keys dd::after { content: ""; display: block; }
-  .keys .note { color: var(--dim); font-size: 11px; margin-top: 2px; }
 
   /* Thin glass scrollbars: the OS default is a white slab on a dark wall. */
   * { scrollbar-width: thin; scrollbar-color: rgba(150, 185, 235, 0.32) transparent; }
@@ -840,14 +744,12 @@
   }
   .phase-table td.ph-ms { font-weight: 600; }
   .phase-table td.ph-pct { color: var(--dim); }
-  .phase-table tfoot td {
+  .phase-table .ph-total td {
     border-bottom: none;
     color: var(--text);
     font-weight: 600;
   }
-  /* Two rules: the ledger's own sum, then the frame it belongs to. */
-  .phase-table tfoot tr:first-child td { border-top: 1px solid var(--line); }
-  .phase-table tfoot tr:last-child td { border-top: 1px solid var(--line); }
+  .phase-table .ph-total td { border-top: 1px solid var(--line); }
   .phase-table .ph-empty { color: var(--amber); font-style: italic; text-align: left; }
   /* Group header between the simulation ledger and the render ledger. */
   .phase-table tr.ph-group td {
@@ -994,146 +896,6 @@
   .log-row.lv4 .lv, .log-row.lv4 .msg { color: #8ea6c6; }
   .log-row.lv5 .lv, .log-row.lv5 .msg { color: #6d849c; }
 
-  /* ====================================================== trainer panel */
-  /* The trainer has its own drawer: compact cards, two per row. */
-  .cheat-panel { width: min(520px, 94vw); }
-  .cheat-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    margin: -4px 0 8px;
-  }
-  .cheat-head .note { margin: 0; }
-  .cheat-owner {
-    font-size: 10.5px;
-    font-weight: 400;
-    letter-spacing: 0.04em;
-    color: var(--cyan);
-    text-transform: none;
-    opacity: 0.8;
-  }
-  .cheat-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-    gap: 8px;
-    margin: 4px 0 8px;
-  }
-  .cheat-card {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px 10px 10px;
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(8, 12, 28, 0.34));
-  }
-  .cheat-card h3 {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 10.5px;
-    font-weight: 700;
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--dim);
-  }
-  .cheat-card h3::before {
-    content: "";
-    width: 3px; height: 9px;
-    background: var(--cyan);
-    box-shadow: 0 0 6px var(--cyan);
-    transform: skewX(-18deg);
-  }
-  .cheat-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    font-size: 12px;
-    color: var(--text);
-  }
-  .cheat-label { white-space: nowrap; }
-  .cheat-note {
-    margin: -2px 0 2px;
-    font-size: 10.5px;
-    line-height: 1.35;
-    color: var(--dim);
-  }
-  .cheat-num {
-    width: 78px;
-    padding: 2px 6px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: rgba(6, 10, 24, 0.55);
-    color: var(--text);
-    font: inherit;
-    font-size: 11.5px;
-    text-align: right;
-  }
-  .cheat-num:focus { outline: none; border-color: var(--line-strong); }
-  /* A switch, not a checkbox: the track carries the state, the knob slides. */
-  .cheat-switch {
-    appearance: none;
-    position: relative;
-    width: 34px; height: 16px;
-    border: 1px solid var(--line);
-    border-radius: 9px;
-    background: rgba(6, 10, 24, 0.6);
-    cursor: pointer;
-    transition: background 120ms ease, border-color 120ms ease;
-    flex: none;
-  }
-  .cheat-switch::after {
-    content: "";
-    position: absolute;
-    top: 2px; left: 2px;
-    width: 10px; height: 10px;
-    border-radius: 50%;
-    background: #5d7794;
-    transition: transform 120ms ease, background 120ms ease;
-  }
-  .cheat-switch:checked {
-    border-color: var(--cyan);
-    background: rgba(111, 183, 255, 0.32);
-  }
-  .cheat-switch:checked::after {
-    transform: translateX(18px);
-    /* The track is already cyan: the knob has to be the light one or the
-       switch reads as a solid pill. */
-    background: var(--strong);
-    box-shadow: 0 0 6px rgba(111, 183, 255, 0.8);
-  }
-  .cheat-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
-  .cheat-btn {
-    flex: 1 1 auto;
-    padding: 4px 10px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
-    background: rgba(255, 255, 255, 0.06);
-    color: var(--dim);
-    font: inherit;
-    font-size: 11.5px;
-    cursor: pointer;
-    transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
-  }
-  .cheat-btn:hover { color: var(--text); border-color: var(--line-strong); }
-  .cheat-btn:active { background: rgba(111, 183, 255, 0.25); }
-  .cheat-presets { display: flex; gap: 5px; flex-wrap: wrap; }
-  .cheat-chip {
-    flex: 1 1 auto;
-    padding: 2px 6px;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    background: transparent;
-    color: var(--dim);
-    font: inherit;
-    font-size: 10.5px;
-    cursor: pointer;
-  }
-  .cheat-chip:hover { color: var(--cyan); border-color: var(--line-strong); }
-  .cheat-chip.on { color: #0a1024; background: var(--cyan); border-color: var(--cyan); }
-
   /* ------------------------------------------------ cost-panel pagination */
   /* The cost panel carries two readings that share a column but not a shape:
      the tick-cost numbers with their chart, and the host's own resources.
@@ -1155,12 +917,12 @@
   #cost[data-page="cost"] #page-cost,
   #cost[data-page="process"] #page-process { display: flex; }
   #profile-panel[data-page="frame"] #page-frame,
-  #profile-panel[data-page="sim"] #page-sim { display: flex; }
+  #profile-panel[data-page="sim"] #page-sim { display: flex; overflow: auto; }
 
   /* The frame panel's page switch belongs on the title line, as in the
      reference: title left, tabs right. The panel is the positioning context,
      so the pager can float without disturbing the panel's column flow. */
-  #profile-panel > h2 { padding-right: 240px; }
+  #profile-panel > h2 { padding-right: 360px; }
   #profile-panel > .pager {
     position: absolute;
     top: 9px; right: 14px;
@@ -1480,7 +1242,7 @@
     header { flex-wrap: wrap; row-gap: 6px; }
     #nav { align-self: center; order: 3; }
     .head-meta { margin-left: 0; flex-wrap: wrap; row-gap: 4px; }
-    .switch, .panel-btn, #lang button { white-space: nowrap; }
+    .panel-btn, #lang button { white-space: nowrap; }
 
     main, main.detail, main.report, main.logs {
       grid-template-columns: minmax(0, 1fr);

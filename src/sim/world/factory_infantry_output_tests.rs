@@ -35,11 +35,8 @@ use serde_json::{Value, json};
 
 const TICK_MS: u32 = 67;
 
-fn ground_command_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/walk_first_path.json",
-    ))
-    .unwrap()
+fn ground_command_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/walk_first_path.json")
 }
 
 fn ground_command_history<'a>(corpus: &'a Value, name: &str) -> &'a Value {
@@ -151,7 +148,7 @@ fn ground_command_fixture(
         // The original contrast supplies Type+EC8=0 after retail startup.
         // Reproduce just that type prior through the existing native ReadBool
         // production reader; the original flag store is not an INI-read claim.
-        let mut ini = retail.processed_rules.clone();
+        let mut ini = (*retail.processed_rules).clone();
         ini.merge(&crate::rules::ini_parser::IniFile::from_str(
             "[E1]\nDeployer=no\n",
         ));
@@ -643,7 +640,7 @@ fn ground_command_fixture(
         for cell in map["cells"].as_array().unwrap() {
             let (rx, ry) = fixture_cell(&cell["xy"]);
             let actual = terrain.cell(rx, ry).unwrap();
-            assert_eq!(json!(actual.yr_cell_land_type), cell["land"]);
+            assert_eq!(json!(actual.land_type), cell["land"]);
             assert_eq!(json!(actual.level), cell["level"]);
             assert_eq!(json!(actual.slope_type), cell["slope"]);
             for (layer, field) in [
@@ -1700,11 +1697,9 @@ fn initialized_gi_deploy_class_contexts_match_original_returns() {
     }
 }
 
-pub(super) fn corpus() -> Value {
-    let data: Value = serde_json::from_str(crate::test_fixture::text(
-        "src/sim/world/fixtures/factory_infantry_local_native.json",
-    ))
-    .unwrap();
+pub(super) fn corpus() -> &'static Value {
+    let data =
+        crate::test_fixture::json("src/sim/world/fixtures/factory_infantry_local_native.json");
     assert_eq!(data["schema_version"], 2);
     assert_eq!(
         data["native_sha256"],
@@ -1752,8 +1747,6 @@ pub(super) fn install_ground(
         .flat_map(|y| {
             (0..side).map(move |x| {
                 let mut cell = super::lifecycle_tests::common_raw_terrain_cell(x, y, 0, false);
-                cell.terrain_class = clear.terrain_class;
-                cell.base_terrain_class = clear.terrain_class;
                 cell.speed_costs = clear.speed_costs;
                 cell.base_speed_costs = clear.speed_costs;
                 // Existing GI/factory controls retain their supplied border.
@@ -2036,7 +2029,6 @@ fn joined_two_paid_gi(route: OutputRoute) {
                     Some(&registry),
                     TICK_MS,
                     super::TickLane::Ordinary,
-                    None,
                     crate::sim::world::FrameEffects::default(),
                 )
                 .expect("the ordinary app frame completes");

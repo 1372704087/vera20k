@@ -57,13 +57,13 @@ pub(super) fn fixture(corpus: &Value, row: &Value, retail: RetailBattleRules) ->
         })
         .unwrap()["before"];
     let mut rules = retail.rules;
-    let mut ini = retail.processed_rules.clone();
+    let mut ini = (*retail.processed_rules).clone();
     ini.merge(&native::voice_overrides(&row["input"]));
     rules.bind_type_sound_references(&ini, &native::catalog(corpus));
     let registry = OverlayTypeRegistry::from_ini(&ini, Some(&retail.fixed_art));
     let terrain_rules = TerrainRules::from_ini(&ini);
     let profile = terrain_rules
-        .semantics_by_name("Clear")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
         .unwrap()
         .speed_costs;
     let stride = corpus["histories"]["world"]["zone_storage"]["stride"]

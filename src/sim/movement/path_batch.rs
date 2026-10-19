@@ -47,8 +47,9 @@
 //!
 //! A second proposed sim-scale deviation (update order), pending side-by-side
 //! play, caps the work: a pass answers at most [`SEARCHES_PER_PASS`]
-//! registrations, taking them in ascending Foot id from where the last
-//! capped pass stopped and wrapping round. The others have no answer, so
+//! registrations besides its urgency-2 re-paths (below), taking them in
+//! ascending Foot id from where the last capped pass stopped and wrapping
+//! round. The others have no answer, so
 //! their requests that frame register again, as any Foot's without one do,
 //! and they wait another frame, standing as they do while their timer runs.
 //! The cap binds only when more Foots than that wait in one frame: an order
@@ -56,9 +57,35 @@
 //! PathDelay (8 frames in the retail rules). Then the last of N waiting Foots
 //! waits about N / [`SEARCHES_PER_PASS`] frames, one sweep of the turn; Foots
 //! start their routes in bands of ascending id; and the cap is shared, so
-//! one House's mass order delays every House's requests. A code-2 re-path
-//! that waits past its latched blockage timer searches at urgency 2, around
-//! all blockage, where native searched at urgency 1.
+//! one House's mass order delays every House's requests.
+//!
+//! A third proposed sim-scale deviation (update order), pending side-by-side
+//! play, bounds the urgency-2 re-paths' work. They take their own turn: a
+//! pass takes at most [`SEARCHES_PER_PASS`] of them, first those the last
+//! pass left out and then the rest, each in ascending Foot id; it starts
+//! them before the other registrations, in that order, and once their
+//! expansions reach [`URGENCY2_STEPS_PER_PASS`] it answers none after them;
+//! the one that reaches it keeps its answer. The rest have no answer, so
+//! their requests that frame register again, still at urgency 2, and go
+//! first at the next pass. Which re-paths a pass answers depends on their
+//! expansions alone, not on the thread count, and a re-path waits about as
+//! many passes as the expansions of those ahead of it fill budgets. A
+//! re-path's expansions are those of all its cell searches, the retries
+//! after a failed corridor search included (up to five; see `zone_search`).
+//! The budget binds only when a frame's urgency-2 re-paths flood: in the
+//! match bench's jams one routes round thousands of moving friendlies, often
+//! expanding 40,000 cells, and a pass of a few hundred held its frame for up
+//! to a tenth of a second. A Foot it leaves out stands as one the cap leaves
+//! out does: there the jammed Foots find their detours later, so fewer reach
+//! combat.
+//!
+//! A code-2 re-path searches at the urgency its ladder asked when the Foot
+//! registered it, the frame native searched: 2 once the Foot's latched
+//! blockage timer had run out, else 1. A Foot a capped pass leaves out keeps
+//! that urgency while it registers the re-path again every frame, so a wait
+//! past its blockage timer does not raise it
+//! ([`Simulation::batched_code2_urgency`]). A Foot that skips a frame, or
+//! registers another request, starts afresh.
 //!
 //! The batch runs Find_Path's own steps up to its redirect
 //! ([`Simulation::find_path_target_answer`]) and the core search, without
@@ -86,6 +113,7 @@
 //! cell when the foundation covers it.
 
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::foot_path::MoverLift;
 use super::movement_path::MovePathFailure;
@@ -100,7 +128,7 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::MissionId;
 use crate::sim::pathfinding::zone_search::PathSearchFailure;
-use crate::sim::pathfinding::{BlockerNeighborCounts, PathGrid};
+use crate::sim::pathfinding::{BlockerNeighborCounts, PathGrid, count_search_steps};
 use crate::sim::radio::Contacts;
 use crate::sim::world::{EntryFacts, Simulation};
 
@@ -110,11 +138,18 @@ use crate::sim::world::{EntryFacts, Simulation};
 /// scale.
 const SEARCHES_PER_PASS: usize = 256;
 
+/// The expansions a pass's urgency-2 re-paths make before it starts no more
+/// of them; see the module docs. Four cell searches at A*'s limit fit.
+const URGENCY2_STEPS_PER_PASS: u64 = 4 * crate::sim::pathfinding::MAX_SEARCH_NODES as u64;
+
 /// The path searches waiting for the next frame, and this frame's answers.
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PathBatch {
     /// Foots whose request waited this frame, and which request each repeats.
     pending: Vec<(u64, WaitingRequest)>,
+    /// The urgency of each code-2 re-path the last pass left out, which the
+    /// Foot's registrations this frame keep.
+    left_out_code2: BTreeMap<u64, u8>,
     /// The lowest Foot id the next capped pass answers first; see
     /// [`take_turn`].
     next_turn: u64,
@@ -138,14 +173,22 @@ pub(crate) struct PathBatch {
 }
 
 impl std::hash::Hash for PathBatch {
-    /// The registrations and the next capped turn, which carry into the next
-    /// frame; answers live within one. A cap that never bound leaves the
-    /// turn at zero, which folds nothing.
+    /// The registrations, the left-out re-paths' urgencies and the next
+    /// capped turn, which carry into the next frame; answers live within one.
+    /// A cap or budget that never bound leaves no re-path out and the turn
+    /// at zero, which fold nothing.
     fn hash<H: std::hash::Hasher>(&self, hasher: &mut H) {
         (self.pending.len() as u64).hash(hasher);
         for &(id, request) in &self.pending {
             id.hash(hasher);
-            (request as u8).hash(hasher);
+            request.hash_bytes().hash(hasher);
+        }
+        if !self.left_out_code2.is_empty() {
+            (self.left_out_code2.len() as u64).hash(hasher);
+            for (&id, &urgency) in &self.left_out_code2 {
+                id.hash(hasher);
+                urgency.hash(hasher);
+            }
         }
         if self.next_turn != 0 {
             self.next_turn.hash(hasher);
@@ -185,8 +228,50 @@ pub(crate) enum WaitingRequest {
     /// The no-queue request, `Find_Path(cell, 0, 0)` toward Walk's
     /// destination or Drive/Ship's track destination.
     NoQueue,
-    /// A code-2 ladder's re-path, at the ladder's urgency.
-    Code2Ladder,
+    /// A code-2 ladder's re-path, at the urgency the ladder asked; see the
+    /// module docs.
+    Code2Ladder { urgency: u8 },
+}
+
+impl WaitingRequest {
+    /// Whether this is a code-2 re-path at urgency 2, which routes round
+    /// every moving friendly.
+    fn is_urgency2(self) -> bool {
+        matches!(self, Self::Code2Ladder { urgency: 2 })
+    }
+
+    /// Which request this is: 0 no-queue, 1 code-2 re-path.
+    #[cfg(any(test, feature = "test-support"))]
+    fn kind(self) -> usize {
+        match self {
+            Self::NoQueue => 0,
+            Self::Code2Ladder { .. } => 1,
+        }
+    }
+
+    /// The bytes the batch's hash folds.
+    fn hash_bytes(self) -> [u8; 2] {
+        match self {
+            Self::NoQueue => [0, 0],
+            Self::Code2Ladder { urgency } => [1, urgency],
+        }
+    }
+}
+
+/// The urgency of a code-2 re-path; `None` for a no-queue request.
+fn code2_urgency(&(id, request): &(u64, WaitingRequest)) -> Option<(u64, u8)> {
+    match request {
+        WaitingRequest::Code2Ladder { urgency } => Some((id, urgency)),
+        WaitingRequest::NoQueue => None,
+    }
+}
+
+/// What a pass did with a registration it took.
+enum Turn {
+    /// It searched: the answer, `None` when the batch had nothing to answer.
+    Searched(Option<BatchedSearch>),
+    /// The urgency-2 re-paths' budget ran out before it.
+    OverBudget,
 }
 
 /// A Foot's entry in this pass's answers.
@@ -195,6 +280,8 @@ struct ReadySlot {
     /// Whether one of the Foot's requests this frame went on to Find_Path;
     /// any later one waits for the next batch.
     claimed: bool,
+    /// The registration the pass answered.
+    request: WaitingRequest,
     /// The search, until Find_Path takes it; `None` when the batch had
     /// nothing to answer.
     answer: Option<BatchedSearch>,
@@ -202,7 +289,6 @@ struct ReadySlot {
 
 #[derive(Debug, PartialEq)]
 struct BatchedSearch {
-    request: WaitingRequest,
     key: FootSearchKey,
     found: Result<Vec<(u16, u16)>, MovePathFailure>,
 }
@@ -222,7 +308,6 @@ struct FootSearchKey {
     speed_type: Option<SpeedType>,
     movement_zone: MovementZone,
     crushers: (bool, bool),
-    snapshot_on_bridge: bool,
     locomotor: Option<LocomotorKind>,
     allow_zone_hierarchy: bool,
     threat_coefficient: u64,
@@ -263,7 +348,8 @@ impl Simulation {
     /// Whether `id`'s `request` waits for the next frame's batch, as if its
     /// movement timer still ran. It does, and registers, when batching is
     /// on, the batch can search this map, and `id` has no unclaimed answer
-    /// this frame; otherwise this request claims the answer.
+    /// this frame; otherwise this request claims the answer. A code-2
+    /// re-path the last pass left out registers at the urgency it had.
     pub(super) fn defer_path_search(&mut self, id: u64, request: WaitingRequest) -> bool {
         if self.overlay_grid.is_none() || self.resolved_terrain.is_none() {
             return false;
@@ -277,8 +363,29 @@ impl Simulation {
             slot.claimed = true;
             return false;
         }
+        let request = match (request, batch.left_out_code2.get(&id)) {
+            (WaitingRequest::Code2Ladder { .. }, Some(&urgency)) => {
+                WaitingRequest::Code2Ladder { urgency }
+            }
+            _ => request,
+        };
         batch.pending.push((id, request));
         true
+    }
+
+    /// The urgency `id`'s code-2 ladder searches at, given `now`, the
+    /// urgency it asks this frame: the urgency of the re-path this pass
+    /// answered, if it answered one; see the module docs.
+    pub(super) fn batched_code2_urgency(&self, id: u64, now: u8) -> u8 {
+        match self
+            .path_batch
+            .as_ref()
+            .and_then(|batch| batch.ready.get(&id))
+            .map(|slot| slot.request)
+        {
+            Some(WaitingRequest::Code2Ladder { urgency }) => urgency,
+            _ => now,
+        }
     }
 
     /// The batched answer for `request`'s core search toward `goal`, if one
@@ -300,24 +407,36 @@ impl Simulation {
         }
         let key = self.foot_search_key(request, goal)?;
         let batch = self.path_batch.as_mut()?;
-        let slot = &mut batch.ready.get_mut(&id)?.answer;
-        if slot.as_ref()?.key != key {
+        let slot = batch.ready.get_mut(&id)?;
+        if slot.answer.as_ref()?.key != key {
             return None;
         }
-        let answer = slot.take()?;
+        let answer = slot.answer.take()?;
         #[cfg(any(test, feature = "test-support"))]
         {
-            batch.used[answer.request as usize] += 1;
+            batch.used[slot.request.kind()] += 1;
         }
         Some(answer.found)
     }
 
     /// The start of the live object pass: search for the Foots registered
-    /// last frame, at most [`SEARCHES_PER_PASS`] of them.
+    /// last frame, at most [`SEARCHES_PER_PASS`] of them, their urgency-2
+    /// re-paths within [`URGENCY2_STEPS_PER_PASS`].
     pub(crate) fn answer_batched_path_searches(
         &mut self,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
+    ) {
+        self.answer_path_searches_within(rules, registry, URGENCY2_STEPS_PER_PASS);
+    }
+
+    /// [`Self::answer_batched_path_searches`] with a budget of
+    /// `urgency2_steps` expansions, at least 1, for the urgency-2 re-paths.
+    fn answer_path_searches_within(
+        &mut self,
+        rules: Option<&RuleSet>,
+        registry: Option<&OverlayTypeRegistry>,
+        urgency2_steps: u64,
     ) {
         let Some(batch) = self.path_batch.as_mut() else {
             return;
@@ -326,6 +445,9 @@ impl Simulation {
         #[cfg(any(test, feature = "test-support"))]
         batch.answered.clear();
         let pending = std::mem::take(&mut batch.pending);
+        // Last pass's left-out urgencies went into this frame's
+        // registrations; its left-out urgency-2 re-paths go first.
+        let last_left_out = std::mem::take(&mut batch.left_out_code2);
         if pending.is_empty() {
             return;
         }
@@ -336,34 +458,56 @@ impl Simulation {
             .collect::<BTreeMap<_, _>>()
             .into_iter()
             .collect();
-        let pending = take_turn(pending, &mut batch.next_turn, SEARCHES_PER_PASS);
-        let answers = match (rules, self.path_grid_snapshot()) {
+        let (mut turn, others): (Vec<_>, Vec<_>) = pending
+            .into_iter()
+            .partition(|&(_, request)| request.is_urgency2());
+        // The code-2 re-paths this pass leaves out keep their urgencies.
+        let mut left_out: BTreeMap<u64, u8> = others.iter().filter_map(code2_urgency).collect();
+        turn.sort_by_key(|&(id, _)| (!last_left_out.contains_key(&id), id));
+        left_out.extend(
+            turn.iter()
+                .skip(SEARCHES_PER_PASS)
+                .filter_map(code2_urgency),
+        );
+        turn.truncate(SEARCHES_PER_PASS);
+        let urgent = turn.len();
+        let others = take_turn(others, &mut batch.next_turn, SEARCHES_PER_PASS);
+        for (id, _) in &others {
+            left_out.remove(id);
+        }
+        batch.left_out_code2 = left_out;
+        turn.extend(others);
+        let turns = match (rules, self.path_grid_snapshot()) {
             (Some(rules), Some(grid))
                 if self.overlay_grid.is_some() && self.resolved_terrain.is_some() =>
             {
-                self.search_batch(&pending, rules, registry, &grid)
+                self.search_batch(&turn, urgent, urgency2_steps, rules, registry, &grid)
             }
             _ => Vec::new(),
         };
-        let mut answers = answers.into_iter();
+        let mut turns = turns.into_iter();
         let batch = self.path_batch.as_mut().expect("batching is on");
+        for (id, request) in turn {
+            match turns.next().unwrap_or(Turn::Searched(None)) {
+                Turn::Searched(answer) => {
+                    let slot = ReadySlot {
+                        claimed: false,
+                        request,
+                        answer,
+                    };
+                    batch.ready.insert(id, slot);
+                }
+                // No slot: the Foot's requests this frame register again,
+                // still at urgency 2.
+                Turn::OverBudget => {
+                    batch.left_out_code2.insert(id, 2);
+                }
+            }
+        }
         #[cfg(any(test, feature = "test-support"))]
         {
-            batch.answered = pending.iter().map(|&(id, _)| id).collect();
+            batch.answered = batch.ready.keys().copied().collect();
         }
-        batch.ready = pending
-            .into_iter()
-            .map(|(id, _)| {
-                let answer = answers.next().flatten();
-                (
-                    id,
-                    ReadySlot {
-                        claimed: false,
-                        answer,
-                    },
-                )
-            })
-            .collect();
     }
 
     /// The end of the live object pass: its answers expire.
@@ -373,13 +517,18 @@ impl Simulation {
         }
     }
 
+    /// The searches for `turn`, whose first `urgent` registrations are its
+    /// urgency-2 re-paths in their turn's order, with `urgency2_steps` for
+    /// their budget.
     fn search_batch(
         &mut self,
-        pending: &[(u64, WaitingRequest)],
+        turn: &[(u64, WaitingRequest)],
+        urgent: usize,
+        urgency2_steps: u64,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         grid: &PathGrid,
-    ) -> Vec<Option<BatchedSearch>> {
+    ) -> Vec<Turn> {
         // One blocker plane for every search. With an overlay grid movers
         // reach it through their Foot+55C counters, which Mark0 leaves alone,
         // so it is the plane each Find_Path would read after its Mark0.
@@ -417,14 +566,54 @@ impl Simulation {
         // thread, so only tests check that the searches draw nothing.
         #[cfg(any(test, feature = "test-support"))]
         let rng = sim.rng_state();
-        let answers = crate::sim::parallel::map(pending, |&(id, request)| {
-            dummy.detached(|| {
-                sim.batched_search(id, request, rules, registry, grid, counts, Some(facts))
-            })
-        });
+        // Urgency-2 re-paths route around every moving friendly and cost the
+        // most by far (match bench: a median of ~720 expansions against ~70
+        // for the rest), so they start first, in their turn's order, and none
+        // runs alone at the end. An answer depends on its request alone, so
+        // the order changes none. `spent` is their expansions so far: each
+        // re-path it counts was taken before the one that reads it, so one
+        // taken once it reaches the budget falls past the cut below. No
+        // search runs other pool work on its thread, which would count there.
+        let spent = AtomicU64::new(0);
+        let mut searched = crate::sim::parallel::map_in_order(
+            turn,
+            || spent.load(Ordering::Acquire) >= urgency2_steps,
+            |&(id, request), spent_up| {
+                let urgency2 = request.is_urgency2();
+                if urgency2 && spent_up {
+                    return None;
+                }
+                let (answer, steps) = count_search_steps(|| {
+                    dummy.detached(|| {
+                        sim.batched_search(id, request, rules, registry, grid, counts, Some(facts))
+                    })
+                });
+                if urgency2 {
+                    spent.fetch_add(steps, Ordering::Release);
+                }
+                Some((answer, steps))
+            },
+        );
         #[cfg(any(test, feature = "test-support"))]
         assert_eq!(rng, sim.rng_state(), "batched searches draw no RNG");
-        answers
+        // The cut, which depends on the re-paths' expansions alone: in turn
+        // order a re-path is answered while the ones before it stay under the
+        // budget.
+        let mut steps = 0;
+        for searched in &mut searched[..urgent] {
+            if steps < urgency2_steps {
+                let (_, made) = searched
+                    .as_ref()
+                    .expect("a re-path before the cut was searched");
+                steps += made;
+            } else {
+                *searched = None;
+            }
+        }
+        searched
+            .into_iter()
+            .map(|searched| searched.map_or(Turn::OverBudget, |(answer, _)| Turn::Searched(answer)))
+            .collect()
     }
 
     /// `id`'s search as its `request`'s Find_Path would run it now, without
@@ -440,10 +629,9 @@ impl Simulation {
         counts: &BlockerNeighborCounts,
         facts: Option<&EntryFacts>,
     ) -> Option<BatchedSearch> {
-        let waiting = request;
-        let request = match waiting {
+        let request = match request {
             WaitingRequest::NoQueue => self.no_queue_request(id)?,
-            WaitingRequest::Code2Ladder => self.code2_ladder_request(id)?,
+            WaitingRequest::Code2Ladder { urgency } => self.code2_ladder_request(id, urgency)?,
         };
         let goal = request.destination;
         let answer = self
@@ -476,7 +664,6 @@ impl Simulation {
             return None;
         }
         Some(BatchedSearch {
-            request: waiting,
             key: self.foot_search_key(&request, goal)?,
             found,
         })
@@ -504,16 +691,12 @@ impl Simulation {
         )
     }
 
-    /// The request `id`'s code-2 ladder makes now, at the ladder's urgency.
-    /// Drive's ladder is `DriveLocomotionClass::Process_Movement` (`0x004B2630`)'s
+    /// The request `id`'s code-2 ladder makes now, at `urgency`. Drive's
+    /// ladder is `DriveLocomotionClass::Process_Movement` (`0x004B2630`)'s
     /// `0x004B3607..0x004B3A94`; Walk's is `0x0075B8A9..0x0075B9F9`.
-    fn code2_ladder_request(&self, id: u64) -> Option<FootPathRequest> {
+    fn code2_ladder_request(&self, id: u64, urgency: u8) -> Option<FootPathRequest> {
         let actor = self.substrate.entities.get(id)?;
         let destination = code2_ladder_destination(actor)?;
-        let urgency = actor
-            .navigation
-            .path_runtime
-            .code2_urgency(self.session.binary_frame);
         FootPathRequest::track(
             &self.substrate.entities,
             id,
@@ -546,7 +729,6 @@ impl Simulation {
             speed_type: snap.speed_type,
             movement_zone: snap.movement_zone,
             crushers: (snap.regular_crusher, snap.omni_crusher),
-            snapshot_on_bridge: snap.on_bridge,
             locomotor: snap.locomotor.as_ref().map(|loco| loco.active_kind()),
             allow_zone_hierarchy: snap.allow_zone_hierarchy,
             threat_coefficient: self.foot_path_threat_coefficient(request.entity_id).bits(),

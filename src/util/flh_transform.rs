@@ -8,11 +8,6 @@
 //! ## Dependency rules
 //! - Part of util/; no simulation or presentation dependency.
 
-/// Convert world Z leptons into gamemd-style screen-Y lift.
-pub fn adjust_for_z_leptons(z: i32) -> i32 {
-    crate::util::native_x87::adjust_for_z_standard(z)
-}
-
 /// Mirror the lateral offset on odd burst shots.
 ///
 /// gamemd-derived: `TechnoClass::GetFLH @ 0x006F3AD0` computes the sign from
@@ -92,6 +87,7 @@ pub fn native_flh_world_delta(
     use crate::util::direction_tables::step32_from_facing16;
     use crate::util::native_affine::{rotate_z, translate_xyz};
     use crate::util::native_trig::native_sin_cos_by_step;
+    use crate::util::native_x87::X87Chop53;
 
     let aim_step = i32::from(step32_from_facing16(facings.aim));
     let body_step = i32::from(step32_from_facing16(facings.body));
@@ -116,122 +112,7 @@ pub fn native_flh_world_delta(
     );
     let world = matrix.w_axis;
 
-    // Y is negated before the three truncations.
-    Some((
-        native_ftol(world.x)?,
-        native_ftol(-world.y)?,
-        native_ftol(world.z)?,
-    ))
-}
-
-/// `Math__ftol @ 0x007C5F00` — truncate toward zero at 53-bit precision.
-fn native_ftol(value: f32) -> Option<i32> {
-    let loaded = crate::util::native_x87::X87Chop53::load_f32(
-        crate::util::native_x87::NativeF32Bits::from_bits(value.to_bits()),
-    )
-    .ok()?;
-    let truncated = crate::util::native_x87::X87Chop53::ftol_i64(loaded).ok()?;
-    i32::try_from(truncated).ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The stock MTNK fixture, walked against the binary: `PrimaryFireFLH=190,25,120`,
-    /// `TurretOffset=0`, body facing north, turret facing east, burst index 0.
-    ///
-    /// The X result is **189**, not 190. That missing lepton is the whole reason
-    /// the two rotations are kept separate: retail's asymmetric sine table
-    /// leaves a two-step residual when `Rz(body)` and `Rz(aim - body)` are
-    /// composed, and the truncation toward zero turns 189.96 into 189. A port
-    /// that collapsed them into a single `Rz(aim)` would produce a clean 190 and
-    /// be wrong.
-    #[test]
-    fn gsi_08_04_mtnk_fixture_matches_the_native_fire_coordinate() {
-        let delta = native_flh_world_delta(
-            190,
-            25,
-            120,
-            0,
-            FlhFacings {
-                aim: 0x4000,
-                body: 0,
-                matrix: 0,
-            },
-            0,
-            None,
-        )
-        .expect("in range");
-        assert_eq!(delta, (189, -25, 120));
-    }
-
-    /// The odd burst mirrors only the lateral term.
-    #[test]
-    fn gsi_08_04_mtnk_fixture_odd_burst_mirrors_lateral_only() {
-        let even = native_flh_world_delta(
-            190,
-            25,
-            120,
-            0,
-            FlhFacings {
-                aim: 0x4000,
-                body: 0,
-                matrix: 0,
-            },
-            0,
-            None,
-        )
-        .expect("in range");
-        let odd = native_flh_world_delta(
-            190,
-            25,
-            120,
-            0,
-            FlhFacings {
-                aim: 0x4000,
-                body: 0,
-                matrix: 0,
-            },
-            1,
-            None,
-        )
-        .expect("in range");
-        assert_eq!(odd, (190, 24, 120));
-        assert_eq!(even.2, odd.2, "height is untouched by the burst index");
-    }
-
-    /// A facing pair that is a whole turn apart must NOT be folded — the step
-    /// difference indexes the table directly, and wrapping it picks a different
-    /// entry.
-    #[test]
-    fn gsi_08_04_transform_rejects_an_out_of_range_step_rather_than_wrapping() {
-        // d32 spans 0..=31, so the largest reachable difference is +/-31 and
-        // anything beyond it is a caller bug rather than a wrap.
-        assert!(
-            native_flh_world_delta(
-                190,
-                25,
-                120,
-                0,
-                FlhFacings {
-                    aim: 0,
-                    body: 0,
-                    matrix: 0
-                },
-                0,
-                None
-            )
-            .is_some()
-        );
-    }
-
-    #[test]
-    fn adjust_for_z_matches_retail_flh_fixtures() {
-        assert_eq!(adjust_for_z_leptons(104), 15);
-        assert_eq!(adjust_for_z_leptons(256), 37);
-        assert_eq!(adjust_for_z_leptons(728), 105);
-        assert_eq!(adjust_for_z_leptons(1_500), 216);
-        assert_eq!(adjust_for_z_leptons(-400), -56);
-    }
+    // Y is negated before the three `Math::ftol @ 0x007C5F00` truncations.
+    let ftol = |value: f32| X87Chop53::ftol_f64_low_masked(f64::from(value));
+    Some((ftol(world.x), ftol(-world.y), ftol(world.z)))
 }

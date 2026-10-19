@@ -97,12 +97,28 @@ pub fn install_tunnel_repair_test_catalog(grid: &mut ResolvedTerrainGrid) {
     install_repair_test_catalog(grid, false, false, 5);
 }
 
+/// The catalog depends only on these inputs and carries a supplied selector
+/// table, so the grids share one copy per test process: building it writes
+/// and loads a loose archive stack.
 fn install_repair_test_catalog(
     grid: &mut ResolvedTerrainGrid,
     slope: bool,
     wheel_only: bool,
     second_terrain: u8,
 ) {
+    grid.bridge_recalc_catalog = crate::test_fixture::once_per_process(
+        ("repair test catalog", slope, wheel_only, second_terrain),
+        || {
+            Some(Arc::new(repair_test_catalog(
+                slope,
+                wheel_only,
+                second_terrain,
+            )))
+        },
+    );
+}
+
+fn repair_test_catalog(slope: bool, wheel_only: bool, second_terrain: u8) -> BridgeRecalcCatalog {
     let theater = synthetic_theater_from_ini(
         b"[TileSet0000]\nTilesInSet=2\nFileName=source\nSetName=Plain\n",
     );
@@ -119,13 +135,11 @@ fn install_repair_test_catalog(
         .map(|land| format!("[{}]\n{}", land.section_name(),if wheel_only {"Wheel=100%\n"} else {"Foot=100%\nTrack=100%\nWheel=100%\nFloat=100%\nHover=100%\nAmphibious=100%\nFloatBeach=100%\nBuildable=yes\n"}))
         .collect();
     let rules = TerrainRules::from_ini(&IniFile::from_str(&rules_text));
-    grid.bridge_recalc_catalog = Some(Arc::new(
-        BridgeRecalcCatalog::for_tiles(&theater, &assets, &rules, false, 0, [0, 1])
-            // Live publication also refreshes presentation for the invalid
-            // tile's clear fallback. Its single file always selects variant0;
-            // supply the initialized process table required by that path.
-            .with_fixture_files(0, &assets, &["source01.tem"], [0; 64]),
-    ));
+    BridgeRecalcCatalog::for_tiles(&theater, &assets, &rules, false, 0, [0, 1])
+        // Live publication also refreshes presentation for the invalid
+        // tile's clear fallback. Its single file always selects variant0;
+        // supply the initialized process table required by that path.
+        .with_fixture_files(0, &assets, &["source01.tem"], [0; 64])
 }
 
 #[test]
@@ -265,7 +279,7 @@ fn recalc_pristine_metadata_and_level_override_match_original_instructions() {
             ("level", i64::from(cell.level)),
             ("slope", i64::from(cell.slope_type)),
             ("height", i64::from(cell.height_in_pixels)),
-            ("land", i64::from(cell.yr_cell_land_type)),
+            ("land", i64::from(cell.land_type)),
             ("zone", i64::from(cell.zone_type)),
         ] {
             assert_eq!(actual, number(field), "{name}: {field}");
@@ -432,11 +446,8 @@ fn current_tile_permission_queries_match_original_instruction_blocks() {
     }
 }
 
-fn bridge_catalog_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_recalc_presentation.json",
-    ))
-    .unwrap()
+fn bridge_catalog_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_recalc_presentation.json")
 }
 
 fn run_bridge_catalog_native_group(group: &serde_json::Value, files: &[Vec<u8>]) {
@@ -529,7 +540,7 @@ fn run_bridge_catalog_native_group(group: &serde_json::Value, files: &[Vec<u8>])
                 ("level", i64::from(cell.level)),
                 ("slope", i64::from(cell.slope_type)),
                 ("pixel_height", i64::from(cell.height_in_pixels)),
-                ("land", i64::from(cell.yr_cell_land_type)),
+                ("land", i64::from(cell.land_type)),
                 ("zone", i64::from(cell.zone_type)),
             ] {
                 assert_eq!(
@@ -543,7 +554,7 @@ fn run_bridge_catalog_native_group(group: &serde_json::Value, files: &[Vec<u8>])
         let pristine = catalog.metadata(100, sub).unwrap().unwrap();
         assert_eq!(pristine.has_damaged_data, case["gate"].as_bool().unwrap());
         let before = (
-            grid.cells[index].yr_cell_land_type,
+            grid.cells[index].land_type,
             grid.cells[index].slope_type,
             grid.cells[index].height_in_pixels,
         );
@@ -554,7 +565,7 @@ fn run_bridge_catalog_native_group(group: &serde_json::Value, files: &[Vec<u8>])
         assert_eq!(
             before,
             (
-                grid.cells[index].yr_cell_land_type,
+                grid.cells[index].land_type,
                 grid.cells[index].slope_type,
                 grid.cells[index].height_in_pixels
             )

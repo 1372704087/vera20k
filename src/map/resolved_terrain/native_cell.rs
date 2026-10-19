@@ -331,9 +331,7 @@ impl<'a> NativeCellQuery<'a> {
     /// Land must not perform another lookup or replace the shared Dummy.
     pub fn land_type(&self, cell: NativeCellIdentity) -> i32 {
         match cell {
-            NativeCellIdentity::Real(index) => {
-                i32::from(self.terrain.cells[index].yr_cell_land_type)
-            }
+            NativeCellIdentity::Real(index) => i32::from(self.terrain.cells[index].land_type),
             NativeCellIdentity::Dummy => self.dummy.land_type(),
         }
     }
@@ -390,6 +388,22 @@ impl SharedCellDummy {
                 neighbor_count: AtomicU8::new(self.neighbor_count()),
             }),
         }
+    }
+
+    /// Every modeled byte, as [`Self::fork_query_identity`] copies them: a test
+    /// fixture keys a cache on the Dummy state its cached work starts from.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn state_words(&self) -> [u64; 8] {
+        [
+            self.cell_word(),
+            u64::from(self.land_type() as u32),
+            u64::from(self.state.raw_flags.load(Ordering::Relaxed)),
+            self.state.native_anchor.load(Ordering::Relaxed),
+            self.state.overlay.load(Ordering::Relaxed),
+            self.state.smudge.load(Ordering::Relaxed),
+            u64::from(self.raw_tube_index() as u16),
+            u64::from(self.neighbor_count()),
+        ]
     }
 
     /// Reconstruct the modeled fields in place at the native Resize boundary.
@@ -828,6 +842,19 @@ impl ResolvedTerrainGrid {
 
     pub(crate) fn native_cell_coord(&self, cell: NativeCellIdentity) -> (i16, i16) {
         match cell {
+            NativeCellIdentity::Real(index) if self.is_regular() => {
+                // A regular terrain's cells are stored row-major, so the
+                // index gives the coordinate without reading the cell.
+                assert!(index < self.cells.len(), "a real cell's index is in range");
+                let width = usize::from(self.width);
+                let coord = ((index % width) as i16, (index / width) as i16);
+                debug_assert_eq!(
+                    coord,
+                    (self.cells[index].rx as i16, self.cells[index].ry as i16),
+                    "a regular terrain's cells are stored row-major"
+                );
+                coord
+            }
             NativeCellIdentity::Real(index) => {
                 (self.cells[index].rx as i16, self.cells[index].ry as i16)
             }
@@ -861,6 +888,16 @@ impl ResolvedTerrainGrid {
     pub(crate) fn native_cell_sub_tile(&self, cell: NativeCellIdentity) -> u8 {
         match cell {
             NativeCellIdentity::Real(index) => self.cells[index].final_sub_tile,
+            NativeCellIdentity::Dummy => 0,
+        }
+    }
+
+    /// Read retained CellClass+4C, the `RecalcZoneType` class. Constructor
+    /// 47BBF0 gives the shared fallback 0 (`0x0047BC27`); a RecalcZoneType
+    /// reaching the Dummy is not modeled.
+    pub(crate) fn native_cell_zone_type(&self, cell: NativeCellIdentity) -> u8 {
+        match cell {
+            NativeCellIdentity::Real(index) => self.cells[index].zone_type,
             NativeCellIdentity::Dummy => 0,
         }
     }
@@ -1100,7 +1137,7 @@ impl ResolvedTerrainGrid {
             }
         }
         self.native_allocated = Some(mask);
-        self.allocated_cell_order = Default::default();
+        self.allocation_caches = Default::default();
     }
 
     /// `CellIterator_Init @ 0x00578350` / `Next @ 0x00578290`: advance

@@ -53,8 +53,8 @@ pub struct BuildingArt {
     /// Building+6EA, constructor43B996 true; distinct from operational6C8.
     /// Its other native writers (ChangeOwner 4484C6, ReadScenarioBuildings
     /// 44FC80, GoOnline 452260, EnableStuff 452410, DisableStuff 452480) also
-    /// switch lights, cloak and gap generators and laser fences; only their
-    /// animation loop is ported here.
+    /// share the light/gap/animation owner. Dormant CloakGenerator and
+    /// LaserFencePost tails require their separate mechanisms.
     stuff_enabled: bool,
     /// Building+6E4: OnConstructionComplete's one-time allocation guard.
     actually_placed: bool,
@@ -388,7 +388,7 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.building_art.actually_placed = true;
         }
-        self.add_building_sensor_array_if_powered(id, rules);
+        self.add_building_sensor_array_if_powered(id, rules, registry);
         self.announce_super_weapon_building_complete(id, rules);
         if !captured && !scenario_initialization {
             self.mission_spawned_entities |= crate::sim::production::spawn_building_free_unit(
@@ -606,7 +606,7 @@ impl Simulation {
             .get_mut(id)
             .and_then(|entity| entity.building_art.anim_slots[usize::from(slot)].take());
         if let Some(old) = old {
-            self.scalar_delete_building_anim(old);
+            self.scalar_delete_anim(old);
         }
     }
 
@@ -879,6 +879,7 @@ pub(crate) fn receiver_body_frame(
     entity: &GameEntity,
     object: &ObjectType,
     rules: &RuleSet,
+    tech_level: i32,
 ) -> i32 {
     let art = rules
         .art()
@@ -902,7 +903,7 @@ pub(crate) fn receiver_body_frame(
                     .cargo()
                     .map_or(0, |cargo| cargo.passengers().len() as i32),
             ),
-            tech_level: object.tech_level,
+            tech_level,
             selling: false,
             buildup: [0, 1],
             ordinary: art.map_or([[0, 1]; 4], |art| {

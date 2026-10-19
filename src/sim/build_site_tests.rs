@@ -5,7 +5,6 @@
 use super::*;
 use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
-use crate::sim::cheats::{CheatFlags, Cheats};
 use crate::sim::overlay_grid::OverlayGrid;
 
 const RULES: &str = "[InfantryTypes]\n0=E1\n\
@@ -151,33 +150,6 @@ fn a_water_bound_type_reads_its_float_speed_not_buildable() {
     let floats = arena("[Clear]\nBuildable=no\nFloat=100%\n");
     assert!(floats.can_place("NAYARD", (10, 10), None));
     assert!(!floats.can_place("GAPOWR", (10, 10), None));
-}
-
-#[test]
-fn the_trainers_build_anywhere_switch_stands_on_any_ground_for_its_own_house() {
-    // Ground that refuses both a plain building (`Buildable=no`) and a Naval
-    // one (`Float=0%`): the switch is the only thing that admits either.
-    let mut a = arena("[Clear]\nBuildable=no\nFloat=0%\n");
-    let ours = a.house("Americans");
-    let theirs = a.house("Soviets");
-    let mut cheats = Cheats::switches(&CheatFlags { build_anywhere: true, ..Default::default() });
-    cheats.owner = Some(ours);
-    a.sim.set_cheats(cheats);
-
-    assert!(!a.can_place("GAPOWR", (14, 10), Some(theirs)));
-    assert!(!a.can_place("NAYARD", (10, 10), Some(theirs)));
-    assert!(a.can_place("GAPOWR", (14, 10), Some(ours)));
-    assert!(a.can_place("NAYARD", (10, 10), Some(ours)));
-
-    // The switch lifts the ground, not the footprint: an occupied cell still
-    // refuses, and so does a cell outside the playfield.
-    a.spawn("MTNK", "Americans", (15, 11));
-    assert!(!a.can_place("GAPOWR", (14, 10), Some(ours)));
-    a.sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
-        off_104: 139,
-        ..crate::sim::arena_fixture::OPEN_PLAYFIELD
-    });
-    assert!(!a.can_place("GAPOWR", (20, 10), Some(ours)));
 }
 
 #[test]

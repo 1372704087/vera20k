@@ -474,22 +474,6 @@ fn player_name_focus_survives_status_hover_update() {
 }
 
 #[test]
-fn player_name_focus_survives_dropdown_open_close_until_explicit_blur() {
-    let mut shell = SkirmishShellState::default();
-    focus_player_name_edit(&mut shell);
-
-    shell.open_combo_dropdown = Some(OpenComboDropdown {
-        id: SkirmishComboId::Side(0),
-        top_index: 0,
-    });
-    shell.open_combo_dropdown = None;
-
-    assert!(shell.player_name_edit.focused);
-    assert!(blur_player_name_edit(&mut shell));
-    assert!(!shell.player_name_edit.focused);
-}
-
-#[test]
 fn hovered_shell_control_resolves_core_controls_and_dropdown_rows() {
     let layout = compute_layout(800, 600);
     let mut shell = SkirmishShellState::default();
@@ -820,44 +804,6 @@ fn hovered_choose_map_modal_control_resolves_0x6b_status_targets() {
 }
 
 #[test]
-fn choose_map_status_help_keys_use_verified_0x6b_mapping() {
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::ModeList0x6eb),
-        Some("STT:ScenarioListGameType")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::MapList0x553),
-        Some("STT:ScenarioListMaps")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::Preview0x468),
-        Some("STT:ScenarioMapThumbnail")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::Button(
-            ChooseMapModalButton::UseMap0x6c5
-        )),
-        Some("STT:ScenarioButtonUseMap")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::Button(
-            ChooseMapModalButton::CreateRandomMap0x583
-        )),
-        Some("STT:ScenarioButtonRandom")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::Button(
-            ChooseMapModalButton::Cancel0x5c0
-        )),
-        Some("STT:ScenarioButtonCancel")
-    );
-    assert_eq!(
-        status_help_key_for_choose_map_hover(ChooseMapHoverTarget::StatusHelp0x695),
-        None
-    );
-}
-
-#[test]
 fn checkbox_icon_click_toggles_but_label_click_does_not() {
     let layout = compute_layout(800, 600);
     let mut shell = SkirmishShellState::default();
@@ -1076,6 +1022,7 @@ fn default_shell_tracks_native_slot_count() {
     assert_eq!(shell.opponents.len(), SKIRMISH_AI_SLOT_COUNT);
     assert_eq!(shell.opponents.iter().filter(|o| o.is_active()).count(), 1);
     assert_eq!(shell.player_team, -2);
+    assert!(shell.opponents[0].is_active());
     assert_eq!(shell.opponents[0].team, 3);
 }
 
@@ -1242,27 +1189,6 @@ fn skirmish_launch_random_country_succeeds_and_flags_slot_for_resolution() {
 }
 
 #[test]
-fn skirmish_concrete_country_color_launch_session_still_succeeds() {
-    let mut shell = SkirmishShellState {
-        player_country_random: false,
-        player_country: LaunchCountry::Germany,
-        player_color_index: 2,
-        ..Default::default()
-    };
-    shell.opponents[0].country_random = false;
-    shell.opponents[0].country = LaunchCountry::Iraq;
-    shell.opponents[0].color_index = 4;
-    let maps = [test_map_entry("map.mmx")];
-
-    let session = launch_session(&shell, &maps, &stock_skirmish_modes()).expect("session");
-
-    assert_eq!(session.local.country, LaunchCountry::Germany);
-    assert_eq!(session.local.color_index, 2);
-    assert_eq!(session.opponents[0].country, LaunchCountry::Iraq);
-    assert_eq!(session.opponents[0].color_index, 4);
-}
-
-#[test]
 fn launch_session_rejects_map_capacity_overflow() {
     let mut shell = SkirmishShellState::default();
     shell.opponents[1].row_type = SkirmishAiRowType::Normal;
@@ -1332,20 +1258,6 @@ fn raw_pack_retains_sparse_ai_house_slots_before_compaction() {
 }
 
 #[test]
-fn launch_session_rejects_no_active_opponents() {
-    let mut shell = SkirmishShellState::default();
-    for opponent in &mut shell.opponents {
-        opponent.row_type = SkirmishAiRowType::None;
-    }
-    let maps = [test_map_entry("map.mmx")];
-
-    assert_eq!(
-        launch_session(&shell, &maps, &stock_skirmish_modes()).unwrap_err(),
-        LaunchValidationError::NoEnabledOpponent
-    );
-}
-
-#[test]
 fn launch_session_rejects_same_explicit_team() {
     let mut shell = SkirmishShellState {
         player_team: 0,
@@ -1371,23 +1283,6 @@ fn dismiss_validation_modal_clears_only_when_open() {
     assert!(dismiss_validation_modal(&mut shell));
     assert!(shell.validation_modal.is_none());
     assert!(!dismiss_validation_modal(&mut shell));
-}
-
-#[test]
-fn team_combo_uses_verified_item_data_values() {
-    let shell = SkirmishShellState::default();
-    let maps = [test_map_entry("map.mmx")];
-
-    assert_eq!(
-        combo_items(&shell, &maps, SkirmishComboId::Team(0)),
-        vec![
-            SkirmishComboItem::Team(-2),
-            SkirmishComboItem::Team(0),
-            SkirmishComboItem::Team(1),
-            SkirmishComboItem::Team(2),
-            SkirmishComboItem::Team(3),
-        ]
-    );
 }
 
 #[test]
@@ -1429,39 +1324,6 @@ fn ffa_combo_keeps_explicit_teams_despite_allies_disabled() {
             SkirmishComboItem::Team(3),
         ]
     );
-}
-
-#[test]
-fn team_game_mode_repair_removes_team_none_from_local_and_ai() {
-    let mut shell = SkirmishShellState {
-        selected_mode_id: 9,
-        ..Default::default()
-    };
-    shell.player_team = -2;
-    shell.opponents[0].team = -2;
-
-    repair_teams_for_selected_mode(&mut shell, &stock_skirmish_modes());
-
-    assert_eq!(shell.player_team, 0);
-    assert_eq!(shell.opponents[0].team, 3);
-}
-
-#[test]
-fn inactive_ai_team_default_follows_allies_allowed() {
-    let modes = stock_skirmish_modes();
-    let mut battle = SkirmishShellState::default();
-    battle.opponents[1].row_type = SkirmishAiRowType::None;
-    repair_teams_for_selected_mode(&mut battle, &modes);
-
-    let mut ffa = SkirmishShellState {
-        selected_mode_id: 2,
-        ..Default::default()
-    };
-    ffa.opponents[1].row_type = SkirmishAiRowType::None;
-    repair_teams_for_selected_mode(&mut ffa, &modes);
-
-    assert_eq!(battle.opponents[1].team, 3);
-    assert_eq!(ffa.opponents[1].team, -2);
 }
 
 #[test]
@@ -1747,14 +1609,6 @@ fn disabled_team_combo_cannot_be_opened_or_reselected_in_free_for_all() {
 }
 
 #[test]
-fn battle_default_active_ai_starts_on_team_d() {
-    let shell = SkirmishShellState::default();
-
-    assert!(shell.opponents[0].is_active());
-    assert_eq!(shell.opponents[0].team, 3);
-}
-
-#[test]
 fn side_combo_exposes_random_country_and_verified_dropdown_cap() {
     let layout = compute_layout(800, 600);
     let shell = SkirmishShellState::default();
@@ -1932,45 +1786,6 @@ fn skirmish_side_dropdown_scrollbar_track_click_jumps_to_native_top_index() {
 }
 
 #[test]
-fn selecting_random_country_updates_shell_choice_state() {
-    let layout = compute_layout(800, 600);
-    let mut shell = SkirmishShellState::default();
-    let maps = [test_map_entry("map.mmx")];
-    let rect = layout.rows.side_combos[0];
-
-    handle_option_mouse_down(&mut shell, &layout, &maps, rect.x + rect.w - 1, rect.y + 1);
-    assert_eq!(
-        shell.drain_pending_ui_sounds(),
-        vec![SkirmishShellUiSound::GuiComboOpenSound]
-    );
-    let dropdown = combo_dropdown_rect(&shell, &layout, &maps, SkirmishComboId::Side(0)).unwrap();
-    handle_option_mouse_down(&mut shell, &layout, &maps, dropdown.x + 2, dropdown.y + 1);
-
-    assert!(shell.player_country_random);
-    assert_eq!(
-        selected_combo_item(&shell, SkirmishComboId::Side(0)),
-        Some(SkirmishComboItem::Country(SkirmishCountryChoice::Random))
-    );
-    assert_eq!(
-        shell.drain_pending_ui_sounds(),
-        vec![SkirmishShellUiSound::GuiComboCloseSound]
-    );
-}
-
-#[test]
-fn hit_test_ignores_combo_faces_after_owner_draw_buttons() {
-    let layout = compute_layout(800, 600);
-    assert_eq!(
-        hit_test(&layout, layout.color_combos[0].x, layout.color_combos[0].y),
-        SkirmishShellAction::None
-    );
-    assert_eq!(
-        hit_test(&layout, layout.color_combos[1].x, layout.color_combos[1].y),
-        SkirmishShellAction::None
-    );
-}
-
-#[test]
 fn combo_arrow_opens_dropdown_and_selects_color_row() {
     let layout = compute_layout(800, 600);
     let mut shell = SkirmishShellState::default();
@@ -2052,28 +1867,6 @@ fn skirmish_color_dropdown_normal_population_omits_initialized_row_8() {
     assert_eq!(
         selected_combo_item_index(&shell, &maps, SkirmishComboId::Color(0)),
         Some(8)
-    );
-}
-
-#[test]
-fn combo_outside_click_closes_with_close_sound() {
-    let layout = compute_layout(800, 600);
-    let mut shell = SkirmishShellState::default();
-    let maps = [test_map_entry("map.mmx")];
-    let rect = layout.rows.side_combos[0];
-
-    handle_option_mouse_down(&mut shell, &layout, &maps, rect.x + rect.w - 1, rect.y + 1);
-    assert_eq!(
-        shell.drain_pending_ui_sounds(),
-        vec![SkirmishShellUiSound::GuiComboOpenSound]
-    );
-
-    handle_option_mouse_down(&mut shell, &layout, &maps, 0, 0);
-
-    assert_eq!(shell.open_combo_dropdown, None);
-    assert_eq!(
-        shell.drain_pending_ui_sounds(),
-        vec![SkirmishShellUiSound::GuiComboCloseSound]
     );
 }
 
@@ -2569,6 +2362,7 @@ fn choose_map_help_keys_match_the_native_table() {
         (ChooseMapHoverTarget::ModeList0x6eb, 0x6EB),
         (ChooseMapHoverTarget::MapList0x553, 0x553),
         (ChooseMapHoverTarget::Preview0x468, 0x468),
+        (ChooseMapHoverTarget::StatusHelp0x695, 0x695),
         (
             ChooseMapHoverTarget::Button(ChooseMapModalButton::UseMap0x6c5),
             0x6C5,

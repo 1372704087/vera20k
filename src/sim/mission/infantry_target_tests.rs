@@ -87,29 +87,35 @@ enum TargetConsumer {
 }
 
 fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
-        return;
-    };
-    let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
-        return;
-    };
-    let registry = crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art);
-    let rules: std::collections::BTreeMap<_, _> = ["yes", "no"]
+    // Both variants depend on the retail files alone, so each is built once
+    // per test process; every consumer gets its own copies.
+    let Some(rules) = ["yes", "no"]
         .into_iter()
         .map(|raw| {
-            let mut layers = RulesLayerStack::new(ini.clone());
-            layers.push(
-                RulesLayerKind::Scenario,
-                IniFile::from_str(&format!("[E1]\nDeployFire={raw}\n")),
-            );
-            let mut rules =
-                RuleSet::from_processed_rules(&layers.process_with_fixed_art(&art).unwrap())
+            let rules =
+                crate::test_fixture::once_per_process(("infantry target rules", raw), || {
+                    let (ini, art) = crate::rules::retail_ini_fixture::retail_rules_and_art()?;
+                    let mut layers = RulesLayerStack::new(ini);
+                    layers.push(
+                        RulesLayerKind::Scenario,
+                        IniFile::from_str(&format!("[E1]\nDeployFire={raw}\n")),
+                    );
+                    let mut rules = RuleSet::from_processed_rules(
+                        &layers.process_with_fixed_art(&art).unwrap(),
+                    )
                     .unwrap();
-            rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
-            rules.bind_animation_sequences(&registry);
-            (raw, rules)
+                    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+                    rules.bind_animation_sequences(
+                        &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+                    );
+                    Some(rules)
+                })?;
+            Some((raw, rules.with_fresh_serial()))
         })
-        .collect();
+        .collect::<Option<std::collections::BTreeMap<_, _>>>()
+    else {
+        return;
+    };
     let native = corpus();
     let evidence = &native["infantry_assignment"];
     assert_eq!(evidence["rows"].as_array().unwrap().len(), 61);
@@ -249,7 +255,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
             assert!(
                 sim.apply_command(
                     "Receiver",
-                    &crate::sim::command::Command::ForceAttack {
+                    &crate::sim::command::Command::Attack {
                         attacker_id: 1,
                         target_id: 2,
                     },
@@ -295,7 +301,7 @@ fn compare_original_infantry_target_rows(consumer: TargetConsumer) {
                     assert!(object.open_topped);
                     let mut cargo =
                         PassengerCargo::new(object.passengers.max(0) as u32, object.size_limit);
-                    assert!(cargo.board(1, rules.object("E1").unwrap().size));
+                    cargo.board_forced_chain(&[(1, rules.object("E1").unwrap().size)]);
                     let mut transport = GameEntity::new_at_frame_zero_for_test(
                         4,
                         10,

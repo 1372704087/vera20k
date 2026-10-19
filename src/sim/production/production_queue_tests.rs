@@ -2,7 +2,7 @@
 //! checks, multi-factory speed bonus, and queue pause/resume behavior.
 
 use super::{
-    BuildQueueState, ProductionCategory, build_options_for_owner, cancel_by_type_for_owner,
+    BuildQueueState, ProductionCategory, build_options_for_owner, cancel_production_for_owner,
     credits_for_owner, dispatch_production_changes_for_tests, enqueue_by_type,
     queue_view_for_owner, ready_buildings_for_owner, suspend_production,
 };
@@ -139,6 +139,7 @@ fn busy_factory_exit_product(
         super::factory::FactoryHolder::Building(1),
         type_id,
         crate::sim::world::FrameEffects::default(),
+        false,
     )
     .unwrap();
     let factory = sim.production.factories.test_first_mut().unwrap();
@@ -222,7 +223,8 @@ fn busy_factory_exit_player_uses_house_order_without_moving_primary() {
     assert_eq!(sim.scenario_rng.logical_state(), rng);
     assert_eq!(
         sim.production
-            .primary_factory(owner, ProductionCategory::Vehicle),
+            .primary_factory_ids(owner, ProductionCategory::Vehicle)
+            .next(),
         Some(1)
     );
     assert!(sim.production.factories.is_empty());
@@ -278,7 +280,8 @@ fn busy_factory_exit_skips_attached_different_type_and_non_guard_buildings() {
     assert!(sim.production.factories.building_factory(5).is_none());
     assert_eq!(
         sim.production
-            .primary_factory(owner, ProductionCategory::Vehicle),
+            .primary_factory_ids(owner, ProductionCategory::Vehicle)
+            .next(),
         Some(1)
     );
 }
@@ -303,7 +306,8 @@ fn busy_factory_exit_restores_building_attachment_after_success() {
     assert_eq!(sim.substrate.next_stable_object_id, next_id);
     assert_eq!(
         sim.production
-            .primary_factory(owner, ProductionCategory::Vehicle),
+            .primary_factory_ids(owner, ProductionCategory::Vehicle)
+            .next(),
         Some(1)
     );
     assert!(!sim.object_placement_scope_active());
@@ -536,8 +540,14 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                 fixture_ini.merge(&IniFile::from_str(&format!("[GAWEAP]\nExitCoord={raw}\n")));
             }
         }
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        // Uncontrolled rows read the stock rules other tests share.
+        let rules = if control.is_some() {
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
+            rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+            rules
+        } else {
+            crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art().unwrap()
+        };
         if let Some(control) = control {
             let exit = rules.object("GAWEAP").unwrap().exit_coord;
             assert_eq!(
@@ -570,9 +580,6 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
                     let mut cell =
                         crate::sim::world::common_raw_test_terrain_cell(rx, ry, 4, false);
                     cell.land_type = 1;
-                    cell.yr_cell_land_type = 1;
-                    cell.terrain_class = road.terrain_class;
-                    cell.base_terrain_class = road.terrain_class;
                     cell.speed_costs = road.speed_costs;
                     cell.base_speed_costs = road.speed_costs;
                     cell
@@ -596,10 +603,7 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
             target.level = native["level"].as_u64().unwrap() as u8;
             target.slope_type = native["slope"].as_u64().unwrap() as u8;
             target.land_type = land;
-            target.yr_cell_land_type = land;
             target.zone_type = native["zone_type"].as_u64().unwrap() as u8;
-            target.terrain_class = semantics.terrain_class;
-            target.base_terrain_class = semantics.terrain_class;
             target.speed_costs = semantics.speed_costs;
             target.base_speed_costs = semantics.speed_costs;
             target.final_tile_index = int(&native["tile"]);
@@ -840,7 +844,8 @@ fn busy_factory_exit_original_rows_compare_receiver_archive_restoration_and_rng(
         assert_eq!(sim.substrate.next_stable_object_id, next_id);
         assert_eq!(
             sim.production
-                .primary_factory(owner, ProductionCategory::Vehicle),
+                .primary_factory_ids(owner, ProductionCategory::Vehicle)
+                .next(),
             Some(labels["source"])
         );
         for (label, id) in &labels {
@@ -899,14 +904,16 @@ fn human_mobile_completion_retains_identity_until_next_frame_place() {
         &rules,
         "Americans",
         "E1",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert!(enqueue_by_type(
         &mut sim,
         &rules,
         "Americans",
         "E2",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let held = sim
         .production
@@ -923,11 +930,7 @@ fn human_mobile_completion_retains_identity_until_next_frame_place() {
             sim.session.binary_frame = frame;
             sim.session.tick = u64::from(frame);
             super::publish_production_changes(&mut sim, &rules);
-            super::revalidate_and_step_factories(
-                &mut sim,
-                &rules,
-                crate::sim::world::FrameEffects::default(),
-            );
+            super::step_factories(&mut sim);
 
             sim.production
                 .factories
@@ -969,6 +972,7 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
     let rules = factory_constructor_rules();
     let make = || {
         let mut sim = Simulation::with_seed(0xFAC7_0003);
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
@@ -979,14 +983,16 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             &rules,
             "Americans",
             "E1",
-            crate::sim::world::FrameEffects::default()
+            crate::sim::world::FrameEffects::default(),
+            false,
         ));
         assert!(enqueue_by_type(
             &mut sim,
             &rules,
             "Americans",
             "E1",
-            crate::sim::world::FrameEffects::default()
+            crate::sim::world::FrameEffects::default(),
+            false,
         ));
         assert!(
             sim.production
@@ -1029,7 +1035,6 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             None,
             67,
             crate::sim::world::TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
@@ -1089,7 +1094,6 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             None,
             67,
             crate::sim::world::TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
@@ -1131,7 +1135,8 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
         &rules,
         "Americans",
         "MTNK",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let vehicle = sim
         .production
@@ -1153,7 +1158,8 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
         &rules,
         "Americans",
         "E1",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let infantry = sim
         .production
@@ -1174,7 +1180,8 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
         &rules,
         "Americans",
         "E2",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert_eq!(
         sim.scenario_rng.logical_state(),
@@ -1183,13 +1190,16 @@ fn factory_constructor_start_cancel_and_promotion_own_scenario_words() {
     );
 
     let e2_word = (expected.next_u32() & 0xFFFF) as u16;
-    assert!(cancel_by_type_for_owner(
+    assert!(cancel_production_for_owner(
         &mut sim,
         &rules,
         "Americans",
-        "E1",
+        crate::sim::production::ProductionCancellation::Type {
+            type_id: "E1",
+            naval: false
+        },
         false,
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
     ));
     assert!(sim.substrate.entities.get(e1_id).is_none());
     let promoted = sim
@@ -1357,13 +1367,16 @@ fn cancelled_constructor_building_runs_shared_destructor_without_uninit() {
             SimRng::from_native_state_hex_for_test(before["rng"]["mapgen"].as_str().unwrap());
         sim.session.binary_frame = before["frame"].as_u64().unwrap() as u32;
 
-        assert!(cancel_by_type_for_owner(
+        assert!(cancel_production_for_owner(
             &mut sim,
             &rules,
             "Americans",
-            "GAPOWR",
+            crate::sim::production::ProductionCancellation::Type {
+                type_id: "GAPOWR",
+                naval: false
+            },
             false,
-            crate::sim::world::FrameEffects::default()
+            crate::sim::world::FrameEffects::default(),
         ));
         assert!(sim.substrate.entities.get(object).is_none());
         let state = serde_json::to_value(&sim.power_states[&owner]).unwrap();
@@ -2229,11 +2242,9 @@ fn failed_vehicle_exit_promotes_a_fresh_identity_that_can_deliver_after_cells_cl
     assert!(factory.queue.is_empty());
     assert_eq!(credits_for_owner(&sim, "Americans"), 50_700);
     for cell in &mut terrain.cells {
-        cell.is_water = false;
         cell.land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
-        cell.yr_cell_land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
-        cell.terrain_class = crate::rules::terrain_rules::TerrainClass::Clear;
         cell.speed_costs.track = Some(100);
+        cell.speed_costs.wheel = Some(100);
         cell.zone_type = crate::map::resolved_terrain::zone_class::GROUND;
     }
     let clear_grid = PathGrid::from_resolved_terrain(&terrain);
@@ -2333,7 +2344,7 @@ fn paused_category_projection_and_factory_charge_remain_independent() {
 /// less the unpaid balance (Abandon_Production 0x004FAA10, refund at 0x004FABA6).
 #[test]
 fn cancel_by_type_removes_ready_building_and_refunds() {
-    use super::cancel_by_type_for_owner;
+    use super::cancel_production_for_owner;
 
     let mut sim = Simulation::new();
     let rules = build_catalog_rules();
@@ -2369,11 +2380,14 @@ fn cancel_by_type_removes_ready_building_and_refunds() {
 
     let before_credits = credits_for_owner(&sim, "Americans");
 
-    let cancelled = cancel_by_type_for_owner(
+    let cancelled = cancel_production_for_owner(
         &mut sim,
         &rules,
         "Americans",
-        "GAREFN",
+        crate::sim::production::ProductionCancellation::Type {
+            type_id: "GAREFN",
+            naval: false,
+        },
         false,
         crate::sim::world::FrameEffects::default(),
     );
@@ -2414,7 +2428,8 @@ fn enqueue_starts_a_build_without_money_and_debits_nothing() {
         &rules,
         "Americans",
         "MTNK",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert_eq!(credits_for_owner(&sim, "Americans"), 0);
     let americans_id = sim.interner.intern("Americans");
@@ -2506,8 +2521,63 @@ fn only_a_busy_airfield_refuses_its_type() {
         &rules,
         "Americans",
         "MTNK",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
+}
+
+/// Original HouseBegin4FA5A8..4FA6AF admits/relinks a suspended same-type
+/// request at stage54, although Resume4C9EA0 refuses without writes. This is
+/// a received PRODUCE control, not the READY portrait's separate PLACE route.
+/// Native completed_same_type control: factory_hold_resume.json/.md.
+#[test]
+fn completed_same_type_produce_preserves_the_factory_at_build_limit() {
+    let (mut sim, rules, owner) = hold_world();
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "AMCV",
+        Default::default(),
+        false
+    ));
+    assert!(
+        sim.production
+            .factories
+            .test_arm_ready(owner, ProductionCategory::Vehicle)
+    );
+    let before = sim
+        .production
+        .factories
+        .test_factory_mut(owner, ProductionCategory::Vehicle)
+        .unwrap()
+        .clone();
+    let next_order = sim.production.next_enqueue_order;
+    let wallet = sim.houses[&owner].economy.clone();
+    let rng = sim.rng_state();
+    sim.session.binary_frame = 300;
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "AMCV",
+        Default::default(),
+        false
+    ));
+    assert_eq!(
+        *sim.production
+            .factories
+            .test_factory_mut(owner, ProductionCategory::Vehicle)
+            .unwrap(),
+        before
+    );
+    assert_eq!(sim.production.next_enqueue_order, next_order);
+    assert_eq!(sim.houses[&owner].economy, wallet);
+    assert_eq!(sim.rng_state(), rng);
+    assert_eq!(
+        queue_view_for_owner(&sim, &rules, "Americans")[0].state,
+        BuildQueueState::Done
+    );
 }
 
 /// A PRODUCE resumes a held build even at its type's build limit: the held build
@@ -2522,7 +2592,8 @@ fn a_held_build_at_its_build_limit_resumes_on_produce() {
         &rules,
         "Americans",
         "AMCV",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert!(suspend_production(
         &mut sim,
@@ -2552,14 +2623,15 @@ fn a_held_build_at_its_build_limit_resumes_on_produce() {
         &rules,
         "Americans",
         "AMCV",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let factory = sim
         .production
         .factories
         .test_factory_mut(owner, ProductionCategory::Vehicle)
         .unwrap();
-    assert!(!factory.manual);
+    assert!(!factory.suspended);
     assert!(factory.step_rate_frames > 0);
     assert_eq!(
         factory.step_timer,
@@ -2577,7 +2649,8 @@ fn a_held_build_at_its_build_limit_resumes_on_produce() {
         &rules,
         "Americans",
         "AMCV",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert!(sim.sound_events.iter().any(|event| {
         matches!(event, SimSoundEvent::ProductionRefused { owner: refused } if *refused == owner)
@@ -2605,7 +2678,8 @@ fn a_produce_past_the_queue_cap_is_refused_with_a_scold() {
             &rules,
             "Americans",
             "MTNK",
-            crate::sim::world::FrameEffects::default()
+            crate::sim::world::FrameEffects::default(),
+            false,
         ));
     }
     assert_eq!(refusals(&sim), 0);
@@ -2614,7 +2688,8 @@ fn a_produce_past_the_queue_cap_is_refused_with_a_scold() {
         &rules,
         "Americans",
         "MTNK",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     assert_eq!(refusals(&sim), 1);
     let factory = sim
@@ -2643,7 +2718,7 @@ fn a_producer_without_weapons_factory_takes_the_generic_exit_arm() {
     };
     let ini = ini.without_entry_for_test("GAWEAP", "WeaponsFactory");
     let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
-    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
     let gaweap = rules.object("GAWEAP").unwrap();
     assert_eq!(exit_arm(gaweap), ExitArm::Generic);
     let (width, height) = crate::rules::foundation::foundation_dimensions(&gaweap.foundation);

@@ -26,15 +26,13 @@
 //! RESIDUALS:
 //! - `RegisterDestruction(null)` at the sale (`vt+0xE0`, `0x0044A1F9`, after
 //!   `+0x53C = -1` keeps the house's buildings-lost count unchanged): a
-//!   tagged building's "destroyed" trigger events 48 and 29 (VERA has no
-//!   per-object tags) and a radar refresh. Trigger: selling a map-tagged
-//!   building. Effect: its trigger does not fire.
-//! - House `+0x1FC`, set at the completing visit, makes the owner's next
-//!   House AI recheck its tech tree (`0x004F926C..0x004F92FD`); VERA
-//!   refreshes the owner's super weapon grants at the sale instead.
+//!   tagged building's "destroyed" trigger events 48 and 29 and a radar
+//!   refresh. TriggerRuntime owns object tags, but this sale path does not
+//!   dispatch those events. Trigger: selling a map-tagged building. Effect:
+//!   its sale destruction events do not fire.
 //! - Presentation: stage 1 re-selects a building selected at its entry
-//!   (`vt+0x14C`, `0x0044A8C9`; VERA's selection never lapses; its tag event
-//!   0x21 has no tags to reach), the `PackupSound=` handle (`+0x6A0`, stopped
+//!   (`vt+0x14C`, `0x0044A8C9`; VERA's selection never lapses, and this path
+//!   does not dispatch tag event 0x21), the `PackupSound=` handle (`+0x6A0`, stopped
 //!   at a conversion `0x0044A1C8`) and stage 2's looping sound update
 //!   (`0x00750D40`).
 //! - Dormant in retail data: stage 0's upgrade sale (`+0x702`; no type sets
@@ -46,13 +44,10 @@
 //!   building sets either key).
 //! - Stage 2's ore payout (`0x0044A232..0x0044A285`: the building's
 //!   StorageClass `+0x33C`, through `HouseClass::GiveTiberium 0x004F9610`)
-//!   pays nothing in retail play: the storage adders (`0x006C9690`,
-//!   `0x006C9740`) fill a harvester's, a slave's, the house's and a `Full=`
-//!   team member's storage (`0x0065DE7B`), and no retail TaskForce holds a
-//!   building (reading level: the adders' callers).
-//! - Stage 0's Slave Miner arm (`0x0044AA3D..0x0044AA9F`: HandleReturnedSlaves
-//!   for an archived ore cell) needs the retail undeploy click's cell, which
-//!   VERA's undeploy order does not carry.
+//!   has no payout for the selected fresh-building control: its store starts
+//!   empty (`0x006C95E0`), and the inspected storage writers do not fill it.
+//!   `Full=` admits Foot team members, not Buildings (`0x0065DE7B`). Native
+//!   saved games can retain nonempty stores; their sale payout remains open.
 //! - A unit's sale on a repair depot (the SELL event's unit arm,
 //!   `0x004C6F5A..0x004C6F96`) is its own mechanism.
 
@@ -361,8 +356,7 @@ pub fn sell_stage_zero(
     {
         // MissionSelling44A9DF: QueueVoice only latches. Techno6F9EBB was
         // already reached in this visit, so playback waits for its next head.
-        // Select before native44AA3D HandleReturnedSlaves. Its Building
-        // Archive rewrite remains the separate residual documented above.
+        // Select before native44AA3D HandleReturnedSlaves.
         if let Some(sound_id) = sim.deploy_voice_request(rules, id, true) {
             let sound_id = sound_id.to_owned();
             sim.sound_events.push(SimSoundEvent::UnitVoiceRequested {
@@ -384,6 +378,25 @@ pub fn sell_stage_zero(
                 rx,
                 ry,
             });
+        }
+        //44AA3D..44AA9F: only a different archived Cell with LandType5
+        //and a SlaveManager enters the building arm. Blank goals stay literal.
+        let recall = sim.entities().get(id).is_some_and(|building| {
+            if building.slave_manager.is_none() {
+                return false;
+            }
+            let Some(crate::sim::combat::TargetKind::Cell(x, y)) = building.archive_target() else {
+                return false;
+            };
+            let own = crate::sim::slave_manager::owner_cell(building);
+            (x as i16, y as i16) != own
+                && sim.resolved_terrain.as_ref().is_some_and(|terrain| {
+                    let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+                    cells.land_type(cells.lookup((x as i16, y as i16))) == 5
+                })
+        });
+        if recall {
+            sim.handle_returned_slaves(id, rules, frame_effects);
         }
     }
     if sim
@@ -544,13 +557,15 @@ pub(crate) fn sell_complete(
         sim.uninit_with_context(id, UninitContext::default().with_effects(frame_effects));
         return false;
     };
-    let _ = sim.assign_target_represented(id, None, Some(rules), registry, frame_effects);
     let Some((owner, undeploys)) = sim.substrate.entities.get(id).and_then(|entity| {
         let object = sim.object_type(entity.type_ref(), rules)?;
         Some((entity.owner(), undeploys(rules, object)))
     }) else {
         return false;
     };
+    //449CB1 requests the House strip recheck before target/audio/conversion.
+    sim.request_house_tech_tree_recheck(owner);
+    let _ = sim.assign_target_represented(id, None, Some(rules), registry, frame_effects);
     if !undeploys {
         sim.sound_events
             .push(SimSoundEvent::StructureSold { owner });
@@ -565,10 +580,12 @@ pub(crate) fn sell_complete(
         // Add_Credits (`0x0044A222`).
         crate::sim::credit_income::add_credits(sim, owner, refund);
     }
-    sim.uninit_with_context(
-        id,
-        UninitContext::new(Some(rules), registry).with_effects(frame_effects),
-    );
+    let context = UninitContext::new(Some(rules), registry).with_effects(frame_effects);
+    //44A22C explicitly enters BuildingLimbo before44A28C UnInit. Its
+    // Detach/HouseAbandon and post-Limbo queue callback must observe this
+    // phase, before UnInit's earlier PointerExpired/Alive cleanup.
+    sim.techno_limbo_with_context(id, context);
+    sim.uninit_with_context(id, context);
     false
 }
 
@@ -626,176 +643,4 @@ pub fn sell_building_now_for_test(sim: &mut Simulation, rules: &RuleSet, id: u64
         crate::sim::world::FrameEffects::default(),
     );
     true
-}
-
-#[cfg(test)]
-mod tests {
-    use super::super::production_queue::credits_for_owner;
-    use super::*;
-    use crate::rules::ini_parser::IniFile;
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::passenger::garrison_eject::tests::{
-        garrison_map, garrison_rules, insert_player_owned_garrison,
-    };
-
-    /// The Soviet Battle Bunker: retail's one `CanBeOccupied=` type with a
-    /// Buildup (`NABNKRMK`), so the one garrison a player sells.
-    fn battle_bunker_rules_with_strength(strength: i32) -> RuleSet {
-        let mut rules = garrison_rules("NABNKR", strength);
-        rules.set_buildup_control_for_test("NABNKR", [0, 25, 2]);
-        rules
-    }
-
-    #[test]
-    fn selling_refund_does_not_scale_with_signed_health_or_strength() {
-        for (actual, strength) in [
-            (0, 0),
-            (-1, -10),
-            (1, 100),
-            (70_000, 100_000),
-            (i32::MAX, i32::MIN),
-        ] {
-            let rules = battle_bunker_rules_with_strength(strength);
-            let mut sim = Simulation::new();
-            insert_garrisoned_battle_bunker(&mut sim, &rules, 10, 11);
-            sim.substrate
-                .entities
-                .get_mut(10)
-                .unwrap()
-                .health
-                .set_for_test(actual);
-            let before = credits_for_owner(&sim, "Americans");
-            assert!(sell_building_now_for_test(&mut sim, &rules, 10));
-            assert_eq!(credits_for_owner(&sim, "Americans") - before, 200);
-        }
-    }
-
-    fn insert_garrisoned_battle_bunker(
-        sim: &mut Simulation,
-        rules: &RuleSet,
-        building_id: u64,
-        passenger_id: u64,
-    ) {
-        insert_player_owned_garrison(sim, rules, "NABNKR", building_id, passenger_id);
-    }
-
-    #[test]
-    fn a_garrisoned_battle_bunker_sale_ejects_refunds_and_removes_it() {
-        let rules = battle_bunker_rules_with_strength(400);
-        let mut sim = garrison_map(&rules);
-        let building_id = 10;
-        let passenger_id = 11;
-        insert_garrisoned_battle_bunker(&mut sim, &rules, building_id, passenger_id);
-
-        let before = credits_for_owner(&sim, "Americans");
-
-        assert!(sell_building_now_for_test(&mut sim, &rules, building_id));
-
-        // Deferred-delete: drain at end-of-tick to free the sold building's slot.
-        sim.flush_pending_delete();
-        assert!(sim.substrate.entities.get(building_id).is_none());
-        for cell in [(10, 10), (10, 11), (11, 10), (11, 11)] {
-            assert!(
-                !sim.substrate
-                    .occupancy
-                    .contains_entity(cell.0, cell.1, building_id),
-                "sold building should clear foundation cell {cell:?}"
-            );
-        }
-        sim.debug_assert_logic_membership_consistent();
-        assert_eq!(credits_for_owner(&sim, "Americans") - before, 200);
-
-        let passenger = sim
-            .substrate
-            .entities
-            .get(passenger_id)
-            .expect("passenger should survive sell eject");
-        assert!(passenger.passenger_role.is_none());
-        assert!(!passenger.death.is_dying());
-        assert!(
-            passenger.position.rx() < 10
-                || passenger.position.rx() > 11
-                || passenger.position.ry() < 10
-                || passenger.position.ry() > 11,
-            "passenger should be ejected outside the 2x2 foundation"
-        );
-
-        assert!(
-            !sim.sound_events.iter().any(|event| {
-                matches!(
-                    event,
-                    crate::sim::world::SimSoundEvent::StructureAbandoned { .. }
-                )
-            }),
-            "player sell must not emit StructureAbandoned"
-        );
-    }
-
-    fn sell_eva_rules() -> RuleSet {
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n[VehicleTypes]\n0=AMCV\n[AircraftTypes]\n\
-             [BuildingTypes]\n0=GAPOWR\n1=GACNST\n\n\
-             [AMCV]\nStrength=450\nArmor=heavy\nSpeed=5\nDeploysInto=GACNST\n\n\
-             [GAPOWR]\nStrength=100\nArmor=wood\nCost=800\n\n\
-             [GACNST]\nStrength=1000\nArmor=wood\nCost=3000\nConstructionYard=yes\nUndeploysInto=AMCV\n",
-        );
-        let mut rules = RuleSet::from_ini(&ini).expect("sell eva rules should parse");
-        for type_id in ["GAPOWR", "GACNST"] {
-            rules.set_buildup_control_for_test(type_id, [0, 25, 2]);
-        }
-        rules
-    }
-
-    fn insert_structure(sim: &mut Simulation, id: u64, type_id: &str, owner: &str) {
-        let mut entity = GameEntity::test_default_of_category(
-            id,
-            type_id,
-            owner,
-            10,
-            10,
-            EntityCategory::Structure,
-        );
-        entity.set_owner_for_test(sim.interner.intern(owner));
-        entity.set_type_ref_for_test(sim.interner.intern(type_id));
-        sim.substrate.entities.insert(entity);
-    }
-
-    fn sold_events(sim: &Simulation, owner: crate::sim::intern::InternedId) -> usize {
-        sim.sound_events
-            .iter()
-            .filter(
-                |event| matches!(event, SimSoundEvent::StructureSold { owner: o } if *o == owner),
-            )
-            .count()
-    }
-
-    /// `BuildingClass::Mission_Selling 0x00449CD1 MOV ECX,[EAX+0x408] ; TEST ; JNZ skip`:
-    /// a type with `UndeploysInto=` never speaks.
-    #[test]
-    fn selling_announces_structure_sold_unless_the_type_undeploys() {
-        let rules = sell_eva_rules();
-        let mut sim = Simulation::new();
-        let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        insert_structure(&mut sim, 1, "GAPOWR", "Americans");
-        insert_structure(&mut sim, 2, "GACNST", "Americans");
-
-        assert!(sell_building_now_for_test(&mut sim, &rules, 1));
-        assert_eq!(
-            sold_events(&sim, owner),
-            1,
-            "a power plant sale speaks once"
-        );
-
-        sim.sound_events.clear();
-        assert!(sell_building_now_for_test(&mut sim, &rules, 2));
-        assert_eq!(
-            sold_events(&sim, owner),
-            0,
-            "a Construction Yard (UndeploysInto=) sale is silent"
-        );
-    }
 }

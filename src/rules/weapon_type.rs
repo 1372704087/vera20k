@@ -20,7 +20,6 @@
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
 use crate::rules::ini_parser::IniSection;
-use crate::util::fixed_math::{SimFixed, sim_from_f32};
 
 /// A weapon definition parsed from a rules.ini section.
 ///
@@ -28,31 +27,23 @@ use crate::util::fixed_math::{SimFixed, sim_from_f32};
 /// which spawns a projectile carrying a warhead. The warhead determines
 /// actual damage based on the target's armor type.
 ///
-/// All 63 fields from the original WeaponTypeClass (verified from
-/// decompilation of WeaponTypeClass::ReadINI at 0x772080).
+/// Fields read by the original WeaponTypeClass::ReadINI at 0x772080.
 #[derive(Debug, Clone)]
 pub struct WeaponType {
     // ── Core fields ──────────────────────────────────────────────────
     /// Section name in rules.ini (e.g., "105mm", "Vulcan", "RedEye2").
     pub id: String,
-    /// Base damage per hit.
+    /// Base damage per hit (`+0xA4`).
     pub damage: i32,
-    /// Maximum range in cells (fixed-point for deterministic range checks).
-    pub range: SimFixed,
     /// Maximum range in LEPTONS — the value gamemd actually stores.
     ///
     /// `WeaponTypeClass::ReadINI` 0x00772080 fills `+0xB4` through
     /// `CCINIClass::ReadRange` 0x00474620 at 0x00772336, and that reader
     /// multiplies the INI cell count by `256.0` (`FMUL double ptr
-    /// [0x007E1710]` at 0x0047464C) before `Math__ftol` chops it. Every native
-    /// consumer — `TechnoClass::InRange` 0x006F7220 included — reads leptons.
-    ///
-    /// `range` above is the cell-valued form the older call sites still read;
-    /// scaling it with `to_num::<i64>() * 256` throws the fraction away, which
-    /// is what stranded 60 of the 256 stock weapons that carry a `Range=` key
-    /// (21 of them at `Range=1.5`) short of their authored reach — up to 212
-    /// leptons, and a third of it at `1.5`. Use this field for any range
-    /// compare.
+    /// [0x007E1710]` at 0x0047464C) before `Math__ftol` chops it, so a
+    /// fractional `Range=` keeps its fraction. Every native consumer —
+    /// `TechnoClass::InRange` 0x006F7220 included — reads leptons. The ordered
+    /// Rules processor reads it on each reached pass; `Range=-1` keeps it.
     ///
     /// The `-2` "infinite" sentinel survives the conversion as `-512`, which
     /// is the constant 0x006F724E tests.
@@ -63,9 +54,9 @@ pub struct WeaponType {
     /// per-pass ballistic postpass. Authored Speed=40 reads as 102. Zero alone
     /// does not designate hitscan; projectile type and launch determine motion.
     pub speed: i32,
-    /// Projectile type ID (references a [ProjectileName] section).
+    /// Projectile type ID (`+0xA0`, references a [ProjectileName] section).
     pub projectile: Option<String>,
-    /// Warhead type ID (references a [WarheadName] section).
+    /// Warhead type ID (`+0xAC`, references a [WarheadName] section).
     pub warhead: Option<String>,
     /// `Report=` firing sounds (references [SoundName] sections in
     /// soundmd.ini). Played each time this weapon fires.
@@ -77,18 +68,17 @@ pub struct WeaponType {
     /// firer to a human victim (FireAt `0x006FF66C`). Retail turns it off on
     /// the sniper, Virus, disguise and Mirage weapons.
     pub reveal_on_fire: bool,
+    /// Infantry WhatAction51EA80: Attack becomes action64 (C4 cursor).
+    pub sabotage_cursor: bool,
+    /// Infantry WhatAction51EAD2: eligible buildings show action71 (air strike).
+    pub mig_attack_cursor: bool,
 
-    // ── Int/fixed-point fields ───────────────────────────────────────
+    // ── Int fields ───────────────────────────────────────────────────
     /// Ambient damage dealt to units standing near the weapon's owner (+0x98).
     pub ambient_damage: i32,
-    /// Minimum firing range in cells (+0xb8). Weapon won't fire if target
-    /// is closer than this distance.
-    pub minimum_range: SimFixed,
     /// Minimum firing range in LEPTONS — `+0xB8` through the same
     /// `CCINIClass::ReadRange` 0x00474620 call at 0x00772350.
     pub minimum_range_leptons: i32,
-    /// Blink time for disguise fake when firing while disguised (+0x13c).
-    pub disguise_fake_blink_time: i32,
     /// Signed byte duration of the laser effect, sign-extended for its timer
     /// consumer (+0x14E; constructor10, ReadInt7727DE, MOVSX6FD21D).
     pub laser_duration: i32,
@@ -96,11 +86,8 @@ pub struct WeaponType {
     pub rad_level: i32,
 
     // ── String/reference fields ──────────────────────────────────────
-    /// `DownReport=` sounds, played when the weapon fires downward (e.g.,
-    /// from a building).
-    pub down_report: Vec<String>,
-    /// Animation played during assault (garrison clearing).
-    pub assault_anim: Option<String>,
+    // The Type references are the stored IDs the ordered Rules processor's
+    // factories answered (`native_processing`); `RuleSet` publishes them.
     /// Animation played by occupants when firing from a building.
     pub occupant_anim: Option<String>,
     /// Animation played by units firing from an open-topped transport.
@@ -125,8 +112,6 @@ pub struct WeaponType {
     pub use_spark_particles: bool,
     /// Fires in all directions regardless of facing (+0x12b).
     pub omni_fire: bool,
-    /// Distributes weapon fire across multiple targets (+0x12c).
-    pub distributed_weapon_fire: bool,
     /// Weapon is a railgun (special projectile visual) (+0x12d).
     pub is_railgun: bool,
     /// Projectile follows a lobbed arc trajectory (+0x12e).
@@ -149,14 +134,6 @@ pub struct WeaponType {
     pub fire_once: bool,
     /// Weapon is never automatically selected for use (+0x136).
     pub never_use: bool,
-    /// Weapon can fire at terrain/ground (+0x138).
-    pub terrain_fire: bool,
-    /// Uses the sabotage cursor when this weapon is active (+0x139).
-    pub sabotage_cursor: bool,
-    /// Uses the MiG attack cursor (+0x13a).
-    pub mig_attack_cursor: bool,
-    /// Can only fire while the unit is disguised (+0x13b).
-    pub disguise_fire_only: bool,
     /// Mind control effect has no unit limit (+0x140).
     pub infinite_mind_control: bool,
     /// Unit can fire this weapon while moving (+0x141). The constructor sets
@@ -221,76 +198,63 @@ impl WeaponType {
     }
 
     /// Parse a WeaponType from a rules.ini section.
+    ///
+    /// Damage, Speed, Range, Projectile and Warhead keep the constructor's
+    /// zero and null (`0x00771C70`): the ordered Rules processor owns those
+    /// reads (Damage `0x007722E3`, Speed `0x007722FD`, Range `0x00772336`,
+    /// Warhead `0x0077295F`, Projectile `0x00772998`) and the speed postpass
+    /// (`0x007729F0`), and `RuleSet` builds each weapon with its retained
+    /// values.
     pub fn from_ini_section(id: &str, section: &IniSection) -> Self {
         Self {
             id: id.to_string(),
-            damage: section.read_int("Damage", 0),
-            range: sim_from_f32(section.read_double("Range", 0.0) as f32),
+            damage: 0,
             // `WeaponTypeClass::Constructor` 0x00771C70 zeroes +0xB4 at
-            // 0x00771CB6, so an absent (or literal `-1`) key leaves 0.
-            range_leptons: section.read_range("Range", 0),
+            // 0x00771CB6.
+            range_leptons: 0,
             rof: section.read_int("ROF", 0),
-            // Weapon771C70 initializes +A8 to zero; ReadINI7722FD calls
-            // ReadSpeed474810. Ordered Rules processing applies the later
-            // Weapon7729F0 postpass to the live retained value.
-            speed: section.read_speed("Speed", 0),
-            // ReadString 0x80 ahead of each type lookup (`0x00772998`,
-            // `0x0077295F`).
-            projectile: section.read_name("Projectile", 0x80).map(str::to_string),
-            warhead: section.read_name("Warhead", 0x80).map(str::to_string),
+            speed: 0,
+            projectile: None,
+            warhead: None,
             report: sound_list(section, "Report"),
             burst: section.read_int("Burst", 1),
             // Constructor 1 (`0x00771DBB`); ReadINI passes it as the default
             // (`0x00772182..0x00772196`).
             reveal_on_fire: section.read_bool("RevealOnFire", true),
+            // Constructor771DC8/771DCE zero +139/+13A; ReadINI7721BD..7721E4
+            // passes the retained bytes to the native boolean reader5295F0.
+            sabotage_cursor: section.read_bool("SabotageCursor", false),
+            mig_attack_cursor: section.read_bool("MigAttackCursor", false),
 
-            // Int/fixed-point fields
+            // Int fields
             ambient_damage: section.read_int("AmbientDamage", 0),
-            minimum_range: sim_from_f32(section.read_double("MinimumRange", 0.0) as f32),
             // +0xB8 is zeroed alongside +0xB4 at 0x00771CBF.
             minimum_range_leptons: section.read_range("MinimumRange", 0),
-            disguise_fake_blink_time: section.read_int("DisguiseFakeBlinkTime", 0),
             // ReadINI stores only AL; SpawnLaser6FD21D sign-extends the
             // retained byte. ReadInt uses its default only for absent keys,
             // so narrowing after the projected pass history is equivalent.
             laser_duration: i32::from(section.read_int("LaserDuration", 10) as i8),
             rad_level: section.read_int("RadLevel", 0),
 
-            // String/reference fields
-            down_report: sound_list(section, "DownReport"),
-            // ReadString 0x80 at `0x0077257C`, `0x007725B5`, `0x007725EE`.
-            assault_anim: section.read_name("AssaultAnim", 0x80).map(str::to_string),
-            occupant_anim: section.read_name("OccupantAnim", 0x80).map(str::to_string),
-            open_topped_anim: section
-                .read_name("OpenToppedAnim", 0x80)
-                .map(str::to_string),
-            // A 0x14-byte buffer (`0x00772920`).
-            attached_particle_system: section
-                .read_name("AttachedParticleSystem", 0x14)
-                .map(str::to_string),
-            // `0x00772479`: ReadString 0x80, then `strtok(",")`, keeping each
-            // token `0x00428B80` resolves (`0x007724B8`). RESIDUAL: VERA keeps
-            // unresolved names too, which shifts the damage-indexed pick past
-            // one; every retail `Anim=` name resolves.
-            anim: section
-                .read_list("Anim", 0x80)
-                .unwrap_or_default()
-                .into_iter()
-                .map(str::to_string)
-                .collect(),
+            // The constructor's nulls and empty list (`0x00771C70`); only the
+            // ordered Process owner reads `OccupantAnim=`, `OpenToppedAnim=`,
+            // `AttachedParticleSystem=` and `Anim=`.
+            occupant_anim: None,
+            open_topped_anim: None,
+            attached_particle_system: None,
+            anim: Vec::new(),
 
             // Color fields: ReadColorRGB over the constructor's zero
             // (`0x00771D30`-`0x00771D60`), at `0x00772770`, `0x00772796` and
             // `0x007727BC`.
-            laser_inner_color: section.read_color_rgb("LaserInnerColor", [0; 3]),
-            laser_outer_color: section.read_color_rgb("LaserOuterColor", [0; 3]),
-            laser_outer_spread: section.read_color_rgb("LaserOuterSpread", [0; 3]),
+            laser_inner_color: section.read_color_rgb("LaserInnerColor", [0; 3], None),
+            laser_outer_color: section.read_color_rgb("LaserOuterColor", [0; 3], None),
+            laser_outer_spread: section.read_color_rgb("LaserOuterSpread", [0; 3], None),
 
             // Bool fields
             use_fire_particles: section.read_bool("UseFireParticles", false),
             use_spark_particles: section.read_bool("UseSparkParticles", false),
             omni_fire: section.read_bool("OmniFire", false),
-            distributed_weapon_fire: section.read_bool("DistributedWeaponFire", false),
             is_railgun: section.read_bool("IsRailgun", false),
             lobber: section.read_bool("Lobber", false),
             bright: section.read_bool("Bright", false),
@@ -305,10 +269,6 @@ impl WeaponType {
             cell_rangefinding: section.read_bool("CellRangefinding", false),
             fire_once: section.read_bool("FireOnce", false),
             never_use: section.read_bool("NeverUse", false),
-            terrain_fire: section.read_bool("TerrainFire", false),
-            sabotage_cursor: section.read_bool("SabotageCursor", false),
-            mig_attack_cursor: section.read_bool("MigAttackCursor", false),
-            disguise_fire_only: section.read_bool("DisguiseFireOnly", false),
             infinite_mind_control: section.read_bool("InfiniteMindControl", false),
             fire_while_moving: section.read_bool("FireWhileMoving", true),
             drain_weapon: section.read_bool("DrainWeapon", false),
@@ -352,10 +312,9 @@ mod tests {
     /// yes stands unless a section says no (the sniper and disguise weapons).
     #[test]
     fn retail_reveal_on_fire_defaults_to_yes() {
-        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("retail rules parse");
         assert!(rules.weapon("M60").unwrap().reveal_on_fire);
         assert!(rules.weapon("105mm").unwrap().reveal_on_fire);
         assert!(!rules.weapon("AWP").unwrap().reveal_on_fire);
@@ -363,13 +322,9 @@ mod tests {
 
     use super::*;
     use crate::rules::ini_parser::IniFile;
-    use crate::util::fixed_math::SIM_ZERO;
 
-    fn laser_corpus() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/rules_oracle/weapon_laser.json",
-        ))
-        .unwrap()
+    fn laser_corpus() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/rules_oracle/weapon_laser.json")
     }
 
     fn laser_state(weapon: &WeaponType) -> serde_json::Value {
@@ -548,16 +503,20 @@ mod tests {
 
     #[test]
     fn test_parse_weapon() {
-        let ini: IniFile = IniFile::from_str(
-            "[105mm]\nDamage=65\nROF=50\nRange=5.75\nSpeed=40\n\
-             Projectile=InvisibleLow\nWarhead=AP\n",
-        );
-        let section: &IniSection = ini.section("105mm").unwrap();
-        let weapon: WeaponType = WeaponType::from_ini_section("105mm", section);
+        // Damage, Speed, Range, Projectile and Warhead come from the ordered
+        // Rules owner. A nonzero ROT keeps the ballistic postpass off
+        // ReadSpeed's value.
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nPrimary=105mm\n\
+             [105mm]\nDamage=65\nROF=50\nRange=5.75\nSpeed=40\n\
+             Projectile=InvisibleLow\nWarhead=AP\n\
+             [InvisibleLow]\nROT=1\n",
+        ))
+        .unwrap();
+        let weapon = rules.weapon("105mm").unwrap();
 
         assert_eq!(weapon.id, "105mm");
         assert_eq!(weapon.damage, 65);
-        assert_eq!(weapon.range, sim_from_f32(5.75));
         assert_eq!(weapon.range_leptons, 1472, "5.75 cells * 256");
         assert_eq!(weapon.rof, 50);
         assert_eq!(weapon.speed, 102);
@@ -572,13 +531,12 @@ mod tests {
         let weapon: WeaponType = WeaponType::from_ini_section("Empty", section);
 
         assert_eq!(weapon.damage, 0);
-        assert_eq!(weapon.range, SIM_ZERO);
+        assert_eq!(weapon.range_leptons, 0);
         assert_eq!(weapon.rof, 0);
         assert_eq!(weapon.projectile, None);
         assert_eq!(weapon.warhead, None);
         // New fields should all default correctly
         assert_eq!(weapon.ambient_damage, 0);
-        assert_eq!(weapon.minimum_range, SIM_ZERO);
         assert_eq!(weapon.laser_duration, 10);
         assert_eq!(weapon.rad_level, 0);
         assert!(!weapon.is_sonic);
@@ -586,7 +544,6 @@ mod tests {
         assert!(!weapon.is_electric_bolt);
         assert!(weapon.anim.is_empty());
         assert_eq!(weapon.laser_inner_color, [0, 0, 0]);
-        assert!(weapon.down_report.is_empty());
         assert!(weapon.decloak_to_fire, "native omitted-key default is yes");
     }
 
@@ -644,51 +601,57 @@ mod tests {
 
     #[test]
     fn test_parse_anim_list() {
-        let ini: IniFile =
-            IniFile::from_str("[TestWeapon]\nDamage=50\nAnim=YOURFIRE,YOUREXPL,YOURBOOM\n");
-        let section: &IniSection = ini.section("TestWeapon").unwrap();
-        let weapon: WeaponType = WeaponType::from_ini_section("TestWeapon", section);
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=TANK\n[TANK]\nPrimary=TestWeapon\n\
+             [TestWeapon]\nDamage=50\nAnim=YOURFIRE,YOUREXPL,YOURBOOM\n",
+        ))
+        .unwrap();
+        let weapon = rules.weapon("TestWeapon").unwrap();
 
-        assert_eq!(weapon.anim.len(), 3);
-        assert_eq!(weapon.anim[0], "YOURFIRE");
-        assert_eq!(weapon.anim[1], "YOUREXPL");
-        assert_eq!(weapon.anim[2], "YOURBOOM");
+        assert_eq!(weapon.anim, ["YOURFIRE", "YOUREXPL", "YOURBOOM"]);
     }
 
     /// `CCINIClass::ReadRange` 0x00474620 multiplies by `256.0` and THEN chops,
     /// so a fractional `Range=` keeps its fraction. 60 of the 256 stock
     /// `Range=` weapons carry one and 21 sit at exactly `1.5`, the stock
-    /// `[BlimpBomb]` among them.
+    /// `[BlimpBomb]` among them. Its `-1` sentinel (`0x0047463E`) returns the
+    /// default, the field's current value: the 0x00771CB6 constructor zero, or
+    /// what an earlier reached pass read.
     #[test]
     fn fractional_range_keeps_its_fraction_in_leptons() {
-        let ini = IniFile::from_str(
-            "[BlimpBomb]\nDamage=250\nROF=50\nRange=1.5\nCellRangefinding=yes\n\
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=A\n1=B\n2=C\n3=D\n4=E\n5=F\n\
+             [A]\nPrimary=BlimpBomb\n[B]\nPrimary=Nuke\n[C]\nPrimary=Quarter\n\
+             [D]\nPrimary=NoKey\n[E]\nPrimary=Unset\n[F]\nPrimary=Kept\n\
+             [BlimpBomb]\nDamage=250\nROF=50\nRange=1.5\nCellRangefinding=yes\n\
              [Nuke]\nRange=-2\n\
              [Quarter]\nRange=0.25\n\
-             [NoKey]\nDamage=1\n",
+             [NoKey]\nDamage=1\n\
+             [Unset]\nRange=-1\n\
+             [Kept]\nRange=3\n",
+        ));
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[Kept]\nRange=-1\n"),
         );
-        let blimp = WeaponType::from_ini_section("BlimpBomb", ini.section("BlimpBomb").unwrap());
-        assert_eq!(
-            blimp.range_leptons, 384,
-            "1.5 cells is 384 leptons, not 256"
-        );
-        assert!(blimp.cell_rangefinding);
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        let range = |id: &str| rules.weapon(id).unwrap().range_leptons;
 
-        let nuke = WeaponType::from_ini_section("Nuke", ini.section("Nuke").unwrap());
+        assert_eq!(range("BlimpBomb"), 384, "1.5 cells is 384 leptons, not 256");
+        assert!(rules.weapon("BlimpBomb").unwrap().cell_rangefinding);
         assert_eq!(
-            nuke.range_leptons, -512,
+            range("Nuke"),
+            -512,
             "the -2 'infinite' sentinel scales to the -512 that 0x006F724E tests"
         );
-
-        let quarter = WeaponType::from_ini_section("Quarter", ini.section("Quarter").unwrap());
-        assert_eq!(quarter.range_leptons, 64);
-
-        let none = WeaponType::from_ini_section("NoKey", ini.section("NoKey").unwrap());
-        assert_eq!(
-            none.range_leptons, 0,
-            "absent key keeps the 0x00771CB6 constructor zero"
-        );
-        assert_eq!(none.minimum_range_leptons, 0);
+        assert_eq!(range("Quarter"), 64);
+        assert_eq!(range("NoKey"), 0, "absent key keeps the constructor zero");
+        assert_eq!(rules.weapon("NoKey").unwrap().minimum_range_leptons, 0);
+        assert_eq!(range("Unset"), 0, "-1 keeps the constructor zero");
+        assert_eq!(range("Kept"), 3 * 256, "-1 keeps the earlier pass's range");
     }
 
     #[test]
@@ -697,7 +660,6 @@ mod tests {
         let section: &IniSection = ini.section("TestWeapon").unwrap();
         let weapon: WeaponType = WeaponType::from_ini_section("TestWeapon", section);
 
-        assert_eq!(weapon.minimum_range, sim_from_f32(3.5));
         assert_eq!(weapon.minimum_range_leptons, 896, "3.5 cells * 256");
     }
 }

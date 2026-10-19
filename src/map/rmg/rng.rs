@@ -8,6 +8,7 @@
 use super::x87::TruncF64;
 use crate::rng_continuation::{MAPGEN_RNG_STATE_WORDS, MapGenRngContinuation};
 use crate::util::native_random::{self, LAG};
+use crate::util::native_x87::X87Chop53;
 
 /// Number of state words in the generator buffer.
 const STATE_LEN: usize = MAPGEN_RNG_STATE_WORDS;
@@ -75,10 +76,29 @@ impl RmgRng {
         loop {
             let draw = TruncF64::from_f64(f64::from(self.next_u32()));
             let scaled = draw.mul(span).mul(scale).add(floor);
-            let value = super::x87::ftol(scaled.to_f64());
+            let value = X87Chop53::ftol_f64_low_masked(scaled.to_f64());
             if value <= max {
                 return value;
             }
+        }
+    }
+
+    /// Import an original-executable control through the existing opaque
+    /// continuation boundary. Production generation always starts via `new`;
+    /// this hook lets numerical controls supply native-observed full states
+    /// without exposing mutable RNG words to phase modules.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn from_native_control(continuation: MapGenRngContinuation) -> Self {
+        let (disabled, state, idx_a, idx_b) = continuation.into_native_parts();
+        assert_eq!(
+            disabled, 0,
+            "generation controls require an unlocked MapGen stream"
+        );
+        assert!(idx_a < STATE_LEN && idx_b < STATE_LEN);
+        Self {
+            state,
+            idx_a,
+            idx_b,
         }
     }
 
@@ -100,11 +120,8 @@ mod tests {
     use super::*;
 
     /// Golden vectors captured from the original binary under emulation.
-    fn vectors() -> serde_json::Value {
-        let doc: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/rmg_oracle/vectors/rng.json",
-        ))
-        .unwrap();
+    fn vectors() -> &'static serde_json::Value {
+        let doc = crate::test_fixture::json("tools/rmg_oracle/vectors/rng.json");
         assert_eq!(
             doc["source"].as_str(),
             Some("unicorn/gamemd.exe"),

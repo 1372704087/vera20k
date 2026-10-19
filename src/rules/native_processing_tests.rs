@@ -1,6 +1,275 @@
 //! Ordered native processing and constructor-oracle regression tests.
 
 use super::*;
+use crate::util::save_codec;
+
+#[test]
+fn repair_inputs_retain_native_layer_defaults_through_reset_and_save() {
+    use crate::rules::ruleset::RuleSet;
+
+    // ReadGeneral670DE9/670E30/670E57 use current Rules scalars as defaults.
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[General]\nIRepairStep=20\nURepairRate=.25\nIRepairRate=.001\n",
+    ));
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[General]\nIRepairStep=-3tail\nIRepairRate=.5\n"),
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[General]\nIRepairStep=\nURepairRate=\nIRepairRate=\n"),
+    );
+    let processed = layers.process().unwrap();
+    let assert_values = |rules: &RuleSet| {
+        assert_eq!(rules.general.infantry_repair_step, -3);
+        assert_eq!(rules.general.unit_repair_rate, 0.25);
+        assert_eq!(rules.general.infantry_repair_rate, 0.5);
+    };
+    assert_values(&RuleSet::from_processed_rules(&processed).unwrap());
+    let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+    let state = trace.into_registry_state_discarding_events();
+    let state: NativeRulesRegistryState =
+        save_codec::deserialize(&save_codec::serialize(&state).unwrap()).unwrap();
+    let next = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
+        .process_with_fixed_art_and_registry_state(&IniFile::empty(), state.destructive_reset())
+        .unwrap();
+    let retained = RuleSet::from_processed_rules(&next).unwrap();
+    assert_values(&retained);
+    let cold = RuleSet::from_ini(&IniFile::from_str("[General]\nName=Next scene\n")).unwrap();
+    assert_eq!(retained.source_ini_hash(), cold.source_ini_hash());
+    assert_ne!(
+        retained.simulation_config_hash(),
+        cold.simulation_config_hash()
+    );
+}
+
+/// Rules+580 is a signed retained ReadInt/current-default, not stock300.
+#[test]
+fn maximum_cheer_rate_preserves_native_defaults_layers_and_rules_lifetime() {
+    use crate::rules::ruleset::{GeneralRules, RuleSet};
+    let publish =
+        |processed: &ProcessedRulesLayers| RuleSet::from_processed_rules(processed).unwrap();
+    assert_eq!(GeneralRules::default().maximum_cheer_rate(), 1);
+    let mut layers = RulesLayerStack::new(IniFile::from_str("[General]\n"));
+    assert_eq!(
+        publish(&layers.process().unwrap())
+            .general
+            .maximum_cheer_rate(),
+        1
+    );
+    for (kind, text, expected) in [
+        (
+            RulesLayerKind::LangRule,
+            "[General]\nMaximumCheerRate=300\n",
+            300,
+        ),
+        (
+            RulesLayerKind::GameMode,
+            "[General]\nMaximumCheerRate=-17tail\n",
+            -17,
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nMaximumCheerRate=\n",
+            -17,
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nMaximumcheerRate=99\n",
+            -17,
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nMaximumCheerRate=0\n",
+            0,
+        ),
+    ] {
+        layers.push(kind, IniFile::from_str(text));
+        assert_eq!(
+            publish(&layers.process().unwrap())
+                .general
+                .maximum_cheer_rate(),
+            expected,
+            "{text}"
+        );
+    }
+    let (_, trace) = layers
+        .process()
+        .unwrap()
+        .into_ini_and_native_type_construction_trace();
+    let state = trace.into_registry_state_discarding_events();
+    let mut retained: NativeRulesRegistryState =
+        save_codec::deserialize(&save_codec::serialize(&state).unwrap()).unwrap();
+    for reset in [false, true] {
+        if reset {
+            retained = retained.destructive_reset();
+        }
+        let next = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
+            .process_with_fixed_art_and_registry_state(&IniFile::empty(), retained)
+            .unwrap();
+        assert_eq!(publish(&next).general.maximum_cheer_rate(), 0);
+        let (_, trace) = next.into_ini_and_native_type_construction_trace();
+        retained = trace.into_registry_state_discarding_events();
+    }
+    let continued = |value: i32| {
+        let first = RulesLayerStack::new(IniFile::from_str(&format!(
+            "[General]\nPrismSupportModifier=0\nMaximumCheerRate={value}\n"
+        )))
+        .process()
+        .unwrap();
+        let (_, trace) = first.into_ini_and_native_type_construction_trace();
+        let next = RulesLayerStack::new(IniFile::from_str(
+            "[General]\nPrismSupportModifier=0\nName=Same current sources\n",
+        ))
+        .process_with_fixed_art_and_registry_state(
+            &IniFile::empty(),
+            trace.into_registry_state_discarding_events(),
+        )
+        .unwrap();
+        publish(&next)
+    };
+    let a = continued(1);
+    let b = continued(2);
+    assert_eq!(a.source_ini_hash(), b.source_ini_hash());
+    assert_ne!(a.simulation_config_hash(), b.simulation_config_hash());
+}
+
+#[test]
+fn retail_battle_cheer_rate_uses_the_production_layered_reader() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    assert_eq!(retail.rules.general.maximum_cheer_rate(), 300);
+    assert_eq!(retail.rules.general.cheer_sound(), Some("Cheer"));
+}
+
+/// Rules ctor667371/66737B/667385 initializes +14F8/+14FC/+1500, then
+/// ReadGeneral uses the retained integers as ReadInt5276D0 defaults. These
+/// are instruction-derived reader expectations, not native timing goldens.
+#[test]
+fn survivor_divisors_follow_native_defaults_and_retained_rules_passes() {
+    use crate::rules::ruleset::{GeneralRules, RuleSet};
+
+    let values = |rules: &GeneralRules| {
+        [
+            rules.allied_survivor_divisor,
+            rules.soviet_survivor_divisor,
+            rules.third_survivor_divisor,
+        ]
+    };
+    let published = |processed: &ProcessedRulesLayers| {
+        values(&RuleSet::from_processed_rules(processed).unwrap().general)
+    };
+    assert_eq!(values(&GeneralRules::default()), [200, 100, 300]);
+    let mut layers = RulesLayerStack::new(IniFile::empty());
+    assert_eq!(published(&layers.process().unwrap()), [200, 100, 300]);
+    let irrelevant = RulesLayerStack::new(IniFile::from_str("[General]\nName=Defaults\n"));
+    assert_eq!(published(&irrelevant.process().unwrap()), [200, 100, 300]);
+    for (kind, text, expected) in [
+        (
+            RulesLayerKind::LangRule,
+            "[General]\nAlliedSurvivorDivisor=500\nSovietSurvivorDivisor=250\nThirdSurvivorDivisor=750\n",
+            [500, 250, 750],
+        ),
+        (
+            RulesLayerKind::GameMode,
+            "[General]\nSovietSurvivorDivisor=-17\n",
+            [500, -17, 750],
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nAlliedSurvivorDivisor=\nSovietSurvivorDivisor=$nothex\nThirdSurvivorDivisor=invalid\n",
+            [500, -17, 0],
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nAlliedsurvivorDivisor=99\nSovietSurvivorDivisor=12tail\n",
+            [500, 12, 0],
+        ),
+        (
+            RulesLayerKind::Scenario,
+            "[General]\nAlliedSurvivorDivisor=0\nSovietSurvivorDivisor=noth\n",
+            [0, 12, 0],
+        ),
+    ] {
+        layers.push(kind, IniFile::from_str(text));
+        assert_eq!(published(&layers.process().unwrap()), expected, "{text}");
+    }
+
+    let processed = layers.process().unwrap();
+    let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+    let state = trace.into_registry_state_discarding_events();
+    let mut retained: NativeRulesRegistryState =
+        save_codec::deserialize(&save_codec::serialize(&state).unwrap()).unwrap();
+    for reset in [false, true] {
+        if reset {
+            retained = retained.destructive_reset();
+        }
+        let next = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
+            .process_with_fixed_art_and_registry_state(&IniFile::empty(), retained)
+            .unwrap();
+        assert_eq!(published(&next), [0, 12, 0]);
+        let (_, trace) = next.into_ini_and_native_type_construction_trace();
+        retained = trace.into_registry_state_discarding_events();
+    }
+}
+
+#[test]
+fn survivor_divisor_histories_change_simulation_config_hash_independently() {
+    use crate::rules::ruleset::RuleSet;
+
+    let continued = |divisors: [i32; 3]| {
+        let initial = RulesLayerStack::new(IniFile::from_str(&format!(
+            "[General]\nPrismSupportModifier=0\nAlliedSurvivorDivisor={}\n\
+             SovietSurvivorDivisor={}\nThirdSurvivorDivisor={}\n",
+            divisors[0], divisors[1], divisors[2]
+        )))
+        .process()
+        .unwrap();
+        let (_, trace) = initial.into_ini_and_native_type_construction_trace();
+        let next = RulesLayerStack::new(IniFile::from_str(
+            "[General]\nPrismSupportModifier=0\nName=Next scene\n",
+        ))
+        .process_with_fixed_art_and_registry_state(
+            &IniFile::empty(),
+            trace.into_registry_state_discarding_events(),
+        )
+        .unwrap();
+        RuleSet::from_processed_rules(&next).unwrap()
+    };
+    let baseline = continued([200, 100, 300]);
+    let mut omitted = Vec::new();
+    for (index, key) in [
+        "AlliedSurvivorDivisor",
+        "SovietSurvivorDivisor",
+        "ThirdSurvivorDivisor",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut divisors = [200, 100, 300];
+        divisors[index] += 1;
+        let changed = continued(divisors);
+        assert_eq!(baseline.source_ini_hash(), changed.source_ini_hash());
+        assert_eq!(
+            baseline.general.prism_support,
+            changed.general.prism_support
+        );
+        assert_eq!(
+            [
+                changed.general.allied_survivor_divisor,
+                changed.general.soviet_survivor_divisor,
+                changed.general.third_survivor_divisor,
+            ],
+            divisors
+        );
+        if baseline.simulation_config_hash() == changed.simulation_config_hash() {
+            omitted.push(key);
+        }
+    }
+    assert!(omitted.is_empty(), "effective hash omits {omitted:?}");
+}
 
 /// Instruction-derived reader regression: Building460F87 keeps the current
 /// triple on missing/blank keys; only a reached Building body can read it.
@@ -59,7 +328,7 @@ fn target_coord_offset_retains_only_reached_building_rules_passes() {
     );
     let (_, trace) = processed.into_ini_and_native_type_construction_trace();
     let state = trace.into_registry_state_discarding_events();
-    let restored = bincode::deserialize(&bincode::serialize(&state).unwrap()).unwrap();
+    let restored = save_codec::deserialize(&save_codec::serialize(&state).unwrap()).unwrap();
     let tail = RulesLayerStack::new(IniFile::from_str(
         "[BuildingTypes]\n0=HUT\n[HUT]\nStrength=123\n",
     ));
@@ -456,12 +725,20 @@ fn building_foundation_pass_matches_original_art_reads() {
         // The native corpus supplies a current +EF0 field, including nonzero
         // retained-state controls. Seed that exact fixture on the sole registry
         // owner; the production Process pass performs both actual ART reads.
-        let mut member = ProcessedType::new(type_id.to_owned());
-        member.building_foundation = input["initial_foundation_id"].as_u64().unwrap() as u8;
-        let mut registry = NativeRulesRegistryState::default();
+        let registered = RulesLayerStack::new(IniFile::from_str(&format!(
+            "[BuildingTypes]\n0={type_id}\n"
+        )))
+        .process()
+        .unwrap();
+        let mut registry = registered
+            .into_ini_and_native_type_construction_trace()
+            .1
+            .into_registry_state_discarding_events();
         registry
             .families
-            .insert(RulesTypeFamily::Building, vec![member]);
+            .get_mut(&RulesTypeFamily::Building)
+            .unwrap()[0]
+            .building_foundation = input["initial_foundation_id"].as_u64().unwrap() as u8;
         let mut raw = IniSection::new(type_id.to_owned());
         raw.set("Image", input["image"].as_str().unwrap());
         if let Some(poison) = input["rules_foundation_poison"].as_str() {
@@ -704,24 +981,30 @@ fn bridge_animation_lists_match_original_retained_vectors() {
     }
 }
 
+/// MetallicDebris and BridgeExplosions are RulesClass vectors, which ReadGeneral
+/// replaces only on a nonempty read: a Process call that continues the live
+/// state and omits them keeps them, and their AnimTypes stay registered.
 #[test]
-fn bridge_animation_vectors_belong_to_rules_stack_not_type_registry() {
+fn bridge_animation_vectors_survive_a_continued_process_with_their_types() {
     use crate::rules::ruleset::RuleSet;
     let processed = RulesLayerStack::new(IniFile::from_str(
         "[General]\nMetallicDebris=ONE,ONE\nBridgeExplosions=TWO\n",
     ))
     .process()
     .unwrap();
+    let debris = processed.metallic_debris().to_vec();
+    let explosions = processed.bridge_explosions().to_vec();
+    assert!(!debris.is_empty() && !explosions.is_empty());
     let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
-    let fresh_rules = RulesLayerStack::new(IniFile::empty())
+    let continued = RulesLayerStack::new(IniFile::empty())
         .process_with_fixed_art_and_registry_state(
             &IniFile::empty(),
             receipt.into_registry_state_discarding_events(),
         )
         .unwrap();
-    let rules = RuleSet::from_processed_rules(&fresh_rules).unwrap();
-    assert!(rules.general.metallic_debris.is_empty());
-    assert!(rules.bridge_rules.explosions.is_empty());
+    let rules = RuleSet::from_processed_rules(&continued).unwrap();
+    assert_eq!(rules.general.metallic_debris, debris);
+    assert_eq!(rules.bridge_rules.explosions, explosions);
     assert!(rules.anim_type_names.iter().any(|name| name == "ONE"));
     assert!(rules.anim_type_names.iter().any(|name| name == "TWO"));
 }
@@ -2085,13 +2368,15 @@ fn warhead_particle_system_and_voxel_children_obey_passed_family_timing() {
             (NativeTypeConstructorFamily::ParticleSystemType, "YPS"),
         ]
     );
+    // [PS] omits HoldsWhat: the empty default reaches ParticleType's factory
+    // (0x00645430), which constructs an empty-named type.
     assert_eq!(
         processed
             .ini()
             .section("Particles")
             .expect("Particle registry")
             .registry_ids(),
-        vec!["PART", "undefined", "WHOLD"]
+        vec!["PART", "", "WHOLD"]
     );
     assert!(actual.iter().all(|(_, id)| {
         !matches!(
@@ -2196,7 +2481,7 @@ fn crate_rule_images_allocate_and_alias_by_overlay_identity() {
 }
 
 #[test]
-fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
+fn crate_rule_images_retain_the_stored_id_of_the_type_they_allocate() {
     let exact = "A".repeat(127);
     let over = "B".repeat(128);
     let processed = RulesLayerStack::new(IniFile::from_str(&format!(
@@ -2205,27 +2490,24 @@ fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
     .process()
     .expect("crate rules process");
 
-    assert_eq!(
-        processed.crate_rules().wood_crate_img.as_deref(),
-        Some(exact.as_str())
-    );
-    let truncated = "B".repeat(127);
-    assert_eq!(
-        processed.crate_rules().crate_img.as_deref(),
-        Some(truncated.as_str())
-    );
-    assert_eq!(
-        processed.crate_rules().water_crate_img.as_deref(),
-        Some(truncated.as_str()),
-        "capacity includes the forced NUL, so only 127 ASCII bytes survive"
-    );
-    // The semantic CrateRules strings keep the 127-byte ReadString capacity,
-    // but every Type constructor stores only the native 24-byte ID and Find
-    // compares the full input against that stored prefix. A 127-byte name
-    // therefore misses every lookup and constructs a duplicate stored ID per
-    // reference (see `native_type_registry_compares_full_input_but_stores_and_emits_24_bytes`).
+    // ReadString128 bounds each read, but every Type constructor stores only
+    // the native 24-byte ID and Find compares the full input against that
+    // stored prefix. A 127-byte name therefore misses every lookup and
+    // constructs a duplicate stored ID per reference (see
+    // `native_type_registry_compares_full_input_but_stores_and_emits_24_bytes`),
+    // and each field keeps the Type the factory returned.
     let stored_a = "A".repeat(0x18);
     let stored_b = "B".repeat(0x18);
+    let crate_rules = processed.crate_rules();
+    assert_eq!(
+        crate_rules.wood_crate_img.as_deref(),
+        Some(stored_a.as_str())
+    );
+    assert_eq!(crate_rules.crate_img.as_deref(), Some(stored_b.as_str()));
+    assert_eq!(
+        crate_rules.water_crate_img.as_deref(),
+        Some(stored_b.as_str())
+    );
     assert_eq!(
         processed
             .ini()
@@ -2233,7 +2515,6 @@ fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
             .expect("truncated references allocate")
             .registry_ids(),
         vec![stored_a.as_str(), stored_b.as_str(), stored_b.as_str()],
-        "late allocation stores 24-byte IDs while semantic crate strings keep 127 bytes"
     );
 }
 
@@ -2710,5 +2991,250 @@ fn map_colors_keep_existing_identity_and_allocate_new_name() {
     assert_eq!(
         rules.section("Colors").unwrap().get_for_test("NeonPink"),
         Some("12,200,255")
+    );
+}
+
+/// Both stateful readers run through the normal ordered Process owner. Expected
+/// identities come from original reader execution, not a second Rust parser.
+#[test]
+fn secret_lab_readers_match_original_constructor_retention_null_and_case_controls() {
+    use crate::rules::ruleset::RuleSet;
+    use serde_json::{Value, json};
+    let native: Value =
+        serde_json::from_str(crate::test_fixture::text("tools/can_build_secret_lab.json")).unwrap();
+    for section in ["retained_history", "scalar_history"] {
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            // Original reader fixture supplies registered uppercase identities
+            // before any lookup, including U0/B1 not named by its first pass.
+            "[InfantryTypes]\n0=I0\n1=I1\n[VehicleTypes]\n0=U0\n1=U1\n\
+             [BuildingTypes]\n0=B0\n1=B1\n2=LAB\n[LAB]\nStrength=100\n",
+        ));
+        let rows = std::iter::once((&native["readers"]["constructor"], None)).chain(
+            native["readers"][section]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|row| (&row["state"], Some(row))),
+        );
+        for (expected, row) in rows {
+            if let Some(row) = row {
+                let mut ini = IniFile::empty();
+                for (name, entries) in row["sections"].as_object().unwrap() {
+                    let mut section = IniSection::new(name.to_owned());
+                    for (key, value) in entries.as_object().unwrap() {
+                        section.set(key, value.as_str().unwrap());
+                    }
+                    // Native skips absent sections; an empty [LAB] here is a
+                    // reached body only if entries exist, as in physical INIs.
+                    if !entries.as_object().unwrap().is_empty() {
+                        ini.replace_first_section(section);
+                    }
+                }
+                layers.push(RulesLayerKind::Scenario, ini);
+            }
+            let processed = layers.process().unwrap();
+            let rules = RuleSet::from_processed_rules(&processed).unwrap();
+            let lab = rules.object("LAB").unwrap().secret_lab();
+            let lists = rules.general.secret_lab_choices();
+            let overrides = lab.overrides_for_test();
+            assert_eq!(
+                json!({
+                    "secret_lab": lab.enabled(),
+                    "overrides": { "infantry": overrides[0], "unit": overrides[1], "building": overrides[2] },
+                    "lists": { "infantry": lists[0], "unit": lists[1], "building": lists[2] },
+                    "total": lists.iter().map(Vec::len).sum::<usize>(),
+                }),
+                *expected,
+                "{section}: {row:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn secret_lab_stock_rules_and_mode_use_native_lists_and_unoverridden_lab() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let native = crate::test_fixture::json("tools/can_build_secret_lab.json");
+    let expected = &native["readers"]["physical_layers"][0]["state"];
+    let lists = retail.rules.general.secret_lab_choices();
+    for (slot, key) in ["infantry", "unit", "building"].into_iter().enumerate() {
+        assert_eq!(
+            serde_json::to_value(&lists[slot]).unwrap(),
+            expected["lists"][key]
+        );
+    }
+    let lab = retail.rules.object("CASLAB").unwrap().secret_lab();
+    assert!(lab.enabled());
+    assert_eq!(lab.production_override(), None);
+}
+
+/// Original full Rules ctor and66E5D5/66B385 read-block controls, Steam
+///3e81a617..08600: pointer identity/empty retention and signed ReadRange.
+#[test]
+fn waypoint_cue_drop_zone_rules_keep_native_defaults_layers_and_saved_state() {
+    use crate::rules::ruleset::RuleSet;
+    let publish = |p: &ProcessedRulesLayers| RuleSet::from_processed_rules(p).unwrap();
+    let mut layers = RulesLayerStack::new(IniFile::empty());
+    let initial = publish(&layers.process().unwrap());
+    assert_eq!(initial.general.drop_zone_anim, None);
+    assert_eq!(initial.general.drop_zone_radius, 1024);
+    for (text, name, radius) in [
+        (
+            "[General]\nDropZoneAnim=BEACON\n[AudioVisual]\nDropZoneRadius=4\n",
+            Some("BEACON"),
+            1024,
+        ),
+        (
+            "[General]\nDropZoneAnim=\n[AudioVisual]\nDropZoneRadius=\n",
+            Some("BEACON"),
+            1024,
+        ),
+        ("[AudioVisual]\nDropZoneRadius=2.75\n", Some("BEACON"), 704),
+        ("[AudioVisual]\nDropZoneRadius=-1\n", Some("BEACON"), 704),
+        ("[AudioVisual]\nDropZoneRadius=-0.5\n", Some("BEACON"), -128),
+        (
+            "[General]\ndropzoneanim=OTHER\n[AudioVisual]\ndropzoneradius=12\n",
+            Some("BEACON"),
+            -128,
+        ),
+        ("[General]\nDropZoneAnim=none\n", None, -128),
+        ("[General]\nName=Missing keys\n", None, -128),
+        ("[General]\nDropZoneAnim=beacon\n", Some("BEACON"), -128),
+        ("[General]\nDropZoneAnim=<none>\n", None, -128),
+    ] {
+        layers.push(RulesLayerKind::Scenario, IniFile::from_str(text));
+        let current = publish(&layers.process().unwrap());
+        assert_eq!(current.general.drop_zone_anim.as_deref(), name, "{text}");
+        assert_eq!(current.general.drop_zone_radius, radius, "{text}");
+    }
+    let first = RulesLayerStack::new(IniFile::from_str(
+        "[General]\nDropZoneAnim=BEACON\n[AudioVisual]\nDropZoneRadius=2.75\n",
+    ))
+    .process()
+    .unwrap();
+    let (_, trace) = first.into_ini_and_native_type_construction_trace();
+    let saved = save_codec::serialize(&trace.into_registry_state_discarding_events()).unwrap();
+    let retained: NativeRulesRegistryState = save_codec::deserialize(&saved).unwrap();
+    let next_layers = RulesLayerStack::new(IniFile::from_str("[General]\nName=Same sources\n"));
+    let continued = next_layers
+        .process_with_fixed_art_and_registry_state(
+            &IniFile::empty(),
+            save_codec::deserialize(&saved).unwrap(),
+        )
+        .unwrap();
+    let continued = publish(&continued);
+    assert_eq!(continued.general.drop_zone_anim.as_deref(), Some("BEACON"));
+    assert_eq!(continued.general.drop_zone_radius, 704);
+    let cold = publish(&next_layers.process().unwrap());
+    assert_ne!(
+        continued.simulation_config_hash(),
+        cold.simulation_config_hash()
+    );
+    let reset = next_layers
+        .process_with_fixed_art_and_registry_state(&IniFile::empty(), retained.destructive_reset())
+        .unwrap();
+    let reset = publish(&reset);
+    assert_eq!(
+        reset.general.drop_zone_anim, None,
+        "retired type references are cleared"
+    );
+    assert_eq!(
+        reset.general.drop_zone_radius, 704,
+        "Rules numeric field survives Type reset"
+    );
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    // The original reader on physical RULESMD's exact keys yields BEACON/1024.
+    // The production fixture also reads optional LANGRULE, Battle, Hills and ARTMD.
+    assert_eq!(
+        retail.rules.general.drop_zone_anim.as_deref(),
+        Some("BEACON")
+    );
+    assert_eq!(retail.rules.general.drop_zone_radius, 1024);
+}
+
+#[test]
+fn spotlight_rules_keep_constructor_bits_native_parser_and_retained_pass_defaults() {
+    use crate::rules::ruleset::{RuleSet, SpotlightRules};
+    let mut layers = RulesLayerStack::new(IniFile::from_str("[General]\n"));
+    assert_eq!(
+        RuleSet::from_processed_rules(&layers.process().unwrap())
+            .unwrap()
+            .general
+            .spotlight,
+        SpotlightRules::default()
+    );
+    layers.push(RulesLayerKind::GameMode,IniFile::from_str("[General]\nSpotlightMovementRadius=-123tail\nSpotlightSpeed=.015\nSpotlightAngle=.5\nSpotlightRadius=201\n"));
+    layers.push(RulesLayerKind::Scenario,IniFile::from_str("[General]\nSpotlightMovementRadius=bad\nSpotlightSpeed=bad\nSpotlightRadius=\nSpotlightangle=8\n"));
+    let processed = layers.process().unwrap();
+    let fields = RuleSet::from_processed_rules(&processed)
+        .unwrap()
+        .general
+        .spotlight;
+    // Present malformed numeric strings read zero; only absent/empty keys keep defaults.
+    assert_eq!(fields.movement_radius, 0);
+    assert_eq!(fields.radius, 201);
+    assert_eq!(fields.speed.bits(), 0);
+    assert_eq!(fields.angle.bits(), 0x3fe0000000000000);
+    let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+    let retained = trace
+        .into_registry_state_discarding_events()
+        .destructive_reset();
+    let next = RulesLayerStack::new(IniFile::from_str("[General]\n"))
+        .process_with_fixed_art_and_registry_state(&IniFile::empty(), retained)
+        .unwrap();
+    assert_eq!(
+        RuleSet::from_processed_rules(&next)
+            .unwrap()
+            .general
+            .spotlight,
+        fields
+    );
+}
+#[test]
+fn spotlight_retail_inputs_use_the_production_layered_reader() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let r = retail.rules.general.spotlight;
+    assert_eq!(
+        (r.movement_radius, r.location_radius, r.radius),
+        (2000, 1000, 175)
+    );
+    assert_eq!(r.speed.bits(), 0x3f8eb851e0000000);
+    assert_eq!(r.acceleration.bits(), 0x3f647ae140000000);
+    assert_eq!(r.angle.bits(), 0x3fe0000000000000);
+}
+
+#[test]
+fn spotlight_type_flag_retains_the_native_current_default_across_rules_layers() {
+    use crate::rules::ruleset::RuleSet;
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[BuildingTypes]\n0=LIGHT\n[LIGHT]\nHasSpotlight=yes\n",
+    ));
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[LIGHT]\nHasSpotlight=invalid\n"),
+    );
+    assert!(
+        RuleSet::from_processed_rules(&layers.process().unwrap())
+            .unwrap()
+            .object("LIGHT")
+            .unwrap()
+            .has_spotlight
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[LIGHT]\nHasSpotlight=no\n"),
+    );
+    assert!(
+        !RuleSet::from_processed_rules(&layers.process().unwrap())
+            .unwrap()
+            .object("LIGHT")
+            .unwrap()
+            .has_spotlight
     );
 }

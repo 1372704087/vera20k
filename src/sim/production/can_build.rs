@@ -16,20 +16,10 @@
 //! hooked.
 //!
 //! RESIDUALS:
-//! - The house's secret-lab types (`HouseClass+0x114`, each building's
-//!   `0x00459840`) are not kept, so a type a captured Secret Lab grants goes
-//!   through the ordinary gates instead of straight to the build limit.
-//!   Trigger: a computer house owning a Tech Secret Lab whose TaskForces
-//!   need its type. Effect: the type is refused where its TechLevel or
-//!   `RequiredHouses=` would refuse it. Frequency: rare.
 //! - Not a difference: `RequiredHouses=` also admits the countries in the
 //!   house's masks (`+0x2C4..+0x2D0`, `0x004F7A07..0x004F7A51`), but only the
 //!   House constructor writes them (zero; operand census of each offset,
 //!   2026-10-12), so it admits the house's own country only, as VERA does.
-//! - A build limit below 1 counts what the house has produced of the type
-//!   (`+0x55A0`, `+0x55B4`, `+0x55C8`, `+0x55DC`), which is not kept: VERA
-//!   counts none. Dormant: retail `rulesmd.ini` sets `BuildLimit=1` on twelve
-//!   types and nothing lower, and the nine mode INIs set none.
 //! - An infantry type with `VehicleThief=` also counts the house's units
 //!   that hold one of it (`UnitClass+0x338`); VERA has no hijacking, so the
 //!   count adds none.
@@ -47,7 +37,7 @@ use crate::sim::house_state::HouseState;
 use crate::sim::house_tracking::HouseTracking;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::{MissionId, MissionType};
-use crate::sim::world::Simulation;
+use crate::sim::world::{SimSoundEvent, Simulation};
 
 /// `HouseClass::CanBuild`'s answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,12 +50,6 @@ pub(crate) enum CanBuild {
     AtLimit,
 }
 
-
-/// The top of the declared tech band. `object_type` reads `TechLevel=` with a
-/// default of 255, so an absent key lands far above this; an explicit `-1` is
-/// the separate civilian sentinel. Both are "outside the band".
-const MAX_TECH_LEVEL: i32 = 10;
-
 /// `HouseClass::CanBuild @ 0x004F7870` for house `owner` and type `obj`.
 ///
 /// With `skip_tech` (the first flag), only the build limit is asked
@@ -74,10 +58,11 @@ const MAX_TECH_LEVEL: i32 = 10;
 ///   (`0x007113CC`);
 /// - a `PrerequisiteOverride=` BuildingType the house has on the map
 ///   (`+0x5550`) skips to the build limit;
+/// - a matching owned Secret Lab grant skips to the build limit;
 /// - `TechLevel=-1` refuses;
 /// - `RequiresStolenThirdTech=`, `RequiresStolenSovietTech=` or
 ///   `RequiresStolenAlliedTech=` (`+0xD9B`, `+0xD9C`, `+0xD9D`) refuses
-///   unless the house stole that tech (module residual);
+///   unless the house stole that tech;
 /// - `RequiredHouses=` (`+0xDA0`) without the house's bit refuses;
 /// - `ForbiddenHouses=` (`+0xDA4`) with it refuses;
 /// - with super weapons off (`0xA8B263`), a BuildingType whose
@@ -101,25 +86,8 @@ pub(crate) fn can_build(
     skip_tech: bool,
     count_in_production: bool,
 ) -> CanBuild {
-    // Trainer, resolved once. Both switches drop the prerequisite arm: a base
-    // that owns a barracks can build everything a barracks could ever make,
-    // without first owning the radar or the battle lab. What separates them is
-    // the band's edge — all-tech stops at the top of the declared levels,
-    // tech-boost keeps going.
-    let trainer = sim.cheats.applies_to(owner)
-        && (sim.cheats.tech_all || sim.cheats.tech_boost);
-    if trainer {
-        // `TechLevel=-1` is the civilian sentinel and an absent key defaults to
-        // 255 (`object_type`); both sit outside the declared band. All-tech
-        // stops at the band's top, tech-boost keeps going past it.
-        let out_of_band = obj.tech_level == -1 || obj.tech_level > MAX_TECH_LEVEL;
-        if out_of_band && !sim.cheats.tech_boost {
-            return CanBuild::No;
-        }
-        return build_limit(sim, owner, obj, count_in_production);
-    }
     if skip_tech {
-        return build_limit(sim, owner, obj, count_in_production);
+        return build_limit(sim, rules, owner, obj, count_in_production);
     }
     let Some(house) = sim.houses.get(&owner) else {
         return CanBuild::No;
@@ -131,13 +99,16 @@ pub(crate) fn can_build(
         Prerequisite::Building(index) => buildings_on_map(sim, rules, house, index) > 0,
         Prerequisite::Group(_) => false,
     });
-    if override_on_map {
-        return build_limit(sim, owner, obj, count_in_production);
+    // House4F78E4..4F7925 scans House+110 and calls459840. This
+    // shortcut precedes all ordinary tech/country/prerequisite gates, for
+    // humans and AI alike, and still asks the common build-limit owner.
+    if override_on_map || crate::sim::secret_lab::house_grants(sim, rules, house, obj) {
+        return build_limit(sim, rules, owner, obj, count_in_production);
     }
     // `0x004F7976..0x004F79E2`: each `RequiresStolen*Tech=` needs the
     // house's stolen-tech byte, which a spy's BuildTech infiltration sets.
-    //
-    if obj.tech_level == -1 || !house.has_stolen_tech_for(obj) {
+    let type_tech_level = sim.object_tech_level(obj);
+    if type_tech_level == -1 || !house.has_stolen_tech_for(obj) {
         return CanBuild::No;
     }
     let house_bit = crate::sim::ai_buildable::house_country_bit(
@@ -161,7 +132,7 @@ pub(crate) fn can_build(
     {
         return CanBuild::No;
     }
-    if obj.tech_level > house.tech_level {
+    if type_tech_level > house.tech_level {
         return CanBuild::No;
     }
     if !house.is_controlled_by_human(sim.session.game_mode_nonzero) {
@@ -174,7 +145,7 @@ pub(crate) fn can_build(
     {
         return CanBuild::No;
     }
-    build_limit(sim, owner, obj, count_in_production)
+    build_limit(sim, rules, owner, obj, count_in_production)
 }
 
 /// One `Prerequisite=` entry of CanBuild's human arm
@@ -233,17 +204,24 @@ fn buildings_on_map(sim: &Simulation, rules: &RuleSet, house: &HouseState, index
 /// factory scan runs only when the count equals the limit exactly.
 fn build_limit(
     sim: &Simulation,
+    rules: &RuleSet,
     owner: InternedId,
     obj: &ObjectType,
     count_in_production: bool,
 ) -> CanBuild {
     let limit = obj.build_limit;
-    // `limit < 1` compares `|limit|` with the produced count, which VERA
-    // does not keep (module residual): a count of zero refuses a zero limit
-    // (and `i32::MIN`, whose magnitude stays negative), and passes any other.
-    // Only aircraft, buildings and units answer Yes at once.
+    // 4F7FD6/4F80A1/4F81D0/4F829B query the type's produced item,
+    // not its owned count. CDQ/XOR/SUB keeps INT_MIN's magnitude negative.
+    // Record and both query ports share HouseState's Counter49FAE0 owner;
+    // tools/can_build_produced_history executes the connected original bodies.
     if limit < 1 {
-        if limit.wrapping_abs() <= 0 {
+        let produced = rules
+            .type_array_index(obj.category, &obj.id)
+            .zip(sim.houses.get(&owner))
+            .map_or(0, |(index, house)| {
+                house.produced_count(obj.category, index)
+            });
+        if produced >= limit.wrapping_abs() {
             return CanBuild::No;
         }
         if obj.category != ObjectCategory::Infantry {
@@ -292,8 +270,8 @@ fn build_limit(
 /// aircraft on the map (`+0x558C`) and in that factory must stay below it
 /// (`0x0050B570..0x0050B5EB`); its `BuildLimit=` is not read. Any other
 /// type with a `BuildLimit=` below 1 is at its limit once the limit's
-/// magnitude is reached by what the house produced (module residual: VERA
-/// counts none) and what the factory holds; with a positive one, once the
+/// magnitude is reached by what the house produced and what the factory
+/// holds; with a positive one, once the
 /// tracked count (`owned_count`) and the factory's reach it. An infantry
 /// `VehicleThief=` would add the units that hold one (module residual).
 pub(crate) fn check_build_limit(
@@ -332,7 +310,15 @@ pub(crate) fn check_build_limit(
     let type_id = sim.interner.get(&obj.id);
     let queued = in_factory(type_id);
     if limit < 1 {
-        return limit.wrapping_abs() <= queued;
+        // 50B405/48B/537/60B use the same retained produced item as
+        // CanBuild, add Factory CountTotal with ADD32, then compare signed.
+        let produced = rules
+            .type_array_index(obj.category, &obj.id)
+            .zip(sim.houses.get(&owner))
+            .map_or(0, |(index, house)| {
+                house.produced_count(obj.category, index)
+            });
+        return produced.wrapping_add(queued) >= limit.wrapping_abs();
     }
     let owned = type_id.zip(tracking).map_or(0, |(type_id, tracking)| {
         tracking.owned_count(EntityCategory::from(obj.category), type_id)
@@ -369,7 +355,7 @@ pub fn object_find_factory(
 /// eligible primary wins; without one, return the last eligible building.
 /// Human PLACE4FB1DA retains this transient identity through its radio/release
 /// path. Existing null-test callers consume this same result.
-pub(crate) fn find_factory(
+pub fn find_factory(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,
@@ -384,8 +370,6 @@ pub(crate) fn find_factory(
     let ownable = get_ownable(obj, rules, game_mode_nonzero);
     let selling = MissionId::from_known(MissionType::Selling);
     let naval_unit = obj.category == ObjectCategory::Vehicle && obj.naval;
-    let primary_category = super::production_tech::production_category_for_object(obj);
-    let primary = sim.production.primary_factory(owner, primary_category);
     let mut candidate = None;
     for &id in house.base_projection.buildings() {
         let Some(building) = sim.substrate.entities.get(id) else {
@@ -417,7 +401,7 @@ pub(crate) fn find_factory(
             }
         {
             candidate = Some(id);
-            if primary == Some(id) {
+            if sim.production.is_primary_factory(id) {
                 break;
             }
         }
@@ -426,14 +410,14 @@ pub(crate) fn find_factory(
 }
 
 /// Building448070, called from admitted Unlimbo4411B1 and ChangeOwner448C69:
-/// preserve an existing live non-limbo primary of matching Factory/Naval;
+/// preserve an existing non-limbo primary of matching Factory/Naval;
 /// otherwise make this building primary. This is the lifecycle producer, not
 /// the fallback choice returned by FindFactory.
 ///
 /// Residual #1709: 44807C/4480D5 and 4481C5 compare every nonzero raw
 /// RTTI and Naval, including distinct Unit1/UnitType40 groups. The existing
-/// serialized ProductionCategory index represents ordinary retail queues
-/// only; custom raw/Naval groups need a separate lifecycle/state migration.
+/// serialized ProductionCategory index represents recognized Type factories
+/// only; other raw Factory RTTIs still need their lifecycle/state migration.
 /// See https://github.com/YuriPlanet/vera20k/issues/1709.
 pub(crate) fn initialize_factory_primary(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     let Some(building) = sim.substrate.entities.get(id) else {
@@ -448,30 +432,125 @@ pub(crate) fn initialize_factory_primary(sim: &mut Simulation, id: u64, rules: &
     let Some(factory) = ty.factory_type() else {
         return;
     };
-    let category = match factory {
-        FactoryType::InfantryType => super::ProductionCategory::Infantry,
-        FactoryType::UnitType if ty.naval => super::ProductionCategory::Ship,
-        FactoryType::UnitType => super::ProductionCategory::Vehicle,
-        FactoryType::AircraftType => super::ProductionCategory::Aircraft,
-        FactoryType::BuildingType => super::ProductionCategory::Building,
+    let Some(category) = super::production_tech::factory_category_for_building(ty) else {
+        return;
     };
     let owner = building.owner();
-    let current = sim.production.primary_factory(owner, category);
-    let keep = current
-        .and_then(|primary| sim.substrate.entities.get(primary))
-        .is_some_and(|candidate| {
-            !candidate.lifecycle.in_limbo()
-                && candidate.owner() == owner
-                && sim
-                    .object_type(candidate.type_ref(), rules)
-                    .is_some_and(|candidate_type| {
-                        candidate_type.factory_type() == Some(factory)
-                            && candidate_type.naval == ty.naval
+    //4480B8..448114 walks House+6C, rather than choosing one retained ID.
+    // A limbo primary does not prevent this admitted building becoming primary.
+    let keep = sim.houses.get(&owner).is_some_and(|house| {
+        house
+            .base_projection
+            .buildings()
+            .iter()
+            .any(|&candidate_id| {
+                sim.substrate
+                    .entities
+                    .get(candidate_id)
+                    .is_some_and(|candidate| {
+                        !candidate.lifecycle.in_limbo()
+                            && sim.production.is_primary_factory(candidate_id)
+                            && sim.object_type(candidate.type_ref(), rules).is_some_and(
+                                |candidate_type| {
+                                    candidate_type.factory_type() == Some(factory)
+                                        && candidate_type.naval == ty.naval
+                                },
+                            )
                     })
-        });
+            })
+    });
     if !keep {
         sim.production.set_primary_factory(owner, category, id);
     }
+}
+
+/// Building WhatAction447210's ordinary factory self arm4472EC..447348.
+/// Techno7000B9..7000E8 owns the separate lone-selected/current-player gate.
+/// A current primary or InvisibleInGame factory answers Action0, not Action4.
+/// Source: original gamemd.exe SHA256
+/// 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c.
+pub fn can_select_factory_primary(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
+    sim.substrate.entities.get(id).is_some_and(|building| {
+        building.category() == EntityCategory::Structure
+            && !sim.production.is_primary_factory(id)
+            && sim
+                .object_type(building.type_ref(), rules)
+                .is_some_and(|ty| !ty.invisible_in_game && ty.factory_type().is_some())
+    })
+}
+
+/// Building448160's manual primary toggle, reached by Event17 at4C71B9.
+/// Setting clears matching non-limbo House peers and announces only for the
+/// current player's House; a real queued duplicate clears the target instead.
+/// The receiver owns its live-Building gate. There is no owner, limbo, online,
+/// Selling or health admission in this native body. Returns control admission;
+/// the resulting native+3D3 value is the existing owner's per-ID query.
+/// Source: original gamemd.exe SHA256
+/// 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c;
+/// consumed controls: tools/spatial_oracle/building_manual_primary.json.
+pub(crate) fn toggle_factory_primary(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
+    let Some((owner, factory, naval, category)) =
+        sim.substrate.entities.get(id).and_then(|building| {
+            if building.category() != EntityCategory::Structure {
+                return None;
+            }
+            let ty = sim.object_type(building.type_ref(), rules)?;
+            Some((
+                building.owner(),
+                ty.factory_type()?,
+                ty.naval,
+                super::production_tech::factory_category_for_building(ty)?,
+            ))
+        })
+    else {
+        return false;
+    };
+    if sim.production.is_primary_factory(id) {
+        sim.production.clear_primary_factory(id);
+    } else {
+        let Some(house) = sim.houses.get(&owner) else {
+            return false;
+        };
+        let peers: Vec<_> = house
+            .base_projection
+            .buildings()
+            .iter()
+            .copied()
+            .filter(|&peer| {
+                sim.substrate.entities.get(peer).is_some_and(|candidate| {
+                    !candidate.lifecycle.in_limbo()
+                        && sim
+                            .object_type(candidate.type_ref(), rules)
+                            .is_some_and(|ty| {
+                                ty.factory_type() == Some(factory) && ty.naval == naval
+                            })
+                })
+            })
+            .collect();
+        for peer in peers {
+            sim.production.clear_primary_factory(peer);
+        }
+        sim.production.set_primary_factory(owner, category, id);
+        if sim.house_is_human_player(owner) {
+            sim.sound_events.push(SimSoundEvent::HouseEva {
+                owner,
+                event: "EVA_PrimaryBuildingSelected",
+            });
+        }
+        if factory == FactoryType::BuildingType {
+            //44823B is setting-only: old-primary clear jumps448246.
+            // Keep the existing House edge owner; its wider yard geometry
+            // and other raw Factory groups remain separate audit bounds.
+            // The ordinary GAWEAP(raw40) chain does not enter this branch.
+            sim.refresh_waypoint_edge_from_committed_structure(id);
+        }
+    }
+    //44824C Mark(CHANGE) redraws and propagates palette/cloak presentation,
+    // without the PlaceUp/PlaceDown occupancy arms (43FB0C[2]=43F9A6).
+    // Healthy GAWEAP's inputs stay unchanged; existing live-frame owners
+    // rebuild its rendering/label, without a separate dirty/primary mirror.
+    // Wider cloak/flash/attached-Anim refresh remains outside this chain.
+    true
 }
 
 /// `TechnoTypeClass::Get_Ownable @ 0x00711EC0` (vtable `+0x70` of every
@@ -487,3 +566,7 @@ fn get_ownable(obj: &ObjectType, rules: &RuleSet, game_mode_nonzero: bool) -> u3
 #[cfg(test)]
 #[path = "can_build_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "can_build_produced_history_tests.rs"]
+mod produced_history_tests;

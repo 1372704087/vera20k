@@ -1,5 +1,6 @@
 use super::*;
 use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
+use crate::util::save_codec;
 
 use crate::util::fixed_math::SimFixed;
 
@@ -174,7 +175,7 @@ fn building_navigation_reaches_drive_and_ship_terminal_callbacks() {
             let destination = head(mover, family);
             mover
                 .navigation
-                .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
+                .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
             match family {
                 TrackFamily::Drive => {
                     assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
@@ -258,7 +259,7 @@ fn terminal_queries_retained_target_after_clearing_own_head_before_per_cell() {
         let destination = head(mover, family);
         mover
             .navigation
-            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
         match family {
             TrackFamily::Drive => {
                 assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
@@ -416,7 +417,7 @@ fn crossing_mark_state_and_open_topped_cargo_are_visible_before_paid_continuatio
     .unwrap();
     sim.interner = crate::sim::intern::test_interner();
     let mut cargo = PassengerCargo::new(2, 1);
-    assert!(cargo.board(2, 1));
+    cargo.board_forced_chain(&[(2, 1)]);
     sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     let passenger = GameEntity::test_default(2, "E1", "Americans", 4, 4);
     sim.substrate.entities.insert(passenger);
@@ -619,11 +620,9 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                         cell.speed_costs.float = Some(100);
                         if family == TrackFamily::Ship {
                             cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
-                            cell.is_water = true;
                             cell.ground_walk_blocked = true;
                             cell.land_type =
                                 crate::rules::terrain_rules::LandType::Water.as_index();
-                            cell.yr_cell_land_type = cell.land_type;
                         }
                         cell
                     })
@@ -784,6 +783,7 @@ fn bridge_placement_retains_selected_cell_but_reads_fresh_world_attributes() {
         DriveCoord::cell(10, 9, 0),
         (10, 10),
         false,
+        false,
         None,
         None,
         &mut |sim, id, event| {
@@ -824,34 +824,35 @@ fn ordinary_foot_limbo_releases_live_head_and_handoff_for_both_families() {
         assert!(loco.store_track_progress(family, state));
         sim.track_apply_occupation(1, family, true);
         let entity = sim.substrate.entities.get(1).unwrap();
-        let (head, handoff) = match family {
-            TrackFamily::Drive => {
-                let state = entity
-                    .locomotor
-                    .as_ref()
-                    .and_then(|l| l.selected_drive_runtime())
-                    .and_then(|r| r.retained())
-                    .unwrap();
-                (
-                    state.occupation_head_to().unwrap(),
-                    state.occupation_handoff().unwrap(),
-                )
-            }
-            TrackFamily::Ship => {
-                let state = entity
-                    .locomotor
-                    .as_ref()
-                    .and_then(|l| l.selected_ship_runtime())
-                    .and_then(|r| r.retained())
-                    .unwrap();
-                (
-                    state.occupation_head_to().unwrap(),
-                    state.occupation_handoff().unwrap(),
-                )
-            }
-        };
-        assert_ne!((head.rx, head.ry), (10, 10));
+        let (handoff, head) = super::super::at_coord::AtCoordQuery::from_state(
+            if family == TrackFamily::Drive {
+                crate::rules::locomotor_type::LocomotorKind::Drive
+            } else {
+                crate::rules::locomotor_type::LocomotorKind::Ship
+            },
+            position_world_coord(&entity.position),
+            Some(head(entity, family)),
+            super::super::at_coord::AtCoordTrack {
+                turn_index: 1,
+                cursor: 0,
+                reversed: false,
+            },
+        )
+        .unwrap()
+        .cells();
+        let head = (head.0 as u16, head.1 as u16);
+        let handoff = handoff.map(|cell| (cell.0 as u16, cell.1 as u16)).unwrap();
+        assert_ne!(head, (10, 10));
         assert_ne!(head, handoff);
+        for cell in [head, handoff] {
+            assert_eq!(
+                sim.substrate
+                    .raw_cell_occupation
+                    .ground_bits(cell.0, cell.1)
+                    & 0x20,
+                0x20
+            );
+        }
         sim.apply_lifecycle_request(LifecycleRequest::Uninit {
             stable_id: 1,
             reason: UninitReason::Crush,
@@ -859,71 +860,17 @@ fn ordinary_foot_limbo_releases_live_head_and_handoff_for_both_families() {
         assert_eq!(
             sim.substrate
                 .raw_cell_occupation
-                .ground_bits(head.rx, head.ry)
+                .ground_bits(head.0, head.1)
                 & 0x20,
             0
         );
         assert_eq!(
             sim.substrate
                 .raw_cell_occupation
-                .ground_bits(handoff.rx, handoff.ry)
+                .ground_bits(handoff.0, handoff.1)
                 & 0x20,
             0
         );
-        assert!(
-            !sim.substrate
-                .cell_occupation
-                .occupied_by_other(head.rx, head.ry, head.layer, 99)
-        );
-    }
-}
-
-#[test]
-fn raw_clear_retires_aliasing_roles_before_reconciliation() {
-    for family in [TrackFamily::Drive, TrackFamily::Ship] {
-        let (mut sim, _, _) = fixture(family, 0);
-        let loco = sim
-            .substrate
-            .entities
-            .get_mut(1)
-            .unwrap()
-            .locomotor
-            .as_mut()
-            .unwrap();
-        let mut state = loco.track_progress(family).unwrap();
-        state.set_turn_index(1);
-        assert!(loco.store_track_progress(family, state));
-        sim.track_apply_occupation(1, family, true);
-        let entity = sim.substrate.entities.get(1).unwrap();
-        let handoff = match family {
-            TrackFamily::Drive => entity
-                .locomotor
-                .as_ref()
-                .and_then(|l| l.selected_drive_runtime())
-                .and_then(|r| r.retained())
-                .unwrap()
-                .occupation_handoff()
-                .unwrap(),
-            TrackFamily::Ship => entity
-                .locomotor
-                .as_ref()
-                .and_then(|l| l.selected_ship_runtime())
-                .and_then(|r| r.retained())
-                .unwrap()
-                .occupation_handoff()
-                .unwrap(),
-        };
-        sim.track_raw_mark_at(1, DriveCoord::cell(handoff.rx, handoff.ry, 0), false);
-        sim.substrate.cell_occupation.reconcile_entity(
-            sim.substrate.entities.get(1).unwrap(),
-            &sim.substrate.occupancy,
-        );
-        assert!(!sim.substrate.cell_occupation.occupied_by_other(
-            handoff.rx,
-            handoff.ry,
-            handoff.layer,
-            99
-        ));
     }
 }
 
@@ -955,7 +902,7 @@ fn repeated_foot_limbo_does_not_clear_a_new_raw_head_claim() {
         // Boarding retains the locomotor head. A later carrier teardown calls
         // UnInit/Limbo again; native Foot's early in-limbo gate preserves the
         // raw bit another mover has since written at that old head.
-        sim.track_raw_mark_at(99, supplied, true);
+        sim.track_raw_mark_at(supplied, true);
         sim.apply_lifecycle_request(LifecycleRequest::Uninit {
             stable_id: 1,
             reason: UninitReason::Crush,
@@ -1473,7 +1420,7 @@ fn per_cell_factory_clearance_keeps_reason_mission_rtti_and_ground_building_gate
         sim.substrate.entities.insert(target);
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.navigation
-            .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 3 }));
+            .set_nav_com_for_test(Some(NavTargetRef::Object { id: 3 }));
         unit.mission.apply_test_fixture(MissionTestFixture {
             current: MissionId::from_raw(7),
             suspended: MissionId::NONE,
@@ -1883,11 +1830,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         let nav = |target: Option<NavTargetRef>| match target {
             None => Value::Null,
             Some(NavTargetRef::Cell { rx, ry }) => json!([rx, ry]),
-            Some(
-                NavTargetRef::Building { id }
-                | NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id },
-            ) => name(Some(id)),
+            Some(NavTargetRef::Object { id }) => name(Some(id)),
         };
         let target = |target: Option<TargetKind>| match target {
             None => Value::Null,
@@ -2138,7 +2081,7 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         unit.navigation.set_nav_com_for_test(
             before["unit_nav"]
                 .is_string()
-                .then_some(NavTargetRef::Building { id: depot }),
+                .then_some(NavTargetRef::Object { id: depot }),
         );
         unit.navigation.set_nav_com_aux_for_test(None);
         unit.attack_target
@@ -2405,7 +2348,7 @@ fn foot_idle_set_latch_refuses_queue_and_speed_setters_without_effects() {
         .navigation
         .push_nav_queue_for_test(crate::sim::components::NavTargetRef::cell(20, 20));
     actor.foot_speed.set_speed_fraction(SimFixed::lit("0.625"));
-    let before = bincode::serialize(actor).unwrap();
+    let before = save_codec::serialize(actor).unwrap();
     let hash = sim.state_hash();
     let rng = sim.rng_state();
     assert_eq!(
@@ -2418,7 +2361,7 @@ fn foot_idle_set_latch_refuses_queue_and_speed_setters_without_effects() {
         row["returned_al"].as_u64().unwrap() as u8
     );
     assert_eq!(
-        bincode::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
+        save_codec::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
         before
     );
     assert_eq!(sim.state_hash(), hash);
@@ -2804,7 +2747,7 @@ fn a_mission_only_transport_with_passengers_selects_unload() {
             unit.passenger_role
                 .cargo_mut()
                 .unwrap()
-                .board_forced(passenger, 1);
+                .board_forced_chain(&[(passenger, 1)]);
         }
         if case == "teamed" {
             crate::sim::team_script_vm::join_team_for_test(&mut sim, &[id], false, false);
@@ -2888,5 +2831,109 @@ fn a_unit_entering_a_bunker_ahead_of_it_queues_nothing() {
             on_bunker.then_some(MissionType::Guard),
             "on the bunker {on_bunker}"
         );
+    }
+}
+
+/// Original Drive4B1999..4B19FA stores BD4CCCCD after a crossing paid
+/// point's Mark(DOWN), before SetHeight or any terminal PerCell. The existing
+/// paid-loop fixture supplies admission/budget; this is not a natural route.
+#[test]
+fn paid_drive_crossing_sets_wall_tilt_after_mark_put_before_per_cell() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::overlay_grid::OverlayGrid;
+    use crate::util::native_x87::NativeF32Bits;
+
+    for (straight, crusher, tilts, wall, overlay, remove_at_mark, expected) in [
+        (true, true, true, true, true, false, true),
+        (false, true, true, true, true, false, false),
+        (true, false, true, true, true, false, false),
+        (true, true, false, true, true, false, false),
+        (true, true, true, false, true, false, false),
+        (true, true, true, true, false, false, false),
+        (true, true, true, true, true, true, false),
+    ] {
+        let (mut sim, invocation, budget) = fixture(TrackFamily::Drive, 8);
+        let ini = IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nCrusher={}\nTiltsWhenCrushes={}\n\
+             [OverlayTypes]\n0=FENCE\n[FENCE]\nWall={}\nCrushable=yes\nStrength=100\n",
+            if crusher { "yes" } else { "no" },
+            if tilts { "yes" } else { "no" },
+            if wall { "yes" } else { "no" },
+        ));
+        let rules = RuleSet::from_ini(&ini).unwrap();
+        let registry = OverlayTypeRegistry::from_ini(&ini, None);
+        sim.install_resolved_terrain_for_new_map(
+            crate::map::resolved_terrain::test_flat_ground_grid(33),
+        );
+        let mut grid = OverlayGrid::new(33, 33);
+        // A uniform synthetic overlay input keeps the test about the existing
+        // paid receiver, independently of which native raw point first crosses.
+        if overlay {
+            for y in 0..33 {
+                for x in 0..33 {
+                    grid.place_overlay(x, y, 0, 0);
+                }
+            }
+        }
+        sim.overlay_grid = Some(grid);
+        let entity = sim.substrate.entities.get_mut(1).unwrap();
+        let loco = entity.locomotor.as_mut().unwrap();
+        assert!(loco.store_drive_straight(straight));
+        // As in the existing crossing test, the first real paid point crosses.
+        assert!(loco.store_track_head(TrackFamily::Drive, Some(DriveCoord::cell(10, 7, 0)),));
+        let mut rocking = crate::sim::rocking::RockingState::default();
+        rocking.set_angle_sideways(SimFixed::lit("0.125"));
+        rocking.set_angle_forwards_for_test(SimFixed::lit("0.25"));
+        rocking.set_vel_sideways_for_test(SimFixed::lit("0.125"));
+        rocking.set_vel_forwards_native(NativeF32Bits::from_bits(0x3e80_0000));
+        let before = rocking.native_bits();
+        entity.rocking = Some(rocking);
+        let mut marked = false;
+        let mut per_cell = 0;
+        let moved = sim.run_track_points_observed(
+            invocation,
+            budget,
+            Some(&rules),
+            Some(&registry),
+            &mut |sim, id, event| {
+                if event == TrackWorldEvent::MarkPut {
+                    marked = true;
+                    assert_eq!(
+                        sim.substrate
+                            .entities
+                            .get(id)
+                            .unwrap()
+                            .rocking
+                            .as_ref()
+                            .unwrap()
+                            .native_bits(),
+                        before,
+                        "pre-entry tilt runs only after Mark(DOWN) returns"
+                    );
+                    if remove_at_mark {
+                        let entity = sim.substrate.entities.get(id).unwrap();
+                        sim.overlay_grid
+                            .as_mut()
+                            .unwrap()
+                            .clear_overlay(entity.position.rx(), entity.position.ry());
+                    }
+                }
+                per_cell += usize::from(event == TrackWorldEvent::PerCell);
+            },
+        );
+        assert_eq!(moved, 1);
+        assert!(marked);
+        assert_eq!(per_cell, 0, "physical crossing is not terminal PerCell");
+        let actual = sim
+            .substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .rocking
+            .as_ref()
+            .unwrap()
+            .native_bits();
+        assert_eq!(&actual[..3], &before[..3]);
+        assert_eq!(actual[3], if expected { 0xbd4c_cccd } else { before[3] });
     }
 }

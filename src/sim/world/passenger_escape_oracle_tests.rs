@@ -59,11 +59,8 @@ const RULES: &str = "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=APC\n\
 const SPOT_OFFSETS: [(i32, i32); 5] = [(128, 128), (64, 64), (192, 64), (64, 192), (192, 192)];
 const MISSION_HUNT: i64 = 15;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/passenger_escape.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/passenger_escape.json")
 }
 
 struct Scene {
@@ -129,9 +126,8 @@ fn edit_cells(input: &Value, terrain: &mut ResolvedTerrainGrid) {
         };
         for (wx, wy) in water {
             let c = terrain.cell_mut(wx, wy).unwrap();
-            c.yr_cell_land_type = 2;
-            c.base_yr_cell_land_type = 2;
-            c.is_water = true;
+            c.land_type = 2;
+            c.base_land_type = 2;
             c.speed_costs = none;
             c.base_speed_costs = none;
         }
@@ -166,6 +162,12 @@ fn scene(input: &Value) -> Scene {
         }
     }
     sim.session.game_mode_nonzero = true;
+    // A selected human transport is the local player's (IsHumanPlayer
+    // `0x0050B6F0` in a nonzero mode); its escapees pass Select's
+    // ownership gate (`0x006FBFA0`).
+    if human {
+        sim.session.current_house = Some(americans);
+    }
     sim.session.binary_frame = input["frame"].as_u64().unwrap_or(200) as u32;
     let frame = sim.session.binary_frame;
 
@@ -253,27 +255,28 @@ fn scene(input: &Value) -> Scene {
         );
         sim.substrate.entities.get_mut(id).unwrap().passenger_role =
             PassengerRole::inside_for_test(transport, input["open_topped"] == true);
-        assert!(
-            sim.substrate
-                .entities
-                .get_mut(transport)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(id, 1)
-        );
+        sim.substrate
+            .entities
+            .get_mut(transport)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(id, 1)]);
         if input["open_topped"] == true {
             assert!(sim.register_open_topped_passenger(id));
             // A target to drop: Assign_Target(NULL) is the only writer here.
-            let commits = crate::sim::mission::concrete_effects::assign_target_commits(
+            let stored = crate::sim::mission::concrete_effects::assign_target_stored(
                 &sim.substrate.entities,
+                &sim.production.terrain_objects,
+                id,
                 Some(TargetKind::Entity(attacker)),
+                None,
             );
             crate::sim::mission::concrete_effects::represented_assign_target_admitted(
                 sim.substrate.entities.get_mut(id).unwrap(),
                 Some(TargetKind::Entity(attacker)),
-                commits,
+                stored,
             );
         }
     }

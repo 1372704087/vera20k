@@ -1,7 +1,7 @@
 //! Tests for zone-aware pathfinding wrappers.
 
 use super::super::zone_hierarchy::{ZoneEdgeRecord, ZoneHierarchy, ZoneLevelGraph, ZoneRecord};
-use super::super::zone_map::{ZONE_INVALID, ZoneGrid, ZoneId};
+use super::super::zone_map::{ZoneGrid, ZoneId};
 use super::*;
 use crate::map::bridge_facts::{
     BRIDGE_FLAG_DIRECTION_ZERO, BRIDGE_FLAG_STRUCTURAL, BRIDGE_FLAG_TRANSITION,
@@ -10,34 +10,12 @@ use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zon
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::MovementZone;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 use crate::sim::bridge_state::{BridgeEndpointRecord, BridgeRecordKind};
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::components::NavTargetRef;
-use crate::sim::entity_store::EntityStore;
-use crate::sim::game_entity::GameEntity;
-use crate::sim::intern::test_interner;
-use crate::sim::miner::miner_system::assign_miner_cell_destination;
 use crate::sim::pathfinding::PathGrid;
-use crate::sim::production::{
-    ProductionCategory, STARTING_CREDITS, dispatch_production_changes_for_tests,
-};
 use crate::sim::world::Simulation;
-
-fn grid_from_str(s: &str) -> PathGrid {
-    let lines: Vec<&str> = s.trim().lines().map(|l| l.trim()).collect();
-    let h = lines.len() as u16;
-    let w = lines[0].len() as u16;
-    let mut grid = PathGrid::new(w, h);
-    for (ry, line) in lines.iter().enumerate() {
-        for (rx, ch) in line.chars().enumerate() {
-            if ch == '#' {
-                grid.set_blocked(rx as u16, ry as u16, true);
-            }
-        }
-    }
-    grid
-}
 
 fn gsi_04_12_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
     let speed_costs = SpeedCostProfile {
@@ -54,12 +32,9 @@ fn gsi_04_12_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
             (0..width).map(move |rx| ResolvedTerrainCell {
                 tileset_index: None,
                 land_type: LandType::Clear.as_index(),
-                yr_cell_land_type: LandType::Clear.as_index(),
                 speed_costs,
                 zone_type: zone_class::GROUND,
                 base_land_type: LandType::Clear.as_index(),
-                base_yr_cell_land_type: LandType::Clear.as_index(),
-                base_terrain_class: TerrainClass::Clear,
                 base_speed_costs: speed_costs,
                 ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
             })
@@ -68,29 +43,6 @@ fn gsi_04_12_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
     let mut terrain = ResolvedTerrainGrid::from_cells(width, height, cells);
     terrain.test_set_high_bridge_set_starts(Some(100), None);
     terrain
-}
-
-fn gsi_04_12_cell_listed_entity(
-    stable_id: u64,
-    type_ref: &str,
-    owner: &str,
-    rx: u16,
-    ry: u16,
-) -> GameEntity {
-    let mut entity = GameEntity::test_default(stable_id, type_ref, owner, rx, ry);
-    entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.set_cell_marked(true);
-    entity
-}
-
-fn hierarchy_endpoint_bounds() -> PlayfieldBounds {
-    PlayfieldBounds {
-        base: 10,
-        off_fc: 2,
-        off_100: 1,
-        off_104: 10,
-        off_108: 6,
-    }
 }
 
 fn rectangular_spawn_bounds(span: i32) -> PlayfieldBounds {
@@ -103,335 +55,11 @@ fn rectangular_spawn_bounds(span: i32) -> PlayfieldBounds {
     }
 }
 
-/// Drive/Ship orders accept without a route (Unit741970); the first Process
-/// requests it with the pass's own blocker plane and zone context, whatever
-/// the caller. Runs that Process through the production host and returns the
-/// route its Find_Path installed into Foot+5E0, from the pre-Process Cell
-/// (empty when no words were installed; `None` when the order ended).
-fn first_track_process_route(
-    sim: &mut Simulation,
-    id: u64,
-    rules: Option<&RuleSet>,
-    grid: &PathGrid,
-) -> Option<Vec<(u16, u16)>> {
-    let entity = sim.substrate.entities.get(id).expect("fixture mover");
-    assert!(
-        crate::sim::movement::motion_query::is_moving(&entity) == Some(true),
-        "the order scheduled a Process"
-    );
-    assert!(
-        entity
-            .navigation
-            .path_replay
-            .remaining_directions()
-            .is_empty(),
-        "the order installs no route"
-    );
-    let start = (entity.position.rx(), entity.position.ry());
-    // Its Foot precheck reads Map Size and the playfield; an unbounded
-    // fixture's Map Size is its cell grid, inside generous LocalSize bounds.
-    if sim.playfield_bounds.is_none() {
-        let terrain = sim.resolved_terrain.as_ref().expect("fixture map cells");
-        let (width, height) = (i32::from(terrain.width()), i32::from(terrain.height()));
-        sim.playfield_bounds = Some(PlayfieldBounds {
-            base: width,
-            ..rectangular_spawn_bounds(width.max(height))
-        });
-        sim.playfield_size_height = Some(height);
-    }
-    sim.process_ground_locomotor_for_test(id, rules, Some(grid), None)
-        .expect("the first Process completes");
-    let entity = sim.substrate.entities.get(id)?;
-    entity.navigation.nav_com()?;
-    Some(installed_route(entity, start))
-}
-
-/// The full route the last Find_Path installed from `start`, read from the
-/// Foot+5E0 words (consumed ones included); empty when none were installed.
-fn installed_route(entity: &GameEntity, start: (u16, u16)) -> Vec<(u16, u16)> {
-    let queue = &entity.navigation.path_replay;
-    if queue.directions().is_empty() {
-        Vec::new()
-    } else {
-        queue.installed_cells(start)
-    }
-}
-
 /// Whether `route` crosses one of the high-bridge deck cells (2..=4, 2) of
 /// `caller_count_bridge_detour`. The fixture pins that the ordinary shortcut
 /// stays on row 0 and the marked detour crosses these cells on the deck.
 fn crosses_detour_bridge_deck(route: &[(u16, u16)]) -> bool {
     route.iter().any(|&(x, y)| y == 2 && (2..=4).contains(&x))
-}
-
-fn hierarchy_endpoint_zone_grid() -> ZoneGrid {
-    let mut reduced = PathGrid::new(16, 16);
-    for y in 0..16 {
-        reduced.set_blocked(7, y, true);
-    }
-    ZoneGrid::following_path_grid(&reduced)
-}
-
-fn hierarchy_endpoint_path(
-    start: (u16, u16),
-    goal: (u16, u16),
-    terrain: &ResolvedTerrainGrid,
-) -> Option<Vec<(u16, u16)>> {
-    let grid = PathGrid::new(16, 16);
-    let zone_grid = hierarchy_endpoint_zone_grid();
-    assert!(
-        !zone_grid.can_reach(
-            MovementZone::Normal,
-            start,
-            MovementLayer::Ground,
-            goal,
-            MovementLayer::Ground,
-        ),
-        "fixture must make hierarchy/reduced zones abort while raw cell A* stays open"
-    );
-    find_path_zoned_marker(
-        &grid,
-        start,
-        goal,
-        Some(&zone_grid),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        Some(terrain),
-        None,
-        None,
-        true,
-        Some(hierarchy_endpoint_bounds()),
-    )
-}
-
-#[test]
-fn playfield_hierarchy_outside_resolved_source_falls_back_to_flat_astar() {
-    let terrain = gsi_04_12_terrain(16, 16);
-    let bounds = hierarchy_endpoint_bounds();
-    assert!(!bounds.contains_height_aware_packed(6, 6, 0, 0));
-    assert!(bounds.contains_height_aware_packed(8, 6, 0, 0));
-
-    let path = hierarchy_endpoint_path((6, 6), (8, 6), &terrain)
-        .expect("outside resolved source must disable hierarchy, not fail pathfinding");
-    assert_eq!(path.first().copied(), Some((6, 6)));
-    assert_eq!(path.last().copied(), Some((8, 6)));
-}
-
-#[test]
-fn playfield_hierarchy_outside_resolved_goal_falls_back_to_flat_astar() {
-    let terrain = gsi_04_12_terrain(16, 16);
-    let bounds = hierarchy_endpoint_bounds();
-    assert!(bounds.contains_height_aware_packed(8, 6, 0, 0));
-    assert!(!bounds.contains_height_aware_packed(6, 6, 0, 0));
-
-    let path = hierarchy_endpoint_path((8, 6), (6, 6), &terrain)
-        .expect("outside resolved goal must disable hierarchy, not fail pathfinding");
-    assert_eq!(path.first().copied(), Some((8, 6)));
-    assert_eq!(path.last().copied(), Some((6, 6)));
-}
-
-#[test]
-fn playfield_hierarchy_mode_one_level_and_slope_boundaries() {
-    let mut terrain = gsi_04_12_terrain(16, 16);
-    let bounds = hierarchy_endpoint_bounds();
-    let (_, _, flat_inside) = resolve_hierarchy_endpoint_contract(
-        None,
-        Some(&terrain),
-        Some(bounds),
-        (7, 6),
-        false,
-        (8, 6),
-        false,
-    );
-    assert!(flat_inside, "sum=13 is just inside mode one at level zero");
-
-    terrain.cell_mut(7, 6).unwrap().level = 1;
-    let (_, _, raised_inside) = resolve_hierarchy_endpoint_contract(
-        None,
-        Some(&terrain),
-        Some(bounds),
-        (7, 6),
-        false,
-        (8, 6),
-        false,
-    );
-    assert!(
-        !raised_inside,
-        "signed level must move the strict mode-one edge"
-    );
-
-    let cell = terrain.cell_mut(7, 6).unwrap();
-    cell.level = 0;
-    cell.slope_type = 1;
-    let (_, _, sloped_inside) = resolve_hierarchy_endpoint_contract(
-        None,
-        Some(&terrain),
-        Some(bounds),
-        (7, 6),
-        false,
-        (8, 6),
-        false,
-    );
-    assert!(
-        !sloped_inside,
-        "nonzero slope below the native threshold adds one level"
-    );
-
-    terrain.cell_mut(10, 6).unwrap().slope_type = 1;
-    let (_, _, threshold_equal_inside) = resolve_hierarchy_endpoint_contract(
-        None,
-        Some(&terrain),
-        Some(bounds),
-        (10, 6),
-        false,
-        (8, 6),
-        false,
-    );
-    assert!(
-        threshold_equal_inside,
-        "sum equal to the native slope threshold must not add one level"
-    );
-}
-
-#[test]
-fn playfield_hierarchy_bridge_projection_tracks_intact_and_destroyed_records() {
-    let mut terrain = gsi_04_12_terrain(16, 16);
-    terrain.cell_mut(7, 6).unwrap().bridge_facts.raw_flags =
-        BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO;
-    let grid = PathGrid::from_resolved_terrain(&terrain);
-    let record = BridgeEndpointRecord {
-        endpoint_a: (6, 6),
-        endpoint_b: (8, 6),
-        active: true,
-        bridge_kind: BridgeRecordKind::High,
-    };
-    let intact = ZoneGrid::build_with_terrain(&grid, &terrain, &[record], 16, 16);
-    let (intact_start, _, intact_inside) = resolve_hierarchy_endpoint_contract(
-        Some(&intact),
-        Some(&terrain),
-        Some(hierarchy_endpoint_bounds()),
-        (7, 6),
-        true,
-        (9, 6),
-        false,
-    );
-    assert_eq!(
-        intact_start,
-        (8, 6),
-        "native distance tie selects endpoint B"
-    );
-    assert!(intact_inside);
-
-    let destroyed_record = BridgeEndpointRecord {
-        active: false,
-        ..record
-    };
-    let destroyed = ZoneGrid::build_with_terrain(&grid, &terrain, &[destroyed_record], 16, 16);
-    let (destroyed_start, _, destroyed_inside) = resolve_hierarchy_endpoint_contract(
-        Some(&destroyed),
-        Some(&terrain),
-        Some(hierarchy_endpoint_bounds()),
-        (7, 6),
-        true,
-        (9, 6),
-        false,
-    );
-    assert_eq!(
-        destroyed_start,
-        (6, 6),
-        "without a high-tile east exit, inactive native projection selects endpoint A"
-    );
-    assert!(!destroyed_inside);
-}
-
-#[test]
-fn zoned_path_reachable_returns_path() {
-    let grid = grid_from_str(
-        "
-        .....
-        .....
-        .....
-    ",
-    );
-    let zg = ZoneGrid::following_path_grid(&grid);
-    let path = find_path_zoned(
-        &grid,
-        (0, 0),
-        (4, 2),
-        Some(&zg),
-        MovementZone::Normal,
-        None,
-        None,
-    );
-    assert!(path.is_some());
-    let path = path.unwrap();
-    assert_eq!(*path.first().unwrap(), (0, 0));
-    assert_eq!(*path.last().unwrap(), (4, 2));
-}
-
-#[test]
-fn zoned_path_unreachable_returns_none_instantly() {
-    let grid = grid_from_str(
-        "
-        ..#..
-        ..#..
-        ..#..
-    ",
-    );
-    let zg = ZoneGrid::following_path_grid(&grid);
-    // (0,0) and (4,0) are in different disconnected zones.
-    let path = find_path_zoned(
-        &grid,
-        (0, 0),
-        (4, 0),
-        Some(&zg),
-        MovementZone::Normal,
-        None,
-        None,
-    );
-    assert!(path.is_none());
-}
-
-#[test]
-fn zoned_path_no_zone_grid_falls_through() {
-    let grid = grid_from_str(
-        "
-        .....
-        .....
-    ",
-    );
-    // Without zone grid, should just run normal A*.
-    let path = find_path_zoned(
-        &grid,
-        (0, 0),
-        (4, 1),
-        None,
-        MovementZone::Normal,
-        None,
-        None,
-    );
-    assert!(path.is_some());
-}
-
-#[test]
-fn zoned_path_same_cell() {
-    let grid = grid_from_str(
-        "
-        .....
-    ",
-    );
-    let zg = ZoneGrid::following_path_grid(&grid);
-    let path = find_path_zoned(
-        &grid,
-        (2, 0),
-        (2, 0),
-        Some(&zg),
-        MovementZone::Normal,
-        None,
-        None,
-    );
-    // 0x00429BF3..0x00429C0A: no route for a goal in the start cell.
-    assert!(path.is_none());
 }
 
 fn linear_level0_hierarchy(zones: Vec<ZoneId>, edges: &[(ZoneId, ZoneId)]) -> ZoneHierarchy {
@@ -463,46 +91,6 @@ fn level0_hierarchy(
     }
 
     ZoneHierarchy::new(level0, level1, level2)
-}
-
-#[test]
-fn tube_hierarchy_precheck_rejects_unequal_base_labels_before_connected_graph() {
-    let astar_grid = PathGrid::new(3, 1);
-    let mut reduced_grid = PathGrid::new(3, 1);
-    reduced_grid.set_blocked(1, 0, true);
-    let mut zg = ZoneGrid::following_path_grid(&reduced_grid);
-    zg.set_hierarchy(linear_level0_hierarchy(vec![1, 2, 3], &[(1, 2), (2, 3)]));
-    assert!(
-        !zg.can_reach(
-            MovementZone::Normal,
-            (0, 0),
-            MovementLayer::Ground,
-            (2, 0),
-            MovementLayer::Ground
-        ),
-        "fixture must put the endpoints in different reduced zones"
-    );
-
-    let blocker_counts = BlockerNeighborCounts::new(3, 1);
-    let path = find_path_zoned_marker_inner(
-        &astar_grid,
-        (0, 0),
-        (2, 0),
-        (0, 0),
-        (2, 0),
-        None, // no native raw-row receipt in this compatibility fixture
-        Some(&zg),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        None,
-        None,
-        Some(&blocker_counts),
-    );
-
-    assert!(
-        path.is_none(),
-        "42CB22 rejects unequal base labels before a successful graph precheck"
-    );
 }
 
 #[test]
@@ -538,9 +126,10 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
             hierarchy_goal: (2, 0),
             endpoints_in_playfield: true,
         };
-        let result = find_flat_path_after_entry(
+        let result = find_layered_path_after_entry(
             &grid,
             (0, 0),
+            MovementLayer::Ground,
             (2, 0),
             &entry,
             Some(&zones),
@@ -553,6 +142,7 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
                 urgency: 2,
             },
             Some(&counts),
+            None,
         );
         assert_eq!(
             result.unwrap_err(),
@@ -563,161 +153,6 @@ fn wrapper_rejection_precedes_the_marker_transaction() {
             }
         );
     }
-}
-
-#[test]
-fn zone_precheck_failed_hierarchy_keeps_zone_map_same_zone_fallback() {
-    let astar_grid = PathGrid::new(3, 1);
-    let mut zg = ZoneGrid::following_path_grid(&astar_grid);
-    zg.set_hierarchy(linear_level0_hierarchy(
-        vec![ZONE_INVALID, ZONE_INVALID, ZONE_INVALID],
-        &[],
-    ));
-
-    let blocker_counts = BlockerNeighborCounts::new(3, 1);
-    let path = find_path_zoned_marker_inner(
-        &astar_grid,
-        (0, 0),
-        (2, 0),
-        (0, 0),
-        (2, 0),
-        None, // no native raw-row receipt in this compatibility fixture
-        Some(&zg),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        None,
-        None,
-        Some(&blocker_counts),
-    )
-    .expect("same-zone ZoneMap fallback should survive incomplete hierarchy cell IDs");
-
-    assert_eq!(path, vec![(0, 0), (1, 0), (2, 0)]);
-}
-
-#[test]
-fn gsi_04_12_layered_production_precheck_projects_only_hierarchy_coordinates() {
-    let mut astar_grid = PathGrid::new(5, 1);
-    for x in 1..=3 {
-        astar_grid.set_cell_for_test(x, 0, 0, true, true);
-    }
-
-    let mut reduced_grid = PathGrid::new(5, 1);
-    reduced_grid.set_blocked(2, 0, true);
-    // Base rows with the native Map Size=(5,1) receipt, as the live map
-    // builds them: with a ground destination (second half), Map56D100
-    // reads its raw row through the Size-projected GetZoneID.
-    use crate::map::resolved_terrain::zone_class::{GROUND, IMPASSABLE};
-    let zone_terrain = super::super::zone_map_tests::terrain_from_zone_classes(
-        5,
-        1,
-        &[GROUND, GROUND, IMPASSABLE, GROUND, GROUND],
-        &[0; 5],
-    );
-    let mut zone_grid = ZoneGrid::build_with_native_bridge_geometry(
-        &reduced_grid,
-        &zone_terrain,
-        &[],
-        5,
-        1,
-        Some((5, 1)),
-    );
-    zone_grid.set_hierarchy(linear_level0_hierarchy(vec![1, 3, 1, 4, 2], &[(1, 2)]));
-    assert!(
-        !zone_grid.can_reach(
-            MovementZone::Normal,
-            (1, 0),
-            MovementLayer::Bridge,
-            (3, 0),
-            MovementLayer::Bridge,
-        ),
-        "fixture must prove reduced reachability would abort the layered search"
-    );
-
-    let mut terrain = gsi_04_12_terrain(5, 1);
-    for x in 1..=3 {
-        let cell = terrain.cell_mut(x, 0).unwrap();
-        cell.bridge_facts.raw_flags =
-            BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO | BRIDGE_FLAG_TRANSITION;
-        cell.has_bridge_deck = true;
-        cell.bridge_walkable = true;
-        cell.bridge_transition = true;
-        cell.bridge_deck_level = 4;
-    }
-    terrain.cell_mut(0, 0).unwrap().final_tile_index = 100;
-    terrain.cell_mut(4, 0).unwrap().final_tile_index = 100;
-
-    let make_entities = || {
-        let mut entities = EntityStore::new();
-        let mut mover = gsi_04_12_cell_listed_entity(1, "HTNK", "Americans", 1, 0);
-        let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-            crate::rules::locomotor_type::LocomotorKind::Drive,
-        );
-        locomotor.set_layer(MovementLayer::Bridge);
-        mover.locomotor = Some(locomotor);
-        mover.set_on_bridge(true);
-        assert!(
-            mover
-                .locomotor
-                .as_mut()
-                .unwrap()
-                .install_drive_state_for_test(Some(Default::default()))
-        );
-        entities.insert(mover);
-        entities.insert(gsi_04_12_cell_listed_entity(2, "HTNK", "Russians", 2, 0));
-        entities
-    };
-
-    let make_sim = |terrain: &ResolvedTerrainGrid| {
-        // Entities intern their names first; the snapshot must contain them.
-        let entities = make_entities();
-        let mut sim = Simulation::new();
-        sim.interner = test_interner();
-        sim.substrate.entities = entities;
-        sim.resolved_terrain = Some(terrain.clone());
-        sim.zone_grid = Some(zone_grid.clone());
-        sim
-    };
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=HTNK\n[HTNK]\nSpeed=4\n",
-    ))
-    .unwrap();
-    let order = |sim: &mut Simulation| {
-        assert!(sim.set_unit_destination(
-            1,
-            crate::sim::components::NavTargetRef::cell(3, 0),
-            &rules,
-            true,
-            crate::sim::world::FrameEffects::default(),
-        ));
-    };
-    let mut sim = make_sim(&terrain);
-    order(&mut sim);
-    let route = first_track_process_route(&mut sim, 1, Some(&rules), &astar_grid)
-        .expect("the first Process should install the projected hierarchy route");
-
-    assert_eq!(
-        route.first().copied(),
-        Some((1, 0)),
-        "projection must not mutate the A* start coordinate"
-    );
-    assert!(
-        sim.substrate.entities.get(1).expect("mover").on_bridge(),
-        "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
-    );
-    assert_eq!(
-        route.last().copied(),
-        Some((3, 0)),
-        "projection must not mutate the A* goal or returned path"
-    );
-
-    terrain.cell_mut(3, 0).unwrap().bridge_facts.raw_flags = 0;
-    let mut sim = make_sim(&terrain);
-    order(&mut sim);
-    assert!(
-        first_track_process_route(&mut sim, 1, Some(&rules), &astar_grid)
-            .is_none_or(|route| route.is_empty()),
-        "destination projection must be selected by the destination structural bit"
-    );
 }
 
 // Shared caller witness: the ordinary ground shortcut differs from the marked
@@ -820,10 +255,55 @@ fn caller_count_bridge_detour(
             .iter()
             .all(|step| step.ry == 0 && step.layer == MovementLayer::Ground)
     );
-    assert!(
-        route(Some(&BlockerNeighborCounts::new(6, 4))).is_none(),
+    // Zero counts keep the corridor search off the unmarked approach: the
+    // precheck marks only zone 1, so the search fails rather than take the
+    // shortcut or the detour.
+    let zero_counts = BlockerNeighborCounts::new(6, 4);
+    let hierarchy = zones.hierarchy_for(mz).expect("the fixture hierarchy");
+    let level0 = hierarchy.level(0).expect("its level 0");
+    let ZonePrecheckOutcome::Passed(precheck) = zone_precheck_flat(
+        hierarchy,
+        level0.zone_at(start.0, start.1),
+        level0.zone_at(goal.0, goal.1),
+        mz,
+        &ZonePrecheckExclusions::default(),
+        None,
+    )
+    .expect("the precheck reads the fixture hierarchy") else {
+        panic!("both endpoints are zone 1");
+    };
+    let corridor = find_layered_path_marker(
+        &path,
+        start,
+        MovementLayer::Ground,
+        goal,
+        Some(HierarchyGate {
+            level0_zones: level0,
+            marked_level0: &precheck.marked[0],
+            blocker_neighbor_counts: &zero_counts,
+            level0_route: &precheck.paths[0],
+            progress: &Cell::new(RouteProgress {
+                index: 0,
+                cell: start,
+            }),
+        }),
+        Some(&terrain),
+        None,
+        MoverSearchFacts {
+            urgency: 0,
+            foot_entry: &super::super::WalkableEntry::new(&path),
+        },
+    );
+    assert_eq!(
+        corridor,
+        Err(PathSearchFailure::CellSearchExhausted),
         "zero counts cannot enter the unmarked ground approach"
     );
+    // The whole search retries. This fixture's levels 1 and 2 map no cells,
+    // so every cell reads zone 0 there: the retry's flood finds that zone
+    // split on a one-zone route, which clears the hierarchy (`0x0042CF9A`),
+    // and the plain search takes the shortcut.
+    assert_eq!(route(Some(&zero_counts)), Some(ordinary));
     let mut live_counts = BlockerNeighborCounts::new(6, 4);
     live_counts.add_single_cell_neighbor_source(0, 2);
     let marked = route(Some(&live_counts)).expect("neighbor escape admits marked bridge detour");
@@ -843,204 +323,6 @@ fn caller_count_bridge_detour(
             .all(|step| step.layer == MovementLayer::Bridge)
     );
     (path, zones, terrain)
-}
-
-#[test]
-fn gsi_04_12_completed_ground_unit_clearance_rally_threads_exact_blocker_counts() {
-    // This routing fixture supplies an already-placed factory at (0,0).
-    // Native CanPlaceAt7161A0 rejects that sentinel before the cell bypass;
-    // the explicit synthetic PlaceAnywhere prior admits it without changing
-    // the bridge/path witness. This does not test retail building admission.
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&crate::sim::arena_fixture::clear_ground_ini(
-        "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=MTNK\n\n\
-         [BuildingTypes]\n0=GAWEAP\n\n\
-         [MTNK]\nOwner=Americans\nStrength=300\nArmor=heavy\nSpeed=6\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\n\
-         [GAWEAP]\nOwner=Americans\nWeaponsFactory=yes\nStrength=1000\nPlaceAnywhere=yes\nFactory=UnitType\nExitCoord=256,0,0\n",
-    ), &IniFile::from_str("[GAWEAP]\nFoundation=1x1\n"))
-    .expect("ground-unit production rules should parse");
-
-    // The real war-factory exit is ground cell (1,0); the rally is ground cell
-    // (5,0). Exact counts admit the ground approach to the bridge detour;
-    // omitted counts instead select the distinct ordinary ground shortcut.
-    let (path_grid, zone_grid, terrain) = caller_count_bridge_detour(MovementZone::Normal, false);
-
-    let mut sim = Simulation::new();
-    // Explicit fixture Map Size=(6,4) beside the generous LocalSize bounds;
-    // Foot's production precheck consumes both header dimensions.
-    sim.playfield_bounds = Some(PlayfieldBounds {
-        base: 6,
-        ..rectangular_spawn_bounds(6)
-    });
-    sim.playfield_size_height = Some(4);
-    sim.install_resolved_terrain_for_new_map(terrain);
-    sim.zone_grid = Some(zone_grid);
-    let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, STARTING_CREDITS, 10),
-    );
-    sim.session.house_order.push(owner);
-    let factory = sim
-        .spawn_object("GAWEAP", "Americans", 0, 0, 0, &rules)
-        .expect("war factory should spawn");
-    sim.spawn_object("MTNK", "Russians", 0, 2, 0, &rules)
-        .expect("dynamic blocker should spawn");
-
-    // Supplied completed construction admits the producer in the House's
-    // insertion-ordered building projection used by native FindFactory.
-    let building = sim.substrate.entities.get_mut(factory).unwrap();
-    building.finish_building_construction_for_test();
-    building.building_art.set_actually_placed_for_test(true);
-    sim.append_house_base_building_for_test(factory);
-    let produced_type = sim.interner.intern("MTNK");
-    sim.substrate
-        .entities
-        .get_mut(factory)
-        .unwrap()
-        .set_archive_target(Some(crate::sim::combat::TargetKind::Cell(5, 0)));
-    let started = sim.production.factories.test_enqueue_kernel(
-        owner,
-        ProductionCategory::Vehicle,
-        produced_type,
-        0,
-        0,
-    );
-    assert!(started);
-    crate::sim::production::construct_active_factory_fixture(
-        &mut sim,
-        &rules,
-        owner,
-        ProductionCategory::Vehicle,
-        produced_type,
-    )
-    .expect("production fixture constructs at StartProduction");
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(owner, ProductionCategory::Vehicle)
-    );
-
-    sim.install_fixture_path_grid(Some(&path_grid));
-    assert!(
-        dispatch_production_changes_for_tests(&mut sim, &rules, None),
-        "ready ground-unit production should deliver through the real completion entry"
-    );
-
-    let produced = sim
-        .substrate
-        .entities
-        .values()
-        .find(|entity| entity.owner() == owner && entity.type_ref() == produced_type)
-        .expect("completed MTNK should exist");
-    assert_eq!((produced.position.rx(), produced.position.ry()), (1, 0));
-    let locomotor = produced.locomotor.as_ref().expect("produced locomotor");
-    assert_eq!(
-        locomotor.active_kind(),
-        crate::rules::locomotor_type::LocomotorKind::Drive
-    );
-    assert_eq!(locomotor.movement_zone(), MovementZone::Normal);
-    assert!(!produced.on_bridge());
-    let produced_id = produced.stable_id();
-    assert_eq!(produced.rally_cell(), Some((5, 0)));
-    assert!(produced.navigation.nav_com().is_none());
-    assert!(produced.has_live_contact_with(factory));
-    assert_eq!(produced.tether.partner(), Some(factory));
-    assert_eq!(
-        sim.substrate
-            .entities
-            .get(factory)
-            .unwrap()
-            .mission
-            .queued(),
-        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Unload)
-    );
-    // PLACE retains Archive/contact and queues Building Unload; it does not
-    // issue an eager rally order. Supply arrival at this already-clear exit
-    // Cell through the existing PerCell owner. Its radio8 clearance precedes
-    // the human Archive setter73AAA1..73AABB, which requests the route below.
-    // The tiny1x1 producer isolates that caller/Find_Path boundary; stock
-    // Building Door/ForceTrack timing is covered by factory_unload separately.
-    sim.per_cell_process(
-        produced_id,
-        crate::sim::movement::PerCellReason::Arrival,
-        Some(&rules),
-        None,
-        crate::sim::world::FrameEffects::default(),
-    )
-    .expect("the supplied clear-exit arrival completes");
-    let produced = sim.substrate.entities.get(produced_id).unwrap();
-    assert!(!produced.has_live_contact_with(factory));
-    assert_eq!(produced.tether.partner(), None);
-    let route = first_track_process_route(&mut sim, produced_id, Some(&rules), &path_grid)
-        .expect("completed MTNK should receive the hierarchy-backed rally route");
-    assert_eq!(route.first().copied(), Some((1, 0)));
-    assert!(
-        crosses_detour_bridge_deck(&route),
-        "the rally route must actually traverse the high-bridge deck"
-    );
-    assert_eq!(route.last().copied(), Some((5, 0)));
-    assert!(sim.production.factories.is_empty());
-    assert_eq!(
-        sim.substrate.entities.get(factory).unwrap().rally_cell(),
-        Some((5, 0))
-    );
-}
-
-#[test]
-fn gsi_04_12_miner_dock_approach_threads_exact_blocker_counts() {
-    // The admitted refinery prior is at native CanPlaceAt's (0,0) sentinel.
-    // Only this synthetic type supplies PlaceAnywhere; its 1x1 ART and the
-    // existing bridge/path geometry stay fixed. Retail admission is excluded.
-    let rules = RuleSet::from_ini_with_fixed_art_for_test(&crate::sim::arena_fixture::clear_ground_ini(
-        "[VehicleTypes]\n0=HARV\n1=BLOCK\n\n\
-         [BuildingTypes]\n0=REFN\n\n\
-         [HARV]\nStrength=600\nSpeed=4\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\nMovementZone=Normal\nHarvester=yes\nDock=REFN\nStorage=20\n\n\
-         [BLOCK]\nStrength=300\nSpeed=4\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\nMovementZone=Normal\n\n\
-         [REFN]\nStrength=900\nPlaceAnywhere=yes\nRefinery=yes\nDockUnload=yes\n",
-    ), &IniFile::from_str("[REFN]\nFoundation=1x1\n"))
-    .expect("dock-approach rules should parse");
-
-    // The War Miner's dock approach and staging legs are Unit
-    // Assign_Destination (0x741970, reached through Foot MOVE_HERE 0x12 and
-    // Mission_Harvest state 2); the cell (1,0) beside the refinery is the
-    // leg's goal. The live miner starts at (5,0). The blocker at (0,2)
-    // admits the unmarked ground approach to the bridge detour without
-    // occupying the route.
-    let (path_grid, zone_grid, terrain) = caller_count_bridge_detour(MovementZone::Normal, true);
-
-    let mut sim = Simulation::new();
-    sim.playfield_bounds = Some(PlayfieldBounds {
-        base: 6,
-        ..rectangular_spawn_bounds(6)
-    });
-    sim.playfield_size_height = Some(4);
-    sim.install_resolved_terrain_for_new_map(terrain);
-    sim.zone_grid = Some(zone_grid);
-    let refinery_id = sim
-        .spawn_object("REFN", "Americans", 0, 0, 0, &rules)
-        .expect("refinery should spawn");
-    let miner_id = sim
-        .spawn_object("HARV", "Americans", 5, 0, 0, &rules)
-        .expect("harvester should spawn");
-    sim.spawn_object("BLOCK", "Russians", 0, 2, 0, &rules)
-        .expect("dynamic blocker should spawn");
-    assert!(sim.substrate.entities.get(refinery_id).is_some());
-    assert!(sim.set_unit_destination(
-        miner_id,
-        crate::sim::components::NavTargetRef::cell(1, 0),
-        &rules,
-        true,
-        crate::sim::world::FrameEffects::default()
-    ));
-
-    let route = first_track_process_route(&mut sim, miner_id, Some(&rules), &path_grid)
-        .expect("the dock leg's first Process should install the hierarchy-backed route");
-    assert_eq!(route.first().copied(), Some((5, 0)));
-    assert!(
-        crosses_detour_bridge_deck(&route),
-        "dock approach must actually traverse the high-bridge deck"
-    );
-    assert_eq!(route.last().copied(), Some((1, 0)));
 }
 
 #[test]
@@ -1089,7 +371,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     let engineer = sim.substrate.entities.get(engineer_id).unwrap();
     assert_eq!(
         engineer.navigation.nav_com(),
-        Some(NavTargetRef::building(target_id))
+        Some(NavTargetRef::object(target_id))
     );
     assert!(
         crate::sim::movement::motion_query::is_moving(&engineer) == Some(true),
@@ -1200,7 +482,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     let engineer = sim.substrate.entities.get(engineer_id).unwrap();
     assert_eq!(
         engineer.navigation.nav_com(),
-        Some(NavTargetRef::building(target_id))
+        Some(NavTargetRef::object(target_id))
     );
     // Native Infantry 51C300/51C37D/51C71B admits the matching Building
     // NavCom. Foot 4D3A92..4D3E0A passes its original Cell to the core;
@@ -1221,417 +503,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
 }
 
 #[test]
-fn gsi_04_12_attack_move_resume_threads_exact_blocker_counts() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=MTNK\n\n\
-         [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n",
-    ))
-    .expect("phase-six movement rules should parse");
-
-    let mut path_grid = PathGrid::new(5, 1);
-    for x in 1..=3 {
-        path_grid.set_cell_for_test(x, 0, 0, true, true);
-    }
-
-    let mut reduced_grid = PathGrid::new(5, 1);
-    reduced_grid.set_blocked(2, 0, true);
-    let mut zone_grid = ZoneGrid::following_path_grid(&reduced_grid);
-    zone_grid.set_hierarchy(linear_level0_hierarchy(vec![1, 3, 1, 4, 2], &[(1, 2)]));
-    assert!(
-        !zone_grid.can_reach(
-            MovementZone::Normal,
-            (1, 0),
-            MovementLayer::Bridge,
-            (3, 0),
-            MovementLayer::Bridge,
-        ),
-        "fixture must make the resume fail when blocker counts are absent"
-    );
-
-    let mut terrain = gsi_04_12_terrain(5, 1);
-    for x in 1..=3 {
-        let cell = terrain.cell_mut(x, 0).unwrap();
-        cell.bridge_facts.raw_flags =
-            BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO | BRIDGE_FLAG_TRANSITION;
-        cell.has_bridge_deck = true;
-        cell.bridge_walkable = true;
-        cell.bridge_transition = true;
-        cell.bridge_deck_level = 4;
-    }
-    terrain.cell_mut(0, 0).unwrap().final_tile_index = 100;
-    terrain.cell_mut(4, 0).unwrap().final_tile_index = 100;
-
-    let mut mover = gsi_04_12_cell_listed_entity(1, "MTNK", "Americans", 1, 0);
-    let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-        crate::rules::locomotor_type::LocomotorKind::Drive,
-    );
-    locomotor.set_layer(MovementLayer::Bridge);
-    mover.locomotor = Some(locomotor);
-    mover.set_on_bridge(true);
-    assert!(
-        mover
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .install_drive_state_for_test(Some(Default::default()))
-    );
-    mover.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(Some(
-        crate::sim::combat::TargetKind::Cell(3, 0),
-    ));
-    let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
-
-    let mut sim = Simulation::new();
-    sim.interner = test_interner();
-    sim.substrate.entities.insert(mover);
-    sim.substrate.entities.insert(blocker);
-    sim.resolved_terrain = Some(terrain);
-    sim.zone_grid = Some(zone_grid);
-
-    sim.install_fixture_path_grid(Some(&path_grid));
-    assert!(sim.foot_continue_mega_mission(
-        1,
-        Some(&rules),
-        None,
-        crate::sim::world::FrameEffects::default(),
-    ));
-
-    let route = first_track_process_route(&mut sim, 1, Some(&rules), &path_grid)
-        .expect("an attack-move's resume should reach the projected hierarchy route");
-    let resumed = sim.substrate.entities.get(1).expect("resumed mover");
-    assert_eq!(route.first().copied(), Some((1, 0)));
-    assert!(
-        sim.substrate.entities.get(1).expect("mover").on_bridge(),
-        "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
-    );
-    assert_eq!(route.last().copied(), Some((3, 0)));
-    assert_eq!(
-        resumed.mega_mission.destination(),
-        Some(crate::sim::combat::TargetKind::Cell(3, 0)),
-        "resume must preserve the continuing attack-move"
-    );
-}
-
-#[test]
-fn gsi_04_12_drive_pending_continuation_keeps_hierarchy_context_and_raw_route() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=MTNK\n\n\
-         [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n",
-    ))
-    .expect("Drive continuation rules should parse");
-
-    let mut path_grid = PathGrid::new(5, 1);
-    for x in 1..=3 {
-        path_grid.set_cell_for_test(x, 0, 0, true, true);
-    }
-
-    let mut reduced_grid = PathGrid::new(5, 1);
-    reduced_grid.set_blocked(2, 0, true);
-    let mut zone_grid = ZoneGrid::following_path_grid(&reduced_grid);
-    zone_grid.set_hierarchy(linear_level0_hierarchy(vec![1, 3, 1, 4, 2], &[(1, 2)]));
-    assert!(
-        !zone_grid.can_reach(
-            MovementZone::Normal,
-            (1, 0),
-            MovementLayer::Bridge,
-            (3, 0),
-            MovementLayer::Bridge,
-        ),
-        "fixture must reject a continuation that drops the hierarchy context"
-    );
-
-    let mut terrain = gsi_04_12_terrain(5, 1);
-    for x in 1..=3 {
-        let cell = terrain.cell_mut(x, 0).unwrap();
-        cell.bridge_facts.raw_flags =
-            BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO | BRIDGE_FLAG_TRANSITION;
-        cell.has_bridge_deck = true;
-        cell.bridge_walkable = true;
-        cell.bridge_transition = true;
-        cell.bridge_deck_level = 4;
-    }
-    terrain.cell_mut(0, 0).unwrap().final_tile_index = 100;
-    terrain.cell_mut(4, 0).unwrap().final_tile_index = 100;
-
-    let mut mover = gsi_04_12_cell_listed_entity(1, "MTNK", "Americans", 1, 0);
-    let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-        crate::rules::locomotor_type::LocomotorKind::Drive,
-    );
-    locomotor.set_layer(MovementLayer::Bridge);
-    mover.locomotor = Some(locomotor);
-    mover.set_on_bridge(true);
-    assert!(
-        mover
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .install_drive_state_for_test(Some(Default::default()))
-    );
-    mover
-        .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::cell(3, 0)));
-    mover
-        .navigation
-        .set_pending_destination_setter_for_test(true);
-    let blocker = gsi_04_12_cell_listed_entity(2, "MTNK", "Russians", 2, 0);
-
-    // The pending pass on the production Simulation host, with the fixture's
-    // explicit Map Size=(5,1) beside generous LocalSize bounds: the Drive
-    // Process's Find_Path precheck (Foot4D3810 -> Map56D100) reads both.
-    let mut sim = Simulation::new();
-    sim.interner = test_interner();
-    sim.substrate.entities.insert(mover);
-    sim.substrate.entities.insert(blocker);
-    sim.session.tick = 1;
-    sim.session.binary_frame = 1;
-    sim.path_grid = Some(std::sync::Arc::new(path_grid));
-    sim.zone_grid = Some(zone_grid);
-    sim.resolved_terrain = Some(terrain);
-    sim.playfield_bounds = Some(PlayfieldBounds {
-        base: 5,
-        ..rectangular_spawn_bounds(5)
-    });
-    sim.playfield_size_height = Some(1);
-    sim.process_ground_locomotor_one(
-        1,
-        Some(&rules),
-        None,
-        crate::sim::world::FrameEffects::default(),
-    )
-    .expect("the pending Drive Process completes");
-
-    let continued = sim
-        .substrate
-        .entities
-        .get(1)
-        .expect("continued Drive mover");
-    assert_eq!(
-        continued.navigation.nav_com(),
-        Some(NavTargetRef::cell(3, 0))
-    );
-    assert!(!continued.navigation.pending_destination_setter());
-    assert!(
-        crate::sim::movement::motion_query::is_moving(&continued) == Some(true),
-        "pending Drive continuation should rebuild the hierarchy route"
-    );
-    let route = installed_route(continued, (1, 0));
-    assert_eq!(route.first().copied(), Some((1, 0)));
-    assert!(
-        continued.on_bridge(),
-        "the Process search starts on the bridge layer: AStar 0x00429A90 takes the start height from the Foot's OnBridge byte"
-    );
-    assert_eq!(route.last().copied(), Some((3, 0)));
-    assert_eq!(
-        crate::sim::movement::movement_goal_cell(continued),
-        Some((3, 0))
-    );
-}
-
-#[test]
-fn gsi_04_12_stock_miner_move_entry_threads_exact_world_context() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=HARV\n\n\
-         [HARV]\nStrength=1000\nArmor=heavy\nSpeed=5\nHarvester=yes\n",
-    ))
-    .expect("stock harvester rules should parse");
-
-    let mut path_grid = PathGrid::new(5, 1);
-    for x in 1..=3 {
-        path_grid.set_cell_for_test(x, 0, 0, true, true);
-    }
-
-    let make_sim = || {
-        let mut reduced_grid = PathGrid::new(5, 1);
-        reduced_grid.set_blocked(2, 0, true);
-        let mut zone_grid = ZoneGrid::following_path_grid(&reduced_grid);
-        zone_grid.set_hierarchy(linear_level0_hierarchy(vec![1, 3, 1, 4, 2], &[(1, 2)]));
-        assert!(
-            !zone_grid.can_reach(
-                MovementZone::Normal,
-                (1, 0),
-                MovementLayer::Bridge,
-                (3, 0),
-                MovementLayer::Bridge,
-            ),
-            "fixture must make the miner entry fail if it drops blocker counts"
-        );
-
-        let mut terrain = gsi_04_12_terrain(5, 1);
-        for x in 1..=3 {
-            let cell = terrain.cell_mut(x, 0).unwrap();
-            cell.bridge_facts.raw_flags =
-                BRIDGE_FLAG_STRUCTURAL | BRIDGE_FLAG_DIRECTION_ZERO | BRIDGE_FLAG_TRANSITION;
-            cell.has_bridge_deck = true;
-            cell.bridge_walkable = true;
-            cell.bridge_transition = true;
-            cell.bridge_deck_level = 4;
-        }
-        terrain.cell_mut(0, 0).unwrap().final_tile_index = 100;
-        terrain.cell_mut(4, 0).unwrap().final_tile_index = 100;
-
-        let mut miner = gsi_04_12_cell_listed_entity(1, "HARV", "Americans", 1, 0);
-        let mut locomotor = crate::sim::movement::locomotor::LocomotorState::for_test_kind(
-            crate::rules::locomotor_type::LocomotorKind::Drive,
-        );
-        locomotor.set_layer(MovementLayer::Bridge);
-        miner.locomotor = Some(locomotor);
-        miner.set_on_bridge(true);
-        assert!(
-            miner
-                .locomotor
-                .as_mut()
-                .unwrap()
-                .install_drive_state_for_test(Some(Default::default()))
-        );
-        let blocker = gsi_04_12_cell_listed_entity(2, "HARV", "Russians", 2, 0);
-
-        let mut sim = Simulation::new();
-        sim.interner = test_interner();
-        sim.substrate.entities.insert(miner);
-        sim.substrate.entities.insert(blocker);
-        sim.resolved_terrain = Some(terrain);
-        sim.zone_grid = Some(zone_grid);
-        sim.install_fixture_path_grid(Some(&path_grid));
-        sim
-    };
-
-    let mut ore_trip = make_sim();
-    assign_miner_cell_destination(
-        &mut ore_trip,
-        &rules,
-        1,
-        (3, 0),
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
-    assert_eq!(
-        first_track_process_route(&mut ore_trip, 1, Some(&rules), &path_grid)
-            .and_then(|route| route.last().copied()),
-        Some((3, 0)),
-    );
-}
-
-/// GSI-06.02 G2: gamemd gates every MovementZone row — `Can_Reach_Zone`
-/// short-circuits only on `mzRow == -1`, and the A*-entry precheck reads
-/// whatever row `MovementZone=` gives. Stock rulesmd puts every main battle tank
-/// in `Destroyer`, every ore miner in `Crusher` and the Battle Fortress in
-/// `CrusherAll`, so those rows must reach the reduced precheck.
-#[test]
-fn gsi_06_02_reduced_zone_precheck_covers_every_land_movement_zone() {
-    for mz in [
-        MovementZone::Normal,
-        MovementZone::Crusher,
-        MovementZone::Destroyer,
-        MovementZone::AmphibiousDestroyer,
-        MovementZone::AmphibiousCrusher,
-        MovementZone::Amphibious,
-        MovementZone::Infantry,
-        MovementZone::InfantryDestroyer,
-        MovementZone::Fly,
-        MovementZone::CrusherAll,
-    ] {
-        assert!(
-            can_use_reduced_zone_precheck(Some(mz)),
-            "{mz:?} must be gated by the reduced zone precheck"
-        );
-    }
-
-    // `mzRow == -1` returns "reachable" in gamemd, so the gate must not be
-    // allowed to refuse the search for it.
-    assert!(!can_use_reduced_zone_precheck(Some(MovementZone::Invalid)));
-
-    // VERA-internal residual, gamemd equivalent UNCHECKED: naval surface
-    // legality in the zone builder is still coarser than the runtime predicate,
-    // so the two water rows stay outside the gate for now.
-    assert!(!can_use_reduced_zone_precheck(Some(MovementZone::Water)));
-    assert!(!can_use_reduced_zone_precheck(Some(
-        MovementZone::WaterBeach
-    )));
-}
-
-#[test]
-fn tube_hierarchy_explicit_registry_keeps_flat_and_layered_corridor_active() {
-    use crate::map::tube_facts::TubeFact;
-    let (width, height) = (40, 3);
-    let grid = PathGrid::new(width, height);
-    let mut zones = ZoneGrid::following_path_grid(&grid);
-    let labels = (0..height)
-        .flat_map(|y| {
-            (0..width).map(move |x| {
-                if y == 1 && x > 0 && x < width - 1 {
-                    2
-                } else {
-                    1
-                }
-            })
-        })
-        .collect();
-    zones.set_hierarchy(level0_hierarchy(labels, width, height, &[]));
-    let terrain = ResolvedTerrainGrid::from_cells_with_tubes(
-        width,
-        height,
-        gsi_04_12_terrain(width, height).cells,
-        vec![TubeFact::explicit((50, 50), (60, 50), 2, vec![2; 10])],
-    );
-    let counts = BlockerNeighborCounts::new(width, height);
-    let flat = find_path_zoned_marker(
-        &grid,
-        (0, 1),
-        (39, 1),
-        Some(&zones),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        Some(&terrain),
-        None,
-        Some(&counts),
-        true,
-        None,
-    )
-    .expect("flat hierarchy route");
-    assert!(
-        !flat.contains(&(20, 1)),
-        "an irrelevant explicit Tube must not disable the stamped corridor"
-    );
-    let flat_unrestricted = find_path_zoned_marker(
-        &grid,
-        (0, 1),
-        (39, 1),
-        Some(&zones),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        Some(&terrain),
-        None,
-        Some(&counts),
-        false,
-        None,
-    )
-    .unwrap();
-    assert!(
-        flat_unrestricted.contains(&(20, 1)),
-        "fixture distinguishes ordinary A* from hierarchy routing"
-    );
-    let layered = find_layered_path_zoned_marker(
-        &grid,
-        (0, 1),
-        MovementLayer::Ground,
-        (39, 1),
-        Some(&zones),
-        MovementZone::Normal,
-        Some(MovementZone::Normal),
-        Some(&terrain),
-        None,
-        Some(&counts),
-        true,
-        None,
-    )
-    .expect("layered hierarchy route");
-    assert!(
-        !layered.iter().any(|step| (step.rx, step.ry) == (20, 1)),
-        "layered entry must retain the same hierarchy admission"
-    );
-}
-
-#[test]
-fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
+fn tube_hierarchy_gate_uses_raw_invalid_labels_and_goal_bridge_flag() {
     let mut grid = PathGrid::new(2, 2);
     grid.set_cell_for_test(0, 0, 4, false, false);
     grid.set_cell_for_test(1, 0, 0, true, true);
@@ -1677,9 +549,10 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
     zones.set_hierarchy(level0_hierarchy(vec![1; 4], 2, 2, &[]));
     let counts = BlockerNeighborCounts::new(2, 2);
     let route = |zones: &ZoneGrid, terrain: &ResolvedTerrainGrid| {
-        find_path_zoned_marker(
+        find_layered_path_zoned_marker(
             &grid,
             (0, 0),
+            MovementLayer::Ground,
             (1, 0),
             Some(zones),
             MovementZone::Normal,
@@ -1744,7 +617,7 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_flat_goal_bridge_flag() {
     assert_eq!(
         route(&zones, &terrain).is_some(),
         expected_admission(2, 2),
-        "flat goal Flags0x100 must select the redirected raw zone"
+        "goal Flags0x100 must select the redirected raw zone"
     );
     terrain.cell_mut(1, 0).unwrap().bridge_facts.raw_flags = 0;
     assert_eq!(
@@ -1779,7 +652,7 @@ fn tube_hierarchy_dword_zone_query_matches_original_executable() {
             let c = coord(&entry[0]);
             let cell = terrain.cell_mut(c.0, c.1).unwrap();
             cell.final_tile_index = entry[1].as_i64().unwrap() as i32;
-            cell.yr_cell_land_type = entry[2].as_u64().unwrap() as u8;
+            cell.land_type = entry[2].as_u64().unwrap() as u8;
             cell.bridge_facts.raw_flags = entry[3].as_u64().unwrap() as u32;
         }
         let flags = case["flags"].as_u64().unwrap() as u32;
@@ -1856,101 +729,6 @@ fn tube_hierarchy_dword_zone_query_matches_original_executable() {
 }
 
 #[test]
-fn tube_hierarchy_missing_record_sentinel_controls_actual_route_gate() {
-    let grid = PathGrid::new(16, 16);
-    let mut terrain = gsi_04_12_terrain(16, 16);
-    // Native producer corpus high_no_far: no far matching bridge tile, so the
-    // real factory leaves the structural middle cell without a high record.
-    {
-        let start = terrain.cell_mut(4, 7).unwrap();
-        start.final_tile_index = 106;
-        start.final_sub_tile = 4;
-    }
-    for x in [5, 6] {
-        let c = terrain.cell_mut(x, 7).unwrap();
-        c.bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
-        c.has_bridge_deck = true;
-        c.bridge_walkable = true;
-        c.bridge_transition = true;
-        c.bridge_deck_level = 0;
-    }
-    terrain.test_set_high_bridge_set_starts(Some(100), None);
-    let bridges = crate::sim::bridge_state::BridgeRuntimeState::from_resolved_terrain_with_map_size(
-        &terrain,
-        true,
-        100,
-        (8, 8),
-    );
-    assert!(bridges.endpoint_records().is_empty());
-    let mut zones = ZoneGrid::build_with_native_bridge_geometry(
-        &grid,
-        &terrain,
-        bridges.endpoint_records(),
-        16,
-        16,
-        Some((8, 8)),
-    );
-    zones.set_hierarchy(level0_hierarchy(vec![1; 256], 16, 16, &[]));
-    let counts = BlockerNeighborCounts::new(16, 16);
-    assert_eq!(
-        zones.get_zone_id_native(&terrain, (5, 7), MovementZone::Normal, true),
-        Some(u32::MAX)
-    );
-    assert_ne!(
-        zones.get_zone_id_native(&terrain, (4, 7), MovementZone::Normal, false),
-        Some(u32::MAX)
-    );
-    assert!(
-        find_path_zoned_marker(
-            &grid,
-            (4, 7),
-            (5, 7),
-            Some(&zones),
-            MovementZone::Normal,
-            Some(MovementZone::Normal),
-            Some(&terrain),
-            None,
-            Some(&counts),
-            true,
-            None
-        )
-        .is_none(),
-        "ordinary label differs from missing structural DWORD sentinel"
-    );
-    assert_eq!(
-        native_path_zone_equality(
-            &zones,
-            Some(&terrain),
-            MovementZone::Normal,
-            (5, 7),
-            true,
-            (6, 7),
-            true
-        ),
-        Some(true),
-        "two missing structural records compare equal at DWORD width"
-    );
-    assert!(
-        find_layered_path_zoned_marker(
-            &grid,
-            (5, 7),
-            MovementLayer::Bridge,
-            (6, 7),
-            Some(&zones),
-            MovementZone::Normal,
-            Some(MovementZone::Normal),
-            Some(&terrain),
-            None,
-            Some(&counts),
-            true,
-            None
-        )
-        .is_some(),
-        "equal missing sentinels admit hierarchy; physical route remains independently passable"
-    );
-}
-
-#[test]
 fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
     let cases: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/path_entry.json",
@@ -1973,7 +751,7 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
             let cell = terrain.cell_mut(c.0, c.1).unwrap();
             cell.bridge_facts.raw_flags = row[1].as_u64().unwrap() as u32;
             cell.final_tile_index = row[2].as_i64().unwrap() as i32;
-            cell.yr_cell_land_type = row[3].as_u64().unwrap() as u8;
+            cell.land_type = row[3].as_u64().unwrap() as u8;
         }
         let records: Vec<_> = case["records"]
             .as_array()
@@ -2065,24 +843,6 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
             assert!(terrain.cell(hole.0, hole.1).is_none());
             dummy.stamp_coord(1234, -2345);
             assert!(
-                find_path_zoned_marker(
-                    &grid,
-                    hole,
-                    hole,
-                    Some(&zones),
-                    MovementZone::Normal,
-                    Some(MovementZone::Normal),
-                    Some(&terrain),
-                    None,
-                    None,
-                    false,
-                    None
-                )
-                .is_none()
-            );
-            assert_eq!(dummy.snapshot().coord, (4, 4));
-            dummy.stamp_coord(1234, -2345);
-            assert!(
                 find_layered_path_zoned_marker(
                     &grid,
                     hole,
@@ -2104,29 +864,65 @@ fn tube_hierarchy_native_entry_prefix_matches_original_executable() {
     }
 }
 
-// Preserve the existing height/projection assertions through the live entry owner.
-fn resolve_hierarchy_endpoint_contract(
-    zones: Option<&ZoneGrid>,
-    terrain: Option<&ResolvedTerrainGrid>,
-    bounds: Option<PlayfieldBounds>,
-    start: (u16, u16),
-    start_bridge: bool,
-    goal: (u16, u16),
-    _goal_bridge: bool,
-) -> ((u16, u16), (u16, u16), bool) {
-    let entry = prepare_native_path_entry(
-        zones,
-        terrain,
-        MovementZone::Normal,
-        start,
-        start_bridge,
-        goal,
-        true,
-        bounds,
+/// `AStar_pathfind_search` (`0x0042C900`) takes the row from the type's
+/// `MovementZone=` (`+0x5B4`, `0x0042C963..0x0042C96D`) and compares the raw
+/// labels at `0x0042CB22` for every row: nothing there exempts Water or
+/// WaterBeach. Two water cells split by land carry different labels in both
+/// rows, so the search returns NULL before the cell A*; the Fly row, which
+/// joins them, searches.
+#[test]
+fn water_rows_reject_split_labels_before_the_cell_astar() {
+    let terrain = super::super::zone_map_tests::terrain_from_zone_classes(
+        3,
+        1,
+        &[zone_class::WATER, zone_class::GROUND, zone_class::WATER],
+        &[0; 3],
     );
-    (
-        entry.hierarchy_start,
-        entry.hierarchy_goal,
-        entry.endpoints_in_playfield,
-    )
+    let grid = PathGrid::from_resolved_terrain(&terrain);
+    let zones =
+        ZoneGrid::build_with_native_bridge_geometry(&grid, &terrain, &[], 3, 1, Some((3, 1)));
+    let counts = BlockerNeighborCounts::new(3, 1);
+    let search = |mz| {
+        find_layered_path_zoned_marker_detailed(
+            &grid,
+            (0, 0),
+            MovementLayer::Ground,
+            (2, 0),
+            Some(&zones),
+            mz,
+            Some(mz),
+            Some(&terrain),
+            None,
+            Some(&counts),
+            MoverSearchFacts {
+                urgency: 0,
+                foot_entry: &super::super::WalkableEntry::new(&grid),
+            },
+            true,
+            None,
+        )
+        .map(|path| path.len())
+    };
+    for mz in [MovementZone::Water, MovementZone::WaterBeach] {
+        let label = |cell| {
+            zones
+                .get_zone_id_native(&terrain, cell, mz, false)
+                .expect("raw label")
+        };
+        assert_ne!(
+            label((0, 0)),
+            label((2, 0)),
+            "{mz:?}: land splits the water"
+        );
+        assert_eq!(
+            search(mz),
+            Err(PathSearchFailure::NativeEntryRejected),
+            "{mz:?}: 0x0042CB22 refuses before the cell A*"
+        );
+    }
+    assert_eq!(
+        search(MovementZone::Fly),
+        Ok(3),
+        "the Fly row joins the water and searches"
+    );
 }

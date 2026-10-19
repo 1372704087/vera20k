@@ -5,11 +5,8 @@
 use super::*;
 use serde_json::Value;
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/bridge_debris_producer.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/bridge_debris_producer.json")
 }
 
 fn retail_rules(corpus: &Value) -> Option<RuleSet> {

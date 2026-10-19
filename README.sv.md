@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20k huvudbild" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20K huvudbild" width="100%">
 
 <p align="center" dir="ltr">
   <strong>Svenska</strong> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <a href="README.md" lang="en">English</a>
@@ -10,33 +10,49 @@
   <img src="https://img.shields.io/badge/QQ_grupp-1097193563-1EBAFC?style=flat&amp;logo=qq&amp;logoColor=white" alt="QQ-grupp" height="20" align="middle">
 </p>
 
-# VERA20k
+# VERA20K
 
-VERA20k är en communitydriven nyimplementation av originalmotorn, `gamemd.exe`. Den använder
+VERA20K är en communitydriven nyimplementation av originalmotorn, `gamemd.exe`. Den använder
 de ursprungliga spelfilerna, så du behöver en egen kopia av Red Alert 2: Yuri's Revenge.
 
-VERA20k görs av spelare, för spelare, och det är spelarna som har sista ordet om vart projektet
+VERA20K görs av spelare, för spelare, och det är spelarna som har sista ordet om vart projektet
 ska gå.
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k: inställningar för skirmish och bild från spelet" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K: inställningar för skirmish och bild från spelet" width="100%">
 
 ## Projektets mål
 
 1. Bevara spelmekaniken, utseendet och stämningen i originalversionen av Red Alert 2: Yuri's Revenge.
 2. Stödja större slag: upp till **30 spelare** och **20 000 enheter** på 500×500-kartor.
-3. Integrera kända RTS-funktioner, gamla som nya, och några som aldrig setts förut.
+3. Integrera kända RTS-funktioner och några som aldrig setts förut.
 4. Integrerad flerspelarklient
 
 ## Aktuellt läge
 
-**Mitt i utvecklingen.** Lokala skirmishmatcher går att spela på Windows mot en enkel AI.
-Kartor från originalspelet och slumpgenererade kartor, menyer, basbygge, resursinsamling,
-strider samt möjligheten att spara och ladda spel finns på plats, men mycket återstår
-att fixa och färdigställa.
+**Under aktiv utveckling.**
 
-Flerspelarläge, kampanjer och originalets AI saknas fortfarande. Flygplan, sinneskontroll,
-broar och flera vapen och effekter behöver mer arbete. Vi har ännu inte demonstrerat slag
-med 30 spelare och 20 000 enheter.
+- **Skirmish:** Går att spela på Windows, Linux och macOS, med kartor från originalspelet
+  och slumpgenererade kartor, basbygge, resursinsamling, strider samt möjlighet att spara och ladda spel.
+- **Kampanjer:** Uppdrag går att starta; stödet är fortfarande ofullständigt.
+- **AI:** Delar av originalets AI sköter basbygge och skriptstyrda anfall.
+- **Pågående arbete:** Spelbeteende, grafik och prestanda.
+- **Flerspelarläge:** Nätverksspel är ännu inte tillgängligt.
+- **Skala:** Slag med 30 spelare och 20 000 enheter har ännu inte demonstrerats.
+
+## Arkitektur
+
+Motorn har tre huvuddelar:
+
+- **Simulering:** Ansvarar för speltillstånd och spellogik.
+- **Rendering:** En helt ny GPU-renderingspipeline som använder originalets spelresurser,
+  byggd för att bevara originalets utseende.
+- **Applikation:** Hanterar inmatning, menyer, ljud och plattformsintegration och kopplar ihop systemen.
+
+Denna uppdelning stöder deterministiskt spel.
+
+Pilarna visar dataflödet:
+
+![Applikationen skickar kommandon till simuleringen, som returnerar världstillståndet; applikationen skickar renderingsdata till renderingen.](docs/images/architecture.sv.png)
 
 ## Bygg och kör
 
@@ -50,7 +66,7 @@ Du behöver:
   `sudo apt install build-essential libasound2-dev pkg-config`.
 - **Grafik:** ett grafikkort med Vulkan, DirectX 12 eller Metal.
 
-VERA20k har spelats på Windows, Linux och macOS.
+VERA20K har spelats på Windows, Linux och macOS.
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -60,9 +76,6 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Skriv `ra2_dir` med vanliga snedstreck, till exempel `C:/Games/RA2`. Använd `--release` när du
-spelar; debugbyggen är för långsamma. Loggen hamnar i `logs/ra2.log`.
-
 ## Så arbetar vi
 
 Större delen av koden skrivs av AI-agenter. De använder Ghidra för att studera originalmotorn,
@@ -70,20 +83,27 @@ portar sedan dess beteende till Rust och kontrollerar det med
 [jämförelseverktyg](tools/native_oracle.md) och speltester. Agenterna följer
 [AGENTS.md](AGENTS.md).
 
+## Anpassning
+
+Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
+att slå på och av dem i klienten där det är lämpligt.
+
 ## Bidra
 
 All hjälp är välkommen. Du kan skriva kod, refaktorera motorn, testa spelet, dela idéer eller
 spela det sida vid sida med originalet och berätta vad som känns fel. Öppna en PR så tar vi det
 därifrån. Diskussionen sker på [Discord](https://discord.gg/kmjRUn5m5F) och i QQ-gruppen (1097193563).
 
-Spelmekaniken finns i `src/sim/`, renderingen i `src/render/` och menyer och inmatning i
-`src/app/` och `src/ui/`; Python-verktygen i `tools/` behöver du inte.
+## Stöd projektet
 
-Speltesta dina ändringar med `cargo run --profile fast --bin vera20k`. Den är optimerad som
-`--release` men bygger bara om det du har ändrat, så du kommer snabbare tillbaka till spelet.
-Mät prestanda med `--release`.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Stöd VERA20K via PayPal" height="40"></a>
 
-Bidrag licensieras under GPLv3, precis som resten av projektet; det finns inget CLA.
+Alla mottagna donationer fördelas till
+medverkande enligt [TIBTRE:s bidragsregister](https://github.com/YuriPlanet/tibtre-ledger).
+
+Utbetalningar till medverkande:
+
+<p><img src="https://img.shields.io/badge/PayPal-003087?style=flat&amp;logo=paypal&amp;logoColor=white" alt="PayPal" height="20"> <img src="https://img.shields.io/badge/China_UnionPay-E21836?style=flat" alt="China UnionPay" height="20"> <img src="https://img.shields.io/badge/Alipay-1677FF?style=flat&amp;logo=alipay&amp;logoColor=white" alt="Alipay" height="20"> <img src="https://img.shields.io/badge/Vipps-FF5B24?style=flat" alt="Vipps" height="20"> <img src="https://img.shields.io/badge/SEPA-2D4B9A?style=flat&amp;logo=sepa&amp;logoColor=white" alt="SEPA" height="20"> <img src="https://img.shields.io/badge/Bitcoin-F7931A?style=flat&amp;logo=bitcoin&amp;logoColor=white" alt="Bitcoin" height="20"></p>
 
 ## Tack och juridisk information
 
@@ -93,6 +113,6 @@ många andra.
 
 Licensierat under [GPLv3](LICENSE-GPL). Det här repot innehåller inga spelfiler. Command &
 Conquer och Red Alert är varumärken som tillhör Electronic Arts Inc., och skärmbilderna visar
-spelgrafik som ägs av Electronic Arts. VERA20k har ingen koppling till och stöds inte av Electronic Arts.
+spelgrafik som ägs av Electronic Arts. VERA20K har ingen koppling till och stöds inte av Electronic Arts.
 
 Översättning av [README.md](README.md); håll den uppdaterad i takt med den engelska versionen.

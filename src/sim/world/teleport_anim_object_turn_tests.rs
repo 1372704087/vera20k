@@ -12,6 +12,7 @@ use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::movement::teleport_movement::{TeleportPhase, TeleportState};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::common_raw_test_terrain_cell;
+use crate::util::save_codec;
 
 fn rules(bind_warp_art: bool) -> RuleSet {
     let mut rules = RuleSet::from_ini(&IniFile::from_str(
@@ -36,7 +37,7 @@ fn rules(bind_warp_art: bool) -> RuleSet {
 fn install_destination_cells(sim: &mut Simulation, rules: &RuleSet) {
     let speed_costs = rules
         .terrain_rules
-        .semantics_by_name("Clear")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
         .unwrap()
         .speed_costs;
     sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(
@@ -382,6 +383,7 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
     .with_installed_weapon(Some(sim.intern("MissileLauncher")));
     let bullet = FiredBullet::launched(
         &sim,
+        &rules,
         100,
         RAD_NO_ATTACKER,
         ProjectileTarget::Entity(1),
@@ -449,7 +451,6 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
             .map(|value| value.as_str().unwrap())
             .collect();
         assert_eq!(actual.as_slice(), expected.as_slice());
-        assert!(world.pending_projectile_detonations.is_empty());
     }
     assert_eq!(sim.state_hash(), restored.state_hash());
 }
@@ -517,30 +518,17 @@ fn raw_bits(sim: &Simulation, cell: (u16, u16)) -> u8 {
 }
 
 /// Teleport Process brackets the relocation with Mark(UP) (`0x007195DB`) and
-/// Mark(DOWN) (`0x007196BF`): a Unit's cell list entry, raw vehicle bit and
-/// vehicle plane leave the origin and mark the destination in the warp's own
-/// turn.
+/// Mark(DOWN) (`0x007196BF`): a Unit's cell list entry and raw vehicle bit
+/// leave the origin and mark the destination in the warp's own turn.
 #[test]
 fn warp_moves_a_units_occupation_through_the_mark_pair() {
-    use crate::sim::movement::locomotor::MovementLayer;
-    use crate::sim::occupancy::VEHICLE_OCCUPATION_BIT;
     let rules = rules(false);
     let mut sim = relocating_chrono_unit((8, 9));
-    let occupied = |sim: &Simulation, cell: (u16, u16)| {
-        sim.substrate
-            .cell_occupation
-            .vehicle_bits(cell.0, cell.1, MovementLayer::Ground)
-            & VEHICLE_OCCUPATION_BIT
-            != 0
-    };
-    assert!(occupied(&sim, (5, 5)));
     assert_ne!(raw_bits(&sim, (5, 5)) & 0x20, 0);
 
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .unwrap();
 
-    assert!(!occupied(&sim, (5, 5)), "the origin is released");
-    assert!(occupied(&sim, (8, 9)), "the destination is marked");
     assert_eq!(raw_bits(&sim, (5, 5)) & 0x20, 0);
     assert_ne!(raw_bits(&sim, (8, 9)) & 0x20, 0);
     assert!(!sim.substrate.occupancy.contains_entity(5, 5, 1));
@@ -752,8 +740,8 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
     overlays.place_overlay(12, 7, overlay, 0);
     sim.overlay_grid = Some(overlays);
     let before = (
-        bincode::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
-        bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+        save_codec::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
+        save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
         sim.rng_state(),
     );
 
@@ -770,8 +758,8 @@ fn restoration_callbacks_forward_overlay_inputs_before_any_destination_write() {
         ));
         assert_eq!(
             (
-                bincode::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
-                bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+                save_codec::serialize(sim.substrate.entities.get(1).unwrap()).unwrap(),
+                save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
                 sim.rng_state(),
             ),
             before,

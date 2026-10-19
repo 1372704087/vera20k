@@ -76,6 +76,7 @@ pub enum Stage {
 /// rather than alongside the other terrain shaping; and the tail of the LAT
 /// driver runs patches → LAT fixup → trees → rocks in that order (the fixup
 /// creates the sand-LAT tiles the rock pass needs), then a final recalc.
+#[cfg(any(test, feature = "test-support"))]
 pub const STAGE_ORDER: &[Stage] = &[
     Stage::Water,
     Stage::WaterFinalize,
@@ -177,7 +178,7 @@ pub fn generated_dimensions(options: &RmgOptions) -> (i32, i32) {
     let lerp = |min: i32, max: i32, s: x87::TruncF64| {
         let low = x87::TruncF64::from_f64(f64::from(min)).mul(one.sub(s));
         let high = x87::TruncF64::from_f64(f64::from(max)).mul(s);
-        x87::ftol(low.add(high).to_f64())
+        crate::util::native_x87::X87Chop53::ftol_f64_low_masked(low.add(high).to_f64())
     };
 
     (
@@ -210,6 +211,7 @@ pub struct GeneratedMap {
     /// `(slot, x, y)` per generated start position.
     pub start_waypoints: Vec<(u8, u16, u16)>,
     /// Stages actually executed, in order.
+    #[cfg(any(test, feature = "test-support"))]
     pub stages_run: Vec<Stage>,
     /// Start slots no region could fill. Non-zero means this map is short of
     /// spawns: fewer usable start positions than the player count implies.
@@ -231,6 +233,7 @@ impl GeneratedMap {
 ///
 /// `options` must already be normalized — `build::generate_map` normalizes its
 /// copy before calling this.
+#[cfg(any(test, feature = "test-support"))]
 pub fn executed_stages(options: &RmgOptions) -> Vec<Stage> {
     STAGE_ORDER
         .iter()

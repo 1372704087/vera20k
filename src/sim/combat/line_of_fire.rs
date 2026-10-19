@@ -46,51 +46,6 @@ const LEPTONS_PER_CELL: i32 = 256;
 /// `CMP EAX,0x4` at 0x004CC5A7). Units are terrain Levels, not leptons.
 const CLIFF_STEP_LEVELS: i32 = 4;
 
-/// Overlay array indices that `CellClass::IsWallConnectableInDirection`
-/// 0x00480510 accepts for the "any wall?" query — the form 0x004CC32D uses,
-/// pushing `-1` for both the type and the direction. The three ids are hard
-/// coded in that body.
-///
-/// **These are `[OverlayTypes]` DECLARATION indices, not the INI key text.**
-/// `RulesClass::Process` reads the section by 0-based entry index — `XOR
-/// EBX,EBX` at 0x00668CF3, `PUSH EBX` as the entry selector at 0x00668D0A,
-/// `INC EBX; CMP EBX,EBP; JL` at 0x00668D2F-0x00668D32 — and never parses the
-/// `N=` on the left of the line. Stock `rulesmd.ini` has 250 entries under keys
-/// 1..253 with keys **40, 41 and 183 missing**, so `id == key - 1` holds only
-/// below key 42. Resolved by declaration index the three ids are `GAWALL`
-/// (key 3), `NAWALL` (key 27) and `GAFWLL` (key 247). `CAKRMW`, the Kremlin
-/// wall, is id **240** and is NOT in this set — a wall-breaking shell is
-/// refused by it exactly as it is by sandbags. VERA shares that numbering:
-/// `rules::overlay_types::is_bridge_overlay_index` pins `BRIDGEB1`/`BRIDGEB2`
-/// at 237/238, their declaration indices, against INI keys 241/242.
-///
-/// Id 243 is LIVE, and all three ids fire in ordinary play. `[GAFWLL]` is the
-/// Yuri Citadel Wall: `rulesmd.ini:13561` declares it, `:13571` gives it
-/// `Wall=yes`, and it carries `Name=Yuri Citadel Wall`, `TechLevel=2`,
-/// `Prerequisite=YABRCK`. Its buildable half is `[BuildingTypes] 312`
-/// (`rulesmd.ini:1499`), `artmd.ini:4129`'s `[GAFWLL]` gives it
-/// `Cameo=CITWICON` and `ToOverlay=GAFWLL`, and `[AI] ConcreteWalls`
-/// (`rulesmd.ini:3077`) names exactly `GAWALL,NAWALL,GAFWLL` — this set. Any
-/// Yuri player who walls a base puts overlay 243 on the map.
-///
-/// It is easy to miss because its header carries a trailing comment —
-/// `[GAFWLL];temp wall for yuri[YAWALL]` — which a `^\[NAME\]$` matcher
-/// rejects. Neither real reader does. `INIClass::LoadFromStraw` 0x00525A60
-/// tests `CMP byte ptr [ESP+0x78],0x5B` at 0x00525DC1, calls
-/// `strchr(line, ']')` (`PUSH 0x5D` at 0x00525DCC) and NULs the FIRST `]` at
-/// 0x00525DDB before naming the section from `buffer+1`; VERA's
-/// `rules::ini_parser` takes the same `line.find(']')` prefix. Nor is this a
-/// GAFWLL quirk: 61 stock `rulesmd.ini` sections and 154 in `artmd.ini` have
-/// such headers, `[Controller]`, `[Parasite]`, `[FlakWeapon]` and
-/// `[JumpjetControls]` among them.
-///
-/// Deliberately NOT "every `Wall=yes` overlay": stock authors `Wall=yes` on
-/// eight overlays — `GASAND` (0), `GAWALL` (2), `NAWALL` (26), `CAFNCB` (203),
-/// `CAFNCW` (204), `CAKRMW` (240), `CAFNCP` (241) and `GAFWLL` (243) — of
-/// which only three are re-admitted, so a wall-breaking warhead does not get
-/// waved through a sandbag or a fence line.
-const WALL_CONNECTABLE_OVERLAY_IDS: [u8; 3] = [2, 26, 243];
-
 /// Map state the walk consults beyond the resolved terrain grid.
 ///
 /// `overlay_grid`/`overlay_registry` are `Option` because several sim entry
@@ -228,7 +183,7 @@ pub(crate) fn cell_blocks_line_of_fire<'a>(
     if !blocks(&cell) {
         return None;
     }
-    let center = crate::sim::cell_kernel::cell_ref_own_coords(&cell).expect("Cell486840 slope");
+    let center = cell.center_coordinate().expect("Cell486840 slope");
     if crate::util::native_x87::distance_3d_leptons(
         [probe.sample.x, probe.sample.z, probe.sample.y],
         [center.x, center.z, center.y],
@@ -236,9 +191,13 @@ pub(crate) fn cell_blocks_line_of_fire<'a>(
     {
         return Some(cell);
     }
-    let source = crate::sim::cell_kernel::cell_ref_own_coords(&probe.source)
+    let source = probe
+        .source
+        .center_coordinate()
         .expect("source Cell486840 slope");
-    let target = crate::sim::cell_kernel::cell_ref_own_coords(&probe.target)
+    let target = probe
+        .target
+        .center_coordinate()
         .expect("target Cell486840 slope");
     let major_x = source.x.wrapping_sub(target.x).wrapping_abs();
     let major_y = source.y.wrapping_sub(target.y).wrapping_abs();
@@ -399,65 +358,29 @@ pub(crate) fn line_of_fire_blocking_cell<'a>(
         .as_deref()
         .and_then(|name| rules.warhead(name))
         .is_some_and(|wh| wh.wall);
-    if warhead_breaks_walls && wall_is_connectable(&hit, los) {
+    if warhead_breaks_walls
+        && matches!(
+            crate::sim::cell_kernel::wall_connection_step(
+                overlay(&hit, los).0.map_or(-1, i32::from),
+                -1,
+            ),
+            crate::sim::cell_kernel::WallConnectionStep::Return(true)
+        )
+    {
         return None;
     }
 
     Some(hit)
 }
 
-/// `CellClass::IsWallConnectableInDirection(cell, -1, -1)` 0x00480510 as
-/// 0x004CC333 calls it: with the type argument `-1` the body reduces to a
-/// membership test on the cell's own overlay index against three hard-coded
-/// ids, and the direction argument is never read.
-fn wall_is_connectable(cell: &CellRef<'_>, los: &LineOfFireInputs<'_>) -> bool {
-    overlay(cell, los)
-        .0
-        .is_some_and(|id| WALL_CONNECTABLE_OVERLAY_IDS.contains(&id))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::resolved_terrain::ResolvedTerrainGrid;
+
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::ruleset::RuleSet;
+
     use crate::sim::intern::StringInterner;
     use crate::sim::overlay_grid::OverlayGrid;
-
-    const WALL_GAWALL_ID: u8 = 2;
-    const SANDBAG_GASAND_ID: u8 = 0;
-    const GRID: u16 = 16;
-
-    fn check_line(
-        src: (i64, i64),
-        tgt: (i64, i64),
-        weapon: &WeaponType,
-        house: &str,
-        rules: &RuleSet,
-        terrain: &ResolvedTerrainGrid,
-        interner: &StringInterner,
-        los: &LineOfFireInputs<'_>,
-    ) -> Option<(u16, u16)> {
-        let query = NativeCellQuery::canonical(terrain);
-        super::line_of_fire_blocking_cell(
-            (src.0, src.1, 0),
-            (tgt.0, tgt.1, 0),
-            weapon,
-            interner.get(house),
-            rules,
-            &query,
-            interner,
-            los,
-        )
-        .map(|hit| match hit {
-            CellRef::Real(cell) => (cell.rx, cell.ry),
-            CellRef::Dummy { cell } => {
-                let (x, y) = cell.snapshot().coord;
-                (x as u16, y as u16)
-            }
-        })
-    }
 
     /// Overlay ids follow `[OverlayTypes]` DECLARATION order (0x00668CF3 /
     /// 0x00668D0A read entries by 0-based index, never by key text), so the
@@ -477,415 +400,10 @@ mod tests {
         )
     }
 
-    fn rules_with(extra: &str) -> RuleSet {
-        RuleSet::from_ini(&IniFile::from_str(&rules_ini(extra))).expect("rules parse")
-    }
-
     fn overlay_registry(extra: &str) -> OverlayTypeRegistry {
         OverlayTypeRegistry::from_ini(&IniFile::from_str(&rules_ini(extra)), None)
     }
 
-    fn flat_terrain() -> ResolvedTerrainGrid {
-        crate::map::resolved_terrain::test_grid(
-            GRID,
-            GRID,
-            crate::map::resolved_terrain::test_unclassified_cell,
-        )
-    }
-
-    fn set_level(terrain: &mut ResolvedTerrainGrid, rx: u16, ry: u16, level: u8) {
-        terrain.cell_mut(rx, ry).expect("cell in grid").level = level;
-    }
-
-    fn overlay_grid_with(cells: &[(u16, u16, u8)]) -> OverlayGrid {
-        let mut grid = OverlayGrid::new(GRID, GRID);
-        for &(rx, ry, id) in cells {
-            grid.cell_mut(rx, ry).overlay_id = Some(id);
-        }
-        grid
-    }
-
-    fn centre(cx: i64, cy: i64) -> (i64, i64) {
-        (cx * 256 + 128, cy * 256 + 128)
-    }
-
-    /// The headline case: `[Cannon]` is `SubjectToWalls=yes`, so a tank whose
-    /// warhead cannot break walls is refused a shot through one.
-    #[test]
-    fn a_wall_between_attacker_and_target_blocks_the_shot() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(4, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            Some((4, 2)),
-        );
-    }
-
-    /// 0x004CC10B — a projectile with neither key never walks, so the same
-    /// wall is invisible to it.
-    #[test]
-    fn a_projectile_with_neither_key_never_walks() {
-        let extra = "[SHELL]\nROT=0\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(4, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-        );
-    }
-
-    /// 0x004CC333 + 0x004CC342 — a `Wall=yes` warhead is waved through a
-    /// GAWALL, which is one of the three ids `IsWallConnectableInDirection`
-    /// accepts.
-    #[test]
-    fn a_wall_breaking_warhead_is_readmitted_through_a_gawall() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(4, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        // `GUNWALL` carries `Warhead=WHWALL`, whose `Wall=yes` is the
-        // `WarheadType+0x144` byte 0x004CC342 reads.
-        let weapon = rules.weapon("GUNWALL").expect("GUNWALL");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-        );
-    }
-
-    /// The re-admission is narrower than `Wall=yes`: `GASAND` (overlay id 0)
-    /// carries `Wall=yes` and still blocks, because 0x00480510's `-1` arm
-    /// accepts only ids 2, 26 and 243.
-    #[test]
-    fn a_wall_breaking_warhead_is_still_blocked_by_a_sandbag_wall() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(4, 2, SANDBAG_GASAND_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        // `GUNWALL` carries `Warhead=WHWALL`, whose `Wall=yes` is the
-        // `WarheadType+0x144` byte 0x004CC342 reads.
-        let weapon = rules.weapon("GUNWALL").expect("GUNWALL");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            Some((4, 2)),
-        );
-    }
-
-    /// 0x004CC434 — the wall standing on the target's own cell is the wall you
-    /// are shooting at, and never blocks.
-    #[test]
-    fn a_wall_on_the_targets_own_cell_does_not_block() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(6, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-        );
-    }
-
-    /// 0x004CC444 — firing from higher raw `Level` than the target clears the
-    /// wall. The compare is on `+0x11B`, so a bridge anchor's `+4` effective
-    /// height must NOT enter it.
-    #[test]
-    fn firing_downhill_clears_the_wall() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let mut terrain = flat_terrain();
-        set_level(&mut terrain, 2, 2, 3);
-        let overlays = overlay_grid_with(&[(4, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-            "source Level 3 > target Level 0 clears the wall (0x004CC444)"
-        );
-    }
-
-    /// 0x004CC3DE / 0x004CC3F7 — a four-Level rise above BOTH the previous
-    /// cell and the source cell blocks a `SubjectToCliffs` shot. Three Levels
-    /// does not: the boundary is `>= 4`.
-    #[test]
-    fn a_four_level_cliff_blocks_and_three_levels_does_not() {
-        let extra = "[SHELL]\nSubjectToCliffs=yes\n";
-        let rules = rules_with(extra);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs::terrain_only();
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        for (rise, expect) in [(4u8, Some((4u16, 2u16))), (3u8, None)] {
-            let mut terrain = flat_terrain();
-            for ry in 0..GRID {
-                set_level(&mut terrain, 4, ry, rise);
-            }
-            assert_eq!(
-                check_line(
-                    centre(2, 2),
-                    centre(6, 2),
-                    weapon,
-                    "Americans",
-                    &rules,
-                    &terrain,
-                    &interner,
-                    &los,
-                ),
-                expect,
-                "a {rise}-Level step verdict"
-            );
-        }
-    }
-
-    /// The second half of 0x004CC3F7: the step must also stand above the
-    /// SOURCE cell. Climbing four Levels out of a pit back to the source's own
-    /// height is not a cliff.
-    #[test]
-    fn a_step_that_only_regains_the_source_height_is_not_a_cliff() {
-        let extra = "[SHELL]\nSubjectToCliffs=yes\n";
-        let rules = rules_with(extra);
-        let mut terrain = flat_terrain();
-        for ry in 0..GRID {
-            set_level(&mut terrain, 2, ry, 4);
-            set_level(&mut terrain, 3, ry, 0);
-            set_level(&mut terrain, 4, ry, 4);
-        }
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs::terrain_only();
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                centre(6, 2),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-        );
-    }
-
-    /// 0x004CC22D — a same-cell shot has zero steps and is never blocked, even
-    /// standing on a wall.
-    #[test]
-    fn a_same_cell_shot_is_never_blocked() {
-        let extra = "[SHELL]\nSubjectToWalls=yes\n";
-        let rules = rules_with(extra);
-        let registry = overlay_registry(extra);
-        let terrain = flat_terrain();
-        let overlays = overlay_grid_with(&[(2, 2, WALL_GAWALL_ID)]);
-        let interner = StringInterner::new();
-        let los = LineOfFireInputs {
-            overlay_grid: Some(&overlays),
-            overlay_registry: Some(&registry),
-            alliances: None,
-        };
-        let weapon = rules.weapon("GUN").expect("GUN");
-
-        assert_eq!(
-            check_line(
-                centre(2, 2),
-                (2 * 256 + 200, 2 * 256 + 40),
-                weapon,
-                "Americans",
-                &rules,
-                &terrain,
-                &interner,
-                &los,
-            ),
-            None,
-        );
-    }
-
-    /// 0x004CC458 — with `[WallModel] AlliedWallTransparency=yes` an allied
-    /// wall stops blocking; with the stock `no` it still blocks.
-    #[test]
-    fn campaign_directed_allies_keep_wall_owner_transparency_direction() {
-        use std::collections::{BTreeMap, BTreeSet};
-
-        let terrain = flat_terrain();
-        // Original4CC470 uses the wall owner's House receiver;4CC477 pushes
-        // the firing House to IsAlliedWith4F9A50. Reverse-only friendship
-        // cannot waive the wall, even though the map admits one-way allies.
-        for (transparency, asker, other, expect) in [
-            ("yes", "FRENCH", "AMERICANS", None),
-            ("yes", "AMERICANS", "FRENCH", Some((4u16, 2u16))),
-            ("no", "FRENCH", "AMERICANS", Some((4u16, 2u16))),
-        ] {
-            let mut alliances: HouseAllianceMap = BTreeMap::new();
-            alliances.insert(asker.to_owned(), BTreeSet::from([other.to_owned()]));
-            let extra = format!(
-                "[SHELL]\nSubjectToWalls=yes\n\n[WallModel]\nAlliedWallTransparency={transparency}\n"
-            );
-            let rules = rules_with(&extra);
-            let registry = overlay_registry(&extra);
-            let mut interner = StringInterner::new();
-            interner.intern("Americans");
-            let mut overlays = overlay_grid_with(&[(4, 2, WALL_GAWALL_ID)]);
-            overlays.cell_mut(4, 2).wall_owner = Some(interner.intern("French"));
-            let los = LineOfFireInputs {
-                overlay_grid: Some(&overlays),
-                overlay_registry: Some(&registry),
-                alliances: Some(&alliances),
-            };
-            let weapon = rules.weapon("GUN").expect("GUN");
-
-            assert_eq!(
-                check_line(
-                    centre(2, 2),
-                    centre(6, 2),
-                    weapon,
-                    "Americans",
-                    &rules,
-                    &terrain,
-                    &interner,
-                    &los,
-                ),
-                expect,
-                "AlliedWallTransparency={transparency}, {asker}->{other}"
-            );
-        }
-    }
-    #[test]
-    fn canonical_and_isolated_line_queries_keep_their_dummy_identity() {
-        let terrain = flat_terrain();
-        for isolated in [false, true] {
-            terrain.stamp_dummy_cell_requested_coord(99, 98);
-            let query = if isolated {
-                NativeCellQuery::isolated(&terrain)
-            } else {
-                NativeCellQuery::canonical(&terrain)
-            };
-            let interner = StringInterner::new();
-            let result = walk_line_for_blocking_cell(
-                (640, 640, 501),
-                (5248, 640, -502),
-                true,
-                false,
-                None,
-                false,
-                &query,
-                &interner,
-                &LineOfFireInputs::terrain_only(),
-            );
-            assert!(result.is_none());
-            assert_eq!(query.dummy().snapshot().coord, (19, 2));
-            assert_eq!(
-                terrain.dummy_cell_requested_coord(),
-                if isolated { (99, 98) } else { (19, 2) }
-            );
-        }
-    }
     #[test]
     fn original_line_walk_signed_xyz_and_obstruction_controls() {
         let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(

@@ -61,6 +61,7 @@ pub fn empty_map_file(options: &RmgOptions, gen_w: u32, gen_h: u32) -> MapFile {
     MapFile {
         header,
         basic: Default::default(),
+        ranking: Default::default(),
         preview: Default::default(),
         cells: Vec::new(),
         iso_map_pack_lookups: Vec::new(),
@@ -70,15 +71,12 @@ pub fn empty_map_file(options: &RmgOptions, gen_w: u32, gen_h: u32) -> MapFile {
         smudges: Vec::new(),
         terrain_objects: Vec::new(),
         waypoints: HashMap::new(),
-        cell_tags: Default::default(),
         tags: Default::default(),
         triggers: Default::default(),
         events: Default::default(),
         actions: Default::default(),
         local_variables: Default::default(),
-        trigger_graph: Default::default(),
         special_flags: Default::default(),
-        explicit_tubes: Vec::new(),
         // `IniFile` has no `Default`; an empty document is the equivalent.
         ini: IniFile::from_str(""),
     }
@@ -166,6 +164,7 @@ pub fn populate(
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            structure_online: true,
             trigger_tag: None,
         });
     }

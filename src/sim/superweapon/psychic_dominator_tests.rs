@@ -39,8 +39,8 @@ fn retail_rules() -> Option<RuleSet> {
     ])
 }
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -69,7 +69,7 @@ fn relight_profiles(sim: &Simulation) -> Vec<ScenarioLightingProfile> {
         .pending
         .iter()
         .filter_map(|event| match event {
-            LightingEvent::RelightProfile { cell_profile } => Some(*cell_profile),
+            LightingEvent::RelightProfile { cell_profile, .. } => Some(*cell_profile),
             _ => None,
         })
         .collect()
@@ -610,7 +610,12 @@ fn retail_dominator_strike_captures_the_block() {
     let first = sim.psychic_dominator.anim().expect("PDFXCLD");
     let anim = sim.anim(first).unwrap();
     assert_eq!(sim.interner.resolve(anim.type_id), "PDFXCLD");
-    let ground = super::fire::cell_coords(&sim, TARGET);
+    let ground = crate::sim::projectile::cell_ground_coord(
+        sim.resolved_terrain.as_ref(),
+        TARGET.0,
+        TARGET.1,
+    );
+    let ground = [ground.x, ground.y, ground.z];
     assert_eq!(
         [anim.world_coord.x, anim.world_coord.y, anim.world_coord.z],
         [ground[0], ground[1], ground[2] + 750]

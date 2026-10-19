@@ -12,7 +12,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::assets::asset_manager::AssetManager;
-use crate::assets::pal_file::{Color, Palette};
+use crate::assets::pal_file::Palette;
 use crate::assets::tmp_file::TmpFile;
 use crate::map::map_file::MapError;
 use crate::rules::ini_parser::{IniFile, IniSection};
@@ -175,29 +175,74 @@ pub struct TheaterCliffRanges {
 }
 
 impl TheaterCliffRanges {
-    /// Broad special-terrain identity predicate used by terrain-height logic.
-    pub fn is_special_terrain_tile(&self, tile_id: u16, sub_tile: u8) -> bool {
-        in_fixed_range(self.cliff_set, tile_id, 0x28)
-            || in_fixed_range(self.cliff_ramps, tile_id, 0x14)
-            || in_fixed_range(self.water_cliffs, tile_id, 0x1c)
-            || in_fixed_range(self.destroyable_cliffs, tile_id, 2)
+    /// Original CellClass `0x004863D0..0x004865AD`: signed tile identity,
+    /// byte subtile, and an explicit absent-base guard for every family.
+    /// Source: original executable and the theater General reader contract in
+    /// `tools/rules_oracle/theater_general_reader.md`.
+    pub fn is_special_terrain_tile(&self, tile_id: i32, sub_tile: u8) -> bool {
+        if in_fixed_range(self.cliff_set, tile_id, 0x28) {
+            return true;
+        }
+        // A matching waterfall end can return FALSE immediately, even when
+        // a later family overlaps it. An OR over all families loses that exit.
+        if let Some(special) = self.classify_waterfall(tile_id, i32::from(sub_tile), true) {
+            return special;
+        }
+        in_fixed_range(self.cliff_ramps, tile_id, 0x14)
+            || in_fixed_range(self.water_caves, tile_id, 4)
             || in_fixed_range(self.bridge_set, tile_id, 0x10)
             || in_fixed_range(self.wood_bridge_set, tile_id, 0x10)
-            || in_fixed_range(self.water_caves, tile_id, 4)
-            || waterfall_is_special(self.waterfall_east, tile_id, sub_tile, &[0, 4])
-            || waterfall_is_special(self.waterfall_west, tile_id, sub_tile, &[1, 3])
-            || waterfall_is_special(self.waterfall_south, tile_id, sub_tile, &[0, 1])
-            || waterfall_is_special(self.waterfall_north, tile_id, sub_tile, &[2, 3])
+            || in_fixed_range(self.destroyable_cliffs, tile_id, 2)
+            || in_fixed_range(self.water_cliffs, tile_id, 0x1c)
     }
 
-    /// Narrow `IsOnBridgeRamp @ 0x00578d80` predicate.
-    pub fn is_on_bridge_ramp_tile(&self, tile_id: u16, slope_byte: u8) -> bool {
-        in_fixed_range(self.cliff_set, tile_id, 0x28)
-            || in_fixed_range(self.cliff_ramps, tile_id, 0x14)
-            || waterfall_blocks(self.waterfall_east, tile_id, slope_byte, &[0, 4])
-            || waterfall_blocks(self.waterfall_west, tile_id, slope_byte, &[1, 3])
-            || waterfall_blocks(self.waterfall_south, tile_id, slope_byte, &[0, 1])
-            || waterfall_blocks(self.waterfall_north, tile_id, slope_byte, &[2, 3])
+    /// Original `0x00578D80..0x00578E5B`: the second argument is the full
+    /// subtile INDEX, not a slope byte. Unlike Cell4863D0, missing bases still
+    /// participate as -1 in signed windows (same original executable source).
+    pub fn is_on_bridge_ramp_tile(&self, tile_id: i32, sub_tile: i32) -> bool {
+        let cliff_base = self.cliff_set.map_or(-1, i32::from);
+        if in_signed_tile_window(cliff_base, tile_id, 0x28) {
+            return true;
+        }
+        if let Some(special) = self.classify_waterfall(tile_id, sub_tile, false) {
+            return special;
+        }
+        in_signed_tile_window(self.cliff_ramps.map_or(-1, i32::from), tile_id, 0x14)
+    }
+
+    /// Resolved waterfall bases in the generator's N/E/S/W heading order.
+    /// This is a data projection; all cliff-family decisions remain here.
+    pub fn waterfall_bases(&self) -> [i32; 4] {
+        [
+            self.waterfall_north,
+            self.waterfall_east,
+            self.waterfall_south,
+            self.waterfall_west,
+        ]
+        .map(|base| base.map_or(-1, i32::from))
+    }
+
+    /// Shared E/W/S/N waterfall portion of the two original classifiers.
+    /// None means no family matched; Some(false) is a terminal ordinary end.
+    fn classify_waterfall(&self, tile_id: i32, sub_tile: i32, skip_absent: bool) -> Option<bool> {
+        for (base, ordinary) in [
+            (self.waterfall_east, [0, 4]),
+            (self.waterfall_west, [1, 3]),
+            (self.waterfall_south, [0, 1]),
+            (self.waterfall_north, [2, 3]),
+        ] {
+            if skip_absent && base.is_none() {
+                continue;
+            }
+            let base = base.map_or(-1, i32::from);
+            if in_signed_tile_window(base, tile_id, 4) {
+                return Some(
+                    (tile_id != base && tile_id != base.wrapping_add(3))
+                        || !ordinary.contains(&sub_tile),
+                );
+            }
+        }
+        None
     }
 }
 
@@ -210,6 +255,9 @@ pub struct RmgTileKeys {
     pub clear_tile: Option<u16>,
     pub ramp_base: Option<u16>,
     pub ramp_smooth: Option<u16>,
+    /// Resolved ABC1F8: SlopeSetPieces read545776, published545E26.
+    /// Ramp-end blocks use this family independently of RampBase/CliffRamps.
+    pub slope_set_pieces: Option<u16>,
     pub rough_tile: Option<u16>,
     pub sand_tile: Option<u16>,
     pub green_tile: Option<u16>,
@@ -227,27 +275,15 @@ pub struct RmgTileKeys {
     pub medians: Option<u16>,
 }
 
-fn in_fixed_range(start: Option<u16>, tile_id: u16, len: u16) -> bool {
+fn in_fixed_range(start: Option<u16>, tile_id: i32, len: i32) -> bool {
     let Some(start) = start else {
         return false;
     };
-    let end = start.saturating_add(len);
-    tile_id >= start && tile_id < end
+    in_signed_tile_window(i32::from(start), tile_id, len)
 }
 
-fn waterfall_blocks(start: Option<u16>, tile_id: u16, slope_byte: u8, passable: &[u8]) -> bool {
-    let Some(start) = start else {
-        return false;
-    };
-    if !in_fixed_range(Some(start), tile_id, 4) {
-        return false;
-    }
-    let offset = tile_id - start;
-    if offset == 0 || offset == 3 {
-        !passable.contains(&slope_byte)
-    } else {
-        true
-    }
+fn in_signed_tile_window(start: i32, tile_id: i32, len: i32) -> bool {
+    tile_id >= start && tile_id < start.wrapping_add(len)
 }
 
 /// A `Tile%02dAnim` block: one terrain-attached animation declared for a single
@@ -484,6 +520,7 @@ fn read_tileset_row(ini: &IniFile, ordinal: u32) -> Result<Option<(&IniSection, 
 /// Each section's positive `TilesInSet` advances the global tile_id counter.
 /// The filename is `{FileName}{NN:02}.{extension}` where NN is 1-indexed.
 /// Blank FileName entries consume tile_id slots but map to None.
+#[cfg(any(test, feature = "test-support"))]
 pub fn parse_tileset_ini(ini_data: &[u8], extension: &str) -> Result<TilesetLookup, MapError> {
     let ini = IniFile::from_bytes(ini_data).map_err(MapError::Ini)?;
     parse_tileset_sections(&ini, extension)
@@ -699,8 +736,6 @@ pub struct TheaterData {
     pub wood_bridge_set: Option<u16>,
     /// `[General] SlopeSetPieces=N` - TileSet section whose first tile becomes DAT_00ABC1F8.
     pub slope_set_pieces: Option<u16>,
-    /// `[General] SlopeSetPieces2=N` - TileSet section whose first tile becomes DAT_00AA1098.
-    pub slope_set_pieces2: Option<u16>,
     /// `[General] BridgeMiddle1=N` — BridgeSet-relative offset for the NS
     /// bridgehead variant block. The 4 NS variant tile_ids occupy
     /// `BridgeSet_start + {N-1, N, N+1, N+2}`. None if the key is absent.
@@ -708,12 +743,16 @@ pub struct TheaterData {
     /// `[General] BridgeMiddle2=N` — same for EW.
     pub bridge_middle_2: Option<u16>,
     /// `[General] Tunnels=N` - theater tile set for tunnel/low-bridge tube cells.
+    #[cfg(any(test, feature = "test-support"))]
     pub tunnels: Option<u16>,
     /// `[General] TrackTunnels=N` - track tunnel tile set.
+    #[cfg(any(test, feature = "test-support"))]
     pub track_tunnels: Option<u16>,
     /// `[General] DirtTunnels=N` - dirt tunnel tile set.
+    #[cfg(any(test, feature = "test-support"))]
     pub dirt_tunnels: Option<u16>,
     /// `[General] DirtTrackTunnels=N` - dirt track tunnel tile set.
+    #[cfg(any(test, feature = "test-support"))]
     pub dirt_track_tunnels: Option<u16>,
     /// Exact signed cumulative bases published for the four automatic Tube
     /// families in native comparison order. Missing or unresolved keys retain
@@ -733,17 +772,6 @@ pub struct TheaterData {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BridgeMiddleTiles {
     pub tile_ids: Vec<u16>,
-}
-
-impl TheaterData {
-    pub fn is_special_terrain_tile(&self, tile_id: u16, sub_tile: u8) -> bool {
-        self.cliff_ranges.is_special_terrain_tile(tile_id, sub_tile)
-    }
-
-    pub fn is_on_bridge_ramp_tile(&self, tile_id: u16, slope_byte: u8) -> bool {
-        self.cliff_ranges
-            .is_on_bridge_ramp_tile(tile_id, slope_byte)
-    }
 }
 
 impl BridgeMiddleTiles {
@@ -810,9 +838,8 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
         lookup.bounds().len()
     );
 
-    let iso_palette = load_exact_palette(asset_manager, def.iso_palette_name, theater_name, "iso")?;
-    let unit_palette =
-        load_exact_palette(asset_manager, def.unit_palette_name, theater_name, "unit")?;
+    let (unit_palette, iso_palette) =
+        load_theater_unit_and_iso_palettes(asset_manager, theater_name)?;
     let tiberium_palette = load_exact_palette(
         asset_manager,
         def.theater_palette_name,
@@ -828,7 +855,6 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
     let mut bridge_set = read_general_u16(general, "BridgeSet");
     let mut wood_bridge_set = read_general_u16(general, "WoodBridgeSet");
     let slope_set_pieces = read_general_u16(general, "SlopeSetPieces");
-    let slope_set_pieces2 = read_general_u16(general, "SlopeSetPieces2");
     let bridge_middle_1 = read_general_u16(general, "BridgeMiddle1");
     let bridge_middle_2 = read_general_u16(general, "BridgeMiddle2");
     let tunnels = read_general_u16(general, "Tunnels");
@@ -842,7 +868,7 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
                 .map_or(-1, |bounds| i32::from(bounds.start))
         });
     let mut cliff_ranges = resolve_cliff_ranges(&lookup, general, bridge_set, wood_bridge_set);
-    let mut rmg_tiles = resolve_rmg_tile_keys(&lookup, general);
+    let mut rmg_tiles = resolve_rmg_tile_keys(&lookup, general, slope_set_pieces);
     apply_lunar_global_zeroing(
         theater_name,
         &mut bridge_set,
@@ -890,12 +916,15 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
         bridge_set,
         wood_bridge_set,
         slope_set_pieces,
-        slope_set_pieces2,
         bridge_middle_1,
         bridge_middle_2,
+        #[cfg(any(test, feature = "test-support"))]
         tunnels,
+        #[cfg(any(test, feature = "test-support"))]
         track_tunnels,
+        #[cfg(any(test, feature = "test-support"))]
         dirt_tunnels,
+        #[cfg(any(test, feature = "test-support"))]
         dirt_track_tunnels,
         automatic_tube_bases,
         cliff_ranges,
@@ -976,7 +1005,11 @@ fn resolve_tileset_start(lookup: &TilesetLookup, ordinal: i32) -> Option<u16> {
         .map(|bounds| bounds.start)
 }
 
-fn resolve_rmg_tile_keys(lookup: &TilesetLookup, general: Option<&IniSection>) -> RmgTileKeys {
+pub(crate) fn resolve_rmg_tile_keys(
+    lookup: &TilesetLookup,
+    general: Option<&IniSection>,
+    slope_set_pieces: Option<u16>,
+) -> RmgTileKeys {
     let resolve = |key: &str| {
         let ordinal = general.map_or(-1, |section| section.read_int(key, -1));
         resolve_tileset_start(lookup, ordinal)
@@ -985,6 +1018,9 @@ fn resolve_rmg_tile_keys(lookup: &TilesetLookup, general: Option<&IniSection>) -
         clear_tile: resolve("ClearTile"),
         ramp_base: resolve("RampBase"),
         ramp_smooth: resolve("RampSmooth"),
+        // Reuse the existing General reader's ordinal. Original545E1D/545E26
+        // publishes the cumulative base, not that ordinal, to ABC1F8.
+        slope_set_pieces: resolve_tileset_start(lookup, slope_set_pieces.map_or(-1, i32::from)),
         rough_tile: resolve("RoughTile"),
         sand_tile: resolve("SandTile"),
         green_tile: resolve("GreenTile"),
@@ -1041,12 +1077,16 @@ fn apply_lunar_global_zeroing(
     }
     *bridge_set = None;
     *wood_bridge_set = None;
-    *cliff_ranges = TheaterCliffRanges::default();
+    // Original ReadTheater545150, 546C95..546CB9 (original executable;
+    // General reader identities: tools/rules_oracle/theater_general_reader.md).
+    // Lunar resets these seven globals, retaining the other declared ranges.
+    cliff_ranges.cliff_set = None;
+    cliff_ranges.water_cliffs = None;
+    cliff_ranges.bridge_set = None;
+    cliff_ranges.wood_bridge_set = None;
     rmg_tiles.water_set = None;
-}
-
-fn waterfall_is_special(start: Option<u16>, tile_id: u16, sub_tile: u8, ordinary: &[u8]) -> bool {
-    waterfall_blocks(start, tile_id, sub_tile, ordinary)
+    rmg_tiles.shore_pieces = None;
+    rmg_tiles.water_bridge = None;
 }
 
 /// Checked tile-index projection; absent, negative and out-of-range values
@@ -1056,6 +1096,29 @@ fn read_general_u16(general: Option<&IniSection>, key: &str) -> Option<u16> {
     u16::try_from(general?.read_int(key, -1)).ok()
 }
 
+/// The theater's unit and iso palettes, by their exact names: the one choice
+/// [`load_theater`] publishes and mid-match atlas growth re-reads, so pages
+/// grown later key on the load-time RGBA rows.
+///
+/// Init_Theater (`0x005349C0`, UNIT%s.PAL) and Read_Theater_TileSets_INI
+/// (ISO%s.PAL, `0x005454DB`) store each component `<< 2`, the one palette
+/// conversion. gamemd builds its colour tables with no colour key:
+/// ConvertClass (`0x0048E740`, 16-bit rows from `0x004BBB00`) and
+/// LightConvertClass::UpdateColors (`0x00556090`, through its RGB565 row
+/// builder `0x007DE200` or its generic loop) convert each entry by its RGB,
+/// and only index 0 is special (UpdateColors writes it as 0). Retail
+/// UNITTEM.PAL holds raw 63,0,63 at 204..239 and ISOTEM.PAL at 10; they draw
+/// as that colour.
+pub fn load_theater_unit_and_iso_palettes(
+    asset_manager: &AssetManager,
+    theater_name: &str,
+) -> Option<(Palette, Palette)> {
+    let def = theater_def(theater_name)?;
+    let iso = load_exact_palette(asset_manager, def.iso_palette_name, theater_name, "iso")?;
+    let unit = load_exact_palette(asset_manager, def.unit_palette_name, theater_name, "unit")?;
+    Some((unit, iso))
+}
+
 fn load_exact_palette(
     asset_manager: &AssetManager,
     name: &str,
@@ -1063,7 +1126,7 @@ fn load_exact_palette(
     palette_kind: &str,
 ) -> Option<Palette> {
     if let Some((data, source)) = asset_manager.get_with_source(name)
-        && let Ok(palette) = Palette::from_bytes_gamemd_ui(&data)
+        && let Ok(palette) = Palette::from_bytes(&data)
     {
         log::info!(
             "Theater {}: {} palette '{}' from {}",
@@ -1084,17 +1147,7 @@ fn load_exact_palette(
 }
 
 fn native_missing_theater_palette() -> Palette {
-    let mut colors = [Color::rgb(0, 0, 0); 256];
-    for (index, color) in colors.iter_mut().enumerate() {
-        let value = index as u8;
-        *color = Color {
-            r: value,
-            g: 255u8.wrapping_sub(value),
-            b: value.wrapping_shl(2),
-            a: if index == 0 { 0 } else { 255 },
-        };
-    }
-    Palette { colors }
+    Palette::from_rgb(|value| [value, 255u8.wrapping_sub(value), value.wrapping_shl(2)])
 }
 
 /// Collect all unique TileKey values used by a terrain grid.

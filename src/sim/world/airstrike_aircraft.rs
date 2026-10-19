@@ -12,6 +12,7 @@ use super::{FrameEffects, PlacementEvidence, Simulation};
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose;
 
@@ -82,12 +83,17 @@ impl Simulation {
             //65E91C..65E94F: Winged, zone -1, Normal, bridge-zone false,
             //1x1, no height/occupation/overlay gate, bridges allowed.
             let cell = self
-                .find_plain_passable_cell(
+                .nearby_passable_cell(
                     (i32::from(seed.0 as i16), i32::from(seed.1 as i16)),
-                    SpeedType::Winged,
-                    None,
-                    MovementZone::Normal,
-                    (1, 1),
+                    NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type: SpeedType::Winged,
+                            required_zone_id: None,
+                            movement_zone: MovementZone::Normal,
+                            bridge_aware_zone: false,
+                        },
+                        NearbyFootprint::SINGLE,
+                    ),
                 )
                 .unwrap_or((0, 0));
             crate::sim::mission::authority::queue_entity_mission_deferred(
@@ -235,11 +241,7 @@ mod tests {
                 plane
                     .mission
                     .set_current_for_test(MissionId::from_known(MissionType::Attack), 5);
-                plane
-                    .aircraft_ammo
-                    .as_mut()
-                    .unwrap()
-                    .set_current_for_test(2);
+                plane.ammo_mut().unwrap().set_current_for_test(2);
                 sim.assign_target_represented(
                     id,
                     target,
@@ -249,9 +251,11 @@ mod tests {
                 )
                 .unwrap();
                 let plane = sim.substrate.entities.get(id).unwrap();
-                let should_clear = matches!(name, "BPLN" | "HORNET");
+                // A NULL request jumps to the store (0x006FCDF3), keeping
+                // the ammo; only a new target leaves the run.
+                let should_clear = matches!(name, "BPLN" | "HORNET") && target.is_some();
                 assert_eq!(
-                    plane.aircraft_ammo.as_ref().unwrap().current(),
+                    plane.ammo().unwrap().current(),
                     if should_clear { 0 } else { 2 },
                     "{name}, {target:?}"
                 );

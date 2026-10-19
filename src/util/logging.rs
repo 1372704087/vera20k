@@ -1,171 +1,33 @@
 //! Logging initialization helpers.
 //!
-//! Binaries use this to route `log`/`env_logger` output into a file under
-//! `logs/` in the current working directory.
+//! Binaries route `log` records into a file under `logs/` in the current
+//! working directory, or to stderr. Each record is one line,
+//! `[2026-10-18T20:44:36Z INFO  module::path] message`, with the time in UTC.
+//!
+//! `RUST_LOG` filters records as env_logger did: comma-separated directives,
+//! each a level (`warn`), a target prefix (`vera20k_core::sim`, all levels) or
+//! both (`wgpu_hal=error`); the longest matching prefix wins. A `/text` suffix
+//! keeps only messages containing `text`.
 
 use std::backtrace::Backtrace;
-use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Instant;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use env_logger::{Builder, Env, Target};
+use log::{LevelFilter, Log, Metadata, Record};
 
 static EXCEPTION_DUMP_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Records kept for the dashboard's log view. The file log is unbounded; this
-/// copy is what the UI can actually render, and it is also what the report
-/// table calls "recent".
-const LOG_CAPACITY: usize = 4000;
-/// One record's message ceiling. Loading a map logs sprite names by the
-/// thousand, and a single runaway format string must not own the ring.
-const LOG_MESSAGE_LIMIT: usize = 400;
-const LOG_TARGET_LIMIT: usize = 64;
+#[cfg(feature = "telemetry")]
+#[path = "logging_telemetry.rs"]
+mod telemetry;
+#[cfg(feature = "telemetry")]
+pub use telemetry::{enable_telemetry_capture, ring};
 
-/// One captured log record, in wire-friendly form.
-#[derive(Debug, Clone)]
-pub struct LogLine {
-    pub seq: u64,
-    /// 1 = error, 2 = warn, 3 = info, 4 = debug, 5 = trace.
-    pub level: u8,
-    pub target: String,
-    pub message: String,
-    /// Milliseconds since logging started.
-    pub t_ms: u64,
-}
-
-/// Bounded, thread-safe copy of everything the process has logged.
-///
-/// `env_logger` already formats and writes the file; this is a tee on the same
-/// `log` records, so the dashboard shows exactly what the file received. The
-/// reader cursor is atomic and single-consumer (the telemetry capture on the
-/// game thread), which keeps per-frame capturing free of lock contention.
-pub struct LogRing {
-    started: Instant,
-    next: AtomicU64,
-    sent: AtomicU64,
-    lines: Mutex<VecDeque<LogLine>>,
-}
-
-impl LogRing {
-    fn new() -> Self {
-        Self {
-            started: Instant::now(),
-            next: AtomicU64::new(0),
-            sent: AtomicU64::new(0),
-            lines: Mutex::new(VecDeque::with_capacity(LOG_CAPACITY)),
-        }
-    }
-
-    fn push(&self, record: &log::Record<'_>) {
-        let seq = self.next.fetch_add(1, Ordering::Relaxed) + 1;
-        let mut message = record.args().to_string();
-        truncate(&mut message, LOG_MESSAGE_LIMIT);
-        let mut target = record.target().to_string();
-        truncate(&mut target, LOG_TARGET_LIMIT);
-        let line = LogLine {
-            seq,
-            level: rank(record.level()),
-            target,
-            message,
-            t_ms: self.started.elapsed().as_millis() as u64,
-        };
-        let mut lines = self.lines.lock().unwrap_or_else(|poll| poll.into_inner());
-        if lines.len() == LOG_CAPACITY {
-            lines.pop_front();
-        }
-        lines.push_back(line);
-    }
-
-    /// Records added since the previous call.
-    ///
-    /// The second value counts records the ring dropped before anyone read
-    /// them, so the UI can say "N lines lost" instead of lying by omission.
-    pub fn take_since_last(&self, limit: usize) -> (Vec<LogLine>, u64) {
-        let start = self.sent.load(Ordering::Relaxed);
-        let lines = self.lines.lock().unwrap_or_else(|poll| poll.into_inner());
-        let mut picked = Vec::new();
-        let mut last = start;
-        for line in lines.iter().filter(|line| line.seq > start) {
-            if picked.len() == limit {
-                break;
-            }
-            last = line.seq;
-            picked.push(line.clone());
-        }
-        drop(lines);
-        // Only advance past what was handed out; a burst larger than `limit`
-        // is delivered over the next few frames instead of being discarded.
-        self.sent.store(last, Ordering::Relaxed);
-        let end = self.next.load(Ordering::Relaxed);
-        let dropped = end
-            .saturating_sub(start)
-            .saturating_sub(picked.len() as u64);
-        (picked, dropped)
-    }
-
-    /// How many records the ring currently holds.
-    pub fn len(&self) -> usize {
-        self.lines.lock().map(|lines| lines.len()).unwrap_or(0)
-    }
-}
-
-fn rank(level: log::Level) -> u8 {
-    match level {
-        log::Level::Error => 1,
-        log::Level::Warn => 2,
-        log::Level::Info => 3,
-        log::Level::Debug => 4,
-        log::Level::Trace => 5,
-    }
-}
-
-fn truncate(text: &mut String, limit: usize) {
-    if text.chars().count() > limit {
-        let cut = text
-            .char_indices()
-            .nth(limit)
-            .map(|(index, _)| index)
-            .unwrap_or(text.len());
-        text.truncate(cut);
-        text.push('…');
-    }
-}
-
-static RING: OnceLock<Arc<LogRing>> = OnceLock::new();
-
-/// The process-wide ring, once the logger is installed.
-pub fn ring() -> Option<&'static Arc<LogRing>> {
-    RING.get()
-}
-
-/// Forwards every record to `env_logger` and to the ring.
-struct TeeLogger {
-    inner: env_logger::Logger,
-    ring: Arc<LogRing>,
-}
-
-impl log::Log for TeeLogger {
-    fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
-        self.inner.enabled(metadata)
-    }
-
-    fn log(&self, record: &log::Record<'_>) {
-        if self.inner.enabled(record.metadata()) {
-            self.ring.push(record);
-            self.inner.log(record);
-        }
-    }
-
-    fn flush(&self) {
-        self.inner.flush();
-    }
-}
-
-/// Initialize env_logger to append to `logs/<name>.log`.
+/// Install a logger that appends to `logs/<name>.log`.
 ///
 /// Honors `RUST_LOG` and defaults to `info` when the variable is unset.
 /// Returns the resolved log file path on success.
@@ -184,23 +46,179 @@ pub fn init_file_logger(name: &str) -> io::Result<PathBuf> {
 
     // Suppress wgpu_hal's per-frame "Suboptimal present" warnings which
     // flood the log (~100K+ lines per session on AMD Vulkan).
-    let env = Env::default().default_filter_or("info,wgpu_hal=error");
-    let mut builder = Builder::from_env(env);
-    builder.format_timestamp_secs();
-    builder.target(Target::Pipe(Box::new(file)));
-
-    // Build rather than `init()`: `init` claims the global logger slot for
-    // env_logger alone, and the dashboard needs the same records. The tee
-    // writes both the file and the in-memory ring.
-    let logger = builder.build();
-    let level = logger.filter();
-    let ring = Arc::new(LogRing::new());
-    let _ = RING.set(Arc::clone(&ring));
-    if log::set_boxed_logger(Box::new(TeeLogger { inner: logger, ring })).is_ok() {
-        log::set_max_level(level);
-    }
+    install("info,wgpu_hal=error", Destination::File(Mutex::new(file)))
+        .map_err(|error| io::Error::other(error.to_string()))?;
 
     Ok(log_path)
+}
+
+/// Install a logger that writes to stderr, filtered by `RUST_LOG` or else
+/// `default_filter`. Fails when a logger is already installed.
+pub fn init_stderr_logger(default_filter: &str) -> Result<(), log::SetLoggerError> {
+    install(default_filter, Destination::Stderr)
+}
+
+fn install(default_filter: &str, destination: Destination) -> Result<(), log::SetLoggerError> {
+    let spec = std::env::var("RUST_LOG").unwrap_or_else(|_| default_filter.to_owned());
+    let filter = Filter::parse(&spec);
+    let max_level = filter.max_level();
+    log::set_logger(Box::leak(Box::new(Logger {
+        filter,
+        destination,
+    })))?;
+    log::set_max_level(max_level);
+    Ok(())
+}
+
+enum Destination {
+    Stderr,
+    File(Mutex<File>),
+}
+
+struct Logger {
+    filter: Filter,
+    destination: Destination,
+}
+
+impl Log for Logger {
+    fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+        metadata.level() <= self.filter.level_for(metadata.target())
+    }
+
+    fn log(&self, record: &Record<'_>) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let message = record.args().to_string();
+        if let Some(text) = &self.filter.message_contains
+            && !message.contains(text.as_str())
+        {
+            return;
+        }
+        #[cfg(feature = "telemetry")]
+        telemetry::record(record.level(), record.target(), &message);
+        let line = format!(
+            "[{} {:<5} {}] {message}\n",
+            utc_timestamp(SystemTime::now()),
+            record.level(),
+            record.target()
+        );
+        // A failed log write has nowhere to be reported.
+        let _ = match &self.destination {
+            Destination::Stderr => io::stderr().lock().write_all(line.as_bytes()),
+            Destination::File(file) => match file.lock() {
+                Ok(mut file) => file.write_all(line.as_bytes()),
+                Err(_) => Ok(()),
+            },
+        };
+    }
+
+    fn flush(&self) {
+        let _ = match &self.destination {
+            Destination::Stderr => io::stderr().flush(),
+            Destination::File(file) => file.lock().map_or(Ok(()), |mut file| file.flush()),
+        };
+    }
+}
+
+/// A parsed `RUST_LOG` value.
+struct Filter {
+    /// `(target prefix, level)`, shortest prefix first; `None` is the default.
+    directives: Vec<(Option<String>, LevelFilter)>,
+    message_contains: Option<String>,
+}
+
+impl Filter {
+    fn parse(spec: &str) -> Self {
+        let (directives_text, message_contains) = match spec.split_once('/') {
+            Some((directives, text)) => (directives, Some(text.to_owned())),
+            None => (spec, None),
+        };
+        let mut directives: Vec<(Option<String>, LevelFilter)> = Vec::new();
+        for directive in directives_text.split(',').map(str::trim) {
+            if directive.is_empty() {
+                continue;
+            }
+            let (target, level) = match directive.split_once('=') {
+                None => match directive.parse() {
+                    Ok(level) => (None, level),
+                    Err(_) => (Some(directive), LevelFilter::Trace),
+                },
+                Some((target, level)) if level.trim().is_empty() => {
+                    (Some(target.trim()), LevelFilter::Trace)
+                }
+                Some((target, level)) => match level.trim().parse() {
+                    Ok(level) => (Some(target.trim()), level),
+                    Err(_) => {
+                        eprintln!("warning: invalid logging spec '{level}', ignoring it");
+                        continue;
+                    }
+                },
+            };
+            let target = target.map(str::to_owned);
+            // A repeated target keeps its last level.
+            directives.retain(|(existing, _)| *existing != target);
+            directives.push((target, level));
+        }
+        if directives.is_empty() {
+            directives.push((None, LevelFilter::Error));
+        }
+        directives.sort_by_key(|(target, _)| target.as_ref().map_or(0, String::len));
+        Self {
+            directives,
+            message_contains,
+        }
+    }
+
+    /// The level of the longest directive prefix of `target`; `Off` when none match.
+    fn level_for(&self, target: &str) -> LevelFilter {
+        self.directives
+            .iter()
+            .rev()
+            .find(|(prefix, _)| {
+                prefix
+                    .as_deref()
+                    .is_none_or(|prefix| target.starts_with(prefix))
+            })
+            .map_or(LevelFilter::Off, |&(_, level)| level)
+    }
+
+    fn max_level(&self) -> LevelFilter {
+        self.directives
+            .iter()
+            .map(|&(_, level)| level)
+            .max()
+            .unwrap_or(LevelFilter::Off)
+    }
+}
+
+/// `YYYY-MM-DDTHH:MM:SSZ` for `time`, in UTC; the epoch for earlier times.
+fn utc_timestamp(time: SystemTime) -> String {
+    let seconds = time
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    let (days, second_of_day) = (seconds / 86_400, seconds % 86_400);
+    // Gregorian date from days since 1970-01-01 (Howard Hinnant's civil_from_days).
+    let shifted = days + 719_468;
+    let era = shifted / 146_097;
+    let day_of_era = shifted % 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + u64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z",
+        second_of_day / 3_600,
+        second_of_day / 60 % 60,
+        second_of_day % 60
+    )
 }
 
 /// Register a panic hook that writes the panic info and backtrace to the log
@@ -285,8 +303,55 @@ fn normalize_crlf(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, UNIX_EPOCH};
 
-    use super::{claim_exception_dump, normalize_crlf};
+    use log::LevelFilter;
+
+    use super::{Filter, claim_exception_dump, normalize_crlf, utc_timestamp};
+
+    #[test]
+    fn rust_log_directives_pick_the_longest_matching_target() {
+        let filter =
+            Filter::parse("info,wgpu_hal=error, vera20k_core::sim=debug,vera20k_core::sim::miner");
+        assert_eq!(filter.level_for("vera20k::app"), LevelFilter::Info);
+        assert_eq!(filter.level_for("wgpu_hal::metal"), LevelFilter::Error);
+        assert_eq!(
+            filter.level_for("vera20k_core::sim::world"),
+            LevelFilter::Debug
+        );
+        assert_eq!(
+            filter.level_for("vera20k_core::sim::miner::system"),
+            LevelFilter::Trace
+        );
+        assert_eq!(filter.max_level(), LevelFilter::Trace);
+        assert_eq!(filter.message_contains, None);
+
+        let only_rules = Filter::parse("vera20k_core::rules=warn/refused");
+        assert_eq!(
+            only_rules.level_for("vera20k_core::rules::ini"),
+            LevelFilter::Warn
+        );
+        assert_eq!(only_rules.level_for("vera20k_core::sim"), LevelFilter::Off);
+        assert_eq!(only_rules.message_contains.as_deref(), Some("refused"));
+
+        // A repeated target keeps its last level; an empty spec logs errors.
+        assert_eq!(
+            Filter::parse("debug,warn").level_for("any"),
+            LevelFilter::Warn
+        );
+        assert_eq!(Filter::parse("").level_for("any"), LevelFilter::Error);
+        assert_eq!(Filter::parse("off").max_level(), LevelFilter::Off);
+    }
+
+    #[test]
+    fn timestamps_are_utc_calendar_dates() {
+        let at = |seconds| utc_timestamp(UNIX_EPOCH + Duration::from_secs(seconds));
+        assert_eq!(at(0), "1970-01-01T00:00:00Z");
+        assert_eq!(at(951_782_400), "2000-02-29T00:00:00Z");
+        assert_eq!(at(1_792_355_076), "2026-10-18T20:24:36Z");
+        assert_eq!(at(4_107_542_399), "2100-02-28T23:59:59Z");
+        assert_eq!(at(4_107_542_400), "2100-03-01T00:00:00Z");
+    }
 
     #[test]
     fn exception_dump_guard_blocks_recursion_then_rearms() {

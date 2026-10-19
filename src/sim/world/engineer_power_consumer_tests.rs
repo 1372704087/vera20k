@@ -31,11 +31,8 @@ const RADAR: u64 = 20;
 const SECOND_RADAR: u64 = 10;
 const PRODUCER: u64 = 30;
 
-fn corpus() -> Value {
-    let value: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/house_power_consumers.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let value = crate::test_fixture::json("tools/spatial_oracle/house_power_consumers.json");
     assert_eq!(
         value["native_sha256"],
         "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
@@ -352,11 +349,7 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
                     );
                 }
                 "actual_global_factory_then_house_prefix" => {
-                    production::revalidate_and_step_factories(
-                        &mut sim,
-                        &rules,
-                        crate::sim::world::FrameEffects::default(),
-                    );
+                    production::step_factories(&mut sim);
                     sim.assess_house_derived_state(owner, &rules);
                 }
                 "later_local_house_advice" => house_eva::update_house_eva(&mut sim, &rules, owner),

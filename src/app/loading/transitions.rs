@@ -5,11 +5,9 @@
 use std::collections::{BTreeMap, HashMap};
 
 use crate::app::loading::init;
-use crate::app::match_runtime::sim_tick;
 use crate::app::presentation::render;
 use crate::map::basic::BasicSection;
 use crate::map::houses::HouseRoster;
-use crate::map::trigger_graph::TriggerGraph;
 use crate::render::radar::minimap::MinimapRenderer;
 use crate::render::selection_overlay::SelectionOverlay;
 use crate::rules::overlay_types::OverlayTypeRegistry;
@@ -58,15 +56,12 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             },
             map_hash: None,
             basic: BasicSection::default(),
+            ranking: crate::map::ranking::RankingSection::default(),
             terrain_grid: None,
             resolved_terrain: None,
             simulation: None,
             overlays: Vec::new(),
             terrain_objects: Vec::new(),
-            triggers: HashMap::new(),
-            events: HashMap::new(),
-            actions: HashMap::new(),
-            trigger_graph: TriggerGraph::default(),
             overlay_registry: OverlayTypeRegistry::empty(),
             house_roster: HouseRoster::default(),
             height_map: BTreeMap::new(),
@@ -107,6 +102,7 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
 /// gameplay authority: its source values belong to the loaded map/resources.
 pub(crate) struct MapPresentationInputs {
     pub(crate) basic: BasicSection,
+    pub(crate) ranking: crate::map::ranking::RankingSection,
     pub(crate) source: crate::map::source::LoadedMapSource,
     pub(crate) map_hash: Option<u64>,
     pub(crate) terrain_grid: Option<crate::map::terrain::TerrainGrid>,
@@ -131,15 +127,12 @@ pub(crate) fn install_world_presentation(
     assets: init::PresentationLoadAssets,
 ) {
     state.match_state.map_basic = map.basic;
+    state.match_state.map_ranking = map.ranking;
     state.match_state.loaded_map_source = Some(map.source);
     state.match_state.loaded_map_hash = map.map_hash;
     state.match_state.match_presentation.terrain_grid = map.terrain_grid;
     state.match_state.match_presentation.height_map = map.height_map;
     state.match_state.match_presentation.bridge_height_map = map.bridge_height_map;
-    state
-        .match_state
-        .match_presentation
-        .installed_playfield_authority = None;
     state.frontend.shell_preview_overlay_registry = state
         .match_state
         .sim_runtime
@@ -148,6 +141,11 @@ pub(crate) fn install_world_presentation(
 
     state.match_state.match_presentation.combat_lights.clear();
     state.match_state.match_presentation.lasers.clear_on_load();
+    state
+        .match_state
+        .match_presentation
+        .talk_bubble
+        .clear_on_load();
     state
         .match_state
         .match_presentation
@@ -199,7 +197,8 @@ pub(crate) fn install_world_presentation(
     // when optional font preparation did not produce a replacement.
     if let Some(ref fnt) = assets.fnt_file {
         state.renderer.bit_font = crate::render::bit_font::BitFont::from_fnt(
-            &state.renderer.gpu,
+            &state.renderer.gpu.device,
+            &state.renderer.gpu.queue,
             &state.renderer.batch_renderer,
             fnt,
         );
@@ -229,7 +228,7 @@ pub(crate) fn install_world_presentation(
         runtime
             .view()
             .resolved_terrain()
-            .map(|terrain| (terrain, &runtime.simulation, &runtime.resources.rules))
+            .map(|terrain| (terrain, &runtime.simulation))
     });
     let presentation = &mut state.match_state.match_presentation;
     presentation.lighting.install(
@@ -241,7 +240,7 @@ pub(crate) fn install_world_presentation(
     // Current MapClass authority, including restored/triggered LocalSize,
     // reaches camera and minimap before either route positions its view.
     let (playfield_bounds, playfield_revision) =
-        crate::app::input::camera::sync_playfield_presentation_bounds(state);
+        crate::app::input::camera::playfield_presentation_authority(state);
     let minimap = state
         .match_state
         .match_presentation
@@ -287,14 +286,12 @@ pub(crate) fn install_world_presentation(
             crate::assets::shp_file::ShpFile::from_bytes(assets.get_ref("shroud.shp")?).ok()?;
         let (frame_pixels, cw, ch) = crate::render::shroud_buffer::extract_shp_brightness(&shp);
         Some(crate::render::shroud_buffer::ShroudBuffer::new(
-            &state.renderer.gpu,
-            state.render_width(),
-            state.render_height(),
-            grid.width(),
-            grid.height(),
+            &state.renderer.gpu.device,
+            &state.renderer.gpu.queue,
+            [state.render_width(), state.render_height()],
+            [grid.width(), grid.height()],
             frame_pixels,
-            cw,
-            ch,
+            [cw, ch],
             crate::render::shroud_buffer::SHROUD_EDGE_LUT,
         ))
     });
@@ -327,10 +324,8 @@ pub(crate) fn finish_fresh_scenario_read(state: &mut AppState, mut result: init:
 }
 
 pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadResult) {
-    let wall_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    crate::app::match_runtime::scenario_pause::reset_clock(state);
+    let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     crate::app::input::dispatch::selection_navigation::reset_for_world_replacement(
@@ -348,15 +343,8 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     let returns_scenario_rng_to_offline_shell = startup.launch_session().is_some();
     // A loaded world is not timed until the launch handoff reaches InGame.
     state.match_state.scenario_elapsed_clock.reset();
-    // The timing ring's window belongs to the outgoing timeline; a fresh one
-    // must not mix samples from two matches.
-    state.match_state.telemetry_timing.clear();
-    state.match_state.telemetry_tick_rate.clear();
-    // Frame-phase stamps are per match: a new scenario starts a fresh profile so
-    // the end-of-match report describes this match only.
-    if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
-        runtime.simulation.reset_frame_profile();
-    }
+    #[cfg(feature = "telemetry-dashboard")]
+    crate::app::telemetry_capture::reset_observation(state);
     crate::app::loading::pump::clear_loading_state(state);
 
     // Close the outgoing diagnostic timeline before replacing its runtime.
@@ -396,10 +384,6 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                 overlay_registry: result.scenario.overlay_registry,
                 terrain_template: result.scenario.resolved_terrain,
                 rules,
-                trigger_graph: result.scenario.trigger_graph,
-                triggers: result.scenario.triggers,
-                events: result.scenario.events,
-                actions: result.scenario.actions,
             },
         }
     });
@@ -412,6 +396,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         state,
         MapPresentationInputs {
             basic: result.scenario.basic,
+            ranking: result.scenario.ranking,
             source: result.scenario.map_source,
             map_hash: result.scenario.map_hash,
             terrain_grid: result.scenario.terrain_grid,
@@ -433,6 +418,15 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         .borrow_mut()
         .clear();
     // Fresh SidebarClass admission silently seeds its first projection.
+    // ClearScene685573 -> Mouse5BDF50 -> Sidebar6A5030 -> Power63F730:
+    // fresh matches clear the retained Power fields. The saved-load route
+    // shares install_world_presentation but has a distinct NoInit contract.
+    let wall_ms = state.radar_presentation_ms();
+    state
+        .match_state
+        .match_presentation
+        .power_bar_anim
+        .reset(wall_ms);
     state
         .match_state
         .match_presentation
@@ -499,7 +493,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     // `Queue_Song(-2)` and the audio pump's AI picks the first allowed track
     // once the fade lands. Theme AI borrows the installed process Main cursor;
     // `Is_Allowed`'s `Side=` gate compares the local player's side.
-    let music_now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
+    let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::audio_runtime::bind_match_theme_context(state);
     if let Some(assets) = state.process_assets.manager() {
         state.audio.request_scenario_theme(
@@ -511,7 +505,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
 
     let installation = match startup {
         crate::app::match_bootstrap::LoadingStartup::Campaign(prepared) => {
-            state.match_state.startup.acknowledge_campaign(
+            let installed = state.match_state.startup.acknowledge_campaign(
                 &prepared,
                 state
                     .match_state
@@ -519,7 +513,21 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                     .as_ref()
                     .map(|rt| &rt.simulation),
                 matches!(state.frontend.screen, GameScreen::Loading),
-            )
+            );
+            // GameExit::Victory restores the won mission's globals after
+            // Start_Scenario (`0x00685D7A`): CarryOver4C6210 writes each one
+            // through SetGlobal689670 in index order.
+            if installed.is_ok()
+                && let Some(globals) = prepared.carried_globals()
+                && let Some(runtime) = state.match_state.sim_runtime.as_mut()
+            {
+                for (index, &set) in globals.iter().enumerate() {
+                    runtime
+                        .simulation
+                        .set_trigger_variable(true, index as i32, set);
+                }
+            }
+            installed
         }
         crate::app::match_bootstrap::LoadingStartup::Accepted(prepared) => {
             state.match_state.startup.acknowledge(
@@ -540,7 +548,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     };
     match installation {
         Ok(()) => {
-            let now_ms = sim_tick::monotonic_frame_pacer_ms(state, std::time::Instant::now());
+            let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
             state.match_state.scenario_elapsed_clock.start(now_ms);
             state.frontend.screen = GameScreen::InGame;
             if returns_scenario_rng_to_offline_shell {

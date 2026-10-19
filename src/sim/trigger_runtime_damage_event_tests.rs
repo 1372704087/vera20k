@@ -7,13 +7,11 @@ use crate::map::map_file::MapFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::rng::SimRng;
+use crate::util::save_codec;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_damage_events.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/trigger_damage_events.json");
     assert_eq!(
         corpus["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -360,8 +358,6 @@ fn retail_damage_scene(route: &Value) -> Option<RetailDamageScene> {
     let clear = terrain_rules.semantics_for_land_type(0).unwrap();
     let terrain = crate::map::resolved_terrain::test_grid(64, 64, |x, y| {
         let mut cell = crate::map::resolved_terrain::test_clear_cell(x, y);
-        cell.terrain_class = clear.terrain_class;
-        cell.base_terrain_class = clear.terrain_class;
         cell.speed_costs = clear.speed_costs;
         cell.base_speed_costs = clear.speed_costs;
         cell
@@ -717,8 +713,8 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
     assert_eq!(retained.pending, integer(&native_tag["pending"]) != 0);
     assert!(sim.trigger_runtime.logic_tags.contains(&tag));
     sim.validate_restored_trigger_runtime().unwrap();
-    let bytes = bincode::serialize(&sim.trigger_runtime).unwrap();
-    let mut restored: TriggerRuntime = bincode::deserialize(&bytes).unwrap();
+    let bytes = save_codec::serialize(&sim.trigger_runtime).unwrap();
+    let mut restored: TriggerRuntime = save_codec::deserialize(&bytes).unwrap();
     assert_eq!(restored, sim.trigger_runtime);
     restored.action_trace = std::mem::take(&mut sim.trigger_runtime.action_trace);
     restored.dispatch_trace = std::mem::take(&mut sim.trigger_runtime.dispatch_trace);
@@ -763,15 +759,7 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
     let timer = sim.trigger_runtime.trigger(next).unwrap().timer;
     sim.session.binary_frame = timer.start_frame().wrapping_add(timer.duration()) as u32;
     let previous_actions = sim.trigger_runtime.action_trace.len();
-    let effects = sim.advance_triggers(
-        TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
-            rules: Some(&rules),
-        },
-        Some(&overlays),
-        FrameEffects::default(),
-    );
+    let effects = sim.advance_triggers(Some(&rules), Some(&overlays), FrameEffects::default());
     assert!(!sim.trigger_runtime.trigger(next).unwrap().enabled);
     assert_eq!(
         sim.trigger_runtime.action_trace[previous_actions..]
@@ -779,7 +767,7 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
             .map(|row| row.0)
             .collect::<Vec<_>>(),
         map.actions["048BB6BC"]
-            .entries
+            .entries()
             .iter()
             .map(|action| action.kind)
             .collect::<Vec<_>>()

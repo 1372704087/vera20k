@@ -33,10 +33,10 @@ use crate::ui::skirmish_shell::{SavedSeedBrowserState, SavedSeedMode};
 use crate::util::config::GameConfig;
 
 pub(crate) mod audio_runtime;
+pub(crate) mod campaign_victory;
 pub(crate) mod chrono_screen;
 pub(crate) mod diagnostics;
 mod frame;
-pub mod frame_report; // end-of-match frame-time report (self-contained HTML)
 pub mod frontend;
 mod handler;
 mod in_game;
@@ -51,7 +51,8 @@ pub(crate) mod movie_playback;
 pub(crate) mod persistence;
 pub(crate) mod presentation;
 pub(crate) mod process_assets;
-pub mod process_stats; // CPU / memory / thread sampling for the dashboard
+#[cfg(feature = "telemetry-dashboard")]
+pub(crate) mod process_stats;
 pub(crate) mod radar_movie;
 #[cfg(test)]
 mod random_map_lifecycle_tests;
@@ -71,17 +72,12 @@ pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
 mod state;
-// The whole browser-dashboard stack, behind one feature: without it a build
-// carries no listener, no inbound command path and therefore no route from a
-// socket into the trainer. See `telemetry-dashboard` in the workspace manifest.
 #[cfg(feature = "telemetry-dashboard")]
-pub mod telemetry; // public façade for the telemetry server and timing ring
+pub mod telemetry;
 #[cfg(feature = "telemetry-dashboard")]
-pub(crate) mod telemetry_capture; // dashboard snapshot assembly (incl. egui panel port)
+pub(crate) mod telemetry_capture;
 #[cfg(feature = "telemetry-dashboard")]
-pub(crate) mod telemetry_command; // browser switches → app-state debug toggles
-#[cfg(feature = "telemetry-dashboard")]
-pub(crate) mod telemetry_server; // browser dashboard transport (WebSocket + static files)
+pub(crate) mod telemetry_server;
 pub(crate) mod types;
 mod window_icon;
 

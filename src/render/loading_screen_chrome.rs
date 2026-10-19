@@ -282,9 +282,19 @@ pub fn build_loading_screen_atlas_with_composition(
     let manifest = variant.manifest();
     let background_name = manifest.background_asset(width);
     let background_palette = load_named_ui_palette(assets, manifest.palette_name)?;
-    let remap_base_palette = load_named_ui_palette(assets, "MPLS.PAL")
-        .or_else(|| load_named_ui_palette(assets, manifest.palette_name))?;
-    let progress_palette = progress_palette_with_player_ramp(&remap_base_palette, progress_ramp);
+    // gamemd draws the Skirmish meter and the map-preview house-colour markers through
+    // an assigned house's ColorScheme convert: `ProgressMeterClass__DrawFill @ 0x00643486`
+    // reads `ColorScheme+0x30C` (the `+0x74` override stays null for `g_GameMode != 0`,
+    // set in `ScenarioClass__Read_Scenario @ 0x00684805..0x0068482F`), and the marker loop
+    // at `0x00640A40` passes `g_ColorSchemeArray[House+0x16054] * 4 + 0x30C`. Each scheme's
+    // palette is `g_FileSystem_TEMPERAT_PAL` with only indices 16..31 overwritten:
+    // `ColorScheme__Constructor @ 0x0068C710` hands that fixed buffer to
+    // `ColorScheme__BuildRampPalette @ 0x0068C3B0`, whose first step is the 768-byte base
+    // copy, and `Init_Game` fills it from `TEMPERAT.PAL` whatever the selected theater.
+    let house_convert_base_palette = load_named_ui_palette(assets, "TEMPERAT.PAL")
+        .or_else(|| load_named_ui_palette(assets, "MPLS.PAL"))?;
+    let progress_palette =
+        progress_palette_with_player_ramp(&house_convert_base_palette, progress_ramp);
 
     let mut rendered = vec![
         mandatory_shp(
@@ -294,13 +304,13 @@ pub fn build_loading_screen_atlas_with_composition(
             0,
             manifest.palette_name,
         )?,
-        mandatory_shp(assets, "PROGBARM.SHP", &progress_palette, 0, "MPLS.PAL")?,
+        mandatory_shp(assets, "PROGBARM.SHP", &progress_palette, 0, "TEMPERAT.PAL")?,
         solid_texel_entry(),
     ];
 
     let (preview_label, marker_labels) = append_optional_composition_entries(
         assets,
-        &remap_base_palette,
+        &house_convert_base_palette,
         composition,
         &mut rendered,
     );
@@ -551,12 +561,15 @@ fn render_pcx_entry(assets: &AssetManager, file_name: &str) -> Option<RenderedLo
     })
 }
 
+/// Loading-screen palettes come from ConvertClass__BuildFromPaletteFile
+/// `0x0072ADE0` and the meter base from Init_Game's TEMPERAT.PAL loop
+/// (`0x0052BC6A..0x0052BCB9`); both convert like every other palette load.
 fn load_named_ui_palette(assets: &AssetManager, name: &str) -> Option<Palette> {
     let Some(bytes) = assets.get_ref(name) else {
         log::warn!("Missing loading palette {name}");
         return None;
     };
-    Palette::from_bytes_gamemd_ui(bytes)
+    Palette::from_bytes(bytes)
         .map_err(|err| {
             log::warn!("Could not parse loading palette {name}: {err:#}");
             err
@@ -603,7 +616,7 @@ fn render_shp_entry(
         return None;
     }
     let frame_rgba = shp
-        .frame_to_rgba_ui(frame, palette)
+        .frame_to_rgba(frame, palette)
         .map_err(|err| {
             log::warn!("Could not decode loading SHP {file_name} frame {frame}: {err:#}");
             err
@@ -774,19 +787,49 @@ mod tests {
 
     #[test]
     fn progress_palette_replaces_only_the_house_color_band() {
-        let mut colors = [Color::rgb(3, 4, 5); 256];
-        colors[16] = Color::rgb(7, 8, 9);
-        colors[31] = Color::rgb(10, 11, 12);
-        let palette = Palette { colors };
+        let palette = Palette::from_rgb(|index| match index {
+            16 => [7, 8, 9],
+            31 => [10, 11, 12],
+            _ => [3, 4, 5],
+        });
         let ramp = std::array::from_fn(|index| {
             Color::rgb(index as u8, (index as u8) + 32, (index as u8) + 64)
         });
 
         let remapped = progress_palette_with_player_ramp(&palette, &ramp);
 
-        assert_eq!(&remapped.colors[16..32], &ramp);
-        assert_eq!(remapped.colors[15], palette.colors[15]);
-        assert_eq!(remapped.colors[32], palette.colors[32]);
+        assert_eq!(&remapped.colors()[16..32], &ramp);
+        assert_eq!(remapped.color(15), palette.color(15));
+        assert_eq!(remapped.color(32), palette.color(32));
+    }
+
+    /// The meter and the map-preview markers both take the house scheme's convert, so
+    /// that base only matters if it differs from the UI palette outside the house band.
+    /// If these two agreed, switching the base would be inert.
+    #[test]
+    fn temperat_meter_base_differs_from_the_ui_palette_outside_the_band() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let load = |name: &str| {
+            Palette::from_bytes(
+                assets
+                    .get_ref(name)
+                    .unwrap_or_else(|| panic!("retail {name}")),
+            )
+            .unwrap_or_else(|err| panic!("{name} parses: {err:#}"))
+        };
+        let temperat = load("TEMPERAT.PAL");
+        let ui = load("MPLS.PAL");
+
+        let outside_band = (0..16)
+            .chain(32..=255)
+            .filter(|index| temperat.color(*index) != ui.color(*index))
+            .count();
+        assert!(
+            outside_band > 0,
+            "TEMPERAT.PAL and MPLS.PAL agree outside 16..31, so the meter base would be inert"
+        );
     }
 
     #[test]
@@ -1060,10 +1103,10 @@ mod tests {
             assets.get_ref("MPLS.PAL").is_some(),
             "MPLS.PAL should resolve from configured RA2 install"
         );
-        let marker_palette = crate::assets::pal_file::Palette::from_bytes_gamemd_ui(
-            assets.get_ref("MPLS.PAL").expect("MPLS palette"),
+        let marker_palette = crate::assets::pal_file::Palette::from_bytes(
+            assets.get_ref("TEMPERAT.PAL").expect("TEMPERAT palette"),
         )
-        .expect("MPLS palette should decode");
+        .expect("TEMPERAT palette should decode");
         let marker = render_shp_entry(&assets, super::MMPB_ASSET_NAME, &marker_palette, 0)
             .expect("retail mmpb.shp frame 0 should decode");
         assert_eq!((marker.width, marker.height), (12, 12));
@@ -1085,7 +1128,7 @@ mod tests {
             let palette_bytes = assets
                 .get_ref(manifest.palette_name)
                 .unwrap_or_else(|| panic!("{variant:?} loading palette should resolve"));
-            let palette = crate::assets::pal_file::Palette::from_bytes_gamemd_ui(palette_bytes)
+            let palette = crate::assets::pal_file::Palette::from_bytes(palette_bytes)
                 .unwrap_or_else(|err| panic!("{variant:?} loading palette should decode: {err:#}"));
             assert!(
                 assets

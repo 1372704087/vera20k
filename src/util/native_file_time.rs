@@ -26,6 +26,11 @@ struct NativeSystemTime {
     milliseconds: u16,
 }
 
+#[cfg(unix)]
+const WINDOWS_EPOCH_SECONDS: u64 = 11_644_473_600;
+#[cfg(unix)]
+const TICKS_PER_SECOND: u64 = 10_000_000;
+
 /// Saved-list 0x005596A0 omits both columns for either sentinel DWORD.
 fn is_sentinel(ticks: u64) -> bool {
     ticks as u32 == u32::MAX || (ticks >> 32) as u32 == u32::MAX

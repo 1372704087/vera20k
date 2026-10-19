@@ -13,13 +13,11 @@ use crate::sim::projectile::{
     TargetExpiryPolicy,
 };
 use crate::sim::rng::SimRng;
+use crate::util::save_codec;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/projectile_oracle/projectile_trailer.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/projectile_oracle/projectile_trailer.json")
 }
 
 fn case<'a>(corpus: &'a Value, name: &str) -> &'a Value {
@@ -61,7 +59,7 @@ fn bound_retail_rules(random_rate: Option<&str>) -> Option<RuleSet> {
     if let Some(random_rate) = random_rate {
         // The control changes only the physical ART input sent through the
         // original reader in the corpus. It does not assign a runtime rate.
-        let mut art = fixture.fixed_art;
+        let mut art = (*fixture.fixed_art).clone();
         art.merge(&IniFile::from_str(&format!(
             "[BBBLELRG]\nRandomRate={random_rate}\n"
         )));
@@ -206,12 +204,13 @@ fn only_bubble(sim: &Simulation) -> u64 {
 /// 46B280 updates this retained type's cadence at the eighth live member.
 /// This is not a stock Medusa visual claim (its Trailer is null).
 fn scalable_unit_scene(shots: usize) -> Option<(Simulation, RuleSet, u64, u64)> {
-    let patch = IniFile::from_str("[Cannon]\nImage=SUBT\nScalable=yes\n");
-    let Some(fixture) =
-        crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
-    else {
-        return None;
-    };
+    // Four tests start from this patched load, so it is read once.
+    let fixture = crate::test_fixture::once_per_process("scalable Cannon Battle rules", || {
+        crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&IniFile::from_str(
+            "[Cannon]\nImage=SUBT\nScalable=yes\n",
+        ))
+    })?
+    .with_fresh_serial();
     let (_, assets) = crate::rules::retail_ini_fixture::retail_assets().unwrap();
     let mut rules = fixture.rules;
     assert_eq!(rules.object("MTNK").unwrap().primary(), Some("105mm"));
@@ -447,8 +446,8 @@ fn projectile_trailer_save_load_preserves_live_and_pending_cleanup_boundaries() 
             sim.substrate.logic.snapshot()
         );
         assert_eq!(
-            bincode::serialize(&first.substrate.display).unwrap(),
-            bincode::serialize(&sim.substrate.display).unwrap()
+            save_codec::serialize(&first.substrate.display).unwrap(),
+            save_codec::serialize(&sim.substrate.display).unwrap()
         );
         assert_eq!(
             anim_state(&first, first.anim(bubble).unwrap()),
@@ -607,9 +606,9 @@ fn scalable_snapshot_mechanical_state_and_native_load_have_distinct_membership()
         return;
     };
     let type_id = sim.interner.get("Cannon").unwrap();
-    let encoded = bincode::serialize(&sim.projectiles).unwrap();
+    let encoded = save_codec::serialize(&sim.projectiles).unwrap();
     let mechanical: crate::sim::projectile::ProjectileStore =
-        bincode::deserialize(&encoded).unwrap();
+        save_codec::deserialize(&encoded).unwrap();
     // in_logic_vector is an existing serde-skipped derived flag rebuilt by
     // the world. Compare persisted state, not that deliberately absent flag.
     assert_eq!(
@@ -617,7 +616,7 @@ fn scalable_snapshot_mechanical_state_and_native_load_have_distinct_membership()
         sim.projectiles.scalable_members()
     );
     assert_eq!(mechanical.scaled_spawn_delay(type_id), 4);
-    assert_eq!(bincode::serialize(&mechanical).unwrap(), encoded);
+    assert_eq!(save_codec::serialize(&mechanical).unwrap(), encoded);
     let mut loaded = restored(&sim);
     assert!(
         loaded.projectiles.scalable_members().is_empty(),

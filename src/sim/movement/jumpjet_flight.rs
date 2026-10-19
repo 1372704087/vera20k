@@ -56,24 +56,25 @@
 //! distance uses `Sqrt_Approx`; `Math::ftol @ 0x007C5F00` keeps the low dword.
 //!
 //! ## Dependency rules
-//! - Part of sim/ — depends on map/retail_trig, rules/jumpjet_params, util and
+//! - Part of sim/ — depends on util/retail_trig, rules/jumpjet_params, util and
 //!   sim/movement only.
 
 use super::JumpjetRuntime;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::jumpjet_params::JumpjetParams;
 use crate::sim::movement::facing_class::FacingClass;
-use crate::util::direction_tables::{CELL_DELTAS, LEPTON_DELTAS};
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::{
+    LEPTON_DELTAS, dir_from_facing16, radians_from_facing16, round_facing16_to_8,
+};
 use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, GROUND_LEVEL_HEIGHT_LEPTONS};
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, X87Value};
+use crate::util::retail_trig::TrigTable;
 
 /// Arrival radius in leptons (`CMP EBX,0x14` at `0x0054C163`).
 const ARRIVAL_RADIUS: i32 = 20;
 /// Extra reference height for a non-building techno in a cell (`ADD EBP,0x55`
 /// at `0x004850EF`).
 const CELL_OBJECT_LIFT: i32 = 0x55;
-/// `0x007E2810`: -2pi/65534.
-const NEG_RADIANS_PER_FACING_UNIT: u64 = 0xBF19_222D_989F_5E57;
 /// `0x007E3CC0`: 2pi.
 const TWO_PI: u64 = 0x4019_21FB_5444_2D18;
 /// `0x007ECE60`: 15.0.
@@ -290,10 +291,6 @@ impl JumpjetFlight {
         }
     }
 
-    pub fn current_speed(&self) -> f64 {
-        f64::from_bits(self.current_speed_bits)
-    }
-
     #[cfg(any(test, feature = "test-support"))]
     pub fn target_speed(&self) -> f64 {
         f64::from_bits(self.target_speed_bits)
@@ -442,15 +439,15 @@ pub(crate) trait JumpjetFlightHost {
     /// `RulesClass+0x48` as a facing, the heading a simple deployer turns to
     /// before it settles (`0x0054C767..C7A2`).
     fn deploy_facing(&self) -> Option<u16>;
-    /// Touchdown's owner bookkeeping at `0x0054C8CB..0x0054CA7B`: the
-    /// destination becomes NullCoord, the moving byte clears,
-    /// `Set_Destination(0, 1)` runs, the air slot and bucket are released, the
-    /// crate at the cell is picked up and the landing latches are cleared.
-    fn touchdown(&mut self, runtime: &mut JumpjetRuntime);
-    /// Owner cleanup after the phase0 write54C9E4: every touchdown lets a
+    /// PerCell(2), class NULL destination and the owner gate54C905..54C92C.
+    /// False aborts the remaining landing, retaining the callback's runtime.
+    /// True also releases the owned air slot and tracker, before phase0.
+    fn touchdown(&mut self, runtime: &mut JumpjetRuntime) -> bool;
+    /// Crate pickup54C9F6 and owner cleanup after the phase0 write54C9E4:
+    /// an admitted touchdown lets a
     /// lift end (`+0x6AE = 1`, `0x0054C9FE`) and clears the dropped and crash
     /// bytes (`+0x427`, `+0x425`, `0x0054CA08`, `0x0054CA12`).
-    fn finish_touchdown(&mut self);
+    fn finish_touchdown(&mut self, runtime: &mut JumpjetRuntime);
 
     // Seams the crash adds.
     /// Owner `+0x425`, the latch `FootClass::Crash @ 0x004DEBB0` raises.
@@ -486,8 +483,8 @@ pub(crate) trait JumpjetFlightHost {
     fn crush_below(&mut self, runtime: &mut JumpjetRuntime) -> bool;
     /// `TechnoTypeClass+0xD94` `JumpJet=` of the owner's type.
     fn jumpjet_type(&self) -> bool;
-    /// `CellClass::IsClearToMove @ 0x004834A0` for SpeedType Wheel, both
-    /// occupant classes ignored, zone and level -1 (`0x0054CE7F..0x0054CE8F`).
+    /// [`check_cell_passability`](crate::sim::cell_rect::check_cell_passability)
+    /// with (Wheel, 1, 1, -1, Normal, -1, 1) (`0x0054CE7F..0x0054CE8F`).
     fn wheel_clear(&self, cell: (i16, i16)) -> bool;
     /// A dropped owner refused the water it falls on sinks
     /// (`0x0054CEB4..0x0054CF37`, `Simulation::dropped_sink`).
@@ -528,11 +525,6 @@ fn native_cell(value: i32) -> i16 {
     (value.wrapping_add((value >> 31) & 0xFF) >> 8) as i16
 }
 
-/// The eight-way direction `0x0054D897..D8AC` derives from a 16-bit facing.
-fn facing_direction(facing: u16) -> usize {
-    ((((u32::from(facing) >> 12) + 1) >> 1) & 7) as usize
-}
-
 /// Reference height `0x0054D820`: the current cell's top height, and while
 /// moving the max-or-average with the cell one step ahead along the facing.
 ///
@@ -551,7 +543,9 @@ fn reference_height(
     if ordering(double(flight.current_speed_bits), zero()) != X87Ordering::Greater {
         return here;
     }
-    let (dx, dy) = LEPTON_DELTAS[facing_direction(flight.facing.current(host.binary_frame()))];
+    // `0x0054D897..D8AC`: the eight-way direction of the 16-bit facing.
+    let direction = dir_from_facing16(flight.facing.current(host.binary_frame()));
+    let (dx, dy) = LEPTON_DELTAS[usize::from(direction)];
     let ahead_xy = [location[0].wrapping_add(dx), location[1].wrapping_add(dy)];
     let ahead = host.cell_top_height(ahead_xy);
     if host.cell_high_bridge(ahead_xy) {
@@ -713,11 +707,8 @@ pub(crate) fn update_coordinates_and_altitude(
     let step = int(X87Chop53::ftol_i32_low_masked(double(
         flight.current_speed_bits,
     )));
-    let facing = flight.facing.current(frame) as i16;
-    let angle = X87Chop53::mul(
-        int(i32::from(facing) - 0x3FFF),
-        double(NEG_RADIANS_PER_FACING_UNIT),
-    );
+    let angle = X87Chop53::load_f64(radians_from_facing16(flight.facing.current(frame)))
+        .expect("a facing word's radians are finite");
     let new_y = X87Chop53::ftol_i32_low_masked(X87Chop53::sub(
         int(location[1]),
         X87Chop53::mul(host.trig().sin_from_table(angle), step),
@@ -781,7 +772,7 @@ pub(crate) fn state3_translate(
         .facing
         .destination()
         .wrapping_sub(runtime.flight.facing.current(frame));
-    let turn_error = ((((u32::from(difference) >> 7) + 1) >> 1) & 0xFF) as i32;
+    let turn_error = i32::from(round_facing16_to_8(difference));
 
     let distance = crate::sim::cell_kernel::native_xy_distance(
         location[0].wrapping_sub(destination[0]),
@@ -987,7 +978,7 @@ fn desired_facing(destination: [i32; 3], location: [i32; 3]) -> u16 {
 /// `MapCoord_StepByDir_GetCell @ 0x00481810` adds the signed-word entries
 /// at `0x0089F688`; keep its word wrapping when reading the shared cell table.
 fn step_cell(cell: (i16, i16), direction: u32) -> (i16, i16) {
-    let (dx, dy) = CELL_DELTAS[(direction & 7) as usize];
+    let (dx, dy) = DIRECTION_DELTAS[(direction & 7) as usize];
     (
         cell.0.wrapping_add(dx as i16),
         cell.1.wrapping_add(dy as i16),
@@ -1269,11 +1260,13 @@ pub(crate) fn state4_descend(
     host.mark(true);
     runtime.destination = JumpjetRuntime::NULL;
     runtime.moving = false;
-    host.touchdown(runtime);
+    if !host.touchdown(runtime) {
+        return runtime.phase;
+    }
     runtime.phase = STATE_GROUND;
+    host.finish_touchdown(runtime);
     runtime.landing_latched = false;
-    host.finish_touchdown();
-    STATE_GROUND
+    runtime.phase
 }
 
 /// `State5_Crash @ 0x0054CA90`. Returns the new state.
@@ -1475,7 +1468,7 @@ mod tests {
         }
         fn tracker_add(&mut self) {}
         fn tracker_update(&mut self, _cell: (i16, i16)) {}
-        fn finish_touchdown(&mut self) {}
+        fn finish_touchdown(&mut self, _runtime: &mut JumpjetRuntime) {}
         fn binary_frame(&self) -> u32 {
             self.frame
         }
@@ -1617,9 +1610,10 @@ mod tests {
         fn deploy_facing(&self) -> Option<u16> {
             None
         }
-        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) {
+        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) -> bool {
             self.events.push("touchdown");
             self.held_slot = None;
+            true
         }
         fn crashing(&self) -> bool {
             false
@@ -1947,7 +1941,7 @@ mod tests {
         }
         fn tracker_add(&mut self) {}
         fn tracker_update(&mut self, _cell: (i16, i16)) {}
-        fn finish_touchdown(&mut self) {}
+        fn finish_touchdown(&mut self, _runtime: &mut JumpjetRuntime) {}
         fn binary_frame(&self) -> u32 {
             self.frame
         }
@@ -2095,7 +2089,7 @@ mod tests {
         fn deploy_facing(&self) -> Option<u16> {
             None
         }
-        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) {
+        fn touchdown(&mut self, _runtime: &mut JumpjetRuntime) -> bool {
             self.touched_down = true;
             // 0x0054C9B2..0x0054C9CE: the touchdown release is conditional —
             // `CMP [cell+0xE0], owner` skips it unless the owner still holds
@@ -2105,6 +2099,7 @@ mod tests {
                 self.release_air_slot_at(here);
             }
             self.landing_latched = false;
+            true
         }
         fn crashing(&self) -> bool {
             self.crashing
@@ -2702,7 +2697,7 @@ mod tests {
     /// turn left reads 192 and a quarter turn right reads 64.
     #[test]
     fn a_left_turn_reads_as_a_larger_error_than_the_same_right_turn() {
-        let error = |difference: u16| ((((u32::from(difference) >> 7) + 1) >> 1) & 0xFF) as i32;
+        let error = crate::util::direction_tables::round_facing16_to_8;
         assert_eq!(error(0x4000), 64);
         assert_eq!(error(0xC000), 192);
         assert_eq!(error(0xFFFF), 0);

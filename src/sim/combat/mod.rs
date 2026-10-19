@@ -6,7 +6,7 @@
 //!   `threat_posed` (acquisition), `in_range` and `line_of_fire` (the range
 //!   gate), `combat_weapon` (weapon choice), and
 //!   `fire_error` and `fire_error_world` (legality).
-//! - Firing: `world_fire` (FireAt and the combat tick), `projectile_delivery`
+//! - Firing: `world_fire` (each class's FireAt visit and its commit), `projectile_delivery`
 //!   (the shot's BulletType facts and the Bullet's admission), `aim_coord`,
 //!   `fire_coord`, `burst`, `rof`, `gattling`, `inviso_scatter`, `laser`,
 //!   `electric_bolt` and `parasite`.
@@ -49,6 +49,7 @@ pub mod line_of_fire;
 mod object_health;
 pub(crate) mod parasite;
 mod projectile_delivery;
+pub mod radiation_beam;
 mod receiver_call;
 mod receiver_health;
 mod record_kill;
@@ -57,6 +58,7 @@ mod shrapnel;
 pub mod smudge_dispatch;
 mod techno_death;
 mod threat_mask;
+pub(crate) use threat_mask::quarry_mask;
 mod threat_posed;
 pub(crate) mod threat_range;
 mod unit_damage_response;
@@ -80,15 +82,9 @@ mod combat_cloak_damage_tests;
 #[cfg(test)]
 mod combat_cloak_fire_tests;
 #[cfg(test)]
-mod combat_cloak_legality_tests;
-#[cfg(test)]
-mod combat_force_fire_cell_tests;
-#[cfg(test)]
 mod combat_tests;
 #[cfg(test)]
 mod combat_turret_facing_tests;
-#[cfg(test)]
-mod delayed_building_fire_tests;
 #[cfg(test)]
 mod electric_bolt_tests;
 #[cfg(test)]
@@ -113,6 +109,8 @@ mod open_topped_fire_tests;
 #[cfg(test)]
 mod prone_damage_tests;
 #[cfg(test)]
+mod radiation_beam_tests;
+#[cfg(test)]
 mod shrapnel_chain_tests;
 #[cfg(test)]
 mod unit_damage_response_tests;
@@ -121,7 +119,7 @@ mod walk_attack_tests;
 
 pub use attack_target::{TarCom, TargetKind};
 pub(crate) use attack_target::{object_distance_to, resolve_target_coords, target_present};
-pub(crate) use combat_targeting::{acquire_best_target_for_entity, build_attacker_snapshot};
+pub(crate) use combat_targeting::build_attacker_snapshot;
 pub(crate) use detonation_anim::projectile_impact_cell;
 pub(crate) use effects::DeathEffects;
 pub use effects::{
@@ -141,7 +139,7 @@ pub(crate) use receiver_health::BerserkState;
 pub(crate) use record_kill::{KillCallback, KillRecord, KillSource};
 pub use techno_death::FatalLifecycleStage;
 pub(crate) use techno_death::{
-    death_announcement_event, death_arm_explodes, death_weapon_detonation,
+    death_announcement_event, death_arm_explodes, death_weapon_detonation, select_death_sound,
 };
 pub(crate) use threat_posed::live_threat_posed;
 /// The threat mask an acquisition callsite pushes into
@@ -157,9 +155,8 @@ use projectile_delivery::{
 };
 use receiver_call::{
     BuildingReceivePrelude, ResolvedReceiveDamage, apply_building_receive_prelude,
-    area_near_center_ic_isolation_armed, has_active_area_invulnerability,
-    near_center_ic_isolation_armed, postmortem_duration_for_event, receiver_anger_delta,
-    resolve_receive_damage,
+    area_near_center_ic_isolation_armed, near_center_ic_isolation_armed,
+    postmortem_duration_for_event, receiver_anger_delta, resolve_receive_damage,
 };
 use shrapnel::emit_projectile_shrapnel;
 use techno_death::{ConcreteDeathSmudgePlan, append_selected_death_sounds, throw_debris_for_death};
@@ -233,7 +230,9 @@ use crate::sim::terrain_object::TerrainAreaReceiveResult;
 use crate::sim::terrain_object::TerrainAreaState;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::vision::FogState;
-use crate::sim::world::{FireOriginSnapshot, SimFireEvent, SimSoundEvent, Simulation};
+#[cfg(any(test, feature = "test-support"))]
+use crate::sim::world::FireOriginSnapshot;
+use crate::sim::world::{SimFireEvent, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::LEPTONS_PER_LEVEL;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53};
@@ -311,13 +310,6 @@ pub fn armor_index(armor: &str) -> usize {
         .unwrap_or(0)
 }
 
-/// Aircraft retain their existing phased Mission_Attack delivery. Other
-/// class FireAt callers enter the live receiver inside their own Logic visit.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct FireRequests {
-    pub aircraft: std::collections::BTreeSet<u64>,
-}
-
 /// Call-local arguments of Building Update's two native FireAt sites.
 /// This value is delivered immediately; no future-shot queue retains it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -340,25 +332,20 @@ impl BuildingShot {
     }
 }
 
-/// Ordinary fire prelude plus one consuming deferred-consequence packet.
-/// The frame admits bullets and applies facing before committing the packet at
-/// its existing post-SpawnManager boundary.
+/// What the receiver fixture's combat pass (`world_fire::tick_combat`) did:
+/// its observations plus one consuming deferred-consequence packet.
+#[cfg(test)]
 pub struct CombatTickResult {
     /// Test adapter observations of actual inline AnimStore construction.
-    #[cfg(test)]
     pub(crate) fixture_anims: Vec<receiver_fixture::ConstructedAnimObservation>,
     /// Test observations of bullets already admitted through production owners.
-    #[cfg(any(test, feature = "test-support"))]
     pub projectile_spawns: Vec<ProjectileSpawn>,
-    /// Facing observations for component combat fixtures. Production Unit
-    /// facing commits within that Unit's live Logic slot.
-    pub unit_facing: Vec<UnitFacingUpdate>,
     pub(crate) consequences: crate::sim::world::damage_consequences::DamageConsequences,
 }
 
-/// Transient outputs shared by live object fire and the remaining class hosts.
-/// The fire body and inline receiver boundary collect through one handle;
-/// each host consumes its deliveries after committing per-firer effects.
+/// Transient outputs of one firer's fire visit. The fire body and inline
+/// receiver boundary collect through one handle; each host consumes its
+/// deliveries after committing per-firer effects.
 /// Never stored on `Simulation`, serialized or hashed. Hosts destructure all
 /// fields so adding an output requires an explicit delivery decision.
 #[derive(Default)]

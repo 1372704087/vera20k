@@ -8,6 +8,7 @@ use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::object_type::{FactoryType, ObjectType};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::entity_store::EntityStore;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
@@ -179,104 +180,101 @@ pub fn mark_war_factory_spawn_contact(
     }
 }
 
-/// The naval arm's Cell (`0x00444175..0x004443DC`) for a product of
-/// `speed_type`: [`find_naval_unit_delivery_cell`] from the producer.
-pub(super) fn naval_exit_cell(
-    sim: &Simulation,
-    producer_id: u64,
-    speed_type: SpeedType,
-) -> Option<(u16, u16)> {
-    let producer = sim.substrate.entities.get(producer_id)?;
-    let map_size = sim
-        .playfield_bounds
-        .zip(sim.playfield_size_height)
-        .map(|(bounds, height)| (bounds.base, height));
-    let (cell, _) = find_naval_unit_delivery_cell(
-        producer_id,
-        producer.position.rx(),
-        producer.position.ry(),
-        producer.rally_cell(),
-        speed_type,
-        sim.path_grid(),
-        &sim.substrate.occupancy,
-        &sim.substrate.entities,
-        sim.resolved_terrain.as_ref(),
-        sim.overlay_grid.as_ref(),
-        sim.zone_grid.as_ref(),
-        // The frame counter is committed late: during this advance it holds
-        // the current frame, the value FNPC's pick must alias.
-        sim.session.binary_frame,
-        sim.playfield_bounds,
-        map_size,
-    );
-    Some(cell)
+impl Simulation {
+    /// Whether `id` is a Building (vt+0x2C == 6) whose type has
+    /// `WeaponsFactory=` (BuildingType `+0x16BD`): the war factory test on a
+    /// radio contact. The Unit setter's WeaponsFactory arm,
+    /// Queue_Navigation_List's idle tail (`0x004DA15A..0x004DA1A6`), Unit
+    /// Per_Cell_Process's factory clearance, CloakingTick's destination
+    /// exclusion, `UnitClass::Is_Ready_To_Commence`'s contact read
+    /// (`0x0074433C`) and [`Self::unit_in_contact_war_factory`] ask it.
+    pub(crate) fn is_weapons_factory(&self, id: u64, rules: &RuleSet) -> bool {
+        self.substrate.entities.get(id).is_some_and(|building| {
+            building.category() == crate::map::entities::EntityCategory::Structure
+                && self
+                    .object_type(building.type_ref(), rules)
+                    .is_some_and(|object| object.weapons_factory)
+        })
+    }
+
+    /// A Unit whose radio contact slot 0 (`0x0065AD30(0)`: the slot itself,
+    /// not the first filled one) is a war factory
+    /// ([`Self::is_weapons_factory`]) that is also the first ground building
+    /// in the Unit's own cell (`0x0047C520`): one still leaving the factory
+    /// that linked it ([`mark_war_factory_spawn_contact`]). Native inlines
+    /// the test in `UnitClass::ReceiveDamage` (`0x00737CB6..0x00737D2E`),
+    /// `TemporalClass::CanWarpTarget` (`0x0071AE50`), the Chrono Warp
+    /// (`SuperClass::Launch 0x006CC7BC..0x006CC858`) and the locomotor imbue
+    /// (`0x0046953E..0x004695E6`).
+    pub(crate) fn unit_in_contact_war_factory(&self, id: u64, rules: &RuleSet) -> bool {
+        let Some(unit) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        unit.category() == crate::map::entities::EntityCategory::Unit
+            && unit.radio_contacts.slot(0).is_some_and(|contact| {
+                self.is_weapons_factory(contact, rules)
+                    && self.substrate.occupancy.first_building_on_layer(
+                        unit.position.rx(),
+                        unit.position.ry(),
+                        MovementLayer::Ground,
+                    ) == Some(contact)
+            })
+    }
 }
 
-/// Active-retail produced-Unit naval delivery owner.
+/// The naval arm's Cell (`0x00444175..0x004443DC`) for a product of
+/// `speed_type`.
 ///
 /// `BuildingClass::ExitObject_Main @ 0x00443C60` begins at the producer's
 /// `GetCoords` foundation centre, optionally walks out of the producer toward
 /// its own ArchiveTarget/rally cell, and otherwise invokes the one shared FNPC
 /// call at `0x004443DC`. FNPC failure is the literal zero cell; the caller still
 /// performs one normal Unlimbo attempt against that result.
-fn find_naval_unit_delivery_cell(
+pub(super) fn naval_exit_cell(
+    sim: &Simulation,
     producer_id: u64,
-    base_rx: u16,
-    base_ry: u16,
-    producer_rally: Option<(u16, u16)>,
     speed_type: SpeedType,
-    path_grid: Option<&crate::sim::pathfinding::PathGrid>,
-    occupancy: &OccupancyGrid,
-    entities: &EntityStore,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    overlay_grid: Option<&crate::sim::overlay_grid::OverlayGrid>,
-    zone_grid: Option<&crate::sim::pathfinding::zone_map::ZoneGrid>,
-    frame_counter: u32,
-    playfield_bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
-    map_size: Option<(i32, i32)>,
-) -> ((u16, u16), bool) {
-    let Some(origin) = producer_get_coords_cell(entities, producer_id) else {
-        return ((0, 0), false);
+) -> Option<(u16, u16)> {
+    let producer = sim.substrate.entities.get(producer_id)?;
+    let Some(origin) = producer_get_coords_cell(&sim.substrate.entities, producer_id) else {
+        return Some((0, 0));
     };
-
-    if let Some(rally) = producer_rally
+    if let Some(rally) = producer.rally_cell()
         && let Some(candidate) = naval_rally_fast_path_cell(
             producer_id,
-            (base_rx, base_ry),
+            (producer.position.rx(), producer.position.ry()),
             origin,
             rally,
-            occupancy,
-            entities,
-            resolved_terrain,
-            playfield_bounds,
+            &sim.substrate.occupancy,
+            &sim.substrate.entities,
+            sim.resolved_terrain.as_ref(),
+            sim.playfield_bounds,
         )
     {
-        return (candidate, true);
+        return Some(candidate);
     }
-
-    let Some(grid) = path_grid else {
-        return ((0, 0), false);
-    };
-    let Some(query) = nearby_query_for_naval_unit_delivery(
-        speed_type,
-        grid,
-        resolved_terrain,
-        overlay_grid,
-        zone_grid,
-        playfield_bounds,
-        map_size,
-    ) else {
-        return ((0, 0), false);
-    };
-    (
-        crate::sim::find_nearby_cell::find_nearby_passable_cell(
-            (i32::from(origin.0), i32::from(origin.1)),
-            &query,
-            frame_counter,
-        )
-        .unwrap_or((0, 0)),
-        false,
-    )
+    // 4443DC -> FNPC56DC20 -> rectangle56E7C0 -> Cell4834A0's Float arm reads
+    // the selected raw plane with both ignore flags false (56E854..858/
+    // 483550..570), so a marked yard footprint is no candidate and the later
+    // Unlimbo is not refused. Original control: factory_naval_output; shared
+    // raw goldens: tools/spatial_oracle/nearby_raw_occupation.{py,json,meta.json}.
+    // The caller passes a pointer to CellStruct(0,0): no target, the
+    // live-frame pick, no RNG draw; final object-list occupancy is off.
+    let cell = sim.nearby_passable_cell(
+        (i32::from(origin.0), i32::from(origin.1)),
+        NearbyArgs::plain(
+            PassabilityArgs {
+                // Unit vtable +0x84 -> +0x88 -> UnitType+0x67C.
+                speed_type,
+                required_zone_id: None,
+                // Caller argument5 is literal0 at 4443B4 (MovementZone::Normal).
+                movement_zone: MovementZone::Normal,
+                bridge_aware_zone: false,
+            },
+            NearbyFootprint::SINGLE,
+        ),
+    );
+    Some(cell.unwrap_or((0, 0)))
 }
 
 /// The producing building's GetCoords (`BuildingClass::GetCoords @
@@ -306,11 +304,16 @@ fn naval_rally_fast_path_cell(
     );
 
     let terrain = resolved_terrain?;
-    if terrain.cell(candidate.0, candidate.1)?.yr_cell_land_type
+    if terrain.cell(candidate.0, candidate.1)?.land_type()
         != crate::rules::terrain_rules::LandType::Water.as_index()
     {
         return None;
     }
+    // `CellClass::Find_Nearest_Object @ 0x0047C3D0` (`0x00444329`) takes
+    // any Techno in the cell, with no alive or Health test: an infantry
+    // corpse refuses the candidate too. `is_active` still skips a vehicle or
+    // aircraft on VERA's SHP death animation (the dying mark), a VERA-only
+    // chain native does not have.
     let has_eligible_active_object = occupancy
         .get(candidate.0, candidate.1)
         .into_iter()
@@ -338,11 +341,11 @@ fn naval_rally_walk_candidate(
     rally: (u16, u16),
     occupancy: &OccupancyGrid,
 ) -> (u16, u16) {
-    let facing = crate::util::fixed_math::facing_from_delta_int(
+    let facing = crate::util::direction_tables::facing8_from_delta(
         i32::from(rally.0) - i32::from(producer_nw.0),
         i32::from(rally.1) - i32::from(producer_nw.1),
     );
-    let (step_x, step_y) = crate::util::fixed_math::dir_to_cell_delta(facing);
+    let (step_x, step_y) = crate::util::direction::delta_from_facing(facing);
     let mut candidate = foundation_center;
 
     // Look_up_building_in_cell @ 0x0047C520 returns the first Building in
@@ -357,52 +360,6 @@ fn naval_rally_walk_candidate(
         );
     }
     candidate
-}
-
-fn nearby_query_for_naval_unit_delivery<'a>(
-    speed_type: SpeedType,
-    grid: &'a crate::sim::pathfinding::PathGrid,
-    resolved_terrain: Option<&'a ResolvedTerrainGrid>,
-    overlay_grid: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
-    zone_grid: Option<&'a crate::sim::pathfinding::zone_map::ZoneGrid>,
-    playfield_bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
-    map_size: Option<(i32, i32)>,
-) -> Option<crate::sim::find_nearby_cell::NearbyQuery<'a>> {
-    use crate::sim::find_nearby_cell::{
-        NearbyFootprint, NearbyQuery, PassabilityArgs, map_owned_radius_cap,
-    };
-    let (size_width, size_height) = map_size?;
-    Some(NearbyQuery {
-        native_cells: None,
-        raw_occupation: None,
-        passability: PassabilityArgs {
-            // Unit vtable +0x84 -> +0x88 -> UnitType+0x67C.
-            speed_type,
-            required_zone_id: None,
-            // Literal caller argument 5 at 0x0044434B..0x004443DC.
-            movement_zone: MovementZone::Normal,
-            bridge_aware_zone: false,
-        },
-        footprint: NearbyFootprint::SINGLE,
-        allow_bridge_cells: true,
-        check_height: false,
-        // Arguments 11 and 15 are both false. Immediate UnitClass::Unlimbo,
-        // not FNPC, owns the one occupancy/CanEnter/Mark decision.
-        check_occupancy: false,
-        radius_cap: map_owned_radius_cap(size_width, size_height),
-        // The caller passes a pointer to CellStruct(0,0); FNPC maps that value
-        // to live-frame modulo selection with no RNG draw.
-        target_cell: None,
-        path_grid: Some(grid),
-        resolved_terrain,
-        overlay_grid,
-        // Both caller occupancy flags are false, so this query must not let
-        // CellRect's compatibility object-list projection recreate one.
-        occupancy: None,
-        entities: None,
-        zone_grid,
-        playfield_bounds,
-    })
 }
 
 /// Naval ExitObject's selected Cell goes through the same concrete Unlimbo
@@ -438,10 +395,7 @@ pub(super) fn unlimbo_held_naval_unit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::resolved_terrain::{ResolvedTerrainGrid, zone_class};
-    use crate::rules::terrain_rules::TerrainClass;
-    use crate::sim::entity_store::EntityStore;
-    use crate::sim::pathfinding::PathGrid;
+    use crate::map::resolved_terrain::ResolvedTerrainGrid;
 
     fn flat_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
         crate::map::resolved_terrain::test_grid(
@@ -555,37 +509,6 @@ mod tests {
         }
     }
 
-    fn naval_delivery_rules() -> RuleSet {
-        RuleSet::from_ini_with_fixed_art_for_test(
-            &crate::rules::ini_parser::IniFile::from_str(
-                "[InfantryTypes]\n\
-             [VehicleTypes]\n\
-             0=DEST\n\
-             [AircraftTypes]\n\
-             [BuildingTypes]\n\
-             0=GAYARD\n\
-             1=BLOCKER\n\
-             [DEST]\n\
-             Strength=600\n\
-             Speed=6\n\
-             SpeedType=Float\n\
-             MovementZone=Water\n\
-             Locomotor={2BEA74E1-7CCA-11D3-BE14-00104B62A16C}\n\
-             [GAYARD]\n\
-             Factory=UnitType\n\
-             WeaponsFactory=yes\n\
-             Naval=yes\n\
-             Foundation=4x4\n\
-             [BLOCKER]\n\
-             Foundation=1x1\n",
-            ),
-            &crate::rules::ini_parser::IniFile::from_str(
-                "[GAYARD]\nFoundation=4x4\n[BLOCKER]\nFoundation=1x1\n",
-            ),
-        )
-        .expect("naval delivery rules")
-    }
-
     fn production_admission_rules() -> RuleSet {
         RuleSet::from_ini_with_fixed_art_for_test(
             &crate::rules::ini_parser::IniFile::from_str(
@@ -669,188 +592,9 @@ mod tests {
             .unwrap()
             .cell_mut(cell.0, cell.1)
             .unwrap();
-        water.yr_cell_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
         water.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
-        water.terrain_class = TerrainClass::Water;
         water.speed_costs.float = Some(100);
         water.base_speed_costs.float = Some(100);
-    }
-
-    fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-        let mut terrain = flat_terrain(width, height);
-        for cell in &mut terrain.cells {
-            cell.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
-            cell.yr_cell_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
-            cell.base_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
-            cell.base_yr_cell_land_type = crate::rules::terrain_rules::LandType::Water.as_index();
-            cell.terrain_class = TerrainClass::Water;
-            cell.base_terrain_class = TerrainClass::Water;
-            cell.is_water = true;
-            cell.zone_type = zone_class::WATER;
-            cell.speed_costs.float = Some(100);
-            cell.base_speed_costs.float = Some(100);
-        }
-        terrain
-    }
-
-    fn test_entity(
-        stable_id: u64,
-        category: crate::map::entities::EntityCategory,
-        cell: (u16, u16),
-    ) -> crate::sim::game_entity::GameEntity {
-        let mut entity = crate::sim::game_entity::GameEntity::test_default(
-            stable_id,
-            if category == crate::map::entities::EntityCategory::Structure {
-                "BLOCKER"
-            } else {
-                "DEST"
-            },
-            "Americans",
-            cell.0,
-            cell.1,
-        );
-        entity.set_category_for_test(category);
-        entity
-    }
-
-    /// Producer 10: the `naval_delivery_rules` GAYARD at NW cell (10,10),
-    /// with the `Foundation=4x4` construction stamps on it.
-    fn gayard_producer() -> crate::sim::game_entity::GameEntity {
-        let mut producer =
-            crate::sim::game_entity::GameEntity::test_default(10, "GAYARD", "Americans", 10, 10);
-        producer.set_category_for_test(crate::map::entities::EntityCategory::Structure);
-        producer
-            .type_facts
-            .set_foundation_for_test("4x4".to_string());
-        producer
-    }
-
-    /// `0x0044413D..0x00444632` tests Refinery, Weeder, WeaponsFactory and
-    /// Naval, then Factory=InfantryType, Hospital, Armory and Cloning, each
-    /// ahead of the next; nothing else in the type picks an arm.
-    #[test]
-    fn exit_arm_reads_the_producer_flags_in_native_order() {
-        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
-             0=REFWEAP\n1=WEEDYARD\n2=YARD\n3=WEAP\n4=WEAPBARR\n5=BARR\n6=HOSP\n\
-             7=ARMORY\n8=VATS\n9=UNITFAC\n10=AIRFAC\n11=PLAIN\n\
-             [REFWEAP]\nRefinery=yes\nWeaponsFactory=yes\n\
-             [WEEDYARD]\nWeeder=yes\nWeaponsFactory=yes\nNaval=yes\n\
-             [YARD]\nWeaponsFactory=yes\nNaval=yes\nFactory=InfantryType\n\
-             [WEAP]\nWeaponsFactory=yes\nFactory=UnitType\n\
-             [WEAPBARR]\nWeaponsFactory=yes\nFactory=InfantryType\n\
-             [BARR]\nFactory=InfantryType\nNaval=yes\n\
-             [HOSP]\nHospital=yes\n\
-             [ARMORY]\nArmory=yes\n\
-             [VATS]\nCloning=yes\n\
-             [UNITFAC]\nFactory=UnitType\nExitCoord=512,256,0\n\
-             [AIRFAC]\nFactory=AircraftType\n\
-             [PLAIN]\nGDIBarracks=yes\n",
-        ))
-        .unwrap();
-        for (producer, arm) in [
-            ("REFWEAP", ExitArm::Refinery),
-            ("WEEDYARD", ExitArm::Refinery),
-            ("YARD", ExitArm::Naval),
-            ("WEAP", ExitArm::Land),
-            ("WEAPBARR", ExitArm::Land),
-            ("BARR", ExitArm::Infantry),
-            ("HOSP", ExitArm::Infantry),
-            ("ARMORY", ExitArm::Infantry),
-            ("VATS", ExitArm::Infantry),
-            ("UNITFAC", ExitArm::Generic),
-            ("AIRFAC", ExitArm::Generic),
-            ("PLAIN", ExitArm::Generic),
-        ] {
-            assert_eq!(exit_arm(rules.object(producer).unwrap()), arm, "{producer}");
-        }
-    }
-
-    /// Through the production reader on the retail INIs, every building
-    /// that produces Units or Infantry for a house leaves them through the
-    /// land, naval or Infantry arm; none reaches the refinery or generic arm.
-    #[test]
-    fn retail_producers_take_the_land_naval_and_infantry_arms() {
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
-            return;
-        };
-        let mut arms = Vec::new();
-        for object in retail.rules.all_objects() {
-            if !matches!(
-                object.factory_type(),
-                Some(FactoryType::UnitType | FactoryType::InfantryType)
-            ) {
-                continue;
-            }
-            let arm = exit_arm(object);
-            assert!(
-                matches!(arm, ExitArm::Naval | ExitArm::Land | ExitArm::Infantry),
-                "{}: {arm:?}",
-                object.id
-            );
-            if !arms.contains(&arm) {
-                arms.push(arm);
-            }
-        }
-        arms.sort_by_key(|arm| *arm as u8);
-        assert_eq!(arms, [ExitArm::Naval, ExitArm::Land, ExitArm::Infantry]);
-    }
-
-    #[test]
-    fn naval_exit_starts_at_the_getcoords_centre() {
-        let rules = naval_delivery_rules();
-        let yard = rules.object("GAYARD").unwrap();
-        assert_eq!(exit_arm(yard), ExitArm::Naval);
-        assert_eq!(yard.foundation, "4x4");
-        let mut entities = EntityStore::new();
-        entities.insert(gayard_producer());
-        assert_eq!(
-            producer_get_coords_cell(&entities, 10),
-            Some((12, 12)),
-            "4x4 NW (10,10) GetCoords adds 384 leptons then truncates to (12,12)"
-        );
-    }
-
-    #[test]
-    fn unit_unlimbo_native_empty_raw_byte_is_not_resurrected_by_owner_claims() {
-        let rules = production_admission_rules();
-        let mut sim = production_admission_sim();
-        set_admission_water_cell(&mut sim, (8, 8));
-        let stable_id = sim
-            .create_production_object_limbo_at_height("DEST", "Americans", 8, 8, 0x40, 0, &rules)
-            .unwrap();
-        // Unit7441B0 ORs 0x20; Unit744210 destructively clears it. The
-        // derived owner index can retain another claim after that clear.
-        for owner in [101, 102] {
-            sim.substrate
-                .cell_occupation
-                .mark_vehicle_on_layer(8, 8, owner, MovementLayer::Ground);
-            sim.substrate.raw_cell_occupation.mark_ground(8, 8, 0x20);
-        }
-        sim.substrate
-            .cell_occupation
-            .clear_vehicle_on_layer(8, 8, 101, MovementLayer::Ground);
-        sim.substrate.raw_cell_occupation.clear_ground(8, 8, 0x20);
-        assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(8, 8), 0);
-        assert_eq!(
-            sim.substrate
-                .cell_occupation
-                .vehicle_bits(8, 8, MovementLayer::Ground),
-            0x20
-        );
-        // Original Unit Unlimbo's empty-list/raw-zero control admits. Claims
-        // are not another input of the native +1AC receiver.
-        assert_eq!(
-            unlimbo_held_naval_unit(
-                &mut sim,
-                &rules,
-                stable_id,
-                (8, 8),
-                None,
-                crate::sim::world::FrameEffects::default()
-            ),
-            Some(stable_id)
-        );
     }
 
     #[test]
@@ -917,184 +661,5 @@ mod tests {
         );
         let entity = sim.substrate.entities.get(stable_id).unwrap();
         assert!(!entity.lifecycle.in_limbo() && entity.lifecycle.cell_marked());
-    }
-
-    #[test]
-    fn naval_fallback_query_uses_dynamic_speed_literal_zone_zero_and_live_frame_pool() {
-        let mut terrain = water_terrain(7, 7);
-        for cell in &mut terrain.cells {
-            cell.speed_costs.float = Some(0);
-            cell.base_speed_costs.float = Some(0);
-        }
-        for candidate in [(2, 1), (3, 1)] {
-            let cell = terrain.cell_mut(candidate.0, candidate.1).unwrap();
-            cell.speed_costs.float = Some(100);
-            cell.base_speed_costs.float = Some(100);
-        }
-        let grid = PathGrid::from_resolved_terrain(&terrain);
-        let query = nearby_query_for_naval_unit_delivery(
-            SpeedType::Float,
-            &grid,
-            Some(&terrain),
-            None,
-            None,
-            Some(test_playfield_bounds()),
-            Some((7, 7)),
-        )
-        .unwrap();
-
-        assert_eq!(query.passability.speed_type, SpeedType::Float);
-        assert_eq!(query.passability.movement_zone, MovementZone::Normal);
-        assert_eq!(query.passability.required_zone_id, None);
-        assert!(!query.passability.bridge_aware_zone);
-        assert_eq!(
-            query.footprint,
-            crate::sim::find_nearby_cell::NearbyFootprint::SINGLE
-        );
-        assert!(query.allow_bridge_cells);
-        assert!(!query.check_height && !query.check_occupancy);
-        assert_eq!(query.target_cell, None);
-        assert_eq!(
-            crate::sim::find_nearby_cell::find_nearby_passable_cell((3, 2), &query, 0),
-            Some((2, 1))
-        );
-        assert_eq!(
-            crate::sim::find_nearby_cell::find_nearby_passable_cell((3, 2), &query, 1),
-            Some((3, 1)),
-            "live frame modulo chooses the second engine-ordered survivor"
-        );
-    }
-
-    #[test]
-    fn naval_rally_walk_observes_first_building_list_order() {
-        let mut occupancy = OccupancyGrid::new();
-        let append = crate::sim::occupancy::CellListInsertion::AppendBuilding;
-        occupancy.add(12, 12, 10, MovementLayer::Ground, None, append);
-        occupancy.add(13, 12, 11, MovementLayer::Ground, None, append);
-        occupancy.add(13, 12, 10, MovementLayer::Ground, None, append);
-        assert_eq!(
-            naval_rally_walk_candidate(10, (10, 10), (12, 12), (20, 10), &occupancy),
-            (13, 12),
-            "a different first Building stops even when the producer is later"
-        );
-
-        let mut producer_first = OccupancyGrid::new();
-        producer_first.add(12, 12, 10, MovementLayer::Ground, None, append);
-        producer_first.add(13, 12, 10, MovementLayer::Ground, None, append);
-        producer_first.add(13, 12, 11, MovementLayer::Ground, None, append);
-        assert_eq!(
-            naval_rally_walk_candidate(10, (10, 10), (12, 12), (20, 10), &producer_first,),
-            (14, 12),
-            "producer-first order continues through the foundation run"
-        );
-    }
-
-    #[test]
-    fn naval_rally_fast_path_requires_water_empty_and_playfield_then_bypasses_fnpc() {
-        let terrain = water_terrain(32, 32);
-        let bounds = test_playfield_bounds();
-        let mut occupancy = OccupancyGrid::new();
-        let append = crate::sim::occupancy::CellListInsertion::AppendBuilding;
-        occupancy.add(12, 12, 10, MovementLayer::Ground, None, append);
-        occupancy.add(13, 12, 10, MovementLayer::Ground, None, append);
-        let mut entities = EntityStore::new();
-        entities.insert(gayard_producer());
-
-        assert_eq!(
-            naval_rally_fast_path_cell(
-                10,
-                (10, 10),
-                (12, 12),
-                (20, 10),
-                &occupancy,
-                &entities,
-                Some(&terrain),
-                Some(bounds),
-            ),
-            Some((14, 12))
-        );
-
-        let mut land_failure = water_terrain(32, 32);
-        land_failure.cell_mut(14, 12).unwrap().yr_cell_land_type =
-            crate::rules::terrain_rules::LandType::Clear.as_index();
-        assert_eq!(
-            naval_rally_fast_path_cell(
-                10,
-                (10, 10),
-                (12, 12),
-                (20, 10),
-                &occupancy,
-                &entities,
-                Some(&land_failure),
-                Some(bounds),
-            ),
-            None,
-            "LandType gate failure must fall back"
-        );
-
-        let mut object_occupancy = occupancy.clone();
-        object_occupancy.add(
-            14,
-            12,
-            20,
-            MovementLayer::Ground,
-            None,
-            crate::sim::occupancy::CellListInsertion::PrependNonBuilding,
-        );
-        entities.insert(test_entity(
-            20,
-            crate::map::entities::EntityCategory::Unit,
-            (14, 12),
-        ));
-        assert_eq!(
-            naval_rally_fast_path_cell(
-                10,
-                (10, 10),
-                (12, 12),
-                (20, 10),
-                &object_occupancy,
-                &entities,
-                Some(&terrain),
-                Some(bounds),
-            ),
-            None,
-            "selector-zero active object gate failure must fall back"
-        );
-        assert_eq!(
-            naval_rally_fast_path_cell(
-                10,
-                (10, 10),
-                (12, 12),
-                (20, 10),
-                &occupancy,
-                &entities,
-                Some(&terrain),
-                None,
-            ),
-            None,
-            "missing/failed mode-one playfield authority must fall back"
-        );
-
-        let grid = PathGrid::from_resolved_terrain(&land_failure);
-        assert_eq!(
-            find_naval_unit_delivery_cell(
-                10,
-                10,
-                10,
-                Some((20, 10)),
-                SpeedType::Float,
-                Some(&grid),
-                &occupancy,
-                &entities,
-                Some(&land_failure),
-                None,
-                None,
-                0,
-                Some(bounds),
-                Some((32, 32)),
-            ),
-            ((12, 12), false),
-            "failed direct gate restarts FNPC at the original GetCoords centre"
-        );
     }
 }

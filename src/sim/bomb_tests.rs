@@ -826,13 +826,13 @@ fn retail_fire_once_defuse_releases_target_and_carrier() {
     assert!(rules.weapon("DefuseKit").unwrap().fire_once);
     sim.bomb_attach(ivan, Some(tank), rules);
     let health = entity(&sim, tank).health.current();
-    // The ordinary DisarmBomb click emits ForceAttack for an allied object
+    // The ordinary DisarmBomb click emits Attack for an allied object
     // (`app/input/context_order.rs::bomb_order`), retaining native Attack
     // admission without Command::Attack's enemy-only convenience gate.
     sim.queue_command(CommandEnvelope::new(
         entity(&sim, engineer).owner(),
         sim.session.tick + 1,
-        Command::ForceAttack {
+        Command::Attack {
             attacker_id: engineer,
             target_id: tank,
         },
@@ -1300,10 +1300,9 @@ fn the_ticking_loop_follows_the_carrier() {
 /// only the Ivans have `AttackCursorOnFriendlies=`.
 #[test]
 fn retail_rules_arm_the_stock_bomb() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     let damage = &rules.combat_damage;
     assert_eq!(damage.ivan_warhead.as_deref(), Some("IvanWH"));
     assert_eq!(

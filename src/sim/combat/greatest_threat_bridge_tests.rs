@@ -171,7 +171,7 @@ fn pick(
     terrain: &ResolvedTerrainGrid,
     mission: super::super::ScanMission,
 ) -> Option<u64> {
-    super::super::acquire_best_target_for_entity(
+    super::super::combat_targeting::greatest_threat_for_entity(
         entities,
         occupancy,
         rules,
@@ -333,6 +333,7 @@ fn original_dead_missing_cell_candidate_runs_fire_probe_before_health_rejection(
         healer: false,
         engineer: false,
         berserk: false,
+        psycho: false,
         controller_house: None,
         fire_world: Some(&world),
         allies: Default::default(),

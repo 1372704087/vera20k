@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::sim::world::{DeferredDeleteQueue, DeferredDeleteTicket};
+use crate::util::save_codec;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
@@ -10,11 +11,9 @@ fn integer(value: &Value) -> i32 {
     value.as_i64().unwrap() as i32
 }
 
-fn loss_threshold_event_corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_loss_threshold_events.json",
-    ))
-    .unwrap();
+fn loss_threshold_event_corpus() -> &'static Value {
+    let corpus =
+        crate::test_fixture::json("tools/spatial_oracle/trigger_loss_threshold_events.json");
     assert_eq!(
         corpus["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -425,11 +424,11 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
         native["actions"].as_str()
     );
     assert_eq!(
-        map.events[source].conditions[0].kind,
+        map.events[source].conditions()[0].kind,
         integer(&native["native_read"]["kind"])
     );
     assert_eq!(
-        map.events[source].conditions[0].value,
+        map.events[source].conditions()[0].value,
         integer(&native["native_read"]["value"])
     );
 
@@ -442,11 +441,10 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
         records.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             if (section == "Tags"
-                && map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|target| chain.contains(&target.as_str()))
-                }))
+                && map
+                    .tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|target| chain.contains(&target))))
                 || (section != "Tags" && chain.contains(&key))
             {
                 records.push_str(&format!("{key}={value}\n"));
@@ -551,11 +549,8 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
     );
 }
 
-fn funds_event_corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_funds_events.json",
-    ))
-    .unwrap();
+fn funds_event_corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/trigger_funds_events.json");
     assert_eq!(
         corpus["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -701,15 +696,7 @@ fn funds_events_match_original_house_logic_and_cleanup_histories() {
             if mixed {
                 // Logic runs before House; the original mixed trigger can
                 // succeed on frame3750, which is not an eighth-frame poll.
-                sim.advance_triggers(
-                    TriggerInputs {
-                        events: &Default::default(),
-                        actions: &Default::default(),
-                        rules: Some(&rules),
-                    },
-                    Some(&overlay),
-                    FrameEffects::default(),
-                );
+                sim.advance_triggers(Some(&rules), Some(&overlay), FrameEffects::default());
             }
             sim.raise_house_tags(
                 houses[0],
@@ -1584,10 +1571,8 @@ struct All01ChargeInputs {
 #[test]
 fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     use crate::map::{entities::EntityCategory, resolved_terrain, waypoints::Waypoint};
-    use crate::rules::{
-        art_data::ArtRegistry, ini_parser::IniFile, team_ai_ini::TeamAiIniRegistry,
-    };
-    use crate::sim::world::{TickLane, TriggerInputs};
+    use crate::rules::{ini_parser::IniFile, team_ai_ini::TeamAiIniRegistry};
+    use crate::sim::world::TickLane;
     let charge: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/trigger_super_charge_percent.json",
     ))
@@ -1616,7 +1601,7 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     );
     let theater = crate::map::theater::load_theater(&mut assets, &map.header.theater)
         .expect("retail theater assets");
-    rules.install_art_data(ArtRegistry::from_ini(&fixed_art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&fixed_art));
     let mut roots = Vec::new();
     for name in ["NANRCT", "YAPPET"] {
         let object = rules.object(name).unwrap();
@@ -1754,11 +1739,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
             None,
             67,
             TickLane::Ordinary,
-            Some(TriggerInputs {
-                events: &map.events,
-                actions: &map.actions,
-                rules: Some(&rules),
-            }),
             FrameEffects::default(),
         )
         .unwrap();
@@ -1780,11 +1760,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         None,
         67,
         TickLane::Ordinary,
-        Some(TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
-            rules: Some(&rules),
-        }),
         FrameEffects::default(),
     )
     .unwrap();
@@ -1852,11 +1827,6 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         None,
         67,
         TickLane::Ordinary,
-        Some(TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
-            rules: Some(&rules),
-        }),
         FrameEffects::default(),
     )
     .unwrap();
@@ -1951,7 +1921,7 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
     let authored = map
         .actions
         .values()
-        .flat_map(|action| &action.entries)
+        .flat_map(|action| action.entries())
         .find(|entry| entry.kind == ACTION_SET_SUPER_CHARGE_PERCENTAGE)
         .unwrap();
     assert_eq!(
@@ -2010,8 +1980,8 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("CHARGE")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         assert_eq!(json!(entry.auxiliary_value()), row["read"]["auxiliary"]);
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(json!(action.value), row["read"]["value"]);
@@ -2121,8 +2091,8 @@ fn native_damage_at_waypoint_dispatch_matches_original_controls() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("DAMAGE")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(json!(action.value), row["read"]["value"], "{name}: +90");
         sim.trigger_runtime.definitions = definitions;
@@ -2330,7 +2300,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     let mut definitions = RuntimeDefinitions::default();
     let typ = definitions.trigger_type("DAMAGE").unwrap();
     let entry = map.actions["087857CC"]
-        .entries
+        .entries()
         .iter()
         .find(|entry| entry.kind == ACTION_DAMAGE_AT_WAYPOINT)
         .unwrap()
@@ -2547,8 +2517,8 @@ fn native_trigger_reveal_action_matches_original_controls() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("REVEAL")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(
             json!(action.value),
@@ -2695,7 +2665,7 @@ fn native_trigger_reveal_action_matches_original_controls() {
         };
         compare(&sim.fog, &row["final_cells"]);
         let config = sim.sight_reveal_config(Some(&rules));
-        let heights = sim.path_grid().unwrap().ground_height_grid();
+        let heights = sim.sight_height_grid(&config);
         let mut probe = Simulation::with_seed(31);
         probe.fog = FogState::new(128, 128);
         probe.session.current_house = Some(player);
@@ -2712,7 +2682,7 @@ fn native_trigger_reveal_action_matches_original_controls() {
                 [&pass["outline"], &pass["unreveal"], &pass["arg6"]],
                 [&json!(0), &json!(0), &json!(0)]
             );
-            probe.reveal_area(
+            let _ = probe.reveal_area(
                 &[player],
                 (
                     (integer(&coord[0]) / 256) as u16,
@@ -2724,6 +2694,8 @@ fn native_trigger_reveal_action_matches_original_controls() {
                 integer(&pass["final"]) != 0,
                 &config,
                 crate::sim::world::UninitContext::with_rules(&rules),
+                crate::sim::vision::MapRevealProjection::Transient,
+                probe.session.current_house,
             );
             compare(&probe.fog, &pass["states"]);
         }
@@ -2753,7 +2725,7 @@ fn native_trigger_reveal_action_matches_original_controls() {
             "{name}: knowledge survives sight cleanup"
         );
         let restored: FogState =
-            bincode::deserialize(&bincode::serialize(&sim.fog).unwrap()).unwrap();
+            save_codec::deserialize(&save_codec::serialize(&sim.fog).unwrap()).unwrap();
         assert_eq!(
             revealed(&restored),
             expected,
@@ -2842,12 +2814,12 @@ fn native_trigger_reveal_retail_definitions_use_retained_radius_and_literal_wayp
         let id = trigger["id"].as_str().unwrap();
         let authored = &map.actions[id];
         assert_eq!(
-            authored.entries.len(),
+            authored.entries().len(),
             trigger["actions"].as_array().unwrap().len(),
             "{id}"
         );
         for (entry, expected) in authored
-            .entries
+            .entries()
             .iter()
             .zip(trigger["actions"].as_array().unwrap())
         {
@@ -2868,7 +2840,7 @@ fn native_trigger_reveal_retail_definitions_use_retained_radius_and_literal_wayp
         json!(
             map.actions
                 .values()
-                .flat_map(|actions| &actions.entries)
+                .flat_map(|actions| actions.entries())
                 .filter(|entry| entry.kind == 16)
                 .count()
         ),
@@ -2902,8 +2874,8 @@ fn action_11_inline_labels_and_ordered_effects_match_original_controls() {
             crate::map::actions::parse_actions(&ini)
                 .remove("LABEL")
                 .unwrap()
-                .entries
-                .remove(0)
+                .entries()[0]
+                .clone()
         } else {
             // Original constructor-only control retains an empty inline label.
             ActionEntry {
@@ -3123,8 +3095,8 @@ fn physical_team_tag_references_match_original_retention_and_long_id_controls() 
                 );
                 assert_eq!(sim.trigger_runtime.tag(tag).unwrap().refs, 0);
             }
-            let bytes = bincode::serialize(&sim.trigger_runtime).unwrap();
-            sim.trigger_runtime = bincode::deserialize(&bytes).unwrap();
+            let bytes = save_codec::serialize(&sim.trigger_runtime).unwrap();
+            sim.trigger_runtime = save_codec::deserialize(&bytes).unwrap();
             sim.attach_team_trigger_tag(8, typ);
             assert_eq!(sim.trigger_runtime.definitions, before);
             if let Some(retained) = retained {
@@ -3143,7 +3115,6 @@ fn physical_team_tag_references_match_original_retention_and_long_id_controls() 
 
 #[test]
 fn team_member_tag_admission_and_removal_match_original_controls() {
-    use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
     use crate::rules::ruleset::RuleSet;
@@ -3180,7 +3151,7 @@ fn team_member_tag_admission_and_removal_match_original_controls() {
         );
         let processed = layers.process_with_fixed_art(&art).unwrap();
         let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         let mut sim = Simulation::new();
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
@@ -3275,10 +3246,11 @@ fn team_member_tag_admission_and_removal_match_original_controls() {
         assert_eq!(i32::from(added), integer(&control["added_al"]), "{input}");
         let after_add = state(&sim);
         sim.trigger_runtime =
-            bincode::deserialize(&bincode::serialize(&sim.trigger_runtime).unwrap()).unwrap();
-        sim.team_script_vm =
-            bincode::deserialize::<TeamScriptVm>(&bincode::serialize(&sim.team_script_vm).unwrap())
-                .unwrap();
+            save_codec::deserialize(&save_codec::serialize(&sim.trigger_runtime).unwrap()).unwrap();
+        sim.team_script_vm = save_codec::deserialize::<TeamScriptVm>(
+            &save_codec::serialize(&sim.team_script_vm).unwrap(),
+        )
+        .unwrap();
         assert_eq!(
             state(&sim),
             after_add,
@@ -3364,7 +3336,7 @@ fn definition_factories_match_all_original_action_reference_controls() {
         let record = crate::map::actions::parse_actions(&ini)
             .remove("REFERENCE")
             .unwrap();
-        let resolved = definitions.resolve_action(record.entries[0].clone(), None, None);
+        let resolved = definitions.resolve_action(record.entries()[0].clone(), None, None);
         let names: Vec<_> = match parameter_type {
             1 | 5 => definitions.team_types.iter().map(String::as_str).collect(),
             2 => definitions
@@ -3627,15 +3599,7 @@ fn physical_retail_sov01_registration_and_enable_timers_match_original_at_all_di
         compare_stock_state(&sim, draw_count, &row["history"][1]);
         sim.trigger_runtime.stop_before_action = Some(integer(&row["first_poll"]["action_kind"]));
         let boundary = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sim.advance_triggers(
-                TriggerInputs {
-                    events: &map.events,
-                    actions: &map.actions,
-                    rules: Some(&rules),
-                },
-                None,
-                FrameEffects::default(),
-            )
+            sim.advance_triggers(Some(&rules), None, FrameEffects::default())
         }))
         .expect_err("same original first gameplay-action boundary must stop the prefix");
         assert_eq!(*boundary.downcast::<i32>().unwrap(), 46);
@@ -3820,8 +3784,8 @@ fn history_state(
             json!(["tag", identities.iter().position(|&tag| tag == id).unwrap()])
         }
         DeferredDeleteTicket::Trigger(id) => json!(["trigger", id]),
-        DeferredDeleteTicket::Overlay(_) => {
-            panic!("mixed Object/Tag/Trigger controls contain no Overlay")
+        DeferredDeleteTicket::Overlay(_) | DeferredDeleteTicket::DiskLaser(_) => {
+            panic!("mixed Object/Tag/Trigger controls contain no Overlay/DiskLaser")
         }
     };
     let destructs: Vec<_> = sim
@@ -3898,7 +3862,8 @@ fn history_state(
                         DeferredDeleteTicket::Object(_) => "object",
                         DeferredDeleteTicket::Tag(_) => "tag",
                         DeferredDeleteTicket::Trigger(_) => "trigger",
-                        DeferredDeleteTicket::Overlay(_) => unreachable!(),
+                        DeferredDeleteTicket::Overlay(_) | DeferredDeleteTicket::DiskLaser(_) =>
+                            unreachable!(),
                     })
                     .collect::<Vec<_>>()
             )
@@ -4255,15 +4220,7 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                         ]
                     }
                     "poll" => {
-                        effects = sim.advance_triggers(
-                            TriggerInputs {
-                                events: &HashMap::new(),
-                                actions: &HashMap::new(),
-                                rules: Some(&rules),
-                            },
-                            None,
-                            FrameEffects::default(),
-                        );
+                        effects = sim.advance_triggers(Some(&rules), None, FrameEffects::default());
                     }
                     kind => panic!("unhandled native operation {name}/{step}/{kind}"),
                 }
@@ -4281,9 +4238,10 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                 "{name}/{step}: {operation}"
             );
             let bytes =
-                bincode::serialize(&(&sim.trigger_runtime, &sim.substrate.pending_delete)).unwrap();
+                save_codec::serialize(&(&sim.trigger_runtime, &sim.substrate.pending_delete))
+                    .unwrap();
             let (mut restored, restored_queue): (TriggerRuntime, DeferredDeleteQueue) =
-                bincode::deserialize(&bytes).unwrap();
+                save_codec::deserialize(&bytes).unwrap();
             assert_eq!(restored, sim.trigger_runtime, "{name}/{step} saved owner");
             assert_eq!(
                 restored_queue, sim.substrate.pending_delete,

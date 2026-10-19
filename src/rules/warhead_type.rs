@@ -80,6 +80,11 @@ pub struct WarheadType {
     /// `WarheadTypeClass+0x147` (ReadINI `0x0075d556`, key string
     /// `0x00847e00`).
     pub wood: bool,
+    /// `Fire=` -> `WarheadTypeClass+0x14C` (ReadINI `0x0075d5f2`, key string
+    /// `0x00836f04`) over the constructor's 0 (`0x0075cf83`). Techno
+    /// What_Action on a Cell keeps a Fire warhead off a destroyable cliff
+    /// (`0x00700908..0x00700924`).
+    pub fire: bool,
     /// Whether this warhead reaches a target installed in a bunker. The active
     /// receiver has category-specific linked-building/occupant semantics.
     /// `WarheadTypeClass+0x146` (ReadINI `0x0075d53c`, key string
@@ -202,15 +207,6 @@ pub struct WarheadType {
     /// Calls in airstrike. `WarheadTypeClass+0x16C` (ReadINI `0x0075D8F0`),
     /// read by `TechnoClass::What_Weapon_Should_I_Use @ 0x006F3481`.
     pub airstrike: bool,
-    /// Tesla weapon. Native offset **UNKNOWN** — VERA-internal, gamemd
-    /// equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body @ 0x0075D3A0`
-    /// (body `0x0075D3A0`-`0x0075DEBD`) pushes 61 distinct key strings and
-    /// none of them is `Electric`; `search_strings ^Electric$` over the image
-    /// returns nothing. So there is no native `Electric=` warhead key to bind
-    /// to, and `+0x178` — the offset previously claimed here — is
-    /// `PsychicDamage=`. Stock `rulesmd.ini` authors no `Electric=` line, so
-    /// this field is always `false` in stock play.
-    pub electric: bool,
     /// Radiation contamination. `WarheadTypeClass+0x177`, written by
     /// `WarheadTypeClass::ReadINI` @ `0x0075d9c7` from the key string at
     /// `0x00839e80`. (`+0x179` is `AffectsAllies=`, not this.)
@@ -247,34 +243,21 @@ pub struct WarheadType {
     /// `0x00847CF4`), tested last in the detonation chain at
     /// `BulletClass::DetonateAtCoord @ 0x00469a2c`.
     pub nuke_maker: bool,
-
-    // --- Int fields ---
     /// `EMEffect=`, a bool at `WarheadTypeClass+0x154`: `ReadBool` at
     /// `0x0075D7C1` with the field as default, which the constructor zeroes
     /// (`0x0075CFB3`). The bullet's impact resolution skips its last snaps
     /// for it (`0x00468E9F`). The one stock `EMEffect=yes`, `[EMPuls]`, is
     /// mounted by no stock weapon.
     pub em_effect: bool,
-    /// Money transfer on hit. Native offset **UNKNOWN** — VERA-internal,
-    /// gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body` reads no
-    /// `TransactMoney=` key (and no such string exists in the image);
-    /// `+0x17C` — the offset previously claimed here — is `ShakeXlo=`, an int.
-    /// Stock `rulesmd.ini` authors no `TransactMoney=` line, so this field is
-    /// always 0 in stock play.
-    pub transact_money: i32,
-    /// Infantry death type for cell-level kills. Native offset **UNKNOWN** —
-    /// VERA-internal, gamemd equivalent UNCHECKED. `WarheadTypeClass::ReadINI_Body`
-    /// writes nothing at `+0x114` and reads no `CellInfDeath=` key (no such
-    /// string exists in the image). Stock `rulesmd.ini` authors no
-    /// `CellInfDeath=` line, so this field is always 0 in stock play.
-    pub cell_inf_death: i32,
 
     // --- List fields ---
     /// `[VoxelAnims]` type names thrown on detonation.
     ///
     /// gamemd-derived: `WarheadTypeClass::ReadINI` "DebrisTypes" @ `0x0075DAF5`
     /// -> warhead `+0x18C`, resolved through the `VoxelAnimTypeClass` name
-    /// lookup at `0x0074B960`. These are voxel-anim types, NOT AnimTypes.
+    /// lookup at `0x0074B960`, which answers null for `none` and `<none>`.
+    /// These are voxel-anim types, NOT AnimTypes. Only the ordered Rules
+    /// processor reads the key; `RuleSet` publishes its list.
     ///
     /// Stock Smashing (Brute Smash/SmashE) and TRexWH author MinDebris1 /
     /// MaxDebris3, with no typed entries: Bullet469D06..469EBA uses the
@@ -320,16 +303,6 @@ impl WarheadType {
         let percent_at_max_f64 = f64::from(percent_at_max_native);
         let delay_kill_at_max_f64 = f64::from(section.read_float("DelayKillAtMax", 1.0));
 
-        let anim_list: Vec<String> = section
-            .read_list("AnimList", 0x80)
-            .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-            .unwrap_or_default();
-
-        let debris_types: Vec<String> = section
-            .read_list("DebrisTypes", 0x80)
-            .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-            .unwrap_or_default();
-
         // The IntVector reader (`0x0075DD22` -> `0x00475D70`).
         let debris_maximums: Vec<i32> = section.read_int_list("DebrisMaximums").unwrap_or_default();
 
@@ -361,14 +334,18 @@ impl WarheadType {
             delay_kill_at_max_f64,
             wall: section.read_bool("Wall", false),
             wood: section.read_bool("Wood", false),
+            fire: section.read_bool("Fire", false),
             penetrates_bunker: section.read_bool("PenetratesBunker", false),
             affects_allies: section.read_bool("AffectsAllies", true),
             psychic_damage: section.read_bool("PsychicDamage", false),
-            anim_list,
+            // Conventional, AnimList and EMEffect keep the constructor's false
+            // and empty values (`0x0075CF89`, `0x0075CFB3`): the ordered Rules
+            // processor owns those reads and RuleSet publishes its result.
+            anim_list: Vec::new(),
             inf_death: section.read_int("InfDeath", 1).clamp(0, 10) as u8,
 
             // Bool fields — all default false
-            conventional: section.read_bool("Conventional", false),
+            conventional: false,
             rocker: section.read_bool("Rocker", false),
             direct_rocker: section.read_bool("DirectRocker", false),
             tiberium: section.read_bool("Tiberium", false),
@@ -390,7 +367,6 @@ impl WarheadType {
             mind_control: section.read_bool("MindControl", false),
             poison: section.read_bool("Poison", false),
             airstrike: section.read_bool("Airstrike", false),
-            electric: section.read_bool("Electric", false),
             radiation: section.read_bool("Radiation", false),
             culling: section.read_bool("Culling", false),
             paralyzes: section.read_int("Paralyzes", 0),
@@ -399,14 +375,10 @@ impl WarheadType {
             electric_assault: section.read_bool("ElectricAssault", false),
             bomb_disarm: section.read_bool("BombDisarm", false),
             nuke_maker: section.read_bool("NukeMaker", false),
-
-            // Int fields — all default 0
-            em_effect: section.read_bool("EMEffect", false),
-            transact_money: section.read_int("TransactMoney", 0),
-            cell_inf_death: section.read_int("CellInfDeath", 0),
+            em_effect: false,
 
             // List fields
-            debris_types,
+            debris_types: Vec::new(),
             debris_maximums,
             min_debris,
             max_debris,
@@ -566,7 +538,6 @@ mod tests {
 
         assert!(wh.mind_control);
         assert!(!wh.temporal);
-        assert!(!wh.electric);
         assert!(!wh.ivan_bomb);
     }
 
@@ -616,14 +587,11 @@ mod tests {
         // `WarheadTypeClass::ReadINI` never looks at "Debris" — that string's
         // only reader is `TiberiumClass::ReadINI_Fields @ 0x00721B4F`. The
         // warhead key is "DebrisTypes" @ 0x0075DAF5.
-        let ini = IniFile::from_str(
-            "[W]
-Debris=CRYSTAL1
-DebrisTypes=TIRE
-",
-        );
-        let wh = WarheadType::from_ini_section("W", ini.section("W").unwrap());
-        assert_eq!(wh.debris_types, vec!["TIRE".to_string()]);
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Warheads]\n0=W\n[W]\nDebris=CRYSTAL1\nDebrisTypes=TIRE\n",
+        ))
+        .unwrap();
+        assert_eq!(rules.warhead("W").unwrap().debris_types, ["TIRE"]);
     }
 
     #[test]

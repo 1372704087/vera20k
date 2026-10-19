@@ -85,18 +85,28 @@ pub fn launch(
     if !super::is_charged(sim, owner, sw_type) {
         return false;
     }
-    let coord = super::fire::cell_coords(sim, (target_rx, target_ry));
+    let ground = crate::sim::projectile::cell_ground_coord(
+        sim.resolved_terrain.as_ref(),
+        target_rx,
+        target_ry,
+    );
+    let coord = [ground.x, ground.y, ground.z];
     let radius = rules
         .general
         .psychic_reveal_radius
         .clamp(0, i32::from(u16::MAX)) as u16;
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::RevealArea(coord, radius));
-    sim.fog.alliances = sim.house_alliances.clone();
     let config = sim.sight_reveal_config(Some(rules));
-    let viewers = vision::direct_reveal_viewers(&sim.fog, owner, &config, &sim.interner);
+    let viewers = vision::direct_reveal_viewers(
+        &sim.fog,
+        &sim.house_alliances,
+        owner,
+        &config,
+        &sim.interner,
+    );
     for final_pass in [false, true] {
-        sim.reveal_area(
+        let _ = sim.reveal_area(
             &viewers,
             (target_rx, target_ry),
             coord[2],
@@ -105,6 +115,8 @@ pub fn launch(
             final_pass,
             &config,
             crate::sim::world::UninitContext::with_rules(rules),
+            crate::sim::vision::MapRevealProjection::Transient,
+            sim.session.current_house,
         );
     }
     sim.sound_events.push(SimSoundEvent::SuperWeaponLaunched {

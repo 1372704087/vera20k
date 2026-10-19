@@ -66,6 +66,7 @@ fn production_rules(corpus: &Value, map_control: Option<&IniFile>) -> Option<Rul
         recorded_layer(corpus, "LANGRULE.INI"),
         art,
         Arc::new(SoundRegistry::from_ini(&sound)),
+        Default::default(),
     )
     .unwrap();
     let mode = recorded_layer(corpus, "MPBattleMD.ini");
@@ -287,7 +288,6 @@ fn replay_building_history(corpus: &Value, rules: &RuleSet, history: &Value, typ
             world.session.no_damage,
             u64::from(world.session.binary_frame),
             world.resolved_terrain.as_ref(),
-            &crate::sim::cheats::Cheats::default(),
         )
         .unwrap();
         assert_eq!(

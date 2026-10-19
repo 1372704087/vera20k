@@ -35,6 +35,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
+use crate::sim::world::damage_consequences::DamageCommitReceipt;
 
 pub(crate) const DO_READY: i32 = 0;
 pub(crate) const DO_GUARD: i32 = 1;
@@ -60,6 +61,7 @@ pub(crate) const DO_AIR_DEATH_START: i32 = 0x22;
 pub(crate) const DO_AIR_DEATH_FALLING: i32 = 0x23;
 pub(crate) const DO_AIR_DEATH_FINISH: i32 = 0x24;
 pub(crate) const DO_PANIC: i32 = 0x25;
+pub(crate) const DO_CARRY: i32 = 0x27;
 
 /// `InfantryClass::IsInDeathSequence @ 0x00522CB0`: Die1..5, WetDie1/2 and the
 /// three AirDeath actions. Assign_Target refuses such an infantryman as a
@@ -182,6 +184,8 @@ impl Simulation {
     /// - The requested action's record must have frames (`0x0051D70F`, Type
     ///   `+0xE3C`).
     /// - A falling paradropper keeps its Paradrop (`0x0051D722..0x0051D733`).
+    /// - A full slave's Walk becomes Carry (`0x0051D739..0x0051D773`),
+    ///   before water, air and fear remaps.
     /// - Down needs `Crawls=` (`0x0051D77A..0x0051D78D`).
     /// - Water remap: an AmphibiousDestroyer type on a Water or Beach cell off
     ///   a bridge (`0x0051D793..0x0051D8B8`) remaps the raw action. It reads
@@ -200,8 +204,6 @@ impl Simulation {
     ///   (`0x0051DAA7..0x0051DAC8`).
     ///
     /// Not represented:
-    /// - the SlaveOwner/storage/full-load Walk-to-Carry remap
-    ///   (`0x0051D739..0x0051D773`), affecting loaded SLAV trips;
     /// - the random first stage a caller's third argument asks for
     ///   (`0x0051DA4A..0x0051DA84`, a Scenario draw): the crash latch, the
     ///   impact notice, the AirDeath arm and the idle fidgets pass 0, and the
@@ -261,7 +263,18 @@ impl Simulation {
         if requested == DO_DOWN && !facts.crawls {
             return Ok(false);
         }
-        let mut requested = requested;
+        // Steam gamemd51D739..51D773: SlaveOwner, nonzero Storage and
+        //Tiberium_Load exactly1 remap Walk before the later water/fear arms.
+        //The original requested sequence was checked above; do not recheck
+        //Carry's count after remapping. The slave owner retains the only cargo.
+        let mut requested = if requested == DO_WALK
+            && actor.slave.owner().is_some()
+            && self.slave_is_full(id, rules)
+        {
+            DO_CARRY
+        } else {
+            requested
+        };
         if facts.movement_zone == MovementZone::AmphibiousDestroyer {
             //51D7B0: virtual+1B8 is Abstract41BEA0, signed physical XYZ/256
             // packed to two WORDs. Map5657A0 retains one canonical Cell,
@@ -408,9 +421,10 @@ impl Simulation {
 
     /// `InfantryClass::AI`'s Health reset (`0x0051BC57..0x0051BC96`), before
     /// `FootClass::AI`: an infantryman at Health 0 or below whose action is
-    /// not a death sequence ([`in_death_sequence`]) is set to Health 1. Only
-    /// a crashing Jumpjet infantryman reaches its own AI at Health 0: every
-    /// other death removes it or turns it to a dying sequence first.
+    /// not a death sequence ([`in_death_sequence`]) is set to Health 1. A
+    /// corpse on its death sequence and a crashing Jumpjet infantryman keep
+    /// Health 0; a death whose `Do_Action` was refused (a sequence with no
+    /// frames, `0x0051D70F`) left the previous action, and is raised here.
     pub(crate) fn infantry_health_reset(&mut self, id: u64) {
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
@@ -428,22 +442,23 @@ impl Simulation {
     /// ordinary walker, so construction/Unlimbo keeps the native -1 and the
     /// first stationary AI selects Ready through the actual default arm.
     /// Firing (`0x0051BF59`) precedes the sequencer (`0x0051BF6A`) and
-    /// locomotion actions (`0x0051BF7B`). Returns bridge-state consequences.
+    /// locomotion actions (`0x0051BF7B`). Returns the committed fire receipt,
+    /// including the frame notifications of synchronous nested death weapons.
     pub(crate) fn infantry_action_turn(
         &mut self,
         id: u64,
         rules: &RuleSet,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
-    ) -> Result<bool, String> {
+    ) -> Result<DamageCommitReceipt, String> {
         let Some(actor) = self.substrate.entities.get(id) else {
-            return Ok(false);
+            return Ok(DamageCommitReceipt::default());
         };
         // Original51BCA4/51BCAC and51BF5E/51BF66 test Object+90, not
         // Health or the presentation death flag. Retained death sequences
         // still reach Fear -> Fire -> Sequencer until actual UnInit.
         if actor.category() != EntityCategory::Infantry || !actor.is_object_alive() {
-            return Ok(false);
+            return Ok(DamageCommitReceipt::default());
         }
         //51BDE7..51BE3E precedes the second Ready/Commence and Fear. A
         // rate-zero clock cancels+68D, then unforced Deployed/Ready. Prone
@@ -466,30 +481,29 @@ impl Simulation {
         self.object_ai_post_movement_promote_one(id, Some(rules));
         //51BF0B is after Process and the second Ready/Commence, including a
         // retained death sequence. Shared DoAction decides stance refusal.
-        let mut bridge_changed = self.infantry_fear_turn(id, rules, registry, effects)?;
+        let bridge_changed = self.infantry_fear_turn(id, rules, registry, effects)?;
         //51BF59 owns all Infantry firing; its new Bullet/Anim objects join
         // the current dynamic Logic suffix before the next actor visit.
-        bridge_changed |= self
-            .commit_fire_visit(
-                crate::sim::combat::world_fire::FireVisit::InfantryTarget(id),
-                rules,
-                registry,
-                effects,
-            )
-            .bridge_state_changed;
+        let mut receipt = self.commit_fire_visit(
+            crate::sim::combat::world_fire::FireVisit::InfantryTarget(id),
+            rules,
+            registry,
+            effects,
+        );
+        receipt.bridge_state_changed |= bridge_changed;
         if self
             .substrate
             .entities
             .get(id)
             .is_none_or(|actor| !actor.is_object_alive())
         {
-            return Ok(bridge_changed);
+            return Ok(receipt);
         }
         if self.infantry_sequencer(id, rules, effects) {
-            return Ok(bridge_changed);
+            return Ok(receipt);
         }
         self.infantry_movement_actions(id, rules, registry, effects);
-        Ok(bridge_changed)
+        Ok(receipt)
     }
 
     /// `InfantryClass::DoType_Sequencer @ 0x00520AE0` for an infantryman
@@ -702,6 +716,10 @@ impl Simulation {
     /// after Walk has released the barracks contact. The remaining recovery
     /// branches520FB0..521144 are separate residuals, not approximated here.
     ///
+    /// Nothing here tests Health: a corpse reaches the tail, and Do_Action
+    /// refuses its unforced requests for the death action
+    /// (`0x0051D90B..0x0051D934`).
+    ///
     /// Original comparison: the 20 consumer rows of
     /// `tools/spatial_oracle/infantry_movement_action.json`.
     pub(crate) fn infantry_movement_actions(
@@ -713,7 +731,6 @@ impl Simulation {
     ) {
         let stopped_move = self.substrate.entities.get(id).is_some_and(|actor| {
             actor.category() == EntityCategory::Infantry
-                && actor.is_ai_alive()
                 && actor.mission.effective().known() == Some(crate::sim::mission::MissionType::Move)
                 && super::motion_query::is_moving(actor) == Some(false)
         });
@@ -741,7 +758,7 @@ impl Simulation {
         let Some(actor) = self.substrate.entities.get(id) else {
             return;
         };
-        if !doing_owns_sequence(actor) || !actor.is_ai_alive() {
+        if !doing_owns_sequence(actor) {
             return;
         }
         let Some(doing) = actor.mission_leaf.as_infantry().map(|leaf| leaf.doing()) else {

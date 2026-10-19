@@ -17,8 +17,8 @@
 //! `deploy` rows (actions 14, 43, 8 and 9) in `transport_tests`.
 //!
 //! RESIDUALS:
-//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 37, 39, 40, 42, 43,
-//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 61, 62, 63 and 64 are not ported. A team
+//! - Actions other than 0, 1, 2, 3, 5, 6, 8, 9, 11, 14, 16, 17, 19, 20, 21, 24, 30, 37, 39, 40, 42, 43,
+//!   46, 47, 49, 50, 53, 54, 55, 57, 58, 59, 60, 61, 62, 63 and 64 are not ported. A team
 //!   that reaches one stays on it, as a native handler that has not
 //!   finished does, and records the first as its refusal; the rest of its
 //!   update runs. Trigger: none of the 163 retail AIMD TeamTypes reaches
@@ -29,19 +29,6 @@
 //!   building with [`target_building_pick`] too; no AIMD script names it,
 //!   but four scripts of the retail campaign map SOV02SMD.MAP do, whose
 //!   teams idle on it.
-//! - Action 14's passengers board through VERA's Boarding adapter
-//!   ([`crate::sim::passenger::begin_boarding`]), without the native radio
-//!   route: the Infantry destination setter's Enter arm contacts the
-//!   transport (`0x0051AC25..0x0051AD17`), and while it holds that contact
-//!   (`0x0065AE30`) action 14 orders no one else. While the adapter walks a
-//!   passenger, Mission_Enter (`0x004D9290`) is not run, so its DOCKING
-//!   probe and its Rate epilogue draw (RandomRanged(0, 2), Scenario stream)
-//!   are skipped each dispatch, as for the building-entry seeks
-//!   (`sim::building_entry`). Trigger: every retail transport team (16
-//!   TeamTypes) loading. Effect: native's passengers walk in one at a time;
-//!   VERA's are ordered one per update as each takes Enter, so they walk in
-//!   together and the team sets out sooner, and the Scenario stream misses
-//!   one draw per walking passenger per dispatch.
 //! - `Coordinate_Attack` keeps a cell target that only a terrain object
 //!   blocks: a team target holds no terrain object. Trigger: a cell target,
 //!   which no ported caller gives (`Greatest_Threat`'s wall fallback is not
@@ -57,8 +44,9 @@
 //!   natively, as in VERA, those actions take them off Unload in the air.
 //!   Trigger: a member of a modded type deploying when its team attacks.
 //!   Effect: it stops deploying and attacks.
-//! - A non-aircraft member's ammunition (`+0x2FC`) is not tracked and reads
-//!   as its `Ammo=`: actions 0 and 46 never find such a team spent
+//! - Non-aircraft ammunition (`+0x2FC`) retains its constructor and chrono
+//!   reinforcement writes; ordinary weapon-fire debits remain unported.
+//!   Actions 0 and 46 therefore do not find an ordinary finite-ammo team spent
 //!   (`team_out_of_ammo`). Trigger: a team of units with `Ammo=` above 0.
 //!   Effect: the team keeps attacking where native would move on once all
 //!   are empty.
@@ -67,8 +55,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::ScanMission;
 use crate::sim::combat::fire_error::FireError;
+use crate::sim::combat::{ScanMission, quarry_mask};
 use crate::sim::components::NavTargetRef;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
@@ -82,6 +70,7 @@ use crate::sim::world::Simulation;
 
 use super::team_ai::member_is_live_joined;
 use super::{TeamScriptAction, TeamScriptRefusal, TeamScriptState, TeamTarget, script_action_at};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 
 impl TeamScriptState {
     /// TeamFlash6EF5F0 walks +54/+5D8 head first and writes signed Techno+F0.
@@ -131,6 +120,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 20
             | 21
             | 24
+            | 30
             | 37
             | 39
             | 40
@@ -146,6 +136,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 57
             | 58
             | 59
+            | 60
             | 61
             | 62
             | 63
@@ -159,12 +150,7 @@ fn nav_names(nav: NavTargetRef, target: TeamTarget) -> bool {
         (NavTargetRef::Cell { rx, ry }, TeamTarget::Cell { x, y }) => {
             rx == x as u16 && ry == y as u16
         }
-        (
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id },
-            TeamTarget::Object(object),
-        ) => id == object,
+        (NavTargetRef::Object { id }, TeamTarget::Object(object)) => id == object,
         _ => false,
     }
 }
@@ -176,9 +162,7 @@ fn nav_target(nav: NavTargetRef) -> TeamTarget {
             x: rx as i16,
             y: ry as i16,
         },
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => TeamTarget::Object(id),
+        NavTargetRef::Object { id } => TeamTarget::Object(id),
     }
 }
 
@@ -554,6 +538,23 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
+            // Original gamemd1cdd1180,6E9FEC ->6E99E1..6E99FD
+            // (tools/native_inspect): House+250=4, then Team+80=1.
+            // Argument/first are unused; the existing House Strategy timer
+            // decides when FireSale/Hunt runs. No direct RNG/timer/detach.
+            30 => {
+                let owner = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .map(TeamScriptState::owner);
+                if let Some(house) = owner.and_then(|owner| self.houses.get_mut(&owner)) {
+                    house.strategy_emergency.set_state_four();
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
             43 => self.team_action_wait_until_loaded(team_id, rules),
             46 => self.team_action_attack_enemy_building(
                 team_id,
@@ -614,16 +615,17 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            // `0x006E9DF9..0x006E9E3D` (60),
             // `0x006E9E3E..0x006E9E82` (61), `0x006E9E83..0x006E9EC7` (62)
             // and `0x006E9EC8..` (63): each member, in list order, seeks a
-            // tank bunker (Foot vt+0x344, [`Self::foot_enter_tank_bunker`]),
+            // grinder (vt+0x33C), tank bunker (Foot vt+0x344),
             // a Bio Reactor (vt+0x340, [`Self::foot_enter_bio_reactor`]) or
             // an occupiable building (vt+0x348,
             // [`Self::foot_enter_battle_bunker`]); one that finds one leaves
             // the team (`Remove_Member(member, -1, 1)`, `0x006E9E69`,
             // `0x006E9EAE`, `0x006E9EF3`). The action is finished at once,
             // also with no member (`0x006E953E`).
-            61..=63 => {
+            60..=63 => {
                 let members: Vec<u64> = self
                     .team_script_vm
                     .teams
@@ -632,6 +634,7 @@ impl Simulation {
                     .unwrap_or_default();
                 for member in members {
                     let found = match action.action_id {
+                        60 => self.foot_enter_grinder(member, rules, registry, frame_effects),
                         61 => self.foot_enter_tank_bunker(member, rules, registry, frame_effects),
                         62 => self.foot_enter_bio_reactor(member, rules, registry, frame_effects),
                         _ => self.foot_enter_battle_bunker(member, rules, registry, frame_effects),
@@ -724,12 +727,18 @@ impl Simulation {
                         .expect("Team leader has its resolved TechnoType")
                         .speed_type;
                     cell = self
-                        .find_plain_passable_cell(
+                        .nearby_passable_cell(
                             (i32::from(cell.0), i32::from(cell.1)),
-                            speed,
-                            None,
-                            crate::rules::locomotor_type::MovementZone::Normal,
-                            (1, 1),
+                            NearbyArgs::plain(
+                                PassabilityArgs {
+                                    speed_type: speed,
+                                    required_zone_id: None,
+                                    movement_zone:
+                                        crate::rules::locomotor_type::MovementZone::Normal,
+                                    bridge_aware_zone: false,
+                                },
+                                NearbyFootprint::SINGLE,
+                            ),
                         )
                         .map_or((0, 0), |(x, y)| (x as i16, y as i16));
                 }
@@ -999,12 +1008,9 @@ impl Simulation {
     /// the team as it boards, by its Conceal's Foot `Detach_All`,
     /// `0x004D9744`), a `TransportsReturnOnUnload=` TeamType's transport
     /// archives the cell holding its Location (`0x006ED43F..0x006ED47C`), and
-    /// the action is finished.
-    ///
-    /// VERA boards through the Boarding adapter
-    /// ([`crate::sim::passenger::begin_boarding`]), which opens no radio
-    /// contact, so the transport is never found in one here (module
-    /// residual).
+    /// the action is finished. An infantryman's destination setter makes the
+    /// transport his radio contact (`0x0051AC25..0x0051AD17`), so the next
+    /// member is ordered once he has boarded and his Limbo broke it.
     fn team_action_load_onto_transport(
         &mut self,
         team_id: u64,
@@ -1080,9 +1086,6 @@ impl Simulation {
                     registry,
                     frame_effects,
                 );
-                if let Some(entity) = self.substrate.entities.get_mut(member) {
-                    crate::sim::passenger::begin_boarding(entity, transport);
-                }
                 return;
             }
         }
@@ -1339,8 +1342,9 @@ impl Simulation {
 
     /// The member with the highest `LeadershipRating=` (signed, the first in
     /// list order on a tie) among the live joined members, else the head
-    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`).
-    pub(super) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
+    /// (`0x006EE621..0x006EE683`, `0x006EFA2B..0x006EFA81`), also the
+    /// shared GetLeader6EC3D0 called by House50D170.
+    pub(crate) fn team_leader(&self, team_id: u64, rules: &RuleSet) -> Option<u64> {
         let team = self.team_script_vm.teams.get(&team_id)?;
         let mut leader = team.members.first()?.id;
         let mut best = -1i32;
@@ -1362,21 +1366,6 @@ impl Simulation {
             }
         }
         Some(leader)
-    }
-
-    /// `HouseClass::Base_Center @ 0x0050DF30`: the centre of the house's base
-    /// cell (`HouseState::base_origin`), or `(0, 0)` without one.
-    fn house_base_center_xy(&self, owner: InternedId) -> [i32; 2] {
-        let origin = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)
-            .map_or((0, 0), |house| house.base_origin());
-        if origin == (0, 0) {
-            [0, 0]
-        } else {
-            [
-                i32::from(origin.0) * 256 + 128,
-                i32::from(origin.1) * 256 + 128,
-            ]
-        }
     }
 
     /// Script action 54 (`0x006EFA10`), regroup at base: on its first frame
@@ -1404,8 +1393,17 @@ impl Simulation {
                 .map(|object| object.speed_type);
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)
                 .and_then(|house| house.enemy_house);
-            let own = self.house_base_center_xy(owner);
-            let enemy = enemy.map(|enemy| self.house_base_center_xy(enemy));
+            let cells = self
+                .resolved_terrain
+                .as_ref()
+                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+            // 6EFAAE/6EFAF7: preserve the shared Map/Dummy query order.
+            let [own_x, own_y, _] = self.house_base_coordinate(owner, cells.as_ref());
+            let own = [own_x, own_y];
+            let enemy = enemy.map(|enemy| {
+                let [x, y, _] = self.house_base_coordinate(enemy, cells.as_ref());
+                [x, y]
+            });
             let seed = regroup_seed_cell(own, enemy, rules.general.ai_safe_distance, || {
                 self.scenario_rng.next_range_i32_inclusive(0, 255)
             });
@@ -1439,9 +1437,20 @@ impl Simulation {
             let owner = entity.owner();
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)?
                 .enemy_house?;
+            let cells = self
+                .resolved_terrain
+                .as_ref()
+                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+            // 6EF7C0 precedes 6EF812; an empty enemy base returns before
+            // querying the own base, including its Map/Dummy side effects.
+            let enemy = self.house_base_coordinate(enemy, cells.as_ref());
+            if enemy == [0, 0, 0] {
+                return None;
+            }
+            let own = self.house_base_coordinate(owner, cells.as_ref());
             let seed = gather_seed_cell(
-                self.house_base_center_xy(owner),
-                self.house_base_center_xy(enemy),
+                [own[0], own[1]],
+                [enemy[0], enemy[1]],
                 crate::sim::movement::ground_pose::position_world_xy(&entity.position),
                 rules.general.ai_safe_distance,
             )?;
@@ -1475,12 +1484,17 @@ impl Simulation {
     ) {
         let cell = speed_type
             .and_then(|speed_type| {
-                self.find_plain_passable_cell(
+                self.nearby_passable_cell(
                     seed,
-                    speed_type,
-                    None,
-                    crate::rules::locomotor_type::MovementZone::Normal,
-                    (3, 3),
+                    NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type,
+                            required_zone_id: None,
+                            movement_zone: crate::rules::locomotor_type::MovementZone::Normal,
+                            bridge_aware_zone: false,
+                        },
+                        NearbyFootprint::new(3, 3),
+                    ),
                 )
             })
             .unwrap_or((0, 0));
@@ -1592,70 +1606,19 @@ impl Simulation {
             object.movement_zone,
             leader.on_bridge(),
         )?;
-        self.find_plain_passable_cell(
+        self.nearby_passable_cell(
             seed,
-            object.speed_type,
-            Some(zone),
-            object.movement_zone,
-            (1, 1),
-        )
-        .filter(|&cell| cell != (0, 0))
-    }
-
-    /// `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20` as both team
-    /// actions and `HouseClass::AI_GroundRallyPoint` (`0x00509D61..
-    /// 0x00509D9A`) call it: no bridge-aware zone, overlay, height, obstacle
-    /// or occupancy test, bridges allowed, no target cell (the frame-counter
-    /// pick), no quadrant skip.
-    pub(crate) fn find_plain_passable_cell(
-        &self,
-        seed: (i32, i32),
-        speed_type: crate::rules::locomotor_type::SpeedType,
-        zone: Option<u32>,
-        movement_zone: crate::rules::locomotor_type::MovementZone,
-        footprint: (i32, i32),
-    ) -> Option<(u16, u16)> {
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, NearbySearchOptions, PassabilityArgs,
-            find_nearby_passable_cell_with_options, map_owned_radius_cap,
-        };
-        let terrain = self.resolved_terrain.as_ref()?;
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
-        let grid = self.path_grid_snapshot();
-        find_nearby_passable_cell_with_options(
-            seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type,
-                    required_zone_id: zone,
-                    movement_zone,
+            NearbyArgs::plain(
+                PassabilityArgs {
+                    speed_type: object.speed_type,
+                    required_zone_id: Some(zone),
+                    movement_zone: object.movement_zone,
                     bridge_aware_zone: false,
                 },
-                footprint: NearbyFootprint::new(footprint.0, footprint.1),
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            NearbySearchOptions {
-                reject_any_overlay: false,
-            },
-            self.session.binary_frame,
+                NearbyFootprint::SINGLE,
+            ),
         )
+        .filter(|&cell| cell != (0, 0))
     }
 
     /// `Assign_Mission_Target @ 0x006E9050`: a changed mission target
@@ -2040,7 +2003,7 @@ impl Simulation {
                 self.team_waypoint_blocker(waypoint)
                     .map(|(target, blocker)| match blocker {
                         Some(BlockingObject::Entity(object)) => TeamTarget::Object(object),
-                        Some(BlockingObject::Terrain) | None => target,
+                        Some(BlockingObject::Terrain(_)) | None => target,
                     });
             self.team_assign_mission_target(team_id, target, rules, registry, frame_effects);
         }
@@ -2583,30 +2546,10 @@ pub(super) fn safe_distance_cell(from: [i32; 2], facing: u16, safe_distance: i32
     )
 }
 
-/// `Quarry_To_Threat @ 0x00645BB0` (table `0x00645BF8`): script action 0's
-/// quarry as a `Greatest_Threat` mask; 0 outside `2..=11`.
-pub(super) const fn quarry_mask(quarry: i32) -> u32 {
-    match quarry {
-        2 => 0x20,
-        3 => 0x40,
-        4 => 0x8,
-        5 => 0x10,
-        6 => 0x1000,
-        7 => 0x2000,
-        9 => 0x800,
-        10 => 0x8000,
-        11 => 0x10000,
-        _ => 0,
-    }
-}
-
-/// A member's ammunition (`+0x2FC`): an aircraft's count; other classes'
-/// is not tracked and reads as full (`Ammo=`, module residual).
+/// A member's shared live ammunition (`+0x2FC`). A component-only fixture
+/// without a concrete constructor retains its explicitly declared type prior.
 fn member_ammo(entity: &GameEntity, object: &crate::rules::object_type::ObjectType) -> i32 {
-    entity
-        .aircraft_ammo
-        .as_ref()
-        .map_or(object.ammo, |ammo| ammo.current())
+    entity.ammo().map_or(object.ammo, |ammo| ammo.current())
 }
 
 /// An object's Location (`+0x9C`) as the building finders read it.

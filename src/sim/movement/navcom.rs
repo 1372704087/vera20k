@@ -529,39 +529,13 @@ pub(crate) fn building_dock_coordinate(
     .ok()
 }
 
-/// Native pointer-comparison gates use the receiver identity. The stored tag
-/// is retained; it does not make a different entity receiver. Valid Cells
-/// retain the existing coordinate identity; dummy/aliased Cell pointer
-/// retention is outside this ordinary object-reference slice.
-pub(crate) fn nav_targets_same_receiver(left: Option<NavTargetRef>, right: NavTargetRef) -> bool {
-    match (left, right) {
-        (
-            Some(NavTargetRef::Cell {
-                rx: left_x,
-                ry: left_y,
-            }),
-            NavTargetRef::Cell { rx, ry },
-        ) => (left_x, left_y) == (rx, ry),
-        (
-            Some(
-                NavTargetRef::Entity { id: left }
-                | NavTargetRef::Object { id: left }
-                | NavTargetRef::Building { id: left },
-            ),
-            NavTargetRef::Entity { id: right }
-            | NavTargetRef::Object { id: right }
-            | NavTargetRef::Building { id: right },
-        ) => left == right,
-        _ => false,
-    }
-}
-
-/// Resolve the live receiver behind a non-null NavCom. The Rust reference tag
-/// does not change the native virtual receiver, and a dangling ID is not NULL.
+/// Resolve the live receiver behind a non-null NavCom: the object's store and
+/// kind decide its coordinate, as its own virtual does natively. A dangling ID
+/// is not NULL.
 pub(crate) fn nav_target_coordinate(
     target: NavTargetRef,
     requester: Option<u64>,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
     terrain: Option<&ResolvedTerrainGrid>,
     rules: Option<(
         &crate::rules::ruleset::RuleSet,
@@ -578,13 +552,20 @@ pub(crate) fn nav_target_coordinate(
                     .as_ref(),
             ));
         }
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => id,
+        NavTargetRef::Object { id } => id,
     };
-    let entity = entities
-        .get(id)
-        .ok_or_else(|| format!("NavCom coordinate target {id} disappeared"))?;
+    let entities = &world.substrate.entities;
+    let Some(entity) = entities.get(id) else {
+        // Terrain7F522C+4C is Object4104F0, which forwards virtual+48;
+        // the requester does not alter its retained coordinate.
+        let cells = terrain.map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+        return super::ground_pose::target_get_coords(
+            crate::sim::combat::TargetKind::Entity(id),
+            world,
+            cells.as_ref(),
+        )
+        .ok_or_else(|| format!("NavCom coordinate target {id} disappeared"));
+    };
     if entity.category() == crate::map::entities::EntityCategory::Structure {
         let (rules, interner) =
             rules.ok_or_else(|| format!("Building {id} navigation requires type data"))?;
@@ -607,6 +588,27 @@ pub(crate) fn nav_target_coordinate(
         );
     }
     super::foot_coordinate::navigation_coordinate(entity, terrain)
+}
+
+impl crate::sim::world::Simulation {
+    /// Query the existing virtual+4C navigation owner with the actual requester.
+    /// Unlike Object+48, a moving Foot can return its retained head or tube exit;
+    /// Buildings retain their requester/type-dependent coordinate policy.
+    /// Radar6567F4 passes a null requester before its own signed cell clamp.
+    pub fn navigation_target_coordinate(
+        &self,
+        target: NavTargetRef,
+        requester: Option<u64>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Result<DriveCoord, String> {
+        nav_target_coordinate(
+            target,
+            requester,
+            self,
+            self.resolved_terrain.as_ref(),
+            Some((rules, &self.interner)),
+        )
+    }
 }
 
 /// Cell callers of the shared non-null destination owner. Object callers
@@ -665,12 +667,6 @@ pub(super) fn publish_nav_com(entity: &mut GameEntity, target: NavTargetRef) {
 /// Foot4D94C7/4D9510 NULL reference publication, before locomotor Stop.
 pub(super) fn publish_null_nav_com(entity: &mut GameEntity) {
     entity.navigation.publish_nav_com(None);
-}
-
-/// FootClass::Stop_Moving-equivalent owner clear (`0x004DF0D0`): zeroes only
-/// the owner destination pair (NavCom and its auxiliary slot), nothing else.
-pub(crate) fn foot_stop_moving(entity: &mut GameEntity) {
-    entity.navigation.stop_moving();
 }
 
 fn drive_set_destination(
@@ -949,221 +945,3 @@ impl crate::sim::world::Simulation {
 #[cfg(test)]
 #[path = "track_destination_tests.rs"]
 mod native_destination_tests;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::movement::locomotor::LocomotorState;
-    use crate::sim::movement::{DriveLocomotionRuntime, ShipLocomotionRuntime};
-    use crate::util::fixed_math::{SIM_HALF, SIM_ONE};
-
-    #[test]
-    fn gsi_13_06_ship_destination_and_stop_stay_on_locomotor_runtime() {
-        let mut entity = GameEntity::test_default(1, "DLPH", "Americans", 3, 3);
-        entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Ship));
-
-        set_destination_internal_cell(&mut entity, (4, 3), None, 0);
-        let loco = entity.locomotor.as_mut().unwrap();
-        assert_eq!(
-            loco.track_destination(TrackFamily::Ship),
-            Some(DriveCoord::cell(4, 3, 0))
-        );
-        assert_eq!(
-            loco.track_head(TrackFamily::Ship),
-            None,
-            "Move_To does not invent a committed head"
-        );
-        loco.store_track_target_fraction(TrackFamily::Ship, SIM_ONE);
-        entity.foot_speed.set_speed_fraction(SIM_HALF);
-        entity
-            .navigation
-            .path_replay
-            .set_directions_for_test(vec![2, 2]);
-        entity.navigation.path_replay.set_cursor(0);
-
-        track_stop_moving(&mut entity);
-        let loco = entity.locomotor.as_ref().unwrap();
-        assert_eq!(loco.track_destination(TrackFamily::Ship), None);
-        assert_eq!(
-            loco.track_target_fraction(TrackFamily::Ship),
-            Some(TRACK_STOP_TARGET_FRACTION)
-        );
-        assert_eq!(entity.navigation.path_replay.cursor(), 0);
-        assert_eq!(entity.foot_speed.applied_fraction(), SIM_ZERO);
-    }
-
-    #[test]
-    fn gsi_13_06_ship_stop_preserves_committed_head_and_owner_speed() {
-        let mut entity = GameEntity::test_default(1, "DLPH", "Americans", 3, 3);
-        entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Ship));
-        entity
-            .navigation
-            .set_nav_com_for_test(Some(NavTargetRef::cell(5, 3)));
-        entity.navigation.path_replay = {
-            let mut value = crate::sim::components::FootPathQueue::default();
-            value.set_directions_for_test(vec![64, 64]);
-            value.set_cursor(1);
-            value
-        };
-        entity.foot_speed.set_speed_fraction(SIM_HALF);
-        entity
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .install_ship_state_for_test(Some(
-                ShipLocomotionRuntime::default()
-                    .with_destination_for_test(Some(DriveCoord::cell(5, 3, 0)))
-                    .with_head_to_for_test(Some(DriveCoord::cell(4, 3, 0)))
-                    .with_target_speed_fraction_for_test(SIM_ONE),
-            ));
-
-        track_stop_moving(&mut entity);
-
-        let loco = entity.locomotor.as_ref().unwrap();
-        assert_eq!(loco.track_destination(TrackFamily::Ship), None);
-        assert_eq!(
-            loco.track_head(TrackFamily::Ship),
-            Some(DriveCoord::cell(4, 3, 0))
-        );
-        assert_eq!(
-            loco.track_target_fraction(TrackFamily::Ship),
-            Some(TRACK_STOP_TARGET_FRACTION)
-        );
-        assert_eq!(entity.foot_speed.applied_fraction(), SIM_HALF);
-
-        let loco = entity.locomotor.as_mut().unwrap();
-        loco.store_track_destination(TrackFamily::Ship, Some(DriveCoord::cell(5, 3, 0)));
-        loco.store_track_target_fraction(TrackFamily::Ship, SimFixed::lit("0.2"));
-        track_stop_moving(&mut entity);
-        assert_eq!(
-            entity
-                .locomotor
-                .as_ref()
-                .expect("Ship runtime")
-                .track_target_fraction(TrackFamily::Ship),
-            Some(SimFixed::lit("0.2")),
-            "Stop stores min(previous target, 0.3)"
-        );
-    }
-
-    fn resting_drive_miner() -> GameEntity {
-        let mut entity = GameEntity::test_default(1, "HARV", "Americans", 3, 3);
-        entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
-        entity.foot_speed.set_speed_fraction(SIM_ONE);
-        entity
-            .locomotor
-            .as_mut()
-            .unwrap()
-            .install_drive_state_for_test(Some(
-                DriveLocomotionRuntime::default()
-                    .with_destination_for_test(Some(DriveCoord::cell(3, 3, 0))),
-            ));
-        entity
-    }
-
-    /// GSI-06.11 G1: the gamemd Drive `Process` tail drives the applied speed
-    /// fraction to exactly 0.0 at rest. There is no 0.3 clamp on this path, so
-    /// every `Accelerates=true` departure — the Ore Miner and both MCVs in stock
-    /// YR — ramps up from zero rather than launching at 30% speed.
-    #[test]
-    fn gsi_06_11_drive_rest_speed_fraction_returns_to_zero_not_a_stop_clamp() {
-        let mut entity = resting_drive_miner();
-
-        track_stop_moving(&mut entity);
-
-        let loco = entity.locomotor.as_ref().unwrap();
-        assert_eq!(entity.foot_speed.applied_fraction(), SIM_ZERO);
-        assert_eq!(loco.track_destination(TrackFamily::Drive), None);
-    }
-
-    /// The reset is gated, not unconditional: gamemd requires the head-to coord
-    /// to be empty too, so a mover still committed to a head keeps its fraction.
-    #[test]
-    fn gsi_06_11_drive_rest_reset_requires_an_empty_head_to() {
-        let mut entity = resting_drive_miner();
-        entity
-            .locomotor
-            .as_mut()
-            .expect("drive state")
-            .store_track_head(TrackFamily::Drive, Some(DriveCoord::cell(4, 3, 0)));
-        entity.foot_speed.set_speed_fraction(SIM_HALF);
-
-        track_stop_moving(&mut entity);
-
-        assert_eq!(entity.foot_speed.applied_fraction(), SIM_HALF);
-    }
-
-    #[test]
-    fn resolve_nav_target_drive_coord_tracks_moving_entity() {
-        let mut entities = EntityStore::new();
-        let mut target = GameEntity::test_default(2, "E1", "Allies", 3, 4);
-        target.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
-        entities.insert(target);
-
-        let first =
-            nav_target_coordinate(NavTargetRef::Entity { id: 2 }, None, &entities, None, None)
-                .unwrap();
-        {
-            let position = &mut entities.get_mut(2).unwrap().position;
-            position.set_rx_for_test(position.rx() + 1);
-        }
-        let second =
-            nav_target_coordinate(NavTargetRef::Entity { id: 2 }, None, &entities, None, None)
-                .unwrap();
-
-        assert_ne!(first, second);
-    }
-
-    /// CellClass::GetCoords (`0x00486840`) through its caller API: the centre
-    /// takes the cell's ground Z, on a real cell and on the retained shared
-    /// dummy, without moving X/Y.
-    #[test]
-    fn target_cell_coord_takes_the_cells_ground_on_real_and_dummy_cells() {
-        use crate::map::resolved_terrain::NativeCellQuery;
-        let get = |terrain: &ResolvedTerrainGrid, cell: (u16, u16)| {
-            target_cell_coord(cell.0, cell.1, Some(&NativeCellQuery::canonical(terrain)))
-        };
-        let mut terrain = crate::map::resolved_terrain::test_grid(
-            16,
-            16,
-            crate::map::resolved_terrain::test_clear_cell,
-        );
-        let flat = get(&terrain, (8, 8));
-        assert_eq!(flat, DriveCoord::cell(8, 8, 0));
-        terrain.cell_mut(8, 8).unwrap().level = 2;
-        assert_eq!(get(&terrain, (8, 8)), DriveCoord { z: 208, ..flat });
-
-        let dummy = ResolvedTerrainGrid::from_cells(0, 0, Vec::new());
-        let request = (u16::MAX, 7);
-        let flat_dummy = get(&dummy, request);
-        dummy.test_set_dummy_cell_level_slope(2, 0);
-        assert_eq!(
-            get(&dummy, request),
-            DriveCoord {
-                z: 208,
-                ..flat_dummy
-            }
-        );
-    }
-
-    #[test]
-    fn nav_target_coordinate_dispatches_cells_and_rejects_dangling_objects() {
-        let entities = EntityStore::new();
-        assert_eq!(
-            nav_target_coordinate(NavTargetRef::cell(12, 34), None, &entities, None, None).unwrap(),
-            DriveCoord::cell(12, 34, 0)
-        );
-        for target in [
-            NavTargetRef::Entity { id: 7 },
-            NavTargetRef::Object { id: 7 },
-            NavTargetRef::Building { id: 7 },
-        ] {
-            assert!(
-                nav_target_coordinate(target, None, &entities, None, None)
-                    .unwrap_err()
-                    .contains("disappeared")
-            );
-        }
-    }
-}

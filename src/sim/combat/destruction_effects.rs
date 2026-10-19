@@ -61,9 +61,10 @@
 //!   bare `RET`), 14 (`DestroyParticleSystems=` smoke; no stock user). Step 6
 //!   (BuildingDieSound) plays from the Techno death sounds; step 12 (the zero
 //!   death timer of `Explodes=`/Selling) is a `crew_survival` residual.
-//! - A vehicle's current ammo (Unit `+0x2FC`) is not tracked; the
-//!   `Death_Explosion` last-entry override reads a fresh unit's `Ammo=`. No
-//!   stock `Explodes=` vehicle has a finite `Ammo=`.
+//! - Ordinary ground weapon-fire ammo debits remain separate. The shared Ammo
+//!   owner retains constructor and chrono reinforcement writes, which the
+//!   `Death_Explosion` last-entry override reads. No stock `Explodes=` vehicle
+//!   has finite `Ammo=`.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::foundation::foundation_dimensions;
@@ -198,7 +199,7 @@ impl Simulation {
         rules: &RuleSet,
         type_id: InternedId,
         spawn: DeathAnimSpawn,
-    ) {
+    ) -> Option<crate::sim::anim_class::AnimId> {
         let (rx, ry, sub_x, sub_y, z) = spawn.coord.to_cell_sub_z();
         let descriptor = AnimClassSpawnDescriptor {
             delay: spawn.delay,
@@ -223,7 +224,7 @@ impl Simulation {
                     "death anim [{}] did not construct: {error}",
                     self.interner.resolve(type_id)
                 );
-                return;
+                return None;
             }
         };
         match spawn.follow_up {
@@ -239,6 +240,7 @@ impl Simulation {
                 self.anim_mark_cell_occupancy(anim);
             }
         }
+        Some(anim)
     }
 
     /// One Scenario `Next() % count` pick from a non-empty anim list.
@@ -336,7 +338,7 @@ impl Simulation {
             && self.resolved_terrain.as_ref().is_some_and(|terrain| {
                 terrain
                     .cell(entity.position.rx(), entity.position.ry())
-                    .is_some_and(|cell| cell.yr_cell_land_type == LandType::Water.as_index())
+                    .is_some_and(|cell| cell.land_type() == LandType::Water.as_index())
             })
             && entity.teleport_state().is_none()
     }
@@ -373,7 +375,8 @@ impl Simulation {
                 object,
                 Ability::Explodes,
             );
-        let armed = object.ammo == -1 || object.ammo > 0;
+        let armed =
+            object.ammo == -1 || entity.ammo().map_or(object.ammo, |ammo| ammo.current()) > 0;
         if !object.explosion_anims.is_empty() {
             let picked = self.pick_death_anim(&object.explosion_anims);
             let anim = if explodes && armed {

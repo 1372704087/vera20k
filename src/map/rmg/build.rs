@@ -2,17 +2,20 @@
 //! runs the generator end-to-end into a populated `MapFile`.
 //!
 //! This is the layer between `run_pipeline` (which takes already-resolved
-//! inputs) and the app: it resolves `TileIds`, the cliff ranges, the wheel-
-//! impassable land table (from rules), and a per-tile `Morphable=` table, then
-//! drives the pipeline and projects the grid through `emit::populate`. Theater
-//! resolution is snapshotted into `ResolvedTheaterInputs` so the run itself
-//! never borrows `TheaterData` — which keeps `generate_map` unit-testable with a
-//! hand-built resolution and a synthetic `TileBlocks`.
+//! inputs) and the app: it resolves `TileIds` (with the theater's cliff
+//! ranges), the wheel-impassable land table (from rules), and a per-tile
+//! `Morphable=` table, then drives the pipeline and projects the grid through
+//! `emit::populate`. Theater resolution is snapshotted into
+//! `ResolvedTheaterInputs` so the run itself never borrows `TheaterData` — which
+//! keeps `generate_map` unit-testable with a hand-built resolution and a
+//! synthetic `TileBlocks`.
 
-use crate::map::theater::{TheaterCliffRanges, TheaterData};
+use crate::map::theater::TheaterData;
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::terrain_rules::TerrainRules;
 
+#[cfg(any(test, feature = "test-support"))]
+use super::executed_stages;
 use super::phases::shore::TileBlocks;
 use super::phases::tech_buildings::TechType;
 use super::pipeline::{self, LAND_TYPES, PipelineInputs};
@@ -20,42 +23,22 @@ use super::rng::{RANGE_K_BITS, RmgRng};
 use super::scratch::RmgScratch;
 use super::tiles::TileIds;
 use super::x87::{Gaussian, TruncF64};
-use super::{
-    GeneratedMap, MapGeometry, RmgOptions, RmgSettings, Stage, emit, executed_stages, grid,
-};
-use crate::map::retail_trig::TrigTable;
-
-/// Land type → rules section, the RA2 `LandType` enum order (verified against
-/// the zone classifier's `LAND_WATER == 2` / `LAND_BEACH == 6`).
-const LAND_TYPE_SECTIONS: [Option<&str>; LAND_TYPES] = [
-    Some("Clear"),    // 0
-    Some("Road"),     // 1
-    Some("Water"),    // 2
-    Some("Rock"),     // 3
-    Some("Wall"),     // 4
-    Some("Tiberium"), // 5
-    Some("Beach"),    // 6
-    Some("Rough"),    // 7
-    Some("Ice"),      // 8
-    Some("Railroad"), // 9
-    Some("Tunnel"),   // 10
-    Some("Weeds"),    // 11
-    None,             // 12
-    None,             // 13
-    None,             // 14
-    None,             // 15
-];
+use super::{GeneratedMap, MapGeometry, RmgOptions, RmgSettings, Stage, emit, grid};
+use crate::util::retail_trig::TrigTable;
 
 /// Wheel speed at or below this percent classifies the land as wheel-impassable.
 const WHEEL_IMPASSABLE_MAX: u8 = 1;
 
 /// Per-land-type "Wheel speed <= 1%" flags for the zone classifier, read from
-/// the terrain rules. Stock rules make only Rock wheel-impassable.
+/// the terrain rules' rows in `LandType` order (the classifier's
+/// `LAND_WATER == 2` / `LAND_BEACH == 6`); indices past the twelve land types
+/// stay false.
 pub fn wheel_impassable_from_rules(rules: &TerrainRules) -> [bool; LAND_TYPES] {
     std::array::from_fn(|land| {
-        LAND_TYPE_SECTIONS[land]
-            .and_then(|name| rules.semantics_by_name(name))
-            .and_then(|sem| sem.cost_for_speed_type(SpeedType::Wheel))
+        u8::try_from(land)
+            .ok()
+            .and_then(|land| rules.semantics_for_land_type(land))
+            .and_then(|row| row.cost_for_speed_type(SpeedType::Wheel))
             .is_some_and(|wheel| wheel <= WHEEL_IMPASSABLE_MAX)
     })
 }
@@ -64,8 +47,8 @@ pub fn wheel_impassable_from_rules(rules: &TerrainRules) -> [bool; LAND_TYPES] {
 /// `TheaterData`: theater and rules, plus the river's sine table.
 #[derive(Debug, Clone)]
 pub struct ResolvedTheaterInputs {
+    /// Resolved tile ids, including the theater's cliff/waterfall ranges.
     pub ids: TileIds,
-    pub cliff: TheaterCliffRanges,
     pub wheel_impassable: [bool; LAND_TYPES],
     /// Per-tile `Morphable=` flag, indexed by flat tile id.
     pub morphable: Vec<bool>,
@@ -82,7 +65,6 @@ impl ResolvedTheaterInputs {
             .collect();
         Self {
             ids: TileIds::resolve(theater),
-            cliff: theater.cliff_ranges,
             wheel_impassable: wheel_impassable_from_rules(rules),
             morphable,
             trig: Some(TrigTable::embedded()),
@@ -210,7 +192,6 @@ pub fn generate_map_observed(
     let inputs = PipelineInputs {
         ids: &resolved.ids,
         blocks,
-        cliff: &resolved.cliff,
         morphable: &morphable,
         wheel_impassable: resolved.wheel_impassable,
         tech_types,
@@ -275,6 +256,7 @@ pub fn generate_map_observed(
         mapgen_continuation: Some(rng.into_continuation()),
         construction_trace: output.construction_trace,
         start_waypoints: output.waypoints,
+        #[cfg(any(test, feature = "test-support"))]
         stages_run: executed_stages(&options),
         unfilled_start_slots: output.unfilled_start_slots,
     }
@@ -286,34 +268,9 @@ mod tests {
     use crate::map::rmg::RmgConstructionOutcome;
     use crate::map::rmg::STAGE_ORDER;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
     use crate::rules::ini_parser::IniFile;
     use crate::rules::terrain_rules::LandType;
-
-    #[test]
-    fn gsi_04_04_rmg_land_sections_follow_canonical_order() {
-        assert_eq!(
-            LAND_TYPE_SECTIONS,
-            [
-                Some("Clear"),
-                Some("Road"),
-                Some("Water"),
-                Some("Rock"),
-                Some("Wall"),
-                Some("Tiberium"),
-                Some("Beach"),
-                Some("Rough"),
-                Some("Ice"),
-                Some("Railroad"),
-                Some("Tunnel"),
-                Some("Weeds"),
-                None,
-                None,
-                None,
-                None,
-            ],
-        );
-    }
 
     struct OneByOne(TileBlock);
     impl TileBlocks for OneByOne {
@@ -335,6 +292,7 @@ mod tests {
             clear: 0,
             ramp_base: 600,
             ramp_smooth: 620,
+            slope_set_pieces: -1,
             rough: 700,
             sand: 800,
             green: 100,
@@ -350,7 +308,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -358,7 +316,6 @@ mod tests {
         ResolvedTheaterInputs {
             trig: None,
             ids: ids(),
-            cliff: TheaterCliffRanges::default(),
             wheel_impassable: {
                 let mut w = [false; LAND_TYPES];
                 w[3] = true; // Rock, as in stock rules
@@ -388,11 +345,20 @@ mod tests {
     }
 
     #[test]
-    fn missing_wheel_key_is_passable() {
-        let rules = TerrainRules::from_ini(&IniFile::from_str(""));
+    fn missing_wheel_key_is_passable_but_missing_section_is_not() {
+        // An authored section reads an absent Wheel as 1.0; an unauthored one
+        // keeps the zero row (`0x0089EA40`), which is wheel-impassable.
+        let rules = TerrainRules::from_ini(&IniFile::from_str("[Clear]\nBuildable=yes\n"));
         let wheel = wheel_impassable_from_rules(&rules);
-        // No section defines Wheel → nothing is wheel-impassable.
-        assert!(wheel.iter().all(|&blocked| !blocked));
+        for land in LandType::ALL {
+            assert_eq!(
+                wheel[land.as_index() as usize],
+                land != LandType::Clear,
+                "{}",
+                land.section_name()
+            );
+        }
+        assert!(wheel[LandType::ALL.len()..].iter().all(|&blocked| !blocked));
     }
 
     fn options(map_type: i32, theater: i32) -> RmgOptions {
@@ -408,12 +374,26 @@ mod tests {
         }
     }
 
+    /// [`generate_map`] of `options(map_type, theater)`, run once per test
+    /// process: several tests read the same map.
+    fn shared_run(map_type: i32, theater: i32) -> std::sync::Arc<GeneratedMap> {
+        crate::test_fixture::once_per_process(("generated map", map_type, theater), || {
+            let options = options(map_type, theater);
+            let generated = generate_map(
+                &options,
+                &RmgSettings::default(),
+                &resolved(),
+                &one_by_one(),
+                &[],
+            );
+            Some(std::sync::Arc::new(generated))
+        })
+        .expect("generated map")
+    }
+
     #[test]
     fn generate_map_produces_a_populated_map() {
-        let resolved = resolved();
-        let blocks = one_by_one();
-        let settings = RmgSettings::default();
-        let generated = generate_map(&options(1, 0), &settings, &resolved, &blocks, &[]);
+        let generated = shared_run(1, 0);
         // Every in-band cell is projected, and the terrain is shaped (not all
         // no-tile). The header carries the generated dimensions.
         assert!(!generated.map_file.cells.is_empty(), "cells were emitted");
@@ -512,9 +492,9 @@ mod tests {
         (tiles, overlays, generated.start_waypoints.clone())
     }
 
-    fn observe_run(
-        options: &RmgOptions,
-    ) -> (GeneratedMap, Vec<GenerationPoint>, Vec<GenerationSnapshot>) {
+    type ObservedRun = (GeneratedMap, Vec<GenerationPoint>, Vec<GenerationSnapshot>);
+
+    fn observe_run(options: &RmgOptions) -> ObservedRun {
         let resolved = resolved();
         let blocks = one_by_one();
         let settings = RmgSettings::default();
@@ -528,18 +508,27 @@ mod tests {
         (generated, points, snapshots)
     }
 
+    /// [`observe_run`] of `options(map_type, theater)`, run once per test
+    /// process: several tests read the same observed run.
+    fn shared_observed_run(map_type: i32, theater: i32) -> std::sync::Arc<ObservedRun> {
+        crate::test_fixture::once_per_process(("observed run", map_type, theater), || {
+            Some(std::sync::Arc::new(observe_run(&options(
+                map_type, theater,
+            ))))
+        })
+        .expect("observed run")
+    }
+
     #[test]
     fn observing_a_run_does_not_change_what_it_generates() {
-        let resolved = resolved();
-        let blocks = one_by_one();
-        let settings = RmgSettings::default();
-        let plain = generate_map(&options(1, 0), &settings, &resolved, &blocks, &[]);
+        let plain = shared_run(1, 0);
         // The observer does real work at every boundary — it projects the whole
         // grid — so this covers the projection as well as the callback.
-        let (observed, _, _) = observe_run(&options(1, 0));
+        let observed = shared_observed_run(1, 0);
+        let (observed, _, _) = &*observed;
 
         assert_eq!(plain.stages_run, observed.stages_run);
-        assert_eq!(projection(&plain), projection(&observed));
+        assert_eq!(projection(&plain), projection(observed));
     }
 
     #[test]
@@ -555,8 +544,9 @@ mod tests {
                     .map(|stage| GenerationPoint::After(*stage)),
             )
             .collect();
-        let (_, points, _) = observe_run(&options(1, 0));
-        assert_eq!(points, expected);
+        let run = shared_observed_run(1, 0);
+        let (_, points, _) = &*run;
+        assert_eq!(*points, expected);
     }
 
     #[test]
@@ -573,9 +563,10 @@ mod tests {
         // The preview's cell-admission test reads the header, so a snapshot
         // whose header differed would rasterise to a different pixel size and
         // the preview box would jump about while generating.
-        let (generated, _, snapshots) = observe_run(&options(1, 0));
+        let run = shared_observed_run(1, 0);
+        let (generated, _, snapshots) = &*run;
         let final_header = &generated.map_file.header;
-        for snapshot in &snapshots {
+        for snapshot in snapshots {
             let header = &snapshot.map_file.header;
             assert_eq!(
                 (
@@ -604,14 +595,15 @@ mod tests {
 
     #[test]
     fn start_positions_appear_from_the_starts_boundary_onwards() {
-        let (generated, points, snapshots) = observe_run(&options(1, 0));
+        let run = shared_observed_run(1, 0);
+        let (generated, points, snapshots) = &*run;
         assert!(
             !generated.start_waypoints.is_empty(),
             "the run placed starts"
         );
         let first_with_starts = points
             .iter()
-            .zip(&snapshots)
+            .zip(snapshots)
             .position(|(_, snapshot)| !snapshot.start_waypoints.is_empty())
             .expect("some snapshot carries the starts");
         assert_eq!(
@@ -970,6 +962,5 @@ mod send_check {
         assert_send::<crate::map::rmg::GeneratedMap>();
         // The worker publishes these as it goes.
         assert_send::<super::GenerationSnapshot>();
-        assert_send::<crate::map::rmg::preview::PreviewPalette>();
     }
 }

@@ -114,7 +114,16 @@ fn retail_gi_group_boards_a_4x4_garrison_from_its_far_side() {
         Some(rules),
     );
     assert_eq!(
-        capability_cursor_for_hover(&runtime.simulation, &gis, best, &hover, Some(rules), None),
+        capability_cursor_for_hover(
+            &runtime.simulation,
+            &gis,
+            best,
+            &hover,
+            Some(rules),
+            None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
+        ),
         CursorFeedbackKind::Enter
     );
     let orders = transport_entry_orders(&runtime.simulation, rules, &gis, castle);
@@ -234,7 +243,7 @@ fn retail_capture_walk_rechecks_admission_and_respects_a_replacement_order() {
         assert!(actor.passenger_role.is_none());
         assert_eq!(
             actor.navigation.nav_com(),
-            Some(crate::sim::components::NavTargetRef::Building { id: castle })
+            Some(crate::sim::components::NavTargetRef::Object { id: castle })
         );
 
         let expected_cargo = match control {

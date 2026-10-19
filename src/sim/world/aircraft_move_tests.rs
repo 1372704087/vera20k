@@ -102,11 +102,8 @@ fn fly_and_jumpjet_planned_move_legs_progress_through_native_arrival() {
     }
 }
 
-fn vectors() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_move.json",
-    ))
-    .unwrap()
+fn vectors() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_move.json")
 }
 
 fn cell_of(value: &Value) -> (u16, u16) {
@@ -291,7 +288,7 @@ fn raw_words(draws: &[Value]) -> Value {
 fn param(input: &Value) -> Option<NavTargetRef> {
     match &input["param"] {
         Value::Null => None,
-        Value::String(name) if name == "blocker" => Some(NavTargetRef::Entity { id: BLOCKER }),
+        Value::String(name) if name == "blocker" => Some(NavTargetRef::Object { id: BLOCKER }),
         cell => {
             let (rx, ry) = cell_of(cell);
             Some(NavTargetRef::cell(rx, ry))
@@ -303,7 +300,7 @@ fn name(target: Option<NavTargetRef>) -> Value {
     match target {
         None => Value::Null,
         Some(NavTargetRef::Cell { rx, ry }) => json!(["cell", rx, ry]),
-        Some(NavTargetRef::Entity { id: BLOCKER }) => json!("blocker"),
+        Some(NavTargetRef::Object { id: BLOCKER }) => json!("blocker"),
         Some(other) => panic!("unexpected destination {other:?}"),
     }
 }
@@ -381,7 +378,7 @@ impl move_mission::MoveHost for RowHost<'_> {
         let coord = nav_target_coordinate(
             nav.unwrap(),
             Some(OWNER),
-            &self.sim.substrate.entities,
+            self.sim,
             self.sim.resolved_terrain.as_ref(),
             Some((self.rules, &self.sim.interner)),
         )
@@ -658,10 +655,9 @@ fn an_attack_commenced_over_mission_move_starts_at_state_zero() {
 /// retail aircraft type sets the key, so every one runs `0x004166E0`.
 #[test]
 fn retail_aircraft_types_are_not_carryalls() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert!(!rules.aircraft_ids.is_empty());
     for name in &rules.aircraft_ids {
         assert!(!rules.object(name).unwrap().carryall, "{name}");

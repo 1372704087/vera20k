@@ -1,8 +1,9 @@
 //! `TechnoClass::Scatter` (vtable `+0x174`): the one dispatcher over the
-//! class receivers ([`Simulation::scatter`]), the Unit receiver, and two
+//! class receivers ([`Simulation::scatter`]), the Unit receiver, and three
 //! callers' gates: the cell dispatcher `CellClass::Scatter_Objects @
-//! 0x00481670` and `TechnoClass::ReceiveDamage`'s scatter tail
-//! (`0x00702B47..0x00702D0B`).
+//! 0x00481670`, `TechnoClass::ReceiveDamage`'s scatter tail
+//! (`0x00702B47..0x00702D0B`) and `FootClass::AI`'s idle scatter
+//! (`0x004DADF5..0x004DAE59`).
 //!
 //! Receivers:
 //! - Unit `0x00743A50`: [`Simulation::unit_scatter_null`] and
@@ -26,9 +27,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::veterancy::RANK_ELITE_U16;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::entity_store::EntityStore;
-use crate::sim::find_nearby_cell::{
-    NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
-};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::{InternedId, StringInterner};
@@ -334,6 +333,56 @@ impl Simulation {
         )
     }
 
+    /// `FootClass::AI`'s idle scatter (`0x004DADF5..0x004DAE59`), after the
+    /// move sound and before the piggyback end: on every frame whose low six
+    /// bits are all set, a Foot with no NavCom (`+0x5A4`), off a bridge
+    /// (`+0x8C`), on a flat cell (GetCell `0x005F6960`, slope `+0x11C`),
+    /// whose terrain projection names another cell (vt+0x2B0 `0x0070C620`)
+    /// and with GetHeight (`0x005F5F40`) zero takes `Scatter(null, true,
+    /// false)`. A unit left at the foot of a cliff, drawn over the higher
+    /// cell, moves off. Answers whether an Infantry receiver's immediate
+    /// Process changed bridge state.
+    pub(crate) fn foot_idle_scatter(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) -> Result<bool, String> {
+        if self.session.binary_frame & 0x3F != 0x3F {
+            return Ok(false);
+        }
+        let (Some(entity), Some(terrain)) = (
+            self.substrate.entities.get(id),
+            self.resolved_terrain.as_ref(),
+        ) else {
+            return Ok(false);
+        };
+        if !entity.category().is_foot()
+            || entity.navigation.nav_com().is_some()
+            || entity.on_bridge()
+        {
+            return Ok(false);
+        }
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        let location = super::ground_pose::position_world_coord(&entity.position);
+        let cell = super::ground_pose::query_object_cell(&cells, location);
+        if cells.ground_fields(cell).1 != 0
+            || !super::ground_pose::terrain_projection_differs(&cells, [location.x, location.y])
+            || super::air_movement::current_fly_height(entity, Some(terrain)) != 0
+        {
+            return Ok(false);
+        }
+        self.scatter(
+            id,
+            None,
+            ScatterFlags::new(true, false),
+            rules,
+            registry,
+            frame_effects,
+        )
+    }
+
     /// `TechnoClass::Scatter(coord, forced, no_kidding)` (vtable `+0x174`):
     /// `source` is the coordinate to scatter away from; `None`, like the
     /// all-zero coordinate the receivers test for, takes the null arms.
@@ -465,7 +514,7 @@ impl Simulation {
         {
             return Ok(());
         }
-        if crate::sim::combat::target_present(unit.attack_target.target(), &self.substrate.entities)
+        if crate::sim::combat::target_present(unit.attack_target.target(), self)
             && !flags.forced
             && self.scenario_rng.next_range_u32_inclusive(1, 4) != 1
         {
@@ -512,38 +561,20 @@ impl Simulation {
             i32::from((seed.x / 256) as i16),
             i32::from((seed.y / 256) as i16),
         );
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
-        let grid = self.path_grid_snapshot();
-        find_nearby_passable_cell(
+        self.nearby_passable_cell(
             seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type: object.speed_type,
-                    required_zone_id: None,
-                    movement_zone: MovementZone::Normal,
-                    bridge_aware_zone: on_bridge,
-                },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
+            NearbyArgs {
                 check_height: true,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: self.resolved_terrain.as_ref(),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
+                ..NearbyArgs::plain(
+                    PassabilityArgs {
+                        speed_type: object.speed_type,
+                        required_zone_id: None,
+                        movement_zone: MovementZone::Normal,
+                        bridge_aware_zone: on_bridge,
+                    },
+                    NearbyFootprint::SINGLE,
+                )
             },
-            self.session.binary_frame,
         )
     }
 
@@ -605,9 +636,8 @@ impl Simulation {
             .resolved_terrain
             .as_ref()
             .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-        let Some(cell) =
-            super::ground_pose::target_get_coords(target, &self.substrate.entities, cells.as_ref())
-                .and_then(|coord| self.map_coord_cell(coord.x, coord.y))
+        let Some(cell) = super::ground_pose::target_get_coords(target, self, cells.as_ref())
+            .and_then(|coord| self.map_coord_cell(coord.x, coord.y))
         else {
             return Ok(false);
         };

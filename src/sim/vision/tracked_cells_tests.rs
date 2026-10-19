@@ -29,11 +29,17 @@ fn reveal_between_frames(
             .find(|entity| entity.owner() == firer_owner)
             .map(|entity| crate::sim::movement::ground_pose::position_world_coord(&entity.position))
     {
-        super::reveal_shroud_on_fire(&mut sim.fog, viewer, coord, &config, heights.levels());
+        super::reveal_shroud_on_fire(
+            &mut sim.fog,
+            viewer,
+            coord,
+            &config,
+            heights.cell_levels(sim.resolved_terrain.as_ref()),
+        );
     }
     if frame % 60 == 0 {
         for final_pass in [false, true] {
-            sim.reveal_area(
+            let _ = sim.reveal_area(
                 &[viewer],
                 (28, 28),
                 0,
@@ -42,6 +48,8 @@ fn reveal_between_frames(
                 final_pass,
                 &config,
                 UninitContext::default(),
+                crate::sim::vision::MapRevealProjection::Transient,
+                sim.session.current_house,
             );
         }
     }

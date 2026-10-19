@@ -3,7 +3,7 @@
 //! Extracted from movement.rs to keep that file under 600 lines. Contains:
 //! - `CellOccupancy` — tracks what entities occupy each cell (vehicles vs infantry sub-cells)
 //! - `OccupancyGrid` — persistent per-cell occupancy (see sim/occupancy.rs)
-//! - Sub-cell allocation for infantry (spots 2, 3, 4 — max 3 per cell)
+//! - Infantry spot placement (`CellClass::PlaceInfantryInCell @ 0x00481180`)
 //! - Crush checks: Crusher/CrusherAll movement zones vs crushable/omni_crush_resistant
 //! - Scatter: issue movement commands to displace friendly blockers (replaces old teleport "bump")
 //!
@@ -20,48 +20,15 @@ use crate::sim::components::DriveCoord;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::occupancy::{CellOccupancy, OccupancyGrid};
+use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::rng::SimRng;
-use crate::util::fixed_math::SimFixed;
 
 /// Functional infantry sub-cell positions. The original engine uses sub-cells
 /// 2 (NE), 3 (SW), 4 (SE) — three corners of the isometric diamond. Sub-cells
 /// 0 (center) and 1 (NW) are never assigned to infantry by the placement function
 /// (FUN_00481180 explicitly skips them: `if (uVar11 != 0 && uVar11 != 1)`).
+#[cfg(test)]
 pub const FUNCTIONAL_SUB_CELLS: [u8; 3] = [2, 3, 4];
-
-/// Maximum infantry that can share one cell (one per functional sub-cell spot).
-pub const MAX_INFANTRY_PER_CELL: usize = 3;
-
-/// Determine which sub-cell quadrant a lepton position falls in.
-///
-/// Returns: 0 (center/NW), 2 (NE), 3 (SW), 4 (SE). Never returns 1.
-fn get_subcell_quadrant(sub_x: SimFixed, sub_y: SimFixed) -> u8 {
-    cell_kernel::infantry_preferred_spot(CellQueryPoint {
-        x: sub_x.to_num::<i32>(),
-        y: sub_y.to_num::<i32>(),
-    })
-}
-
-#[cfg(any(test, feature = "test-support"))]
-pub(crate) fn build_blocker_neighbor_counts(
-    entities: &EntityStore,
-    width: u16,
-    height: u16,
-    resolved_terrain: Option<&ResolvedTerrainGrid>,
-    interner: &crate::sim::intern::StringInterner,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-) -> BlockerNeighborCounts {
-    build_blocker_neighbor_counts_with_overlays(
-        entities,
-        width,
-        height,
-        resolved_terrain,
-        None,
-        interner,
-        rules,
-    )
-}
 
 pub(crate) fn build_blocker_neighbor_counts_with_overlays(
     entities: &EntityStore,
@@ -166,8 +133,9 @@ pub(crate) fn blocker_plane_source(
     if retained_foot && entity.category() != EntityCategory::Structure {
         return None;
     }
-    // Dying corpses are off the occupancy grid: don't let them inflate the
-    // A* dynamic-blocker neighbor costs.
+    // An object on the SHP death sequence adds nothing. An infantry corpse
+    // stays Marked (`+0x74`) until its UnInit's Limbo, as the retained Foot
+    // counters follow Mark and Limbo, and keeps blocking.
     if entity.death.is_dying() || !entity.lifecycle.cell_marked() {
         return None;
     }
@@ -188,89 +156,11 @@ pub(crate) fn blocker_plane_source(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Sub-cell allocation
-// ---------------------------------------------------------------------------
-
-/// Find the first available sub-cell in a cell. Returns `None` if the cell is
-/// full (3 infantry) or contains a vehicle/structure.
-pub fn allocate_sub_cell(occ: Option<&CellOccupancy>, layer: MovementLayer) -> Option<u8> {
-    let Some(o) = occ else {
-        // Empty cell — first infantry gets sub-cell 2 (NE corner).
-        return Some(FUNCTIONAL_SUB_CELLS[0]);
-    };
-    // Vehicle/structure in cell blocks all sub-cells.
-    if o.has_blockers_on(layer) {
-        return None;
-    }
-    let infantry: Vec<(u64, u8)> = o.infantry(layer).collect();
-    if infantry.len() >= MAX_INFANTRY_PER_CELL {
-        return None;
-    }
-    // Find first sub-cell not already occupied.
-    FUNCTIONAL_SUB_CELLS
-        .iter()
-        .copied()
-        .find(|&spot| !infantry.iter().any(|&(_, s)| s == spot))
-}
-
-/// Can infantry enter this cell? True if there's an available sub-cell and no
-/// vehicles/structures blocking.
-pub fn cell_passable_for_infantry(occ: Option<&CellOccupancy>, layer: MovementLayer) -> bool {
-    allocate_sub_cell(occ, layer).is_some()
-}
-
-/// `CellClass::PlaceInfantryInCell @ 0x00481180` with priority 0: the infantry
-/// spot for a request at `(sub_x, sub_y)` inside cell `(rx, ry)` on `layer`,
-/// read from the cell's native occupation bytes.
-///
-/// The selected byte (deck on a bridge, else ground) refuses the whole cell on
-/// its vehicle bit (`0x0048126B..0x0048128A`); the ground byte's object bit
-/// refuses either plane (`0x00481298`) unless the 0x40 occupier is a passable
-/// Gate (`Gate=`, `+0x16B7`, `0x004525F0`).
-///
-/// RESIDUAL: the slave, crew, drop and unload cell-coordinate callers lack the
-/// live Gate context and still supply `false`. A ground object bit
-/// belonging to an open Gate therefore refuses before RNG where native may
-/// admit; their native comparisons do not cover that exception. Callers with
-/// the context use the native-cell owner.
-/// The building bit (0x80) is not read, so
-/// a dying building's own cells admit its crew. Those refusals return before
-/// any draw. A request within 60 leptons of the centre, or in the north-west
-/// quadrant (preference 0, `0x004811F5..0x00481212`), then draws its
-/// `RandomRanged(0, 3)` row rotation on the Scenario stream before scanning,
-/// even when every spot is taken; a NE, SW or SE request prefers its own spot
-/// and draws nothing.
-pub(crate) fn place_infantry_in_cell(
-    raw: &crate::sim::occupancy::RawCellOccupationGrid,
-    rx: u16,
-    ry: u16,
-    layer: MovementLayer,
-    sub_x: SimFixed,
-    sub_y: SimFixed,
-    rng: &mut SimRng,
-) -> Option<u8> {
-    place_infantry_in_native_cell(
-        raw,
-        crate::sim::occupancy::RawCellKey::Real(rx, ry),
-        layer,
-        DriveCoord {
-            x: (i32::from(rx) << 8).wrapping_add(sub_x.to_num::<i32>()),
-            y: (i32::from(ry) << 8).wrapping_add(sub_y.to_num::<i32>()),
-            z: 0,
-        },
-        false,
-        false,
-        rng,
-    )
-}
-
-/// The ground Gate input to `CellClass::PlaceInfantryInCell @ 0x00481180`:
-/// `0x00481298..0x00481313` reads the first ground building (`0x0047C4D0`),
-/// `Gate=` and its canonical `BuildingClass::IsOpenGate @ 0x004525F0` answer.
-/// The caller keeps the priority, selected-plane vehicle and ground-object
-/// gates before this live read; no occupation byte or RNG is changed here.
-pub(crate) fn ground_gate_is_open(
+/// The live ground Gate of `CellClass::PlaceInfantryInCell @ 0x00481180`
+/// (`0x00481298..0x00481313`): the cell's first ground building
+/// (`0x0047C4D0`), `Gate=` and its canonical `BuildingClass::IsOpenGate
+/// @ 0x004525F0` answer. No occupation byte or RNG is changed here.
+fn ground_gate_is_open(
     occupancy: &OccupancyGrid,
     entities: &EntityStore,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -288,36 +178,62 @@ pub(crate) fn ground_gate_is_open(
         })
 }
 
-/// [`ground_gate_is_open`] where `PlaceInfantryInCell` reaches it
-/// (`0x00481298..0x00481313`): only for a cell whose selected plane holds no
-/// vehicle (`0x20`) and whose ground holds an object (`0x40`). The shared
-/// off-map cell holds no Gate.
-pub(crate) fn native_ground_gate_open(
-    raw: &crate::sim::occupancy::RawCellOccupationGrid,
-    occupancy: &OccupancyGrid,
-    entities: &EntityStore,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-    interner: &crate::sim::intern::StringInterner,
-    key: crate::sim::occupancy::RawCellKey,
-    layer: MovementLayer,
-) -> bool {
-    let ground = raw.bits_at(key, MovementLayer::Ground);
-    raw.bits_at(key, layer) & cell_kernel::INFANTRY_OCCUPATION_VEHICLE_BIT == 0
-        && ground & cell_kernel::INFANTRY_OCCUPATION_OBJECT_BIT != 0
-        && match key {
-            crate::sim::occupancy::RawCellKey::Real(x, y) => {
-                ground_gate_is_open(occupancy, entities, rules, interner, (x, y))
-            }
-            crate::sim::occupancy::RawCellKey::Dummy => false,
+/// Where [`place_infantry_in_native_cell`] reads its ground Gate. Production
+/// can only name the live map, so no caller supplies the answer itself.
+#[derive(Clone, Copy)]
+pub(crate) enum GroundGate<'a> {
+    /// [`ground_gate_is_open`] on the live map.
+    Live {
+        occupancy: &'a OccupancyGrid,
+        entities: &'a EntityStore,
+        rules: Option<&'a crate::rules::ruleset::RuleSet>,
+        interner: &'a crate::sim::intern::StringInterner,
+    },
+    /// The answer an original-executable replay recorded.
+    #[cfg(test)]
+    Recorded(bool),
+}
+
+impl GroundGate<'_> {
+    /// Whether `cell`'s ground Gate is open. The shared off-map cell holds no
+    /// Gate.
+    fn is_open(self, cell: crate::sim::occupancy::RawCellKey) -> bool {
+        match self {
+            Self::Live {
+                occupancy,
+                entities,
+                rules,
+                interner,
+            } => match cell {
+                crate::sim::occupancy::RawCellKey::Real(x, y) => {
+                    ground_gate_is_open(occupancy, entities, rules, interner, (x, y))
+                }
+                crate::sim::occupancy::RawCellKey::Dummy => false,
+            },
+            #[cfg(test)]
+            Self::Recorded(open) => open,
         }
+    }
 }
 
 /// `CellClass::PlaceInfantryInCell @ 0x00481180` selection on the CellClass
 /// a Map lookup returned, including the shared off-map cell. The caller owns
-/// the input XYZ, selected plane and the ground Gate's passability. Preference
-/// reads incoming XY low bytes; priority skips raw blockers and RNG. Ordinary
-/// placement checks selected-plane vehicles and ground objects before the
-/// centre-row Scenario draw, including when the selected plane is full.
+/// the input XYZ and the selected plane. Preference reads incoming XY low
+/// bytes; priority skips raw blockers and RNG.
+///
+/// Ordinary placement refuses the whole cell on the selected byte's vehicle
+/// bit (`0x0048126B..0x0048128A`) and on the ground byte's object bit, on
+/// either plane (`0x00481298`), unless the cell's first ground building is an
+/// open Gate (`0x00481298..0x00481313`, read through `gate` only then). The
+/// object bit comes from `ObjectClass::Mark_Put @ 0x005F60A0` (a landed
+/// aircraft, for example), never from the Gate, whose cells carry the
+/// building bit (0x80). That bit is not read, so a dying building's own cells
+/// admit its crew. Those refusals return
+/// before any draw. A request within 60 leptons of the centre, or in the
+/// north-west quadrant (preference 0, `0x004811F5..0x00481212`), then draws
+/// its `RandomRanged(0, 3)` row rotation on the Scenario stream before
+/// scanning, even when every spot is taken; a NE, SW or SE request prefers
+/// its own spot and draws nothing.
 ///
 /// `walk_head_occupation` compares all 176 original selection controls. Packed
 /// output XYZ remains with `walk_head::selected_head`; its caller samples ground
@@ -328,7 +244,7 @@ pub(crate) fn place_infantry_in_native_cell(
     layer: MovementLayer,
     input: DriveCoord,
     priority: bool,
-    ground_gate_open: bool,
+    gate: GroundGate<'_>,
     rng: &mut SimRng,
 ) -> Option<u8> {
     let preferred = cell_kernel::infantry_preferred_spot(CellQueryPoint {
@@ -346,11 +262,70 @@ pub(crate) fn place_infantry_in_native_cell(
     };
     let refusal_bits = (mask & cell_kernel::INFANTRY_OCCUPATION_VEHICLE_BIT)
         | (ground & cell_kernel::INFANTRY_OCCUPATION_OBJECT_BIT);
-    if !cell_kernel::infantry_occupation_allows(refusal_bits, true, ground_gate_open) {
+    // The Gate is read only for a ground object with no selected-plane vehicle.
+    let gate_open =
+        refusal_bits == cell_kernel::INFANTRY_OCCUPATION_OBJECT_BIT && gate.is_open(cell);
+    if !cell_kernel::infantry_occupation_allows(refusal_bits, true, gate_open) {
         return None;
     }
     let random_row = (preferred == 0).then(|| rng.next_range_u32(4) as u8);
     cell_kernel::select_infantry_subcell(preferred, mask, false, random_row)
+}
+
+/// `0x004ACA10` (YRpp's MapClass::PickInfantrySublocation):
+/// [`place_infantry_in_native_cell`] on the cell holding `coords`
+/// (`MapClass::Get_CellClass_At_Coord @ 0x00565730`), on its deck when the cell
+/// has a high bridge (`+0x140 & 0x100`) and `coords` stands at least four
+/// levels above its Level, with the live ground Gate. Every caller passes
+/// `fIgnoreContents` 0. The spot and whether it is on the deck, or `None`
+/// where PlaceInfantryInCell answers the zero coordinate (`0x0089E778`); the
+/// coordinate it returns is [`super::walk_head::selected_head`] of `coords`.
+///
+/// Callers: Building and Unit Mission_Unload (`0x0044DA89`, `0x0073DA7C`),
+/// SlaveManagerClass::DeploySlaves (`0x006B05EF`) and the Jumpjet Infantry
+/// destination (`0x0054D78E`). Map-less fixtures take the requested cell's
+/// ground plane.
+pub(crate) fn pick_infantry_sublocation(
+    terrain: Option<&ResolvedTerrainGrid>,
+    raw: &crate::sim::occupancy::RawCellOccupationGrid,
+    occupancy: &OccupancyGrid,
+    entities: &EntityStore,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    interner: &crate::sim::intern::StringInterner,
+    rng: &mut SimRng,
+    coords: DriveCoord,
+) -> Option<(u8, bool)> {
+    use crate::sim::occupancy::RawCellKey;
+    let (key, deck) = match terrain {
+        Some(terrain) => {
+            let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+            let cell = cells.lookup_world(coords.x, coords.y);
+            let (level, _) = cells.ground_fields(cell);
+            let deck = cell_kernel::selects_infantry_bridge_layer(
+                cells.flags(cell) & 0x100 != 0,
+                level,
+                coords.z,
+            );
+            (RawCellKey::from_native(terrain, cell), deck)
+        }
+        None => (
+            RawCellKey::Real((coords.x / 256) as u16, (coords.y / 256) as u16),
+            false,
+        ),
+    };
+    let layer = if deck {
+        MovementLayer::Bridge
+    } else {
+        MovementLayer::Ground
+    };
+    let gate = GroundGate::Live {
+        occupancy,
+        entities,
+        rules,
+        interner,
+    };
+    place_infantry_in_native_cell(raw, key, layer, coords, false, gate, rng)
+        .map(|spot| (spot, deck))
 }
 
 impl crate::sim::world::Simulation {
@@ -360,8 +335,9 @@ impl crate::sim::world::Simulation {
     /// at `0x0089E778` (`0x004812EC`, `0x004813CC`).
     /// AircraftClass::Drop_Payload (`0x00415D9B..0x00415DD1`),
     /// InfantryClass::ReceiveDamage's InfDeath 9 arm
-    /// (`0x0051897C..0x00518A0D`), the Infantry tube exit (`0x0051B967`) and
-    /// ParasiteClass::GetReleaseCoords (`0x0062ADE9`) ask it so.
+    /// (`0x0051897C..0x00518A0D`), the Infantry tube exit (`0x0051B967`),
+    /// ParasiteClass::GetReleaseCoords (`0x0062ADE9`), SpawnSurvivors
+    /// (`0x00443182`) and Mission_Selling's crew (`0x0044A6ED`) ask it so.
     pub(crate) fn place_infantry_in_ground_cell(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,
@@ -412,48 +388,29 @@ impl crate::sim::world::Simulation {
         )))
     }
 
-    fn place_infantry_in_ground_key(
+    /// [`place_infantry_in_native_cell`] on `key`'s ground plane without
+    /// priority, with the live ground Gate.
+    pub(crate) fn place_infantry_in_ground_key(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,
         key: crate::sim::occupancy::RawCellKey,
         request: DriveCoord,
     ) -> Option<u8> {
-        let gate_open = native_ground_gate_open(
-            &self.substrate.raw_cell_occupation,
-            &self.substrate.occupancy,
-            &self.substrate.entities,
-            Some(rules),
-            &self.interner,
-            key,
-            MovementLayer::Ground,
-        );
         place_infantry_in_native_cell(
             &self.substrate.raw_cell_occupation,
             key,
             MovementLayer::Ground,
             request,
             false,
-            gate_open,
+            GroundGate::Live {
+                occupancy: &self.substrate.occupancy,
+                entities: &self.substrate.entities,
+                rules: Some(rules),
+                interner: &self.interner,
+            },
             &mut self.scenario_rng,
         )
     }
-}
-
-/// Sub-cell placement for a mover whose mission carries placement priority.
-///
-/// The original engine's placement function takes a `priority` byte; when it is
-/// set, control jumps straight past every gate to the offset table and returns
-/// `offset[quadrant]` — **no occupancy test, no vehicle/structure blocker test,
-/// no garrison test, and no random draw**, because the random row selection sits
-/// on the branch the jump skips. Quadrant 0 resolves to the cell *centre* slot,
-/// which the ordinary path can never assign.
-///
-/// The flag is raised for missions Enter, Capture, Eaten, Area Guard and Patrol
-/// when the mover's NavCom sits in the cell being entered — an engineer walking
-/// into the building it is capturing, a spy into an enemy structure, an
-/// infantryman into a garrison, a dog onto the man it is running down.
-pub fn priority_sub_cell(sub_x: SimFixed, sub_y: SimFixed) -> u8 {
-    get_subcell_quadrant(sub_x, sub_y)
 }
 
 // ---------------------------------------------------------------------------
@@ -487,21 +444,13 @@ pub fn within_crush_distance_sq(crusher: (i32, i32), victim: (i32, i32)) -> bool
     dx * dx + dy * dy <= CRUSH_DISTANCE_SQ_LIMIT
 }
 
-/// The victim's GetCoords XY (vt+0x48, `0x007417FB`) `TechnoClass::DistanceSquaredTo`
-/// (`0x005F6560`) measures in `UnitClass::Crush_Or_Prescatter_Cell` (`0x007416A0`).
-fn entity_crush_coord(entity: &GameEntity) -> (i32, i32) {
-    (
-        i32::from(entity.position.rx()) * 256 + entity.position.sub_x().to_num::<i32>(),
-        i32::from(entity.position.ry()) * 256 + entity.position.sub_y().to_num::<i32>(),
-    )
-}
-
 /// The victim-side inputs of the native crush predicate.
 ///
 /// Exactly five type-level facts and two instance facts enter the decision:
 /// `Crushable=`, `OmniCrushResistant=`, the victim's class id, the ally
-/// relation (tested by the caller), the deploy crush-immunity byte, and the
-/// Iron Curtain timer. There is no weight, size, armour or `TypeImmune=` term.
+/// relation (the crusher's House asked about the victim's `owner`), the
+/// deploy crush-immunity byte, and the Iron Curtain timer. There is no
+/// weight, size, armour or `TypeImmune=` term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CrushTarget {
     pub category: EntityCategory,
@@ -514,6 +463,8 @@ pub struct CrushTarget {
     pub omni_crush_resistant: bool,
     /// Iron Curtain (or Force Shield) currently active on the victim.
     pub iron_curtained: bool,
+    /// The victim's owning House, which the ally test asks about.
+    pub owner: crate::sim::intern::InternedId,
 }
 
 impl CrushTarget {
@@ -528,6 +479,7 @@ impl CrushTarget {
                 entity.invulnerability.as_ref(),
                 current_frame,
             ),
+            owner: entity.owner(),
         }
     }
 }
@@ -579,15 +531,35 @@ impl CrushTarget {
 ///   locomotor test instead.
 /// - **Mind-control release.** A crushed controller does not free its captives
 ///   here, so their ownership stays with a dead object.
-pub fn can_crush(capability: CrushCapability, target: CrushTarget) -> bool {
-    capability.can_crush_units() && object_is_crushable_by(capability.omni_crusher, target)
+pub fn can_crush(
+    capability: CrushCapability,
+    target: CrushTarget,
+    allied: impl FnOnce(crate::sim::intern::InternedId) -> bool,
+) -> bool {
+    capability.can_crush_units() && object_is_crushable_by(capability.omni_crusher, target, allied)
 }
 
-/// Object5F6CD0 after the caller's capability gate and alliance check.
-/// The post-crush-latch Unit entry tail invokes this without retesting Crusher.
-pub(crate) fn object_is_crushable_by(omni_crusher: bool, target: CrushTarget) -> bool {
+/// `ObjectClass::Is_Crushable_By @ 0x005F6CD0` after the caller's capability
+/// gate: the omni arm, else the ordinary arm, each refused for a victim the
+/// crusher's House is allied with or one Iron Curtained. The post-crush-latch
+/// Unit entry tail invokes this without retesting Crusher.
+///
+/// `allied` is the crusher's owning House (`+0x21C`) asking
+/// `HouseClass::Is_Ally_ByObject @ 0x004F9A90` about the victim's owner, at
+/// `0x005F6D1A` and again at `0x005F6D67`
+/// ([`crate::sim::combat::combat_weapon::is_ally_by_object`]). It reads only
+/// the asking House's mask, so a victim whose House allies the crusher's one
+/// way (Neutral's with a paranoid computer's, `sim::house_diplomacy`) is still
+/// crushed. `Can_Enter_Cell` asks the same question again at `0x0073FB53`, so
+/// an allied or own crushable never reaches its crush latch.
+pub(crate) fn object_is_crushable_by(
+    omni_crusher: bool,
+    target: CrushTarget,
+    allied: impl FnOnce(crate::sim::intern::InternedId) -> bool,
+) -> bool {
     ((omni_crusher && target.category != EntityCategory::Structure && !target.omni_crush_resistant)
         || (target.crushable && !target.deploy_crush_immune))
+        && !allied(target.owner)
         && !target.iron_curtained
 }
 
@@ -606,62 +578,6 @@ fn deploy_crush_immune(entity: &GameEntity) -> bool {
     // not current Doing or the Unit deployment controller. Infantry's
     // sequencer520B4E/520BAD owns its writes through GameEntity.
     entity.native_crush_immunity() != 0
-}
-
-/// Who is crushing, for the ally question native asks at admission.
-///
-/// `Is_Crushable_By 0x005F6CD0` asks `HouseClass::Is_Ally_ByObject 0x004F9A90`
-/// of the crusher's owning house (the crusher's `+0x21C`) about the victim at
-/// `0x005F6D1A` and again at `0x005F6D67`, and `Can_Enter_Cell` re-tests at
-/// `0x0073FB53`, so an allied or own crushable never reaches the crush latch
-/// at all.
-///
-/// Carried as a required parameter, not an `Option`: a missing-alliance default
-/// would fail open into the very case this exists to refuse.
-///
-/// `0x004F9A90` reads only the asking house's mask, so a victim whose house
-/// allies the crusher's one way (Neutral's with a paranoid computer's,
-/// `sim::house_diplomacy`) is still crushed.
-#[derive(Clone, Copy)]
-pub struct CrushAllyGate<'a> {
-    /// The crusher's owning house, already resolved by the caller.
-    crusher_owner: &'a str,
-    alliances: &'a crate::map::houses::HouseAllianceMap,
-    interner: &'a crate::sim::intern::StringInterner,
-}
-
-impl<'a> CrushAllyGate<'a> {
-    pub fn new(
-        crusher_owner: &'a str,
-        alliances: &'a crate::map::houses::HouseAllianceMap,
-        interner: &'a crate::sim::intern::StringInterner,
-    ) -> Self {
-        Self {
-            crusher_owner,
-            alliances,
-            interner,
-        }
-    }
-
-    /// True when native would spare this victim for being allied or own.
-    ///
-    /// The kill site and Approach ask it here; Can_Enter_Cell asks the same
-    /// `is_allied_with` through `world::object_entry`. The two disagreeing
-    /// was a defect once.
-    ///
-    /// No id fast path. An earlier version carried the crusher's `InternedId`
-    /// to settle own-house without allocating, which was wasted work:
-    /// `is_allied_with` already returns on a case-insensitive name compare
-    /// *before* it normalizes anything (`houses.rs`), so own-house never
-    /// allocated. The allocating case is a genuinely foreign house, which an id
-    /// compare cannot shortcut anyway.
-    pub fn spares(&self, victim: &GameEntity) -> bool {
-        crate::map::houses::is_allied_with(
-            self.alliances,
-            self.crusher_owner,
-            self.interner.resolve(victim.owner()),
-        )
-    }
 }
 
 /// Emit the normal crush-path `EntityCrushed` (CrushSound) event for a single
@@ -733,17 +649,29 @@ pub fn select_crush_victims(
     let Some(crusher) = entities.get(crusher_id) else {
         return Vec::new();
     };
-    // The same gate admission uses. Two inline copies of one predicate is how
-    // admission and the kill came to disagree.
-    let allies = CrushAllyGate::new(interner.resolve(crusher.owner()), alliances, interner);
+    let crusher_owner = crusher.owner();
     occ.iter()
         .copied()
         .filter(|&id| id != crusher_id)
         .filter(|&id| {
             entities.get(id).is_some_and(|victim| {
-                !allies.spares(victim)
-                    && within_crush_distance_sq(crusher_coord, entity_crush_coord(victim))
-                    && can_crush(capability, CrushTarget::from_entity(victim, current_frame))
+                // The victim's GetCoords XY (vt+0x48, `0x007417FB`) that
+                // `TechnoClass::DistanceSquaredTo` (`0x005F6560`) measures in
+                // `UnitClass::Crush_Or_Prescatter_Cell` (`0x007416A0`).
+                let [x, y] = super::ground_pose::position_world_xy(&victim.position);
+                within_crush_distance_sq(crusher_coord, (x, y))
+                    && can_crush(
+                        capability,
+                        CrushTarget::from_entity(victim, current_frame),
+                        |owner| {
+                            crate::sim::combat::combat_weapon::is_ally_by_object(
+                                Some(alliances),
+                                interner,
+                                crusher_owner,
+                                owner,
+                            )
+                        },
+                    )
             })
         })
         .collect()
@@ -756,15 +684,6 @@ pub fn select_crush_victims(
 // `CellClass::Scatter_Objects`, its dispatch gate and the class Scatter
 // receivers live in `movement::scatter` and `movement::infantry_scatter`.
 
-/// Frames a blocked mover waits after telling the cell to scatter.
-///
-/// The drive locomotor writes the literal 10 into the mover's wait field
-/// immediately after its `Scatter_Objects(force = 1)` call, and the head of the
-/// next `Process_Movement` decrements it and skips the move while it is
-/// positive. This is a hardcoded constant, **not** `[AI] BlockagePathDelay`,
-/// which is a different (60-frame) timer with a different consumer.
-pub const POST_SCATTER_WAIT_FRAMES: i32 = 10;
-
 // The full-infantry-cell force-scatter helpers used to live here and are gone
 // with the clause that called them: the three-infantry-bit test is real but the
 // block around it is dominated by a radio-tether byte VERA does not model, and
@@ -774,955 +693,3 @@ pub const POST_SCATTER_WAIT_FRAMES: i32 = 10;
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::infantry::InfantryRuntime;
-    use crate::sim::occupancy::CellListInsertion;
-    use std::collections::BTreeSet;
-
-    fn flat_resolved_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-        crate::map::resolved_terrain::test_grid(
-            width,
-            height,
-            crate::map::resolved_terrain::test_loader_clear_cell,
-        )
-    }
-
-    /// The gate is the crusher's house asking (`0x005F6D1A`, `0x0073FB53`).
-    #[test]
-    fn ally_gate_asks_only_the_crushers_house() {
-        let victim = infantry(1, 5, 5, 2); // "Allies"
-        let interner = crate::sim::intern::test_interner();
-        let one_way = |asker: &str, ally: &str| {
-            crate::map::houses::HouseAllianceMap::from([(
-                asker.to_ascii_uppercase(),
-                std::collections::BTreeSet::from([ally.to_ascii_uppercase()]),
-            )])
-        };
-
-        let victims_side = one_way("Allies", "Soviets");
-        assert!(!CrushAllyGate::new("Soviets", &victims_side, &interner).spares(&victim));
-        let crushers_side = one_way("Soviets", "Allies");
-        assert!(CrushAllyGate::new("Soviets", &crushers_side, &interner).spares(&victim));
-        let none = crate::map::houses::HouseAllianceMap::new();
-        assert!(CrushAllyGate::new("Allies", &none, &interner).spares(&victim));
-        assert!(!CrushAllyGate::new("NoSuchHouse", &none, &interner).spares(&victim));
-    }
-
-    fn infantry(id: u64, rx: u16, ry: u16, sub: u8) -> GameEntity {
-        let mut e = GameEntity::test_default(id, "E1", "Allies", rx, ry);
-        e.set_category_for_test(EntityCategory::Infantry);
-        e.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
-            EntityCategory::Infantry,
-        );
-        e.set_sub_cell(Some(sub));
-        e.crushable_facts.set_crushable_for_test(true);
-        e
-    }
-
-    fn vehicle(id: u64, rx: u16, ry: u16) -> GameEntity {
-        let mut e = GameEntity::test_default(id, "MTNK", "Allies", rx, ry);
-        e.set_category_for_test(EntityCategory::Unit);
-        e.crushable_facts.set_crushable_for_test(false);
-        e
-    }
-
-    fn structure(id: u64, rx: u16, ry: u16) -> GameEntity {
-        let mut e = GameEntity::test_default_of_category(
-            id,
-            "GAREFN",
-            "Allies",
-            rx,
-            ry,
-            EntityCategory::Structure,
-        );
-        e.crushable_facts.set_crushable_for_test(false);
-        e
-    }
-
-    #[test]
-    fn blocker_neighbor_counts_include_bridge_layer_occupants_globally() {
-        let mut entities = EntityStore::new();
-        let mut blocker = vehicle(1, 2, 2);
-        blocker.set_on_bridge(true);
-        blocker.lifecycle.set_in_limbo_for_test(false);
-        blocker.lifecycle.set_cell_marked(true);
-        entities.insert(blocker);
-        let interner = crate::sim::intern::StringInterner::new();
-
-        let counts = build_blocker_neighbor_counts(&entities, 5, 5, None, &interner, None);
-
-        assert_eq!(counts.count_at(1, 2), 1);
-        assert_eq!(counts.count_at(3, 3), 1);
-        assert_eq!(counts.count_at(2, 2), 0);
-    }
-
-    #[test]
-    fn gsi_04_10_zero_occupation_terrain_still_contributes_neighbor_blocker() {
-        let entities = EntityStore::new();
-        let interner = crate::sim::intern::StringInterner::new();
-        let mut terrain = flat_resolved_terrain(5, 5);
-        let source = terrain.cell_mut(2, 2).expect("source cell");
-        source.terrain_object_occupation = Some(0);
-        source.terrain_object_blocks = false;
-
-        let counts =
-            build_blocker_neighbor_counts(&entities, 5, 5, Some(&terrain), &interner, None);
-        for y in 1..=3 {
-            for x in 1..=3 {
-                assert_eq!(counts.count_at(x, y), u8::from((x, y) != (2, 2)));
-            }
-        }
-
-        terrain
-            .cell_mut(2, 2)
-            .expect("interior source cell")
-            .terrain_object_occupation = None;
-        let edge_source = terrain.cell_mut(0, 0).expect("edge source cell");
-        edge_source.terrain_object_occupation = Some(0);
-        edge_source.terrain_object_blocks = false;
-        let edge_counts =
-            build_blocker_neighbor_counts(&entities, 5, 5, Some(&terrain), &interner, None);
-        assert_eq!(edge_counts.count_at(1, 0), 1);
-        assert_eq!(edge_counts.count_at(0, 1), 1);
-        assert_eq!(edge_counts.count_at(1, 1), 1);
-        let edge_counts_ref = &edge_counts;
-        assert_eq!(
-            (0..5)
-                .flat_map(|y| (0..5).map(move |x| edge_counts_ref.count_at(x, y) as u32))
-                .sum::<u32>(),
-            3,
-            "an edge Terrain contributes only to its three valid neighbors"
-        );
-
-        terrain
-            .cell_mut(0, 0)
-            .expect("edge source cell")
-            .terrain_object_occupation = None;
-        let removed =
-            build_blocker_neighbor_counts(&entities, 5, 5, Some(&terrain), &interner, None);
-        let removed_ref = &removed;
-        assert_eq!(
-            (0..5)
-                .flat_map(|y| (0..5).map(move |x| removed_ref.count_at(x, y) as u32))
-                .sum::<u32>(),
-            0,
-            "removing the live terrain identity reverses all eight contributions"
-        );
-    }
-
-    #[test]
-    fn blocker_neighbor_counts_building_uses_expanded_foundation_rectangle_once() {
-        let mut entities = EntityStore::new();
-        let mut building = structure(1, 2, 2);
-        building.lifecycle.set_in_limbo_for_test(false);
-        building.lifecycle.set_cell_marked(true);
-        entities.insert(building);
-        let interner = crate::sim::intern::StringInterner::new();
-
-        let counts = build_blocker_neighbor_counts(&entities, 5, 5, None, &interner, None);
-
-        for y in 1..=3 {
-            for x in 1..=3 {
-                assert_eq!(
-                    counts.count_at(x, y),
-                    1,
-                    "1x1 fallback structure should count expanded rectangle cell ({x},{y})"
-                );
-            }
-        }
-        assert_eq!(counts.count_at(0, 2), 0);
-        assert_eq!(counts.count_at(2, 0), 0);
-    }
-
-    /// Helper: build an OccupancyGrid from a set of entity descriptions.
-    fn make_occ(entries: &[(u16, u16, u64, MovementLayer, Option<u8>)]) -> OccupancyGrid {
-        let mut grid = OccupancyGrid::new();
-        for &(rx, ry, eid, layer, sub) in entries {
-            grid.add(
-                rx,
-                ry,
-                eid,
-                layer,
-                sub,
-                CellListInsertion::PrependNonBuilding,
-            );
-        }
-        grid
-    }
-
-    // -- can_crush tests --
-
-    /// Build a crush target directly, bypassing entity construction.
-    fn target(
-        category: EntityCategory,
-        crushable: bool,
-        deploy_crush_immune: bool,
-        omni_crush_resistant: bool,
-        iron_curtained: bool,
-    ) -> CrushTarget {
-        CrushTarget {
-            category,
-            crushable,
-            deploy_crush_immune,
-            omni_crush_resistant,
-            iron_curtained,
-        }
-    }
-
-    #[test]
-    fn finalized_wall_plane_is_sole_baseline_without_identity_double_count() {
-        use crate::map::authored_overlay::FinalizedOverlayPayload;
-        use crate::sim::overlay_grid::OverlayGrid;
-
-        let entities = EntityStore::new();
-        let interner = crate::sim::intern::StringInterner::new();
-        let mut wall_plane = vec![0u8; 25];
-        for index in [6usize, 7, 8, 11, 13, 16, 17, 18] {
-            wall_plane[index] = 1;
-        }
-
-        let mut surviving_cells = vec![(-1, 0); 25];
-        surviving_cells[12] = (0, 0);
-        let surviving = OverlayGrid::from_finalized_map_payload(
-            FinalizedOverlayPayload::from_cells_for_test(5, 5, surviving_cells, wall_plane.clone()),
-        );
-        let surviving_counts = build_blocker_neighbor_counts_with_overlays(
-            &entities,
-            5,
-            5,
-            None,
-            Some(&surviving),
-            &interner,
-            None,
-        );
-        for y in 1..=3 {
-            for x in 1..=3 {
-                assert_eq!(
-                    surviving_counts.count_at(x, y),
-                    u8::from((x, y) != (2, 2)),
-                    "surviving final wall must not be scanned a second time"
-                );
-            }
-        }
-
-        let mut overwritten_cells = vec![(-1, 0); 25];
-        overwritten_cells[12] = (1, 2);
-        let overwritten = OverlayGrid::from_finalized_map_payload(
-            FinalizedOverlayPayload::from_cells_for_test(5, 5, overwritten_cells, wall_plane),
-        );
-        let overwritten_counts = build_blocker_neighbor_counts_with_overlays(
-            &entities,
-            5,
-            5,
-            None,
-            Some(&overwritten),
-            &interner,
-            None,
-        );
-        assert_eq!(overwritten_counts.count_at(2, 1), 1);
-        assert_eq!(overwritten_counts.count_at(2, 2), 0);
-
-        let mut poisoned_cells = vec![(-1, 0); 25];
-        poisoned_cells[12] = (0, 0);
-        let authoritative_zero = OverlayGrid::from_finalized_map_payload(
-            FinalizedOverlayPayload::from_cells_for_test(5, 5, poisoned_cells, vec![0; 25]),
-        );
-        let zero_counts = build_blocker_neighbor_counts_with_overlays(
-            &entities,
-            5,
-            5,
-            None,
-            Some(&authoritative_zero),
-            &interner,
-            None,
-        );
-        let zero_counts_ref = &zero_counts;
-        assert_eq!(
-            (0..5)
-                .flat_map(|y| (0..5).map(move |x| u32::from(zero_counts_ref.count_at(x, y))))
-                .sum::<u32>(),
-            0,
-            "Some(all-zero) is authority, not permission to reconstruct walls"
-        );
-    }
-
-    #[test]
-    fn gsi_04_15_detached_tube_mover_is_absent_from_the_blocker_plane() {
-        let mut entities = EntityStore::new();
-        let mut mover = GameEntity::test_default(7, "MTNK", "Americans", 2, 2);
-        mover.lifecycle.set_in_limbo_for_test(false);
-        mover.lifecycle.set_cell_marked(false);
-        entities.insert(mover);
-        let interner = crate::sim::intern::test_interner();
-
-        let counts = build_blocker_neighbor_counts_with_overlays(
-            &entities, 5, 5, None, None, &interner, None,
-        );
-        let counts_ref = &counts;
-        assert_eq!(
-            (0..5)
-                .flat_map(|y| (0..5).map(move |x| u32::from(counts_ref.count_at(x, y))))
-                .sum::<u32>(),
-            0
-        );
-    }
-
-    #[test]
-    fn test_crusher_cannot_crush_non_crushable_infantry() {
-        assert!(!can_crush(
-            CrushCapability::new(true, false),
-            target(EntityCategory::Infantry, false, false, false, false),
-        ));
-    }
-
-    #[test]
-    fn test_regular_crusher_cannot_crush_deploy_immune_infantry() {
-        assert!(!can_crush(
-            CrushCapability::new(true, false),
-            target(EntityCategory::Infantry, true, true, false, false),
-        ));
-    }
-
-    #[test]
-    fn test_omni_crusher_crushes_non_crushable_infantry() {
-        assert!(can_crush(
-            CrushCapability::new(false, true),
-            // The Omni block reads neither Crushable= nor the deploy byte.
-            target(EntityCategory::Infantry, false, true, false, false),
-        ));
-    }
-
-    #[test]
-    fn test_omni_crusher_crushes_vehicles() {
-        assert!(can_crush(
-            CrushCapability::new(false, true),
-            target(EntityCategory::Unit, false, false, false, false),
-        ));
-    }
-
-    #[test]
-    fn test_omni_resistance_and_deploy_immunity_refuse_both_arms() {
-        assert!(!can_crush(
-            CrushCapability::new(false, true),
-            target(EntityCategory::Infantry, true, true, true, false),
-        ));
-    }
-
-    #[test]
-    fn test_omni_building_refusal_falls_back_to_explicit_crushable() {
-        for crushable in [false, true] {
-            assert_eq!(
-                can_crush(
-                    CrushCapability::new(false, true),
-                    target(EntityCategory::Structure, crushable, false, false, false),
-                ),
-                crushable
-            );
-        }
-    }
-
-    #[test]
-    fn test_crusher_cannot_crush_vehicles() {
-        assert!(!can_crush(
-            CrushCapability::new(true, false),
-            target(EntityCategory::Unit, false, false, false, false),
-        ));
-    }
-
-    #[test]
-    fn missing_crusher_flag_does_not_crush_infantry() {
-        assert!(!can_crush(
-            CrushCapability::new(false, false),
-            target(EntityCategory::Infantry, true, false, false, false),
-        ));
-    }
-
-    #[test]
-    fn iron_curtained_infantry_survives_a_regular_crusher() {
-        // The last gate of the ordinary block, after the ally test.
-        assert!(can_crush(
-            CrushCapability::new(true, false),
-            target(EntityCategory::Infantry, true, false, false, false),
-        ));
-        assert!(!can_crush(
-            CrushCapability::new(true, false),
-            target(EntityCategory::Infantry, true, false, false, true),
-        ));
-    }
-
-    #[test]
-    fn iron_curtained_victim_survives_an_omni_crusher() {
-        // Same gate at the tail of the Omni block: a Battle Fortress crushes a
-        // Crushable=no Desolator, but not a curtained one.
-        assert!(can_crush(
-            CrushCapability::new(false, true),
-            target(EntityCategory::Infantry, false, false, false, false),
-        ));
-        assert!(!can_crush(
-            CrushCapability::new(false, true),
-            target(EntityCategory::Infantry, false, false, false, true),
-        ));
-    }
-
-    #[test]
-    fn crush_distance_gate_includes_0x3fff() {
-        assert!(within_crush_distance_sq((0, 0), (127, 14)));
-    }
-
-    #[test]
-    fn crush_distance_gate_excludes_0x4000() {
-        assert!(!within_crush_distance_sq((0, 0), (128, 0)));
-    }
-
-    #[test]
-    fn full_cell_crush_kills_centered_enemy() {
-        let mut entities = EntityStore::new();
-        let mut crusher = vehicle(1, 5, 5);
-        crusher.mover_facts.set_regular_crusher_for_test(true);
-        entities.insert(crusher);
-        let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.set_category_for_test(EntityCategory::Infantry);
-        victim.crushable_facts.set_crushable_for_test(true);
-        entities.insert(victim);
-        let interner = crate::sim::intern::test_interner();
-
-        let outcome = select_crush_victims(
-            &[2],
-            &entities,
-            1,
-            &crate::map::houses::HouseAllianceMap::new(),
-            &interner,
-            (5 * 256 + 128, 5 * 256 + 128),
-            CrushCapability::new(true, false),
-            0,
-        );
-
-        assert_eq!(outcome, vec![2]);
-    }
-
-    #[test]
-    fn full_cell_crush_skips_allied_victim() {
-        let mut entities = EntityStore::new();
-        let mut crusher = vehicle(1, 5, 5);
-        crusher.mover_facts.set_regular_crusher_for_test(true);
-        entities.insert(crusher);
-        let mut victim = infantry(2, 5, 5, 2);
-        victim.crushable_facts.set_crushable_for_test(true);
-        entities.insert(victim);
-        let interner = crate::sim::intern::test_interner();
-
-        let outcome = select_crush_victims(
-            &[2],
-            &entities,
-            1,
-            &crate::map::houses::HouseAllianceMap::new(),
-            &interner,
-            (5 * 256 + 128, 5 * 256 + 128),
-            CrushCapability::new(true, false),
-            0,
-        );
-
-        assert_eq!(outcome, Vec::<u64>::new());
-    }
-
-    #[test]
-    fn prone_infantry_are_crushed_like_standing_infantry() {
-        // Prone has no write site at the deploy crush-immunity byte anywhere in
-        // the binary, so lying down is not crush immunity: a Grizzly clears a
-        // suppressed squad in one pass.
-        let mut entities = EntityStore::new();
-        let mut crusher = vehicle(1, 5, 5);
-        crusher.mover_facts.set_regular_crusher_for_test(true);
-        entities.insert(crusher);
-        let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.set_category_for_test(EntityCategory::Infantry);
-        victim.crushable_facts.set_crushable_for_test(true);
-        victim.infantry = Some({
-            let mut runtime = InfantryRuntime::new();
-            runtime.set_is_prone_for_test(true);
-            runtime
-        });
-        entities.insert(victim);
-        let interner = crate::sim::intern::test_interner();
-
-        let outcome = select_crush_victims(
-            &[2],
-            &entities,
-            1,
-            &crate::map::houses::HouseAllianceMap::new(),
-            &interner,
-            (5 * 256 + 128, 5 * 256 + 128),
-            CrushCapability::new(true, false),
-            0,
-        );
-
-        assert_eq!(outcome, vec![2]);
-    }
-
-    #[test]
-    fn deployed_gi_is_crushable_but_deployed_guardian_gi_is_not() {
-        // `DeployedCrushable=` defaults yes; stock YR sets it to no on exactly
-        // one type. So the intuition runs the wrong way — a deployed GI dies
-        // under a tank, a deployed Guardian GI does not.
-        let mut entities = EntityStore::new();
-        let mut crusher = vehicle(1, 5, 5);
-        crusher.mover_facts.set_regular_crusher_for_test(true);
-        entities.insert(crusher);
-        let mut gi = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        gi.set_category_for_test(EntityCategory::Infantry);
-        gi.crushable_facts.set_crushable_for_test(true);
-        gi.set_infantry_deploy_crush_immunity(0);
-        entities.insert(gi);
-        let mut ggi = GameEntity::test_default(3, "GGI", "Soviet", 5, 5);
-        ggi.set_category_for_test(EntityCategory::Infantry);
-        ggi.crushable_facts.set_crushable_for_test(true);
-        ggi.set_infantry_deploy_crush_immunity(1);
-        entities.insert(ggi);
-        let interner = crate::sim::intern::test_interner();
-
-        let outcome = select_crush_victims(
-            &[2, 3],
-            &entities,
-            1,
-            &crate::map::houses::HouseAllianceMap::new(),
-            &interner,
-            (5 * 256 + 128, 5 * 256 + 128),
-            CrushCapability::new(true, false),
-            0,
-        );
-
-        assert_eq!(outcome, vec![2]);
-    }
-
-    #[test]
-    fn iron_curtained_infantry_is_not_crushed_at_the_kill_site() {
-        let mut entities = EntityStore::new();
-        let mut crusher = vehicle(1, 5, 5);
-        crusher.mover_facts.set_regular_crusher_for_test(true);
-        entities.insert(crusher);
-        let mut victim = GameEntity::test_default(2, "E1", "Soviet", 5, 5);
-        victim.set_category_for_test(EntityCategory::Infantry);
-        victim.crushable_facts.set_crushable_for_test(true);
-        victim.invulnerability = Some(
-            crate::sim::superweapon::invulnerability::InvulnerabilityState::new(
-                crate::sim::timer::CdTimer::started(10, 750),
-                crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain,
-            ),
-        );
-        entities.insert(victim);
-        let interner = crate::sim::intern::test_interner();
-        let call = |frame: u32| {
-            select_crush_victims(
-                &[2],
-                &entities,
-                1,
-                &crate::map::houses::HouseAllianceMap::new(),
-                &interner,
-                (5 * 256 + 128, 5 * 256 + 128),
-                CrushCapability::new(true, false),
-                frame,
-            )
-        };
-
-        assert_eq!(call(100), Vec::<u64>::new(), "curtain still running");
-        assert_eq!(call(760), vec![2], "curtain expired");
-    }
-
-    // `post_scatter_wait_is_ten_frames_not_blockage_path_delay` used to sit
-    // here asserting `POST_SCATTER_WAIT_FRAMES == 10` — a constant against
-    // itself, which no behavioural regression could break. The claim it was
-    // reaching for is now pinned by observation in
-    // `movement_tests::code_two_post_scatter_wait_rearms_on_every_pass_while_the_block_holds`,
-    // which watches a blocked mover's timer and sees the 10-frame sawtooth
-    // rather than a `BlockagePathDelay` span.
-
-    // -- sub-cell allocation tests --
-
-    #[test]
-    fn test_allocate_sub_cell_empty_cell() {
-        // No occupancy entry → first spot (2 = NE corner).
-        assert_eq!(allocate_sub_cell(None, MovementLayer::Ground), Some(2));
-    }
-
-    #[test]
-    fn test_allocate_sub_cell_one_infantry() {
-        let grid = make_occ(&[(5, 5, 1, MovementLayer::Ground, Some(2))]);
-        let occ = grid.get(5, 5).unwrap();
-        assert_eq!(allocate_sub_cell(Some(occ), MovementLayer::Ground), Some(3));
-    }
-
-    #[test]
-    fn test_allocate_sub_cell_two_infantry() {
-        let grid = make_occ(&[
-            (5, 5, 1, MovementLayer::Ground, Some(2)),
-            (5, 5, 2, MovementLayer::Ground, Some(3)),
-        ]);
-        let occ = grid.get(5, 5).unwrap();
-        assert_eq!(allocate_sub_cell(Some(occ), MovementLayer::Ground), Some(4));
-    }
-
-    #[test]
-    fn test_allocate_sub_cell_full() {
-        let grid = make_occ(&[
-            (5, 5, 1, MovementLayer::Ground, Some(2)),
-            (5, 5, 2, MovementLayer::Ground, Some(3)),
-            (5, 5, 3, MovementLayer::Ground, Some(4)),
-        ]);
-        let occ = grid.get(5, 5).unwrap();
-        assert_eq!(allocate_sub_cell(Some(occ), MovementLayer::Ground), None);
-    }
-
-    #[test]
-    fn test_vehicle_blocks_all_sub_cells() {
-        let grid = make_occ(&[(5, 5, 99, MovementLayer::Ground, None)]);
-        let occ = grid.get(5, 5).unwrap();
-        assert_eq!(allocate_sub_cell(Some(occ), MovementLayer::Ground), None);
-    }
-
-    #[test]
-    fn test_cell_passable_for_infantry_empty() {
-        assert!(cell_passable_for_infantry(None, MovementLayer::Ground));
-    }
-
-    #[test]
-    fn test_cell_passable_for_infantry_with_vehicle() {
-        let grid = make_occ(&[(5, 5, 1, MovementLayer::Ground, None)]);
-        let occ = grid.get(5, 5).unwrap();
-        assert!(!cell_passable_for_infantry(
-            Some(occ),
-            MovementLayer::Ground
-        ));
-    }
-
-    // -- quadrant detection tests --
-
-    #[test]
-    fn test_quadrant_center() {
-        // Distance from (128,128) is 0 — well within 60-lepton threshold.
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(128), SimFixed::from_num(128)),
-            0
-        );
-    }
-
-    #[test]
-    fn test_quadrant_near_center() {
-        // (150, 140): distance = sqrt(22^2 + 12^2) ≈ 25 — within 60-lepton threshold.
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(150), SimFixed::from_num(140)),
-            0
-        );
-    }
-
-    #[test]
-    fn test_quadrant_nw_returns_zero() {
-        // (40, 40): X<=128, Y<=128 → NW quadrant → returns 0 (merged with center).
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(40), SimFixed::from_num(40)),
-            0
-        );
-    }
-
-    #[test]
-    fn test_quadrant_ne() {
-        // (200, 40): X>128, Y<=128 → bits=1 → returns 2 (NE).
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(200), SimFixed::from_num(40)),
-            2
-        );
-    }
-
-    #[test]
-    fn test_quadrant_sw() {
-        // (40, 200): X<=128, Y>128 → bits=2 → returns 3 (SW).
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(40), SimFixed::from_num(200)),
-            3
-        );
-    }
-
-    #[test]
-    fn test_quadrant_se() {
-        // (200, 200): X>128, Y>128 → bits=3 → returns 4 (SE).
-        assert_eq!(
-            get_subcell_quadrant(SimFixed::from_num(200), SimFixed::from_num(200)),
-            4
-        );
-    }
-
-    // -- priority placement --
-
-    /// GSI-06.14 G1. With the priority byte set, the retail placement function
-    /// jumps past every gate straight to `offset[quadrant]`: no occupancy test,
-    /// no vehicle/structure blocker test, no garrison test, and — because the
-    /// random row selection sits on the branch that jump skips — no draw.
-    /// Quadrant 0 resolves to the cell-centre slot, which the ordinary path can
-    /// never assign.
-    #[test]
-    fn gsi_06_14_priority_placement_ignores_occupancy_and_takes_no_draw() {
-        let rng = SimRng::new(7);
-        let before = rng.state();
-        // NE approach → slot 2, even though the ordinary allocator would refuse.
-        assert_eq!(
-            priority_sub_cell(SimFixed::from_num(200), SimFixed::from_num(40)),
-            2,
-        );
-        assert_eq!(
-            priority_sub_cell(SimFixed::from_num(40), SimFixed::from_num(200)),
-            3,
-        );
-        assert_eq!(
-            priority_sub_cell(SimFixed::from_num(200), SimFixed::from_num(200)),
-            4,
-        );
-        // Centre request → slot 0, the centre offset.
-        assert_eq!(
-            priority_sub_cell(SimFixed::from_num(128), SimFixed::from_num(128)),
-            0,
-        );
-        assert_eq!(rng.state(), before, "priority placement draws nothing");
-    }
-
-    fn raw_cells(bits: &[(u16, u16, u8)]) -> crate::sim::occupancy::RawCellOccupationGrid {
-        let mut raw = crate::sim::occupancy::RawCellOccupationGrid::new();
-        for &(rx, ry, mask) in bits {
-            raw.mark_ground(rx, ry, mask);
-        }
-        raw
-    }
-
-    const SPOTS_FULL: u8 = (1 << 2) | (1 << 3) | (1 << 4);
-
-    fn place(raw: &crate::sim::occupancy::RawCellOccupationGrid, x: i32, y: i32) -> Option<u8> {
-        let mut rng = SimRng::new(42);
-        place_infantry_in_cell(
-            raw,
-            5,
-            5,
-            MovementLayer::Ground,
-            SimFixed::from_num(x),
-            SimFixed::from_num(y),
-            &mut rng,
-        )
-    }
-
-    /// PlaceInfantryInCell with priority 0 refuses exactly the cases priority
-    /// placement must accept: a full cell and a cell holding a vehicle.
-    #[test]
-    fn gsi_06_14_priority_accepts_what_the_ordinary_allocator_refuses() {
-        let full = raw_cells(&[(5, 5, SPOTS_FULL)]);
-        let vehicle = raw_cells(&[(5, 5, 0x20)]);
-        let ne = (SimFixed::from_num(200), SimFixed::from_num(40));
-
-        assert_eq!(place(&full, 200, 40), None);
-        assert_eq!(
-            place(&vehicle, 200, 40),
-            None,
-            "a vehicle closes the cell to the ordinary path",
-        );
-        // Priority reads neither cell's occupancy.
-        assert_eq!(priority_sub_cell(ne.0, ne.1), 2);
-    }
-
-    #[test]
-    fn test_preference_quadrants_take_their_own_spot_or_fall_back() {
-        let empty = raw_cells(&[]);
-        assert_eq!(place(&empty, 200, 40), Some(2), "NE");
-        assert_eq!(place(&empty, 40, 200), Some(3), "SW");
-        assert_eq!(place(&empty, 200, 200), Some(4), "SE");
-        assert_eq!(place(&raw_cells(&[(5, 5, 1 << 2)]), 200, 40), Some(4));
-        assert_eq!(place(&raw_cells(&[(5, 5, 1 << 3)]), 40, 200), Some(4));
-        assert_eq!(place(&raw_cells(&[(5, 5, 1 << 4)]), 200, 200), Some(2));
-    }
-
-    #[test]
-    fn test_preference_center_entry_randomizes() {
-        let empty = raw_cells(&[]);
-        let mut seen: BTreeSet<u8> = BTreeSet::new();
-        for seed in 0..20u64 {
-            let mut rng = SimRng::new(seed);
-            let result = place_infantry_in_cell(
-                &empty,
-                5,
-                5,
-                MovementLayer::Ground,
-                SimFixed::from_num(128),
-                SimFixed::from_num(128),
-                &mut rng,
-            );
-            seen.insert(result.expect("an empty cell admits the centre request"));
-        }
-        assert!(seen.contains(&2), "expected sub-cell 2 from randomization");
-        assert!(seen.contains(&3), "expected sub-cell 3 from randomization");
-        assert!(seen.contains(&4), "expected sub-cell 4 from randomization");
-    }
-
-    /// `0x0048138A..0x0048139F` draws the centre row before the scan, so a
-    /// full cell still spends it; an off-centre request and a refused cell
-    /// draw nothing.
-    #[test]
-    fn a_centre_request_draws_its_row_even_on_a_full_cell() {
-        let full = raw_cells(&[(5, 5, SPOTS_FULL)]);
-        let centre = SimFixed::from_num(128);
-        let mut rng = SimRng::new(7);
-        let before = rng.state();
-        let result =
-            place_infantry_in_cell(&full, 5, 5, MovementLayer::Ground, centre, centre, &mut rng);
-        assert_eq!(result, None);
-        let mut one_draw = SimRng::new(7);
-        let _ = one_draw.next_range_u32(4);
-        assert_eq!(rng.state(), one_draw.state());
-
-        let mut rng = SimRng::new(7);
-        let refused = raw_cells(&[(5, 5, 0x20)]);
-        let result = place_infantry_in_cell(
-            &refused,
-            5,
-            5,
-            MovementLayer::Ground,
-            centre,
-            centre,
-            &mut rng,
-        );
-        assert_eq!(result, None);
-        assert_eq!(
-            rng.state(),
-            before,
-            "a vehicle refusal returns before the draw"
-        );
-    }
-
-    /// The building bit (0x80) is not read, so a dying building's own cells
-    /// admit its crew. The vehicle bit is read from the requested plane
-    /// (`0x0048126B..0x0048128A`); the object bit (0x40) always from the
-    /// ground byte (`0x00481298`), so it refuses a deck request too.
-    #[test]
-    fn the_building_bit_does_not_block_and_the_ground_object_bit_blocks_both_planes() {
-        use crate::sim::occupancy::RawCellOccupationGrid;
-
-        assert_eq!(place(&raw_cells(&[(5, 5, 0x80)]), 200, 40), Some(2));
-        assert_eq!(place(&raw_cells(&[(5, 5, 0x40)]), 200, 40), None);
-        let deck_request = |mark: fn(&mut RawCellOccupationGrid)| {
-            let mut raw = RawCellOccupationGrid::new();
-            mark(&mut raw);
-            let mut rng = SimRng::new(42);
-            place_infantry_in_cell(
-                &raw,
-                5,
-                5,
-                MovementLayer::Bridge,
-                SimFixed::from_num(200),
-                SimFixed::from_num(40),
-                &mut rng,
-            )
-        };
-        assert_eq!(deck_request(|raw| raw.mark_deck(5, 5, 0x40)), Some(2));
-        assert_eq!(deck_request(|raw| raw.mark_ground(5, 5, 0x40)), None);
-        assert_eq!(deck_request(|raw| raw.mark_deck(5, 5, 0x20)), None);
-        assert_eq!(deck_request(|raw| raw.mark_ground(5, 5, 0x20)), Some(2));
-    }
-
-    // -- emit_crush_kill_sounds tests --
-
-    fn build_test_rules(
-        crush_sound: Option<&str>,
-        die_sound: Option<&str>,
-    ) -> crate::rules::ruleset::RuleSet {
-        let mut e1 = String::from("Strength=125\nArmor=none\nSpeed=4\n");
-        if let Some(s) = crush_sound {
-            e1.push_str(&format!("CrushSound={}\n", s));
-        }
-        if let Some(s) = die_sound {
-            e1.push_str(&format!("DieSound={}\n", s));
-        }
-        let ini_text = format!(
-            "[InfantryTypes]\n0=E1\n\n[VehicleTypes]\n\n[AircraftTypes]\n\n[BuildingTypes]\n\n[E1]\n{}\n",
-            e1
-        );
-        let ini = crate::rules::ini_parser::IniFile::from_str(&ini_text);
-        crate::rules::ruleset::RuleSet::from_ini(&ini).expect("test rules build")
-    }
-
-    fn build_victim(
-        interner: &mut crate::sim::intern::StringInterner,
-        rx: u16,
-        ry: u16,
-    ) -> GameEntity {
-        let mut victim = infantry(1, rx, ry, 2);
-        victim.set_type_ref_for_test(interner.intern("E1"));
-        victim
-    }
-
-    #[test]
-    fn emit_crush_kill_sounds_uses_only_crush_sound_when_both_keys_set() {
-        let rules = build_test_rules(Some("InfantrySquish"), Some("GIDie"));
-        let mut interner = crate::sim::intern::StringInterner::new();
-        let victim = build_victim(&mut interner, 5, 5);
-        let mut events = Vec::new();
-
-        emit_crush_kill_sounds(&victim, &rules, &mut interner, &mut events);
-
-        assert_eq!(events.len(), 1, "expected 1 event, got {:?}", events);
-        let crushed = events.iter().find_map(|e| match e {
-            crate::sim::world::SimSoundEvent::EntityCrushed {
-                crush_sound_id,
-                rx,
-                ry,
-            } => Some((*crush_sound_id, *rx, *ry)),
-            _ => None,
-        });
-        let (cid, crx, cry) = crushed.expect("missing EntityCrushed");
-        assert_eq!(interner.resolve(cid), "InfantrySquish");
-        assert_eq!((crx, cry), (5, 5));
-
-        assert!(
-            !events
-                .iter()
-                .any(|event| matches!(event, crate::sim::world::SimSoundEvent::EntityDied { .. }))
-        );
-    }
-
-    #[test]
-    fn emit_crush_kill_sounds_skips_crush_when_field_is_none() {
-        let rules = build_test_rules(None, Some("GIDie"));
-        let mut interner = crate::sim::intern::StringInterner::new();
-        let victim = build_victim(&mut interner, 7, 9);
-        let mut events = Vec::new();
-
-        emit_crush_kill_sounds(&victim, &rules, &mut interner, &mut events);
-
-        assert!(events.is_empty());
-    }
-
-    #[test]
-    fn emit_crush_kill_sounds_emits_crush_when_die_field_is_none() {
-        let rules = build_test_rules(Some("InfantrySquish"), None);
-        let mut interner = crate::sim::intern::StringInterner::new();
-        let victim = build_victim(&mut interner, 3, 4);
-        let mut events = Vec::new();
-
-        emit_crush_kill_sounds(&victim, &rules, &mut interner, &mut events);
-
-        assert_eq!(events.len(), 1);
-        assert!(matches!(
-            events[0],
-            crate::sim::world::SimSoundEvent::EntityCrushed { .. }
-        ));
-    }
-
-    #[test]
-    fn emit_crush_kill_sounds_no_events_when_both_none() {
-        let rules = build_test_rules(None, None);
-        let mut interner = crate::sim::intern::StringInterner::new();
-        let victim = build_victim(&mut interner, 1, 1);
-        let mut events = Vec::new();
-
-        emit_crush_kill_sounds(&victim, &rules, &mut interner, &mut events);
-
-        assert!(events.is_empty(), "expected no events, got {:?}", events);
-    }
-}

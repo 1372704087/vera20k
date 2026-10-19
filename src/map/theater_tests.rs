@@ -3,6 +3,7 @@
 //! Extracted from theater.rs to stay under the 400-line limit.
 
 use super::*;
+use crate::assets::pal_file::Color;
 
 fn make_test_ini() -> String {
     "[TileSet0000]\nSetName=Grass\nFileName=clear\nTilesInSet=1\n\n\
@@ -62,18 +63,10 @@ fn active_theater_names_and_archive_order_match_retail() {
 #[test]
 fn missing_theater_palette_uses_native_rgb_ramp() {
     let palette = native_missing_theater_palette();
-    assert_eq!(
-        palette.colors[0],
-        Color {
-            r: 0,
-            g: 255,
-            b: 0,
-            a: 0,
-        }
-    );
-    assert_eq!(palette.colors[1], Color::rgb(1, 254, 4));
-    assert_eq!(palette.colors[64], Color::rgb(64, 191, 0));
-    assert_eq!(palette.colors[255], Color::rgb(255, 0, 252));
+    assert_eq!(palette.color(0), Color::rgb(0, 255, 0));
+    assert_eq!(palette.color(1), Color::rgb(1, 254, 4));
+    assert_eq!(palette.color(64), Color::rgb(64, 191, 0));
+    assert_eq!(palette.color(255), Color::rgb(255, 0, 252));
 }
 
 #[test]
@@ -542,11 +535,8 @@ fn general_reader_missing_bridge_middle_returns_none() {
     assert_eq!(super::read_general_u16(general, "BridgeMiddle2"), None);
 }
 
-fn native_general_corpus() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/rules_oracle/theater_general_reader.json",
-    ))
-    .expect("executed 545150 General reader corpus")
+fn native_general_corpus() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/rules_oracle/theater_general_reader.json")
 }
 
 #[test]
@@ -616,8 +606,39 @@ fn active_retail_tile_shadow_route_is_dormant() {
 }
 
 #[test]
+fn retail_lunar_water_family_uses_the_original_postpass() {
+    use crate::map::rmg::tiles::TileIds;
+    use crate::util::sha256::sha256_hex;
+
+    let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let theater = load_theater(&mut assets, "LUNAR").expect("load retail Lunar theater");
+    let corpus = native_general_corpus();
+    let physical = corpus["physical"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["file"] == "lunarmd.ini")
+        .expect("original reader's physical Lunar input");
+    assert_eq!(
+        sha256_hex(&theater.ini_data),
+        physical["sha256"].as_str().unwrap()
+    );
+
+    // Original ReadTheater545150, 546C95..546CB9: seven specific globals
+    // become -1. In particular ShorePieces and WaterBridge are cleared too.
+    // Cell4865D0 still compares against absent bases; this is a production
+    // publication regression, not a supplied tile-base or native-world golden.
+    assert_eq!(theater.rmg_tiles.shore_pieces, None);
+    assert_eq!(theater.rmg_tiles.water_set, None);
+    assert_eq!(theater.rmg_tiles.water_bridge, None);
+    assert!(TileIds::resolve(&theater).is_water_shore_or_waterfall(0));
+}
+
+#[test]
 fn selected_retail_temperate_rmg_roles_reach_tile_ids() {
-    use crate::map::rmg::tiles::{SpecialTerrain, TileIds};
+    use crate::map::rmg::tiles::TileIds;
     use crate::util::sha256::sha256_hex;
 
     let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
@@ -639,17 +660,21 @@ fn selected_retail_temperate_rmg_roles_reach_tile_ids() {
     // Reader/default/ordinal correctness is independently compared with native
     // execution by general_helpers_match_original_reader_and_signed_repair_keys
     // and general_roles_match_original_ordinal_publication below. This assertion
-    // covers production loading/publication, without another 18-key parser.
+    // covers production loading/publication, without another key parser.
     let ini = IniFile::from_bytes(&theater.ini_data).expect("selected theater INI");
-    let expected = resolve_rmg_tile_keys(&theater.lookup, ini.section("General"));
+    let expected = resolve_rmg_tile_keys(
+        &theater.lookup,
+        ini.section("General"),
+        theater.slope_set_pieces,
+    );
     assert_eq!(
         theater.rmg_tiles, expected,
         "loader publishes every RMG role"
     );
     let mut loaded_ids = TileIds::resolve(&theater);
-    // SpecialTerrain comes from cliff_ranges, not these 18 RMG keys. Its native
+    // Canonical cliff ranges come from the theater, not these RMG keys. The
     // predicates have separate tests; this is only the RMG projection boundary.
-    loaded_ids.special = SpecialTerrain::default();
+    loaded_ids.cliffs = TheaterCliffRanges::default();
     assert_eq!(loaded_ids, TileIds::from_keys(&expected));
 }
 
@@ -759,7 +784,11 @@ fn general_roles_match_original_ordinal_publication() {
             read_general_u16(general, "BridgeSet"),
             read_general_u16(general, "WoodBridgeSet"),
         );
-        let rmg = resolve_rmg_tile_keys(&lookup, general);
+        let rmg = resolve_rmg_tile_keys(
+            &lookup,
+            general,
+            read_general_u16(general, "SlopeSetPieces"),
+        );
         for (key, actual) in [
             ("BridgeSet", cliffs.bridge_set),
             ("WoodBridgeSet", cliffs.wood_bridge_set),
@@ -775,6 +804,7 @@ fn general_roles_match_original_ordinal_publication() {
             ("ClearTile", rmg.clear_tile),
             ("RampBase", rmg.ramp_base),
             ("RampSmooth", rmg.ramp_smooth),
+            ("SlopeSetPieces", rmg.slope_set_pieces),
             ("RoughTile", rmg.rough_tile),
             ("SandTile", rmg.sand_tile),
             ("GreenTile", rmg.green_tile),
@@ -992,17 +1022,22 @@ fn cliff_ranges_resolve_ordinals_to_cumulative_tile_starts() {
 #[test]
 fn gsi_04_03a_rmg_tile_keys_parse_ramp_smooth_and_resolve_ordinals() {
     let ini_bytes =
-        b"[General]\nClearTile = 0\nRampBase = 1\nRampSmooth = 2\nGreenTile = 2\nWaterSet = 1\n\n\
+        b"[General]\nClearTile = 0\nRampBase = 1\nRampSmooth = 2\nSlopeSetPieces = 0\nGreenTile = 2\nWaterSet = 1\n\n\
                 [TileSet0000]\nTilesInSet=2\nFileName=clear\nSetName=Clear\n\n\
                 [TileSet0001]\nTilesInSet=3\nFileName=water\nSetName=Water\n\n\
                 [TileSet0002]\nTilesInSet=4\nFileName=green\nSetName=Green\n";
     let lookup = super::parse_tileset_ini(ini_bytes, "tem").unwrap();
     let ini = IniFile::from_bytes(ini_bytes).unwrap();
-    let keys = super::resolve_rmg_tile_keys(&lookup, ini.section("General"));
+    let keys = super::resolve_rmg_tile_keys(
+        &lookup,
+        ini.section("General"),
+        super::read_general_u16(ini.section("General"), "SlopeSetPieces"),
+    );
 
     assert_eq!(keys.clear_tile, Some(0));
     assert_eq!(keys.ramp_base, Some(2));
     assert_eq!(keys.ramp_smooth, Some(5));
+    assert_eq!(keys.slope_set_pieces, Some(0), "base zero remains valid");
     assert_eq!(keys.water_set, Some(2), "set 1 starts at cumulative tile 2");
     assert_eq!(
         keys.green_tile,
@@ -1092,7 +1127,7 @@ fn gsi_04_03a_bridge_ramp_predicate_remains_narrower_than_special_terrain() {
 }
 
 #[test]
-fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
+fn gsi_04_03a_lunar_postpass_preserves_other_declared_ranges() {
     let mut ini = String::from(
         "[General]\n\
          CliffSet=10\n\
@@ -1114,12 +1149,14 @@ fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
     let mut bridge_set = super::read_general_u16(general, "BridgeSet");
     let mut wood_bridge_set = super::read_general_u16(general, "WoodBridgeSet");
     let mut ranges = super::resolve_cliff_ranges(&lookup, general, bridge_set, wood_bridge_set);
+    let before = ranges;
     let mut rmg_tiles = RmgTileKeys {
         water_set: Some(17),
+        shore_pieces: Some(18),
+        water_bridge: Some(19),
+        slope_set_pieces: Some(20),
         ..RmgTileKeys::default()
     };
-
-    assert!(ranges.is_special_terrain_tile(1, 0));
 
     super::apply_lunar_global_zeroing(
         "LUNAR",
@@ -1131,9 +1168,22 @@ fn gsi_04_03a_lunar_theater_zeroing_clears_special_terrain_globals() {
 
     assert_eq!(bridge_set, None);
     assert_eq!(wood_bridge_set, None);
-    assert_eq!(ranges, TheaterCliffRanges::default());
+    assert_eq!(
+        ranges,
+        TheaterCliffRanges {
+            cliff_set: None,
+            water_cliffs: None,
+            bridge_set: None,
+            wood_bridge_set: None,
+            ..before
+        }
+    );
+    assert_eq!(ranges.cliff_ramps, Some(1));
+    assert_eq!(ranges.waterfall_east, Some(1));
     assert_eq!(rmg_tiles.water_set, None);
-    assert!(!ranges.is_special_terrain_tile(1, 0));
+    assert_eq!(rmg_tiles.shore_pieces, None);
+    assert_eq!(rmg_tiles.water_bridge, None);
+    assert_eq!(rmg_tiles.slope_set_pieces, Some(20));
 }
 
 /// Helper: build a minimal TheaterData for variant-table tests. BridgeSet
@@ -1157,7 +1207,6 @@ fn synthetic_theater_with_bridge_keys(
         bridge_set: Some(0),
         wood_bridge_set: None,
         slope_set_pieces: None,
-        slope_set_pieces2: None,
         bridge_middle_1,
         bridge_middle_2,
         tunnels: None,
@@ -1300,4 +1349,31 @@ fn gsi_13_04_tile_anim_block_is_not_read_from_the_tileset_section() {
                Tile01Anim=WA01X\nTile01AttachesTo=0\n";
     let lookup = parse_tileset_ini(ini.as_bytes(), "tem").unwrap();
     assert_eq!(lookup.tile_anim(0), None);
+}
+
+/// Sprite atlas growth draws through the palettes `load_theater` publishes:
+/// the exact active-YR names, every entry opaque. Retail UNITTEM.PAL holds raw
+/// 63,0,63 at indices 204..=239 and ISOTEM.PAL at 10; neither is a chroma key.
+#[test]
+fn atlas_growth_reads_the_published_theater_palettes() {
+    use crate::map::source::test_support::TestDirectory;
+    let mut magenta = vec![0u8; 768];
+    for index in [10, 204] {
+        magenta[index * 3..index * 3 + 3].copy_from_slice(&[63, 0, 63]);
+    }
+    let exact = TestDirectory::new("theater-atlas-palettes");
+    exact.write("unittem.pal", &magenta);
+    exact.write("isotem.pal", &magenta);
+    let assets = AssetManager::from_loose_root_for_test(exact.path());
+    let (unit, iso) = load_theater_unit_and_iso_palettes(&assets, "TEMPERATE").unwrap();
+    assert_eq!(unit.color(204), Color::rgb(252, 0, 252));
+    assert_eq!(iso.color(10), Color::rgb(252, 0, 252));
+    assert_eq!(unit.color(0), Color::rgb(0, 0, 0));
+
+    // No looser search: the generic unit palette is not the theater's.
+    let generic = TestDirectory::new("theater-atlas-palettes-generic");
+    generic.write("unit.pal", &magenta);
+    generic.write("isotem.pal", &magenta);
+    let assets = AssetManager::from_loose_root_for_test(generic.path());
+    assert!(load_theater_unit_and_iso_palettes(&assets, "TEMPERATE").is_none());
 }

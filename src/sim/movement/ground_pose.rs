@@ -169,8 +169,8 @@ impl Position {
         path_grid: Option<&PathGrid>,
     ) {
         let world_xy = position_world_xy(self);
-        let (level, slope) = ground_fields_at(world_xy, terrain, path_grid).unwrap_or((0, 0));
-        if let Some(ground) = supported_ground(level, slope, world_xy) {
+        let ground = ground_at(world_xy, terrain, path_grid).unwrap_or(Ok(0));
+        if let Some(ground) = supported_ground(ground, world_xy) {
             self.put_z(z_at_height(ground, height, on_bridge));
         }
     }
@@ -261,12 +261,10 @@ impl Simulation {
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
     ) -> Result<(i16, i16), String> {
-        let coordinate = super::navcom::nav_target_coordinate(
-            crate::sim::components::NavTargetRef::Entity { id },
+        let coordinate = self.navigation_target_coordinate(
+            crate::sim::components::NavTargetRef::object(id),
             None,
-            &self.substrate.entities,
-            self.resolved_terrain.as_ref(),
-            Some((rules, &self.interner)),
+            rules,
         )?;
         let terrain = self
             .resolved_terrain
@@ -504,7 +502,7 @@ pub(crate) fn object_ground_z_leptons(
 /// One459EF0 port for ART, damage fires, destruction, muzzle coordinates,
 /// Temporal sparkles, display registration and presentation. YSort stays
 /// separate from the coordinate; neither uses foundation-center coords.
-pub(crate) fn building_render_order_parts(
+pub fn building_render_order_parts(
     mut location: DriveCoord,
     turret_anim_is_voxel: bool,
     gate: bool,
@@ -602,7 +600,7 @@ pub(crate) fn object_target_coords(
 /// Rescue4DE04E/4DE073 and AreaGuard4D6F00 pass this XYZ to their scanner.
 pub fn target_get_coords(
     target: crate::sim::combat::TargetKind,
-    entities: &crate::sim::entity_store::EntityStore,
+    world: &Simulation,
     cells: Option<&NativeCellQuery<'_>>,
 ) -> Option<DriveCoord> {
     match target {
@@ -610,11 +608,21 @@ pub fn target_get_coords(
             Some(super::navcom::target_cell_coord(rx, ry, cells))
         }
         crate::sim::combat::TargetKind::Entity(id) => {
-            let entity = entities.get(id)?;
-            Some(object_get_coords(
-                entity,
-                cells.map(NativeCellQuery::terrain),
-            ))
+            if let Some(entity) = world.substrate.entities.get(id) {
+                Some(object_get_coords(
+                    entity,
+                    cells.map(NativeCellQuery::terrain),
+                ))
+            } else {
+                // Terrain7F522C+48 inherits Object5F65A0: its constructor's
+                // retained Location survives ground changes and expiry.
+                let coord = world.production.terrain_objects.get(&id)?.world_coord();
+                Some(DriveCoord {
+                    x: coord.x,
+                    y: coord.y,
+                    z: coord.z,
+                })
+            }
         }
     }
 }
@@ -623,7 +631,7 @@ pub fn target_get_coords(
 /// structural bridge height. FireAt70BCB0 and planning Foot4D8560 share it.
 pub(crate) fn target_get_target_coords(
     target: crate::sim::combat::TargetKind,
-    entities: &crate::sim::entity_store::EntityStore,
+    world: &Simulation,
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> Option<DriveCoord> {
     match target {
@@ -635,9 +643,11 @@ pub(crate) fn target_get_target_coords(
                 z: coord.z,
             })
         }
-        crate::sim::combat::TargetKind::Entity(id) => {
-            Some(object_get_coords(entities.get(id)?, terrain))
-        }
+        crate::sim::combat::TargetKind::Entity(_) => target_get_coords(
+            target,
+            world,
+            terrain.map(NativeCellQuery::canonical).as_ref(),
+        ),
     }
 }
 
@@ -646,10 +656,10 @@ pub(crate) fn target_get_target_coords(
 /// target the raw Object+9C Location is returned, not its foundation center.
 pub(crate) fn current_destination_coords(
     entity: &crate::sim::game_entity::GameEntity,
-    entities: &crate::sim::entity_store::EntityStore,
+    world: &Simulation,
     terrain: Option<&ResolvedTerrainGrid>,
 ) -> Option<DriveCoord> {
-    use crate::sim::{combat::TargetKind, components::NavTargetRef, mission::MissionType};
+    use crate::sim::{combat::TargetKind, mission::MissionType};
     let attacking = entity.mission.effective().known() == Some(MissionType::Attack);
     let target = if attacking {
         entity.attack_target.target()
@@ -658,18 +668,13 @@ pub(crate) fn current_destination_coords(
             .navigation
             .nav_com_aux()
             .or(entity.navigation.nav_com())
-            .map(|target| match target {
-                NavTargetRef::Cell { rx, ry } => TargetKind::Cell(rx, ry),
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id } => TargetKind::Entity(id),
-            })
+            .map(TargetKind::from)
     } else {
         None
     };
     target.map_or_else(
         || Some(position_world_coord(&entity.position)),
-        |target| target_get_target_coords(target, entities, terrain),
+        |target| target_get_target_coords(target, world, terrain),
     )
 }
 
@@ -688,7 +693,7 @@ impl Simulation {
             .resolved_terrain
             .as_ref()
             .map(NativeCellQuery::canonical);
-        let coords = |target| target_get_coords(target, &self.substrate.entities, cells.as_ref());
+        let coords = |target| target_get_coords(target, self, cells.as_ref());
         let from = coords(crate::sim::combat::TargetKind::Entity(id))?;
         let to = coords(target)?;
         let foundation = match target {
@@ -715,36 +720,41 @@ impl Simulation {
     }
 }
 
-/// The level and slope `CellClass::GetGroundHeight @ 0x00578080` reads at
-/// full world XY. With resolved terrain that is Map[coord] (`0x00565730`),
-/// which forms the wrapping fixed-stride index before narrowing fallback
-/// coordinates; keep the common lookup owner. A PathGrid supplies the same
-/// fields only for callers without resolved terrain.
-fn ground_fields_at(
+/// `CellClass::GetGroundHeight @ 0x00578080` at full world XY. With resolved
+/// terrain that is [`query_ground_height`] through the canonical query. A
+/// PathGrid supplies the cell's level and slope only for headless callers
+/// without resolved terrain; `None` when neither holds the cell.
+fn ground_at(
     world_xy: [i32; 2],
     terrain: Option<&ResolvedTerrainGrid>,
     path_grid: Option<&PathGrid>,
-) -> Option<(u8, u8)> {
+) -> Option<Result<i32, String>> {
     if let Some(terrain) = terrain {
-        let cells = NativeCellQuery::canonical(terrain);
-        return Some(cells.ground_fields(cells.lookup_world(world_xy[0], world_xy[1])));
+        let point = DriveCoord {
+            x: world_xy[0],
+            y: world_xy[1],
+            z: 0,
+        };
+        return Some(query_ground_height(
+            &NativeCellQuery::canonical(terrain),
+            point,
+        ));
     }
     let rx = (world_xy[0] / 256) as i16;
     let ry = (world_xy[1] / 256) as i16;
     let cell = path_grid?.cell(rx as u16, ry as u16)?;
-    Some((cell.ground_level, cell.slope_type))
+    Some(
+        ground_height_leptons(cell.ground_level, cell.slope_type, world_xy[0], world_xy[1])
+            .map_err(|error| format!("{error:?}")),
+    )
 }
 
-fn supported_ground(level: u8, slope: u8, world_xy: [i32; 2]) -> Option<i32> {
-    match ground_height_leptons(level, slope, world_xy[0], world_xy[1]) {
-        Ok(ground) => Some(ground),
-        Err(_) => {
-            log::warn!(
-                "ground pose at {world_xy:?} has unsupported slope {slope}; retaining raw Z"
-            );
-            None
-        }
-    }
+/// The sampled ground, or `None` (keeping the raw Z) for a slope the evaluator
+/// does not model.
+fn supported_ground(ground: Result<i32, String>, world_xy: [i32; 2]) -> Option<i32> {
+    ground
+        .inspect_err(|error| log::warn!("ground pose at {world_xy:?}: {error}; retaining raw Z"))
+        .ok()
 }
 
 /// Sample the live surface at full world XY: the ground plus the deck when
@@ -756,12 +766,8 @@ pub(crate) fn ground_surface_z_at(
     terrain: Option<&ResolvedTerrainGrid>,
     path_grid: Option<&PathGrid>,
 ) -> Option<i32> {
-    let (level, slope) = ground_fields_at(world_xy, terrain, path_grid)?;
-    Some(z_at_height(
-        supported_ground(level, slope, world_xy)?,
-        0,
-        on_bridge,
-    ))
+    let ground = supported_ground(ground_at(world_xy, terrain, path_grid)?, world_xy)?;
+    Some(z_at_height(ground, 0, on_bridge))
 }
 
 /// `ObjectClass::SetHeight @ 0x005F5FA0`'s Z for a sampled ground: the

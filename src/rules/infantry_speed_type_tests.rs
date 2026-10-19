@@ -8,11 +8,8 @@ use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::ruleset::RuleSet;
 use serde_json::Value;
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/rules_oracle/infantry_speed_type.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/rules_oracle/infantry_speed_type.json")
 }
 
 fn supplied_cache(sections: &Value) -> IniFile {
@@ -69,10 +66,9 @@ fn speed_type_rules_passes_retain_current_field_and_invalid_value() {
 
 #[test]
 fn retail_engineer_keeps_original_foot_constructor_default() {
-    let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&ini).unwrap();
     assert_eq!(
         rules.object("ENGINEER").unwrap().speed_type as i64,
         corpus()["physical"]["final_speed_type"].as_i64().unwrap()

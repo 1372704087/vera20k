@@ -14,16 +14,6 @@ use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::{DestinationTiming, air_movement, ground_pose};
 use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
 
-/// The object a destination names; a cell names none.
-fn nav_object(target: NavTargetRef) -> Option<u64> {
-    match target {
-        NavTargetRef::Cell { .. } => None,
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Building { id }
-        | NavTargetRef::Object { id } => Some(id),
-    }
-}
-
 impl Simulation {
     /// `AircraftClass::Assign_Destination @ 0x0041AA80` (vt+0x480), the
     /// class setter every aircraft destination goes through, ending in the
@@ -55,7 +45,7 @@ impl Simulation {
             self.foot_null_destination(id, Some(rules), None, frame_effects);
             return;
         };
-        let high = nav_object(requested).is_some_and(|target| {
+        let high = requested.object_id().is_some_and(|target| {
             self.substrate.entities.get(target).is_some_and(|e| {
                 air_movement::is_high_flying(
                     e,
@@ -72,7 +62,7 @@ impl Simulation {
             let enter = MissionId::from_known(MissionType::Enter);
             entity.mission.effective() == enter || entity.mission.queued() == enter
         });
-        let building = nav_object(requested).filter(|&target| {
+        let building = requested.object_id().filter(|&target| {
             self.substrate
                 .entities
                 .get(target)
@@ -103,7 +93,7 @@ impl Simulation {
         let coord = crate::sim::movement::nav_target_coordinate(
             destination,
             Some(id),
-            &self.substrate.entities,
+            self,
             self.resolved_terrain.as_ref(),
             Some((rules, &self.interner)),
         )
@@ -144,7 +134,7 @@ impl Simulation {
         rules: &RuleSet,
         frame_effects: FrameEffects<'_>,
     ) -> ControlFlow<(), Option<NavTargetRef>> {
-        let dock = NavTargetRef::Building { id: building };
+        let dock = NavTargetRef::object(building);
         let Some(object) = self
             .substrate
             .entities
@@ -262,7 +252,7 @@ impl Simulation {
                         Some(rules),
                         frame_effects,
                     );
-                    destination = Some(NavTargetRef::Building { id: pad });
+                    destination = Some(NavTargetRef::object(pad));
                     MissionType::Enter
                 }
                 None => {
@@ -335,7 +325,7 @@ impl Simulation {
             locomotor.power_on();
         }
         if entity.radio_contacts.slot(0) == Some(pad)
-            && destination.and_then(nav_object) != Some(pad)
+            && destination != Some(NavTargetRef::object(pad))
         {
             radio::transmit_to_contact(self, id, RadioMessage::Break, Some(rules), frame_effects);
         }
@@ -417,10 +407,7 @@ impl Simulation {
         let flight_level =
             air_movement::type_flight_level(entity, rules.map(|rules| (rules, &self.interner)));
         let armed_flight_level = (entity.attack_target.target().is_some()
-            && entity
-                .aircraft_ammo
-                .as_ref()
-                .is_some_and(|a| a.current() != 0))
+            && entity.ammo().is_some_and(|a| a.current() != 0))
         .then_some(flight_level);
         //4CCE1C..4CCE6E stores destination before landing-base/height reads.
         if let Some(state) = self

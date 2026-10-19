@@ -97,10 +97,11 @@ fn two_reached_gi_voices_share_admission_and_original_main_sample_continuation()
         return;
     };
     player.set_volume(0.0);
-    let definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+    let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+        .expect("retail audio definitions");
     let registry = definitions.sounds();
-    let selected_index = assets.load_audio_index().unwrap();
-    let index = selected_index.as_ref().map(|selected| &selected.index);
+    let selected_index = crate::rules::retail_ini_fixture::retail_audio_index();
+    let index = selected_index.map(|selected| &selected.index);
     for sound in native()["retail"]["sounds"].as_array().unwrap() {
         let entry = registry.get(sound["name"].as_str().unwrap()).unwrap();
         let facts = &sound["fields"];
@@ -278,8 +279,8 @@ fn both_selected_gi_samples_decode_to_every_original_callback_pcm_byte() {
     let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
         return;
     };
-    let selected_index = assets.load_audio_index().unwrap();
-    let index = selected_index.as_ref().map(|selected| &selected.index);
+    let selected_index = crate::rules::retail_ini_fixture::retail_audio_index();
+    let index = selected_index.map(|selected| &selected.index);
     let callbacks = core()["pcm_observation"]["callbacks"].as_array().unwrap();
     let mut checked = 0;
     for event in boundary("audio_pump_1034")["after"]["events"]
@@ -347,8 +348,8 @@ fn shared_pool_admission_and_channel_shifts_match_original_main_draws() {
     let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
         return;
     };
-    let selected_index = assets.load_audio_index().unwrap();
-    let index = selected_index.as_ref().map(|selected| &selected.index);
+    let selected_index = crate::rules::retail_ini_fixture::retail_audio_index();
+    let index = selected_index.map(|selected| &selected.index);
     for history in native()["pool_controls"].as_array().unwrap() {
         let Some(mut player) = SfxPlayer::new() else {
             return;

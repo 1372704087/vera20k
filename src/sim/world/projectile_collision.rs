@@ -292,10 +292,13 @@ impl ProjectileCollisionWorld<'_> {
             {
                 let building = self.building(&cell);
                 obstacle = building.is_some()
-                    || self
-                        .overlay(&cell)
-                        .0
-                        .is_some_and(|id| matches!(id, 2 | 26 | 243));
+                    || matches!(
+                        crate::sim::cell_kernel::wall_connection_step(
+                            self.overlay(&cell).0.map_or(-1, i32::from),
+                            -1,
+                        ),
+                        crate::sim::cell_kernel::WallConnectionStep::Return(true)
+                    );
                 if let Some(id) = building {
                     let exempt = self
                         .entities
@@ -928,10 +931,6 @@ mod tests {
             assert!(
                 sim.substrate.entities.get(target).unwrap().health.current() < health,
                 "existing receiver commits the hit"
-            );
-            assert!(
-                sim.pending_projectile_detonations.is_empty(),
-                "detonation commits once in its Logic visit"
             );
         }
     }
@@ -1646,10 +1645,6 @@ mod tests {
                     .overlay_data,
                 if detonate { 0x10 } else { 0 }
             );
-            assert!(
-                runtime.simulation.pending_projectile_detonations.is_empty(),
-                "damage commits in the normal runtime Logic slot"
-            );
             if !detonate {
                 assert_eq!(
                     runtime.simulation.projectiles.get(100).unwrap().position.z,
@@ -1856,7 +1851,6 @@ mod tests {
                     "native final cell coordinate reaches synchronous wall damage"
                 );
             }
-            assert!(resumed.simulation.pending_projectile_detonations.is_empty());
         }
     }
 
@@ -2269,7 +2263,6 @@ mod tests {
                     .as_slice(),
                 expected_bits.as_slice()
             );
-            assert!(runtime.simulation.pending_projectile_detonations.is_empty());
         }
     }
 
@@ -2333,7 +2326,6 @@ mod tests {
             0x10,
             "final target coordinate receives damage immediately"
         );
-        assert!(runtime.simulation.pending_projectile_detonations.is_empty());
     }
 
     #[test]
@@ -2392,7 +2384,6 @@ mod tests {
                 .overlay_data,
             0x10
         );
-        assert!(runtime.simulation.pending_projectile_detonations.is_empty());
     }
 
     #[test]

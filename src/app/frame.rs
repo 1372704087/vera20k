@@ -38,11 +38,12 @@ impl App {
         event_loop: &ActiveEventLoop,
         simulation_allowed: bool,
     ) -> bool {
+        #[cfg(feature = "telemetry-dashboard")]
+        crate::app::telemetry_capture::synchronize_observer(state);
         // HouseClass keeps simulating for SavourDelay, then blocks on the
         // current outcome Vox before it raises the victory/defeat exit global.
         // Drive that gate before deciding whether another sim frame is legal.
-        let scenario_now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let scenario_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         Self::consume_executed_abort_exit(state, scenario_now_ms);
         crate::app::match_runtime::sim_tick::drive_local_player_outcome_voice_wait(
             state,
@@ -108,8 +109,7 @@ impl App {
             && state.match_state.scenario_exit.is_none()
             && state.match_state.scenario_outcome.is_none()
         {
-            let now = Instant::now();
-            let now_ms = sim_tick::monotonic_frame_pacer_ms(state, now);
+            let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
             sim_tick::advance_in_game_runtime(state, now_ms);
             // EventClass EXIT is dispatched at the simulation tail. Consume
             // its terminal edge before any outcome route can claim teardown.
@@ -122,6 +122,8 @@ impl App {
             );
             Self::drive_scenario_exit(state, now_ms);
         }
+        #[cfg(feature = "telemetry-dashboard")]
+        crate::app::telemetry_capture::publish_if_due(state);
         false
     }
 
@@ -149,12 +151,11 @@ impl App {
             // draws one of its own — that leaves a single (software) cursor and
             // avoids the OS arrow + game arrow flicker at the clip edge. Where
             // the game draws *no* software cursor (the status screen, and any
-            // debug-pause / diagnostic overlay, since the sim is paused and
-            // `use_software_cursor` is false there), surface the OS cursor so
-            // the pointer stays visible. Do NOT gate on
-            // `battlefield_drawn`: the sim stops redrawing while paused, so the
-            // battlefield is not "drawn" yet the debug overlay still needs a
-            // visible pointer.
+            // debug pause, since the sim is paused and `use_software_cursor`
+            // is false there), surface the OS cursor so a pointer stays
+            // visible. Do NOT gate on `battlefield_drawn`: the sim stops
+            // redrawing while paused, so the battlefield is not "drawn" yet the
+            // debug pause still needs a visible pointer.
             status_screen_drawn || !state.use_software_cursor()
         } else {
             status_screen_drawn
@@ -192,6 +193,8 @@ impl App {
             shell_capture.is_none() || tactical_capture.is_none(),
             "shell and tactical capture cannot share a render"
         );
+        #[cfg(feature = "telemetry-dashboard")]
+        crate::app::telemetry_capture::synchronize_observer(state);
         if let Some(session) = tactical_capture.as_deref_mut() {
             session.drive_before_render(state)?;
         }
@@ -312,7 +315,7 @@ impl App {
 
         crate::app::frontend::shell_transition::activate_shell_first_paint_after_acquire(state);
         crate::app::frontend::shell_transition::poll_main_menu_title_reveal(state);
-        let shell_capture_current_frame = match shell_capture.as_deref_mut() {
+        let mut shell_capture_current_frame = match shell_capture.as_deref_mut() {
             Some(session) => session.should_capture_current_frame(state)?,
             None => false,
         };
@@ -554,7 +557,7 @@ impl App {
                     [chrono_tactical.0, chrono_tactical.1, chrono_tactical.2, chrono_tactical.3],
                 );
                 let times = render::GameRenderTimes {
-                    radar_ms: state.radar_presentation_ms(Instant::now()),
+                    radar_ms: state.radar_presentation_ms(),
                     tooltip_ms,
                     message_ms,
                 };
@@ -583,9 +586,10 @@ impl App {
                         .copy_to(&mut encoder, &output.texture);
                     render_output
                 };
-                // The render's own phase spans feed the dashboard breakdown;
-                // one sample per presented game frame.
-                state.diag.render_timing.record(game_output.phases);
+                #[cfg(feature = "telemetry-dashboard")]
+                if let Some(phases) = game_output.phases {
+                    state.diag.render_timing.record(phases);
+                }
                 game_render_output = Some(game_output);
             }
             GameScreen::MissionResult { title, detail } => {
@@ -596,19 +600,34 @@ impl App {
                 // screens with no native analogue (a load failure, a
                 // trigger-driven campaign end) carry no model and keep the
                 // non-art card.
-                let score_rendered = Self::score_shell_active(state)
-                    && (matches!(
+                let score_rendered = if Self::campaign_score_shell_active(state) {
+                    matches!(
                         crate::app::frontend::shell_transition::render_shell_first_paint_slide(
                             state,
                             &mut encoder,
                             &output.texture,
                         )?,
                         crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered { .. }
-                    ) || crate::app::frontend::score_shell_render::render_score_page(
+                    ) || crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
                         state,
                         &mut encoder,
                         &output.texture,
-                    )?);
+                    )?
+                } else {
+                    Self::score_shell_active(state)
+                        && (matches!(
+                            crate::app::frontend::shell_transition::render_shell_first_paint_slide(
+                                state,
+                                &mut encoder,
+                                &output.texture,
+                            )?,
+                            crate::app::frontend::shell_transition::ShellFirstPaintRenderResult::Rendered { .. }
+                        ) || crate::app::frontend::score_shell_render::render_score_page(
+                            state,
+                            &mut encoder,
+                            &output.texture,
+                        )?)
+                };
                 if score_rendered {
                     presented_shell = PresentedShell::Score;
                 } else {
@@ -649,6 +668,10 @@ impl App {
                 }
                 (Some(_), None) | (None, _) => false,
             };
+        if let Some(session) = shell_capture.as_deref_mut() {
+            shell_capture_current_frame |=
+                session.should_capture_after_render(state, presented_shell)?;
+        }
         let capture_current_frame = shell_capture_current_frame || tactical_capture_current_frame;
         let pending_capture = if capture_current_frame {
             Some(crate::render::frame_readback::PendingBgra8Readback::encode(
@@ -713,6 +736,9 @@ impl App {
         if let Some(page) = state.frontend.score_page.as_mut() {
             page.commit_presented();
         }
+        if let Some(page) = state.frontend.campaign_score_page.as_mut() {
+            page.commit_presented();
+        }
         let skirmish = &mut state.frontend.skirmish_shell_state;
         skirmish.statics.commit_presented();
         if let Some(modal) = skirmish.choose_map_modal.as_mut() {
@@ -759,16 +785,21 @@ impl App {
                 capture_timeout.expect("capture timeout exists with pending readback"),
             )?;
             let surface_format = state.renderer.gpu.config.format;
-            if shell_capture_current_frame {
-                shell_capture
-                    .expect("shell capture session exists when readback completes")
-                    .complete(state, surface_format, &pixels)?;
+            let capture_terminal = if shell_capture_current_frame {
+                let session = shell_capture
+                    .as_deref_mut()
+                    .expect("shell capture session exists when readback completes");
+                session.complete(state, surface_format, &pixels)?;
+                session.is_terminal()
             } else {
                 tactical_capture
                     .expect("tactical capture session exists when readback completes")
                     .complete_after_readback(state, surface_format, &pixels)?;
+                true
+            };
+            if capture_terminal {
+                event_loop.exit();
             }
-            event_loop.exit();
         }
         if let Some(pending_screenshot) = pending_retail_screenshot {
             match pending_screenshot.finish(
@@ -790,6 +821,8 @@ impl App {
         }
 
         crate::app::loading::pump::after_loading_frame_presented(state);
+        #[cfg(feature = "telemetry-dashboard")]
+        crate::app::telemetry_capture::publish_if_due(state);
 
         Ok(())
     }

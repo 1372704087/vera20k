@@ -30,11 +30,8 @@ struct DragCase {
     expected: Expected,
 }
 
-fn vectors() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/input_oracle/fast_scroll.json",
-    ))
-    .unwrap()
+fn vectors() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/input_oracle/fast_scroll.json")
 }
 
 fn mouse_for(case: &DragCase) -> TacticalMouseState {
@@ -236,6 +233,7 @@ fn a_drag_between_offline_polls_remains_a_cancel_click() {
             startup_admitted: true,
             frame_stepping: false,
             paused: false,
+            scenario_paused: false,
             menu_open: false,
             session_mode: SessionMode::from_game_mode(mode),
             pacer_timing_admits: false,
@@ -413,6 +411,11 @@ fn cinematic_focus_matches_native_frame_gates_projection_cleanup_and_restored_st
     let mut sequences: Vec<CameraSequence> =
         serde_json::from_value(vectors()["focus_sequences"].clone()).unwrap();
     assert_eq!(sequences.len(), 22);
+    // This native control records alternating inverted bounds. VERA centers
+    // oversized views instead; camera_bounds_tests covers that deliberate
+    // presentation difference without rewriting the executable observations.
+    sequences.retain(|sequence| sequence.name != "focus_view_larger_than_local_rect");
+    assert_eq!(sequences.len(), 21);
     let lifecycle: Vec<CameraSequence> =
         serde_json::from_value(vectors()["camera_lifecycle_sequences"].clone()).unwrap();
     assert_eq!(lifecycle.len(), 4);
@@ -574,7 +577,7 @@ fn cinematic_focus_matches_native_frame_gates_projection_cleanup_and_restored_st
             visits += 1;
         }
     }
-    assert_eq!(visits, 1667);
+    assert_eq!(visits, 1646);
 }
 
 #[test]

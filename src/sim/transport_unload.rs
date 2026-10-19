@@ -17,7 +17,8 @@
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::ruleset::RuleSet;
-use crate::sim::find_nearby_cell::PassabilityArgs;
+use crate::sim::components::DriveCoord;
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -30,8 +31,8 @@ use crate::sim::passenger::{
 };
 use crate::sim::pathfinding::passability::LandType;
 use crate::sim::world::{FrameEffects, PlacementEvidence, SimSoundEvent, Simulation};
-use crate::util::direction_tables::CELL_DELTAS;
-use crate::util::lepton::CELL_CENTER_LEPTON;
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::{dir_from_facing16, round_facing16_to_8};
 
 /// `UnitClass+0x6E4`: the passengers a transport's Unload keeps aboard.
 /// `UnitClass::Mission_Unload @ 0x0073D630` state 0 writes it
@@ -197,11 +198,11 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
     // `0x00740B9F..BAD`: the body's `Current()` (`+0x388`), full 16 bits.
     let facing16 = entity.body_facing_current(sim.session.binary_frame);
     let rear16 = facing16.wrapping_add(0x7FFF);
-    let rear8 = i32::from((((u32::from(rear16) >> 7) + 1) >> 1) as u8 as i8);
+    let rear8 = i32::from(round_facing16_to_8(rear16) as i8);
 
     let mut best_score: i32 = -1;
     let mut best_octant: usize = 0;
-    for (octant, &delta) in CELL_DELTAS.iter().enumerate() {
+    for (octant, &delta) in DIRECTION_DELTAS.iter().enumerate() {
         let open = cell_from(base, delta).is_some_and(|cell| octant_cell_open(sim, cell, owner));
         let mut score: i32 = if open { 0x80 } else { -0x80 };
         let dir8 = i32::from(((octant as u32) << 5) as u8 as i8);
@@ -217,7 +218,7 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
     if best_score <= 0 {
         return None;
     }
-    let cell = cell_from(base, CELL_DELTAS[best_octant])?;
+    let cell = cell_from(base, DIRECTION_DELTAS[best_octant])?;
     Some((cell, opposite_octant(best_octant)))
 }
 
@@ -357,8 +358,7 @@ fn eject_head_passenger(
             };
             let passenger_is_infantry = passenger_snapshot.category() == EntityCategory::Infantry;
 
-            let start =
-                ((((u32::from(facing16.wrapping_add(0x7FFF))) >> 12) + 1) >> 1) as usize & 7;
+            let start = usize::from(dir_from_facing16(facing16.wrapping_add(0x7FFF)));
             let mut strict_pass = true;
             let mut i: usize = 0;
             // `(exit cell, beyond cell on the strict pass, octant)`.
@@ -366,8 +366,9 @@ fn eject_head_passenger(
             let mut placement: Option<Placement> = None;
             while i < 8 {
                 let octant = (start + i) & 7;
-                let exit_cell = cell_from(base, CELL_DELTAS[octant]);
-                let beyond_cell = exit_cell.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
+                let exit_cell = cell_from(base, DIRECTION_DELTAS[octant]);
+                let beyond_cell =
+                    exit_cell.and_then(|cell| cell_from(cell, DIRECTION_DELTAS[octant]));
                 // Both passes ask the cell two steps out first, then the exit
                 // cell (`0x0073D994`, `0x0073D9C2`).
                 let args = InfantryEntryArgs {
@@ -409,17 +410,20 @@ fn eject_head_passenger(
 
             // Placement coordinate: the exit cell centre (`x * 256 + 0x80`).
             let (place_cell, sub_cell) = if passenger_is_infantry {
-                // `PlaceInfantryInCell` from the cell centre: quadrant 0, so the
-                // centre-row `RandomRanged(0, 3)` draw is made on the Scenario stream.
-                let spot = bump_crush::place_infantry_in_cell(
+                // `0x0073DA6B..0x0073DA7C`: 0x004ACA10 at the centre with Z 0,
+                // which never stands on a deck: quadrant 0, so the centre-row
+                // `RandomRanged(0, 3)` draw is made on the Scenario stream.
+                let spot = bump_crush::pick_infantry_sublocation(
+                    sim.resolved_terrain.as_ref(),
                     &sim.substrate.raw_cell_occupation,
-                    exit.0,
-                    exit.1,
-                    MovementLayer::Ground,
-                    CELL_CENTER_LEPTON,
-                    CELL_CENTER_LEPTON,
+                    &sim.substrate.occupancy,
+                    &sim.substrate.entities,
+                    Some(rules),
+                    &sim.interner,
                     &mut sim.scenario_rng,
-                );
+                    DriveCoord::cell(exit.0, exit.1, 0),
+                )
+                .map(|(spot, _)| spot);
                 (exit, spot)
             } else {
                 let passenger = sim
@@ -438,14 +442,17 @@ fn eject_head_passenger(
                 let cell = sim
                     .object_type(passenger.type_ref(), rules)
                     .and_then(|object| {
-                        sim.nearby_location_cell(
+                        sim.nearby_passable_cell(
                             (i32::from(exit.0), i32::from(exit.1)),
-                            PassabilityArgs {
-                                speed_type: object.speed_type,
-                                required_zone_id: None,
-                                movement_zone: MovementZone::Normal,
-                                bridge_aware_zone: false,
-                            },
+                            NearbyArgs::plain(
+                                PassabilityArgs {
+                                    speed_type: object.speed_type,
+                                    required_zone_id: None,
+                                    movement_zone: MovementZone::Normal,
+                                    bridge_aware_zone: false,
+                                },
+                                NearbyFootprint::SINGLE,
+                            ),
                         )
                     })
                     .unwrap_or(exit);
@@ -556,7 +563,7 @@ fn eject_head_passenger(
 /// removes the cargo head before scanning, restores that same head on any
 /// failed search/Unlimbo, then takes the shared Unload rate epilogue. The
 /// source is the supported Steam `gamemd.exe` body `0x0044D880..0x0044DC84`;
-/// infantry placement delegates to `MapClass::PlaceInfantryInCell
+/// infantry placement delegates to `MapClass::PickInfantrySublocation
 /// @ 0x004ACA10` and the existing `CellClass::PlaceInfantryInCell @
 /// 0x00481180` owner.
 ///
@@ -615,15 +622,14 @@ pub(crate) fn building_mission_unload_absorber(
             if passenger_category != EntityCategory::Infantry {
                 return Err(DepartureFailure::Placement);
             }
-            let start =
-                ((((u32::from(facing16.wrapping_add(0x7FFF)) >> 12) + 1) >> 1) as usize) & 7;
+            let start = usize::from(dir_from_facing16(facing16.wrapping_add(0x7FFF)));
             let mut strict_pass = true;
             let mut index = 0usize;
             let mut placement = None;
             while index < 8 {
                 let octant = (start + index) & 7;
-                let adjacent = cell_from(base, CELL_DELTAS[octant]);
-                let beyond = adjacent.and_then(|cell| cell_from(cell, CELL_DELTAS[octant]));
+                let adjacent = cell_from(base, DIRECTION_DELTAS[octant]);
+                let beyond = adjacent.and_then(|cell| cell_from(cell, DIRECTION_DELTAS[octant]));
                 let args = InfantryEntryArgs {
                     direction: octant as i32,
                     height,
@@ -675,18 +681,18 @@ pub(crate) fn building_mission_unload_absorber(
                 return Err(DepartureFailure::Placement);
             };
 
-            // Native supplies the cell centre (x*256+0x80,y*256+0x80,z=0)
-            // to 4ACA10. A bridge candidate was skipped above, so this path
-            // uses the selected ground plane and consumes the shared
-            // center-row Scenario draw in 481180.
-            let Some(sub_cell) = bump_crush::place_infantry_in_cell(
+            // `0x0044DA78..0x0044DA89`: 0x004ACA10 at the cell centre with
+            // Z 0, which never stands on a deck, consuming the shared
+            // centre-row Scenario draw in 481180.
+            let Some((sub_cell, _)) = bump_crush::pick_infantry_sublocation(
+                sim.resolved_terrain.as_ref(),
                 &sim.substrate.raw_cell_occupation,
-                adjacent.0,
-                adjacent.1,
-                MovementLayer::Ground,
-                CELL_CENTER_LEPTON,
-                CELL_CENTER_LEPTON,
+                &sim.substrate.occupancy,
+                &sim.substrate.entities,
+                Some(rules),
+                &sim.interner,
                 &mut sim.scenario_rng,
+                DriveCoord::cell(adjacent.0, adjacent.1, 0),
             ) else {
                 return Err(DepartureFailure::Placement);
             };
@@ -789,7 +795,7 @@ pub(crate) fn unit_mission_unload(
                 .resolved_terrain
                 .as_ref()
                 .and_then(|terrain| terrain.cell(entity.position.rx(), entity.position.ry()))
-                .is_some_and(|cell| cell.yr_cell_land_type == LandType::Water.as_index());
+                .is_some_and(|cell| cell.land_type() == LandType::Water.as_index());
             if entity.navigation.nav_com().is_none() && on_water {
                 // `PUSH 0x2` at `0x0073D790`: the search runs for speed-type
                 // index 2 — Wheel in the native `SpeedType` order (Foot 0,
@@ -811,7 +817,10 @@ pub(crate) fn unit_mission_unload(
                     movement_zone: MovementZone::Normal,
                     bridge_aware_zone: false,
                 };
-                if let Some(cell) = sim.nearby_location_cell(seed, wheel_land) {
+                if let Some(cell) = sim.nearby_passable_cell(
+                    seed,
+                    NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
+                ) {
                     // `Set_Destination` only — the committed selector stays
                     // Unload and state 0 re-runs once the drive has ended.
                     if let Err(cause) = sim.assign_destination_represented(
@@ -1121,7 +1130,7 @@ fn eject_from_aircraft(
                 previous_cell: None,
             };
             for (i, &octant) in AIRCRAFT_EXIT_SCAN[..8].iter().enumerate() {
-                let candidate = cell_from(cell, CELL_DELTAS[octant & 7]);
+                let candidate = cell_from(cell, DIRECTION_DELTAS[octant & 7]);
                 scan_cell = candidate;
                 if candidate.is_some_and(|cell| {
                     passenger_can_enter(sim, rules, overlay_registry, pax_id, cell, args)

@@ -58,18 +58,15 @@ fn retail_pavement_live_damage_changes_actual_terrain_pixels() {
             z: cell.level,
             rx,
             ry,
-            is_water: false,
             variant: 0,
             tint: [1.0; 3],
             radar_left: [0; 3],
             radar_right: [0; 3],
-            has_damaged_data: true,
         }],
         world_width: tile.width as f32,
         world_height: tile.height as f32,
         origin_x: 0.0,
         origin_y: 0.0,
-        local_bounds: None,
         bridge_middle_tiles: None,
     };
     let draw = |sim: &crate::sim::world::Simulation, expected: TileKey| {

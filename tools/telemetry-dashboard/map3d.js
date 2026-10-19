@@ -28,7 +28,7 @@
  *
  * Schema mirror of `src/sim/telemetry.rs`; keep both in step.
  */
-import * as THREE from "three";
+import * as THREE from "./vendor/three.module.js";
 import { t } from "./i18n.js";
 /** InstancedMesh capacity: the project's 20k-unit target. */
 const MAX_SPOTS = 20000;

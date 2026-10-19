@@ -16,6 +16,7 @@ pub(crate) mod pause_menu;
 pub(crate) mod planning_mode;
 pub(crate) mod sidebar_eva;
 pub(crate) mod state;
+pub(crate) mod superweapon_cameo;
 pub(crate) mod tooltips;
 pub(crate) mod transport_orders;
 
@@ -25,5 +26,5 @@ mod bridge_click_tests;
 
 pub(crate) mod sound;
 
-pub(crate) mod campaign_input;
 pub(crate) mod keyboard;
+pub(crate) mod campaign_input;

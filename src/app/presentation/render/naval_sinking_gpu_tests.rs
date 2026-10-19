@@ -26,9 +26,7 @@ fn native_sinking_clip_survives_camera_scissor_and_ground_upload() {
     let units = UnitAtlas::from_test_pages(vec![crate::render::unit_atlas::UnitAtlasPage {
         texture: batch.create_unit_atlas_texture_on_device(&gpu.device, &gpu.queue, 1, 1, &[33]),
     }]);
-    let palette = crate::assets::pal_file::Palette {
-        colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-    };
+    let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
     let palettes =
         PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
@@ -96,6 +94,8 @@ fn native_sinking_clip_survives_camera_scissor_and_ground_upload() {
                 None,
                 Some(&palettes),
                 batch.default_zshape_bind_group(),
+                None,
+                None,
             );
             let reads = [
                 gpu.read(&mut encoder, &color),
@@ -176,7 +176,7 @@ fn drone_ground_pose_overflow_pages_preserve_native_parts_on_both_replay_routes(
 
 fn assert_ground_pose_upload_and_replay(
     type_id: &str,
-    native: serde_json::Value,
+    native: &serde_json::Value,
     expected_parts: usize,
     overflow: bool,
 ) {
@@ -317,6 +317,8 @@ fn assert_ground_pose_upload_and_replay(
                         None,
                         Some(&palettes),
                         batch.default_zshape_bind_group(),
+                        None,
+                        None,
                     );
                     assert_eq!(
                         stats.passes > 0,
@@ -345,7 +347,7 @@ fn assert_ground_pose_upload_and_replay(
                             let color = if (16..32).contains(&index) {
                                 rules.house_color_ramps.ramp(house)[(index - 16) as usize]
                             } else {
-                                palette.colors[index as usize]
+                                palette.color(index)
                             };
                             encoded(
                                 light.rgb565([color.r, color.g, color.b], index, 127),

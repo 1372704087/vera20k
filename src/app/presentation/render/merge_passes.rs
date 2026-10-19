@@ -33,12 +33,18 @@ pub(super) fn draw_native_object_pass<'a>(
     sprite_atlas: Option<&'a SpriteAtlas>,
     palette_set: Option<&'a PaletteSet>,
     zshape: &'a wgpu::BindGroup,
+    extras: Option<(
+        &'a crate::render::selection_overlay::SelectionOverlay,
+        &'a wgpu::Buffer,
+        Option<&'a crate::render::batch::BatchTexture>,
+    )>,
+    lights: Option<&crate::render::combat_light::CombatLightRenderer>,
 ) -> crate::render::terrain_draw::TerrainBatchStats {
-    let Some((buffer, count)) = buffer else {
-        return Default::default();
-    };
     let mut terrain_stats = crate::render::terrain_draw::TerrainBatchStats::default();
-    assert_eq!(count as usize, ground.instances.len());
+    assert_eq!(
+        buffer.map_or(0, |(_, count)| count as usize),
+        ground.instances.len()
+    );
     let packed_binding = |target| match target {
         ObjectTexture::UnitAtlasPage(page) => unit_atlas
             .and_then(|atlas| atlas.page_texture(page))
@@ -75,6 +81,37 @@ pub(super) fn draw_native_object_pass<'a>(
     let mut cursor = 0;
     while cursor < ground.runs.len() {
         let run = &ground.runs[cursor];
+        if let ObjectTexture::SurfaceLines(index) = run.target {
+            terrain.draw_surface_lines(encoder, color, ground.line_batches[index]);
+            cursor += 1;
+            continue;
+        }
+        if let ObjectTexture::CombatLight(index) = run.target {
+            let lights = lights.expect("a System light has this frame's prepared renderer");
+            if lights.draw_record(encoder, tactical, ground.light_record_base + index) {
+                terrain.note_external_passes(encoder, 1);
+            }
+            cursor += 1;
+            continue;
+        }
+        if let ObjectTexture::Status(index) = run.target {
+            super::object_extras::draw_status_runs(
+                encoder,
+                color,
+                depth,
+                terrain,
+                tactical,
+                batch,
+                extras.map(|(overlay, _, _)| overlay),
+                extras.map(|(_, buffer, _)| buffer),
+                &ground.extras_instances,
+                extras.and_then(|(_, _, font)| font),
+                &ground.extras_runs[index..index + 1],
+            );
+            cursor += 1;
+            continue;
+        }
+        let (buffer, _) = buffer.expect("a sprite run has an uploaded instance buffer");
         // Only an opaque body's unsafe signed candidates need manual replay.
         // Retain one composite per instance: an ordinary run can coalesce
         // many Display parents, unlike native parent-grouped blend sources.
@@ -207,6 +244,12 @@ pub(super) fn draw_native_object_pass<'a>(
         while cursor < ground.runs.len()
             && ground.runs[cursor].packed_parent.is_none()
             && destination_edit(ground.runs[cursor].target).is_none()
+            && !matches!(
+                ground.runs[cursor].target,
+                ObjectTexture::SurfaceLines(_)
+                    | ObjectTexture::CombatLight(_)
+                    | ObjectTexture::Status(_)
+            )
         {
             let run = &ground.runs[cursor];
             let start = run.start + run_offset;
@@ -223,7 +266,12 @@ pub(super) fn draw_native_object_pass<'a>(
                 break;
             }
             match run.target {
-                ObjectTexture::TerrainShp(_) | ObjectTexture::ProjectileShp(_, _) => {
+                ObjectTexture::SurfaceLines(_)
+                | ObjectTexture::CombatLight(_)
+                | ObjectTexture::Status(_) => {
+                    unreachable!("surface commands replay before sprite dispatch")
+                }
+                ObjectTexture::TerrainShp(_) | ObjectTexture::SpriteAtlasEdit(_, _) => {
                     unreachable!("native destination edits split normal runs")
                 }
                 ObjectTexture::OverlayAtlas => {
@@ -408,7 +456,7 @@ fn destination_edit(
 ) -> Option<(crate::render::terrain_draw::TerrainPiece, usize)> {
     match target {
         ObjectTexture::TerrainShp(piece) => Some((piece, 0)),
-        ObjectTexture::ProjectileShp(page, piece) => Some((piece, page + 1)),
+        ObjectTexture::SpriteAtlasEdit(page, piece) => Some((piece, page + 1)),
         _ => None,
     }
 }
@@ -592,5 +640,13 @@ mod projectile_submission_gpu_tests;
 mod packed_material_gpu_tests;
 
 #[cfg(test)]
+#[path = "infantry_berserk_gpu_tests.rs"]
+mod infantry_berserk_gpu_tests;
+
+#[cfg(test)]
 #[path = "projectile_voxel_gpu_tests.rs"]
 mod projectile_voxel_gpu_tests;
+
+#[cfg(test)]
+#[path = "welding_gpu_tests.rs"]
+mod welding_gpu_tests;

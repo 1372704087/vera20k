@@ -35,6 +35,9 @@ use crate::sim::combat::TargetKind;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::air_movement::{self, AirMovementTickStats};
+// The cell of a coordinate as `0x0041BEA0` (vt+0x1B8) and the Fly's cell
+// tests form it.
+use crate::sim::movement::coord_cell;
 use crate::sim::movement::ground_pose;
 use crate::sim::rng::SimRng;
 use crate::sim::world::FrameEffects;
@@ -84,12 +87,6 @@ pub(crate) struct FlyMapEdge {
     /// `MapClass+0x12C`, MapRect's width: `Resize @ 0x00565C10` writes
     /// `Size.W + Size.H - 1`.
     span: i32,
-}
-
-/// The cell of a coordinate as `0x0041BEA0` (vt+0x1B8) and the Fly's cell
-/// tests form it: each axis over 256 toward zero, as a signed word.
-fn coord_cell(coord: DriveCoord) -> (i16, i16) {
-    ((coord.x / 256) as i16, (coord.y / 256) as i16)
 }
 
 /// The map-edge admission of Fly's paid step (`0x004CDB4C..0x004CDD07`): a
@@ -499,9 +496,7 @@ impl Simulation {
                 .nav_com()
                 .and_then(|nav_com| match nav_com {
                     NavTargetRef::Cell { .. } => None,
-                    NavTargetRef::Entity { id }
-                    | NavTargetRef::Object { id }
-                    | NavTargetRef::Building { id } => self.substrate.entities.get(id),
+                    NavTargetRef::Object { id } => self.substrate.entities.get(id),
                 })
                 .filter(|building| building.category() == EntityCategory::Structure)
                 .and_then(|building| {
@@ -554,11 +549,7 @@ impl Simulation {
             && coord_cell(state.destination()) == coord_cell(location)
             && state.target_speed() == SIM_ZERO
             && (entity.attack_target.target().is_none()
-                || entity
-                    .aircraft_ammo
-                    .as_ref()
-                    .map_or(-1, |ammo| ammo.current())
-                    == 0)
+                || entity.ammo().map_or(-1, |ammo| ammo.current()) == 0)
     }
 
     /// `FlyLocomotionClass::Horizontal_Step @ 0x004CEFB0` toward `coord` (the
@@ -622,10 +613,7 @@ impl Simulation {
                 .as_aircraft()
                 .is_some_and(|leaf| leaf.action_latch() != 0);
         let target = entity.attack_target.target();
-        let ammo = entity
-            .aircraft_ammo
-            .as_ref()
-            .map_or(-1, |ammo| ammo.current());
+        let ammo = entity.ammo().map_or(-1, |ammo| ammo.current());
         let hunter_seeker = object.is_some_and(|object| object.hunter_seeker);
         let armed = target.is_some() && ammo != 0;
         let may_slow = may_slow
@@ -649,21 +637,13 @@ impl Simulation {
                 }
             } else if aircraft && let Some(rules) = rules {
                 aim = self
-                    .aircraft_find_attack_cell(
-                        id,
-                        Some(NavTargetRef::Building { id: building }),
-                        rules,
-                    )
+                    .aircraft_find_attack_cell(id, Some(NavTargetRef::object(building)), rules)
                     .and_then(|cell| {
                         let cells = self
                             .resolved_terrain
                             .as_ref()
                             .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-                        ground_pose::target_get_coords(
-                            TargetKind::from(cell),
-                            &self.substrate.entities,
-                            cells.as_ref(),
-                        )
+                        ground_pose::target_get_coords(TargetKind::from(cell), self, cells.as_ref())
                     })
                     .unwrap_or(NULL_COORD);
             }
@@ -693,12 +673,8 @@ impl Simulation {
                 Some(target) => (!locked).then(|| {
                     let cells =
                         terrain.map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-                    let at = ground_pose::target_get_coords(
-                        target,
-                        &self.substrate.entities,
-                        cells.as_ref(),
-                    )
-                    .unwrap_or(owner);
+                    let at = ground_pose::target_get_coords(target, self, cells.as_ref())
+                        .unwrap_or(owner);
                     crate::util::direction_tables::facing16_between(
                         [owner.x, owner.y],
                         [at.x, at.y],

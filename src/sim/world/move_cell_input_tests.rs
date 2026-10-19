@@ -6,7 +6,6 @@ use super::*;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::TerrainClass;
 use crate::sim::bridge_state::{BridgeEndpointRecord, BridgeRecordKind};
 use crate::sim::intern::InternedId;
 use serde_json::{Value, json};
@@ -27,6 +26,7 @@ fn ordinary_foot_input_matches_native_admission_rows() {
             cells: NativeCellQuery::isolated(&terrain),
             zones: &zones,
             raw: &raw,
+            overlays: None,
             bounds: bounds(),
             size: (8, 8),
             frame: input["frame"].as_u64().unwrap_or(100) as u32,
@@ -579,16 +579,19 @@ impl Simulation {
         sim.session.game_options.short_game = false;
         sim.session.map_width = 16;
         sim.session.map_height = 16;
+        // Native Unlimbo now publishes sight synchronously. Allocate the map
+        // domain before either source can create a viewer plane/cache.
+        sim.fog = crate::sim::vision::FogState::new(16, 16);
         sim.playfield_bounds = Some(bounds());
         sim.playfield_size_height = Some(8);
         let clear = rules
             .terrain_rules
-            .semantics_by_name("Clear")
+            .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
             .unwrap()
             .speed_costs;
         let water = rules
             .terrain_rules
-            .semantics_by_name("Water")
+            .semantics_for_land_type(crate::rules::terrain_rules::LandType::Water.as_index())
             .unwrap()
             .speed_costs;
         let cells = (0..16)
@@ -600,11 +603,6 @@ impl Simulation {
                     cell.speed_costs = if river { water } else { clear };
                     cell.base_speed_costs = cell.speed_costs;
                     if river {
-                        cell.is_water = true;
-                        cell.terrain_class = TerrainClass::Water;
-                        cell.base_terrain_class = TerrainClass::Water;
-                        cell.yr_cell_land_type = 2;
-                        cell.base_yr_cell_land_type = 2;
                         cell.land_type = 2;
                         cell.base_land_type = 2;
                         cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
@@ -658,8 +656,6 @@ impl Simulation {
         sim.session.house_order.push(enemy);
         sim.spawn_object("E1", "Enemy", 12, 11, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
-        sim.fog.width = 16;
-        sim.fog.height = 16;
         sim.fog.reveal_all_for_owner(owner);
         assert!(sim.entities().get(actor).unwrap().lifecycle.cell_marked());
         (sim, rules, actor)
@@ -681,4 +677,43 @@ impl Simulation {
         self.real_cell_bridge_flags_0x1180 = terrain.capture_real_cell_bridge_flags_0x1180();
         assert!(self.rebuild_dynamic_navigation(rules));
     }
+}
+
+/// Techno What_Action on a Cell's unforced Attack rung over retail data: the
+/// Grizzly's 105mm warhead AP has `Wall=yes` and the GI's SA does not, and
+/// GAWALL keeps the ObjectType constructor's LegalTarget. Only a wall whose
+/// owner is not allied with the asker's House admits it.
+#[test]
+fn a_wall_warhead_reaches_the_attack_rung_over_an_enemy_wall() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let registry =
+        OverlayTypeRegistry::from_ini(&fixture.processed_rules, Some(fixture.fixed_art.as_ref()));
+    let wall = registry.id_for_name("GAWALL").expect("retail GAWALL");
+    assert!(
+        registry
+            .flags(wall)
+            .is_some_and(|flags| flags.legal_target && flags.wall)
+    );
+    let (mut sim, rules, gi) = Simulation::walk_cell_input_test_scene_with(fixture.rules, false);
+    let owner = sim.interner.get("Local").unwrap();
+    let tank = sim
+        .spawn_object("MTNK", "Local", 6, 4, 0, &rules)
+        .expect("retail MTNK spawns");
+    sim.resolve_type_handles(&rules);
+    let enemy = sim.interner.intern("Russians");
+    let (width, height) = {
+        let terrain = sim.resolved_terrain.as_ref().unwrap();
+        (terrain.width(), terrain.height())
+    };
+    let mut grid = crate::sim::overlay_grid::OverlayGrid::new(width, height);
+    grid.place_owned_wall(8, 4, wall, 0, enemy);
+    grid.place_owned_wall(6, 6, wall, 0, owner);
+    sim.overlay_grid = Some(grid);
+    let admits = |id, cell| sim.cell_attack_rung_admits(id, cell, &rules, Some(&registry));
+    assert!(admits(tank, (8, 4)));
+    assert!(!admits(gi, (8, 4)), "SA has no Wall=");
+    assert!(!admits(tank, (6, 6)), "an own wall");
+    assert!(!admits(tank, (10, 4)), "no overlay and no cliff");
 }

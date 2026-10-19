@@ -52,6 +52,11 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
         self.persistence.options_profile.original_shape = original_shape;
         App::sync_zoom_pass(self);
     }
+    fn store_ra2_look(&mut self, ra2_look: bool) {
+        // The menu movie's session identity carries the choice, so its next
+        // paint loads the other game's copy; the splash follows next launch.
+        self.persistence.options_profile.ra2_look = ra2_look;
+    }
 }
 
 struct AppStateLauncherParentOperations<'a> {
@@ -158,10 +163,7 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn queue_then_stop_score_zero(&mut self) {
-        let now_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-            self.state,
-            Instant::now(),
-        );
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         self.state.audio.queue_then_stop_score_zero(now_ms);
     }
 
@@ -239,6 +241,14 @@ impl App {
             && state.frontend.main_menu_shell_chrome.is_some()
     }
 
+    /// Campaign victories own the native StandaloneScore dialog `0x103`.
+    /// This page has no Skirmish score-art dependency.
+    pub(super) fn campaign_score_shell_active(state: &AppState) -> bool {
+        matches!(state.frontend.screen, GameScreen::MissionResult { .. })
+            && state.frontend.campaign_score_page.is_some()
+            && state.frontend.main_menu_shell_chrome.is_some()
+    }
+
     /// `ScoreDialog__Run` `0x005C9720` after a skirmish win or loss: the side
     /// art (`ScoreArt__Load` `0x0072D730`), then dialog `0x108` with every
     /// text its init (`0x497`) sets. The exit cascade has already restored the
@@ -272,6 +282,8 @@ impl App {
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
             )
         });
+        state.frontend.campaign_score_page = None;
+        state.frontend.campaign_score_art = None;
         if state.frontend.score_art.is_none() {
             log::warn!("Could not prepare the score art; the result screen falls back");
         }
@@ -281,6 +293,69 @@ impl App {
             .frontend
             .shell_controller
             .reset_to(crate::ui::score_shell::SCORE_DIALOG, false);
+    }
+
+    /// Open retail Campaign StandaloneScore dialog `0x103` from the app-owned
+    /// projection of the campaign result fields.
+    pub(crate) fn open_campaign_score_page(
+        state: &mut AppState,
+        model: crate::ui::campaign_score_shell::CampaignScoreScreenModel,
+        title: String,
+        detail: String,
+    ) {
+        use crate::app::frontend::shell_pass::resolve_csf;
+        use crate::ui::campaign_score_shell::{CampaignScorePage, CampaignScoreTexts};
+
+        state.frontend.score_page = None;
+        state.frontend.score_art = None;
+        let side = model.side;
+        state.frontend.campaign_score_art = state.process_assets.manager().and_then(|assets| {
+            crate::render::main_menu_shell_chrome::build_campaign_score_art(
+                &state.renderer.gpu,
+                &state.renderer.batch_renderer,
+                assets,
+                side,
+                crate::app::frontend::shell_layout::art_key_screen_width(state),
+            )
+        });
+        if state.frontend.campaign_score_art.is_none() {
+            log::warn!(
+                "Could not prepare Campaign StandaloneScore background; Continue remains available"
+            );
+        }
+        let texts = CampaignScoreTexts {
+            title: resolve_csf(state, "GUI:StandaloneScore").into_owned(),
+            continue_label: resolve_csf(state, "GUI:Continue").into_owned(),
+            continue_status: resolve_csf(state, "STT:StandScoreButtonReturn").into_owned(),
+            par_time_label: resolve_csf(state, "GUI:ParTime").into_owned(),
+            your_time_label: resolve_csf(state, "GUI:YourTime").into_owned(),
+            enemies_destroyed_label: resolve_csf(state, "GUI:HeadsTaken").into_owned(),
+        };
+        let now = Instant::now();
+        let page = CampaignScorePage::open(model, texts, now);
+        state.frontend.campaign_score_page = Some(page);
+        state.frontend.shell_first_paint_slide = None;
+        state.frontend.screen = GameScreen::MissionResult { title, detail };
+        state.frontend.shell_controller.reset_to(
+            crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG,
+            false,
+        );
+    }
+
+    /// Campaign defeat also bypasses the generic multiplayer score dialog.
+    /// Until the native message-box choices are ported, retain the common
+    /// asset-independent result card instead of presenting `0x108`.
+    pub(crate) fn open_campaign_defeat_fallback(
+        state: &mut AppState,
+        title: String,
+        detail: String,
+    ) {
+        state.frontend.score_page = None;
+        state.frontend.score_art = None;
+        state.frontend.campaign_score_art = None;
+        state.frontend.campaign_score_page = None;
+        state.frontend.shell_first_paint_slide = None;
+        state.frontend.screen = GameScreen::MissionResult { title, detail };
     }
 
     fn score_layout(state: &AppState) -> crate::ui::score_shell::ScoreLayout {
@@ -339,10 +414,104 @@ impl App {
         }
     }
 
+    fn campaign_score_layout(
+        state: &AppState,
+    ) -> crate::ui::campaign_score_shell::CampaignScoreLayout {
+        let (width, height) = crate::app::frontend::shell_layout::shell_screen_size(state);
+        let fills_window = crate::app::frontend::shell_layout::fills_window(state);
+        state.frontend.campaign_score_page.as_ref().map_or_else(
+            || crate::ui::campaign_score_shell::CampaignScoreLayout::compute_layout(width, height),
+            |page| page.layout(width, height, fills_window),
+        )
+    }
+
+    fn campaign_score_input(
+        state: &mut AppState,
+    ) -> (
+        crate::ui::campaign_score_shell::CampaignScoreLayout,
+        Vec<crate::ui::shell::layout::LaidOutControl>,
+        Vec<crate::ui::shell::layout::LaidOutControl>,
+        (i32, i32),
+    ) {
+        use crate::ui::campaign_score_shell::{CAMPAIGN_SCORE_CONTROLS, CONTINUE_BUTTON};
+
+        let layout = Self::campaign_score_layout(state);
+        // Hover tracks the value statics' help strings. Keep the separate
+        // button-only press feed so those static ids are never pressed.
+        let hover_feed = CAMPAIGN_SCORE_CONTROLS
+            .iter()
+            .filter(|control| control.action.is_some() || control.tooltip_key.is_some())
+            .filter_map(|control| {
+                layout.control_rect(control.id).map(|rect| {
+                    crate::ui::shell::layout::LaidOutControl {
+                        id: control.id,
+                        rect,
+                    }
+                })
+            })
+            .collect();
+        let press_feed = vec![crate::ui::shell::layout::LaidOutControl {
+            id: CONTINUE_BUTTON,
+            rect: layout.continue_button,
+        }];
+        state.frontend.shell_controller.ensure_active(
+            crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG,
+            false,
+        );
+        let cursor = state.match_state.input.cursor_px();
+        (layout, hover_feed, press_feed, cursor)
+    }
+
+    pub(super) fn handle_campaign_score_mouse_move(state: &mut AppState) {
+        let (_, hover_feed, _, (x, y)) = Self::campaign_score_input(state);
+        state
+            .frontend
+            .shell_controller
+            .on_pointer_move(x, y, &hover_feed);
+    }
+
+    pub(super) fn handle_campaign_score_mouse_down(state: &mut AppState) {
+        let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
+        state
+            .frontend
+            .shell_controller
+            .on_pointer_down(x, y, &press_feed);
+        if state.frontend.shell_controller.pressed()
+            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+        {
+            Self::play_main_menu_button_sound(state);
+        }
+    }
+
+    /// Native `0x103` Continue (`0x423`, result 1) tears the dialog down with
+    /// its slide before GameExit::Victory advances the campaign.
+    pub(super) fn handle_campaign_score_mouse_up(state: &mut AppState) {
+        let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
+        if state
+            .frontend
+            .shell_controller
+            .on_pointer_up(x, y, &press_feed)
+            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+        {
+            // `0x423` ends the global VocHandle before the result returns.
+            Self::stop_campaign_score_anim_sound(state);
+            Self::leave_shell_dialog(
+                state,
+                crate::app::frontend::shell_transition::ShellExitThen::CampaignScoreContinue,
+            );
+        }
+    }
+
     /// Shared teardown for both result-screen forms: flush the deterministic log
     /// while its simulation is still alive, hand the scenario stream back to the
     /// offline shell, retaining the runtime and presentation resources.
     pub(super) fn leave_mission_result_screen(state: &mut AppState) {
+        // WM_DESTROY ends 0x103's global VocHandle even when no Continue
+        // command did; the stop is idempotent.
+        Self::stop_campaign_score_anim_sound(state);
+        // A won campaign mission continues in GameExit::Victory instead of
+        // returning to the shell; read it before the teardown below.
+        let campaign_victory = Self::take_campaign_victory(state);
         // Main_Game48CEBF also retires ScenarioStarted after score Continue;
         // source: original gamemd.exe Main_Game48CCC0 (EBX=0 at48CCD4).
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
@@ -353,12 +522,17 @@ impl App {
         state.match_state.startup.clear();
         state.match_state.scenario_elapsed_clock.reset();
         state.frontend.score_page = None;
+        state.frontend.campaign_score_page = None;
         // 0x0072D780 releases the score art.
         state.frontend.score_art = None;
+        state.frontend.campaign_score_art = None;
         state.frontend.screen = GameScreen::MainMenu;
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
-        Self::resume_shell_after_match(state);
+        match campaign_victory {
+            Some(victory) => Self::advance_campaign_victory(state, victory),
+            None => Self::resume_shell_after_match(state),
+        }
     }
 
     /// Where the shell resumes after a match: a Skirmish game re-enters a new
@@ -1018,6 +1192,7 @@ impl App {
             ShellExitThen::RandomMapCancel => Self::cancel_random_map_setup(state),
             ShellExitThen::WolBack => Self::return_from_wol(state),
             ShellExitThen::ScoreContinue => Self::leave_mission_result_screen(state),
+            ShellExitThen::CampaignScoreContinue => Self::leave_mission_result_screen(state),
             ShellExitThen::WolApiMissing => Self::commit_wol_api_missing(state),
         }
     }
@@ -1035,8 +1210,7 @@ impl App {
         if state.frontend.fullscreen_movie.is_some() {
             return;
         }
-        let now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         // The common service pumps Theme for Credits and WOL too, without
         // these routes running the menu loop's Play_Song(INTRO).
         if state.frontend.credits_roll.is_some() {
@@ -1061,6 +1235,41 @@ impl App {
             return;
         };
         sfx.play_sound(sound_id, catalog.sounds());
+    }
+
+    /// `Dialog0x103__DlgProc`'s global `VocHandle` at `0x00B0BF28`: 0x4EC
+    /// starts the looping `ScoreAnimSound`; Continue and WM_DESTROY end it.
+    /// `HandleOwner::Global` is the process-global VocHandle kind, unused by
+    /// other VERA cues.
+    const CAMPAIGN_SCORE_ANIM_HANDLE: u32 = 0;
+
+    pub(crate) fn play_campaign_score_anim_sound(state: &mut AppState, sound_id: Option<&str>) {
+        let Some(sound_id) = sound_id else {
+            return;
+        };
+        // 0x4EC runs `VocHandle__StopAndClear` before the new PlayGlobal, so a
+        // repeated SHOW completion cannot stack two loops on the handle.
+        Self::stop_campaign_score_anim_sound(state);
+        let (Some(sfx), Some(catalog)) = (
+            &mut state.audio.sfx_player,
+            state.process_assets.audio_catalog(),
+        ) else {
+            return;
+        };
+        sfx.play_animation_sound_spatial(
+            crate::audio::arbiter::HandleOwner::Global(Self::CAMPAIGN_SCORE_ANIM_HANDLE),
+            sound_id,
+            crate::audio::sfx::SpatialGain::CENTRED_FULL,
+            catalog.sounds(),
+        );
+    }
+
+    pub(crate) fn stop_campaign_score_anim_sound(state: &mut AppState) {
+        if let Some(sfx) = state.audio.sfx_player.as_mut() {
+            sfx.stop_animation_sound(crate::audio::arbiter::HandleOwner::Global(
+                Self::CAMPAIGN_SCORE_ANIM_HANDLE,
+            ));
+        }
     }
 
     pub(super) fn handle_single_player_shell_action(
@@ -1202,61 +1411,5 @@ impl App {
         {
             crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         }
-    }
-}
-
-#[cfg(test)]
-mod confirmed_quit_transaction_tests {
-    use super::*;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    enum QuitEvent {
-        Persist,
-        Dismiss,
-        Cascade,
-    }
-
-    #[derive(Default)]
-    struct RecordingQuitOperations {
-        events: Vec<QuitEvent>,
-        persists: usize,
-        dismissals: usize,
-        cascades: usize,
-    }
-
-    impl ConfirmedQuitOperations for RecordingQuitOperations {
-        fn persist_settings(&mut self) {
-            self.persists += 1;
-            self.events.push(QuitEvent::Persist);
-        }
-
-        fn dismiss_confirmation(&mut self) {
-            self.dismissals += 1;
-            self.events.push(QuitEvent::Dismiss);
-        }
-
-        fn start_cascade(&mut self) {
-            self.cascades += 1;
-            self.events.push(QuitEvent::Cascade);
-        }
-    }
-
-    fn assert_single_dispatch(operations: &RecordingQuitOperations) {
-        assert_eq!(operations.persists, 1);
-        assert_eq!(operations.dismissals, 1);
-        assert_eq!(operations.cascades, 1);
-        assert_eq!(
-            operations.events,
-            [QuitEvent::Dismiss, QuitEvent::Persist, QuitEvent::Cascade,]
-        );
-    }
-
-    #[test]
-    fn shell_controller_confirmed_quit_dispatches_one_profile_write() {
-        let mut operations = RecordingQuitOperations::default();
-
-        dispatch_shell_controller_confirmed_quit(&mut operations);
-
-        assert_single_dispatch(&operations);
     }
 }

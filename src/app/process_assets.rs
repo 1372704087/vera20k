@@ -133,8 +133,9 @@ impl ProcessAssets {
         }
         let sounds =
             std::sync::Arc::clone(self.audio_catalog.as_ref().unwrap().definitions.sounds());
+        let eva = std::sync::Arc::clone(self.audio_catalog.as_ref().unwrap().definitions.eva());
         let startup = crate::rules::retail_sources::RetailRulesSources::select(assets)?
-            .into_startup(sounds)?;
+            .into_startup(sounds, eva)?;
         let (rules, projection, owner) = startup.into_parts();
         self.native_rules = Some(owner);
         Ok((rules, projection))
@@ -189,7 +190,7 @@ impl ProcessAssets {
             .native_rules
             .as_ref()
             .map_or(&empty_movies, |owner| owner.movies());
-        registry.apply_ini(&selected.ini, movies, self.csf.as_ref());
+        registry.apply_ini(&selected.ini, movies);
         log::info!(
             "Campaign catalog read: {}",
             serde_json::json!(selected.source)

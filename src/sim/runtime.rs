@@ -1,9 +1,11 @@
 //! Construction and frame API around Simulation and its bound match resources.
 //!
 //! App, headless and replay execution use SimRuntime. SimResources binds the
-//! rules/art registry, overlay registry, trigger definitions and
-//! base terrain template; advance_frame reads these without caller-substituted
-//! per-frame resources. Simulation owns live mutable terrain and gameplay state.
+//! rules/art registry, overlay registry and base terrain template;
+//! advance_frame reads these without caller-substituted per-frame resources.
+//! Simulation owns live mutable terrain and gameplay state, including the
+//! trigger runtime's definitions, which it reads from the map once at
+//! scenario init.
 //! SimView provides immutable access for presentation and diagnostics.
 //!
 //! Dependency rules: part of sim/; never depends on render/, ui/,
@@ -26,13 +28,6 @@ pub struct SimResources {
     pub terrain_template: Option<crate::map::resolved_terrain::ResolvedTerrainGrid>,
     /// The complete immutable match rules (including the sole ArtRegistry).
     pub rules: crate::rules::ruleset::RuleSet,
-    /// Immutable trigger definitions parsed from the map; the runtime state
-    /// machine lives in the simulation, these are bound once (F07: the app
-    /// no longer passes definitions each frame).
-    pub trigger_graph: crate::map::trigger_graph::TriggerGraph,
-    pub triggers: crate::map::triggers::TriggerMap,
-    pub events: crate::map::events::EventMap,
-    pub actions: crate::map::actions::ActionMap,
 }
 
 impl SimResources {
@@ -45,10 +40,6 @@ impl SimResources {
             )
             .expect("empty rules parse"),
             terrain_template: None,
-            trigger_graph: Default::default(),
-            triggers: Default::default(),
-            events: Default::default(),
-            actions: Default::default(),
         }
     }
 }
@@ -104,6 +95,11 @@ impl<'a> SimView<'a> {
         &self.simulation.fog
     }
 
+    /// The houses' ally graph, which fog and visibility questions ask.
+    pub fn house_alliances(&self) -> &'a crate::map::houses::HouseAllianceMap {
+        &self.simulation.house_alliances
+    }
+
     pub fn houses(
         &self,
     ) -> &'a std::collections::BTreeMap<
@@ -111,10 +107,6 @@ impl<'a> SimView<'a> {
         crate::sim::house_state::HouseState,
     > {
         &self.simulation.houses
-    }
-
-    pub fn path_grid(&self) -> Option<&'a crate::sim::pathfinding::PathGrid> {
-        self.simulation.path_grid()
     }
 
     pub fn resolved_terrain(
@@ -152,16 +144,6 @@ impl<'a> SimView<'a> {
             self.simulation.playfield_bounds,
             self.simulation.playfield_revision,
         )
-    }
-
-    /// Full MapClass Size dimensions retained beside normalized LocalSize.
-    /// Radar input `0x00653D92..0x00653DE3` reads both values before resolving
-    /// its signed click cell through `MapClass::Get_CellClass`.
-    pub fn playfield_map_size(&self) -> Option<(i32, i32)> {
-        Some((
-            self.simulation.playfield_bounds?.base,
-            self.simulation.playfield_size_height?,
-        ))
     }
 }
 
@@ -205,13 +187,6 @@ impl SimRuntime {
             Some(&self.resources.overlay_registry),
             tick_ms,
             lane,
-            Some(crate::sim::world::TriggerInputs {
-                #[cfg(any(test, feature = "test-support"))]
-                events: &self.resources.events,
-                #[cfg(any(test, feature = "test-support"))]
-                actions: &self.resources.actions,
-                rules: Some(&self.resources.rules),
-            }),
             effects,
         )
     }
@@ -262,15 +237,7 @@ mod tests {
             |_| {},
         )
         .expect("shared fresh-map construction");
-        let mut resources = SimResources::empty();
-        resources.trigger_graph = map.trigger_graph;
-        resources.triggers = map.triggers;
-        resources.events = map.events;
-        resources.actions = map.actions;
-        let mut runtime = SimRuntime {
-            simulation: sim,
-            resources,
-        };
+        let mut runtime = SimRuntime::from_simulation(sim);
         let before_first_frame = GameSnapshot::save(&runtime.simulation, 0, 0, "trigger_owner", 0);
         let run = |runtime: &mut SimRuntime| {
             runtime
@@ -328,9 +295,7 @@ mod tests {
                 crate::sim::scenario_bootstrap::initialize_map_roster_houses(
                     sim, &roster, None, None,
                 );
-                crate::sim::scenario_bootstrap::initialize_campaign_current_house(
-                    sim, &roster, &map.ini,
-                );
+                crate::sim::scenario_bootstrap::initialize_campaign_current_house(sim, &map.ini);
             },
         )
         .expect("staged map-roster construction");
@@ -460,6 +425,7 @@ mod tests {
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
+            structure_online: true,
             trigger_tag: None,
         };
         let inits = GeneratedTechnoInitTable::try_new([GeneratedTechnoInit {
@@ -1130,8 +1096,8 @@ where
 }
 
 /// A building as the map-wall owner search measures it: its GetCoords
-/// (vt+0x48, [`object_get_coords`]) and the foundation of its distance
-/// discount.
+/// (vt+0x48, [`object_get_coords`]). The target is a Cell, so5F6360 applies
+/// no Building-foundation discount; dimensions belong to GetCoords alone.
 /// Serves the wall-owner search `0x0047D210`, which `InitCellAttributes @ 0x00568BB0`
 /// runs per cell; it also tests IsAlive (`+0x90`) and Marked (`+0x74`).
 ///
@@ -1143,16 +1109,11 @@ pub fn map_wall_owner_candidate_from_building(
 ) -> crate::sim::overlay_grid::MapWallOwnerCandidate {
     let coords =
         crate::sim::movement::ground_pose::object_get_coords(entity, Some(resolved_terrain));
-    let (foundation_width, foundation_height) =
-        crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
-
     crate::sim::overlay_grid::MapWallOwnerCandidate {
         owner: entity.owner(),
         world_x: coords.x,
         world_y: coords.y,
         world_z: coords.z,
-        foundation_width,
-        foundation_height,
         object_alive: entity.lifecycle.object_alive(),
         cell_marked: entity.lifecycle.cell_marked(),
         house_wall_owner,
@@ -1256,6 +1217,7 @@ pub fn finalize_constructed_scenario(
         sim.finalize_scenario_post_map(crate::sim::scenario_post_map::ScenarioPostMapInput {
             map_width: map_data.header.width as u16,
             map_height: map_data.header.height as u16,
+            fill_silos: map_data.basic.fill_silos.unwrap_or(false),
             rules,
             overlay_registry,
             house_roster,

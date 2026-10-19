@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20k kapak görseli" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20K kapak görseli" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <strong>Türkçe</strong> · <a href="README.md" lang="en">English</a>
@@ -10,33 +10,50 @@
   <img src="https://img.shields.io/badge/QQ_grubu-1097193563-1EBAFC?style=flat&amp;logo=qq&amp;logoColor=white" alt="QQ grubu" height="20" align="middle">
 </p>
 
-# VERA20k
+# VERA20K
 
-VERA20k, özgün oyun motoru `gamemd.exe`'nin topluluk öncülüğünde geliştirilen yeniden
+VERA20K, özgün oyun motoru `gamemd.exe`'nin topluluk öncülüğünde geliştirilen yeniden
 yazımıdır. Orijinal oyun dosyalarını kullandığı için kendi Red Alert 2: Yuri's Revenge
 kopyanıza ihtiyacınız var.
 
-VERA20k oyuncular tarafından, oyuncular için yapılıyor ve projenin nereye gideceğine son sözü
+VERA20K oyuncular tarafından, oyuncular için yapılıyor ve projenin nereye gideceğine son sözü
 oyuncular söylüyor.
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k çatışma ayarları ekranı ve oyun içi görünüm" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K çatışma ayarları ekranı ve oyun içi görünüm" width="100%">
 
 ## Projenin hedefleri
 
 1. Orijinal Red Alert 2: Yuri's Revenge'in oynanışını, görsellerini ve atmosferini korumak.
 2. 500×500 haritalarda **30 oyuncuya** ve **20.000 birime** kadar daha büyük savaşları desteklemek.
-3. Eski ve yeni bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
+3. Bilinen RTS özelliklerini ve daha önce hiç görülmemiş bazı özellikleri eklemek.
 4. Entegre çok oyunculu istemci
 
 ## Mevcut durum
 
-**Geliştirmenin orta aşamalarında.** Windows'ta basit bir yapay zekâya karşı yerel çatışmalar
-oynanabiliyor. Orijinal ve rastgele oluşturulan haritalar, menüler, üs kurma, kaynak toplama,
-çatışma ve kaydetme/yükleme mevcut, ancak hâlâ düzeltilecek ve tamamlanacak çok şey var.
+**Aktif geliştirme aşamasında.**
 
-Çok oyunculu mod, senaryolar ve orijinal yapay zekâ henüz yok. Uçaklar, zihin kontrolü, köprüler
-ve çeşitli silahlar ile efektler üzerinde daha fazla çalışmamız gerekiyor. Henüz 30 oyunculu,
-20.000 birimli savaşlar göstermedik.
+- **Çatışma:** Windows, Linux ve macOS'ta oynanabiliyor. Orijinal ve rastgele oluşturulan
+  haritalar, üs kurma, kaynak toplama, çatışma ve kaydetme/yükleme mevcut.
+- **Senaryolar:** Görevler başlatılabiliyor; destek henüz tamamlanmış değil.
+- **Yapay zekâ:** Orijinal yapay zekânın bazı bölümleri üs kurma ve betiklerle yönetilen saldırıları yürütüyor.
+- **Devam eden çalışmalar:** Oynanışın aslına uygunluğu, görseller ve performans.
+- **Çok oyunculu mod:** Ağ üzerinden oyun henüz mevcut değil.
+- **Ölçek:** 30 oyunculu, 20.000 birimli savaşlar henüz gösterilmiş değil.
+
+## Mimari
+
+Motorun üç ana bölümü vardır:
+
+- **Simülasyon:** Oyun durumunu ve mantığını yönetir.
+- **Görüntüleme:** Orijinal oyun kaynaklarını kullanan, orijinal görünümü korumak için
+  oluşturulmuş tamamen yeni bir GPU görüntüleme hattı.
+- **Uygulama:** Girdi, menüler, ses ve platform entegrasyonunu yönetir, sistemleri birbirine bağlar.
+
+Bu ayrım deterministik oynanışı destekler.
+
+Oklar veri akışını gösterir:
+
+![Uygulama simülasyona komut gönderir ve dünya durumunu alır; görüntülemeye çizim verilerini gönderir.](docs/images/architecture.tr.png)
 
 ## Derleme ve çalıştırma
 
@@ -50,7 +67,7 @@ Gerekenler:
   `sudo apt install build-essential libasound2-dev pkg-config`.
 - **Grafik:** Vulkan, DirectX 12 ya da Metal destekleyen bir GPU.
 
-VERA20k, Windows, Linux ve macOS üzerinde oynandı.
+VERA20K, Windows, Linux ve macOS üzerinde oynandı.
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -60,14 +77,16 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-`ra2_dir` yolunu ters eğik çizgi yerine eğik çizgiyle yazın, örneğin `C:/Games/RA2`. Oynamak için
-`--release` kullanın; debug derlemeleri çok yavaş. Günlük dosyası `logs/ra2.log` konumundadır.
-
 ## Nasıl çalışıyoruz
 
 Kodun büyük bölümünü yapay zekâ kodlama ajanları yazıyor. Ajanlar özgün motoru Ghidra ile
 inceliyor, ardından davranışını Rust'a aktarıyor ve [karşılaştırma araçları](tools/native_oracle.md)
 ile oyun testleri kullanarak kontrol ediyor. Ajanlar [AGENTS.md](AGENTS.md) dosyasını izler.
+
+## Özelleştirme
+
+İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
+ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
 
 ## Katkıda bulunma
 
@@ -76,14 +95,17 @@ fikirlerinizi paylaşabilir veya orijinal oyunla yan yana oynayıp neyin yanlı�
 bize anlatabilirsiniz. Bir PR açın, gerisini biz hallederiz.
 Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda (1097193563) yürür.
 
-Oyun mantığı `src/sim/`, çizim `src/render/`, menüler ve girdi ise `src/app/` ve `src/ui/`
-içinde; `tools/` altındaki Python araçlarına ihtiyacınız yok.
+## Destek
 
-Değişikliklerinizi oyunda denemek için `cargo run --profile fast --bin vera20k` çalıştırın.
-`--release` gibi optimize edilmiştir ama yalnızca değiştirdiğiniz kısmı yeniden derler, böylece
-oyuna daha çabuk dönersiniz. Performansı `--release` ile ölçün.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="VERA20K'yi PayPal üzerinden destekleyin" height="40"></a>
 
-Katkılar da projenin geri kalanı gibi GPLv3 ile lisanslanır; CLA yoktur.
+Alınan tüm bağışlar,
+[TIBTRE katkı defterine](https://github.com/YuriPlanet/tibtre-ledger) göre katkıda
+bulunanlara dağıtılır.
+
+Katkıda bulunanlara ödeme yöntemleri:
+
+<p><img src="https://img.shields.io/badge/PayPal-003087?style=flat&amp;logo=paypal&amp;logoColor=white" alt="PayPal" height="20"> <img src="https://img.shields.io/badge/China_UnionPay-E21836?style=flat" alt="China UnionPay" height="20"> <img src="https://img.shields.io/badge/Alipay-1677FF?style=flat&amp;logo=alipay&amp;logoColor=white" alt="Alipay" height="20"> <img src="https://img.shields.io/badge/Vipps-FF5B24?style=flat" alt="Vipps" height="20"> <img src="https://img.shields.io/badge/SEPA-2D4B9A?style=flat&amp;logo=sepa&amp;logoColor=white" alt="SEPA" height="20"> <img src="https://img.shields.io/badge/Bitcoin-F7931A?style=flat&amp;logo=bitcoin&amp;logoColor=white" alt="Bitcoin" height="20"></p>
 
 ## Teşekkürler ve yasal bilgiler
 
@@ -93,7 +115,7 @@ Ares, Phobos ve daha nicelerine teşekkürler.
 
 [GPLv3](LICENSE-GPL) ile lisanslanmıştır. Bu depo hiçbir oyun dosyası içermez.
 Command & Conquer ve Red Alert, Electronic Arts Inc. şirketinin ticari markalarıdır.
-Ekran görüntülerindeki oyun grafikleri Electronic Arts'a aittir. VERA20k, Electronic Arts
+Ekran görüntülerindeki oyun grafikleri Electronic Arts'a aittir. VERA20K, Electronic Arts
 ile bağlantılı değildir ve Electronic Arts tarafından desteklenmemektedir.
 
 [README.md](README.md) dosyasının çevirisidir; lütfen İngilizce sürümle güncel tutun.

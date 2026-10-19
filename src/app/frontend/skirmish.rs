@@ -251,6 +251,7 @@ pub(crate) fn build_overlay_presentation(
             overlay_registry,
             rules_ini,
             art_registry,
+            &rubble_arts,
         )
     });
 
@@ -270,7 +271,7 @@ mod tests {
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
     use crate::map::waypoints::Waypoint;
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::SpeedCostProfile;
     use crate::sim::cell_rect::{PlayfieldBounds, cell_is_in_playfield_height_aware};
     use crate::sim::house_state::{HouseDifficulty, HouseState};
     use crate::sim::mission::MissionType;
@@ -522,6 +523,7 @@ mod tests {
                 local_height: 64,
             },
             basic: crate::map::basic::BasicSection::default(),
+            ranking: crate::map::ranking::RankingSection::default(),
             preview: crate::map::preview::PreviewSection::default(),
             cells: Vec::new(),
             iso_map_pack_lookups: Vec::new(),
@@ -531,15 +533,12 @@ mod tests {
             smudges: Vec::new(),
             terrain_objects: Vec::new(),
             waypoints,
-            cell_tags: std::collections::HashMap::new(),
             tags: std::collections::HashMap::new(),
             triggers: std::collections::HashMap::new(),
             events: std::collections::HashMap::new(),
             actions: std::collections::HashMap::new(),
             local_variables: std::collections::HashMap::new(),
-            trigger_graph: crate::map::trigger_graph::TriggerGraph::default(),
             special_flags: crate::map::basic::SpecialFlagsSection::default(),
-            explicit_tubes: Vec::new(),
             ini: IniFile::from_str(""),
         }
     }
@@ -660,10 +659,16 @@ mod tests {
         })
     }
 
+    /// The land rows a scenario load binds: the start footprint's off-map
+    /// cells read the shared Dummy's Clear row.
     fn test_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-        crate::map::resolved_terrain::test_grid(width, height, |rx, ry| {
+        let mut terrain = crate::map::resolved_terrain::test_grid(width, height, |rx, ry| {
             test_terrain_cell(rx, ry, Some(100))
-        })
+        });
+        terrain.set_land_speed_rules_for_test(
+            &crate::map::resolved_terrain::test_retail_clear_rules(),
+        );
+        terrain
     }
 
     fn test_terrain_cell(rx: u16, ry: u16, track_cost: Option<u8>) -> ResolvedTerrainCell {
@@ -673,7 +678,6 @@ mod tests {
                 ..Default::default()
             },
             zone_type: zone_class::GROUND,
-            base_terrain_class: TerrainClass::Clear,
             base_speed_costs: SpeedCostProfile {
                 track: track_cost,
                 ..Default::default()
@@ -740,11 +744,16 @@ mod tests {
     fn current_house_collision_preserves_launch_label_and_distinct_colors() {
         for (handle, expected_key) in [
             ("Neutral", "Player"),
+            (" Neutral ", "Player"),
             ("SPECIAL", "Player"),
+            (" Special ", "Player"),
             ("computer1", "Player"),
+            (" Computer1 ", "Player"),
             ("Computer2", "Computer2"),
+            (" Computer2 ", " Computer2 "),
             ("Computer01", "Computer01"),
             ("Commander", "Commander"),
+            (" Commander ", " Commander "),
         ] {
             let mut session = test_session();
             session.player_name = handle.to_string();
@@ -776,9 +785,11 @@ mod tests {
             "Computer1"
         );
         let mut two_ai = test_session();
-        two_ai.player_name = "cOmPuTeR2".to_string();
         two_ai.opponents.push(two_ai.opponents[0].clone());
-        assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        for handle in ["cOmPuTeR2", " Computer2 "] {
+            two_ai.player_name = handle.to_owned();
+            assert_eq!(normalized_launch_slots(&two_ai)[0].owner_name, "Player");
+        }
     }
 
     /// gamemd-derived: active YR `ScenarioClass__Gather_Start_Positions
@@ -1211,7 +1222,9 @@ mod tests {
 
         let spawned = sim.spawn_from_map(
             &[crate::map::entities::MapEntity {
-                owner: "Player".to_owned(),
+                // Native offline Structures resolves the generated AI name.
+                // The current human is excluded before the constructor.
+                owner: "Computer".to_owned(),
                 type_id: "GACNST".to_owned(),
                 health: 256,
                 cell_x: 30,
@@ -1227,20 +1240,21 @@ mod tests {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             }],
             Some(&rules),
         );
 
         assert_eq!(spawned, 1);
-        let player = sim
+        let computer = sim
             .interner
-            .get("Player")
-            .expect("pre-created player house");
-        assert_eq!(sim.houses[&player].tracking.buildings(), 1);
+            .get("Computer1")
+            .expect("pre-created first AI house");
+        assert_eq!(sim.houses[&computer].tracking.buildings(), 1);
         assert_eq!(
             sim.substrate.base_reservations.raw_mask(None, 28, 38),
-            1,
+            2,
             "Reveal writes the participant's house-index bit without a repair pass"
         );
     }
@@ -1306,8 +1320,10 @@ mod tests {
         );
         assert_eq!(credits("Computer3"), Some(10_000), "Normal: +0%");
         assert_eq!(credits("Computer4"), Some(10_000), "Easy: +0%");
-        assert_eq!(credits("Neutral"), Some(10_000));
-        assert_eq!(credits("Special"), Some(10_000));
+        // Fixed-tail Houses retain ctor4F58D8 cash0; the passive grant
+        // neither seeds them with participant cash nor adds a bonus.
+        assert_eq!(credits("Neutral"), Some(0));
+        assert_eq!(credits("Special"), Some(0));
         assert_eq!(credits("Observer"), Some(10_000));
     }
 
@@ -2190,7 +2206,7 @@ mod tests {
         // stores one raw Scenario word at 0x006F3254 before placement.
         let _ = expected_rng.next_u32();
         let direction = expected_rng.next_range_u32_inclusive(0, 7) as usize;
-        let (dx, dy) = crate::util::direction_tables::CELL_DELTAS[direction];
+        let (dx, dy) = crate::util::direction::DIRECTION_DELTAS[direction];
         let expected_position = ((45i32 + dx) as u16, (45i32 + dy) as u16);
         let _ = expected_rng.next_u32();
         let _ = expected_rng.next_range_u32_inclusive(0, 0xffff);

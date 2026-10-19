@@ -6,7 +6,7 @@ use crate::app::sidebar_projection::SidebarProjectionState;
 use crate::sim::intern::InternedId;
 use crate::sim::snapshot::{SavedCameoId, SavedSidebarOrder};
 use crate::ui::sidebar::SidebarTab;
-use crate::ui::sidebar::cameo_order::{Cameo, CameoKey};
+use crate::ui::sidebar::cameo_order::{Cameo, CameoKey, CameoRequestState};
 use std::fmt::Write;
 
 fn fixture() -> (Simulation, RuleSet, InternedId, [InternedId; 2]) {
@@ -110,7 +110,7 @@ fn scrolled_projection(owner: InternedId, candidates: &[Cameo]) -> SidebarProjec
     let mut projection = SidebarProjectionState::default();
     assert!(
         !projection
-            .reconcile_cameos(owner, candidates, 1)
+            .reconcile_fixture(owner, candidates, 1)
             .build_inserted()
     );
     for (tab, row) in SidebarTab::all().into_iter().zip(SAVED_SCROLL_ROWS) {
@@ -143,14 +143,14 @@ fn retained_history(owner: InternedId, types: [InternedId; 2]) -> SidebarProject
     let mut projection = SidebarProjectionState::default();
     assert!(
         !projection
-            .reconcile_cameos(owner, &candidates(types, 100), 3)
+            .reconcile_fixture(owner, &candidates(types, 100), 3)
             .build_inserted()
     );
     // The current keys would sort LATER first, but native Recalculate retains
     // survivors. This records history through the actual shared strip owner.
     assert!(
         !projection
-            .reconcile_cameos(owner, &candidates(types, 400), 3)
+            .reconcile_fixture(owner, &candidates(types, 400), 3)
             .build_inserted()
     );
     assert_eq!(
@@ -234,32 +234,27 @@ fn sidebar_order_prepares_and_commits_unsorted_history_without_reinserting_survi
     let mut outgoing = SidebarProjectionState::default();
     assert!(
         !outgoing
-            .reconcile_cameos(owner, &candidates(types, 400), 3)
+            .reconcile_fixture(owner, &candidates(types, 400), 3)
             .build_inserted()
     );
     let before = outgoing.saved_order().unwrap();
     assert_ne!(before, saved);
     let prepared = prepare(&bytes, &sim, &rules).unwrap();
     assert_eq!(outgoing.saved_order(), Some(before));
-    let entries = prepared
-        .sidebar_order
-        .as_ref()
-        .unwrap()
-        .1
-        .items(SidebarTab::Building);
+    let mut runtime = crate::sim::runtime::SimRuntime::from_simulation(sim);
+    let committed = prepared.commit_into(&mut runtime);
+    outgoing.restore_order(committed.sidebar_order);
+    let entries = outgoing.cameo_strips().items(SidebarTab::Building);
     assert_eq!(
         entries.iter().map(|item| item.id).collect::<Vec<_>>(),
         saved.strips()[0]
     );
     assert!(matches!(entries[0].key, CameoKey::Techno { cost: 400, .. }));
     assert!(matches!(entries[1].key, CameoKey::Techno { cost: 200, .. }));
-    let mut runtime = crate::sim::runtime::SimRuntime::from_simulation(sim);
-    let committed = prepared.commit_into(&mut runtime);
-    outgoing.restore_order(committed.sidebar_order);
     assert_eq!(outgoing.saved_order(), Some(saved.clone()));
     assert!(
         !outgoing
-            .reconcile_cameos(owner, &candidates(types, 400), 3)
+            .reconcile_fixture(owner, &candidates(types, 400), 3)
             .build_inserted()
     );
     assert_eq!(outgoing.saved_order(), Some(saved));
@@ -273,7 +268,7 @@ fn sidebar_order_prepares_and_commits_unsorted_history_without_reinserting_survi
     assert!(outgoing.saved_order().is_none());
     assert!(
         !outgoing
-            .reconcile_cameos(owner, &candidates(types, 400), 3)
+            .reconcile_fixture(owner, &candidates(types, 400), 3)
             .build_inserted()
     );
 }
@@ -300,7 +295,7 @@ fn nonzero_rows_on_every_strip_roundtrip_prepare_commit_and_refresh() {
     let mut outgoing = SidebarProjectionState::default();
     assert!(
         !outgoing
-            .reconcile_cameos(owner, &candidates, 1)
+            .reconcile_fixture(owner, &candidates, 1)
             .build_inserted()
     );
     let before = outgoing.saved_order();
@@ -323,17 +318,16 @@ fn nonzero_rows_on_every_strip_roundtrip_prepare_commit_and_refresh() {
     );
     assert_eq!(runtime.simulation.state_hash(), outgoing_hash);
     assert_eq!(runtime.simulation.rng_state(), outgoing_rng);
-    let strips = &prepared.sidebar_order.as_ref().unwrap().1;
-    assert_eq!(strips.scroll_rows(), SAVED_SCROLL_ROWS);
-    assert_eq!(strips.saved_identities(), *saved.strips());
-
     let committed = prepared.commit_into(&mut runtime);
     outgoing.restore_order(committed.sidebar_order);
+    let strips = outgoing.cameo_strips();
+    assert_eq!(strips.scroll_rows(), SAVED_SCROLL_ROWS);
+    assert_eq!(strips.saved_identities(), *saved.strips());
     assert_eq!(runtime.simulation.houses[&owner].economy.credits(), 50_000);
     assert_eq!(outgoing.saved_order(), Some(saved.clone()));
     assert!(
         !outgoing
-            .reconcile_cameos(owner, &candidates, 1)
+            .reconcile_fixture(owner, &candidates, 1)
             .build_inserted()
     );
     assert_eq!(outgoing.saved_order(), Some(saved));
@@ -402,6 +396,86 @@ fn invalid_sidebar_payload_preserves_outgoing_projection_and_running_world() {
     for order in invalid {
         assert!(matches!(
             prepare(&save(&sim, &rules, Some(&order)), &sim, &rules),
+            Err(PreparedLoadError::SidebarOrder(_))
+        ));
+        assert_eq!(outgoing.saved_order(), before);
+        assert_eq!(sim.state_hash(), hash);
+        assert_eq!(sim.rng_state(), rng);
+    }
+}
+
+#[test]
+fn pending_requests_survive_the_save_transaction_with_reset_prediction() {
+    let (sim, rules, owner, types) = fixture();
+    let mut source = retained_history(owner, types);
+    source.record_cameo_click(
+        &sim,
+        &rules,
+        owner,
+        types[0],
+        crate::app::input::sidebar_eva::CameoClick {
+            order: Some(crate::app::input::sidebar_eva::CameoOrder::Produce),
+            ..Default::default()
+        },
+    );
+    let order = source.saved_order().unwrap();
+    assert!(!order.prediction_categories().is_empty());
+    let mut requests = order.requests().clone();
+    requests[0] = vec![1, 2];
+    let order = order.with_requests(requests);
+    let hash = sim.state_hash();
+    let bytes = save(&sim, &rules, Some(&order));
+    let prepared = prepare(&bytes, &sim, &rules).expect("valid retained requests");
+    let mut runtime = crate::sim::runtime::SimRuntime::from_simulation(Simulation::new());
+    let committed = prepared.commit_into(&mut runtime);
+    let mut restored = SidebarProjectionState::default();
+    restored.restore_order(committed.sidebar_order);
+    assert_eq!(
+        restored.cameo_request(types[0]),
+        Some(CameoRequestState::Started)
+    );
+    assert_eq!(
+        restored.cameo_request(types[1]),
+        Some(CameoRequestState::Held)
+    );
+    for type_id in types {
+        assert_eq!(
+            restored
+                .cameo_strips()
+                .request_stage(SavedCameoId::Object(type_id)),
+            Some(0)
+        );
+    }
+    assert_eq!(restored.saved_order(), Some(order));
+    assert_eq!(
+        sim.state_hash(),
+        hash,
+        "presentation transport never writes the running world"
+    );
+}
+
+#[test]
+fn invalid_pending_request_transport_rejects_before_world_commit() {
+    let (sim, rules, owner, types) = fixture();
+    let outgoing = retained_history(owner, types);
+    let before = outgoing.saved_order();
+    let hash = sim.state_hash();
+    let rng = sim.rng_state();
+    let invalid = before.clone().unwrap().with_prediction_categories(vec![
+        crate::sim::production::ProductionCategory::Infantry,
+        crate::sim::production::ProductionCategory::Infantry,
+    ]);
+    assert!(matches!(
+        prepare(&save(&sim, &rules, Some(&invalid)), &sim, &rules),
+        Err(PreparedLoadError::SidebarOrder(_))
+    ));
+    for states in [vec![1], vec![1, 2, 0], vec![1, 3], vec![u8::MAX, 2]] {
+        let valid = before.clone().unwrap();
+        let mut requests = valid.requests().clone();
+        requests[0] = states;
+        let invalid = valid.with_requests(requests);
+        assert!(matches!(
+            prepare(&save(&sim, &rules, Some(&invalid)), &sim, &rules),
             Err(PreparedLoadError::SidebarOrder(_))
         ));
         assert_eq!(outgoing.saved_order(), before);

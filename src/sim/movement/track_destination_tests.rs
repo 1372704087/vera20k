@@ -245,7 +245,7 @@ fn actor(input: &Value) -> GameEntity {
     // `+0x270` through a Temporal chain's head (any id); `+0x271` through
     // the teleport's warp-in.
     if input["warp_out"] == true {
-        e.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(99);
+        e.set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(99));
     }
     if input["warp_in"] == true {
         e.install_teleport_state_for_test(Some(TeleportState::for_test(

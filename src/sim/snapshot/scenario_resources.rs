@@ -14,17 +14,15 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::runtime::SimResources;
 
 /// Frozen inputs for rebuilding a saved world's resident resources. Caches,
-/// process identities, RNG streams and GPU objects are deliberately absent.
+/// process identities, RNG streams and GPU objects are deliberately absent,
+/// and so are the map's trigger records: the saved Simulation's trigger
+/// runtime is their only owner.
 #[derive(Serialize, Deserialize)]
 pub struct SavedScenarioResources {
     processed_rules: ProcessedRulesLayers,
     fixed_art_hash: u64,
     scheduler_anim_roots: Vec<String>,
     terrain: SavedTerrainTemplate,
-    trigger_graph: crate::map::trigger_graph::TriggerGraph,
-    triggers: crate::map::triggers::TriggerMap,
-    events: crate::map::events::EventMap,
-    actions: crate::map::actions::ActionMap,
     map: SavedMapMetadata,
 }
 
@@ -36,10 +34,6 @@ pub struct SavedScenarioResourcesRef<'a> {
     fixed_art_hash: u64,
     scheduler_anim_roots: Vec<String>,
     terrain: SavedTerrainTemplate,
-    trigger_graph: &'a crate::map::trigger_graph::TriggerGraph,
-    triggers: &'a crate::map::triggers::TriggerMap,
-    events: &'a crate::map::events::EventMap,
-    actions: &'a crate::map::actions::ActionMap,
     map: SavedMapMetadata,
 }
 
@@ -62,10 +56,6 @@ impl<'a> SavedScenarioResourcesRef<'a> {
                 .cloned()
                 .collect(),
             terrain,
-            trigger_graph: &resources.trigger_graph,
-            triggers: &resources.triggers,
-            events: &resources.events,
-            actions: &resources.actions,
             map,
         }
     }
@@ -107,10 +97,6 @@ impl SavedScenarioResources {
                 rules,
                 terrain_template: Some(terrain),
                 overlay_registry,
-                trigger_graph: self.trigger_graph,
-                triggers: self.triggers,
-                events: self.events,
-                actions: self.actions,
             },
             self.processed_rules,
             self.map,
@@ -127,6 +113,7 @@ pub struct SavedMapMetadata {
     #[serde(with = "source_identity")]
     source: crate::map::source::LoadedMapSource,
     basic: crate::map::basic::BasicSection,
+    ranking: crate::map::ranking::RankingSection,
     terrain_objects: Vec<crate::map::overlay::TerrainObject>,
     house_roster: crate::map::houses::HouseRoster,
     house_colors: crate::map::houses::HouseColorMap,
@@ -138,6 +125,9 @@ pub struct SavedMapMetadata {
     local_player_name: Option<String>,
     /// ThemeSave721010's retained/pending pair. The live owner remains in audio.
     theme_slots: [i32; 2],
+    /// Rust media reconstruction policy: release this credit because the
+    /// physical Radar video queue is not restored. Other pause holds persist.
+    radar_pause_credit: bool,
 }
 
 impl SavedMapMetadata {
@@ -149,6 +139,7 @@ impl SavedMapMetadata {
         map_hash: u64,
         source: &crate::map::source::LoadedMapSource,
         basic: &crate::map::basic::BasicSection,
+        ranking: &crate::map::ranking::RankingSection,
         terrain_objects: &[crate::map::overlay::TerrainObject],
         house_roster: &crate::map::houses::HouseRoster,
         house_colors: &crate::map::houses::HouseColorMap,
@@ -161,6 +152,7 @@ impl SavedMapMetadata {
             map_hash,
             source: source.clone(),
             basic: basic.clone(),
+            ranking: ranking.clone(),
             terrain_objects: terrain_objects.to_vec(),
             house_roster: house_roster.clone(),
             house_colors: house_colors.clone(),
@@ -168,6 +160,7 @@ impl SavedMapMetadata {
             elapsed_buckets,
             local_player_name: local_player_name.map(str::to_owned),
             theme_slots,
+            radar_pause_credit: false,
         }
     }
 
@@ -179,6 +172,9 @@ impl SavedMapMetadata {
     }
     pub fn basic(&self) -> &crate::map::basic::BasicSection {
         &self.basic
+    }
+    pub fn ranking(&self) -> &crate::map::ranking::RankingSection {
+        &self.ranking
     }
     pub fn terrain_objects(&self) -> &[crate::map::overlay::TerrainObject] {
         &self.terrain_objects
@@ -198,6 +194,12 @@ impl SavedMapMetadata {
     }
     pub fn local_player_name(&self) -> Option<&str> {
         self.local_player_name.as_deref()
+    }
+    pub fn radar_pause_credit(&self) -> bool {
+        self.radar_pause_credit
+    }
+    pub fn set_radar_pause_credit(&mut self, held: bool) {
+        self.radar_pause_credit = held;
     }
     pub fn theme_slots(&self) -> [i32; 2] {
         self.theme_slots
@@ -240,6 +242,7 @@ mod tests {
             None,
             IniFile::from_str(""),
             std::sync::Arc::default(),
+            Default::default(),
         )
         .unwrap();
         let loaded = owner
@@ -272,6 +275,7 @@ mod tests {
                 123,
                 &source,
                 &Default::default(),
+                &Default::default(),
                 &[],
                 &Default::default(),
                 &Default::default(),
@@ -283,8 +287,9 @@ mod tests {
         );
         // Exercise the production borrowed writer against the owning reader.
         // JSON round trips would miss tagged-enum/bincode incompatibilities.
-        let bytes = bincode::serialize(&saved).unwrap();
-        let restored: SavedScenarioResources = bincode::deserialize(&bytes).unwrap();
+        let bytes = crate::util::save_codec::serialize(&saved).unwrap();
+        let restored: SavedScenarioResources =
+            crate::util::save_codec::deserialize(&bytes).unwrap();
         assert_eq!(restored.map().source(), &source);
         assert_eq!(restored.map().map_hash(), 123);
         assert_eq!(restored.terrain().dimensions(), (3, 3));

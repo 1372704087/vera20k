@@ -5,20 +5,17 @@
 //! dashboard. It is deliberately *derived data*: `Simulation::telemetry_snapshot`
 //! walks live state on demand and returns a plain, versioned,
 //! serde-serializable struct. Nothing in this module is stored on
-//! `Simulation`, serialized into authoritative state, or hashed — the same
-//! discipline `debug_event_log` follows, so telemetry can never perturb
-//! determinism, saves or replay.
+//! `Simulation`, serialized into authoritative state, or hashed. Sampling
+//! changes no gameplay state, saves or replay inputs.
 //!
 //! ## Design notes
 //!
 //! - **Pull model.** The capture is one pass over the entity store, sampled
-//!   by the app at dashboard rate (5–10 Hz), never per tick. No hot path is
-//!   instrumented and no counter is maintained while nobody is watching.
+//!   by the app at dashboard rate (5–10 Hz), never per tick. Aggregation runs
+//!   only on demand; separate frame profiling is opt-in and defaults off.
 //! - **Wire format.** The app serializes with `serde_json` (text WebSocket
 //!   frames) and the browser parses directly; the payload is aggregate data
-//!   plus capped spots, not the 20k-unit worst case per frame. `bincode`
-//!   remains a drop-in alternative through the same derives when a future
-//!   payload size demands it.
+//!   plus capped spots. Byte and collection limits bound the 20k-object case.
 //! - **Spots.** `spots` is the dashboard's map view: one entry per entity,
 //!   flattened to f32 world cells (cell + sub-cell). `owner_index` addresses
 //!   `houses` (u16::MAX = no house row). Capped at `TELEMETRY_MAX_SPOTS` in
@@ -26,22 +23,16 @@
 //!   Constructor-held (limbo) entities sit at (0,0) by native semantics —
 //!   `store_spawned_limbo` resets the CoordStruct to the off-map default —
 //!   so the map view shows them piled at the origin.
-//! - **Deferred: pathfinding health counters.** `DebugEventKind`'s locomotor
-//!   variants (Repath / Blocked / StuckAbort / PhaseChange) have no emission
-//!   sites in sim today: the only `push_debug_event` callers are the miner
-//!   and special-movement systems, and they hold a `GameEntity`, not the
-//!   `Simulation`, so a global counter has no honest home yet. Global
-//!   pathfinding counters land with the locomotor instrumentation that
-//!   constructs those events; until then this schema carries no zeros that
-//!   pretend to be measurements.
+//! - **Measured data only.** No event-history or pathfinding-health counters
+//!   are invented where the current simulation has no observation source.
 //! - **Wire stability.** Houses and spots are `Vec`s in store/interned-id
 //!   order — deterministic across peers and runs. New fields arrive as
 //!   `Option` or new sections under a bumped `TELEMETRY_SCHEMA_VERSION`.
-//! - **Debug panel port.** `debug` carries the former egui Terrain Debug /
-//!   Event History panel data: cursor cell and walkability, entities at the
-//!   cursor, selected movers' paths, miner state and per-entity event logs.
-//!   The app layer fills it from cursor/selection/inspector state; the
-//!   simulation itself never does.
+//! - **Debug panel.** `debug` carries cursor cell and walkability, entities at
+//!   the cursor, selected movers' paths and miner state.
+//!   The app layer fills it from cursor and selection state; the
+//!   simulation itself never does. All fields in this protocol are read-only;
+//!   the schema does not define requests that mutate the game.
 //!
 //! ## Dependency rules
 //! - Part of sim/; no render/ui/audio/net dependencies.
@@ -59,19 +50,13 @@ use crate::sim::world::Simulation;
 /// table lists. The four pie buckets are derived from it, not added alongside.
 /// v14: `render` — the per-phase breakdown of one in-game render.
 /// v15: `logs` — incremental log records for the dashboard's log view.
-/// v16: `cheats` — the trainer switches, so a panel reload cannot desync.
-/// v17: houses carry their live power reading, and `cheats.power_forced` says
-/// whether the power switch is actually overriding a deficit.
-/// v18: `cheats.tech_all` — the tech gates are bypassed for the named house.
-/// v19: `cheats.tech_boost` — only the tech-level cap is lifted, so the house
-/// builds past its level while the prerequisites still apply.
-/// v20: `cheats.build_anywhere` — the named house's buildings stand anywhere:
-/// no proximity ring, and the ground itself never refuses them.
+/// v17: houses carry their live power reading.
 /// v21: houses carry `production` (what each factory is building, its queue and
 /// its ready-to-place stock), `squads` (the computer's live `TeamScriptState`
 /// teams with their members and script step) and `base_plan` (its planned base
 /// positions).
-pub const TELEMETRY_SCHEMA_VERSION: u32 = 21;
+/// v22: read-only schema; trainer state is absent and collections are bounded.
+pub const TELEMETRY_SCHEMA_VERSION: u32 = 22;
 
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
@@ -81,6 +66,19 @@ pub const TELEMETRY_MAX_SPOTS: usize = 20_000;
 /// Per-house roster ceiling. The secondary screen lists what a house actually
 /// fields; a long tail of one-off types belongs on a drill-down, not the wall.
 pub const TELEMETRY_MAX_ROSTER: usize = 16;
+/// Thirty participants plus the ordinary neutral/special house slots.
+pub const TELEMETRY_MAX_HOUSES: usize = 32;
+pub const TELEMETRY_MAX_PRODUCTION: usize = 8;
+pub const TELEMETRY_MAX_QUEUE: usize = 8;
+pub const TELEMETRY_MAX_SQUADS: usize = 16;
+pub const TELEMETRY_MAX_COMPOSITION: usize = 8;
+pub const TELEMETRY_MAX_BASE_PLAN: usize = 32;
+/// Byte limit, shortened only at UTF-8 character boundaries.
+pub const TELEMETRY_MAX_NAME_BYTES: usize = 64;
+
+#[cfg(test)]
+#[path = "telemetry_tests.rs"]
+mod tests;
 
 /// Live population of one entity category.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -94,16 +92,19 @@ pub struct CategoryCounts {
 impl CategoryCounts {
     /// All four categories summed.
     pub fn total(&self) -> u32 {
-        self.unit + self.infantry + self.aircraft + self.structure
+        self.unit
+            .saturating_add(self.infantry)
+            .saturating_add(self.aircraft)
+            .saturating_add(self.structure)
     }
 
     /// Count one entity into its category bucket.
     pub(crate) fn add(&mut self, category: EntityCategory) {
         match category {
-            EntityCategory::Unit => self.unit += 1,
-            EntityCategory::Infantry => self.infantry += 1,
-            EntityCategory::Aircraft => self.aircraft += 1,
-            EntityCategory::Structure => self.structure += 1,
+            EntityCategory::Unit => self.unit = self.unit.saturating_add(1),
+            EntityCategory::Infantry => self.infantry = self.infantry.saturating_add(1),
+            EntityCategory::Aircraft => self.aircraft = self.aircraft.saturating_add(1),
+            EntityCategory::Structure => self.structure = self.structure.saturating_add(1),
         }
     }
 }
@@ -206,10 +207,10 @@ pub struct TimingSample {
     pub p50_ms: f32,
     /// 99th-percentile tick cost over the app's sampling window.
     pub p99_ms: f32,
-    /// The frame's tick budget in milliseconds (the pacer's tick interval).
-    pub budget_ms: f32,
-    /// `tick_ms` divided by `budget_ms`.
-    pub budget_utilization: f32,
+    /// The pacer's tick interval. None for uncapped pacing.
+    pub budget_ms: Option<f32>,
+    /// `tick_ms` divided by the paced budget; None when uncapped.
+    pub budget_utilization: Option<f32>,
     /// Presentation frames per second, from the app's render-frame timer.
     /// 0 while no sample has been taken (menu, or before the first redraw).
     pub fps: f32,
@@ -259,16 +260,7 @@ pub struct MinerDebug {
     pub teleport_active: bool,
 }
 
-/// One formatted debug event; the text mirrors the egui Event History
-/// panel's formatting (without its colours).
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct DebugEventEntry {
-    pub tick: u32,
-    pub text: String,
-}
-
-/// One selected entity's debug state: identity, position, path and (when
-/// the inspector was active) its event log.
+/// One selected entity's read-only identity, position, path and miner state.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SelectedDebug {
     pub stable_id: u64,
@@ -283,14 +275,10 @@ pub struct SelectedDebug {
     /// The first steps of the remaining path, the mover's next cell first.
     pub path_preview: Vec<PathStep>,
     pub miner: Option<MinerDebug>,
-    /// Whether the per-entity event log was active for this entity.
-    pub inspector_active: bool,
-    /// The most recent events, newest first (capped).
-    pub events: Vec<DebugEventEntry>,
 }
 
-/// The dashboard's port of the egui Terrain Debug / Event History panels.
-/// Filled by the app layer from live cursor, selection, inspector and
+/// The dashboard's read-only terrain and selection observations.
+/// Filled by the app layer from live cursor, selection and
 /// overlay-switch state; `None` when no match is running.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DebugPanel {
@@ -330,8 +318,6 @@ pub struct OverlayFlags {
     pub cell_grid: bool,
     /// Fog of war (the engine stores the inverse: `sandbox_full_visibility`).
     pub fog: bool,
-    /// Per-entity debug event logging (`^+X`).
-    pub unit_inspector: bool,
     /// Foot-path step overlay (`^+O`).
     pub foot_path: bool,
     /// Debug pause (`^+J`).
@@ -387,37 +373,6 @@ pub struct RenderTimingReport {
     pub other_ms: f32,
 }
 
-/// The trainer switches in force, as the dashboard renders them.
-///
-/// A projection of [`crate::sim::cheats::Cheats`]: the panel is the only
-/// writer, so echoing the live values back is what keeps two browser windows
-/// (or a reload) showing the same switch positions instead of whatever that
-/// window last clicked.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct CheatReport {
-    pub infinite_money: bool,
-    pub money_target: i32,
-    pub infinite_power: bool,
-    pub instant_build: bool,
-    pub invincible: bool,
-    pub damage_scale: u16,
-    pub reveal_map: bool,
-    pub tech_all: bool,
-    pub tech_boost: bool,
-    /// The house's buildings stand anywhere: the proximity ring around a base
-    /// does not apply and the ground never refuses them. The footprint still
-    /// has to be empty and inside the playfield.
-    pub build_anywhere: bool,
-    /// The house the switches act on, resolved. Present from the first frame
-    /// a switch is on; the panel shows it so "who is this helping" is never a
-    /// guess.
-    pub owner: Option<String>,
-    /// True while the power switch is overriding a real deficit. False on a
-    /// base that is already fully powered — the switch is on but has nothing
-    /// to do, and the panel has to be able to say so.
-    pub power_forced: bool,
-}
-
 /// One house's production line, projected from its `FactoryRegistry`.
 ///
 /// The registry is keyed by holder, so an AI house's queues live under its
@@ -454,7 +409,7 @@ pub struct AiSquad {
     pub team_type: Option<String>,
     /// The `TaskForce` the team is filling.
     pub task_force: Option<String>,
-    /// Live member count and the per-type breakdown, largest first.
+    /// Retained member-reference count and present per-type breakdown, largest first.
     pub members: u32,
     pub composition: Vec<TypeCount>,
     /// `+0x2C`, the script action the team is running; -1 before the first.
@@ -476,8 +431,7 @@ pub struct BasePlan {
     pub y: u16,
     /// The type the site wants built there, when one is chosen.
     pub building: Option<String>,
-    /// Whether the site is flagged as a base (rather than a defense or a
-    /// production annex).
+    /// Legacy wire label: true while this retained node is not yet filled.
     pub is_base: bool,
 }
 
@@ -521,52 +475,100 @@ pub struct TelemetrySnapshot {
     /// an owner with no house row — a data anomaly the dashboard should
     /// surface, not hide.
     pub entities_total: u32,
-    /// In `BTreeMap` (interned-id) order: deterministic across peers.
+    /// In `BTreeMap` (interned-id) order, capped at `TELEMETRY_MAX_HOUSES`.
     pub houses: Vec<HousePopulation>,
     /// One spot per entity in store order, capped at `TELEMETRY_MAX_SPOTS`.
     pub spots: Vec<EntitySpot>,
     /// App-filled frame timing; `None` until the app has sampled a frame.
     pub timing: Option<TimingSample>,
-    /// App-filled egui-panel port (cursor, selection, event log); `None`
+    /// App-filled terrain and selection observations; `None`
     /// until the app layer fills it.
     pub debug: Option<DebugPanel>,
     /// App-filled process resources (CPU, memory, threads, GPU texture).
     pub process: Option<ProcessStats>,
-    /// Live frame-phase profile since this match started. The same accumulator
-    /// the end-of-match report reads, so the wall shows the running split and
-    /// the report freezes it.
+    /// Mean cost per simulation tick in the current observation window.
     pub profile: Option<crate::sim::frame_profile::FrameProfileReport>,
     /// App-filled per-phase render breakdown; `None` until the app has rendered
     /// a game frame.
     pub render: Option<RenderTimingReport>,
     /// App-filled log records since the previous snapshot.
     pub logs: Option<LogBatch>,
-    /// The trainer switches currently in force (schema v16).
-    pub cheats: CheatReport,
+}
+
+/// Bound copied identifiers before allocating wire strings. Never splits UTF-8.
+fn bounded_name(value: &str) -> String {
+    let mut end = value.len().min(TELEMETRY_MAX_NAME_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
+
+fn category_order(category: EntityCategory) -> u8 {
+    match category {
+        EntityCategory::Unit => 0,
+        EntityCategory::Infantry => 1,
+        EntityCategory::Aircraft => 2,
+        EntityCategory::Structure => 3,
+    }
+}
+
+fn type_counts(
+    counts: &BTreeMap<(u8, InternedId), (EntityCategory, u32)>,
+    interner: &crate::sim::intern::StringInterner,
+    limit: usize,
+) -> Vec<TypeCount> {
+    let mut rows: Vec<_> = counts.iter().collect();
+    rows.sort_by(
+        |((category_a, type_a), (_, count_a)), ((category_b, type_b), (_, count_b))| {
+            count_b
+                .cmp(count_a)
+                .then_with(|| interner.resolve(*type_a).cmp(interner.resolve(*type_b)))
+                .then_with(|| category_a.cmp(category_b))
+        },
+    );
+    rows.into_iter()
+        .take(limit)
+        .map(|((_, id), (category, count))| TypeCount {
+            type_name: bounded_name(interner.resolve(*id)),
+            category: *category,
+            count: *count,
+        })
+        .collect()
 }
 
 impl Simulation {
-    /// Capture the live dashboard snapshot. One pass over the entity store;
-    /// derived data only — never stored, serialized or hashed.
+    /// Capture the retained owners without changing simulation state. Rows and
+    /// strings are bounded before wire allocation; totals include all entities.
     pub fn telemetry_snapshot(&self) -> TelemetrySnapshot {
-        // House rows first, so entity spots can address them by index.
-        let mut owner_index: BTreeMap<InternedId, u16> = BTreeMap::new();
-        let mut houses: Vec<HousePopulation> = Vec::with_capacity(self.houses.len());
-        for (index, (owner, house)) in self.houses.iter().enumerate() {
-            owner_index.insert(*owner, index as u16);
+        let mut owner_index = BTreeMap::new();
+        let mut houses: Vec<HousePopulation> =
+            Vec::with_capacity(self.houses.len().min(TELEMETRY_MAX_HOUSES));
+        for (index, (owner, house)) in self.houses.iter().take(TELEMETRY_MAX_HOUSES).enumerate() {
+            owner_index.insert(*owner, index);
+            let difficulty = match house.difficulty {
+                crate::sim::house_state::HouseDifficulty::Hard => "hard",
+                crate::sim::house_state::HouseDifficulty::Normal => "normal",
+                crate::sim::house_state::HouseDifficulty::Easy => "easy",
+            };
             houses.push(HousePopulation {
-                name: self.interner.resolve(house.name).to_string(),
+                name: bounded_name(self.interner.resolve(house.name)),
                 side_index: house.side_index,
                 side_name: None,
-                difficulty: house.difficulty.telemetry_name().to_string(),
+                difficulty: difficulty.to_owned(),
                 is_human: house.is_human,
                 passive: house.multiplay_passive,
                 counts: CategoryCounts::default(),
-                // The app resolves the launch session's [Colors] scheme.
                 color: None,
                 credits: house.economy.credits(),
-                power_output: self.power_states.get(owner).map_or(0, |power| power.total_output),
-                power_drain: self.power_states.get(owner).map_or(0, |power| power.total_drain),
+                power_output: self
+                    .power_states
+                    .get(owner)
+                    .map_or(0, |power| power.total_output),
+                power_drain: self
+                    .power_states
+                    .get(owner)
+                    .map_or(0, |power| power.total_drain),
                 low_power: self
                     .power_states
                     .get(owner)
@@ -581,24 +583,20 @@ impl Simulation {
                 base_plan: Vec::new(),
             });
         }
-
-        // One entity pass: category tallies per owner plus the capped spots.
-        // The same pass counts live types per house, so the secondary screen's
-        // roster costs no extra traversal.
-        let mut per_owner: BTreeMap<InternedId, CategoryCounts> = BTreeMap::new();
-        let mut per_owner_types: BTreeMap<(InternedId, InternedId), (EntityCategory, u32)> =
-            BTreeMap::new();
-        let mut spots: Vec<EntitySpot> = Vec::new();
+        let mut rosters = vec![BTreeMap::new(); houses.len()];
+        let mut spots = Vec::with_capacity(self.entities().len().min(TELEMETRY_MAX_SPOTS));
         let mut entities_total = 0u32;
         for entity in self.entities().values() {
-            entities_total += 1;
-            let owner = entity.owner();
+            entities_total = entities_total.saturating_add(1);
+            let index = owner_index.get(&entity.owner()).copied();
             let category = entity.category();
-            per_owner.entry(owner).or_default().add(category);
-            per_owner_types
-                .entry((owner, entity.type_ref()))
-                .or_insert((category, 0))
-                .1 += 1;
+            if let Some(index) = index {
+                houses[index].counts.add(category);
+                let row = rosters[index]
+                    .entry((category_order(category), entity.type_ref()))
+                    .or_insert((category, 0u32));
+                row.1 = row.1.saturating_add(1);
+            }
             if spots.len() < TELEMETRY_MAX_SPOTS {
                 let position = &entity.position;
                 spots.push(EntitySpot {
@@ -606,129 +604,98 @@ impl Simulation {
                     y: f32::from(position.ry()) + position.sub_y().to_num::<f32>() / SUB_CELL_UNITS,
                     z: position.z(),
                     category,
-                    owner_index: owner_index.get(&owner).copied().unwrap_or(u16::MAX),
+                    owner_index: index.map_or(u16::MAX, |index| index as u16),
                 });
             }
         }
-
-        // Houses and their owners share the BTreeMap iteration order.
-        for (house, owner) in houses.iter_mut().zip(self.houses.keys()) {
-            house.counts = per_owner.get(owner).copied().unwrap_or_default();
-            let mut roster: Vec<TypeCount> = per_owner_types
-                .iter()
-                .filter(|((entity_owner, _), _)| entity_owner == owner)
-                .map(|((_, type_ref), (category, count))| TypeCount {
-                    type_name: self.interner.resolve(*type_ref).to_string(),
-                    category: *category,
-                    count: *count,
-                })
-                .collect();
-            // Largest first, name as the tie-break so the order never depends
-            // on interning order.
-            roster.sort_by(|a, b| {
-                b.count
-                    .cmp(&a.count)
-                    .then_with(|| a.type_name.cmp(&b.type_name))
-            });
-            roster.truncate(TELEMETRY_MAX_ROSTER);
-            house.roster = roster;
+        for (house, counts) in houses.iter_mut().zip(&rosters) {
+            house.roster = type_counts(counts, &self.interner, TELEMETRY_MAX_ROSTER);
         }
 
-        // Production, squads and base plans are grouped by owner first. The
-        // projection walks the live registries once and hands each house only
-        // its own rows, so the cost does not scale with the house count.
-        let mut production_by_owner: BTreeMap<InternedId, Vec<ProductionLine>> = BTreeMap::new();
         for factory in self.production.factories.iter_insertion_ordered() {
-            let type_name = |type_id: InternedId| self.interner.resolve(type_id).to_string();
-            // A completed building leaves the factory and waits for a PLACE, so
-            // it is reported as ready stock rather than as the active build.
+            let Some(&index) = owner_index.get(&factory.owner) else {
+                continue;
+            };
+            let rows = &mut houses[index].production;
+            if rows.len() == TELEMETRY_MAX_PRODUCTION {
+                continue;
+            }
+            let type_name = |id| bounded_name(self.interner.resolve(id));
             let (active_type, ready_to_place) = match factory.object.as_ref() {
-                Some(object) if factory.progress >= PRODUCTION_STEPS => (
-                    None,
-                    vec![type_name(object.type_id)],
-                ),
+                Some(object) if factory.progress >= PRODUCTION_STEPS => {
+                    (None, vec![type_name(object.type_id)])
+                }
                 Some(object) => (Some(type_name(object.type_id)), Vec::new()),
                 None => (None, Vec::new()),
             };
-            production_by_owner.entry(factory.owner).or_default().push(ProductionLine {
-                category: factory.category.label().to_string(),
+            rows.push(ProductionLine {
+                category: factory.category.label().to_owned(),
                 active_type,
                 progress: factory.progress,
                 on_hold: factory.on_hold,
                 suspended: factory.suspended,
-                queue: factory.queue.iter().map(|entry| type_name(entry.type_id)).collect(),
+                queue: factory
+                    .queue
+                    .iter()
+                    .take(TELEMETRY_MAX_QUEUE)
+                    .map(|entry| type_name(entry.type_id))
+                    .collect(),
                 ready_to_place,
             });
         }
 
-        let mut squads_by_owner: BTreeMap<InternedId, Vec<AiSquad>> = BTreeMap::new();
         for team in self.team_script_vm.teams_in_order() {
-            // Members are entity ids; the roster pass already tallied live
-            // types per house, so reuse that map for the breakdown instead of
-            // walking the entity store a second time per team.
-            let mut composition: BTreeMap<InternedId, (EntityCategory, u32)> = BTreeMap::new();
+            let Some(&index) = owner_index.get(&team.owner()) else {
+                continue;
+            };
+            let rows = &mut houses[index].squads;
+            if rows.len() == TELEMETRY_MAX_SQUADS {
+                continue;
+            }
+            let mut counts = BTreeMap::new();
             let mut members = 0u32;
             for member in team.members() {
-                members += 1;
+                members = members.saturating_add(1);
                 if let Some(entity) = self.entities().get(member) {
-                    composition
-                        .entry(entity.type_ref())
-                        .and_modify(|(_, count)| *count += 1)
-                        .or_insert((entity.category(), 1));
+                    let category = entity.category();
+                    let row = counts
+                        .entry((category_order(category), entity.type_ref()))
+                        .or_insert((category, 0u32));
+                    row.1 = row.1.saturating_add(1);
                 }
             }
-            let mut breakdown: Vec<TypeCount> = composition
-                .into_iter()
-                .map(|(type_ref, (category, count))| TypeCount {
-                    type_name: self.interner.resolve(type_ref).to_string(),
-                    category,
-                    count,
-                })
-                .collect();
-            breakdown.sort_by(|a, b| {
-                b.count
-                    .cmp(&a.count)
-                    .then_with(|| a.type_name.cmp(&b.type_name))
+            rows.push(AiSquad {
+                id: team.id(),
+                team_type: team
+                    .team_type_id()
+                    .map(|id| bounded_name(self.interner.resolve(id))),
+                task_force: team
+                    .task_force_id()
+                    .map(|id| bounded_name(self.interner.resolve(id))),
+                members,
+                composition: type_counts(&counts, &self.interner, TELEMETRY_MAX_COMPOSITION),
+                script_step: team.cursor(),
+                formed: team.formed(),
+                under_strength: team.under_strength(),
+                suspended: team.is_suspended(),
             });
-            squads_by_owner
-                .entry(team.owner())
-                .or_default()
-                .push(AiSquad {
-                    id: team.id(),
-                    team_type: None,
-                    task_force: None,
-                    members,
-                    composition: breakdown,
-                    script_step: team.cursor(),
-                    formed: false,
-                    under_strength: false,
-                    suspended: false,
-                });
         }
 
-        // The base plan is a flat node vector per house. A node's
-        // `type_or_control` is a BuildingTypes registry index, and the
-        // negative values are planner controls (-1 clears, -2/-3 are growth /
-        // wall-tower requests), not building types — so the panel gets the
-        // count and the cell, and the index itself is not worth sending as if
-        // it were a name.
-        for (house, owner) in houses.iter_mut().zip(self.houses.keys()) {
-            house.production = production_by_owner.remove(owner).unwrap_or_default();
-            house.squads = squads_by_owner.remove(owner).unwrap_or_default();
-            let plan = &self.houses.get(owner).map(|h| &h.base_plan);
-            if let Some(plan) = plan {
-                house.base_plan = plan
-                    .nodes
-                    .iter()
-                    .filter(|node| node.packed_cell != 0)
-                    .map(|node| BasePlan {
-                        x: (node.packed_cell & 0xFFFF) as u16,
-                        y: (node.packed_cell >> 16) as u16,
-                        building: None,
-                        is_base: !node.filled,
-                    })
-                    .collect();
-            }
+        for (owner, index) in &owner_index {
+            let source = &self.houses[owner];
+            houses[*index].base_plan = source
+                .base_plan
+                .nodes
+                .iter()
+                .filter(|node| node.packed_cell != 0)
+                .take(TELEMETRY_MAX_BASE_PLAN)
+                .map(|node| BasePlan {
+                    x: (node.packed_cell & 0xffff) as u16,
+                    y: (node.packed_cell >> 16) as u16,
+                    building: None,
+                    is_base: !node.filled,
+                })
+                .collect();
         }
 
         TelemetrySnapshot {
@@ -743,23 +710,9 @@ impl Simulation {
             timing: None,
             debug: None,
             process: None,
-            profile: None,
+            profile: self.frame_profile().report(),
             render: None,
             logs: None,
-            cheats: CheatReport {
-                infinite_money: self.cheats.infinite_money,
-                money_target: self.cheats.money_target,
-                infinite_power: self.cheats.infinite_power,
-                instant_build: self.cheats.instant_build,
-                invincible: self.cheats.invincible,
-                damage_scale: self.cheats.damage_scale,
-                reveal_map: self.cheats.reveal_map,
-                tech_all: self.cheats.tech_all,
-                tech_boost: self.cheats.tech_boost,
-                build_anywhere: self.cheats.build_anywhere,
-                owner: self.cheats.owner.map(|owner| self.interner.resolve(owner).to_string()),
-                power_forced: self.cheats.power_forced,
-            },
         }
     }
 }

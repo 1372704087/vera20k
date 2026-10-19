@@ -85,6 +85,10 @@ pub struct EntityStore {
     /// of the dense storage's empty slots and compaction schedule.
     /// RMG PreconsumedGenerated registration parity is not established here.
     techno_registry: Vec<u64>,
+    /// BuildingClass::Array A8EB40, derived from immutable class and the
+    /// same constructor IDs. Insert/remove/replace/restore maintain it like
+    /// the other class registries; UnInit alone retains its row.
+    building_registry: Vec<u64>,
     /// VERA-only: `(bucket, enter order, stable_id)` of every stored entity
     /// the AircraftTracker holds (an air bucket): each bucket's entries in
     /// the order [`Self::airborne_in_query_order`] copies them. The entity's
@@ -128,6 +132,7 @@ impl Clone for EntityStore {
             infantry_registry: self.infantry_registry.clone(),
             foot_registry: self.foot_registry.clone(),
             techno_registry: self.techno_registry.clone(),
+            building_registry: self.building_registry.clone(),
             airborne: self.airborne.clone(),
             touched: TouchLogs::everything(),
         }
@@ -157,6 +162,7 @@ impl EntityStore {
             infantry_registry: Vec::new(),
             foot_registry: Vec::new(),
             techno_registry: Vec::new(),
+            building_registry: Vec::new(),
             airborne: BTreeSet::new(),
             touched: TouchLogs::everything(),
         }
@@ -209,6 +215,15 @@ impl EntityStore {
         if let Err(index) = self.techno_registry.binary_search(&id) {
             self.techno_registry.insert(index, id);
         }
+        if let Ok(index) = self.building_registry.binary_search(&id) {
+            self.building_registry.remove(index);
+        }
+        if category == EntityCategory::Structure {
+            let index = self
+                .building_registry
+                .partition_point(|&existing| existing < id);
+            self.building_registry.insert(index, id);
+        }
         self.remove_infantry_index(id);
         if infantry {
             let index = self
@@ -242,6 +257,9 @@ impl EntityStore {
         }
         if let Ok(index) = self.techno_registry.binary_search(&stable_id) {
             self.techno_registry.remove(index);
+        }
+        if let Ok(index) = self.building_registry.binary_search(&stable_id) {
+            self.building_registry.remove(index);
         }
         // Compact once a quarter of the slots are empty, so a walk skips few
         // and compaction's cost spreads over many removals.
@@ -449,6 +467,13 @@ impl EntityStore {
         self.techno_registry.len()
     }
 
+    pub(crate) fn building_registry_at(&self, index: usize) -> Option<u64> {
+        self.building_registry.get(index).copied()
+    }
+    pub(crate) fn building_registry_len(&self) -> usize {
+        self.building_registry.len()
+    }
+
     pub(crate) fn foot_registry_at(&self, index: usize) -> Option<u64> {
         self.foot_registry.get(index).copied()
     }
@@ -580,7 +605,8 @@ impl EntityStore {
         //412B6E calls Cell vt+48;413A30 truncates the returned XYZ's
         // X/Y toward zero and packs16. Read the resolved live Cell rather
         // than its lookup argument: aliases and the shared Dummy can differ.
-        let point = crate::sim::cell_kernel::cell_ref_own_coords(center_cell)
+        let point = center_cell
+            .center_coordinate()
             .expect("admitted Cell ground coordinate");
         let center = (
             crate::util::lepton::lepton_to_cell_packed(point.x) as u16,
@@ -631,6 +657,11 @@ impl EntityStore {
             .map(|(id, _)| id)
             .collect();
         self.techno_registry = self.stored().map(|(id, _)| id).collect();
+        self.building_registry = self
+            .stored()
+            .filter(|(_, entity)| entity.category() == EntityCategory::Structure)
+            .map(|(id, _)| id)
+            .collect();
     }
 }
 
@@ -680,7 +711,7 @@ impl serde::Serialize for EntityStore {
     /// form the former `BTreeMap` storage wrote.
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        // bincode needs the length up front, which a filtering iterator
+        // The save codec needs the length up front, which a filtering iterator
         // cannot give `collect_map`.
         let mut map = serializer.serialize_map(Some(self.len()))?;
         for (id, entity) in self.stored() {
@@ -995,6 +1026,15 @@ mod tests {
                             .collect::<Vec<_>>()
                     );
                 }
+                assert_eq!(
+                    store.building_registry,
+                    categories
+                        .iter()
+                        .filter(|(_, category)| **category == EntityCategory::Structure)
+                        .map(|(&id, _)| id)
+                        .collect::<Vec<_>>(),
+                    "Building registry derives from the model's immutable class"
+                );
                 let mut expected_airborne: Vec<(u64, u64, u16)> = tracked
                     .iter()
                     .map(|(&id, &(bucket, order))| (order, id, bucket))
@@ -1057,9 +1097,9 @@ mod tests {
             .into_iter()
             .map(|id| (id, Box::new(store.get(id).unwrap().clone())))
             .collect();
-        let saved = bincode::serialize(&store).unwrap();
-        assert_eq!(saved, bincode::serialize(&map).unwrap());
-        let restored: EntityStore = bincode::deserialize(&saved).unwrap();
+        let saved = crate::util::save_codec::serialize(&store).unwrap();
+        assert_eq!(saved, crate::util::save_codec::serialize(&map).unwrap());
+        let restored: EntityStore = crate::util::save_codec::deserialize(&saved).unwrap();
         assert_eq!(restored.keys_sorted(), [2, 4, 7]);
         assert_eq!(restored.techno_registry, [2, 4, 7]);
         for id in [2, 4, 7] {
@@ -1071,7 +1111,47 @@ mod tests {
             [4, 2],
             "tracked entities come back in enter order"
         );
-        assert_eq!(bincode::serialize(&restored).unwrap(), saved);
+        assert_eq!(
+            crate::util::save_codec::serialize(&restored).unwrap(),
+            saved
+        );
+    }
+
+    #[test]
+    fn building_registry_tracks_class_replacement_removal_clone_and_restore() {
+        let mut store = EntityStore::new();
+        let mut building = make_entity(7);
+        building.set_category_for_test(EntityCategory::Structure);
+        store.insert(building);
+        store.insert(make_entity(2));
+        let mut earlier = make_entity(3);
+        earlier.set_category_for_test(EntityCategory::Structure);
+        store.insert(earlier);
+        store
+            .get_mut(3)
+            .unwrap()
+            .lifecycle
+            .set_object_alive_for_test(false);
+        assert_eq!(
+            store.building_registry,
+            [3, 7],
+            "UnInit does not remove a class row"
+        );
+        store.insert(make_entity(3));
+        assert_eq!(store.building_registry, [7]);
+        let mut replacement = make_entity(2);
+        replacement.set_category_for_test(EntityCategory::Structure);
+        store.insert(replacement);
+        assert_eq!(store.building_registry_at(0), Some(2));
+        store.remove(2);
+        assert_eq!(store.building_registry_at(0), Some(7));
+        assert_eq!(store.building_registry_at(1), None);
+        let restored: EntityStore = crate::util::save_codec::deserialize(
+            &crate::util::save_codec::serialize(&store).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored.building_registry, store.building_registry);
+        assert_eq!(store.clone().building_registry, store.building_registry);
     }
 
     #[test]

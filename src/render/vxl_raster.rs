@@ -210,7 +210,7 @@ fn voxel_rocket_locomotor_matrix(step: u8, pitch: f32) -> Mat4 {
     if pitch == 0.0 {
         return facing;
     }
-    let trig = crate::map::retail_trig::TrigTable::embedded();
+    let trig = crate::util::retail_trig::TrigTable::embedded();
     let angle = Fpu::load_f32(NativeF32Bits::from_bits((-pitch).to_bits()))
         .expect("CurrentPitch is finite");
     // The table entries are binary32, so the stores are exact.
@@ -2024,11 +2024,8 @@ mod tests {
         assert_eq!(turret_pivot_screen_offset(0, 0, 0, 1.0), (0.0, 0.0));
     }
 
-    fn barrel_vectors() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/voxel_oracle/barrel_pitch.json",
-        ))
-        .unwrap()
+    fn barrel_vectors() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/voxel_oracle/barrel_pitch.json")
     }
 
     /// A native row-major 3x4 matrix from its twelve binary32 words, bottom

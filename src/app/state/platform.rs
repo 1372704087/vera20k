@@ -1,7 +1,6 @@
 //! Process-local platform lifecycle and frame-pacing state.
 
 use std::sync::Arc;
-use std::time::Instant;
 
 use winit::dpi::PhysicalSize;
 use winit::window::Window;
@@ -63,8 +62,6 @@ pub(crate) struct PlatformState {
     /// zero-sized `Resized` instead. Both signals feed this flag, so the redraw
     /// loop parks on every platform. Presentation-only.
     pub(crate) window_hidden: bool,
-    /// Monotonic epoch used only by the app-local gameplay-frame pacer.
-    pub(crate) frame_pacer_epoch: Instant,
     /// Local wall-clock admission state. Never serialized or read by the sim.
     pub(crate) frame_pacer: LocalFramePacer,
     /// Loaded GameConfig — missing config.toml falls back to the executable
@@ -94,7 +91,6 @@ impl PlatformState {
             window_active: true,
             pause_on_focus_loss,
             window_hidden: false,
-            frame_pacer_epoch: Instant::now(),
             frame_pacer: LocalFramePacer::new(),
             game_config,
             capture_client_size,

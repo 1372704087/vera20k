@@ -61,12 +61,15 @@ pub struct CloakRuntime {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CloakTickFacts {
     pub current_frame: i32,
-    /// Head gate at 0x006FB740: usable intrinsic cloak with no firing/chrono
-    /// activity, or the current rank's CLOAK ability.
+    /// State-zero head at6FB740: usable intrinsic cloak without EMP/paralysis/
+    /// chrono activity, or the current rank's CLOAK ability, followed by the
+    /// WeaponsFactory radio-contact exclusion. Retained-target range belongs
+    /// to CanAutoCloak below.
     pub state_zero_head_allows: bool,
-    /// Exact `CanAutoCloak @ 0x006FBDC0` result from current world facts.
+    /// `CanAutoCloak @ 0x006FBDC0` input from the current world adapter;
+    /// its ability producers and remaining coverage are documented there.
     pub can_auto_cloak: bool,
-    /// Exact `ShouldUncloak @ 0x006FBC90` result from current world facts.
+    /// `ShouldUncloak @ 0x006FBC90` input from the same world adapter.
     pub should_uncloak: bool,
     /// Strict `ConditionRed < health_ratio` comparison.
     pub health_above_red: bool,
@@ -452,14 +455,6 @@ impl CloakRuntime {
         result
     }
 
-    /// `CanAutoCloak @ 0x006FBDC0`'s two timer gates: the object's weapon
-    /// rearm countdown (`+0x2EC`, `param_1[0xbb]`/`[0xbd]`, checked right after
-    /// the `CloakState == 2` early-out, so a sub that just fired stays surfaced
-    /// for its whole `ROF=`), then the CloakDelay above.
-    pub fn recloak_delay_expired(&self, now: i32, rearm_timer: CdTimer) -> bool {
-        rearm_timer.expired(now) && self.recloak_delay.expired(now)
-    }
-
     /// `CloakState == 2` — fully cloaked. The only state the native target
     /// legality gates reject; 1 (cloaking) and 3 (uncloaking) stay legal.
     pub fn is_fully_cloaked(&self) -> bool {
@@ -519,36 +514,39 @@ pub fn is_disguised_to(
     !disguised_as_house_present || disguised_as_is_observer_or_ally
 }
 
-/// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
-/// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
-/// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
-/// about the observer, then the observer about the house it wears (`+0x51C`).
-/// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
-/// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
-pub(crate) fn object_disguised_to(
-    object: &crate::sim::game_entity::GameEntity,
-    observer: InternedId,
-    fog: Option<&crate::sim::vision::FogState>,
-    alliances: Option<&crate::map::houses::HouseAllianceMap>,
-    interner: &crate::sim::intern::StringInterner,
-) -> bool {
-    let Some(disguise) = object.disguise.as_ref() else {
-        return false;
-    };
-    let allied = |asker: InternedId, other: InternedId| {
-        crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
-    };
-    is_disguised_to(
-        disguise.disguised,
-        allied(object.owner(), observer),
-        fog.is_some_and(|fog| {
-            fog.detects_disguise_for_house(observer, object.position.rx(), object.position.ry())
-        }),
-        disguise
-            .disguised_as_house
-            .is_some_and(|fake| allied(observer, fake)),
-        disguise.disguised_as_house.is_some(),
-    )
+impl crate::sim::game_entity::GameEntity {
+    /// vtable `+0xC8` `IsDisguisedTo(observer)` for a represented object: the
+    /// inputs of [`is_disguised_to`] read from live state. `HouseClass::IsAlliedWith
+    /// @ 0x004F9A90` is one-way (the asker's ally bits): the object's owner asks
+    /// about the observer, then the observer about the house it wears (`+0x51C`).
+    /// Unit746750/Infantry5227F0; DrawExtras6F5357 also consumes this query.
+    /// Callers: `Evaluate_Candidate` (`0x006F84B1`), `ShouldRetaliate`
+    /// (`0x00708899`) and `UnitClass::Should_Crush_It` (`0x00743A26`).
+    pub fn is_disguised_to(
+        &self,
+        observer: InternedId,
+        fog: Option<&crate::sim::vision::FogState>,
+        alliances: Option<&crate::map::houses::HouseAllianceMap>,
+        interner: &crate::sim::intern::StringInterner,
+    ) -> bool {
+        let Some(disguise) = self.disguise.as_ref() else {
+            return false;
+        };
+        let allied = |asker: InternedId, other: InternedId| {
+            crate::sim::combat::combat_weapon::is_ally_by_object(alliances, interner, asker, other)
+        };
+        is_disguised_to(
+            disguise.disguised,
+            allied(self.owner(), observer),
+            fog.is_some_and(|fog| {
+                fog.detects_disguise_for_house(observer, self.position.rx(), self.position.ry())
+            }),
+            disguise
+                .disguised_as_house
+                .is_some_and(|fake| allied(observer, fake)),
+            disguise.disguised_as_house.is_some(),
+        )
+    }
 }
 
 /// The disguise arm of `Evaluate_Candidate`, `0x006F84B1..0x006F854B`.
@@ -683,6 +681,20 @@ impl DisguiseRuntime {
         self.disguised_as_house = house;
     }
 
+    /// `TechnoClass::Init_Managers @ 0x006F421C..0x006F4271` for a
+    /// `CanDisguise=`/`PermaDisguise=` type: the flag (`+0x1D8`), house
+    /// (`+0x51C`) and type (`+0x518`), leaving the constructor's creation
+    /// frame (`+0x1DC`).
+    pub(crate) fn wear_from_construction(
+        &mut self,
+        disguise_type: Option<InternedId>,
+        house: InternedId,
+    ) {
+        self.disguised = true;
+        self.disguised_as_house = Some(house);
+        self.disguise_type = disguise_type;
+    }
+
     /// `TechnoClass::DisguiseAs @ 0x0070E280` for a non-null target: the flag
     /// (`+0x1D8`) and the frame it was raised (`+0x1DC`), keeping the type
     /// and house.
@@ -732,6 +744,39 @@ impl DisguiseRuntime {
 }
 
 impl crate::sim::world::Simulation {
+    /// Forced GetDisguise(1): Infantry522640 and Unit7465B0, Steam
+    /// gamemd3e81a617..08600. It reads retained Techno+518 without testing
+    /// Disguised+1D8. Infantry alone falls back to Rules+D58/D5C/D60 by
+    /// PlayerPtr's planning side; NULL/other sides select the third slot.
+    pub(crate) fn forced_disguise_type(
+        &self,
+        actor: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Option<InternedId> {
+        use crate::map::entities::EntityCategory;
+        let entity = self.substrate.entities.get(actor)?;
+        if !matches!(
+            entity.category(),
+            EntityCategory::Infantry | EntityCategory::Unit
+        ) {
+            return None;
+        }
+        if let Some(kind) = entity.disguise.as_ref().and_then(DisguiseRuntime::type_id) {
+            return Some(kind);
+        }
+        if entity.category() != EntityCategory::Infantry {
+            return None;
+        }
+        let side = self
+            .session
+            .current_house
+            .and_then(|id| self.houses.get(&id))
+            .map_or(2, |house| usize::from(house.side_index).min(2));
+        rules.general.infantry_disguises[side]
+            .as_deref()
+            .and_then(|name| self.interner.get(name))
+    }
+
     /// vt+0x46C `DisguiseAs(target)`: what the bullet's Owner does when a
     /// `MakesDisguise=` warhead detonates (`0x00469A03..0x00469A2A`), with the
     /// bullet's Target (`+0x10C`). `target` is that Target's object;
@@ -743,9 +788,9 @@ impl crate::sim::world::Simulation {
     ///   own disguise if the Target is disguised (vt+0xC4, `+0x1D8`), through
     ///   GetDisguise(1) and GetDisguiseHouse(1) (`0x00522640`, `0x005226C0`).
     ///   Otherwise it wears the Target's type (vt+0x88) and owner (vt+0x3C).
-    ///   For a null field those getters fall back on the current player's
-    ///   side or house. VERA never reaches those fallbacks: only this body
-    ///   disguises an infantryman, and it always writes both fields.
+    ///   Null fields use the current player's default type/house through
+    ///   those same getters, including a permanently disguised target that
+    ///   has not yet used its MakeupKit.
     /// - `TechnoClass::DisguiseAs @ 0x0070E280`, the Building and Aircraft
     ///   slot, raises the flag for any non-null Target.
     /// - Each ends in vt+0x49C (`0x0070CCF0`), the radar's dirty mark, which
@@ -756,7 +801,13 @@ impl crate::sim::world::Simulation {
     /// nothing. Trigger: a Unit firing a `MakesDisguise=` warhead. Frequency:
     /// never with retail rules, where only `[SPY]` mounts one (`[MGTK]`'s
     /// `Primary=TankMakeupKit` is commented out). Risk: modded rules only.
-    pub(crate) fn disguise_as(&mut self, firer: u64, target: Option<u64>, target_present: bool) {
+    pub(crate) fn disguise_as(
+        &mut self,
+        firer: u64,
+        target: Option<u64>,
+        target_present: bool,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
         use crate::map::entities::EntityCategory;
 
         let Some(category) = self.substrate.entities.get(firer).map(|e| e.category()) else {
@@ -772,7 +823,10 @@ impl crate::sim::world::Simulation {
                 };
                 Some(
                     match target.disguise.as_ref().filter(|d| d.is_disguised()) {
-                        Some(disguise) => (disguise.type_id(), disguise.house()),
+                        Some(disguise) => (
+                            self.forced_disguise_type(target.stable_id(), rules),
+                            disguise.house().or(self.session.current_house),
+                        ),
                         None => (Some(target.type_ref()), Some(target.owner())),
                     },
                 )
@@ -864,7 +918,7 @@ impl crate::sim::world::Simulation {
                 } else {
                     MovementLayer::Ground
                 };
-                for (dx, dy) in crate::util::direction_tables::CELL_DELTAS {
+                for (dx, dy) in crate::util::direction::DIRECTION_DELTAS {
                     let cell = query.lookup((
                         origin.0.wrapping_add(dx as i16),
                         origin.1.wrapping_add(dy as i16),
@@ -952,10 +1006,6 @@ mod sound_tests;
 #[cfg(test)]
 #[path = "mirage_disguise_tests.rs"]
 pub(in crate::sim) mod mirage_tests;
-
-#[cfg(test)]
-#[path = "spy_disguise_tests.rs"]
-mod spy_disguise_tests;
 
 #[cfg(test)]
 mod tests {

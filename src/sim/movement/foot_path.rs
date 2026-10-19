@@ -20,12 +20,10 @@ use crate::rules::locomotor_type::{LocomotorKind, MovementZone};
 use crate::rules::mission_data::MissionType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_kernel::{native_xy_distance, native_xyz_distance};
+use crate::sim::cell_kernel::{cell_center, native_xy_distance, native_xyz_distance};
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::components::DriveCoord;
-use crate::sim::find_nearby_cell::{
-    NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
-};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::mission::MissionId;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::movement::locomotor::MovementLayer;
@@ -34,7 +32,8 @@ use crate::sim::pathfinding::CODE2_CHAIN_MAX_HOPS;
 use crate::sim::pathfinding::zone_map::{ZoneGrid, ZoneQueryCell};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{CELL_DELTAS, dir_from_facing16};
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::dir_from_facing16;
 use crate::util::fixed_math::SIM_ZERO;
 
 /// AStar429F54's live Foot +1AC receiver: Infantry 0x0051BF90 or Unit
@@ -220,7 +219,7 @@ impl Simulation {
             } else {
                 dir_from_facing16(foot.body_facing_current(frame))
             };
-            let (dx, dy) = CELL_DELTAS[usize::from(direction)];
+            let (dx, dy) = DIRECTION_DELTAS[usize::from(direction)];
             let own = (foot.position.rx() as i16, foot.position.ry() as i16);
             let next = terrain.native_cell_identity((
                 own.0.wrapping_add(dx as i16),
@@ -303,14 +302,6 @@ pub(super) fn chebyshev(a: (i16, i16), b: (i16, i16)) -> i32 {
     (i32::from(a.0) - i32::from(b.0))
         .abs()
         .max((i32::from(a.1) - i32::from(b.1)).abs())
-}
-
-pub(super) fn cell_centre(cell: (i16, i16)) -> DriveCoord {
-    DriveCoord {
-        x: i32::from(cell.0) * 256 + 128,
-        y: i32::from(cell.1) * 256 + 128,
-        z: 0,
-    }
 }
 
 /// Table 0x007E8BF0, indexed by `Type+0x5B4` at 0x4D3AC3 and 0x4D3D25: the
@@ -484,12 +475,12 @@ impl Simulation {
             Ok(()) => Ok(FindPathResult::Route),
             Err(refusal) => {
                 if let CoreRefusal::VeraOnly(reason) = refusal {
-                    //Residual: a VERA-only search refusal (BridgeOnlyGoal,
-                    //the compatibility zone graph, a hierarchy cell without
-                    //native topology) has no native counterpart; it takes the
-                    //native NULL-core continuation below instead of aborting
-                    //the frame. Trigger: a goal or corridor those adapters
-                    //refuse. Effect: the Foot stops (Guard/AreaGuard) where
+                    //Residual: a VERA-only search refusal (the compatibility
+                    //zone graph, a hierarchy cell without native topology)
+                    //has no native counterpart; it takes the native NULL-core
+                    //continuation below instead of aborting the frame.
+                    //Trigger: a goal or corridor those adapters refuse.
+                    //Effect: the Foot stops (Guard/AreaGuard) where
                     //AStar42C900 might have routed.
                     log::debug!("Find_Path core: VERA-only refusal {reason} for {id}");
                 }
@@ -635,9 +626,6 @@ impl Simulation {
             }
             Err(MovePathFailure::Search(Search::CompatibilityZoneRejected)) => {
                 Ok(Err(CoreRefusal::VeraOnly("CompatibilityZoneRejected")))
-            }
-            Err(MovePathFailure::BridgeOnlyGoal) => {
-                Ok(Err(CoreRefusal::VeraOnly("BridgeOnlyGoal")))
             }
             Err(MovePathFailure::MissingGrid) => {
                 Err("Find_Path core requires PathGrid; no native failure inferred".into())
@@ -908,7 +896,7 @@ impl Simulation {
             return Ok(destination);
         };
         self.redirect_find_path_destination(id, near, rules, registry, frame_effects)?;
-        Ok(cell_centre(near))
+        Ok(DriveCoord::from(cell_center(near.into(), 0)))
     }
 
     /// The cell [`Self::find_path_goal_for_answer`] retargets the search to,
@@ -948,7 +936,7 @@ impl Simulation {
                 };
                 //0x4D3944..0x4D3A2B: |+48 coordinate - target centre| with z.
                 let coord = ground_pose::position_world_coord(&actor.position);
-                let centre = cell_centre(target);
+                let centre = cell_center(target.into(), 0);
                 let distance =
                     native_xyz_distance(coord.x - centre.x, coord.y - centre.y, coord.z - centre.z);
                 //0x4D3A9B: dist <= that distance keeps the target. IsTrain (+C94)
@@ -962,7 +950,7 @@ impl Simulation {
                 };
                 //0x4D3BDD..0x4D3C3D: the FNPC cell must lie closer to the target
                 //than the actor does (both x87 lepton distances, ftol).
-                let near_centre = cell_centre(near);
+                let near_centre = cell_center(near.into(), 0);
                 let between =
                     native_xy_distance(centre.x - near_centre.x, centre.y - near_centre.y);
                 if between >= distance {
@@ -1052,11 +1040,7 @@ impl Simulation {
             .zone_grid
             .as_ref()
             .ok_or("Find_Path FNPC requires zone topology")?;
-        let size = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(bounds, height)| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+        self.map_size_diamond()
             .ok_or("Find_Path FNPC requires original Map Size")?;
         let current = coord_cell(ground_pose::position_world_coord(&actor.position));
         let current = (i32::from(current.0), i32::from(current.1));
@@ -1066,37 +1050,25 @@ impl Simulation {
             zone,
             actor.on_bridge(),
         );
-        let cells = NativeCellQuery::canonical(terrain);
-        let grid = self.path_grid_snapshot();
-        Ok(find_nearby_passable_cell(
-            (i32::from(target.0), i32::from(target.1)),
-            &NearbyQuery {
-                native_cells: Some(&cells),
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type: object.speed_type,
-                    required_zone_id,
-                    movement_zone: zone,
-                    bridge_aware_zone: actor.on_bridge(),
+        Ok(self
+            .nearby_passable_cell(
+                (i32::from(target.0), i32::from(target.1)),
+                NearbyArgs {
+                    check_height: true,
+                    target_cell: Some(current),
+                    ..NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type: object.speed_type,
+                            required_zone_id,
+                            movement_zone: zone,
+                            bridge_aware_zone: actor.on_bridge(),
+                        },
+                        NearbyFootprint::SINGLE,
+                    )
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
-                check_height: true,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(size.0, size.1),
-                target_cell: Some(current),
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            self.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0))
-        .map(|cell| (cell.0 as i16, cell.1 as i16)))
+            )
+            .filter(|cell| *cell != (0, 0))
+            .map(|cell| (cell.0 as i16, cell.1 as i16)))
     }
 
     /// `PathfinderClass::EstimateZoneCost` 0x42D170, shared by Find_Path and
@@ -1324,11 +1296,12 @@ impl Simulation {
         let coord = super::navcom::nav_target_coordinate(
             target.into(),
             Some(id),
-            &self.substrate.entities,
+            self,
             self.resolved_terrain.as_ref(),
             Some((rules, &self.interner)),
         )?;
-        self.foot_path_zone_precheck(id, cell_centre(coord_cell(coord)), rules)
+        let centre = DriveCoord::from(cell_center(coord_cell(coord).into(), 0));
+        self.foot_path_zone_precheck(id, centre, rules)
     }
 
     /// Original Foot+2CC4D3810. Its MZ==-1 and Cell(0,0) exits precede
@@ -1391,9 +1364,7 @@ impl Simulation {
             .playfield_bounds
             .ok_or("Foot precheck requires playfield bounds")?;
         let size = self
-            .playfield_size_height
-            .map(|height| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+            .map_size_diamond()
             .ok_or("Foot precheck requires original Map Size")?;
         query_foot_zone(
             &cells,
@@ -1481,7 +1452,7 @@ mod tests {
                 MovementLayer::Ground,
             ));
             sim.zone_grid = Some(zones);
-            let goal = cell_centre((goal_cell.0 as i16, goal_cell.1 as i16));
+            let goal = DriveCoord::cell(goal_cell.0, goal_cell.1, 0);
             let request =
                 FootPathRequest::track(&sim.substrate.entities, id, goal, 0, sim.playfield_bounds)
                     .unwrap();
@@ -1528,7 +1499,6 @@ mod tests {
                     crate::sim::world::entry_test_fixture::fixture_with_rules(
                         "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=400\nSpeed=6\nSpeedType=Track\nMovementZone=Normal\nLocomotor={4A582741-9839-11D1-B709-00A024DDAFD1}\n",
                     );
-                sim.playfield_size_height = Some(16);
                 sim.session.game_mode_nonzero = skirmish;
                 let owner = sim.intern("Americans");
                 let mut house =

@@ -10,11 +10,9 @@ use super::sound_ini::SoundRegistry;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-pub fn native() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/fv_cell_attack/foot_move_sound.json",
-    ))
-    .unwrap();
+pub fn native() -> &'static Value {
+    let corpus =
+        crate::test_fixture::json("tools/spatial_oracle/fv_cell_attack/foot_move_sound.json");
     assert_eq!(corpus["schema_version"], 1);
     corpus
 }
@@ -226,6 +224,7 @@ fn authored_rules(root: &IniFile, sounds: SoundRegistry) -> RuleSet {
         None,
         IniFile::empty(),
         Arc::new(sounds),
+        Default::default(),
     )
     .unwrap();
     owner

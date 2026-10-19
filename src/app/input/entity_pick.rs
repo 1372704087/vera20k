@@ -108,13 +108,10 @@ pub(crate) fn hover_target_at_point(
                 .map(|o| o.foundation.as_str())
                 .unwrap_or("1x1");
             if !click_hits_foundation(
-                world_x,
-                world_y,
+                (rx, ry),
                 entity.position.rx(),
                 entity.position.ry(),
                 foundation,
-                height_map,
-                bridge_cells,
             ) {
                 continue;
             }
@@ -129,7 +126,8 @@ pub(crate) fn hover_target_at_point(
         let dx = sx - world_x;
         let dy = sy - world_y;
         let dist_sq = dx * dx + dy * dy;
-        let is_friendly = sim.fog.is_friendly(local_owner, owner_str);
+        let is_friendly =
+            crate::map::houses::are_houses_friendly(&sim.house_alliances, local_owner, owner_str);
         let kind = if is_friendly {
             if is_structure {
                 HoverTargetKind::FriendlyStructure
@@ -362,7 +360,7 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
 pub(crate) fn band_rect_contains_drawn_object(
     entities: &EntityStore,
     encounter_order: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -404,9 +402,10 @@ pub(crate) fn band_rect_contains_drawn_object(
 /// unsensed submerged submarine is no object to hover, click or select.
 ///
 /// Without fog (sandbox full visibility) or a known player, only the first
-/// part applies. ProcessClickCoords also drops another house's object whose
-/// type sets `Invisible=` (`+0xC9A`, `0x0069256B..0x0069257F`), which no
-/// retail type sets; that test is not ported.
+/// part applies. ProcessClickCoords also drops its chosen nonlocal object's
+/// TypeInvisible (`+0xC9A`, `0x0069256B..0x0069257F`) after the scan; that
+/// producer gate remains open. Building's InvisibleInGame can derive this byte
+/// too. Display's tooltip owns its separately repeated postwinner gate.
 pub(crate) fn pick_admits_object(
     entity: &crate::sim::game_entity::GameEntity,
     fog: Option<&FogState>,
@@ -418,7 +417,9 @@ pub(crate) fn pick_admits_object(
     let (Some(fog), Some(player)) = (fog, player) else {
         return true;
     };
-    entity.owner() == player
+    //6DA3FF reads retained Techno+41A. Its owner classifies this at
+    // InitManagers6F3F43 and ChangeOwner70173B; save/load preserves the byte.
+    entity.discovery.owned_by_current_house()
         || !entity
             .cloak
             .as_ref()
@@ -432,7 +433,7 @@ pub(crate) fn pick_admits_object(
 /// fog state at all (the sandbox full-visibility switch) everything is drawn,
 /// where the eligibility gate falls back to an owner test.
 fn is_drawn_for_local_owner(
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     entity_owner: &str,
     entity: &crate::sim::game_entity::GameEntity,
@@ -441,11 +442,11 @@ fn is_drawn_for_local_owner(
     let Some(local_owner) = local_owner else {
         return true;
     };
-    let Some(fog) = fog else {
+    let Some((fog, alliances)) = fog else {
         // Sandbox full visibility: everything is drawn.
         return true;
     };
-    if fog.is_friendly(local_owner, entity_owner) {
+    if crate::map::houses::are_houses_friendly(alliances, local_owner, entity_owner) {
         return true;
     }
     let owner_id = local_owner_id.unwrap_or_default();
@@ -471,7 +472,7 @@ pub(crate) fn compute_box_selection_snapshot(
     preflight_order: &[u64],
     encounter_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -506,7 +507,7 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     preflight_order: &[u64],
     encounter_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     min_x: f32,
     min_y: f32,
@@ -534,7 +535,7 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     let candidates = entities_in_rect(
         entities,
         encounter_order,
-        fog,
+        fog.map(|(fog, _)| fog),
         local_owner,
         min_x,
         min_y,
@@ -568,42 +569,12 @@ pub(crate) fn compute_box_selection_snapshot_with_playfield(
     })
 }
 
-/// Resolve one short TypeSelect release. Seeds retain current selection order
-/// and expand each selected type through its deploy/undeploy links. Screen
-/// escalation happens in the same invocation when no visible unselected match
-/// exists, including the all-visible-already-selected case.
-#[cfg(test)]
-pub(crate) fn compute_type_select_tap(
-    entities: &EntityStore,
-    screen_order: &[u64],
-    map_order: &[u64],
-    current_selection: &[u64],
-    fog: Option<&FogState>,
-    local_owner: Option<&str>,
-    rules: Option<&RuleSet>,
-    interner: Option<&crate::sim::intern::StringInterner>,
-    across_map: bool,
-) -> TypeSelectTapResult {
-    compute_type_select_tap_with_playfield(
-        entities,
-        screen_order,
-        map_order,
-        current_selection,
-        fog,
-        local_owner,
-        rules,
-        interner,
-        across_map,
-        false,
-    )
-}
-
 pub(crate) fn compute_type_select_tap_with_playfield(
     entities: &EntityStore,
     screen_order: &[u64],
     map_order: &[u64],
     current_selection: &[u64],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
     interner: Option<&crate::sim::intern::StringInterner>,
@@ -714,7 +685,7 @@ fn type_select_candidates(
     entities: &EntityStore,
     source_order: &[u64],
     seeds: &[InternedId],
-    fog: Option<&FogState>,
+    fog: Option<(&FogState, &crate::map::houses::HouseAllianceMap)>,
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
     interner: Option<&crate::sim::intern::StringInterner>,
@@ -768,33 +739,6 @@ fn type_select_final_admissions(
         .collect()
 }
 
-/// Exact-type group mutation used while TypeSelect is held over one picked
-/// object. Link types and the dynamic CanBeSelectedNow virtual are deliberately
-/// absent from this path.
-#[cfg(test)]
-pub(crate) fn compute_type_select_click_mutation(
-    entities: &EntityStore,
-    scope_order: &[u64],
-    current_selection: &[u64],
-    clicked_id: u64,
-    additive: bool,
-    local_owner: Option<&str>,
-    rules: Option<&RuleSet>,
-    interner: Option<&crate::sim::intern::StringInterner>,
-) -> SelectionMutation {
-    compute_type_select_click_mutation_with_playfield(
-        entities,
-        scope_order,
-        current_selection,
-        clicked_id,
-        additive,
-        local_owner,
-        rules,
-        interner,
-        false,
-    )
-}
-
 pub(crate) fn compute_type_select_click_mutation_with_playfield(
     entities: &EntityStore,
     scope_order: &[u64],
@@ -842,43 +786,6 @@ pub(crate) fn compute_type_select_click_mutation_with_playfield(
         ),
         ..Default::default()
     }
-}
-
-/// Held TypeSelect bandbox: anchors inside the rectangle contribute their own
-/// exact type IDs; those IDs are then expanded over the current screen/map
-/// scope without deploy-link or dynamic-gate expansion.
-#[cfg(test)]
-pub(crate) fn compute_type_select_box_mutation(
-    entities: &EntityStore,
-    screen_order: &[u64],
-    scope_order: &[u64],
-    current_selection: &[u64],
-    fog: Option<&FogState>,
-    local_owner: Option<&str>,
-    min_x: f32,
-    min_y: f32,
-    max_x: f32,
-    max_y: f32,
-    additive: bool,
-    rules: Option<&RuleSet>,
-    interner: Option<&crate::sim::intern::StringInterner>,
-) -> SelectionMutation {
-    compute_type_select_box_mutation_with_playfield(
-        entities,
-        screen_order,
-        scope_order,
-        current_selection,
-        fog,
-        local_owner,
-        min_x,
-        min_y,
-        max_x,
-        max_y,
-        additive,
-        rules,
-        interner,
-        false,
-    )
 }
 
 pub(crate) fn compute_type_select_box_mutation_with_playfield(
@@ -1144,22 +1051,16 @@ fn building_covers_cell(
 /// The building occupies cells `(rx..rx+fw, ry..ry+fh)`. We convert the click
 /// to cell coords and check containment. This matches the original engine which
 /// uses the foundation footprint, not the visual sprite bounds.
+/// Whether `click_cell`, the clicked point's cell (`world_point_to_cell`),
+/// lies in the foundation at `entity_rx`/`entity_ry`. Callers resolve the
+/// point once for every structure they test.
 fn click_hits_foundation(
-    world_x: f32,
-    world_y: f32,
+    (click_rx, click_ry): (u16, u16),
     entity_rx: u16,
     entity_ry: u16,
     foundation: &str,
-    height_map: &std::collections::BTreeMap<(u16, u16), u8>,
-    bridge_cells: Option<&dyn TacticalBridgeLookup>,
 ) -> bool {
     let (fw, fh) = crate::rules::foundation::foundation_dimensions(foundation);
-    let (click_rx, click_ry) = crate::app::match_runtime::sim_tick::world_point_to_cell(
-        world_x,
-        world_y,
-        height_map,
-        bridge_cells,
-    );
     let crx = click_rx as i32;
     let cry = click_ry as i32;
     let brx = entity_rx as i32;
@@ -1233,6 +1134,12 @@ pub(crate) fn pick_entity_at_point(
 
     // Cell/foundation occupancy is consulted only when the tracked-anchor pass
     // found nothing. Preserve encounter order when a malformed overlap exists.
+    let click_cell = crate::app::match_runtime::sim_tick::world_point_to_cell(
+        world_x,
+        world_y,
+        height_map,
+        bridge_cells,
+    );
     entities.values().find_map(|entity| {
         if entity.category() != EntityCategory::Structure
             || !entity.lifecycle.object_alive()
@@ -1246,13 +1153,10 @@ pub(crate) fn pick_entity_at_point(
             .map(|o| o.foundation.as_str())
             .unwrap_or("1x1");
         click_hits_foundation(
-            world_x,
-            world_y,
+            click_cell,
             entity.position.rx(),
             entity.position.ry(),
             foundation,
-            height_map,
-            bridge_cells,
         )
         .then_some(entity.stable_id())
     })
@@ -1305,87 +1209,10 @@ mod reveal_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rules::ini_parser::IniFile;
+
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::intern::StringInterner;
-
-    fn store_with_structure(alive: bool, in_limbo: bool) -> (EntityStore, StringInterner) {
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let type_ref = interner.intern("NAREFN");
-        let mut entities = EntityStore::new();
-        let mut building = GameEntity::new_at_frame_zero_for_test(
-            1,
-            10,
-            10,
-            0,
-            0,
-            owner,
-            Health::new(1000),
-            type_ref,
-            EntityCategory::Structure,
-            0,
-            5,
-            false,
-        );
-        building.lifecycle.set_object_alive_for_test(alive);
-        building.lifecycle.set_in_limbo_for_test(in_limbo);
-        entities.insert(building);
-        (entities, interner)
-    }
-
-    /// A dead building no longer occupies its cell.
-    ///
-    /// The native own-cell lookup answers with whatever currently occupies the
-    /// cell, and a destroyed building has already been taken off the map — so a
-    /// miner left standing where a refinery used to be must be band-selectable
-    /// again, exactly as it is when it drives clear of a live one.
-    #[test]
-    fn destroyed_and_limboed_buildings_stop_covering_their_cell() {
-        let (entities, interner) = store_with_structure(true, false);
-        assert!(building_covers_cell(
-            &entities,
-            None,
-            Some(&interner),
-            10,
-            10
-        ));
-        // A cell outside the footprint is never covered.
-        assert!(!building_covers_cell(
-            &entities,
-            None,
-            Some(&interner),
-            11,
-            10
-        ));
-
-        let (dead, interner) = store_with_structure(false, false);
-        assert!(!building_covers_cell(&dead, None, Some(&interner), 10, 10));
-
-        let (limboed, interner) = store_with_structure(true, true);
-        assert!(!building_covers_cell(
-            &limboed,
-            None,
-            Some(&interner),
-            10,
-            10
-        ));
-    }
-
-    fn item83_rules() -> RuleSet {
-        RuleSet::from_ini(&IniFile::from_str(
-            "[InfantryTypes]\n0=E1\n\n\
-             [VehicleTypes]\n0=AMCV\n1=NOSEL\n\n\
-             [AircraftTypes]\n\n\
-             [BuildingTypes]\n0=GACNST\n\n\
-             [AMCV]\nStrength=1000\nArmor=heavy\nSpeed=4\nDeploysInto=GACNST\n\n\
-             [GACNST]\nStrength=1000\nArmor=concrete\nUndeploysInto=AMCV\n\n\
-             [E1]\nStrength=100\nArmor=none\nSpeed=4\n\n\
-             [NOSEL]\nStrength=100\nArmor=light\nSpeed=4\nSelectable=no\n",
-        ))
-        .expect("item83 rules")
-    }
 
     fn item83_entity(
         id: u64,
@@ -1416,471 +1243,74 @@ mod tests {
         entity
     }
 
-    /// The cursor's picker admits only what `Tactical::PickObjectAtScreenPoint`
-    /// admits (`0x006DA380`, [`pick_admits_object`]), as the selection picker
-    /// does: another house's fully cloaked object only over a cell the
-    /// player's sensors cover, the player's own always, nothing in limbo.
     #[test]
-    fn the_cursor_picker_skips_an_unsensed_cloaked_enemy() {
+    fn both_pointer_queries_use_retained_local_ownership_for_cloak_admission() {
+        use crate::sim::cloak_disguise::CloakRuntime;
         use crate::sim::world::Simulation;
-        let mut sim = Simulation::new();
-        sim.fog.width = 32;
-        sim.fog.height = 32;
-        let player = sim.interner.intern("Americans");
-        let enemy = sim.interner.intern("Russians");
-        let sub = sim.interner.intern("SUB");
-        // ProcessClickCoords' terrain gate precedes its cloak test.
-        sim.fog.reveal_cells_for_owner(player, [(10, 10), (20, 10)]);
-        let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
-        cloak.set_state_for_test(2);
-        for (id, owner, rx) in [(1, enemy, 10), (2, player, 20)] {
-            let mut entity = item83_entity(id, rx, 10, owner, sub, EntityCategory::Unit, false);
-            entity.cloak = Some(cloak);
-            sim.entities_mut().insert(entity);
-        }
-        let heights = std::collections::BTreeMap::new();
-        let hover = |sim: &Simulation, id: u64, ignore_visibility: bool| {
-            let (x, y) = crate::app::presentation::instances::interpolated_screen_position_entity(
-                sim.entities().get(id).unwrap(),
-            );
-            hover_target_at_point(
-                sim,
-                x,
-                y,
-                "Americans",
-                ignore_visibility,
-                None,
-                &heights,
-                None,
-            )
-            .map(|hover| hover.stable_id)
-        };
-        assert_eq!(hover(&sim, 1, false), None);
-        assert_eq!(hover(&sim, 2, false), Some(2));
-        assert_eq!(
-            hover(&sim, 1, true),
-            Some(1),
-            "full visibility asks no cloak test"
-        );
-        sim.fog.increment_sensor_at(player, 10, 10);
-        assert_eq!(hover(&sim, 1, false), Some(1));
-        sim.entities_mut()
-            .get_mut(1)
-            .unwrap()
-            .lifecycle
-            .set_in_limbo_for_test(true);
-        assert_eq!(hover(&sim, 1, true), None);
-    }
 
-    /// `CanBeSelectedNow`'s byte `+0x1C8` is the Robot-Tank-offline latch, not a
-    /// deploy-transition flag: its only writers are Deactivate 0x0070FD62 and
-    /// Reactivate 0x0070FC6D/0x0070FC7A, reached only from the powered-center
-    /// and robot-tank paths. A GI part-way through its deploy toggle therefore
-    /// stays band-selectable in gamemd, and must here too.
-    #[test]
-    fn item83_a_deploying_object_is_still_band_selectable() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let type_ref = interner.intern("GI");
-        let mut entity = item83_entity(1, 5, 5, owner, type_ref, EntityCategory::Infantry, false);
-        let entities = EntityStore::new();
-
-        assert!(
-            selection_dynamic_prefix(&entity, &entities, Some(&rules), Some(&interner)),
-            "an idle object is selectable"
-        );
-        for doing in [27, 31] {
+        //6DA3FF and69252D read retained Techno+41A, independently of the
+        // current owner pointer. These explicit retained-byte controls cover
+        // the reader, not a claim that each prior has a natural producer.
+        for (same_owner, retained_owned, sensed, cloak_state, admitted) in [
+            (false, true, false, 2, true),
+            (true, false, false, 2, false),
+            (false, false, true, 2, true),
+            (false, false, false, 2, false),
+            (false, false, false, 0, true),
+        ] {
+            let mut sim = Simulation::new();
+            let viewer = sim.interner.intern("viewer");
+            let other = sim.interner.intern("other");
+            let typ = sim.interner.intern("HTNK");
+            sim.session.current_house = Some(viewer);
+            sim.fog = FogState::new(32, 32);
+            sim.fog.reveal_cells_for_owner(viewer, [(10, 10)]);
+            if sensed {
+                sim.fog.increment_sensor_at(viewer, 10, 10);
+            }
+            let owner = if same_owner { viewer } else { other };
+            let mut entity = item83_entity(1, 10, 10, owner, typ, EntityCategory::Unit, false);
             entity
-                .mission_leaf
-                .set_infantry_doing_verified(doing)
-                .unwrap();
-            assert!(
-                selection_dynamic_prefix(&entity, &entities, Some(&rules), Some(&interner)),
-                "gamemd has no deploy-transition clause here"
+                .discovery
+                .set_owned_by_current_house_for_test(retained_owned);
+            let mut cloak = CloakRuntime::new(0);
+            cloak.set_state_for_test(cloak_state);
+            entity.cloak = Some(cloak);
+            let world =
+                crate::app::presentation::instances::interpolated_screen_position_entity(&entity);
+            sim.entities_mut().insert(entity);
+            sim.resubmit_entity_display_for_test(1);
+            let order = crate::app::presentation::instances::tactical_entity_encounter_order(&sim);
+            let heights = std::collections::BTreeMap::new();
+            let expected = admitted.then_some(1);
+            assert_eq!(
+                pick_entity_at_point(
+                    sim.entities(),
+                    &order,
+                    Some(&sim.fog),
+                    Some("viewer"),
+                    world.0,
+                    world.1,
+                    0.0,
+                    None,
+                    None,
+                    &heights,
+                    None,
+                    Some(&sim.interner),
+                    None,
+                ),
+                expected,
+                "pointer: owner equality{same_owner}, retained{retained_owned}, sensor{sensed}, cloak{cloak_state}"
+            );
+            assert_eq!(
+                hover_target_at_point(
+                    &sim, world.0, world.1, "viewer", false, None, &heights, None
+                )
+                .map(|target| target.stable_id),
+                expected,
+                "hover: owner equality{same_owner}, retained{retained_owned}, sensor{sensed}, cloak{cloak_state}"
             );
         }
-    }
-
-    #[test]
-    fn item83_type_select_seeds_own_deploy_and_undeploy_then_escalates_same_call() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let gacnst = interner.intern("GACNST");
-        let soviet = interner.intern("Soviet");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        entities.insert(item83_entity(
-            2,
-            11,
-            10,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            true,
-        ));
-        entities.insert(item83_entity(
-            3,
-            12,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            4,
-            13,
-            10,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        entities.insert(item83_entity(
-            5,
-            30,
-            30,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            6,
-            14,
-            10,
-            soviet,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-
-        let screen = [1, 2, 4, 6, 3];
-        let map = [1, 2, 3, 4, 5, 6];
-        let first = compute_type_select_tap(
-            &entities,
-            &screen,
-            &map,
-            &[1, 2],
-            None,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-            false,
-        );
-        assert_eq!(first.outcome, crate::app::types::TypeSelectOutcome::Screen);
-        assert_eq!(first.mutation.select, [1, 2, 4, 3]);
-        assert!(!first.across_map);
-
-        let second = compute_type_select_tap(
-            &entities,
-            &screen,
-            &map,
-            &[1, 2, 4, 3],
-            None,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-            false,
-        );
-        assert_eq!(second.outcome, crate::app::types::TypeSelectOutcome::Map);
-        assert_eq!(second.mutation.select, [1, 2, 3, 4, 5]);
-        assert!(second.across_map);
-    }
-
-    #[test]
-    fn item83_empty_outcome_precedes_an_existing_across_map_scope() {
-        let entities = EntityStore::new();
-        let tap = compute_type_select_tap(
-            &entities,
-            &[],
-            &[],
-            &[],
-            None,
-            Some("Americans"),
-            None,
-            None,
-            true,
-        );
-
-        assert_eq!(tap.outcome, crate::app::types::TypeSelectOutcome::Empty);
-        assert_eq!(tap.outcome.csf_key(), "MSG:NothingSelected");
-    }
-
-    #[test]
-    fn item83_visible_warp_out_match_holds_screen_scope_before_final_admission() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        let mut warp_out = item83_entity(2, 11, 10, owner, amcv, EntityCategory::Unit, false);
-        // BeingWarpedOut (`+0x270`): a Temporal chain's head.
-        warp_out.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(1);
-        entities.insert(warp_out);
-        entities.insert(item83_entity(
-            3,
-            30,
-            30,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-
-        let tap = compute_type_select_tap(
-            &entities,
-            &[1, 2],
-            &[1, 2, 3],
-            &[1],
-            None,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-            false,
-        );
-
-        assert_eq!(tap.outcome, crate::app::types::TypeSelectOutcome::Screen);
-        assert!(!tap.across_map);
-        assert_eq!(
-            tap.mutation.select,
-            [1],
-            "warp-out holds screen scope but fails final admission; off-screen stays out"
-        );
-    }
-
-    #[test]
-    fn item83_held_click_uses_exact_type_without_deploy_link_and_deselects_group() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let gacnst = interner.intern("GACNST");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        entities.insert(item83_entity(
-            2,
-            11,
-            10,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        entities.insert(item83_entity(
-            3,
-            12,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        let scope = [1, 2, 3];
-
-        let replace = compute_type_select_click_mutation(
-            &entities,
-            &scope,
-            &[1, 3],
-            1,
-            false,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-        );
-        assert!(replace.clear);
-        assert_eq!(replace.select, [1, 3]);
-        assert!(!replace.select.contains(&2));
-
-        let add = compute_type_select_click_mutation(
-            &entities,
-            &scope,
-            &[2],
-            1,
-            true,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-        );
-        assert!(!add.clear);
-        assert_eq!(add.select, [1, 3]);
-
-        let deselect = compute_type_select_click_mutation(
-            &entities,
-            &scope,
-            &[1, 3],
-            1,
-            true,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-        );
-        assert_eq!(deselect.deselect, [1, 3]);
-    }
-
-    #[test]
-    fn item83_held_band_unions_each_represented_exact_type_in_scope() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let gacnst = interner.intern("GACNST");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            2,
-            11,
-            10,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        entities.insert(item83_entity(
-            3,
-            30,
-            30,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            4,
-            31,
-            30,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        let (ax, ay) = crate::render::locomotor_visual::screen_position(entities.get(1).unwrap());
-        let (bx, by) = crate::render::locomotor_visual::screen_position(entities.get(2).unwrap());
-        let mutation = compute_type_select_box_mutation(
-            &entities,
-            &[1, 2],
-            &[1, 2, 3, 4],
-            &[],
-            None,
-            Some("Americans"),
-            ax.min(bx) - 1.0,
-            ay.min(by) - 1.0,
-            ax.max(bx) + 1.0,
-            ay.max(by) + 1.0,
-            false,
-            Some(&rules),
-            Some(&interner),
-        );
-        assert!(mutation.clear);
-        assert_eq!(mutation.select, [1, 3, 2, 4]);
-
-        let additive = compute_type_select_box_mutation(
-            &entities,
-            &[1, 2],
-            &[1, 2, 3, 4],
-            &[1],
-            None,
-            Some("Americans"),
-            ax.min(bx) - 1.0,
-            ay.min(by) - 1.0,
-            ax.max(bx) + 1.0,
-            ay.max(by) + 1.0,
-            true,
-            Some(&rules),
-            Some(&interner),
-        );
-        assert!(!additive.clear);
-        assert_eq!(additive.select, [3, 2, 4]);
-    }
-
-    #[test]
-    fn item83_held_band_enemy_anchor_seeds_local_exact_type_batch() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let local_owner = interner.intern("Americans");
-        let enemy_owner = interner.intern("Soviet");
-        let amcv = interner.intern("AMCV");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            enemy_owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            2,
-            30,
-            30,
-            local_owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        let (x, y) = crate::app::presentation::instances::interpolated_screen_position_entity(
-            entities.get(1).unwrap(),
-        );
-
-        let mutation = compute_type_select_box_mutation(
-            &entities,
-            &[1],
-            &[1, 2],
-            &[],
-            None,
-            Some("Americans"),
-            x - 1.0,
-            y - 1.0,
-            x + 1.0,
-            y + 1.0,
-            false,
-            Some(&rules),
-            Some(&interner),
-        );
-
-        assert!(mutation.clear);
-        assert_eq!(
-            mutation.select,
-            [2],
-            "enemy anchor contributes only its type; the batch admits only the local match"
-        );
     }
 
     #[test]
@@ -2052,7 +1482,7 @@ mod tests {
         assert_eq!(selection.select, [1]);
         assert!(sim.apply_command(
             "Americans",
-            &Command::ForceAttack {
+            &Command::Attack {
                 attacker_id: selection.select[0],
                 target_id: 3,
             },
@@ -2065,417 +1495,5 @@ mod tests {
             Some(crate::sim::combat::TargetKind::Entity(3))
         );
         assert_eq!(sim.entities().get(2).unwrap().bunker.occupant(), Some(1));
-    }
-
-    #[test]
-    fn item83_picker_uses_global_distance_ties_and_never_clicks_through_rejection() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let unit_type = interner.intern("AMCV");
-        let building_type = interner.intern("GACNST");
-        let noselect = interner.intern("NOSEL");
-        let soviet = interner.intern("Soviet");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            unit_type,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            2,
-            10,
-            10,
-            owner,
-            building_type,
-            EntityCategory::Structure,
-            false,
-        ));
-        let (x, y) = crate::render::locomotor_visual::screen_position(entities.get(1).unwrap());
-        let heights = std::collections::BTreeMap::new();
-        assert_eq!(
-            pick_entity_at_point(
-                &entities,
-                &[2, 1],
-                None,
-                Some("Americans"),
-                x,
-                y,
-                30.0,
-                Some(&rules),
-                None,
-                &heights,
-                None,
-                Some(&interner),
-                None,
-            ),
-            Some(2),
-            "an earlier structure wins an equal global tracked-anchor score"
-        );
-
-        entities.get_mut(2).unwrap().set_type_ref_for_test(noselect);
-        let rejected = compute_click_selection_snapshot(
-            &entities,
-            &[2, 1],
-            &[1],
-            None,
-            Some("Americans"),
-            x,
-            y,
-            30.0,
-            false,
-            Some(&rules),
-            None,
-            &heights,
-            None,
-            Some(&interner),
-        )
-        .expect("the chosen target still owns the click");
-        assert!(rejected.clear);
-        assert!(
-            rejected.select.is_empty(),
-            "must not retry the valid unit behind it"
-        );
-
-        entities
-            .get_mut(2)
-            .unwrap()
-            .set_type_ref_for_test(building_type);
-        entities.change_owner(2, soviet);
-        let nonlocal_click = compute_click_selection_snapshot(
-            &entities,
-            &[2, 1],
-            &[1],
-            None,
-            Some("Americans"),
-            x,
-            y,
-            30.0,
-            true,
-            Some(&rules),
-            None,
-            &heights,
-            None,
-            Some(&interner),
-        )
-        .expect("discovered nonlocal object owns the click");
-        // ObjectClass__Select drains the selection whenever the two sides
-        // disagree on IsHumanPlayer, so a shift-click on an enemy leaves the
-        // enemy alone selected. See the `selection_is_local` comment.
-        assert!(
-            nonlocal_click.clear,
-            "a shift-click on an enemy drains the local group"
-        );
-        assert_eq!(nonlocal_click.select, [2]);
-
-        // Both sides non-local also drains: equal IsHumanPlayer answers keep the
-        // selection only when that answer was true. This is the case the old
-        // owner-match predicate got wrong -- it saw two Soviets and added.
-        let enemy_group = compute_click_selection_snapshot(
-            &entities,
-            &[2, 1],
-            &[2],
-            None,
-            Some("Americans"),
-            x,
-            y,
-            30.0,
-            true,
-            Some(&rules),
-            None,
-            &heights,
-            None,
-            Some(&interner),
-        )
-        .expect("discovered nonlocal object owns the click");
-        assert!(
-            enemy_group.clear,
-            "an enemy group is replaced rather than extended"
-        );
-    }
-
-    /// The ordinary additive path, with a real local owner supplied — the
-    /// existing coverage passes `None` for the owner and so routes around the
-    /// `IsHumanPlayer` pair entirely.
-    #[test]
-    fn item83_shift_click_adds_only_while_both_sides_are_the_local_player() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let americans = interner.intern("Americans");
-        let soviets = interner.intern("Soviet");
-        let unit_type = interner.intern("GI");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            5,
-            5,
-            americans,
-            unit_type,
-            EntityCategory::Infantry,
-            true,
-        ));
-        entities.insert(item83_entity(
-            2,
-            9,
-            9,
-            americans,
-            unit_type,
-            EntityCategory::Infantry,
-            false,
-        ));
-        let heights: std::collections::BTreeMap<(u16, u16), u8> = std::collections::BTreeMap::new();
-        let (x, y) = {
-            let target = entities.get(2).unwrap();
-            crate::render::locomotor_visual::screen_position(target)
-        };
-
-        // Both local: adds without clearing.
-        let added = compute_click_selection_snapshot(
-            &entities,
-            &[2, 1],
-            &[1],
-            None,
-            Some("Americans"),
-            x,
-            y,
-            30.0,
-            true,
-            Some(&rules),
-            None,
-            &heights,
-            None,
-            Some(&interner),
-        )
-        .expect("the local object owns the click");
-        assert!(!added.clear, "two local objects build one group");
-        assert_eq!(added.select, [2]);
-
-        // Flip the clicked object to an enemy: the same gesture now drains.
-        entities.change_owner(2, soviets);
-        let drained = compute_click_selection_snapshot(
-            &entities,
-            &[2, 1],
-            &[1],
-            None,
-            Some("Americans"),
-            x,
-            y,
-            30.0,
-            true,
-            Some(&rules),
-            None,
-            &heights,
-            None,
-            Some(&interner),
-        )
-        .expect("the enemy object owns the click");
-        assert!(drained.clear, "an enemy joins alone");
-        assert_eq!(drained.select, [2]);
-    }
-
-    #[test]
-    fn item83_two_ordinary_clicks_never_enter_the_type_select_group_path() {
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        entities.insert(item83_entity(
-            2,
-            14,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            false,
-        ));
-        let (x, y) = crate::render::locomotor_visual::screen_position(entities.get(1).unwrap());
-        let heights = std::collections::BTreeMap::new();
-
-        for current in [&[][..], &[1][..]] {
-            let mutation = compute_click_selection_snapshot(
-                &entities,
-                &[1, 2],
-                current,
-                None,
-                Some("Americans"),
-                x,
-                y,
-                30.0,
-                false,
-                Some(&rules),
-                None,
-                &heights,
-                None,
-                Some(&interner),
-            )
-            .expect("ordinary click mutation");
-            assert!(mutation.clear);
-            assert_eq!(mutation.select, [1]);
-            assert!(!mutation.select.contains(&2));
-        }
-    }
-
-    #[test]
-    fn item83_held_deselect_preserves_map_scope_until_short_release_tap() {
-        use std::time::{Duration, Instant};
-        use winit::keyboard::KeyCode;
-
-        let rules = item83_rules();
-        let mut interner = StringInterner::new();
-        let owner = interner.intern("Americans");
-        let amcv = interner.intern("AMCV");
-        let gacnst = interner.intern("GACNST");
-        let mut entities = EntityStore::new();
-        entities.insert(item83_entity(
-            1,
-            10,
-            10,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        entities.insert(item83_entity(
-            2,
-            30,
-            30,
-            owner,
-            amcv,
-            EntityCategory::Unit,
-            true,
-        ));
-        entities.insert(item83_entity(
-            3,
-            11,
-            10,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        entities.insert(item83_entity(
-            4,
-            31,
-            30,
-            owner,
-            gacnst,
-            EntityCategory::Structure,
-            false,
-        ));
-        let screen = [1, 3];
-        let map = [1, 2, 3, 4];
-
-        let mut input = crate::app::types::TypeSelectInputState::default();
-        input.finish_tap(crate::app::types::TypeSelectOutcome::Map, true);
-        let pressed_at = Instant::now();
-        input.press(KeyCode::KeyT, pressed_at, false);
-
-        let deselect = compute_type_select_click_mutation(
-            &entities,
-            &map,
-            &[1, 2],
-            1,
-            true,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-        );
-        assert_eq!(deselect.deselect, [1, 2]);
-        input.note_successful_selection_mutation(false);
-        assert!(
-            input.across_map,
-            "held deselect resets SelectionMode but preserves AcrossMap"
-        );
-
-        let second_scope = if input.across_map {
-            map.as_slice()
-        } else {
-            screen.as_slice()
-        };
-        let held = compute_type_select_click_mutation(
-            &entities,
-            second_scope,
-            &[],
-            1,
-            false,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-        );
-        assert_eq!(
-            held.select,
-            [1, 2],
-            "a second held action still consumes the preserved map scope"
-        );
-        input.note_successful_selection_mutation(false);
-        assert!(input.release(KeyCode::KeyT, pressed_at + Duration::from_millis(500)));
-
-        input.prepare_tap_scope();
-        assert!(
-            !input.across_map,
-            "mode reset forces the release tap back to screen"
-        );
-        let tap = compute_type_select_tap(
-            &entities,
-            &screen,
-            &map,
-            &held.select,
-            None,
-            Some("Americans"),
-            Some(&rules),
-            Some(&interner),
-            input.across_map,
-        );
-        assert_eq!(tap.outcome, crate::app::types::TypeSelectOutcome::Screen);
-        assert_eq!(tap.mutation.select, [1, 3]);
-        assert!(
-            !tap.mutation.select.contains(&4),
-            "off-screen linked type stays out"
-        );
-    }
-
-    #[test]
-    fn techno_playfield_stored_membership_gates_local_mobile_selection() {
-        let mut entity = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        entity.lifecycle.set_object_alive_for_test(true);
-        entity.lifecycle.set_in_limbo_for_test(false);
-        entity.set_in_playfield(false);
-        assert!(!static_selection_gate(&entity, "MTNK", None, true));
-        entity.set_in_playfield(true);
-        assert!(static_selection_gate(&entity, "MTNK", None, true));
-        entity.set_in_playfield(false);
-        assert!(
-            static_selection_gate(&entity, "MTNK", None, false),
-            "headless fixtures without MapClass authority preserve prior admission"
-        );
-    }
-
-    /// `TechnoClass::IsLocalPlayerSelectableObject @ 0x006F32D0` refuses an
-    /// object with no Health first (`0x006F32D3`): a crashing aircraft is
-    /// alive at Health 0 and cannot be picked or banded.
-    #[test]
-    fn an_object_without_health_is_not_selectable() {
-        let mut entity = GameEntity::test_default(1, "ORCA", "Americans", 5, 5);
-        entity.lifecycle.set_object_alive_for_test(true);
-        entity.lifecycle.set_in_limbo_for_test(false);
-        entity.set_in_playfield(true);
-        assert!(static_selection_gate(&entity, "ORCA", None, true));
-        entity.health.set_for_test(0);
-        entity.crash.set_crashing_for_test(true);
-        assert!(!static_selection_gate(&entity, "ORCA", None, true));
     }
 }

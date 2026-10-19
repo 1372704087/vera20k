@@ -9,22 +9,24 @@
 //! computer and OmniCrusher crush arms ([`ApproachCrush`]) and its
 //! BalloonHover arm, ahead of the Foot body.
 
-use super::foot_path::{cell_centre, chebyshev, coord_cell};
+use super::foot_path::{chebyshev, coord_cell};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::object_type::Ability;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_rect::{self, CellRect, CellRectPassabilityContext};
+use crate::sim::cell_kernel::cell_center;
+use crate::sim::cell_rect;
 use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::combat::{self, TargetKind, in_range};
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::mission::MissionType;
-use crate::sim::movement::bump_crush::{CrushAllyGate, CrushTarget, object_is_crushable_by};
+use crate::sim::movement::bump_crush::{CrushTarget, object_is_crushable_by};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{cell_delta_unchecked, facing16_between};
+use crate::util::direction::cell_delta_unchecked;
+use crate::util::direction_tables::facing16_between;
 use crate::util::native_trig::facing_step_world_xy;
 use crate::util::native_x87::{X87Chop53, distance_3d_leptons, sqrt_approx_f32};
 
@@ -144,8 +146,7 @@ impl Simulation {
     }
 
     /// `ObjectClass::Is_Crushable_By @ 0x005F6CD0` of `target` by Unit `id`,
-    /// alliance question first ([`CrushAllyGate`], with its one-way-alliance
-    /// residual), as the bump crush asks it.
+    /// as the bump crush asks it.
     fn approach_crushable(&self, id: u64, target: u64, rules: &RuleSet) -> bool {
         let (Some(actor), Some(victim)) = (
             self.substrate.entities.get(id),
@@ -153,20 +154,21 @@ impl Simulation {
         ) else {
             return false;
         };
-        let ally = CrushAllyGate::new(
-            self.interner.resolve(actor.owner()),
-            &self.house_alliances,
-            &self.interner,
-        );
-        !ally.spares(victim)
-            && self
-                .object_type(actor.type_ref(), rules)
-                .is_some_and(|object| {
-                    object_is_crushable_by(
-                        object.omni_crusher,
-                        CrushTarget::from_entity(victim, self.session.binary_frame),
-                    )
-                })
+        self.object_type(actor.type_ref(), rules)
+            .is_some_and(|object| {
+                object_is_crushable_by(
+                    object.omni_crusher,
+                    CrushTarget::from_entity(victim, self.session.binary_frame),
+                    |owner| {
+                        crate::sim::combat::combat_weapon::is_ally_by_object(
+                            Some(&self.house_alliances),
+                            &self.interner,
+                            actor.owner(),
+                            owner,
+                        )
+                    },
+                )
+            })
     }
 
     /// The head of `UnitClass::Approach_Target @ 0x007414E0` for Unit `id`:
@@ -251,7 +253,7 @@ impl Simulation {
             object,
             &combat::combat_weapon::attacker_facts(actor, object),
             Some(&target),
-            &self.substrate.entities,
+            self,
             &self.interner,
             self.resolved_terrain.as_ref(),
             Some(&self.house_alliances),
@@ -387,7 +389,10 @@ impl Simulation {
             && !actor.infantry_deploy_doing()
             && match target {
                 TargetKind::Cell(..) => true,
-                TargetKind::Entity(target) => self.substrate.entities.contains(target),
+                TargetKind::Entity(target) => {
+                    self.substrate.entities.contains(target)
+                        || self.production.terrain_objects.contains_key(&target)
+                }
             }
             && self.resolved_terrain.is_some()
             && self.zone_grid.is_some()
@@ -458,10 +463,7 @@ impl Simulation {
             .as_ref()
             .ok_or("Approach requires map cells")?;
         let identity = target.cell_identity(terrain);
-        let target_reference = match target {
-            TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-            TargetKind::Entity(id) => NavTargetRef::object(id),
-        };
+        let target_reference = NavTargetRef::from(target);
         let cells = NativeCellQuery::canonical(terrain);
         let mut range = combat::combat_weapon::weapon_range(
             actor,
@@ -477,7 +479,7 @@ impl Simulation {
         let los = combat::line_of_fire::LineOfFireInputs {
             overlay_grid: self.overlay_grid.as_ref(),
             overlay_registry: registry,
-            alliances: Some(&self.fog.alliances),
+            alliances: Some(&self.house_alliances),
         };
         let can_fire = if let Some(identity) = identity {
             in_range::cell_target_in_range(
@@ -486,14 +488,13 @@ impl Simulation {
                 weapon,
                 rules,
                 &self.interner,
-                &self.substrate.entities,
                 terrain,
                 &los,
             )
             .ok_or("Approach CanFireAt coordinate failed")?
         } else {
             combat::can_fire_at_target_in_query(
-                &self.substrate.entities,
+                self,
                 rules,
                 &self.interner,
                 id,
@@ -542,7 +543,12 @@ impl Simulation {
         if clear_nav {
             //4D59FB/5A01 are precisely FootStopMoving's two direct writes.
             // The independently retained locomotor head/destination stay live.
-            super::navcom::foot_stop_moving(self.substrate.entities.get_mut(id).unwrap());
+            self.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .navigation
+                .stop_moving();
         }
         let actor = self.substrate.entities.get(id).unwrap();
         let terrain = self.resolved_terrain.as_ref().unwrap();
@@ -672,13 +678,7 @@ impl Simulation {
         let _ = if let Some(identity) = identity {
             in_range::native_cell_range_coords(identity, &cells)
         } else {
-            in_range::resolve_target_coords_3d(
-                &target,
-                &self.substrate.entities,
-                rules,
-                &self.interner,
-                &cells,
-            )
+            in_range::resolve_target_coords_3d(&target, self, rules, &self.interner, &cells)
         }
         .ok_or("Approach target surface failed")?;
         let mut retained_candidate = target_cell;
@@ -701,7 +701,7 @@ impl Simulation {
                     self.place_infantry_spot_in_cell(rules, cell, own)?
                         .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 })
                 } else {
-                    cell_centre(radial)
+                    DriveCoord::from(cell_center(radial.into(), 0))
                 };
                 let cells = NativeCellQuery::canonical(self.resolved_terrain.as_ref().unwrap());
                 point.z = in_range::native_ground_target_z(point.x, point.y, &cells)
@@ -748,7 +748,7 @@ impl Simulation {
                         // or ground lookup. Destination setting resolves Z later.
                         if self.approach_accepts(
                             id,
-                            cell_centre(candidate),
+                            DriveCoord::from(cell_center(candidate.into(), 0)),
                             &target,
                             weapon,
                             close_range.then_some(own),
@@ -932,19 +932,10 @@ impl Simulation {
                     z: z as i32,
                 });
             }
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id } => id,
+            NavTargetRef::Object { id } => id,
         };
-        let entity = self
-            .substrate
-            .entities
-            .get(id)
-            .ok_or("retired Approach NavCom")?;
-        Ok(super::ground_pose::object_get_coords(
-            entity,
-            Some(cells.terrain()),
-        ))
+        super::ground_pose::target_get_coords(TargetKind::Entity(id), self, Some(cells))
+            .ok_or_else(|| "retired Approach NavCom".to_owned())
     }
 
     /// The CloseRange= arm ahead of the search (`0x004D5D37..0x004D5F62`).
@@ -985,15 +976,19 @@ impl Simulation {
         let own_centre = native_cell_own_xy(query_object_cell(&cells, location), &cells);
         let target_centre = match target {
             TargetKind::Entity(target) => {
-                let target = self
-                    .substrate
-                    .entities
-                    .get(target)
-                    .ok_or("Approach Target retired")?;
-                native_cell_own_xy(
-                    query_object_cell(&cells, position_world_coord(&target.position)),
-                    &cells,
-                )
+                // 4D5D83 tests the Techno bit before GetCell. Terrain
+                // follows 4D5DCB's virtual+48 and the common Map565730.
+                let coordinate = if let Some(target) = self.substrate.entities.get(target) {
+                    position_world_coord(&target.position)
+                } else {
+                    super::ground_pose::target_get_coords(
+                        TargetKind::Entity(target),
+                        self,
+                        Some(&cells),
+                    )
+                    .ok_or("Approach Target retired")?
+                };
+                native_cell_own_xy(query_object_cell(&cells, coordinate), &cells)
             }
             TargetKind::Cell(..) => native_cell_own_xy(
                 target
@@ -1061,12 +1056,12 @@ impl Simulation {
             weapon,
             rules,
             &self.interner,
-            &self.substrate.entities,
+            self,
             &cells,
             &combat::line_of_fire::LineOfFireInputs {
                 overlay_grid: self.overlay_grid.as_ref(),
                 overlay_registry: registry,
-                alliances: Some(&self.fog.alliances),
+                alliances: Some(&self.house_alliances),
             },
         );
         // The ftol'd distance is an integer: under 307.2 is at most 307.
@@ -1131,31 +1126,35 @@ impl Simulation {
                 Some(cells),
             )
             .ok_or("Approach source zone absent")?;
-        Ok(cell_rect::check_cell_passability(
-            &CellRectPassabilityContext {
-                native_cells: Some(cells),
-                rect: CellRect {
-                    x: i32::from(candidate.0),
-                    y: i32::from(candidate.1),
-                    width: 1,
-                    height: 1,
-                },
-                speed_type: object.speed_type,
-                required_zone_id: (zone != u32::MAX).then_some(zone),
-                movement_zone: object.movement_zone,
-                required_height_or_level: None,
-                bridge_aware_zone: true,
-                reject_any_overlay: false,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(cells.terrain()),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                zone_grid: Some(zones),
-            },
-            Some(&self.substrate.raw_cell_occupation),
+        // 0x004D62ED..0x004D636E (and its three siblings): GetCellClass of
+        // the candidate, then (SpeedType, 0, 0, zone, MovementZone, -1, 1).
+        let cell = cell_rect::get_cellclass_in_query(
+            Some(cells.terrain()),
             i32::from(candidate.0),
             i32::from(candidate.1),
-        ))
+            Some(cells),
+        );
+        Ok(cell_rect::check_cell_passability(
+            &cell,
+            cell_rect::CellPassabilityArgs {
+                speed_type: object.speed_type,
+                ignore_infantry: false,
+                ignore_vehicles: false,
+                zone: Some(zone),
+                movement_zone: object.movement_zone,
+                level: None,
+                is_bridge: true,
+            },
+            &cell_rect::CellPassabilityMap {
+                terrain: Some(cells.terrain()),
+                overlays: self.overlay_grid.as_ref(),
+                zones: Some(zones),
+                native_cells: Some(cells),
+                raw_occupation: Some(&self.substrate.raw_cell_occupation),
+                listed_occupancy: None,
+            },
+        )
+        .admits())
     }
 
     fn approach_fallback(
@@ -1165,10 +1164,7 @@ impl Simulation {
         rules: &RuleSet,
         cells: &NativeCellQuery<'_>,
     ) -> Result<Option<(u16, u16)>, String> {
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-            map_owned_radius_cap,
-        };
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
         let actor = self
             .substrate
             .entities
@@ -1200,38 +1196,26 @@ impl Simulation {
                 Some(cells),
             )
             .ok_or("Approach source zone absent")?;
-        let (bounds, height) = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
+        self.map_size_diamond()
             .ok_or("Approach requires map dimensions")?;
-        Ok(find_nearby_passable_cell(
-            (i32::from(retained.0), i32::from(retained.1)),
-            &NearbyQuery {
-                native_cells: Some(cells),
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
-                    speed_type: object.speed_type,
-                    required_zone_id: (zone != u32::MAX).then_some(zone),
-                    movement_zone: object.movement_zone,
-                    bridge_aware_zone: bridge_aware,
+        Ok(self
+            .nearby_passable_cell(
+                (i32::from(retained.0), i32::from(retained.1)),
+                NearbyArgs {
+                    allow_bridge_cells: false,
+                    check_height: true,
+                    ..NearbyArgs::plain(
+                        PassabilityArgs {
+                            speed_type: object.speed_type,
+                            required_zone_id: (zone != u32::MAX).then_some(zone),
+                            movement_zone: object.movement_zone,
+                            bridge_aware_zone: bridge_aware,
+                        },
+                        NearbyFootprint::SINGLE,
+                    )
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: false,
-                check_height: true,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(bounds.base, height),
-                target_cell: None,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(cells.terrain()),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: Some(bounds),
-            },
-            self.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0)))
+            )
+            .filter(|cell| *cell != (0, 0)))
     }
 }
 
@@ -1276,8 +1260,5 @@ fn balloon_hover_destination(
         .as_deref()
         .and_then(|name| rules.projectile(name))
         .is_some_and(|projectile| projectile.vertical)
-        .then_some(match target {
-            TargetKind::Entity(id) => NavTargetRef::object(id),
-            TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-        })
+        .then_some(NavTargetRef::from(target))
 }

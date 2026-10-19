@@ -354,8 +354,10 @@ original Load721E80 resets timers via 46B640 at721FA9..721FC2, while Rust's save
 state/restore integration is covered separately by the library suite.
 
 The shared nonrandom germination port and signed cell-value helper now live in
-`src/map/tiberium_cell.rs`, below simulation consumers. Authored Overlay Mark,
-generated final cell attributes, crate Mark, and live Place call that one owner.
+`src/map/tiberium_cell.rs`, below simulation consumers. The one
+`OverlayClass::Mark` port (`src/map/overlay_mark.rs`), which map load, crates,
+meteor ore, bridge rebuild and live Place share, and generated final cell
+attributes call that one owner.
 The authored copy's separate neighbor/density tables were removed (refactor
 issue #714); `MaxDensity` remains the existing constructor constant 12, without
 adding a new INI reader. Rust native fixtures explicitly set the resource
@@ -378,5 +380,33 @@ pixels or the whole Scenario. Reproduce the edge run with
 `tools/map_observation.ore-spread.example.json` through the existing observation
 wrapper. The `natural_spread_followup` stage in `ore_queue.validation.json` (in git at 1b1a8b43e) keeps
 source/native/binary/input/result hashes and the earlier enqueue evidence intact.
-The value-owner consolidation also resolves issue #713. Adjacent authored-crate
-Land1-versus5 admission remains issue #993, unchanged by this kernel move.
+The value-owner consolidation also resolves issue #713. The Mark port tests Land 5
+(Tiberium) at `0x005FD0D9` for every caller (issue #993).
+
+## Physical authored natural history
+
+`ore_queue --authored-natural --write` (then `--check`) continues the existing
+physical XMP03T4 authored setup in the same Navigation VM. Set the existing
+`VERA20K_SHRAPNEL_INPUTS` and `VERA20K_ANYTOWN_INPUTS` extraction-bundle variables.
+The separate consumed `ore_authored_natural.json` records original Resize field
+stores, native-normalized LocalSize, explicit UI/session priors and the actual
+skirmish session flags producer and later Scenario overwrite. Native seed0 is
+independent of the normal production scenario's whole-startup RNG history.
+
+Original Growth722C40 then Spread7221B0 execute on every frame0..660; original
+725C70 drains after frame increment. Rows retain queue/heap/bitmap/timer state,
+all three full RNG states, actual draw events and changed physical Cells, runtime
+ID cursor and original Overlay/Object Mark/lifetime. Native-equal no-op snapshots
+reference the preceding full state using `same_after_as_frame`; no future state
+is inferred. Intervening no-op ranges are checked free of Cell writes, gameplay
+events and RNG changes. The component omits other Logic/AI systems and full
+native skirmish startup. Supplied missing startup registries preserve the already
+populated Abstract vector. Live ore refuses any reached animation-constructor
+boundary rather than inheriting the authored bootstrap's animation substitute.
+
+`bridge_shadow_render --ore-natural --write` (then `--check`) uses the existing
+raster owner with the physical XMP map layer, checks its relevant reader/source
+facts against that CPU corpus, and retains two original source72,25 rasters for
+density4 and5. Point/clip/A127/surface/Z inputs are explicit raster priors;
+production fog/A transport and GPU drawing are independent consumer checks.
+The old `--ore` and default ore queue packets remain unchanged.

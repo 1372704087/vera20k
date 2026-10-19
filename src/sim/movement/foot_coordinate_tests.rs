@@ -248,7 +248,7 @@ fn production_drive_reaim_reads_retained_target_head() {
     );
     mover
         .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
     assert!(mover.locomotor.as_mut().unwrap().store_track_destination(
         crate::sim::movement::track_process::TrackFamily::Drive,
         Some(DriveCoord::cell(7, 4, 0))
@@ -349,7 +349,8 @@ fn flight_queries_follow_live_altitude_producers_and_keep_jumpjet_exact_z() {
         None,
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let e = sim.substrate.entities.get(1).unwrap();
     let height =
         crate::sim::movement::air_movement::current_fly_height(e, sim.resolved_terrain.as_ref());

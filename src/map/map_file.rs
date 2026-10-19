@@ -12,13 +12,13 @@
 //! - Part of map/ — depends on assets/ (MIX archives), rules/ (INI parser), util/ (base64, lzo).
 
 use std::collections::HashMap;
+#[cfg(any(test, feature = "test-support"))]
 use std::path::Path;
 
 use crate::assets::error::AssetError;
 use crate::assets::mix_archive::MixArchive;
 use crate::map::actions::{self, ActionMap};
 use crate::map::basic::{self, BasicSection, SpecialFlagsSection};
-use crate::map::cell_tags::{self, CellTagMap};
 use crate::map::entities::{self, MapEntity};
 use crate::map::events::{self, EventMap};
 use crate::map::overlay::{
@@ -26,10 +26,7 @@ use crate::map::overlay::{
 };
 use crate::map::preview::{self, PreviewSection};
 use crate::map::tags::{self, TagMap};
-use crate::map::trigger_graph::{self, TriggerGraph};
 use crate::map::triggers::{self, TriggerMap};
-use crate::map::tube_facts::TubeFact;
-use crate::map::tubes;
 use crate::map::variable_names::{self, LocalVariableMap};
 use crate::map::waypoints::{self, Waypoint};
 use crate::rules::error::RulesError;
@@ -52,7 +49,6 @@ const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
 pub enum MapError {
     Ini(RulesError),
     MissingSection { name: String },
-    MissingField { section: String, key: String },
     MissingIsoMapPack,
     Base64(String),
     Lzo(LzoError),
@@ -68,9 +64,6 @@ impl std::fmt::Display for MapError {
         match self {
             MapError::Ini(e) => write!(f, "Map INI error: {}", e),
             MapError::MissingSection { name } => write!(f, "Missing [{}] section in map", name),
-            MapError::MissingField { section, key } => {
-                write!(f, "Missing key '{}' in [{}]", key, section)
-            }
             MapError::MissingIsoMapPack => write!(f, "No [IsoMapPack5] data in map"),
             MapError::Base64(e) => write!(f, "Base64 decode error: {}", e),
             MapError::Lzo(e) => write!(f, "LZO decompress error: {}", e),
@@ -264,6 +257,8 @@ pub struct MapFile {
     pub header: MapHeader,
     /// Parsed `[Basic]` metadata such as title and briefing hooks.
     pub basic: BasicSection,
+    /// Parsed campaign score text and difficulty par times from `[Ranking]`.
+    pub ranking: crate::map::ranking::RankingSection,
     /// Parsed preview metadata from `[Preview]` / `[PreviewPack]`.
     pub preview: PreviewSection,
     pub cells: Vec<MapCell>,
@@ -284,24 +279,19 @@ pub struct MapFile {
     pub terrain_objects: Vec<TerrainObject>,
     /// Waypoint index -> cell coordinate mapping from [Waypoints].
     pub waypoints: HashMap<u32, Waypoint>,
-    /// Cell coordinate -> tag id mapping from [CellTags].
-    pub cell_tags: CellTagMap,
-    /// Tag id -> raw tag record from [Tags].
+    /// Exact key -> tag record from [Tags]. `[CellTags]` has one reader:
+    /// the trigger runtime's native `Read_Map_Section` port.
     pub tags: TagMap,
-    /// Trigger id -> raw trigger record from [Triggers].
+    /// Exact key -> trigger header from [Triggers].
     pub triggers: TriggerMap,
-    /// Event id -> raw event record from [Events].
+    /// Exact key -> event record from [Events].
     pub events: EventMap,
-    /// Action id -> raw action record from [Actions].
+    /// Exact key -> action record from [Actions].
     pub actions: ActionMap,
     /// Local variable definitions from [VariableNames].
     pub local_variables: LocalVariableMap,
-    /// Normalized trigger-link graph derived from CellTags/Tags/Triggers/Events/Actions.
-    pub trigger_graph: TriggerGraph,
     /// Parsed `[SpecialFlags]` section (TiberiumGrows, TiberiumSpreads overrides).
     pub special_flags: SpecialFlagsSection,
-    /// Explicit full TubeClass records parsed from `[Tubes]`.
-    pub explicit_tubes: Vec<TubeFact>,
     /// Full parsed INI for accessing additional sections (e.g., [Houses]).
     pub ini: IniFile,
 }
@@ -315,6 +305,8 @@ impl MapFile {
     fn from_ini(ini: IniFile) -> Result<Self, MapError> {
         let header: MapHeader = parse_header(&ini)?;
         let basic: BasicSection = basic::parse_basic_section(&ini);
+        let ranking: crate::map::ranking::RankingSection =
+            crate::map::ranking::parse_ranking_section(&ini);
         let special_flags: SpecialFlagsSection = basic::parse_special_flags_section(&ini);
         let mut preview: PreviewSection = preview::parse_preview_section(&ini);
         match preview::decode_preview_image_from_ini(&ini) {
@@ -338,18 +330,15 @@ impl MapFile {
         let terrain_objects: Vec<TerrainObject> = overlay::parse_terrain_objects(&ini);
         let smudges: Vec<MapSmudgeEntry> = parse_map_smudges(&ini);
         let waypoints: HashMap<u32, Waypoint> = waypoints::parse_waypoints(&ini);
-        let cell_tags: CellTagMap = cell_tags::parse_cell_tags(&ini);
         let tags: TagMap = tags::parse_tags(&ini);
         let triggers: TriggerMap = triggers::parse_triggers(&ini);
         let events: EventMap = events::parse_events(&ini);
         let actions: ActionMap = actions::parse_actions(&ini);
         let local_variables: LocalVariableMap = variable_names::parse_local_variables(&ini);
-        let explicit_tubes: Vec<TubeFact> = tubes::parse_tubes(&ini);
-        let trigger_graph: TriggerGraph =
-            trigger_graph::build_trigger_graph(&cell_tags, &tags, &triggers, &events, &actions);
         Ok(MapFile {
             header,
             basic,
+            ranking,
             preview,
             cells: iso_map_pack.cells,
             iso_map_pack_lookups: iso_map_pack.lookups,
@@ -362,15 +351,12 @@ impl MapFile {
             smudges,
             terrain_objects,
             waypoints,
-            cell_tags,
             tags,
             triggers,
             events,
             actions,
             local_variables,
-            trigger_graph,
             special_flags,
-            explicit_tubes,
             ini,
         })
     }
@@ -407,6 +393,7 @@ pub struct OverlayPacksAlreadyConsumed;
 /// description stub. Editor-saved maps (`.map`, `.mpr`, `.yrm`) are raw INI
 /// text. We dispatch on the first two header bytes — `00 00` is the
 /// new-format MIX marker; anything else is treated as INI text.
+#[cfg(any(test, feature = "test-support"))]
 pub fn load_from_path(path: &Path) -> Result<MapFile, MapError> {
     load_from_bytes(std::fs::read(path)?)
 }

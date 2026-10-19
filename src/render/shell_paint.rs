@@ -39,6 +39,10 @@ use crate::ui::shell::slide::{ColumnDraw, column_draw_origin};
 pub const PARENT_BACKGROUND_DEPTH: f32 = 0.00098;
 pub const MOVIE_DEPTH: f32 = 0.00095;
 pub const CHROME_DEPTH: f32 = 0.00085;
+/// Dialog-owned background art painted over the shell chrome but behind its
+/// static children: campaign score's `SCRT` panel. Native WM_PAINT draws
+/// `RightPanel__Draw` then `RadarBackground`; the score statics follow.
+pub const DIALOG_BACKGROUND_DEPTH: f32 = 0.00084;
 /// Image statics drawn over the right-panel chrome (the `0x71C` monitor).
 pub const STATIC_IMAGE_DEPTH: f32 = 0.00083;
 pub const BUTTON_DEPTH: f32 = 0.00080;
@@ -439,13 +443,14 @@ pub fn paint_warning_monitor(
     scale: ShellScale,
 ) -> Option<SpriteInstance> {
     let entry = *atlas.warning_monitor_frames.get(frame)?;
-    monitor_sprite(entry, monitor, scale)
+    paint_kind4_static(entry, monitor, scale)
 }
 
-/// The kind-4 centre-and-clip placement of one monitor shape in its window.
-fn monitor_sprite(
+/// The native kind-4 STATIC's centre-and-clip placement of one SHP frame in
+/// its control window. Shared by the warning monitor and campaign score art.
+pub fn paint_kind4_static(
     entry: MainMenuShellChromeEntry,
-    monitor: RectPx,
+    window: RectPx,
     scale: ShellScale,
 ) -> Option<SpriteInstance> {
     let shape_w = (entry.pixel_size[0] * scale.factor()).round() as i32;
@@ -453,20 +458,20 @@ fn monitor_sprite(
     if shape_w <= 0 || shape_h <= 0 {
         return None;
     }
-    let x = monitor.x
-        + if monitor.w > shape_w {
-            (monitor.w - shape_w) / 2
+    let x = window.x
+        + if window.w > shape_w {
+            (window.w - shape_w) / 2
         } else {
             0
         };
-    let y = monitor.y
-        + if monitor.h > shape_h {
-            (monitor.h - shape_h) / 2
+    let y = window.y
+        + if window.h > shape_h {
+            (window.h - shape_h) / 2
         } else {
             0
         };
-    let draw_w = shape_w.min(monitor.w);
-    let draw_h = shape_h.min(monitor.h);
+    let draw_w = shape_w.min(window.w);
+    let draw_h = shape_h.min(window.h);
     Some(SpriteInstance {
         position: [x as f32, y as f32],
         size: [draw_w as f32, draw_h as f32],
@@ -891,16 +896,33 @@ mod tests {
     fn warning_monitor_shape_follows_the_layout_scale() {
         let entry = fake_entry(62.0, 44.0);
         let window = RectPx::new(640, 30, 200, 200);
-        let retail = monitor_sprite(entry, window, ShellScale::RETAIL).expect("shape");
+        let retail = paint_kind4_static(entry, window, ShellScale::RETAIL).expect("shape");
         assert_eq!(retail.size, [62.0, 44.0]);
         // Integer-halved gaps: (200-62)/2 right, (200-44)/2 down.
         assert_eq!(retail.position, [709.0, 108.0]);
 
         let stretched =
-            monitor_sprite(entry, window, ShellScale::from_screen(1600, 1200)).expect("shape");
+            paint_kind4_static(entry, window, ShellScale::from_screen(1600, 1200)).expect("shape");
         // 2x on both axes, then re-centred in the same window.
         assert_eq!(stretched.size, [124.0, 88.0]);
         assert_eq!(stretched.position, [678.0, 86.0]);
+    }
+
+    #[test]
+    fn campaign_score_emblem_uses_kind4_centering_and_clips_to_static_client() {
+        let layout = crate::ui::campaign_score_shell::CampaignScoreLayout::compute_layout(800, 600);
+        let window = layout
+            .control_rect(crate::ui::campaign_score_shell::SCORE_ART_REGION_STATIC)
+            .expect("campaign score art static");
+        // 0x00608500 sizes the 0x72B window to the SCRA frame exactly, so the
+        // kind-4 draw fills it without centering or clipping.
+        assert_eq!(window, RectPx::new(104, 142, 424, 220));
+        let sprite = paint_kind4_static(fake_entry(424.0, 220.0), window, ShellScale::RETAIL)
+            .expect("kind-4 SCRA frame");
+
+        assert_eq!(sprite.position, [104.0, 142.0]);
+        assert_eq!(sprite.size, [424.0, 220.0]);
+        assert_eq!(sprite.uv_size, [1.0, 1.0]);
     }
 
     fn btn(pressed: bool, hovered: bool) -> PaintButton {

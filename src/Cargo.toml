@@ -27,6 +27,8 @@ path = "bin/sim-bench.rs"
 [features]
 # The client's Ctrl+Shift dev chord reaches simulation and utility hooks.
 dev-overlays = []
+# Read-only snapshots and opt-in frame timing for the browser dashboard.
+telemetry = []
 # Test fixtures and helpers that client tests share; the client enables it
 # through its dev-dependency.
 test-support = []
@@ -40,9 +42,6 @@ fixed = { version = "1", features = ["serde"] }
 # --- Serialization ---
 serde = { workspace = true }
 serde_json = { workspace = true }
-bincode = { workspace = true }
-# toml for config.toml parsing (game settings, asset paths).
-toml = "0.8"
 
 # --- Binary parsing ---
 # RA2's binary asset formats (.mix, .shp, .vxl, .pal, .tmp, .hva) are parsed by
@@ -56,7 +55,6 @@ anyhow = { workspace = true }
 
 # --- Logging ---
 log = { workspace = true }
-env_logger = { workspace = true }
 
 # --- Parallel simulation work ---
 # The persistent worker pool behind `sim::parallel::map`; its threads keep their
@@ -64,10 +62,8 @@ env_logger = { workspace = true }
 rayon = "1.11"
 
 # --- Crypto (for MIX archive header decryption) ---
-# RA2 .mix files encrypt their file index with Blowfish. The key is RSA-encrypted.
-# We use well-known RustCrypto/num crates — NOT any RA2-specific packages.
-# Blowfish block cipher — decrypts the file index in RA2 .mix archives.
-blowfish = "0.9"
+# RA2 .mix files encrypt their file index with Blowfish (`assets::blowfish`).
+# The key is RSA-encrypted.
 # Big integer arithmetic — RSA modular exponentiation to extract the Blowfish key.
 # Simpler than the full `rsa` crate since RA2 uses raw/textbook RSA (no PKCS padding).
 num-bigint = "0.4"
@@ -77,6 +73,21 @@ num-bigint = "0.4"
 # lockfile already carries libc 0.2.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+# Not used by core's own code. `cargo test --workspace` resolves these shared
+# crates with the client's features; listing those features here gives
+# `cargo test -p vera20k-core` (with core's dev-overlays and test-support,
+# which tools.cargo_run adds) the same dependency graph, so both commands build
+# and reuse one core test executable instead of compiling it twice.
+# unicode-ident is a normal dependency there too, which keeps the proc-macro
+# crates' build profile the same. tools/tests/test_cargo_run.py checks the
+# features still match.
+[dev-dependencies]
+bytemuck = { version = "1", default-features = false, features = ["derive", "extern_crate_alloc", "min_const_generics"] }
+half = { version = "2", default-features = false, features = ["num-traits"] }
+hashbrown = { version = "0.16", default-features = false, features = ["default-hasher", "inline-more"] }
+num-traits = { version = "0.2", features = ["libm"] }
+unicode-ident = "1"
 
 [lints]
 workspace = true

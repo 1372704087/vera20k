@@ -40,11 +40,18 @@ pub(crate) fn observe_area_visit(
     AREA_VISIT_TRACE.with_borrow_mut(|trace| {
         if let Some(observations) = trace {
             observations.push(serde_json::json!({
+                "frame": world.session.binary_frame,
                 "coord": [impact.x, impact.y, impact.z],
                 "damage": damage,
                 "warhead": warhead.id,
+                "source_id": origin.0,
                 "no_source": origin.0 == RAD_NO_ATTACKER,
                 "no_source_house": origin.1.is_none(),
+                "rng_streams": {
+                    "main": world.main_rng.native_state_hex(),
+                    "scenario": world.scenario_rng.native_state_hex(),
+                    "mapgen": world.mapgen_rng.native_state_hex(),
+                },
                 "health_before": world.substrate.entities.values()
                     .map(|entity| (entity.stable_id(), entity.health.current()))
                     .collect::<Vec<_>>(),
@@ -883,7 +890,6 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 }
                 world.fixture_building_visit(id, rules, overlay_registry);
             }
-            let fire_requests = std::mem::take(&mut world.fire_requests);
             let mut result = world_fire::tick_combat(
                 world,
                 run,
@@ -892,7 +898,6 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                 tick_ms,
                 live_order,
                 fire_suppressed,
-                &fire_requests,
                 projectile_detonations,
             );
             result
@@ -926,6 +931,7 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
                         world.radiation.apply_detonation(
                             detonation,
                             binary_frame,
+                            &world.session.theater,
                             &rules.radiation,
                             world.resolved_terrain.as_ref(),
                             &mut world.lighting_sources.pending,

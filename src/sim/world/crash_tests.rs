@@ -303,11 +303,8 @@ fn magnetron_temporary_bullet_tails_match_original_rng_lights_and_ids() {
 /// The oracle's aircraft stands at the centre of cell (52, 52).
 const START: i32 = 52 * 256 + 128;
 
-fn oracle() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_crash.json",
-    ))
-    .unwrap()
+fn oracle() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_crash.json")
 }
 
 fn int(input: &serde_json::Value, name: &str, default: i64) -> i64 {
@@ -382,7 +379,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         for ry in 44..68 {
             for rx in 44..68 {
                 let cell = terrain.cell_mut(rx, ry).unwrap();
-                cell.yr_cell_land_type = int(input, "land_type", 0) as u8;
+                cell.land_type = int(input, "land_type", 0) as u8;
                 if input["bridge"].as_bool() == Some(true) {
                     cell.bridge_facts.raw_flags |= 0x100;
                 }
@@ -587,6 +584,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
                 None,
                 crate::sim::world::FrameEffects::default(),
             )
+            .unwrap()
             .impact
         {
             sim.fly_crash_impact(1, &rules, None, crate::sim::world::FrameEffects::default());
@@ -679,12 +677,14 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                     ),
                     RevealOutcome::Revealed { .. }
                 ));
-                let stats = sim.tick_air_movement_with_cell_lists_one(
-                    1,
-                    Some(&rules),
-                    None,
-                    crate::sim::world::FrameEffects::default(),
-                );
+                let stats = sim
+                    .tick_air_movement_with_cell_lists_one(
+                        1,
+                        Some(&rules),
+                        None,
+                        crate::sim::world::FrameEffects::default(),
+                    )
+                    .unwrap();
                 assert!(stats.impact, "{name}: impact frame {n}");
                 let entity = sim.substrate.entities.get(1).unwrap();
                 let xy = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
@@ -721,12 +721,14 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                 assert!(calls.iter().any(|c| c["call"] == "fire_death_weapon"));
                 assert!(calls.iter().any(|c| c["call"] == "uninit"));
             } else {
-                let stats = sim.tick_air_movement_with_cell_lists_one(
-                    1,
-                    Some(&rules),
-                    None,
-                    crate::sim::world::FrameEffects::default(),
-                );
+                let stats = sim
+                    .tick_air_movement_with_cell_lists_one(
+                        1,
+                        Some(&rules),
+                        None,
+                        crate::sim::world::FrameEffects::default(),
+                    )
+                    .unwrap();
                 assert!(!stats.impact, "{name}: early impact at frame {n}");
                 let entity = sim.substrate.entities.get(1).unwrap();
                 let xy = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
@@ -794,12 +796,14 @@ fn a_crash_fall_lists_the_wreck_in_its_impact_cell() {
     let start = sim.session.binary_frame;
     for n in 0..frames.len() {
         sim.session.binary_frame = start + n as u32;
-        let stats = sim.tick_air_movement_with_cell_lists_one(
-            1,
-            Some(&rules),
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
+        let stats = sim
+            .tick_air_movement_with_cell_lists_one(
+                1,
+                Some(&rules),
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
         assert_eq!(stats.impact, n + 1 == frames.len(), "frame {n}");
     }
     let wreck = sim.substrate.entities.get(1).unwrap();
@@ -1217,7 +1221,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
             .passenger_role
             .cargo_mut()
             .unwrap()
-            .board_forced(rider, 1);
+            .board_forced_chain(&[(rider, 1)]);
     }
     let spawn = |sim: &mut Simulation, owner: &str, rx: u16, ry: u16| {
         let owner = sim.interner.intern(owner);
@@ -1330,6 +1334,48 @@ fn shoot_down(sim: &mut Simulation, rules: &RuleSet, shooter: u64) {
         &[AreaDamageReceiver::Entity(hit)],
         crate::sim::world::FrameEffects::default(),
     );
+}
+
+/// A drain link breaks at the killing hit (the Techno death arm,
+/// `0x0070206A..0x00702102`, here through Destroy's Detach_All broadcast): a
+/// Floating Disc-like `Crashable=` Jumpjet shot down while draining falls as
+/// a wreck with no link and no DrainAnim.
+#[test]
+fn a_shot_down_drainer_drops_its_link_and_ray_at_the_kill() {
+    let (mut sim, mut rules, victim, shooter) = jumpjet_fixture(false);
+    rules.combat_damage.drain_animation_type = Some("BOOM".to_string());
+    crate::sim::credit_income::link_for_test(&mut sim, 1, victim);
+    crate::sim::credit_income::attach_drain_anim(&mut sim, 1, &rules);
+    let ray = sim
+        .substrate
+        .entities
+        .get(1)
+        .unwrap()
+        .drain
+        .anim()
+        .expect("ray");
+    shoot_down(&mut sim, &rules, shooter);
+
+    let wreck = sim
+        .substrate
+        .entities
+        .get(1)
+        .expect("a crashing unit stays");
+    assert!(wreck.crash.is_crashing());
+    assert_eq!(wreck.drain.target(), None);
+    assert_eq!(wreck.drain.anim(), None);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(victim)
+            .unwrap()
+            .drain
+            .draining_me(),
+        None
+    );
+    assert!(sim.anim(ray).is_none_or(|anim| {
+        !anim.in_logic_vector && sim.substrate.pending_delete.contains_object(&ray)
+    }));
 }
 
 /// A hovering Nighthawk-like Jumpjet shot down through the production
@@ -1526,7 +1572,8 @@ fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         frame += 1;
     }
     let runtime = |sim: &Simulation| {
@@ -1556,7 +1603,8 @@ fn a_jumpjet_shot_down_after_its_null_destination_reaches_the_ground() {
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let stopped = runtime(&sim);
     assert!(stopped.moving(), "Stop_Moving keeps the moving byte");
     assert_eq!(
@@ -2099,7 +2147,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                 .passenger_role
                 .cargo_mut()
                 .expect("the Nighthawk carries")
-                .board_forced(rider, 1);
+                .board_forced_chain(&[(rider, 1)]);
             rider
         })
         .collect();

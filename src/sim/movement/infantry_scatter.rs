@@ -32,6 +32,16 @@ fn represented_infantry_destination(actor: &crate::sim::game_entity::GameEntity)
 /// and the Infantry setter (`0x0051AA60..0x0051AA7E`) test them.
 const DEPLOY_DOINGS: std::ops::RangeInclusive<i32> = 0x1B..=0x1E;
 
+/// How the Infantry setter carries on after its Enter radio arm.
+enum EnterRadioArm {
+    /// The destination stands (`0x0051AD17`).
+    Continue,
+    /// The busy destination waits in QueueUpToEnter; Foot's setter takes NULL.
+    Queued,
+    /// The transport comes to him; the setter returns at once.
+    Docking,
+}
+
 /// What `InfantryClass::Scatter` reads between its deploy arm and its
 /// coordinate test (`0x0051D162..0x0051D220`).
 #[derive(Clone, Copy, Debug)]
@@ -395,14 +405,14 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
     ) -> bool {
         use crate::map::cell_index::NativeCellIdentity;
-        use crate::rules::locomotor_type::{LocomotorKind, SpeedType};
+        use crate::rules::locomotor_type::LocomotorKind;
 
         let Some(actor) = self.substrate.entities.get(id) else {
             return false;
         };
-        let Some(object) = self.object_type(actor.type_ref(), rules) else {
+        if self.object_type(actor.type_ref(), rules).is_none() {
             return false;
-        };
+        }
         if !represented_infantry_destination(actor) || actor.infantry.is_none() {
             return false;
         }
@@ -420,7 +430,7 @@ impl Simulation {
             && super::navcom::nav_target_coordinate(
                 requested,
                 Some(id),
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain.as_ref(),
                 Some((rules, &self.interner)),
             )
@@ -438,7 +448,7 @@ impl Simulation {
             let Ok(point) = super::navcom::nav_target_coordinate(
                 requested,
                 Some(id),
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain.as_ref(),
                 Some((rules, &self.interner)),
             ) else {
@@ -461,39 +471,8 @@ impl Simulation {
         let Some(moving) = super::motion_query::is_moving(actor) else {
             return false;
         };
-        if !moving {
-            return true;
-        }
-        let Some(terrain) = self.resolved_terrain.as_ref() else {
-            return false;
-        };
-        // 51ABA2 resolves the current Cell even for Winged. Availability is
-        // established without issuing native_cell_identity (which stamps
-        // the shared Dummy) or reading occupation/admission.
-        if object.speed_type == SpeedType::Winged {
-            return true;
-        }
-        let xyz = super::foot_coordinate::current_coordinate(actor);
-        let (cell, cost) =
-            match terrain.native_fixed_cell_index((xyz.x / 256) as i16, (xyz.y / 256) as i16) {
-                Some(index) => (
-                    NativeCellIdentity::Real(index),
-                    terrain.cells()[index]
-                        .speed_costs
-                        .cost_for_speed_type(object.speed_type),
-                ),
-                None => (NativeCellIdentity::Dummy, None),
-            };
-        let wall = match self.cell_overlay(cell).overlay_id {
-            Some(overlay) => {
-                let Some(flags) = registry.and_then(|registry| registry.flags(overlay)) else {
-                    return false;
-                };
-                flags.wall
-            }
-            None => false,
-        };
-        terrain.native_cell_flags(cell) & 0x100 != 0 || wall || cost.is_some()
+        // 51ABA2 asks the current Cell, which needs only the map cells.
+        !moving || self.resolved_terrain.is_some()
     }
 
     /// The Infantry class setter `vt+0x480(target, 1)` (`0x0051AA40`) for a
@@ -516,9 +495,10 @@ impl Simulation {
     ///   another unless he is on Attack with this NavCom already;
     /// - the human same-reference prone DoAction7 (`0x0051ABD7..0x0051AC1F`)
     ///   uses the existing action owner;
-    /// - on Enter (current or queued) without a radio contact the transport
-    ///   radio arm runs and the path head stays (`0x0051AC25..0x0051AD17`);
-    ///   otherwise the path head clears;
+    /// - on Enter (current or queued) without a radio contact the path head
+    ///   stays and a Techno destination runs the Enter radio arm
+    ///   ([`Self::infantry_enter_radio_arm`], `0x0051AC25..0x0051AD0F`), which
+    ///   may end the call; otherwise the path head clears (`0x0051AD11`);
     /// - Foot's setter (`0x0051B1D2`).
     ///
     /// Non-cell targets retain their reference and read the receiver's +4C
@@ -542,16 +522,6 @@ impl Simulation {
     /// shifts for every later draw. Frequency: most orders to an airborne
     /// Rocketeer. Risk: RNG drift against native, not a visible movement
     /// difference.
-    ///
-    /// RESIDUAL: the Enter radio arm is not ported. With a Techno destination
-    /// (`0x0040DD70`) it queues him on a transport already in radio contact
-    /// (QueueUpToEnter `+0x500`, ArchiveTarget cleared, NULL destination) or
-    /// sends RADIO_HELLO and, on ROGER, message 0xE, returning before Foot's
-    /// setter when that answers 0xE. VERA writes the object through Foot's
-    /// setter either way. Trigger: an infantryman's boarding order
-    /// (EnterTransport, Enter 7) or an Enter re-target. Frequency: every
-    /// infantry boarding. Risk: boarding a busy transport or one that turns
-    /// him away differs from native.
     ///
     /// RESIDUAL: a `JumpJet=` infantryman's Walk piggyback is not modelled.
     /// The setter swaps the Jumpjet of one that is not moving for a Walk
@@ -613,11 +583,11 @@ impl Simulation {
         // 51ABA2 invokes the shared Cell leaf BEFORE the JumpJet and
         // Attack/same-NavCom tests. The current physical coordinate owns this
         // lookup.
-        if moving && self.infantry_destination_current_cell_clear(id, speed_type, registry)? {
+        if moving && self.infantry_destination_current_cell_clear(id, speed_type)? {
             let actor = self.substrate.entities.get(id).unwrap();
             if jumpjet_type
                 || actor.mission.current().raw() != 1
-                || !super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
+                || actor.navigation.nav_com() != Some(requested)
             {
                 self.infantry_stop_driver(id, rules, registry, frame_effects)?;
             }
@@ -632,7 +602,7 @@ impl Simulation {
             .ok_or("destination lost infantry after Stop_Driver")?;
         if human
             && type_allows_up
-            && super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
+            && actor.navigation.nav_com() == Some(requested)
             && actor
                 .infantry
                 .as_ref()
@@ -640,12 +610,30 @@ impl Simulation {
         {
             self.infantry_do_action(id, 7, false, rules, frame_effects)?;
         }
-        super::movement_commands::clear_destination_path_head(
-            self.substrate
-                .entities
-                .get_mut(id)
-                .ok_or("destination lost infantry after DoAction")?,
-        );
+        // 51AC25..51AC4B decides on the state before the arm's HELLO.
+        let actor = self
+            .substrate
+            .entities
+            .get_mut(id)
+            .ok_or("destination lost infantry after DoAction")?;
+        let enter_radio_arm = super::movement_commands::enter_without_contact(actor);
+        super::movement_commands::clear_destination_path_head(actor);
+        let techno_target = match requested {
+            NavTargetRef::Object { id: target } => crate::sim::radio::as_techno(self, target),
+            NavTargetRef::Cell { .. } => None,
+        };
+        if let Some(target) = techno_target.filter(|_| enter_radio_arm) {
+            match self.infantry_enter_radio_arm(id, target, rules, frame_effects) {
+                EnterRadioArm::Continue => {}
+                // 51ACB1..51ACC5: Foot's setter takes NULL (51B1D2).
+                EnterRadioArm::Queued => {
+                    self.foot_null_destination(id, Some(rules), registry, frame_effects);
+                    return Ok(true);
+                }
+                // 51ACF7: no Foot setter at all.
+                EnterRadioArm::Docking => return Ok(true),
+            }
+        }
         if !self.begin_foot_destination(id, true, Some(rules), registry, frame_effects) {
             return Ok(true);
         }
@@ -663,7 +651,7 @@ impl Simulation {
                 let point = super::navcom::nav_target_coordinate(
                     requested,
                     Some(id),
-                    &self.substrate.entities,
+                    self,
                     self.resolved_terrain.as_ref(),
                     Some((rules, &self.interner)),
                 )?;
@@ -678,7 +666,7 @@ impl Simulation {
                 let coord = super::navcom::nav_target_coordinate(
                     requested,
                     Some(id),
-                    &self.substrate.entities,
+                    self,
                     self.resolved_terrain.as_ref(),
                     Some((rules, &self.interner)),
                 )?;
@@ -690,6 +678,78 @@ impl Simulation {
                     super::DestinationTiming::from_rules(self.session.binary_frame, Some(rules)),
                 );
                 Ok(true)
+            }
+        }
+    }
+
+    /// The Infantry setter's Enter radio arm (`0x0051AC51..0x0051AD0F`), for
+    /// a Techno destination (`As_Techno @ 0x0040DD70`) while he is on Enter
+    /// without a radio contact:
+    /// - a destination in radio contact with anyone (`0x0065AE30`) that is a
+    ///   Unit or a Building becomes his pending entry (QueueUpToEnter
+    ///   `+0x500`) with the ArchiveTarget cleared, and Foot's setter takes
+    ///   NULL (`0x0051AC6D..0x0051ACC5`); any other busy Techno becomes the
+    ///   ArchiveTarget and the destination stands (`0x0051ACCA`);
+    /// - a free one is sent HELLO and, answered ROGER, DOCKING through the
+    ///   new contact: a DOCKING answer ends the setter before Foot's setter,
+    ///   ROGER carries on, anything else breaks the contact
+    ///   (`0x0051ACD4..0x0051AD0F`).
+    fn infantry_enter_radio_arm(
+        &mut self,
+        id: u64,
+        target: u64,
+        rules: &RuleSet,
+        frame_effects: FrameEffects<'_>,
+    ) -> EnterRadioArm {
+        use crate::map::entities::EntityCategory;
+        use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse};
+        let busy = self
+            .substrate
+            .entities
+            .get(target)
+            .map(|target| (!target.radio_contacts.is_empty(), target.category()));
+        if let Some((true, category)) = busy {
+            let Some(actor) = self.substrate.entities.get_mut(id) else {
+                return EnterRadioArm::Continue;
+            };
+            if matches!(category, EntityCategory::Unit | EntityCategory::Structure) {
+                actor.pending_entry.install(target);
+                actor.set_archive_target(None);
+                return EnterRadioArm::Queued;
+            }
+            actor.set_archive_target(Some(crate::sim::combat::TargetKind::Entity(target)));
+            return EnterRadioArm::Continue;
+        }
+        if crate::sim::radio::transmit(
+            self,
+            id,
+            target,
+            RadioMessage::Hello,
+            RadioPayload::default(),
+            Some(rules),
+            frame_effects,
+        ) != RadioResponse::Roger
+        {
+            return EnterRadioArm::Continue;
+        }
+        match crate::sim::radio::transmit_to_contact(
+            self,
+            id,
+            RadioMessage::CanDock,
+            Some(rules),
+            frame_effects,
+        ) {
+            RadioResponse::Docking => EnterRadioArm::Docking,
+            RadioResponse::Roger => EnterRadioArm::Continue,
+            _ => {
+                crate::sim::radio::transmit_to_contact(
+                    self,
+                    id,
+                    RadioMessage::Break,
+                    Some(rules),
+                    frame_effects,
+                );
+                EnterRadioArm::Continue
             }
         }
     }
@@ -708,7 +768,7 @@ impl Simulation {
         let here = super::ground_pose::object_get_coords(actor, terrain);
         let Some(there) = super::ground_pose::target_get_coords(
             crate::sim::combat::TargetKind::from(requested),
-            &self.substrate.entities,
+            self,
             cells.as_ref(),
         ) else {
             return false;
@@ -757,22 +817,20 @@ impl Simulation {
         true
     }
 
-    /// 51AB73..51ABA7 passes (SpeedType,1,0,-1,Normal,-1,true) to4834A0.
-    /// This is not Infantry CanEnter: ignore the five infantry bits, retain
-    /// vehicles, choose the deck on a structural bridge, and reject all walls.
+    /// [`check_cell_passability`](crate::sim::cell_rect::check_cell_passability)
+    /// with (SpeedType, 1, 0, -1, Normal, -1, 1) on the Cell of his GetCoords
+    /// (`0x0051AB73..0x0051ABA7`). This is not Infantry CanEnter: the five
+    /// infantry bits are ignored, vehicles kept, a structural bridge selects
+    /// its deck, and every wall refuses.
     fn infantry_destination_current_cell_clear(
         &self,
         id: u64,
         speed: crate::rules::locomotor_type::SpeedType,
-        registry: Option<&OverlayTypeRegistry>,
     ) -> Result<bool, String> {
-        use super::locomotor::MovementLayer;
-        use crate::map::cell_index::NativeCellIdentity;
-        use crate::rules::locomotor_type::{MovementZone, SpeedType};
+        use crate::rules::locomotor_type::MovementZone;
         use crate::sim::cell_rect::{
-            IsClearToMoveRequest, IsClearToMoveResult, evaluate_is_clear_to_move,
+            CellPassabilityArgs, canonical_cell_ref, check_cell_passability,
         };
-        use crate::sim::occupancy::RawCellKey;
         let actor = self
             .substrate
             .entities
@@ -784,64 +842,20 @@ impl Simulation {
             .as_ref()
             .ok_or("scatter setter requires map cells")?;
         let cell = terrain.native_cell_identity(((coord.x / 256) as i16, (coord.y / 256) as i16));
-        if speed == SpeedType::Winged {
-            return Ok(true);
-        }
-        let raw = &self.substrate.raw_cell_occupation;
-        let key = RawCellKey::from_native(terrain, cell);
-        let (level, cost) = match cell {
-            NativeCellIdentity::Real(index) => {
-                let c = &terrain.cells()[index];
-                (
-                    i16::from(c.level as i8),
-                    c.speed_costs.cost_for_speed_type(speed),
-                )
-            }
-            NativeCellIdentity::Dummy => (
-                i16::from(terrain.shared_cell_dummy().snapshot().level),
-                None,
-            ),
-        };
-        let overlay = self.cell_overlay(cell).overlay_id;
-        let mut input = IsClearToMoveRequest {
-            speed_type: speed,
-            movement_zone: MovementZone::Normal,
-            requested_zone: None,
-            actual_zone: 0,
-            base_level: level,
-            has_bridge: terrain.native_cell_flags(cell) & 0x100 != 0,
-            requested_level: None,
-            is_bridge: true,
-            ground_occupation_bits: raw.bits_at(key, MovementLayer::Ground),
-            deck_occupation_bits: raw.bits_at(key, MovementLayer::Bridge),
-            ignore_infantry: true,
-            ignore_vehicles: false,
-            land_passable: true,
-            is_wall_overlay: false,
-            wall_allows_crusher: false,
-        };
-        if !matches!(
-            evaluate_is_clear_to_move(input),
-            IsClearToMoveResult::Clear { .. }
-        ) {
-            return Ok(false);
-        }
-        if let Some(overlay) = overlay {
-            input.is_wall_overlay = registry
-                .and_then(|r| r.flags(overlay))
-                .ok_or("scatter setter overlay lacks registered type")?
-                .wall;
-        }
-        // Bridge land rows cannot refuse; walls still can. Do not invent a
-        // Clear land speed for a dummy whose native row is not represented.
-        if !input.has_bridge && !input.is_wall_overlay {
-            input.land_passable =
-                cost.ok_or("scatter setter requires current cell speed row")? != 0;
-        }
-        Ok(matches!(
-            evaluate_is_clear_to_move(input),
-            IsClearToMoveResult::Clear { .. }
-        ))
+        Ok(check_cell_passability(
+            &canonical_cell_ref(terrain, cell),
+            CellPassabilityArgs {
+                speed_type: speed,
+                ignore_infantry: true,
+                ignore_vehicles: false,
+                zone: None,
+                movement_zone: MovementZone::Normal,
+                level: None,
+                is_bridge: true,
+            },
+            &self.cell_passability_map(),
+        )
+        .admits())
     }
 }
 

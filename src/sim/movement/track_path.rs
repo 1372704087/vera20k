@@ -53,9 +53,6 @@ use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
 use crate::util::native_x87::distance_3d_leptons;
 
-/// Foot+64C after a found route (0x4B3285 / 0x6A28D5).
-const FOUND_ROUTE_RETRIES: u32 = 10;
-
 /// A Unit on Drive or Ship, whose class setter is Unit 0x741970.
 fn track_unit(entity: &GameEntity) -> bool {
     entity.category() == EntityCategory::Unit
@@ -284,7 +281,7 @@ impl Simulation {
             .ok_or("retired Drive/Ship path owner")?
             .navigation
             .path_runtime
-            .set_retries_left(FOUND_ROUTE_RETRIES);
+            .set_retries_left(crate::sim::components::FootPathRuntime::RETRY_RELOAD);
         Ok(FootPathOutcome::Resume)
     }
 
@@ -600,7 +597,7 @@ impl Simulation {
             self.set_unit_null_destination(id, Some(rules), None, frame_effects);
             return false;
         }
-        super::navcom::foot_stop_moving(actor);
+        actor.navigation.stop_moving();
         self.unit_enter_idle_mode(id, Some(rules), false, frame_effects)
     }
 
@@ -620,7 +617,7 @@ impl Simulation {
         if actor.navigation.nav_queue().is_empty() {
             self.set_unit_null_destination(id, rules, None, frame_effects);
         } else {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
             self.unit_enter_idle_mode(id, rules, false, frame_effects);
         }
     }
@@ -702,7 +699,7 @@ impl Simulation {
             return;
         }
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
         }
         self.assign_destination_represented(
             id,
@@ -832,9 +829,7 @@ impl Simulation {
         {
             return false;
         }
-        if super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
-            && !actor.setter_force_reassign.raised
-        {
+        if actor.navigation.nav_com() == Some(requested) && !actor.setter_force_reassign.raised {
             return true;
         }
         let actor = self
@@ -846,7 +841,7 @@ impl Simulation {
         //741A96..741ACD, after the same-NavCom guard: deployment refuses
         // through Foot4DF0D0, which clears NavCom, not locomotor movement.
         if deployment_refuses_destination(actor) {
-            super::navcom::foot_stop_moving(actor);
+            actor.navigation.stop_moving();
             return false;
         }
         let is_harvester = self
@@ -855,14 +850,45 @@ impl Simulation {
             .get(id)
             .and_then(|actor| self.object_type(actor.type_ref(), rules))
             .is_some_and(|object| object.harvester);
+        let requested_techno = match requested {
+            NavTargetRef::Object { id } => crate::sim::radio::as_techno(self, id),
+            NavTargetRef::Cell { .. } => None,
+        };
+        // 741AD1..741B22: a transport (`Passengers=` above 0) whose first
+        // contact is an infantryman, one walking aboard, breaks that contact
+        // when sent to another Techno it holds no contact with.
+        if let Some(target) = requested_techno
+            && let Some(unit) = self.substrate.entities.get(id)
+            && let Some(contact) = unit.radio_contacts.slot(0)
+            && !unit.radio_contacts.contains(target)
+            && self
+                .object_type(unit.type_ref(), rules)
+                .is_some_and(|object| object.passengers > 0)
+            && self
+                .substrate
+                .entities
+                .get(contact)
+                .is_some_and(|contact| contact.category() == EntityCategory::Infantry)
         {
+            crate::sim::radio::transmit_to_contact(
+                self,
+                id,
+                crate::sim::radio::RadioMessage::Break,
+                Some(rules),
+                frame_effects,
+            );
+        }
+        // 741C4F..741C78 decides on the state after that break.
+        let enter_radio_arm = {
             let actor = self
                 .substrate
                 .entities
                 .get_mut(id)
                 .expect("same setter actor");
+            let enter_radio_arm = super::movement_commands::enter_without_contact(actor);
             super::movement_commands::clear_destination_path_head(actor);
-        }
+            enter_radio_arm
+        };
         crate::sim::miner::clear_unload_anim_for_destination(self, rules, id);
         // Unit741C4F..741E8E and742C14..742D0B: the UnitRepair
         // Building arm belongs to this same class setter, including callers
@@ -871,23 +897,27 @@ impl Simulation {
         // argument. Native controls: refinery_dock.json; source741970.
         //
         // The Enter arm docks with a `DockUnload=` refinery the same way: a
-        // miner's refinery order (`Command::MinerReturn`). Its other arms are
-        // not ported — a Unit destination (`0x00741C80..0x00741CCC`),
-        // `UnitAbsorb=` (`0x00741CE5..0x00741D0D`), a busy `Bunker=`
-        // (`0x00741D49..0x00741D68`) and a non-building Techno
-        // (`0x00741E35..0x00741E86`); Units reach those through the Boarding
-        // and bunker adapters.
-        let original_building = match requested {
-            NavTargetRef::Building { id }
-            | NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id } => self
+        // miner's refinery order (`Command::MinerReturn`). A busy `Bunker=`
+        // (`0x00741D49..0x00741D68`) belongs to the bunker adapter.
+        //
+        // RESIDUAL: the arm for a Techno that is neither a Unit nor a
+        // Building (`0x00741E35..0x00741E86`: ArchiveTarget when it is busy,
+        // else HELLO, DOCKING and a break unless ROGER) is not ported.
+        // Trigger: a Unit ordered to Enter an Aircraft or an infantryman; no
+        // retail AircraftType or InfantryType sets `Passengers=`, so neither
+        // the input nor team action 14 orders one. Effect: no radio contact
+        // is made, and the unit drives to the target.
+        let requested_object = match requested {
+            NavTargetRef::Object { id } => self
                 .substrate
                 .entities
                 .get(id)
-                .filter(|building| building.category() == EntityCategory::Structure)
-                .map(|_| id),
+                .map(|target| (id, target.category())),
             _ => None,
         };
+        let original_building = requested_object
+            .filter(|(_, category)| *category == EntityCategory::Structure)
+            .map(|(id, _)| id);
         let enter_building = original_building.and_then(|building| {
             let object =
                 self.object_type(self.substrate.entities.get(building)?.type_ref(), rules)?;
@@ -899,13 +929,35 @@ impl Simulation {
         });
         let mut destination = Some(requested);
         let mut depot_fast_return = false;
-        if let Some((building, unit_repair, dock_unload)) = enter_building {
-            let enter_without_contact = self.substrate.entities.get(id).is_some_and(|unit| {
-                (unit.mission.effective().known() == Some(MissionType::Enter)
-                    || unit.mission.queued().known() == Some(MissionType::Enter))
-                    && unit.radio_contacts.is_empty()
-            });
-            if enter_without_contact {
+        // Steam gamemd3e81a617,741C4F..741CCC: an Enter Unit target
+        // without a radio contact goes into Foot+500, not straight into
+        // NavCom. Foot70D7E0 owns HELLO/CanEnter on the next object turn.
+        // Reuse that pending-entry owner for vehicles as well as depots.
+        let mobile_target = requested_object
+            .filter(|(_, category)| *category == EntityCategory::Unit)
+            .map(|(id, _)| id);
+        // 741CE5..741D0D: a `UnitAbsorb=` building waits there too, whatever
+        // its contacts.
+        let absorber = original_building.filter(|&building| {
+            self.substrate
+                .entities
+                .get(building)
+                .and_then(|building| self.object_type(building.type_ref(), rules))
+                .is_some_and(|object| object.unit_absorb)
+        });
+        if let Some(target) = mobile_target.or(absorber)
+            && enter_radio_arm
+        {
+            if let Some(unit) = self.substrate.entities.get_mut(id) {
+                unit.pending_entry.install(target);
+                unit.set_archive_target(None);
+            }
+            destination = None;
+        }
+        if let Some((building, unit_repair, dock_unload)) = enter_building
+            && absorber.is_none()
+        {
+            if enter_radio_arm {
                 let busy = self
                     .substrate
                     .entities
@@ -1097,7 +1149,7 @@ impl Simulation {
             super::navcom::nav_target_coordinate(
                 requested,
                 Some(id),
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain.as_ref(),
                 Some((rules, &self.interner)),
             )
@@ -1152,11 +1204,18 @@ impl Simulation {
                     // the Chrono Warp's Teleport takes any destination's
                     // coordinate (`0x004D9628`).
                     let coord = coord.expect("accepted Move_To captures target +4C");
-                    self.teleport_move_to(id, coord, rules, is_harvester, None, frame_effects)
-                        .unwrap_or_else(|error| {
-                            log::debug!("Unit Teleport MoveTo {id}: {error}");
-                            false
-                        })
+                    self.teleport_move_to(
+                        id,
+                        coord,
+                        rules,
+                        is_harvester,
+                        frame_effects.overlay_registry(),
+                        frame_effects,
+                    )
+                    .unwrap_or_else(|error| {
+                        log::debug!("Unit Teleport MoveTo {id}: {error}");
+                        false
+                    })
                 }
                 _ => false,
             }
@@ -1249,9 +1308,7 @@ impl Simulation {
             return UnitDockArm::Null;
         }
         let current_building = match current {
-            NavTargetRef::Building { id: target }
-            | NavTargetRef::Entity { id: target }
-            | NavTargetRef::Object { id: target } => self
+            NavTargetRef::Object { id: target } => self
                 .substrate
                 .entities
                 .get(target)
@@ -1497,7 +1554,7 @@ impl Simulation {
             actor.setter_force_reassign.raised = false;
             //741A96..741ACD; same native owner as the non-null setter.
             if deployment_refuses_destination(actor) {
-                super::navcom::foot_stop_moving(actor);
+                actor.navigation.stop_moving();
                 return false;
             }
         }
@@ -1596,20 +1653,6 @@ impl Simulation {
         true
     }
 
-    /// Whether `id` is a Building (vt+0x2C == 6) whose type has
-    /// `WeaponsFactory=` (BuildingType `+0x16BD`). It is the war factory test
-    /// on a radio contact in the Unit setter's WeaponsFactory arm, in
-    /// Queue_Navigation_List's idle tail (`0x004DA15A..0x004DA1A6`) and in
-    /// Unit Per_Cell_Process's factory clearance.
-    pub(super) fn is_weapons_factory(&self, id: u64, rules: &RuleSet) -> bool {
-        self.substrate.entities.get(id).is_some_and(|building| {
-            building.category() == EntityCategory::Structure
-                && self
-                    .object_type(building.type_ref(), rules)
-                    .is_some_and(|object| object.weapons_factory)
-        })
-    }
-
     /// Unit 0x741970's BalloonHover arm (0x741983..0x741A7D), the first test
     /// of a NULL destination. A `BalloonHover=` type (+0xD6A) holding a
     /// NavCom (+0x5A4) and a Target (+0x2B4) keeps the NavCom when it:
@@ -1654,18 +1697,14 @@ impl Simulation {
                     == Some(target)
             }
             (_, crate::sim::combat::TargetKind::Entity(target)) => {
-                super::navcom::nav_targets_same_receiver(
-                    Some(nav_com),
-                    NavTargetRef::object(target),
-                )
+                nav_com == NavTargetRef::object(target)
             }
         };
         let keeps = leads_to_target
-            || super::turret::facing_toward_target(actor, &target, &self.substrate.entities)
-                .is_some_and(|direction| {
-                    let turn = direction.wrapping_sub(actor.body_facing_current(frame)) as i16;
-                    i32::from(turn).abs() <= 0x4000
-                });
+            || super::turret::facing_toward_target(actor, &target, self).is_some_and(|direction| {
+                let turn = direction.wrapping_sub(actor.body_facing_current(frame)) as i16;
+                i32::from(turn).abs() <= 0x4000
+            });
         if !keeps {
             return false;
         }

@@ -630,6 +630,7 @@ pub(crate) fn build_software_cursor(
     batch: &BatchRenderer,
     asset_manager: &AssetManager,
 ) -> Option<SoftwareCursor> {
+    // Init_Game 0x0052BA60 converts MOUSEPAL.PAL like every palette load.
     let palette = asset_manager
         .get_ref("mousepal.pal")
         .and_then(|data| Palette::from_bytes(data).ok())?;
@@ -957,8 +958,10 @@ mod tests {
         }
     }
 
-    /// Every entry above must be a frame set of the compiled descriptor table,
-    /// with that record's frame count, rate and centre hotspot. The table is
+    /// Every loaded frame set must come from the compiled descriptor table,
+    /// with that record's frame count, rate and centre hotspot. Default packs
+    /// both static row-0 sets so Planning Mode can select its small arrow.
+    /// The table is
     /// dumped from the executable by `tools/mouse_oracle/cursor_table.py`, so a
     /// row guessed from a document or drifted by one frame fails here. Each
     /// record contributes both its main set and its `miniFrame` set.
@@ -999,24 +1002,35 @@ mod tests {
             }
         }
         for &(id, start, count, interval, hotspot) in CURSOR_DEFS {
-            let Some(&(_, _, rate, hx, hy)) = sets.iter().find(|&&(f, c, r, ..)| {
-                f == start && c == count && r * CURSOR_TIMER_UNIT_MS == interval
-            }) else {
-                panic!(
-                    "{id:?} starts at frame {start} with count {count} and {interval} ms, \
-                     which begins no frame set of the compiled descriptor table"
-                );
+            let loaded_sets = if id == CursorId::Default {
+                // build_software_cursor_instances selects frames[1] for the
+                // PlanMgr63AC41 small-arrow route. This is two native static
+                // sets in one atlas allocation, not a two-frame animation.
+                assert_eq!(count, 2, "Default packs normal and small arrows");
+                vec![(start, 1), (start + 1, 1)]
+            } else {
+                vec![(start, count)]
             };
-            assert_eq!(
-                rate * CURSOR_TIMER_UNIT_MS,
-                interval,
-                "{id:?} carries rate {rate} units"
-            );
-            if hx == 12345 && hy == 12345 {
-                assert!(
-                    matches!(hotspot, CursorHotspot::CenterMiddle),
-                    "{id:?} carries centre/centre hotspot sentinels"
+            for (set_start, set_count) in loaded_sets {
+                let Some(&(_, _, rate, hx, hy)) = sets.iter().find(|&&(f, c, r, ..)| {
+                    f == set_start && c == set_count && r * CURSOR_TIMER_UNIT_MS == interval
+                }) else {
+                    panic!(
+                        "{id:?} starts at frame {set_start} with count {set_count} and {interval} ms, \
+                         which begins no frame set of the compiled descriptor table"
+                    );
+                };
+                assert_eq!(
+                    rate * CURSOR_TIMER_UNIT_MS,
+                    interval,
+                    "{id:?} carries rate {rate} units"
                 );
+                if hx == 12345 && hy == 12345 {
+                    assert!(
+                        matches!(hotspot, CursorHotspot::CenterMiddle),
+                        "{id:?} carries centre/centre hotspot sentinels"
+                    );
+                }
             }
         }
     }
@@ -1058,8 +1072,8 @@ mod tests {
     #[test]
     fn radar_default_cursor_is_row_zero_mini_set() {
         assert_eq!(row(CursorId::DefaultMini), (1, 1, 0));
-        // The tactical arrow stays its own row-0 main set.
-        assert_eq!(row(CursorId::Default), (0, 1, 0));
+        // Default's atlas also keeps row0's small frame for Planning Mode.
+        assert_eq!(row(CursorId::Default), (0, 2, 0));
     }
 
     /// The superweapon targeting rows that carry a mini pair keep their own
@@ -1135,7 +1149,11 @@ mod tests {
             (1u32, CursorId::Move),
             (2, CursorId::NoMove),
             (9, CursorId::Enter),
+            (4, CursorId::Deploy),
             (16, CursorId::Demolish),
+            (30, CursorId::NoDeploy),
+            (64, CursorId::Demolish),
+            (71, CursorId::AirStrike),
             (53, CursorId::IvanBomb),
             (57, CursorId::Disarm),
         ] {

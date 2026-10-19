@@ -32,7 +32,6 @@ use crate::rules::locomotor_type::LocomotorKind;
 use super::super::drive_locomotion::{DriveRuntime, ShipRuntime, TrackStateMutation};
 use super::super::locomotor::LocomotorState;
 use super::super::track_process::TrackFamily;
-use crate::sim::components::DriveOccupationFootprint;
 
 /// Walk MoveTo75ACB0 / Stop75ADA0 retain destination independently of the
 /// committed head. Both XYZ values belong to this complete locomotor instance.
@@ -177,24 +176,6 @@ impl StashedLocomotor {
         self.0.apply_track_state_mutation(family, mutation)
     }
 
-    pub(in crate::sim::movement) fn take_track_occupation(
-        &mut self,
-        family: TrackFamily,
-    ) -> Option<[Option<DriveOccupationFootprint>; 2]> {
-        self.0.take_track_occupation(family)
-    }
-
-    pub(in crate::sim::movement) fn forget_track_occupation(
-        &mut self,
-        mark: DriveOccupationFootprint,
-    ) {
-        self.0.forget_track_occupation(mark);
-    }
-
-    pub(in crate::sim::movement) fn clear_track_occupation_projections(&mut self) {
-        self.0.clear_track_occupation_projections();
-    }
-
     /// A suspended warp Teleport finishing its own Process step
     /// ([`LocomotorState::warp_teleport_mut`]).
     pub(in crate::sim::movement) fn warp_teleport_mut(
@@ -235,16 +216,6 @@ pub enum BeginOutcome {
     RefusedNested,
 }
 
-/// The ownership result of END. `Empty` is native `S_FALSE`; `RefusedNull`
-/// represents the native null output pointer, which Rust callers avoid by using
-/// `end` or supplying a real destination to `end_into`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EndOutcome {
-    Restored,
-    Empty,
-    RefusedNull,
-}
-
 /// Stash the active object, with any stash of its own, and install
 /// `incoming` in its place. An occupied slot on `incoming` is an atomic
 /// E_FAIL-style refusal.
@@ -282,26 +253,10 @@ pub fn begin(state: &mut LocomotorState, kind: LocomotorKind, binary_frame: u32)
     begin_with(state, Some(incoming))
 }
 
-/// Transfer the suspended object into an explicit output location. The active
-/// state is unchanged because native END transfers an interface; the caller
-/// decides when to install it.
-#[cfg(any(test, feature = "test-support"))]
-pub fn end_into(
-    state: &mut LocomotorState,
-    output: Option<&mut Option<LocomotorState>>,
-) -> EndOutcome {
-    let Some(output) = output else {
-        return EndOutcome::RefusedNull;
-    };
-    let Some(stashed) = state.take_piggyback() else {
-        return EndOutcome::Empty;
-    };
-    *output = Some(*stashed.0);
-    EndOutcome::Restored
-}
-
-/// Make the suspended object active again. Answers the displaced temporary,
-/// which the owner then releases.
+/// `End_Piggyback` (`0x004AF930`) and the install its callers make: make the
+/// suspended object active again. Answers the displaced temporary, which the
+/// owner then releases; `None` is native `S_FALSE` (no suspended object).
+/// Native's `E_POINTER` arm (a null out-pointer) has no Rust caller.
 ///
 /// The restored object keeps everything from its BEGIN except the layer,
 /// which is the Foot's: END (`0x004AF930`) does not move the Foot, and Drive
@@ -466,8 +421,9 @@ mod tests {
             BeginOutcome::Installed
         );
 
-        let bytes = bincode::serialize(&state).expect("serialize locomotor");
-        let loaded: LocomotorState = bincode::deserialize(&bytes).expect("load locomotor");
+        let bytes = crate::util::save_codec::serialize(&state).expect("serialize locomotor");
+        let loaded: LocomotorState =
+            crate::util::save_codec::deserialize(&bytes).expect("load locomotor");
 
         assert_eq!(
             *loaded.runtime_payload(),
@@ -482,26 +438,6 @@ mod tests {
                 .map(|stashed| stashed.runtime_payload()),
             Some(&LocomotorRuntimePayload::Hover(hover.clone()))
         );
-    }
-
-    #[test]
-    fn end_into_reports_null_empty_and_transfers_without_installing() {
-        let mut state = teleporter();
-        assert_eq!(end_into(&mut state, None), EndOutcome::RefusedNull);
-        let mut output = None;
-        assert_eq!(end_into(&mut state, Some(&mut output)), EndOutcome::Empty);
-
-        begin(&mut state, LocomotorKind::Drive, 0);
-        assert_eq!(
-            end_into(&mut state, Some(&mut output)),
-            EndOutcome::Restored
-        );
-        assert_eq!(state.active_kind(), LocomotorKind::Drive);
-        assert_eq!(
-            output.expect("transferred object").active_kind(),
-            LocomotorKind::Teleport
-        );
-        assert!(state.piggyback().is_none());
     }
 
     #[test]

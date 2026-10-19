@@ -5,7 +5,7 @@
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::SpeedCostProfile;
 use crate::sim::command::Command;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::passenger::PassengerRole;
@@ -79,12 +79,7 @@ fn water_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
     let mut cell = clear_cell(rx, ry);
     let water = LandType::Water.as_index();
     cell.land_type = water;
-    cell.yr_cell_land_type = water;
     cell.base_land_type = water;
-    cell.base_yr_cell_land_type = water;
-    cell.is_water = true;
-    cell.terrain_class = TerrainClass::Water;
-    cell.base_terrain_class = TerrainClass::Water;
     let costs = SpeedCostProfile {
         foot: Some(0),
         track: Some(0),
@@ -179,7 +174,8 @@ impl Fixture {
                 .unwrap()
                 .cell(cell.0, cell.1)
                 .unwrap()
-                .is_water;
+                .land_type()
+                == LandType::Water.as_index();
             let pax = if water {
                 // Supply already-limbo cargo for the landing-craft prestate.
                 // Ordinary Foot Unlimbo correctly refuses this water row;
@@ -195,14 +191,15 @@ impl Fixture {
                 );
                 pax
             };
-            let boarded = self
+            let cargo = self
                 .sim
                 .substrate
                 .entities
                 .get_mut(transport)
                 .and_then(|t| t.passenger_role.cargo_mut())
-                .is_some_and(|cargo| cargo.board(pax, 1));
-            assert!(boarded, "cargo accepts passenger {i}");
+                .expect("transport cargo");
+            assert!(cargo.can_accept(1), "cargo accepts passenger {i}");
+            cargo.board_forced_chain(&[(pax, 1)]);
             self.sim
                 .substrate
                 .entities
@@ -320,6 +317,103 @@ impl Fixture {
     }
 }
 
+/// Drive4B20CD..4B2115 retires the arrival track before Unit PerCell739EC0
+/// attaches a vehicle (73A6E8..73A793), so no track survives its Limbo and
+/// Unlimbo.
+#[test]
+fn driven_vehicle_boards_at_arrival_and_unloads_at_the_moved_transport() {
+    let mut fx = Fixture::new(|_, _| false);
+    fx.rules = rules_with_patch("[LCRF]\nSizeLimit=6\n");
+    check_vehicle_transport_trip(fx, "LCRF", "BGGY");
+}
+
+#[test]
+fn retail_soviet_transport_unloads_driven_tank_at_the_new_shore() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let mut fx = Fixture::new(|_, _| false);
+    fx.rules = retail.rules;
+    check_vehicle_transport_trip(fx, "SAPC", "HTNK");
+}
+
+fn check_vehicle_transport_trip(mut fx: Fixture, carrier_type: &str, passenger_type: &str) {
+    let transport = fx.spawn(carrier_type, 16, 16, 0);
+    // Concurrent orders exercise the pending-entry wait while another
+    // passenger owns the carrier's radio slot, not just an idle carrier.
+    let passengers = [
+        fx.spawn(passenger_type, 12, 16, 0),
+        fx.spawn(passenger_type, 12, 18, 0),
+    ];
+    for passenger in passengers {
+        assert!(fx.apply(Command::EnterTransport {
+            passenger_id: passenger,
+            transport_id: transport,
+        }));
+    }
+    for _ in 0..600 {
+        fx.tick();
+        if passengers.iter().all(|&id| !fx.revealed(id)) {
+            break;
+        }
+    }
+    let cargo = fx.cargo_ids(transport);
+    assert_eq!(
+        cargo.len(),
+        passengers.len(),
+        "both queued vehicles boarded"
+    );
+    for passenger in passengers {
+        assert!(cargo.contains(&passenger));
+        let passenger_entity = fx.sim.substrate.entities.get(passenger).unwrap();
+        assert_eq!(
+            passenger_entity
+                .locomotor
+                .as_ref()
+                .unwrap()
+                .track_valid(crate::sim::movement::track_process::TrackFamily::Drive,),
+            Some(false),
+            "boarding must follow track completion, not physical cell crossing"
+        );
+    }
+
+    assert!(fx.apply(Command::Move {
+        entity_id: transport,
+        target_rx: 26,
+        target_ry: 26,
+    }));
+    for _ in 0..600 {
+        fx.tick();
+        if fx.cell(transport) == (26, 26)
+            && !crate::sim::movement::motion_query::is_moving(
+                fx.sim.substrate.entities.get(transport).unwrap(),
+            )
+            .expect("transport locomotor motion query")
+        {
+            break;
+        }
+    }
+    assert_eq!(fx.cell(transport), (26, 26), "transport moved with cargo");
+    assert!(fx.apply(Command::UnloadPassengers {
+        transport_id: transport
+    }));
+    assert_eq!(
+        fx.run_until_revealed(&passengers, 300).len(),
+        passengers.len()
+    );
+    for _ in 0..120 {
+        fx.tick();
+    }
+    for passenger in passengers {
+        let unloaded = fx.cell(passenger);
+        assert!(
+            unloaded.0.abs_diff(26) <= 3 && unloaded.1.abs_diff(26) <= 3,
+            "passenger must remain by the exit, not return to the boarding cell: {unloaded:?}"
+        );
+    }
+    assert!(fx.cargo_ids(transport).is_empty());
+}
+
 /// Techno6F6ED2 and Foot4D72F4 are required inside the admitted Unlimbo,
 /// before the ejected passenger receives its Move. Native reader712452
 /// and nine-slot4FA2E0 arithmetic are saved in astar_threat_inputs.json;
@@ -396,8 +490,7 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
         Some(7)
     );
     // This component comparison supplies physical arrival after the native
-    // Enter order. Mobile infantry attaches at PerCellProcess519630; the
-    // later passenger frame phase is no longer an arrival substitute.
+    // Enter order. Mobile infantry attaches at PerCellProcess519630.
     let arrival = crate::sim::movement::ground_pose::position_world_coord(
         &fx.sim.substrate.entities.get(transport).unwrap().position,
     );
@@ -417,7 +510,6 @@ fn vehicle_unload_republishes_threat_and_foot_coefficient_before_movement() {
     entity
         .mission
         .set_current_for_test(MissionId::from_known(MissionType::Enter), 0);
-    crate::sim::passenger::begin_boarding(entity, transport);
     fx.sim
         .per_cell_process(
             passenger,
@@ -916,7 +1008,7 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
             "one per [Unload] dispatch: gap {gap} ({out:?})"
         );
     }
-    let neighbours: Vec<(u16, u16)> = super::CELL_DELTAS
+    let neighbours: Vec<(u16, u16)> = super::DIRECTION_DELTAS
         .iter()
         .map(|(dx, dy)| ((20 + dx) as u16, (20 + dy) as u16))
         .collect();
@@ -955,7 +1047,7 @@ fn ifv_keeps_gunner_weapon_when_every_exit_is_refused() {
     let mut fx = Fixture::new(|_, _| false);
     {
         let terrain = fx.sim.resolved_terrain.as_mut().expect("terrain");
-        for (dx, dy) in super::CELL_DELTAS {
+        for (dx, dy) in super::DIRECTION_DELTAS {
             let cell = terrain
                 .cell_mut((20 + dx) as u16, (20 + dy) as u16)
                 .expect("neighbour cell");
@@ -1009,14 +1101,15 @@ fn relaxed_pass_drives_vehicle_passenger_to_the_fnpc_cell() {
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities
@@ -1130,14 +1223,15 @@ fn vehicle_passenger_leaves_with_its_turret_on_the_exit_direction() {
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities
@@ -1259,14 +1353,15 @@ fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground(
         fx.sim.techno_limbo_with_rules(bggy, &fx.rules, None),
         ConcealOutcome::Concealed
     );
-    let boarded = fx
+    let cargo = fx
         .sim
         .substrate
         .entities
         .get_mut(bfrt)
         .and_then(|t| t.passenger_role.cargo_mut())
-        .is_some_and(|cargo| cargo.board(bggy, 1));
-    assert!(boarded, "cargo accepts the vehicle");
+        .expect("transport cargo");
+    assert!(cargo.can_accept(1), "cargo accepts the vehicle");
+    cargo.board_forced_chain(&[(bggy, 1)]);
     fx.sim
         .substrate
         .entities

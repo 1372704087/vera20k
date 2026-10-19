@@ -20,11 +20,8 @@ use crate::sim::timer::CdTimer;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let native: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/mirage_disguise.json",
-    ))
-    .expect("original Mirage disguise corpus");
+fn corpus() -> &'static Value {
+    let native = crate::test_fixture::json("tools/spatial_oracle/mirage_disguise.json");
     assert_eq!(native["schema_version"], 1);
     assert_eq!(
         native["native_sha256"],
@@ -235,7 +232,6 @@ fn damage_receiver_matches_original_packet_result_and_disguise_consequence() {
             false,
             u64::from(frame),
             None,
-            &crate::sim::cheats::Cheats::default(),
         )
         .expect("physical MGTK/AP receiver resolves");
         let receipt = receiver_health::commit_receiver_health(

@@ -16,6 +16,50 @@ pub(crate) fn map<T: Sync, R: Send>(items: &[T], work: impl Fn(&T) -> R + Sync) 
     items.par_iter().map(&work).collect()
 }
 
+/// [`map`] that starts the items in slice order, each on the next free
+/// worker, with the results in item order. Starting the costliest items
+/// first keeps the slowest from running alone at the end. `work` also gets
+/// what `before` read just before its item was taken: whatever earlier
+/// items publish with `Release` and `before` reads with `Acquire` comes
+/// only from items earlier in the slice.
+pub(crate) fn map_in_order<T: Sync, B, R: Send>(
+    items: &[T],
+    before: impl Fn() -> B + Sync,
+    work: impl Fn(&T, B) -> R + Sync,
+) -> Vec<R> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let next = AtomicUsize::new(0);
+    // A puller per worker takes the next item until none is left; one a
+    // busy worker never starts finds none left. An item's publication
+    // happens before a later read that sees it, so its take precedes the
+    // reader's next take in `next`'s order.
+    let pullers = rayon::current_num_threads().min(items.len());
+    let done: Vec<Vec<(usize, R)>> = (0..pullers)
+        .into_par_iter()
+        .with_max_len(1)
+        .map(|_| {
+            let mut done = Vec::new();
+            loop {
+                let seen = before();
+                let index = next.fetch_add(1, Ordering::Relaxed);
+                let Some(item) = items.get(index) else {
+                    break;
+                };
+                done.push((index, work(item, seen)));
+            }
+            done
+        })
+        .collect();
+    let mut results: Vec<Option<R>> = items.iter().map(|_| None).collect();
+    for (index, result) in done.into_iter().flatten() {
+        results[index] = Some(result);
+    }
+    results
+        .into_iter()
+        .map(|result| result.expect("every item is taken"))
+        .collect()
+}
+
 /// [`map`] with scratch: each worker takes its own clone of `init` and keeps
 /// it across the items it takes, so `work` may cache in it answers that do
 /// not depend on the item.
@@ -92,6 +136,10 @@ mod tests {
         );
         assert!(super::any_index(1000, |index| index == 999));
         assert!(!super::any_index(1000, |index| index >= 1000));
+        assert_eq!(
+            super::map_in_order(&items, || (), |item, ()| item * item),
+            squares
+        );
     }
 
     #[test]

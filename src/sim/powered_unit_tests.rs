@@ -71,7 +71,7 @@ fn offline_sparks_match_original_execution() {
                 let coord = |coord: glam::IVec3| serde_json::json!([coord.x, coord.y, coord.z]);
                 serde_json::json!({
                     "coords": coord(system.coords),
-                    "target": system.attached_entity.map_or(0, |_| 1),
+                    "target": system.target_ref.map_or(0, |_| 1),
                     "owner": system.owner_entity.map_or(0, |_| 1),
                     "target_coords": coord(system.target_coords),
                     "house": system.owner_house.map_or(0, |_| 1),
@@ -562,8 +562,6 @@ fn a_robot_tank_without_a_powered_center_goes_offline_when_it_moves() {
 /// The same power edges on land leave a living, grounded offline tank.
 #[test]
 fn losing_robot_power_drops_water_hover_and_keeps_land_hover_alive() {
-    use crate::sim::movement::locomotor::MovementLayer;
-
     let Some(mut rules) = retail_rules() else {
         return;
     };
@@ -620,9 +618,6 @@ fn losing_robot_power_drops_water_hover_and_keeps_land_hover_alive() {
             .unwrap();
         terrain_cell.land_type = 2;
         terrain_cell.base_land_type = 2;
-        terrain_cell.yr_cell_land_type = 2;
-        terrain_cell.base_yr_cell_land_type = 2;
-        terrain_cell.is_water = true;
         run_until(&mut sim, &rules, &grid, 60, &mut events, |sim| {
             let tank = sim
                 .substrate
@@ -672,14 +667,6 @@ fn losing_robot_power_drops_water_hover_and_keeps_land_hover_alive() {
             !sim.substrate
                 .occupancy
                 .contains_entity(water_cell.0, water_cell.1, water_tank)
-        );
-        assert_eq!(
-            sim.substrate.cell_occupation.vehicle_bits(
-                water_cell.0,
-                water_cell.1,
-                MovementLayer::Ground
-            ),
-            0
         );
         assert_eq!(
             sim.substrate

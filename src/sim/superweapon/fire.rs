@@ -23,10 +23,9 @@
 //! - A `PostClick=` type whose `PreDependent=` is unset or past the list
 //!   (constructor -1) reads outside the Supers vector natively; VERA pairs
 //!   nothing. Dormant in retail.
-//! - Dormant in retail data: ClickFire's charge-drain arm
-//!   (`0x006CBB8E..0x006CBCA0`; no retail type sets `UseChargeDrain=`) and
-//!   its one-time arm (`0x006CBB3B..0x006CBB8A`; VERA grants no one-time
-//!   Super).
+//! - ClickFire's charge-drain arm remains unported; no retail type sets
+//!   `UseChargeDrain=`. One-time consumption uses the same retained instance
+//!   owner as ordinary charging.
 
 #[cfg(test)]
 #[path = "fire_tests.rs"]
@@ -43,6 +42,8 @@ impl Simulation {
     /// `HouseClass::Fire_SW @ 0x004FAE50` for `owner`'s Super of type
     /// `sw_type_id` at `cell`. Returns whether ClickFire called Launch, a
     /// VERA answer: native Fire_SW returns 1 either way.
+    /// Manual commands and AI share this transaction; `automatic` selects
+    /// the extension target requirements before any charge is consumed.
     pub(crate) fn fire_super_weapon(
         &mut self,
         rules: &RuleSet,
@@ -51,6 +52,7 @@ impl Simulation {
         cell: (u16, u16),
         overlay_registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
+        automatic: bool,
     ) -> bool {
         #[cfg(any(test, feature = "test-support"))]
         super::ai_fire::observe(super::ai_fire::AiFireEvent::Fire(sw_type_id, cell));
@@ -60,10 +62,44 @@ impl Simulation {
         if super_instance(self, owner, sw_type_id).is_none() {
             return false;
         }
+        // Optional extension preflight precedes paired-Super writes, effects,
+        // defense alerts and charge consumption. Stock-only commands retain
+        // their native behavior, including native refused-click side effects.
+        if sw.building_requirements.is_some()
+            && !super::building_requirements_met(self, rules, owner, sw)
+        {
+            return false;
+        }
+        if super::targeting::check(self, rules, owner, sw, cell, automatic).is_err() {
+            return false;
+        }
+        if sw.kind == SuperWeaponKind::UnitDelivery
+            && !super::unit_delivery::admits(self, rules, owner, sw, cell)
+        {
+            return false;
+        }
         let paired = sw
             .post_click
             .then(|| pre_dependent(self, rules, sw))
             .flatten();
+        // Paid two-stage powers need an authoritative, saved one-use selection
+        // transaction. Native readiness alone is not such a token: PreClick
+        // becomes ready again on its next House update. Keep those optional
+        // configurations inert, including a free destination of a paid source.
+        if !super::money::configuration_supported(sw)
+            || paired.is_some_and(|(_, source)| source.money_amount != 0)
+        {
+            return false;
+        }
+        // Explicit extension only: all admission precedes paired-Super writes.
+        // Stock zero-cost Fire_SW retains its native refused-click tail.
+        if sw.money_amount != 0
+            && (!super::money::valid_target(self, sw, cell)
+                || !click_fire_admission(self, owner, sw_type_id, sw)
+                || !super::money::admit(self, owner, sw_type_id, sw))
+        {
+            return false;
+        }
         if let Some((pre_type, _)) = paired {
             let Some(pre) = super_instance(self, owner, pre_type) else {
                 return false;
@@ -122,6 +158,53 @@ fn click_fire(
     overlay_registry: Option<&OverlayTypeRegistry>,
     frame_effects: FrameEffects<'_>,
 ) -> bool {
+    // Paid launches passed this same owner before the outer transaction writes.
+    if sw.money_amount == 0 && !click_fire_admission(sim, owner, sw_type_id, sw) {
+        return false;
+    }
+    if sw.kind == SuperWeaponKind::GenericWarhead
+        && !super::generic_warhead::can_launch(sim, rules, sw, cell)
+    {
+        return false;
+    }
+    if sw.money_amount != 0 && !super::money::transact(sim, owner, sw_type_id, sw) {
+        return false;
+    }
+    launch(
+        sim,
+        rules,
+        owner,
+        sw_type_id,
+        sw,
+        cell,
+        overlay_registry,
+        frame_effects,
+    );
+    // `0x006CBBDE..0x006CBC34`: a type that is neither pairs no anim.
+    let one_time = super_instance(sim, owner, sw_type_id).is_some_and(|instance| instance.one_time);
+    //6CBB1B returns before placement-Anim retirement/recharge for one-time.
+    if !one_time && !sw.manual_control && !sw.pre_click && !sw.post_click {
+        sim.release_super_anim(owner, sw_type_id);
+    }
+    let frame = sim.session.binary_frame;
+    if let Some(instance) = sim
+        .super_weapons
+        .get_mut(&owner)
+        .and_then(|weapons| weapons.get_mut(&sw_type_id))
+    {
+        instance.finish_click_fire(sw, frame);
+    }
+    true
+}
+
+/// Pure admission apart from existing type-specific refusal feedback. Reused
+/// before paid paired-Super writes; successful checks neither charge nor pay.
+fn click_fire_admission(
+    sim: &mut Simulation,
+    owner: InternedId,
+    sw_type_id: InternedId,
+    sw: &SuperWeaponType,
+) -> bool {
     if sw.use_charge_drain {
         return false;
     }
@@ -141,28 +224,6 @@ fn click_fire(
             .push(SimSoundEvent::PsychicDominatorRefused { owner });
         return false;
     }
-    launch(
-        sim,
-        rules,
-        owner,
-        sw_type_id,
-        sw,
-        cell,
-        overlay_registry,
-        frame_effects,
-    );
-    // `0x006CBBDE..0x006CBC34`: a type that is neither pairs no anim.
-    if !sw.manual_control && !sw.pre_click && !sw.post_click {
-        sim.release_super_anim(owner, sw_type_id);
-    }
-    let frame = sim.session.binary_frame;
-    if let Some(instance) = sim
-        .super_weapons
-        .get_mut(&owner)
-        .and_then(|weapons| weapons.get_mut(&sw_type_id))
-    {
-        instance.finish_click_fire(sw, frame);
-    }
     true
 }
 
@@ -181,6 +242,18 @@ fn launch(
 ) {
     use super::paradrop::ParaDropKind;
     match sw.kind {
+        SuperWeaponKind::UnitDelivery => {
+            super::unit_delivery::launch(
+                sim,
+                rules,
+                owner,
+                sw_type_id,
+                sw,
+                (rx, ry),
+                overlay_registry,
+                frame_effects,
+            );
+        }
         SuperWeaponKind::MultiMissile => {
             super::nuke::launch(sim, rules, owner, sw_type_id, sw, (rx, ry));
         }
@@ -261,6 +334,18 @@ fn launch(
         SuperWeaponKind::SpyPlane => {
             super::spy_plane::launch(sim, rules, owner, sw_type_id, (rx, ry), frame_effects);
         }
+        SuperWeaponKind::GenericWarhead => {
+            super::generic_warhead::launch(
+                sim,
+                rules,
+                owner,
+                sw_type_id,
+                sw,
+                (rx, ry),
+                overlay_registry,
+                frame_effects,
+            );
+        }
     }
 }
 
@@ -278,14 +363,14 @@ fn super_instance(
 /// entry at its `PreDependent=` index (`HouseClass+0x258` indexed by
 /// `Type+0xF0`, `0x004FAE6C..0x004FAE7E`).
 fn pre_dependent<'r>(
-    sim: &mut Simulation,
+    sim: &Simulation,
     rules: &'r RuleSet,
     sw: &SuperWeaponType,
 ) -> Option<(InternedId, &'r SuperWeaponType)> {
     let name = rules
         .super_weapon_order
         .get(usize::try_from(sw.pre_dependent).ok()?)?;
-    Some((sim.interner.intern(name), rules.super_weapon(name)?))
+    Some((sim.interner.get(name)?, rules.super_weapon(name)?))
 }
 
 /// `HouseClass @ 0x004FAF00` for `house`, given the fired Super's type and
@@ -320,13 +405,17 @@ fn alert_super_weapon_defense(
     let base = house.base_origin();
     let probability = house.difficulty_value(&rules.general.ai_super_defense_probability);
     let first_yard = house.build_const_order.first().copied();
+    let terrain = sim.resolved_terrain.as_ref();
+    let cell_coords = |(x, y): (u16, u16)| {
+        let coord = crate::sim::projectile::cell_ground_coord(terrain, x, y);
+        [coord.x, coord.y, coord.z]
+    };
     let base_coords = if base == (0, 0) {
         [0, 0, 0]
     } else {
-        cell_coords(sim, base)
+        cell_coords(base)
     };
-    let distance =
-        crate::util::native_x87::distance_3d_leptons(base_coords, cell_coords(sim, cell));
+    let distance = crate::util::native_x87::distance_3d_leptons(base_coords, cell_coords(cell));
     if distance > rules.general.ai_super_defense_distance {
         return;
     }
@@ -347,10 +436,4 @@ fn alert_super_weapon_defense(
     if let Some(house) = sim.houses.get_mut(&house_id) {
         house.alert_super_weapon_defense(defended, frame);
     }
-}
-
-/// A cell's GetCoords (vt+0x48, `0x00486840`).
-pub(super) fn cell_coords(sim: &Simulation, (x, y): (u16, u16)) -> [i32; 3] {
-    let coord = crate::sim::projectile::cell_ground_coord(sim.resolved_terrain.as_ref(), x, y);
-    [coord.x, coord.y, coord.z]
 }

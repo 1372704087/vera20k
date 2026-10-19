@@ -383,10 +383,7 @@ pub(crate) fn enter_idle_mode_for(
             entity.veterancy.rank(),
         )
         .is_some(),
-        ammo: entity
-            .aircraft_ammo
-            .as_ref()
-            .map_or(-1, |ammo| ammo.current()),
+        ammo: entity.ammo().map_or(-1, |ammo| ammo.current()),
         type_ammo: object.ammo,
         docks: !object.dock.is_empty(),
         airport_bound: object.airport_bound,
@@ -487,10 +484,7 @@ impl IdleHost for WorldIdle<'_> {
     }
 
     fn target(&mut self) -> bool {
-        crate::sim::combat::target_present(
-            self.entity().attack_target.target(),
-            &self.sim.substrate.entities,
-        )
+        crate::sim::combat::target_present(self.entity().attack_target.target(), self.sim)
     }
 
     fn nav_com(&mut self) -> bool {
@@ -539,7 +533,7 @@ impl IdleHost for WorldIdle<'_> {
     }
 
     fn assign_dock(&mut self, dock: u64) {
-        self.assign_destination(Some(NavTargetRef::Building { id: dock }));
+        self.assign_destination(Some(NavTargetRef::object(dock)));
     }
 
     fn assign_airfield(&mut self) {
@@ -559,11 +553,7 @@ impl IdleHost for WorldIdle<'_> {
     }
 
     fn queue(&mut self, mission: MissionType) {
-        let entity = self.sim.substrate.entities.get_mut(self.id).unwrap();
-        crate::sim::mission::authority::queue_entity_mission_deferred(
-            entity,
-            MissionId::from_known(mission),
-        );
+        super::queue_mission(self.sim, self.id, mission);
     }
 
     fn ready(&mut self) -> bool {

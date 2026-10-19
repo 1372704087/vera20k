@@ -1,7 +1,7 @@
 //! Live host for the native bridge rim selector and restart loop.
 //!
-//! The original untagged575EE0 traversal remains mandatory even on a no-write
-//! refresh, because its GetCell calls can move the retained shared dummy.
+//! The original 575EE0 traversal runs even on a no-write refresh: its GetCell
+//! calls can move the retained shared dummy, and tagged cells raise event31.
 
 use super::*;
 use crate::map::bridge_rim_tiles::HighBridgeRimTiles;
@@ -15,19 +15,9 @@ pub(super) fn update(publication: &mut LivePublication<'_>, input: RimCoord, fam
     };
     let bounds = match family {
         Family::High => {
-            let size = publication
-                .sim
-                .playfield_bounds
-                .zip(publication.sim.playfield_size_height)
-                .map(|(bounds, height)| (bounds.base, height))
-                .or_else(|| {
-                    publication
-                        .sim
-                        .bridge_state
-                        .as_ref()?
-                        .native_zone_source_size()
-                });
-            let Some((width, height)) = size else { return };
+            let Some((width, height)) = publication.sim.map_size_diamond() else {
+                return;
+            };
             RimBounds::Diamond { width, height }
         }
         Family::Low => RimBounds::Rect(NativeStartBounds::from_session(
@@ -92,9 +82,14 @@ impl HighBridgeRimHost for LiveRim<'_, '_> {
     fn notify_span(&mut self, first: RimCoord, end: RimCoord) {
         rim::notify_span_cells(self, first, end);
     }
-    fn notify_cell(&mut self, _cell: Cell) {
-        // TagClass event31 dispatch requires the live trigger authority
-        // (Phase10 rows209/222-224). Keep that behavior explicitly open.
+    fn notify_cell(&mut self, cell: Cell) {
+        let publication = &mut *self.publication;
+        publication.sim.dispatch_bridge_cell_tag_event(
+            cell,
+            publication.rules,
+            publication.registry,
+            publication.frame_effects,
+        );
     }
     // Native rectangles schedule partial tactical redraws. VERA clears color
     // and depth and rebuilds/uploads all three bridge batches every frame

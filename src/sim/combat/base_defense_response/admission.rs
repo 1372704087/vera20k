@@ -20,17 +20,15 @@ use super::ExistingTargetDisposition;
 /// or the protected Building's class-specific coordinate.
 pub(super) fn destination_cell(
     entity: &GameEntity,
-    entities: &EntityStore,
+    sim: &Simulation,
     terrain: Option<&ResolvedTerrainGrid>,
     rules: &RuleSet,
     interner: &StringInterner,
 ) -> Result<(i32, i32), String> {
     let coord = crate::sim::movement::nav_target_coordinate(
-        crate::sim::components::NavTargetRef::Entity {
-            id: entity.stable_id(),
-        },
+        crate::sim::components::NavTargetRef::object(entity.stable_id()),
         None,
-        entities,
+        sim,
         terrain,
         Some((rules, interner)),
     )?;
@@ -118,7 +116,7 @@ pub(super) fn candidate_admitted(
         world: sim,
         rules,
         overlay_registry: None,
-        fog: Some(sim.fog.fire_view()),
+        fog: Some(sim.fog.fire_view(&sim.house_alliances)),
         firer: candidate,
         obj: candidate_object,
         target: Some(TargetKind::Entity(attacker_id)),

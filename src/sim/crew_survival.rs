@@ -14,8 +14,8 @@
 //! - `BuildingClass::How_Many_Survivors @ 0x00451330`, the building crew pick
 //!   `0x0044EB10` and `TechnoClass::GetCrew @ 0x00707D20`.
 //!
-//! Placement is `CellClass::PlaceInfantryInCell @ 0x00481180`
-//! ([`bump_crush::place_infantry_in_cell`]); the exit is
+//! Placement is `CellClass::PlaceInfantryInCell @ 0x00481180` on the cell's
+//! ground with the live Gate (`Simulation::place_infantry_in_ground_cell`); the exit is
 //! `InfantryClass::Scatter(&EmptyCoord, 1, 0)` through the shared forced
 //! Scatter arm. Every draw is on the Scenario stream. Aircraft never ask for
 //! a crew: `Pilot=` has no gameplay reader and no aircraft caller reaches the
@@ -50,13 +50,13 @@
 //!   Frequency: every Soviet Nuclear Reactor death. Risk: survivor count,
 //!   marks and the Scenario stream after them. Needs a breakpoint at
 //!   `0x004400D4` (kill a NANRCT) to confirm Update reaches that arm.
-//! - A sale's crew Unlimboes at the Z its request carries, 0
-//!   (`0x0044A6C6`); VERA's survivor request carries the cell's level.
-//!   Infantry51E01B compares that raw input before the shared type clamp
-//!   (`0x005247D0`) raises a below-floor coordinate. Trigger: selling a
-//!   crewed building on raised ground. Effect: the class placement arm and
-//!   its occupation result may differ; final below-floor Z is clamped in
-//!   both engines. Not executed (the sale oracle map is flat).
+//! - Sale44A6ED's CellPlace481180 overwrites the literal request Z0 with
+//!   ground height at the original within-cell(128,164), before44A72D
+//!   Unlimbo. VERA's caller uses the coarse cell floor. Flat foundations,
+//!   including raised ones, agree. On a sloped foundation where that request
+//!   floor exceeds the selected subcell floor, native can retain the higher
+//!   Z through the type clamp5247D0; VERA can drop it. No executed slope
+//!   control establishes that wider path.
 //! - A dying unit's passengers ([`Simulation::release_dying_unit_passengers`]):
 //!   - A computer passenger of a unit in a Team joins it (`TeamClass::
 //!     Add_Member @ 0x006EA500`) instead of Hunting, and KillPassengers
@@ -78,14 +78,10 @@
 //!     PlayerControl (`+0x1ED`). Trigger: a selected unit of a
 //!     player-controlled allied campaign house dying. Effect: its escapees
 //!     and crewman stay unselected. Frequency: rare.
-//!   - VERA's Select sets the flag only. `TechnoClass::Select @ 0x006FBFA0`
-//!     also runs ObjectClass::Select's gates (`0x005F4520`), the object's
-//!     tag event 0x21 and the selection list add (`0x00637840`). For the
-//!     local player's objects it also plays the select response (vtable
-//!     `+0x360`, behind `[0x00822CF2]`). Trigger: every selected escapee
-//!     and crewman. Effect: no select voice, and no tag event (VERA has no
-//!     object tags). Frequency: whenever the player's selected transport or
-//!     vehicle dies. Risk: presentation only.
+//!   - The escapees' and crewman's Select ([`Simulation::techno_select`])
+//!     leaves out its planning-node add (`0x00637840`). Trigger: a selected
+//!     transport or crewed vehicle dying while a planning path is built.
+//!     Effect: they do not join that planning node. Frequency: rare.
 //!   - A foreign open-topped escapee's Assign_Target(NULL) runs
 //!     `InfantryClass::Assign_Target`'s head (`0x0051B203..0x0051B24F`).
 //!     The head clears the fire latch `+0x68D`, then forces Deployed,
@@ -130,8 +126,6 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::{MissionId, MissionType};
-use crate::sim::movement::bump_crush;
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::RawCellKey;
 use crate::sim::world::{
     FrameEffects, PlacementEvidence, RevealOutcome, RevealPosition, RevealRequest, Simulation,
@@ -465,13 +459,16 @@ impl Simulation {
             if let Some(planter) = enemy_planter {
                 // Infantry vt+0x3C8 (`0x0051B1F0`) over TechnoClass::Assign_Target.
                 let target = Some(crate::sim::combat::TargetKind::Entity(planter));
-                let commits = crate::sim::mission::concrete_effects::assign_target_commits(
+                let stored = crate::sim::mission::concrete_effects::assign_target_stored(
                     &sim.substrate.entities,
+                    &sim.production.terrain_objects,
+                    id,
                     target,
+                    Some((rules, &sim.interner)),
                 );
                 if let Some(survivor) = sim.substrate.entities.get_mut(id) {
                     crate::sim::mission::concrete_effects::represented_assign_target_admitted(
-                        survivor, target, commits,
+                        survivor, target, stored,
                     );
                 }
             }
@@ -502,7 +499,7 @@ impl Simulation {
             .entities
             .get(building_id)
             .and_then(|entity| self.object_type(entity.type_ref(), rules))
-            .is_some_and(|object| object.infantry_absorb || object.unit_absorb);
+            .is_some_and(|object| object.absorbs_passengers());
         let mut cursor = 0;
         if !absorbs {
             return cursor;
@@ -558,18 +555,14 @@ impl Simulation {
         self.with_object_placement_scope(|sim| {
             if infantry {
                 let cell = cell.map_or(RawCellKey::Dummy, |(x, y)| RawCellKey::Real(x, y));
-                let _overwritten = bump_crush::place_infantry_in_native_cell(
-                    &sim.substrate.raw_cell_occupation,
+                let _overwritten = sim.place_infantry_in_ground_key(
+                    rules,
                     cell,
-                    MovementLayer::Ground,
                     crate::sim::components::DriveCoord {
                         x: SURVIVOR_REQUEST_X,
                         y: SURVIVOR_REQUEST_Y,
                         z: 0,
                     },
-                    false,
-                    false,
-                    &mut sim.scenario_rng,
                 );
             }
             let Some(building) = sim.substrate.entities.get(building_id) else {
@@ -734,8 +727,14 @@ impl Simulation {
             MissionType::Hunt
         };
         self.queue_crew_mission(id, mission);
-        if selected_by_player && let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.selection.select();
+        if selected_by_player {
+            // `0x0073835E`: Select (vt+0x14C) with the voice latch set, as
+            // every Logic pass leaves it.
+            self.techno_select(
+                id,
+                true,
+                UninitContext::new(Some(rules), registry).with_effects(effects),
+            );
         }
     }
 
@@ -953,11 +952,14 @@ impl Simulation {
                     None => sim.queue_crew_mission(passenger, MissionType::Hunt),
                 }
             }
-            // `0x00738174..0x00738180`: Select (vtable `+0x14C`).
-            if dying.selected_by_player
-                && let Some(entity) = sim.substrate.entities.get_mut(passenger)
-            {
-                entity.selection.select();
+            // `0x00738174..0x00738180`: Select (vtable `+0x14C`), voice latch
+            // set.
+            if dying.selected_by_player {
+                sim.techno_select(
+                    passenger,
+                    true,
+                    UninitContext::new(Some(rules), registry).with_effects(effects),
+                );
             }
         });
     }
@@ -1040,14 +1042,16 @@ impl Simulation {
             } => {
                 debug_assert!(infantry, "only an infantryman places in a cell");
                 if caller_places_first {
-                    let Some(spot) = bump_crush::place_infantry_in_cell(
-                        &self.substrate.raw_cell_occupation,
-                        cell.0,
-                        cell.1,
-                        MovementLayer::Ground,
-                        request.0,
-                        request.1,
-                        &mut self.scenario_rng,
+                    // SpawnSurvivors (`0x00443182`) and Mission_Selling
+                    // (`0x0044A6ED`): GetCellAt, then PlaceInfantryInCell
+                    // (0, 0, 0) on that cell's ground.
+                    let Some(spot) = self.place_infantry_in_ground_cell(
+                        rules,
+                        crate::sim::components::DriveCoord {
+                            x: (i32::from(cell.0) << 8).wrapping_add(request.0.to_num::<i32>()),
+                            y: (i32::from(cell.1) << 8).wrapping_add(request.1.to_num::<i32>()),
+                            z: 0,
+                        },
                     ) else {
                         return false;
                     };

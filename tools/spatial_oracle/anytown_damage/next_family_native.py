@@ -18,13 +18,19 @@ from tools.spatial_oracle.shrapnel_repair.packet_io import digest as sha
 from .inputs import ASSETS
 HERE=Path(__file__).resolve().parent
 
-def theater():
+def theater(*, tile_reader=None):
+ """Read the shared scalar theater projection; optionally reuse a caller's INI reader.
+
+ The General/project owner remains TheaterReader in its separate prerequisite
+ VM. A composed fixture may reuse its existing reader for TileSet ReadInt,
+ avoiding unrelated Rules/map preparation. Historical callers retain ri.Rules.
+ """
  raw=(ri.ASSETS/'TEMPERATMD.INI').read_bytes();previous=theater_general_reader.ROOT;theater_general_reader.ROOT=ri.ASSETS
  try:m=TheaterReader()
  finally:theater_general_reader.ROOT=previous
  result=m.read(general_text(raw));rows=m.reads
  assert m.asset_loaded==[], 'scalar theater witness must not load graphics'
- r=ri.Rules();sections,_=lexical(raw,{f'TileSet{i:04d}' for i in range(300)});r.make_ini(sections);base=0;tiles={};sets=[]
+ r=ri.Rules() if tile_reader is None else tile_reader;sections,_=lexical(raw,{f'TileSet{i:04d}' for i in range(300)});r.make_ini(sections);base=0;tiles={};sets=[]
  for ordinal in range(300):
   name=f'TileSet{ordinal:04d}'
   if name not in sections:break

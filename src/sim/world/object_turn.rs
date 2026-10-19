@@ -11,13 +11,13 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::movement::{self, teleport_movement};
 
-/// Whether this Unit visit reaches FootClass's SHP body-counter cadence.
+/// Whether this Foot visit reaches the shared body-counter cadence.
 ///
 /// An entry-active TubeMovement owns the UnitClass AI call and returns before
 /// FootClass AI. Tube state armed later during an ordinary Foot visit does not
 /// retroactively suppress work already reached by that visit, so only the
 /// entry snapshot belongs in this admission predicate.
-pub(super) fn unit_body_counter_admitted(tube_active_at_entry: bool) -> bool {
+pub(super) fn foot_body_counter_admitted(tube_active_at_entry: bool) -> bool {
     !tube_active_at_entry
 }
 
@@ -46,19 +46,13 @@ mod forced_track_object_turn_tests;
 mod teleport_anim_object_turn_tests;
 
 #[cfg(test)]
-#[path = "unit_fire_turn_tests.rs"]
-mod unit_fire_turn_tests;
-
-#[cfg(test)]
 #[path = "per_cell_object_turn_tests.rs"]
 mod per_cell_object_turn_tests;
 
 #[derive(Default)]
 pub(super) struct LiveObjectPassOutcome {
-    pub movement: movement::MovementTickStats,
     pub destroyed_structure: bool,
     pub bridge_state_changed: bool,
-    pub tube_turn_owned_ids: BTreeSet<u64>,
     ownership_changed: bool,
 }
 
@@ -80,7 +74,6 @@ pub(super) struct ObjectTurnOutcome {
     movement: movement::MovementTickStats,
     destroyed_structure: bool,
     bridge_state_changed: bool,
-    tube_owned: bool,
     ownership_changed: bool,
 }
 
@@ -234,33 +227,13 @@ impl Simulation {
     ) -> Result<LocomotorProcess, super::FrameAdvanceError> {
         let overlay_registry = ctx.overlay_registry;
         use crate::rules::locomotor_type::LocomotorKind;
-        let (admitted, sinking) =
-            self.substrate
-                .entities
-                .get(stable_id)
-                .map_or((None, false), |entity| {
-                    let sinking = entity.sinking.is_active();
-                    let admitted = entity.locomotor.as_ref().and_then(|locomotor| {
-                        (!sinking && !entity.is_falling_down() && !entity.lifecycle.in_limbo())
-                            .then(|| locomotor.active_kind())
-                    });
-                    (admitted, sinking)
-                });
-        let ground = matches!(
-            admitted,
-            Some(LocomotorKind::Drive | LocomotorKind::Ship | LocomotorKind::Walk)
-        );
-        // The vehicle plane is a projection each object turn reconciles once
-        // at Process entry: the ground corridor in `prepare_movement_visit`,
-        // any other turn here. A sinking object keeps its projection.
-        if !ground
-            && !sinking
-            && let Some(entity) = self.substrate.entities.get(stable_id)
-        {
-            self.substrate
-                .cell_occupation
-                .reconcile_entity(entity, &self.substrate.occupancy);
-        }
+        let admitted = self.substrate.entities.get(stable_id).and_then(|entity| {
+            let sinking = entity.sinking.is_active();
+            entity.locomotor.as_ref().and_then(|locomotor| {
+                (!sinking && !entity.is_falling_down() && !entity.lifecycle.in_limbo())
+                    .then(|| locomotor.active_kind())
+            })
+        });
         let Some(kind) = admitted else {
             return Ok(LocomotorProcess::default());
         };
@@ -308,17 +281,15 @@ impl Simulation {
                     locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Jumpjet
                 })
             });
-        let air =
-            self.tick_air_movement_with_cell_lists_one(stable_id, rules, overlay_registry, effects);
+        let air = self.tick_air_movement_with_cell_lists_one(
+            stable_id,
+            rules,
+            overlay_registry,
+            effects,
+        )?;
         process.bridge_state_changed |= air.bridge_state_changed;
-        let jumpjet_unit_touchdown = jumpjet
-            && self
-                .substrate
-                .entities
-                .get(stable_id)
-                .is_some_and(|entity| entity.category() == EntityCategory::Unit);
-        if air.touched_down && jumpjet_unit_touchdown {
-            // Jumpjet54C8F0/54C8FF now run Unit PerCell2 and the class NULL
+        if air.touched_down && jumpjet {
+            // Jumpjet54C8F0/54C8FF run the class PerCell2 and NULL
             // setter synchronously while the installed instance is phase4.
             process.per_cell_ran = true;
         } else if air.touched_down {
@@ -330,11 +301,6 @@ impl Simulation {
                 effects,
             )?;
             process.per_cell_ran = true;
-            if jumpjet {
-                //54C8CB..54C8EA already cleared the locomotor destination and
-                //moving byte;54C8FF calls the class NULL setter after PerCell.
-                self.assign_null_destination(stable_id, rules, overlay_registry, effects);
-            }
         }
         if !air.impact {
             return Ok(process);
@@ -434,10 +400,10 @@ impl Simulation {
                 sim.parasite_exit_unit(eater, rules, ctx.effects);
             }
             // `0x007195DB` Mark(UP) and `0x007196BF` Mark(DOWN) bracket the
-            // relocation: the cell list entry, and a Unit's raw 0x20 and
-            // vehicle plane, leave the old cell and join the new one on its
-            // OnBridge layer. An infantryman's sub-cell bit stays: his Mark
-            // reaches no receiver, and the window calls none of its own.
+            // relocation: the cell list entry, and a Unit's raw 0x20, leave
+            // the old cell and join the new one on its OnBridge layer. An
+            // infantryman's sub-cell bit stays: his Mark reaches no receiver,
+            // and the window calls none of its own.
             // ChronoOut plays at the old Location (`0x0071962C`).
             sim.foot_mark_remove(stable_id, rules, overlay_registry, ctx.effects);
             if let Some(rules) = rules {
@@ -596,8 +562,6 @@ impl Simulation {
                 &mut sim.substrate.entities,
                 stable_id,
                 current_grid.as_deref(),
-                &sim.substrate.occupancy,
-                &mut sim.substrate.cell_occupation,
                 sim.session.binary_frame,
                 sim.resolved_terrain.as_ref(),
                 sim.playfield_bounds,
@@ -755,17 +719,32 @@ impl Simulation {
         };
 
         let mut outcome = LiveObjectPassOutcome::default();
+        // Sight writes to the maps the pass never reads wait for its end,
+        // and apply map by map in parallel (`vision::Planes`). Without a
+        // current house the app's sound boundary reads the map of whichever
+        // house it falls back to, so none waits.
+        if let Some(current) = self.session.current_house {
+            let kept = self
+                .houses
+                .keys()
+                .copied()
+                .filter(|&house| self.owner_is_human(house))
+                .chain([current])
+                .collect();
+            self.fog.by_owner.defer(kept);
+        }
+        // The pass's sight walks ask each owner's viewers once until the ally
+        // graph changes (`vision::RevealViewers`).
+        self.reveal_viewers.begin();
         let walked = self.try_for_each_live_object::<super::FrameAdvanceError>(|sim, stable_id| {
             let turn = sim.advance_live_object_turn(stable_id, rules, object_ctx)?;
-            outcome.movement.merge(turn.movement);
             outcome.destroyed_structure |= turn.destroyed_structure;
             outcome.bridge_state_changed |= turn.bridge_state_changed;
             outcome.ownership_changed |= turn.ownership_changed;
-            if turn.tube_owned {
-                outcome.tube_turn_owned_ids.insert(stable_id);
-            }
             Ok(())
         });
+        self.fog.by_owner.settle();
+        self.reveal_viewers.end();
         self.finish_batched_path_searches();
         self.finish_batched_scans();
         walked?;
@@ -801,6 +780,7 @@ impl Simulation {
         }
         let mut per_cell_ran = ai.landed;
         outcome.bridge_state_changed |= ai.bridge_state_changed;
+        outcome.destroyed_structure |= ai.destroyed_structure;
         outcome.ownership_changed |= ai.ownership_changed();
         if was_structure
             && sim
@@ -935,19 +915,19 @@ impl Simulation {
             return Ok(outcome);
         }
 
-        // FootClass advances the Unit body counter immediately after
+        // FootClass advances its shared body counter immediately after
         // this object's locomotor Process, against the still-current
         // absolute binary frame, inside the Process admission
         // (`0x004DA81A` bypasses both). The global frame commits only after
         // the complete live-object pass.
-        if process.admitted && unit_body_counter_admitted(tube_active_at_entry) {
-            let unit_body_cadence = sim.substrate.entities.get(stable_id).and_then(|entity| {
-                if entity.category() != EntityCategory::Unit {
+        if process.admitted && foot_body_counter_admitted(tube_active_at_entry) {
+            let foot_body_cadence = sim.substrate.entities.get(stable_id).and_then(|entity| {
+                if !entity.category().is_foot() {
                     return None;
                 }
                 let object = sim.interner.object_type(entity.type_ref(), rules?)?;
                 Some((
-                    crate::sim::animation::ShpVehicleCadence {
+                    crate::sim::animation::FootBodyCadence {
                         walk_rate: object.walk_rate,
                         idle_rate: object.idle_rate,
                     },
@@ -956,9 +936,9 @@ impl Simulation {
                 ))
             });
             if let (Some((cadence, hover_attack, deploy_to_land)), Some(entity)) =
-                (unit_body_cadence, sim.substrate.entities.get_mut(stable_id))
+                (foot_body_cadence, sim.substrate.entities.get_mut(stable_id))
             {
-                crate::sim::animation::tick_unit_body_frame_counter(
+                crate::sim::animation::tick_foot_body_frame_counter(
                     entity,
                     rules.map(|rules| {
                         crate::sim::movement::SpeedRules::new(rules, &sim.interner, &sim.houses)
@@ -978,13 +958,29 @@ impl Simulation {
         // neither AI reads `+0x684` after its FootClass::AI call, so the
         // Foot and class tails run.
         if tube_active_at_entry {
-            outcome.tube_owned = true;
             return Ok(outcome);
         }
 
+        // FootClass::AI 0x004DADF5..0x004DAE59: the 64-frame idle scatter.
+        // RESIDUAL: native runs the MoveSound tail (0x004DAA01..0x004DAB3C)
+        // before it; VERA's runs later in this turn. Trigger: an Infantry
+        // whose null Scatter finds a cell runs its Walk Process at once.
+        // Effect: a MoveSound= infantry (YURIPR, JUMPJET) starts its sound,
+        // and spends its draw, one frame early. Units run no Process here.
+        if let Some(rules) = rules {
+            match sim.foot_idle_scatter(stable_id, rules, overlay_registry, object_ctx.effects) {
+                Ok(changed) => outcome.bridge_state_changed |= changed,
+                Err(cause) => log::debug!("Foot {stable_id} did not idle-scatter: {cause}"),
+            }
+        }
         // FootClass::AI 0x004DAE5F..0x004DAEC3: the active IPiggyback ends
         // when its Is_Ok_To_End allows.
         sim.try_end_piggyback(stable_id, rules);
+        // Foot4DAECA clears the transient draw lift after piggyback callbacks,
+        // before the warp-in/pending-entry predicate and ParasiteAI.
+        if let Some(entity) = sim.substrate.entities.get_mut(stable_id) {
+            entity.set_ion_blast_lift(0);
+        }
         // FootClass::AI 0x004DAED0..0x004DAEDC: with vt+0x1D8 (the warp-in)
         // clear, the pending entry (`Unit+0x500`) asks for its slot.
         if let Some(rules) = rules
@@ -1042,7 +1038,7 @@ impl Simulation {
             && cell_before_movement != cell_after_movement
         {
             if let Some(rules) = rules {
-                sim.refresh_unit_sensor_at_per_cell(stable_id, rules);
+                sim.refresh_unit_sensor_at_per_cell(stable_id, rules, overlay_registry);
                 crate::sim::world::techno_ai_cloak::uncloak_on_sensor_neighbour_after_cell_entry(
                     sim, stable_id, rules,
                 );
@@ -1109,7 +1105,7 @@ impl Simulation {
                     entity_id: stable_id,
                     cause,
                 })?;
-            outcome.bridge_state_changed |= sim
+            let receipt = sim
                 .infantry_action_turn(stable_id, rules, overlay_registry, object_ctx.effects)
                 .map_err(|cause| super::FrameAdvanceError {
                     tick: sim.session.tick,
@@ -1117,6 +1113,8 @@ impl Simulation {
                     entity_id: stable_id,
                     cause,
                 })?;
+            outcome.bridge_state_changed |= receipt.bridge_state_changed;
+            outcome.destroyed_structure |= receipt.structure_destroyed;
             if sim
                 .substrate
                 .entities

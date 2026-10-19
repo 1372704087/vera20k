@@ -44,13 +44,12 @@
 //!   `rulesmd.ini` sets the key on no type.
 //! - `Record_Last_Built` and Building discovery retain class-local type indices
 //!   through HouseState for built-type triggers19..22. The remaining `+0x246`
-//!   notification only restarts a
-//!   90-frame House timer nothing else reads (`0x004F8DF6..0x004F8E21`); sets
-//!   `+0x1FC`, whose revoke and grant pass on the next House update
-//!   (`0x004F92E9..0x004F9302`) VERA runs at the placement; and plays the
-//!   type's `CreateSound=` (`+0x534`) or, for a unit, infantry or aircraft,
-//!   a Rules default (`+0x178`, `+0x17C`, `+0x180`); presentation, not
-//!   parsed.
+//!   notification restarts a90-frame House timer (`0x004F8DF6..0x004F8E21`);
+//!   no gameplay consumer of that retained timer has been established.
+//!   The shared production owner now requests the existing House+1FC recheck
+//!   after accounting and the produced type's CreateSound/class fallback
+//!   (4FB7CA..4FB804). General retained-cameo admission has its separate
+//!   residual in production_tech; this does not close the whole House tail.
 //! - Native crash or out-of-range reads that VERA defines: a node index past
 //!   the BuildingType array or a negative control other than -1/-2/-3 reads
 //!   memory past the array (`0x004FE537`, `0x004FE6F6`); a null power plant
@@ -471,7 +470,9 @@ pub(crate) enum BuildingExit {
 
 /// The building case of `BuildingClass::Exit_Object @ 0x00443C60`
 /// (`0x00444F19..0x00445696`): yard `factory` places its finished building
-/// `product`.
+/// `product`. The prelude that marks the product a playfield member
+/// (`0x00443C81`) is the caller's (`production_queue::exit_produced_object`);
+/// a placement's Unlimbo then sets it exactly.
 ///
 /// A human's yard places nothing. Otherwise the exit steps the production
 /// mode, forgets the building choice and looks up the product's open node
@@ -491,11 +492,6 @@ pub(crate) fn exit_building(
     let Some(owner) = sim.substrate.entities.get(factory).map(|yard| yard.owner()) else {
         return BuildingExit::Failed;
     };
-    // The prelude marks the leaving object a playfield member whatever the
-    // outcome (`0x00443C81`); a placement's Unlimbo then sets it exactly.
-    if let Some(object) = sim.substrate.entities.get_mut(product) {
-        object.in_playfield.enter();
-    }
     let game_mode_nonzero = sim.session.game_mode_nonzero;
     // `0x00444F19..0x00444F2A` (`0x0050B730`).
     if sim
@@ -624,17 +620,25 @@ fn place_building(
         let Some(registry) = registry else {
             return false;
         };
-        if !crate::sim::production::stamp_wall_with_autofill(
-            sim,
-            rules,
-            registry,
-            ty,
-            (rx, ry),
-            owner,
-        ) {
+        if sim
+            .reveal_constructed_object_at_coord_with_overlay_context(
+                product,
+                crate::sim::components::DriveCoord {
+                    x: i32::from(rx) * 256 + 128,
+                    y: i32::from(ry) * 256 + 128,
+                    z: 0,
+                },
+                0,
+                PlacementEvidence::EvaluateMark,
+                rules,
+                Some(registry),
+                effects,
+            )
+            .is_none()
+        {
             return false;
         }
-        let _ = sim.discard_constructed_limbo(product, Some(rules), effects);
+        crate::sim::production::autofill_walls(sim, rules, registry, ty, (rx, ry), owner, effects);
         return true;
     }
     let z = sim.terrain_cell_level(rx, ry).unwrap_or(0);
@@ -899,7 +903,7 @@ fn node_may_replan(
             return false;
         };
         // `0x00481810` over the eight directions, `0x0047C520` on each.
-        return crate::util::direction_tables::cell::CELL_DELTAS
+        return crate::util::direction::DIRECTION_DELTAS
             .iter()
             .any(|&(dx, dy)| {
                 let neighbor = map_cell_offset(rx, ry, dx, dy);

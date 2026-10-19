@@ -12,6 +12,94 @@ use crate::sim::world::Simulation;
 use super::can_build::{CanBuild, can_build, check_build_limit, find_factory};
 use super::production_types::*;
 
+#[cfg(test)]
+#[path = "construction_options_tests.rs"]
+mod construction_options_tests;
+
+/// House4F9280..4F92D2's local membership pass, in House+6C order.
+/// AddCameo attempts precede Strip Recalculate; retention is a separate query.
+/// Original controls: tools/can_build_construction_options.json.
+pub fn construction_options_for_owner(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+) -> Vec<InternedId> {
+    let mut additions = Vec::new();
+    let Some(house) = sim.houses.get(&owner) else {
+        return additions;
+    };
+    let selling =
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
+    for &id in house.base_projection.buildings() {
+        let Some(building) = sim.entities().get(id) else {
+            continue;
+        };
+        if building.is_object_alive()
+            && building.health.current() > 0
+            && building.mission.effective() != selling
+            && building.mission.queued() != selling
+            && building.owner() == owner
+        {
+            append_construction_options(sim, rules, id, &mut additions);
+        }
+    }
+    additions
+}
+
+/// Scenario684C40..684C58 visits the global Building array after map setup.
+/// Unlike the House caller, this route supplies no health/Selling filter.
+/// Stable IDs retain constructor order; each Building port filters locality.
+pub fn initial_construction_options(sim: &Simulation, rules: &RuleSet) -> Vec<InternedId> {
+    let mut additions = Vec::new();
+    for (id, building) in sim.entities().iter_sorted() {
+        if building.category() == EntityCategory::Structure {
+            append_construction_options(sim, rules, id, &mut additions);
+        }
+    }
+    additions
+}
+
+/// BuildingClass::UpdateConstructionOptions4456D0..44583F. This is the
+/// single port of the adding-factory decision for both native callers.
+/// It does NOT ask FindFactory/Owner/Naval/readiness: every nonzero result of
+/// CanBuild(false,true), including AtLimit, attempts AddCameo in type order.
+/// The retained strip subsequently decides duplicates, capacity and removal.
+fn append_construction_options(
+    sim: &Simulation,
+    rules: &RuleSet,
+    building_id: u64,
+    additions: &mut Vec<InternedId>,
+) {
+    let Some(building) = sim.entities().get(building_id) else {
+        return;
+    };
+    if sim.session.current_house != Some(building.owner())
+        || building.lifecycle.in_limbo()
+        || !building.discovery.discovered_by_current_house()
+        || !building.building_online()
+    {
+        return;
+    }
+    let Some(factory) = sim.object_type(building.type_ref(), rules) else {
+        return;
+    };
+    let ids = match factory.factory_type() {
+        Some(FactoryType::BuildingType) => &rules.building_ids,
+        Some(FactoryType::InfantryType) => &rules.infantry_ids,
+        Some(FactoryType::UnitType) => &rules.vehicle_ids,
+        Some(FactoryType::AircraftType) => &rules.aircraft_ids,
+        None => return,
+    };
+    for id in ids {
+        if let Some(object) = rules.object(id)
+            && can_build(sim, rules, building.owner(), object, false, true) != CanBuild::No
+            && let Some(id) = sim.interner.get(id)
+        {
+            additions.push(id);
+        }
+    }
+}
+
 /// What the player's sidebar shows for `type_id`, from [`sidebar_state`].
 /// No money check: a build starts without the funds and stalls its steps
 /// instead (`SelectClass::Action @ 0x006AAD00` and `HouseClass::Begin_Production
@@ -39,6 +127,10 @@ pub(super) fn build_option_for_owner(
         object_category: obj.category,
         queue_category: production_category_for_object(obj),
         enabled: reason.is_none(),
+        at_build_limit: sim
+            .interner
+            .get(owner)
+            .is_some_and(|owner| check_build_limit(sim, rules, owner, obj)),
         reason,
     })
 }
@@ -75,17 +167,17 @@ fn strip_refusal(
 }
 
 /// Whether the sidebar lists `obj` for `owner` ([`strip_keeps`]), and, if it
-/// does, why its cameo is darkened: `StripClass::Draw @ 0x006A9540`
-/// (`0x006A97A8..0x006A97F9`) darkens it while no online factory may build
-/// it (`FindFactory(1, 1, 1)`), or while it is at its limit
-/// (`CanBuild(type, 0, 0)` answers -1, or [`check_build_limit`]).
+/// does, the unlinked cameo's unavailable drawing input at the moment of the
+/// query: `StripClass::Draw @ 0x006A9540` (`0x006A97A8..0x006A97F9`) darkens
+/// it while no online factory may build it (`FindFactory(1, 1, 1)`), or while
+/// it is at its limit ([`draw_at_build_limit`]). A retained Factory link
+/// clears that overlay at `0x006A98D3`; the sidebar owner applies it.
 ///
-/// Residual: the strip adds cameos only when the house's tech tree is
-/// rechecked (House `+0x1FC`, `HouseClass::Update @ 0x004F926C`), and
-/// `UpdateConstructionOptions` then asks only powered, discovered factories
-/// of the type's kind; VERA lists a type as soon as it qualifies. Trigger:
-/// a new option while every factory of its kind is unpowered. Effect: VERA
-/// shows the cameo before gamemd does. Rare.
+/// This query supplies retention and a full projection refresh, never
+/// new-entry admission. [`construction_options_for_owner`] supplies the House
+/// pass's ordered AddCameo attempts through the existing lifecycle handoff.
+/// Drawing itself asks [`cameo_draw_state`], which leaves the retention test
+/// to `Recalculate`.
 fn sidebar_state(
     sim: &Simulation,
     rules: &RuleSet,
@@ -98,12 +190,56 @@ fn sidebar_state(
     if find_factory(sim, rules, owner, obj, true, true, true).is_none() {
         return Some(BuildDisabledReason::NoReadyFactory);
     }
-    if can_build(sim, rules, owner, obj, false, false) == CanBuild::AtLimit
-        || check_build_limit(sim, rules, owner, obj)
-    {
+    if draw_at_build_limit(sim, rules, owner, obj) {
         return Some(BuildDisabledReason::AtBuildLimit);
     }
     None
+}
+
+/// What `StripClass::Draw` reads for one retained cameo: the unavailable
+/// overlay and the build-limit gate a press reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CameoDrawState {
+    /// The unlinked cameo keeps its normal brightness.
+    pub enabled: bool,
+    /// `check_build_limit`, the independent gate `Select6AB656` reads.
+    pub at_build_limit: bool,
+}
+
+/// `StripClass::Draw`'s per-entry unavailability (`0x006A97A8..0x006A97F9`)
+/// for one retained cameo of `owner`: the unlinked entry is drawn dark while
+/// no online factory may build it (`FindFactory(1, 1, 1)`), or while it is at
+/// its limit.
+///
+/// Draw asks only these two queries. `strip_refusal` belongs to
+/// `StripClass::Recalculate @ 0x006AA600`, which drops the entry instead, so a
+/// cameo whose `CanBuild(type, 0, 1)` just turned zero keeps its brightness
+/// until that membership pass removes it. Both answers are live queries inside
+/// the original's drawing body, so a drawing owner re-asks them for each drawn
+/// frame instead of caching `sidebar_state`.
+pub fn cameo_draw_state(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    obj: &ObjectType,
+) -> CameoDrawState {
+    CameoDrawState {
+        enabled: find_factory(sim, rules, owner, obj, true, true, true).is_some()
+            && !draw_at_build_limit(sim, rules, owner, obj),
+        at_build_limit: check_build_limit(sim, rules, owner, obj),
+    }
+}
+
+/// Draw's at-limit arm inside `0x006A97A8..0x006A97F9`: `CanBuild(type, 0, 0)`
+/// answers -1, or [`check_build_limit`].
+fn draw_at_build_limit(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    obj: &ObjectType,
+) -> bool {
+    can_build(sim, rules, owner, obj, false, false) == CanBuild::AtLimit
+        || check_build_limit(sim, rules, owner, obj)
 }
 
 /// Every rules type's build option for `owner`, by category, including rejected
@@ -154,6 +290,20 @@ pub(super) fn production_category_for_object(
     }
 }
 
+/// House GetPrimaryFactory500510 category projection for a building's
+/// Factory RTTI/Naval and the lifecycle callbacks' literal BuildCat=0.
+/// Defense is a separate House slot selected only by an explicit Combat
+/// category; a yard's ordinary state callback therefore selects Building.
+pub(crate) fn factory_category_for_building(object: &ObjectType) -> Option<ProductionCategory> {
+    Some(match object.factory_type()? {
+        FactoryType::BuildingType => ProductionCategory::Building,
+        FactoryType::InfantryType => ProductionCategory::Infantry,
+        FactoryType::UnitType if object.naval => ProductionCategory::Ship,
+        FactoryType::UnitType => ProductionCategory::Vehicle,
+        FactoryType::AircraftType => ProductionCategory::Aircraft,
+    })
+}
+
 /// Check if a structure is a production factory for the given category.
 ///
 /// Uses the data-driven Factory= key from rules.ini via RuleSet.factory_map.
@@ -164,28 +314,15 @@ pub(super) fn is_production_factory(
     structure_id: &str,
     category: ProductionCategory,
 ) -> bool {
-    let Some(factory_type) = rules.factory_type(structure_id) else {
+    let Some(factory_category) = rules
+        .object(structure_id)
+        .and_then(factory_category_for_building)
+    else {
         return false;
     };
-    match category {
-        ProductionCategory::Infantry => factory_type == FactoryType::InfantryType,
-        ProductionCategory::Vehicle => {
-            factory_type == FactoryType::UnitType
-                && rules
-                    .object(structure_id)
-                    .is_some_and(|object| !object.naval)
-        }
-        ProductionCategory::Ship => {
-            factory_type == FactoryType::UnitType
-                && rules
-                    .object(structure_id)
-                    .is_some_and(|object| object.naval)
-        }
-        ProductionCategory::Aircraft => factory_type == FactoryType::AircraftType,
-        ProductionCategory::Building | ProductionCategory::Defense => {
-            factory_type == FactoryType::BuildingType
-        }
-    }
+    factory_category == category
+        || (category == ProductionCategory::Defense
+            && factory_category == ProductionCategory::Building)
 }
 
 /// VERA-only: the producer-focus list (the sidebar's view and `CycleProducerFocus`): the owner's
@@ -232,28 +369,6 @@ pub fn producer_candidates_for_owner_category(
     }
     preferred_factories.sort_by_key(|a| a.0);
     preferred_factories
-}
-
-pub fn is_matching_factory(
-    rules: &RuleSet,
-    structure_id: &str,
-    produced_category: ObjectCategory,
-) -> bool {
-    match produced_category {
-        ObjectCategory::Infantry => {
-            is_production_factory(rules, structure_id, ProductionCategory::Infantry)
-        }
-        ObjectCategory::Vehicle => {
-            is_production_factory(rules, structure_id, ProductionCategory::Vehicle)
-                || is_production_factory(rules, structure_id, ProductionCategory::Ship)
-        }
-        ObjectCategory::Aircraft => {
-            is_production_factory(rules, structure_id, ProductionCategory::Aircraft)
-        }
-        ObjectCategory::Building => {
-            is_production_factory(rules, structure_id, ProductionCategory::Building)
-        }
-    }
 }
 
 /// Returns the base foundation cells for normal building occupancy.

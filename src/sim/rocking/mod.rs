@@ -8,6 +8,7 @@
 //! unit_rocking_update.json. Drive/Ship slope state remains locomotor-owned.
 
 pub mod impulse;
+pub(crate) mod ion_blast;
 pub mod rocking_system;
 pub mod self_destruct;
 
@@ -41,8 +42,6 @@ impl Default for RockingState {
 }
 
 impl RockingState {
-    pub const DEADBAND: SimFixed = SimFixed::lit("0.00002");
-
     /// Compatibility boundary only; simulation and pose consumers retain the
     /// native words. A value outside I16F16 saturates at this read boundary.
     pub fn angle_sideways(&self) -> SimFixed {
@@ -51,9 +50,11 @@ impl RockingState {
     pub fn angle_forwards(&self) -> SimFixed {
         fixed(self.angle_forwards)
     }
+    #[cfg(test)]
     pub fn vel_sideways(&self) -> SimFixed {
         fixed(self.vel_sideways)
     }
+    #[cfg(test)]
     pub fn vel_forwards(&self) -> SimFixed {
         fixed(self.vel_forwards)
     }
@@ -97,9 +98,31 @@ impl RockingState {
         self.vel_sideways = velocity;
     }
 
+    /// Drive4B19F7 replaces Techno+334 with its binary32 pre-crush rate.
+    pub(crate) fn set_vel_forwards_native(&mut self, velocity: NativeF32Bits) {
+        self.vel_forwards = velocity;
+    }
+
+    /// Unit73B05B..73B06E, after Cell480CB0(-1) regardless of its return:
+    /// FADD binary32 constant7F4E38 (+0.02), then FSTP Techno+334.
+    /// Original numeric controls: unit_per_cell_overlay.json.
+    pub(crate) fn recoil_after_overlay_crush(&mut self) {
+        self.vel_forwards = store(X::add(
+            load(self.vel_forwards),
+            load(NativeF32Bits::from_bits(0x3ca3_d70a)),
+        ));
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_angle_forwards_for_test(&mut self, angle: SimFixed) {
         self.angle_forwards = fixed_word(angle);
+    }
+    /// Retained binary32 angles I16F16 cannot hold, as RockingUpdate70B570
+    /// leaves them; the setters above quantize through SimFixed.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_angles_native_for_test(&mut self, [sideways, forwards]: [f32; 2]) {
+        self.angle_sideways = NativeF32Bits::from_bits(sideways.to_bits());
+        self.angle_forwards = NativeF32Bits::from_bits(forwards.to_bits());
     }
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_vel_sideways_for_test(&mut self, value: SimFixed) {

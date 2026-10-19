@@ -208,22 +208,22 @@ pub(crate) fn cell_ground_coord(
     rx: u16,
     ry: u16,
 ) -> ProjectileCoord {
-    let x = i32::from(rx)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = i32::from(ry)
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z = terrain
-        .and_then(|grid| grid.cell(rx, ry))
-        .map(|cell| {
-            crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, x, y)
-                .expect("resolved CellClass target must have a supported slope")
-        })
-        // Mapless fixtures use flat ground. Production misses retain the
-        // shared CellClass and use dummy_cell_ground_coord instead.
-        .unwrap_or(0);
-    ProjectileCoord::new(x, y, z)
+    if let Some(cell) = terrain.and_then(|grid| grid.cell(rx, ry)) {
+        let point = crate::sim::cell_rect::CellRef::Real(cell)
+            .center_coordinate()
+            .expect("resolved CellClass target must have a supported slope");
+        return ProjectileCoord::new(point.x, point.y, point.z);
+    }
+    // Preserve the mapless/missing-cell flat-ground adapter. Production misses
+    // retain the shared CellClass and use dummy_cell_ground_coord instead.
+    let point = crate::sim::cell_kernel::cell_center(
+        crate::sim::cell_kernel::CellCoordinate {
+            x: i32::from(rx as i16),
+            y: i32::from(ry as i16),
+        },
+        0,
+    );
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// CellClass virtual +0x58 @ 0x00486890: +0x48 ground coordinate plus 416
@@ -249,21 +249,12 @@ pub(crate) fn cell_target_coord(
 /// The shared fallback CellClass's +0x48 coordinate. Read the retained dummy
 /// at the receiver boundary; later map misses can change this same identity.
 pub(crate) fn dummy_cell_ground_coord(dummy: &SharedCellDummy) -> ProjectileCoord {
-    let snapshot = dummy.snapshot();
-    let x = snapshot
-        .coord
-        .0
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let y = snapshot
-        .coord
-        .1
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let z =
-        crate::util::lepton::ground_height_leptons(snapshot.level as u8, snapshot.slope_type, x, y)
-            .expect("shared CellClass target must have a supported slope");
-    ProjectileCoord::new(x, y, z)
+    let point = crate::sim::cell_rect::CellRef::Dummy {
+        cell: dummy.clone(),
+    }
+    .center_coordinate()
+    .expect("shared CellClass target must have a supported slope");
+    ProjectileCoord::new(point.x, point.y, point.z)
 }
 
 /// Resolve the current virtual `CellClass::GetTargetCoords` value for the one
@@ -405,10 +396,6 @@ pub fn projectile_bridge_crossing(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectileCollisionResponse {
     TargetZClamp(ProjectileCoord),
-    SlopeMatrixReflect {
-        impact: ProjectileCoord,
-        velocity: ProjectileVelocity,
-    },
     /// Ordinary pre-commit AI 467494..467B7A, including its early returns.
     Ordinary {
         candidate: ProjectileCoord,
@@ -813,6 +800,7 @@ impl SpecialDetonationAction {
     /// True for every arm that claims the detonation away from
     /// `Apply_area_damage @ 0x00489280` and
     /// `BulletClass::SpawnShrapnel @ 0x0046a310`.
+    #[cfg(test)]
     pub fn suppresses_ordinary_damage(self) -> bool {
         self != SpecialDetonationAction::OrdinaryDamage
     }
@@ -2127,10 +2115,6 @@ impl ProjectileStore {
             .flatten()
             .map(|response| match response {
                 ProjectileCollisionResponse::TargetZClamp(impact) => impact,
-                ProjectileCollisionResponse::SlopeMatrixReflect { impact, velocity } => {
-                    projectile.velocity = velocity;
-                    impact
-                }
                 ProjectileCollisionResponse::Ordinary { .. }
                 | ProjectileCollisionResponse::ImpactLadder(_) => {
                     unreachable!("only the shared probe answers here")
@@ -2279,30 +2263,36 @@ fn proximity_check_distance(a: ProjectileCoord, b: ProjectileCoord) -> i32 {
     crate::util::native_x87::distance_3d_leptons([a.x, a.y, a.z], [b.x, b.y, b.z])
 }
 
-/// `CellClass::GetGroundHeight @ 0x00578080`: signed /256, fixed-512
-/// allocation lookup, and live shared-dummy fallback, evaluated at the original
-/// lepton XY. The fallback stamp is observable by a retained DummyCell target.
+/// `CellClass::GetGroundHeight @ 0x00578080` at the original lepton XY,
+/// through [`query_ground_height`](crate::sim::movement::ground_pose::query_ground_height)
+/// on the canonical query: its shared-dummy fallback stamp is observable by a
+/// retained DummyCell target. Mapless fixtures read the shared dummy directly.
 pub(crate) fn projectile_ground_z(
     terrain: Option<&ResolvedTerrainGrid>,
     shared_cell_dummy: &SharedCellDummy,
     coord: ProjectileCoord,
 ) -> i32 {
-    use crate::sim::cell_rect::{CellRef, get_cellclass_fallback_leptons};
-    let (level, slope) = if let Some(terrain) = terrain {
-        match get_cellclass_fallback_leptons(Some(terrain), coord.x, coord.y) {
-            CellRef::Real(cell) => (cell.level, cell.slope_type),
-            CellRef::Dummy { cell } => {
-                let snapshot = cell.snapshot();
-                (snapshot.level as u8, snapshot.slope_type)
-            }
-        }
+    let ground = if let Some(terrain) = terrain {
+        crate::sim::movement::ground_pose::query_ground_height(
+            &crate::map::resolved_terrain::NativeCellQuery::canonical(terrain),
+            crate::sim::components::DriveCoord {
+                x: coord.x,
+                y: coord.y,
+                z: coord.z,
+            },
+        )
     } else {
         shared_cell_dummy.stamp_coord(coord.x / 256, coord.y / 256);
         let snapshot = shared_cell_dummy.snapshot();
-        (snapshot.level as u8, snapshot.slope_type)
+        crate::util::lepton::ground_height_leptons(
+            snapshot.level as u8,
+            snapshot.slope_type,
+            coord.x,
+            coord.y,
+        )
+        .map_err(|error| format!("{error:?}"))
     };
-    crate::util::lepton::ground_height_leptons(level, slope, coord.x, coord.y)
-        .expect("projectile ground probe requires a supported CellClass slope")
+    ground.expect("projectile ground probe requires a supported CellClass slope")
 }
 
 /// BulletType virtual +6C @ 0x0046C4F0, called by ObjectUnlimbo5F4F88
@@ -2640,16 +2630,17 @@ pub fn projectile_shp_frame(
     if projectile_type.rotates {
         return 0;
     }
-    const FACING_FRAMES: [u8; 32] = [
-        28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5,
-        4, 3, 2, 1, 0, 31, 30, 29,
-    ];
-    let angle = (-f64::from_bits(projectile.velocity.y.bits()))
-        .atan2(f64::from_bits(projectile.velocity.x.bits()));
-    let word =
-        (((angle - std::f64::consts::FRAC_PI_2) * -10430.06004058427).trunc() as i32) & 0xffff;
-    let bucket = ((((word as u32 >> 10) + 1) >> 1) & 31) as usize;
-    FACING_FRAMES[bucket]
+    use crate::util::direction_tables::{
+        DRAGON_FRAME_TABLE, facing16_from_angle, step32_from_facing16,
+    };
+    use crate::util::native_x87::X87Chop53 as X;
+    use native_math::{atan, d};
+    // FCHS of the velocity Y, `Math::atan2 @ 0x004CAE30`, then the DirStruct
+    // word conversion (FSUB pi/2, FMUL, ftol).
+    let velocity = projectile.velocity;
+    let word = facing16_from_angle(atan(X::neg(d(velocity.y)), d(velocity.x)));
+    // 46805D: the 32-step bucket of the angle word indexes the 0x007F4890 table.
+    DRAGON_FRAME_TABLE[usize::from(step32_from_facing16(word))] as u8
 }
 
 // YR BulletClass::AI linkage: this is the bounded ordinary-flight rung; exact trajectory kernels remain separate.
@@ -3120,8 +3111,8 @@ mod tests {
         let mut store = ProjectileStore::new();
         store.spawn(1, spawn(ProjectileTarget::Cell { rx: 1, ry: 0 }));
 
-        let bytes = bincode::serialize(&store).unwrap();
-        let restored: ProjectileStore = bincode::deserialize(&bytes).unwrap();
+        let bytes = crate::util::save_codec::serialize(&store).unwrap();
+        let restored: ProjectileStore = crate::util::save_codec::deserialize(&bytes).unwrap();
 
         assert_eq!(restored, store);
     }

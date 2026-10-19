@@ -25,6 +25,7 @@ pub struct QueueItemView {
     pub state: BuildQueueState,
     /// Factory progress in steps (`0..=PRODUCTION_STEPS`, Factory `+0x24`, read by
     /// the sidebar through `0x004CA120`); `0` for a queued item.
+    #[cfg(any(test, feature = "test-support"))]
     pub progress: u16,
 }
 
@@ -39,11 +40,7 @@ pub struct ReadyBuildingView {
 /// Active producer/facility focus for one queue category.
 #[derive(Debug, Clone)]
 pub struct ProducerFocusView {
-    pub stable_id: u64,
-    pub display_name: String,
     pub category: ProductionCategory,
-    pub rx: u16,
-    pub ry: u16,
 }
 
 /// Placement preview/evaluation for a ready building.
@@ -83,14 +80,14 @@ pub struct BuildingPlacementCell {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BuildDisabledReason {
     /// No building of the house could build it (`FindFactory(1, 0, 0)`):
-    /// off the sidebar.
+    /// rejected by the next strip membership pass.
     NoFactory,
-    /// `HouseClass::CanBuild(type, 0, 1)` refuses it: off the sidebar.
+    /// `HouseClass::CanBuild(type, 0, 1)` refuses it on a membership pass.
     CannotBuild,
-    /// On the sidebar, darkened: no online factory may build it now
+    /// Unlinked cameo is darkened: no online factory may build it now
     /// (`FindFactory(1, 1, 1)`).
     NoReadyFactory,
-    /// On the sidebar, darkened: at its build limit.
+    /// Unlinked cameo is darkened: at its build limit.
     AtBuildLimit,
 }
 
@@ -151,17 +148,6 @@ pub enum BuildQueueState {
     Done,
 }
 
-impl BuildQueueState {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Queued => "Queued",
-            Self::Building => "Building",
-            Self::Paused => "Paused",
-            Self::Done => "Done",
-        }
-    }
-}
-
 impl ProductionCategory {
     pub fn label(self) -> &'static str {
         match self {
@@ -185,13 +171,18 @@ pub struct BuildOption {
     pub object_category: ObjectCategory,
     pub queue_category: ProductionCategory,
     pub enabled: bool,
+    /// Select6AB656's independent CheckBuildLimit50B370 result. Unavailable
+    /// painting (including NoFactory) does not itself reject a cameo press.
+    pub at_build_limit: bool,
     pub reason: Option<BuildDisabledReason>,
 }
 
 impl BuildOption {
-    /// Whether the sidebar shows a cameo for this option: the strip keeps it
-    /// (`production_tech::strip_keeps`), darkened or not. Money never darkens
-    /// a cameo: a build the house cannot pay for starts and waits on hold.
+    /// Whether a membership pass keeps this option through
+    /// `production_tech::strip_keeps`. The app's retained strip owns actual
+    /// membership between House rechecks. Building4456D0 supplies separate
+    /// adding-factory admission. Money never darkens a cameo:
+    /// a build the house cannot pay for starts and stalls its paid steps.
     pub fn visible_in_sidebar(&self) -> bool {
         !matches!(
             self.reason,
@@ -203,7 +194,11 @@ impl BuildOption {
 /// Player production state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProductionState {
-    active_producer_by_owner: BTreeMap<InternedId, BTreeMap<ProductionCategory, u64>>,
+    // Building+3D3 belongs to each retained building. Manual selection448160
+    // clears matching non-limbo peers, so a limbo peer can retain its flag
+    // alongside the chosen on-map factory. This is the sole primary-state
+    // owner; the House FactoryClass queue slots remain in `factories`.
+    active_producer_by_owner: BTreeMap<InternedId, BTreeMap<ProductionCategory, BTreeSet<u64>>>,
     pub next_enqueue_order: u64,
     /// Ore growth/spread configuration resolved from merged INI sources.
     pub ore_growth_config: OreGrowthConfig,
@@ -240,15 +235,17 @@ impl ProductionState {
             category
         }
     }
-    pub(crate) fn primary_factory(
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn primary_factory_ids(
         &self,
         owner: InternedId,
         category: ProductionCategory,
-    ) -> Option<u64> {
+    ) -> impl Iterator<Item = u64> + '_ {
         self.active_producer_by_owner
-            .get(&owner)?
-            .get(&Self::primary_category(category))
-            .copied()
+            .get(&owner)
+            .and_then(|categories| categories.get(&Self::primary_category(category)))
+            .into_iter()
+            .flat_map(|ids| ids.iter().copied())
     }
     pub(super) fn set_primary_factory(
         &mut self,
@@ -259,36 +256,59 @@ impl ProductionState {
         self.active_producer_by_owner
             .entry(owner)
             .or_default()
-            .insert(Self::primary_category(category), id);
+            .entry(Self::primary_category(category))
+            .or_default()
+            .insert(id);
     }
     /// Clear the native primary byte without choosing a replacement. Unlimbo
     /// and ChangeOwner write it; destruction removes its retained identity.
     /// Limbo preserves the byte, while FindFactory filters the limbo object.
     pub(crate) fn clear_primary_factory(&mut self, id: u64) {
         for categories in self.active_producer_by_owner.values_mut() {
-            categories.retain(|_, value| *value != id);
+            categories.retain(|_, ids| {
+                ids.remove(&id);
+                !ids.is_empty()
+            });
         }
         self.active_producer_by_owner
             .retain(|_, categories| !categories.is_empty());
     }
-    /// The building's own primary byte (`TechnoClass+0x3D3`): it is its
-    /// house's primary factory of some category.
-    pub(crate) fn is_primary_factory(&self, id: u64) -> bool {
+    /// Whether this retained building has its native primary flag
+    /// (`TechnoClass+0x3D3`). Limbo preserves that flag; production eligibility
+    /// and display admission remain with their respective consumers.
+    pub fn is_primary_factory(&self, id: u64) -> bool {
         self.active_producer_by_owner
             .values()
-            .any(|categories| categories.values().any(|&primary| primary == id))
+            .any(|categories| categories.values().any(|ids| ids.contains(&id)))
     }
     pub(crate) fn retain_primary_factory_links(&mut self, live: &std::collections::BTreeSet<u64>) {
         for categories in self.active_producer_by_owner.values_mut() {
-            categories.retain(|_, id| live.contains(id));
+            categories.retain(|_, ids| {
+                ids.retain(|id| live.contains(id));
+                !ids.is_empty()
+            });
         }
         self.active_producer_by_owner
             .retain(|_, categories| !categories.is_empty());
     }
-    pub(crate) fn primary_factory_entries(
-        &self,
-    ) -> impl Iterator<Item = (&InternedId, &BTreeMap<ProductionCategory, u64>)> {
-        self.active_producer_by_owner.iter()
+    /// Keep the established singleton hash while retaining every primary
+    /// flag in the native limbo-peer case. Neither field storage nor the
+    /// category index is exposed to the simulation hash consumer.
+    pub(crate) fn hash_primary_factories(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        for (owner, categories) in &self.active_producer_by_owner {
+            owner.hash(hasher);
+            for (category, ids) in categories {
+                category.hash(hasher);
+                if ids.len() != 1 {
+                    b"retained-primary-factory-set-v1".hash(hasher);
+                    (ids.len() as u64).hash(hasher);
+                }
+                for id in ids {
+                    id.hash(hasher);
+                }
+            }
+        }
     }
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_primary_factory_for_test(
@@ -297,6 +317,11 @@ impl ProductionState {
         category: ProductionCategory,
         id: u64,
     ) {
+        // Existing fixtures install one chosen primary. Native histories
+        // inside production tests use the owner's additive setter instead.
+        if let Some(categories) = self.active_producer_by_owner.get_mut(&owner) {
+            categories.remove(&Self::primary_category(category));
+        }
         self.set_primary_factory(owner, category, id);
     }
 }

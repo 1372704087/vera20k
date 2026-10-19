@@ -309,7 +309,8 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
         &rules,
         "Americans",
         "HELD",
-        crate::sim::world::FrameEffects::default()
+        crate::sim::world::FrameEffects::default(),
+        false,
     ));
     let held_id = sim
         .production
@@ -341,7 +342,6 @@ fn held_factory_and_attached_upgrade_stay_off_navigation_through_frame_and_resto
             Some(&overlays),
             67,
             TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .expect("fixture frame must complete");

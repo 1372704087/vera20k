@@ -115,6 +115,7 @@ fn audio_visual_binding_retains_valid_references_across_all_rules_layers() {
         )),
         IniFile::empty(),
         sounds,
+        Default::default(),
     )
     .unwrap();
     let (rules, _, _, _) = owner
@@ -174,8 +175,11 @@ fn retail_boris_airstrike_reads_selected_startup_battle_and_map_sources() {
         Some("MIGMove")
     );
     assert_eq!(rules.general.laser_target_color, 4);
-    assert_eq!(rules.color_add.slots[4].name.as_deref(), Some("HighRed"));
-    assert_eq!(rules.color_add.slots[4].rgb, [24, 0, 0]);
+    assert_eq!(
+        rules.color_add.entries()[4].name.as_deref(),
+        Some("HighRed")
+    );
+    assert_eq!(rules.color_add.entries()[4].rgb, [24, 0, 0]);
 }
 
 #[test]

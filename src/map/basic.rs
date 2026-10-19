@@ -38,13 +38,40 @@ pub struct BasicSection {
     pub new_ini_format: Option<i32>,
     /// Whether tiberium/ore growth is enabled for this map (TiberiumGrowthEnabled=).
     pub tiberium_growth_enabled: Option<bool>,
+    /// Scenario+34A8, current-default ReadBool68A5A7..68A5C5; fresh true.
+    pub ice_growth_enabled: Option<bool>,
+    /// Scenario34A7: current-default ReadBool68A58F..68A5BA, fresh true.
+    pub vein_growth_enabled: Option<bool>,
+    /// Scenario+34A5, current-default ReadBool68A235..68A24D; fresh false.
+    pub train_crate: Option<bool>,
+    /// Scenario+34B1, current-default ReadBool68A217..68A22F; fresh false.
+    pub truck_crate: Option<bool>,
     /// Native Scenario+34A4 (`0068A5E3..0068A61A`). Missing/invalid keys
     /// preserve the caller's prior value; a fresh scenario resets it to false.
     pub free_radar: Option<bool>,
+    /// Scenario+34B2: ReadBool with its current default at68A253..68A271;
+    /// SetDefaults683893 resets false. Read from the map, never rules/mode.
+    pub fill_silos: Option<bool>,
     /// Native Scenario+34B4 (`ScenarioClass::Read_INI_Basic
     /// 0x0068A271..0x0068A289`, `Set_Defaults` false at `0x00683899`): the
     /// AI triggers of `AIMD.INI` never qualify (`sim::ai_team_creation`).
     pub ignore_global_ai_triggers: Option<bool>,
+    /// Scenario+0x34AE `SkipScore`, read from map `[Basic]` at
+    /// `0x0068A1BD..0x0068A1D5`; a fresh Scenario defaults this byte to false
+    /// (`Set_Defaults` `0x0068387B`). Campaign Victory uses it to bypass only
+    /// the standalone score dialog `0x103`.
+    pub skip_score: Option<bool>,
+    /// Scenario+0x34AC (`0x0068A11A`): a won mission ends the campaign.
+    pub end_of_game: Option<bool>,
+    /// Scenario+0x34AF (`0x0068A1EE`): a won mission returns to the shell.
+    pub one_time_only: Option<bool>,
+    /// Scenario+0x34B0 (`0x0068A20C`): MapSelect takes NextScenario instead
+    /// of the MAPSELMD stage following the current map.
+    pub skip_map_select: Option<bool>,
+    /// Scenario+0x1448 movie (`ReadMovie` at `0x0068A0A2`), after the score.
+    pub post_score: Option<String>,
+    /// Scenario+0x144C movie (`ReadMovie` at `0x0068A0C0`), before MapSelect.
+    pub pre_map_select: Option<String>,
 }
 
 /// Parsed flags from a map's `[SpecialFlags]` section.
@@ -137,9 +164,26 @@ pub fn parse_basic_section(ini: &IniFile) -> BasicSection {
             .is_present("NewINIFormat")
             .then(|| section.read_int("NewINIFormat", 0)),
         tiberium_growth_enabled: section.read_bool_value("TiberiumGrowthEnabled"),
+        ice_growth_enabled: section.read_bool_value("IceGrowthEnabled"),
+        vein_growth_enabled: section.read_bool_value("VeinGrowthEnabled"),
+        train_crate: section.read_bool_value("TrainCrate"),
+        truck_crate: section.read_bool_value("TruckCrate"),
         free_radar: section.read_bool_value("FreeRadar"),
+        fill_silos: section.read_bool_value("FillSilos"),
         // ReadBool with the current Scenario+0x34B4 as default (`0x0068A284`).
         ignore_global_ai_triggers: section.read_bool_value("IgnoreGlobalAITriggers"),
+        // ReadBool with the current Scenario+0x34AE as default. A fresh map
+        // load resets that byte to false in Set_Defaults.
+        skip_score: section.read_bool_value("SkipScore"),
+        end_of_game: section.read_bool_value("EndOfGame"),
+        one_time_only: section.read_bool_value("OneTimeOnly"),
+        skip_map_select: section.read_bool_value("SkipMapSelect"),
+        post_score: section
+            .is_present("PostScore")
+            .then(|| section.read_string("PostScore", "", 128)),
+        pre_map_select: section
+            .is_present("PreMapSelect")
+            .then(|| section.read_string("PreMapSelect", "", 128)),
     }
 }
 
@@ -228,6 +272,22 @@ mod tests {
         assert_eq!(basic.briefing.as_deref(), Some("TXT_M01BRIEF"));
         assert_eq!(basic.theme.as_deref(), Some("BIGF226M"));
         assert_eq!(basic.new_ini_format, Some(4));
+    }
+
+    #[test]
+    fn campaign_skip_score_is_optional_basic_reader_input() {
+        assert_eq!(
+            parse_basic_section(&IniFile::from_str("[Basic]\nSkipScore=yes\n")).skip_score,
+            Some(true)
+        );
+        assert_eq!(
+            parse_basic_section(&IniFile::from_str("[Basic]\nSkipScore=no\n")).skip_score,
+            Some(false)
+        );
+        assert_eq!(
+            parse_basic_section(&IniFile::from_str("[Basic]\n")).skip_score,
+            None
+        );
     }
 
     #[test]

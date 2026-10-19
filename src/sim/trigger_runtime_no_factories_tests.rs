@@ -7,11 +7,8 @@ use crate::sim::{
 };
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    let value: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/trigger_no_factories_events.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let value = crate::test_fixture::json("tools/spatial_oracle/trigger_no_factories_events.json");
     assert_eq!(
         value["native_sha256"],
         "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600"
@@ -328,10 +325,7 @@ fn fire_sale_action_matches_original_selector_state_and_unchanged_timer() {
 #[test]
 fn no_factories_retail_sov02_delay_reaches_existing_sale_and_hunt_after_restore() {
     use crate::rules::process_owner::NativeScenarioRulesPrefix;
-    use crate::sim::{
-        snapshot::GameSnapshot,
-        world::{TriggerInputs, UninitContext},
-    };
+    use crate::sim::{snapshot::GameSnapshot, world::UninitContext};
     let corpus = corpus();
     let retail = &corpus["retail"];
     let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
@@ -480,15 +474,7 @@ fn no_factories_retail_sov02_delay_reaches_existing_sale_and_hunt_after_restore(
     let timer = sim.houses[&house].strategy_timer;
     for (frame, mode) in [(698, 0), (700, 4)] {
         sim.session.binary_frame = frame;
-        sim.advance_triggers(
-            TriggerInputs {
-                events: &Default::default(),
-                actions: &Default::default(),
-                rules: Some(&rules),
-            },
-            None,
-            FrameEffects::default(),
-        );
+        sim.advance_triggers(Some(&rules), None, FrameEffects::default());
         assert_eq!(sim.houses[&house].strategy_emergency.mode(), mode);
         assert_eq!(sim.houses[&house].strategy_timer, timer);
         assert!(

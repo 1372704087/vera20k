@@ -543,7 +543,6 @@ fn candidate_passes(
             // Caller argument, forwarded verbatim: the engine's two free-unit attempts
             // differ in this one value and nothing else.
             reject_any_overlay: options.reject_any_overlay,
-            path_grid: q.path_grid,
             resolved_terrain: q.resolved_terrain,
             overlay_grid: q.overlay_grid,
             occupancy: q.occupancy,
@@ -573,7 +572,6 @@ fn candidate_passes(
             reservation_arg: -1,
             reservations: None,
             occupancy: q.occupancy,
-            entities: q.entities,
             terrain_object_cells: None,
             resolved_terrain: q.resolved_terrain,
             overlay_grid: q.overlay_grid,
@@ -671,7 +669,84 @@ fn cell_to_u16(cell: (i32, i32)) -> Option<(u16, u16)> {
     }
 }
 
+/// What a caller of `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20`
+/// pushes besides the seed. Every static caller loads `g_Map` as ECX, so
+/// [`Simulation::nearby_passable_cell`] supplies the map itself.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct NearbyArgs {
+    pub passability: PassabilityArgs,
+    pub footprint: NearbyFootprint,
+    pub allow_bridge_cells: bool,
+    pub check_height: bool,
+    pub check_occupancy: bool,
+    pub target_cell: Option<(i32, i32)>,
+    pub options: NearbySearchOptions,
+}
+
+impl NearbyArgs {
+    /// The shape most callers push: bridge cells allowed; no overlay,
+    /// height, obstacle or occupancy test; no target cell, so the pick is
+    /// the frame-counter modulo and draws no RNG; no quadrant skip.
+    pub(crate) const fn plain(passability: PassabilityArgs, footprint: NearbyFootprint) -> Self {
+        Self {
+            passability,
+            footprint,
+            allow_bridge_cells: true,
+            check_height: false,
+            check_occupancy: false,
+            target_cell: None,
+            options: NearbySearchOptions {
+                reject_any_overlay: false,
+            },
+        }
+    }
+}
+
 impl crate::sim::world::Simulation {
+    /// `MapClass::Find_Nearby_Passable_Cell @ 0x0056DC20` on the live map:
+    /// its cells and their raw occupation, the path, overlay, object and
+    /// zone grids, the playfield, the radius cap from the map's Size
+    /// ([`map_owned_radius_cap`]) and the current frame for the no-target
+    /// pick. `None` when nothing passes or the map size is unknown.
+    pub(crate) fn nearby_passable_cell(
+        &self,
+        seed: (i32, i32),
+        args: NearbyArgs,
+    ) -> Option<(u16, u16)> {
+        #[cfg(test)]
+        if let Some(answer) =
+            crate::sim::movement::fresh_oracle_seam::supplied_nearby_cell(seed, args)
+        {
+            return answer;
+        }
+        let (width, height) = self.map_size_diamond()?;
+        find_nearby_passable_cell_with_options(
+            seed,
+            &NearbyQuery {
+                native_cells: None,
+                raw_occupation: Some(&self.substrate.raw_cell_occupation),
+                passability: args.passability,
+                footprint: args.footprint,
+                allow_bridge_cells: args.allow_bridge_cells,
+                check_height: args.check_height,
+                check_occupancy: args.check_occupancy,
+                radius_cap: map_owned_radius_cap(width, height),
+                target_cell: args.target_cell,
+                path_grid: self.path_grid(),
+                resolved_terrain: self.resolved_terrain.as_ref(),
+                overlay_grid: self.overlay_grid.as_ref(),
+                occupancy: Some(&self.substrate.occupancy),
+                entities: Some(&self.substrate.entities),
+                zone_grid: self.zone_grid.as_ref(),
+                playfield_bounds: self.playfield_bounds,
+            },
+            args.options,
+            // The frame counter is committed late, so during an advance it
+            // still holds the current frame, the value the pick aliases.
+            self.session.binary_frame,
+        )
+    }
+
     /// TechnoClass NearbyLocation `0x00703590`: FNPC seeded at the cell of
     /// `anchor`'s coordinate (its vt+0x48; the object's own when `anchor` is
     /// NULL) with the object's SpeedType (Winged read as Track), its
@@ -714,59 +789,19 @@ impl crate::sim::world::Simulation {
                     entity.on_bridge(),
                 )
             });
-        let cell = self.nearby_location_cell(
+        let cell = self.nearby_passable_cell(
             seed,
-            PassabilityArgs {
-                speed_type,
-                required_zone_id: zone,
-                movement_zone: object.movement_zone,
-                bridge_aware_zone: entity.on_bridge(),
-            },
+            NearbyArgs::plain(
+                PassabilityArgs {
+                    speed_type,
+                    required_zone_id: zone,
+                    movement_zone: object.movement_zone,
+                    bridge_aware_zone: entity.on_bridge(),
+                },
+                NearbyFootprint::SINGLE,
+            ),
         )?;
         Some((cell.0 as i16, cell.1 as i16))
-    }
-
-    /// `MapClass::Find_Nearby_Passable_Cell` in the argument shape
-    /// NearbyLocation (`0x00703590`), Teleport Update_Position
-    /// (`0x0071854F..0x007185D5`), PickupCrate's goodie
-    /// (`0x0048231E..0x00482366`) and Mission_Unload's pre-move and vehicle
-    /// passenger (`0x0073D772..0x0073D7B0`, `0x0073DA96..0x0073DADD`) push: one
-    /// cell, no overlay rejection, no height, obstacle or occupancy check,
-    /// bridge cells allowed, a zero target cell, no quadrant skip, and the
-    /// map's radius cap; each caller supplies the seed and the passability
-    /// inputs. `None` when nothing passes or the map size is unknown.
-    pub(crate) fn nearby_location_cell(
-        &self,
-        seed: (i32, i32),
-        passability: PassabilityArgs,
-    ) -> Option<(u16, u16)> {
-        let (width, height) = self
-            .playfield_bounds
-            .zip(self.playfield_size_height)
-            .map(|(b, h)| (b.base, h))?;
-        let grid = self.path_grid_snapshot();
-        find_nearby_passable_cell(
-            seed,
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability,
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(width, height),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: self.resolved_terrain.as_ref(),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            self.session.binary_frame,
-        )
     }
 
     /// `MapClass::Find_Nearby_Passable_Cell` in the argument shape
@@ -786,7 +821,6 @@ impl crate::sim::world::Simulation {
         movement_zone: MovementZone,
         options: NearbySearchOptions,
     ) -> Option<(u16, u16)> {
-        let (width, height) = self.map_size_diamond()?;
         let zone = self
             .zone_grid
             .as_ref()
@@ -794,37 +828,22 @@ impl crate::sim::world::Simulation {
             .and_then(|(zones, terrain)| {
                 zones.get_zone_id_native(terrain, seed, movement_zone, false)
             });
-        let query = NearbyQuery {
-            native_cells: None,
-            raw_occupation: Some(&self.substrate.raw_cell_occupation),
-            passability: PassabilityArgs {
-                speed_type: SpeedType::Wheel,
-                required_zone_id: zone,
-                movement_zone,
-                bridge_aware_zone: false,
-            },
-            footprint: NearbyFootprint::SINGLE,
-            allow_bridge_cells: false,
-            check_height: true,
-            check_occupancy: false,
-            radius_cap: map_owned_radius_cap(width, height),
-            target_cell: None,
-            path_grid: self.path_grid(),
-            resolved_terrain: self.resolved_terrain.as_ref(),
-            overlay_grid: self.overlay_grid.as_ref(),
-            occupancy: Some(&self.substrate.occupancy),
-            entities: Some(&self.substrate.entities),
-            zone_grid: self.zone_grid.as_ref(),
-            playfield_bounds: self.playfield_bounds,
-        };
-        find_nearby_passable_cell_with_options(
+        self.nearby_passable_cell(
             (i32::from(seed.0), i32::from(seed.1)),
-            &query,
-            options,
-            // The frame counter is committed late, so during this advance it
-            // still holds the current frame — the value the selection modulo
-            // must alias.
-            self.session.binary_frame,
+            NearbyArgs {
+                passability: PassabilityArgs {
+                    speed_type: SpeedType::Wheel,
+                    required_zone_id: zone,
+                    movement_zone,
+                    bridge_aware_zone: false,
+                },
+                footprint: NearbyFootprint::SINGLE,
+                allow_bridge_cells: false,
+                check_height: true,
+                check_occupancy: false,
+                target_cell: None,
+                options,
+            },
         )
     }
 }
@@ -833,14 +852,12 @@ impl crate::sim::world::Simulation {
 mod tests {
     use super::*;
     use crate::map::bridge_facts::{BRIDGE_FLAG_FORWARD_SIDE, BRIDGE_FLAG_STRUCTURAL};
-    use crate::map::resolved_terrain::{ResolvedTerrainGrid, zone_class};
+    use crate::map::resolved_terrain::ResolvedTerrainGrid;
 
+    /// Clear cells carrying the retail Clear row, with the grid's land rows
+    /// bound as a loaded scenario binds them.
     fn flat_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-        crate::map::resolved_terrain::test_grid(
-            width,
-            height,
-            crate::map::resolved_terrain::test_clear_cell,
-        )
+        crate::map::resolved_terrain::test_retail_clear_grid(width, height)
     }
 
     /// A grid whose every cell sits at the same raised terrain level — a plateau. The
@@ -1516,10 +1533,11 @@ mod tests {
         // — can never return (4,4).
         const GRID: usize = 20;
         let mut terrain = flat_terrain(GRID as u16, GRID as u16);
-        terrain.cells[5 * GRID + 5].zone_type = zone_class::WALL;
+        let walls = crate::sim::overlay_grid::test_wall_overlays(&mut terrain, &[(5, 5)]);
         terrain.cells[5 * GRID + 5].level = 2;
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
-        let q = base_query(&terrain, &path_grid);
+        let mut q = base_query(&terrain, &path_grid);
+        q.overlay_grid = Some(&walls);
 
         let candidates = collect_candidates((5, 5), &q, NearbySearchOptions::default());
         let occluded = candidates
@@ -1622,15 +1640,15 @@ mod tests {
 
     #[test]
     fn find_nearby_no_candidate_returns_none() {
-        // Every cell rejected -> no candidate -> None. WALL zone_type with a Normal
-        // movement-zone rejects in `cell_rect`'s land test (only the destroyer
-        // family crosses walls), so every candidate fails passability.
+        // Every cell rejected -> no candidate -> None. A wall refuses a Normal
+        // movement zone in `cell_rect`'s land test (only the destroyer family
+        // crosses walls), so every candidate fails passability.
         let mut terrain = flat_terrain(3, 3);
-        for c in terrain.cells.iter_mut() {
-            c.zone_type = zone_class::WALL;
-        }
+        let cells: Vec<(u16, u16)> = (0..3).flat_map(|y| (0..3).map(move |x| (x, y))).collect();
+        let walls = crate::sim::overlay_grid::test_wall_overlays(&mut terrain, &cells);
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
         let mut q = base_query(&terrain, &path_grid);
+        q.overlay_grid = Some(&walls);
         q.radius_cap = 2;
         assert_eq!(find_nearby_passable_cell((1, 1), &q, 0), None);
     }
@@ -1673,11 +1691,12 @@ mod tests {
         // (2,1) sits three levels up: it survives with the gate off and is dropped
         // with the gate on, while the level-1 cell at (1,2) survives either way.
         let mut terrain = flat_terrain(5, 5);
-        terrain.cells[2 * 5 + 2].zone_type = zone_class::WALL; // seed rejected
+        let walls = crate::sim::overlay_grid::test_wall_overlays(&mut terrain, &[(2, 2)]); // seed rejected
         terrain.cells[5 + 2].level = 3; // (2,1): three levels above the seed
         terrain.cells[2 * 5 + 1].level = 1; // (1,2): one level above the seed
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
         let mut q = base_query(&terrain, &path_grid);
+        q.overlay_grid = Some(&walls);
 
         let without_gate: Vec<(i32, i32)> =
             collect_candidates((2, 2), &q, NearbySearchOptions::default())

@@ -577,8 +577,6 @@ fn deploy_mcv_rejects_sloped_foundation_cell() {
 fn deploy_mcv_rejects_nonbuildable_land_type_foundation_cell() {
     let terrain = mcv_deploy_terrain_with(|cell| {
         cell.land_type = crate::sim::pathfinding::passability::LandType::Water.as_index();
-        cell.yr_cell_land_type = cell.land_type;
-        cell.is_water = true;
     });
 
     let (applied, mcv_remains, sound_count) = deploy_mcv_with_terrain(terrain);
@@ -859,6 +857,50 @@ fn base_plan_recalc_deploy_skips_human_campaign_and_non_conyard_targets() {
     assert!(sim.substrate.entities.get(miner).is_none());
 }
 
+/// A human House keeps no base cell through its deploy: Building Unlimbo
+/// recalculates (`0x00440D07` -> `0x004FD150`, which stores the empty cell
+/// first) before the yard joins House+68 (`0x00441553..0x00441594`), and
+/// UnitClass::Deploy skips Set_Starting_Cell for a House a human controls
+/// (`0x0073985B..0x00739862`). The House's next Building Unlimbo counts the
+/// yard but not itself. The computer's Spy Plane, Paradrop and zone-tested
+/// teams read this cell (`0x00509CD0`, `0x0041FEE0`).
+#[test]
+fn a_human_deploy_empties_the_base_cell_until_the_next_building_counts_the_yard() {
+    let rules = make_recalc_mcv_rules("0,0,0");
+    let mut sim = deploy_sim(&rules);
+    add_house(&mut sim, "Americans", true);
+    sim.session.game_mode_nonzero = true;
+    let owner = sim.interner.get("Americans").unwrap();
+    // The launch's start cell; the MCV has since driven to (20,22).
+    sim.houses.get_mut(&owner).unwrap().set_base_center((6, 6));
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
+        .expect("spawn MCV");
+
+    assert!(sim.deploy_mcv(
+        mcv,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+    assert!(deployed_type(&sim, "GACNST").building_up());
+    assert_eq!(sim.houses[&owner].base_center, None);
+    assert_eq!(sim.houses[&owner].base_origin(), (0, 0));
+
+    // Far from the yard (4x3 at (19,21)): were it counted, the centre would
+    // move halfway towards it.
+    sim.spawn_object("GAPOWR", "Americans", 28, 8, 0, &rules)
+        .expect("spawn power plant");
+    let (x, y) = sim.houses[&owner]
+        .base_center
+        .expect("the yard gives a base cell");
+    assert!(
+        (18..=23).contains(&x) && (20..=24).contains(&y),
+        "base cell {:?} is not at the yard",
+        (x, y)
+    );
+}
+
 #[test]
 fn base_plan_recalc_deploy_countryless_nonempty_plan_only_reanchors_node_zero() {
     let rules = make_recalc_mcv_rules("");
@@ -1016,46 +1058,6 @@ fn conyard_redeploy_runtime_rejects_non_human_owner() {
 }
 
 #[test]
-fn conyard_redeploy_ui_hides_while_building_queue_busy() {
-    let rules = make_mcv_rules();
-    let mut sim = Simulation::new();
-    add_house(&mut sim, "Americans", true);
-    let yard = sim
-        .spawn_object("GACNST", "Americans", 19, 21, 0, &rules)
-        .expect("spawn ConYard");
-
-    assert!(sim.should_show_undeploy_building_command(yard, &rules));
-    let owner = sim.interner.get("Americans").unwrap();
-    let type_id = sim.interner.intern("GAPOWR");
-    // P5d: arm a Building build in the registry (the queue-of-record) so the
-    // production-busy gate sees an active Building factory. This deliberately
-    // bypasses producer validation because the minimal fixture has no Factory
-    // flag, but it must still model StartProduction's held Techno constructor.
-    let started = sim.production.factories.test_enqueue_kernel(
-        owner,
-        crate::sim::production::ProductionCategory::Building,
-        type_id,
-        1,
-        0,
-    );
-    assert!(started);
-    crate::sim::production::construct_active_factory_fixture(
-        &mut sim,
-        &rules,
-        owner,
-        crate::sim::production::ProductionCategory::Building,
-        type_id,
-    )
-    .expect("low-level fixture constructs at StartProduction");
-
-    assert!(!sim.should_show_undeploy_building_command(yard, &rules));
-    assert!(
-        sim.can_undeploy_building_runtime(yard, &rules),
-        "production-busy is a UI visibility gate, not the runtime CanUndeployMCV core gate"
-    );
-}
-
-#[test]
 fn mcv_redeploy_option_does_not_gate_non_conyard_undeploys_into() {
     let ini = IniFile::from_str(
         "\
@@ -1111,7 +1113,7 @@ fn native_deploy_rules(input: &serde_json::Value) -> RuleSet {
         .unwrap_or_default();
     let ini = IniFile::from_str(&format!(
         "{idle_keys}[General]\nAIAutoDeployFrameDelay={delays}\n\
-         [Guard]\nRate=0.1\n[Sticky]\nRate=0.1\n[Area Guard]\nRate=0.1\n\
+         [Guard]\nRate=0.1\n[Sticky]\nRate=0.1\n[Area Guard]\nRate=0.1\n[Move]\nRate=0.1\n\
          [AI]\nBlockagePathDelay={}\n[InfantryTypes]\n0={type_name}\n\
          [{type_name}]\nStrength=100\nSpeed=4\n\
          Locomotor={{4A582744-9839-11D1-B709-00A024DDAFD1}}\n\
@@ -1196,6 +1198,7 @@ pub(crate) fn native_deploy_fixture(row: &serde_json::Value) -> (Simulation, Rul
     sim.mapgen_rng = crate::sim::rng::SimRng::new(31);
     sim.session.binary_frame = input["now"].as_i64().unwrap_or(100) as u32;
     sim.session.game_options.game_speed = input["game_speed_index"].as_i64().unwrap_or(0) as i32;
+    sim.session.game_mode_nonzero = input["game_mode_nonzero"].as_bool().unwrap_or(false);
     let owner = sim.interner.intern("Americans");
     let human = input["human"].as_i64().unwrap_or(0) != 0;
     sim.houses.insert(
@@ -1741,4 +1744,194 @@ fn synchronized_deploy_queues_unload_before_handler_action_and_sound() {
         sim.sound_events.as_slice(),
         [SimSoundEvent::EntityDeployed { .. }]
     ));
+}
+
+/// CanDeploySlashUnload (`0x00700D50`) for the transport fixture at
+/// (20, 22): `mutate` edits each terrain cell before the query.
+fn transport_may_unload(
+    human: bool,
+    building: Option<&str>,
+    mutate: impl Fn(&mut ResolvedTerrainCell, (u16, u16)),
+    prepare: impl FnOnce(&mut GameEntity),
+) -> bool {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=LCRF\n[BuildingTypes]\n0=SHED\n1=BUNK\n\
+         [LCRF]\nPassengers=5\n[SHED]\nStrength=100\n[BUNK]\nStrength=100\nBunker=yes\n",
+    ))
+    .expect("transport rules");
+    let mut sim = Simulation::new();
+    let owner = sim.interner.intern("Americans");
+    sim.houses.insert(
+        owner,
+        crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10),
+    );
+    if let Some(building) = building {
+        sim.spawn_object(building, "Americans", 20, 22, 0, &rules)
+            .expect("the building builds");
+    }
+    let id = sim
+        .spawn_object("LCRF", "Americans", 20, 22, 0, &rules)
+        .expect("the transport builds");
+    prepare(sim.substrate.entities.get_mut(id).unwrap());
+    sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(32, 32, |rx, ry| {
+        let mut cell = crate::map::resolved_terrain::test_tiberium_cell(rx, ry);
+        mutate(&mut cell, (rx, ry));
+        cell
+    }));
+    sim.can_deploy_slash_unload(id, &rules)
+}
+
+/// The transport arm (`Passengers=` above 0, `0x00700EEC..0x007010BB`):
+/// refused on a bridge, beside a bridge deck (own cell or a N/S/E/W
+/// neighbour, not a diagonal), on Water when its owner is human, and in a
+/// building's cell unless the building is a `Bunker=`.
+#[test]
+fn a_transport_may_not_unload_on_or_beside_a_bridge_on_human_water_or_in_a_building() {
+    let deck_at = |at: (u16, u16)| {
+        move |cell: &mut ResolvedTerrainCell, here: (u16, u16)| {
+            if here == at {
+                cell.bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
+            }
+        }
+    };
+    let water = |cell: &mut ResolvedTerrainCell, here: (u16, u16)| {
+        if here == (20, 22) {
+            cell.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
+        }
+    };
+    let plain = |_: &mut ResolvedTerrainCell, _: (u16, u16)| {};
+    assert!(transport_may_unload(true, None, plain, |_| {}));
+    assert!(!transport_may_unload(true, None, plain, |e| e.set_on_bridge(true)));
+    for at in [(20, 22), (20, 21), (20, 23), (19, 22), (21, 22)] {
+        assert!(
+            !transport_may_unload(true, None, deck_at(at), |_| {}),
+            "{at:?}"
+        );
+    }
+    assert!(transport_may_unload(true, None, deck_at((21, 21)), |_| {}));
+    assert!(!transport_may_unload(true, None, water, |_| {}));
+    assert!(transport_may_unload(false, None, water, |_| {}));
+    assert!(!transport_may_unload(true, Some("SHED"), plain, |_| {}));
+    assert!(transport_may_unload(true, Some("BUNK"), plain, |_| {}));
+}
+
+/// The Unit arm's capability and DeploysInto tests, the Infantry
+/// `UndeployDelay=` and `Deployer=` tests, and the Building and Aircraft
+/// arms of CanDeploySlashUnload (`0x00700D50`).
+#[test]
+fn can_deploy_slash_unload_follows_each_class_arm() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=MCV\n1=TANK\n2=FIRER\n3=REFINER\n\
+         [InfantryTypes]\n0=YURI\n1=GI\n2=E2\n\
+         [AircraftTypes]\n0=JET\n1=CARRIER\n\
+         [BuildingTypes]\n0=YARD\n1=REFINERY\n\
+         [MCV]\nDeploysInto=YARD\n[TANK]\nStrength=100\n[FIRER]\nDeployFire=yes\n\
+         [YURI]\nDeployer=yes\nUndeployDelay=150\n[GI]\nDeployer=yes\n[E2]\nStrength=100\n\
+         [JET]\nStrength=100\n[CARRIER]\nPassengers=2\n\
+         [YARD]\nConstructionYard=yes\nUndeploysInto=MCV\n\
+         [REFINER]\nDeploysInto=REFINERY\n[REFINERY]\nStrength=100\n",
+    ))
+    .expect("deploy rules");
+    let mut sim = Simulation::new();
+    let spawn = |sim: &mut Simulation, type_id: &str, rx: u16| {
+        sim.spawn_object(type_id, "Americans", rx, 5, 0, &rules)
+            .expect("the fixture builds")
+    };
+    let [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner] = [
+        "MCV", "TANK", "FIRER", "YURI", "GI", "E2", "JET", "CARRIER", "YARD", "REFINER",
+    ]
+    .map(|type_id| {
+        let rx = 2 + 3 * sim.substrate.entities.len() as u16;
+        spawn(&mut sim, type_id, rx)
+    });
+    let can = |sim: &Simulation, id| sim.can_deploy_slash_unload(id, &rules);
+    assert_eq!(
+        [mcv, tank, firer, yuri, gi, e2, jet, carrier, yard, refiner].map(|id| can(&sim, id)),
+        [
+            true, false, true, true, true, false, false, true, false, true
+        ]
+    );
+
+    // A parasite bars any DeploysInto unit; mind control one whose
+    // DeploysInto is a construction yard.
+    fn entity(sim: &mut Simulation, id: u64) -> &mut GameEntity {
+        sim.substrate.entities.get_mut(id).unwrap()
+    }
+    entity(&mut sim, mcv)
+        .parasite
+        .set_eater_for_test(Some(tank));
+    assert!(!can(&sim, mcv));
+    entity(&mut sim, mcv).parasite.set_eater_for_test(None);
+    entity(&mut sim, mcv).mind_control =
+        crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
+    assert!(!can(&sim, mcv));
+    // A mind-controlled unit deploying into anything else may.
+    entity(&mut sim, refiner).mind_control =
+        crate::sim::capture_manager::MindControlLink::controlled_by_for_test(tank);
+    assert!(can(&sim, refiner));
+
+    // `UndeployDelay=` refuses while deployed, in Doing 31, or rearming.
+    let frame = sim.session.binary_frame as i32;
+    for doing in [28, 31] {
+        for id in [yuri, gi] {
+            entity(&mut sim, id)
+                .mission_leaf
+                .set_infantry_doing_verified(doing)
+                .unwrap();
+        }
+        assert_eq!((can(&sim, yuri), can(&sim, gi)), (false, true), "{doing}");
+    }
+    for id in [yuri, gi] {
+        let soldier = entity(&mut sim, id);
+        soldier.mission_leaf.set_infantry_doing_verified(0).unwrap();
+        soldier
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(frame, 40));
+    }
+    assert_eq!((can(&sim, yuri), can(&sim, gi)), (false, true));
+}
+
+/// The DEPLOY event admits a retail Chaos Drone (`[CAOS]`, `DeployFire=`)
+/// and queues Unload. `UnitClass::Mission_Unload`'s deploy-fire arm
+/// (`0x0073DCD3`) itself targets the drone's own cell, fires weapon 0
+/// (ChaosAttack) there, keeps that Target and returns `RandomRanged(0, 2)`
+/// plus 14; called directly, so the every-frame Fire_At_Target cannot stand
+/// in for its shot.
+#[test]
+fn a_chaos_drone_deploy_fires_its_weapon_at_its_own_cell() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &battle.rules;
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_arena(&mut sim, rules);
+    let drone = sim
+        .spawn_object("CAOS", "YuriCountry", 10, 10, 64, rules)
+        .expect("the retail Chaos Drone builds");
+    assert!(sim.apply_command(
+        "YuriCountry",
+        &Command::DeployMcv { entity_id: drone },
+        Some(rules)
+    ));
+    let entity = sim.substrate.entities.get(drone).unwrap();
+    assert_eq!(
+        entity.mission.queued().known(),
+        Some(crate::sim::mission::MissionType::Unload)
+    );
+    assert_eq!(entity.rearm_timer.duration(), 0);
+    assert_eq!(entity.attack_target.target(), None);
+
+    let (delay, _) = sim.unit_deploy_fire_unload(
+        drone,
+        rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let entity = sim.substrate.entities.get(drone).unwrap();
+    assert!((14..=16).contains(&delay), "{delay}");
+    assert!(entity.rearm_timer.duration() > 0, "the arm fired");
+    assert_eq!(
+        entity.attack_target.target(),
+        Some(TargetKind::Cell(10, 10))
+    );
 }

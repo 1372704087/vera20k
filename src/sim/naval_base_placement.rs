@@ -9,11 +9,8 @@ use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::object_type::ObjectType;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::find_nearby_cell::{
-    NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
-};
+use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::house_state::HouseState;
-use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::Simulation;
 
 /// Find the one naval ready-Building site selected by the native fast path.
@@ -40,28 +37,21 @@ pub(crate) fn find_naval_base_placement(
     // admission rather than becoming an early Rust-side failure.
     let origin = house.base_origin();
 
-    // This is an active MapClass query. Missing PathGrid, real CellClass
-    // terrain, diamond bounds, or Size-height authority cannot be replaced by
-    // the compatibility projection without changing bridge pools or Z.
-    let path_grid = sim.path_grid()?;
     let resolved_terrain = sim.resolved_terrain.as_ref()?;
-    let playfield_bounds = sim.playfield_bounds?;
-    let size_height = sim.playfield_size_height?;
-    let query = naval_query(
-        path_grid,
-        resolved_terrain,
-        sim.overlay_grid.as_ref(),
-        sim.zone_grid.as_ref(),
-        playfield_bounds,
-        playfield_bounds.base,
-        size_height,
-        i32::from(width).wrapping_add(2),
-        i32::from(height).wrapping_add(2),
-    );
-    let candidate = find_nearby_passable_cell(
+    let candidate = sim.nearby_passable_cell(
         (i32::from(origin.0 as i16), i32::from(origin.1 as i16)),
-        &query,
-        sim.session.binary_frame,
+        NearbyArgs::plain(
+            PassabilityArgs {
+                speed_type: SpeedType::Float,
+                required_zone_id: None,
+                movement_zone: MovementZone::Normal,
+                bridge_aware_zone: false,
+            },
+            NearbyFootprint::new(
+                i32::from(width).wrapping_add(2),
+                i32::from(height).wrapping_add(2),
+            ),
+        ),
     )?;
     if candidate == (0, 0) {
         return None;
@@ -86,42 +76,6 @@ fn first_buildable_shipyard<'a>(
         house.side_index,
         sim.session.game_options.super_weapons,
     )
-}
-
-fn naval_query<'a>(
-    path_grid: &'a PathGrid,
-    resolved_terrain: &'a crate::map::resolved_terrain::ResolvedTerrainGrid,
-    overlay_grid: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
-    zone_grid: Option<&'a crate::sim::pathfinding::zone_map::ZoneGrid>,
-    playfield_bounds: crate::sim::cell_rect::PlayfieldBounds,
-    size_width: i32,
-    size_height: i32,
-    footprint_width: i32,
-    footprint_height: i32,
-) -> NearbyQuery<'a> {
-    NearbyQuery {
-        native_cells: None,
-        raw_occupation: None,
-        passability: PassabilityArgs {
-            speed_type: SpeedType::Float,
-            required_zone_id: None,
-            movement_zone: MovementZone::Normal,
-            bridge_aware_zone: false,
-        },
-        footprint: NearbyFootprint::new(footprint_width, footprint_height),
-        allow_bridge_cells: true,
-        check_height: false,
-        check_occupancy: false,
-        radius_cap: map_owned_radius_cap(size_width, size_height),
-        target_cell: None,
-        path_grid: Some(path_grid),
-        resolved_terrain: Some(resolved_terrain),
-        overlay_grid,
-        occupancy: None,
-        entities: None,
-        zone_grid,
-        playfield_bounds: Some(playfield_bounds),
-    }
 }
 
 /// Compare the chosen CellClass center against exactly the first acquired live
@@ -154,26 +108,16 @@ fn first_yard_distance_accepts(
         return false;
     }
 
-    let signed_x = i32::from(candidate.0 as i16);
-    let signed_y = i32::from(candidate.1 as i16);
-    let cell_x = signed_x
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
-    let cell_y = signed_y
-        .wrapping_mul(crate::sim::cell_kernel::LEPTONS_PER_CELL)
-        .wrapping_add(crate::sim::cell_kernel::CELL_CENTER_LEPTONS);
     let Some(cell) = terrain.cell(candidate.0, candidate.1) else {
         return false;
     };
-    let Ok(cell_z) =
-        crate::util::lepton::ground_height_leptons(cell.level, cell.slope_type, cell_x, cell_y)
-    else {
+    let Some(center) = crate::sim::cell_rect::CellRef::Real(cell).center_coordinate() else {
         return false;
     };
 
     let yard_coord = crate::sim::movement::ground_pose::object_get_coords(yard, Some(terrain));
     let distance = crate::util::native_x87::distance_3d_leptons(
-        [cell_x, cell_y, cell_z],
+        [center.x, center.y, center.z],
         [yard_coord.x, yard_coord.y, yard_coord.z],
     );
     let cap = rules.ai_naval_yard_adjacency.wrapping_shl(8);
@@ -182,587 +126,47 @@ fn first_yard_distance_accepts(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use std::collections::BTreeSet;
-
-    use crate::map::bridge_facts::{BRIDGE_FLAG_FORWARD_SIDE, BRIDGE_FLAG_STRUCTURAL};
-    use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
+    use super::find_naval_base_placement;
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
-    use crate::sim::cell_rect::PlayfieldBounds;
-    use crate::sim::combat::Health;
-    use crate::sim::game_entity::GameEntity;
+    use crate::rules::ruleset::RuleSet;
 
-    fn water_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
-        let speed_costs = SpeedCostProfile {
-            float: Some(100),
-            ..Default::default()
-        };
-        ResolvedTerrainCell {
-            tileset_index: None,
-            land_type: LandType::Water.as_index(),
-            yr_cell_land_type: LandType::Water.as_index(),
-            terrain_class: TerrainClass::Water,
-            speed_costs,
-            is_water: true,
-            zone_type: zone_class::WATER,
-            base_land_type: LandType::Water.as_index(),
-            base_yr_cell_land_type: LandType::Water.as_index(),
-            base_terrain_class: TerrainClass::Water,
-            base_speed_costs: speed_costs,
-            ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
-        }
-    }
-
-    fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-        ResolvedTerrainGrid::from_cells(
-            width,
-            height,
-            (0..height)
-                .flat_map(|ry| (0..width).map(move |rx| water_cell(rx, ry)))
-                .collect(),
+    /// The naval branch `0x005060E8..0x00506213` seeds FNPC (`0x00506193`)
+    /// at the base origin with the plain pushes `0x0050616D..0x0050618D`
+    /// (Float, zone -1, Normal) and the yard's Foundation width + 2 by
+    /// height + 2 (`0x00506125`, `0x0050613B`). Each CellRect cell fails on
+    /// any raw ground occupation bit (`CheckCellPassability @ 0x004834A0`,
+    /// `0x00483552..0x0048357A`), so an object in the seed's 4x3 rect moves
+    /// the site to a ring-1 cell whose rect misses it.
+    #[test]
+    fn raw_ground_occupation_in_the_yard_rect_moves_the_site() {
+        let ini = IniFile::from_str(
+            "[Countries]\n0=Americans\n1=Russians\n[General]\nShipyard=GAYARD\n\
+             [BuildingTypes]\n0=GAYARD\n[GAYARD]\nOwner=Russians\nNaval=yes\n\
+             [Water]\nFloat=100%\n",
+        );
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &ini,
+            &IniFile::from_str("[GAYARD]\nFoundation=2x1\n"),
         )
-    }
-
-    fn broad_bounds() -> PlayfieldBounds {
-        PlayfieldBounds {
-            base: 0,
-            off_fc: -128,
-            off_100: -128,
-            off_104: 256,
-            off_108: 256,
-        }
-    }
-
-    fn selector_rules(
-        shipyards: &[&str],
-        sections: &str,
-        art_sections: &str,
-        build_tech: &str,
-        adjacency: i32,
-    ) -> RuleSet {
-        let registry = shipyards
-            .iter()
-            .enumerate()
-            .map(|(index, id)| format!("{index}={id}"))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let shipyard_list = shipyards.join(",");
-        let text = format!(
-            "[General]\nShipyard={shipyard_list}\nAINavalYardAdjacency={adjacency}\n\
-             [AI]\nBuildTech={build_tech}\n\
-             [Countries]\n0=Americans\n1=Russians\n2=YuriCountry\n\
-             [Sides]\nAllied=Americans\nSoviet=Russians\nThird=YuriCountry\n\
-             [Americans]\nName=AlliedAlias\nSide=Allied\n\
-             [Russians]\nName=SovietAlias\nSide=Soviet\n\
-             [YuriCountry]\nName=YuriAlias\nSide=Third\n\
-             [InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
-             [BuildingTypes]\n{registry}\n{sections}\n\
-             [SuperWeaponTypes]\n0=DISABLED_SW\n1=FIXED_SW\n\
-             [DISABLED_SW]\nType=MultiMissile\nDisableableFromShell=yes\n\
-             [FIXED_SW]\nType=MultiMissile\nDisableableFromShell=no\n"
-        );
-        RuleSet::from_ini_with_fixed_art_for_test(
-            &IniFile::from_str(&text),
-            &IniFile::from_str(art_sections),
-        )
-        .expect("selector rules")
-    }
-
-    fn naval_integration_rules() -> RuleSet {
-        RuleSet::from_ini_with_fixed_art_for_test(&crate::sim::arena_fixture::clear_ground_ini(
-            "[General]\nShipyard=GAYARD\nAINavalYardAdjacency=0\n\
-             [AI]\nBuildConst=gacnst\n\
-             [Countries]\n0=Americans\n[Sides]\nAllied=Americans\n[Americans]\nSide=Allied\n\
-             [InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n\
-             [BuildingTypes]\n0=GAYARD\n1=NAVAL\n2=LAND\n3=GACNST\n\
-             [GAYARD]\nOwner=Americans\n\
-             [NAVAL]\nNaval=yes\n\
-             [LAND]\nName=Land Building\n\
-             [GACNST]\nStrength=1000\nOwner=Americans\nConstructionYard=yes\n",
-        ), &IniFile::from_str("[GAYARD]\nFoundation=1x1\n[NAVAL]\nFoundation=1x1\n[LAND]\nFoundation=1x1\n[GACNST]\nFoundation=1x1\n"))
-        .expect("naval integration rules")
-    }
-
-    fn selector_sim(
-        country: &str,
-        side: u8,
-        super_weapons: bool,
-    ) -> (Simulation, crate::sim::intern::InternedId) {
-        let mut sim = Simulation::new();
-        sim.session.game_options.super_weapons = super_weapons;
-        let owner = sim.interner.intern("AIHouse");
-        let country = sim.interner.intern(country);
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, side, Some(country), false, 10_000, 10),
-        );
-        (sim, owner)
-    }
-
-    fn selected_id<'a>(
-        rules: &'a RuleSet,
-        sim: &Simulation,
-        owner: crate::sim::intern::InternedId,
-    ) -> Option<&'a str> {
-        first_buildable_shipyard(rules, sim, &sim.houses[&owner]).map(|object| object.id.as_str())
-    }
-
-    #[test]
-    fn shipyard_selector_exact_gate_truth_table_and_source_fallthrough() {
-        let rules = selector_rules(
-            &["YARD"],
-            "[YARD]\nName=Yard",
-            "[YARD]\nFoundation=4x4",
-            "",
-            20,
-        );
-        let (sim, owner) = selector_sim("Americans", 0, true);
-        assert_eq!(
-            selected_id(&rules, &sim, owner),
-            None,
-            "native zero-default Owner mask rejects"
-        );
-
-        let rules = selector_rules(
-            &["YARD"],
-            "[YARD]\nOwner=Americans",
-            "[YARD]\nFoundation=4x4",
-            "",
-            20,
-        );
-        let (sim, owner) = selector_sim("Americans", 0, true);
-        assert_eq!(
-            selected_id(&rules, &sim, owner),
-            Some("YARD"),
-            "an explicit matching Owner mask accepts"
-        );
-
-        let rejected = [
-            ("Owner=SovietAlias", "Owner mask"),
-            ("RequiredHouses=Russians", "RequiredHouses mask"),
-            ("ForbiddenHouses=AlliedAlias", "ForbiddenHouses mask"),
-            ("AIBasePlanningSide=1", "signed side"),
-        ];
-        for (gate, label) in rejected {
-            let sections = format!("[YARD]\n{gate}");
-            let rules = selector_rules(&["YARD"], &sections, "[YARD]\nFoundation=4x4", "", 20);
-            let (sim, owner) = selector_sim("Americans", 0, true);
-            assert_eq!(selected_id(&rules, &sim, owner), None, "{label}");
-        }
-
-        let rules = selector_rules(
-            &["BAD", "GOOD"],
-            "[BAD]\nOwner=Russians\n\
-             [GOOD]\nOwner=AlliedAlias\nRequiredHouses=Americans\nForbiddenHouses=Russians\nAIBasePlanningSide=0",
-            "[BAD]\nFoundation=2x2\n[GOOD]\nFoundation=4x4\n",
-            "",
-            20,
-        );
-        let (sim, owner) = selector_sim("Americans", 0, true);
-        assert_eq!(selected_id(&rules, &sim, owner), Some("GOOD"));
-
-        let enabled = selector_rules(
-            &["YARD"],
-            "[YARD]\nOwner=Americans\nSuperWeapon=DISABLED_SW\n\
-             TechLevel=-1\nPrerequisite=MISSING\nBuildLimit=1\nCost=999999\nAIBuildThis=no",
-            "[YARD]\nFoundation=4x4\n",
-            "",
-            20,
-        );
-        let (sim, owner) = selector_sim("Americans", 0, true);
-        assert_eq!(selected_id(&enabled, &sim, owner), Some("YARD"));
-
-        let cases = [
-            (
-                "[YARD]\nOwner=Americans",
-                "",
-                Some("YARD"),
-                "absent primary",
-            ),
-            (
-                "[YARD]\nOwner=Americans\nSuperWeapon=DISABLED_SW",
-                "YARD",
-                Some("YARD"),
-                "BuildTech exemption",
-            ),
-            (
-                "[YARD]\nOwner=Americans\nSuperWeapon=FIXED_SW",
-                "",
-                Some("YARD"),
-                "non-disableable primary",
-            ),
-            (
-                "[YARD]\nOwner=Americans\nSuperWeapon=DISABLED_SW",
-                "",
-                None,
-                "disableable primary",
-            ),
-            (
-                "[YARD]\nOwner=Americans\nSuperWeapon2=DISABLED_SW",
-                "",
-                Some("YARD"),
-                "ignored SuperWeapon2",
-            ),
-        ];
-        for (section, build_tech, expected, label) in cases {
-            let rules =
-                selector_rules(&["YARD"], section, "[YARD]\nFoundation=4x4", build_tech, 20);
-            let (sim, owner) = selector_sim("Americans", 0, false);
-            assert_eq!(selected_id(&rules, &sim, owner), expected, "{label}");
-        }
-
-        let rules = selector_rules(&["YARD"], "[YARD]\nOwner=Russians", "", "", 20);
-        let (sim, owner) = selector_sim("Americans", 0, true);
-        assert_eq!(selected_id(&rules, &sim, owner), None, "no fallback");
-    }
-
-    #[test]
-    fn retail_side_order_resolves_each_four_by_four_shipyard_to_six_by_six() {
-        let rules = selector_rules(
-            &["GAYARD", "NAYARD", "YAYARD"],
-            "[GAYARD]\nOwner=Americans\n\
-             [NAYARD]\nOwner=Russians\n\
-             [YAYARD]\nOwner=YuriCountry",
-            "[GAYARD]\nFoundation=4x4\n[NAYARD]\nFoundation=4x4\n[YAYARD]\nFoundation=4x4\n",
-            "",
-            20,
-        );
-        for (country, side, expected) in [
-            ("Americans", 0, "GAYARD"),
-            ("Russians", 1, "NAYARD"),
-            ("YuriCountry", 2, "YAYARD"),
-        ] {
-            let (sim, owner) = selector_sim(country, side, true);
-            let width_type = first_buildable_shipyard(&rules, &sim, &sim.houses[&owner]).unwrap();
-            let width =
-                crate::rules::foundation::foundation_dimensions(&width_type.foundation).0 + 2;
-            let height_type = first_buildable_shipyard(&rules, &sim, &sim.houses[&owner]).unwrap();
-            let height =
-                crate::rules::foundation::foundation_dimensions(&height_type.foundation).1 + 2;
-            assert_eq!(width_type.id, expected);
-            assert_eq!((width, height), (6, 6));
-        }
-    }
-
-    #[test]
-    fn naval_query_transcript_uses_literal_native_arguments_and_frame_modulo() {
-        let mut terrain = water_terrain(24, 24);
-        terrain.cell_mut(12, 12).unwrap().speed_costs.float = Some(0);
-        let path = PathGrid::from_resolved_terrain(&terrain);
-        let query = naval_query(&path, &terrain, None, None, broad_bounds(), 24, 24, 1, 1);
-        assert_eq!(query.passability.speed_type, SpeedType::Float);
-        assert_eq!(query.passability.required_zone_id, None);
-        assert_eq!(query.passability.movement_zone, MovementZone::Normal);
-        assert!(!query.passability.bridge_aware_zone);
-        assert_eq!(query.footprint, NearbyFootprint::new(1, 1));
-        assert!(query.allow_bridge_cells);
-        assert!(!query.check_height);
-        assert!(!query.check_occupancy);
-        assert!(query.target_cell.is_none());
-        assert!(query.occupancy.is_none() && query.entities.is_none());
-        assert!(query.resolved_terrain.is_some());
-
-        let picks = (0..9)
-            .map(|frame| find_nearby_passable_cell((12, 12), &query, frame).unwrap())
-            .collect::<Vec<_>>();
-        assert!(picks.iter().all(|&cell| cell != (12, 12)));
-        assert!(picks.iter().copied().collect::<BTreeSet<_>>().len() > 1);
-        assert_eq!(picks[0], picks[8], "eight ring-one entries wrap modulo");
-    }
-
-    #[test]
-    fn naval_origin_fallback_and_exact_map_authority_are_independent_of_ordinary_base() {
-        let rules = naval_integration_rules();
-        let mut sim = Simulation::new();
-        sim.session.binary_frame = 0;
-        sim.session.map_width = 24;
-        sim.session.map_height = 24;
-        sim.playfield_bounds = Some(broad_bounds());
-        sim.playfield_size_height = Some(24);
-        sim.resolved_terrain = Some(water_terrain(24, 24));
-        let path = PathGrid::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap());
-        sim.install_fixture_path_grid(Some(&path));
-        let owner = sim.interner.intern("AIHouse");
-        let country = sim.interner.intern("Americans");
-        let mut house = HouseState::new(owner, 0, Some(country), false, 10_000, 10);
-        house.base_center = Some((10, 10));
-        house.alternate_base_center = (15, 15);
-        sim.houses.insert(owner, house);
-
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_water_arena(&rules, 0, 32);
+        let owner = sim.interner.intern("Russians");
+        let house = sim.houses.get_mut(&owner).unwrap();
+        house.country = Some(owner);
+        house.base_center = Some((16, 16));
         assert_eq!(
             find_naval_base_placement(&sim, &rules, owner),
-            Some((15, 15)),
-            "nonzero alternate packed cell overrides primary"
+            Some((16, 16))
         );
-        sim.houses.get_mut(&owner).unwrap().alternate_base_center = (0, 0);
+
+        // The far corner of the seed's 4x3 rect; a 3x4 rect would miss it.
+        sim.substrate.raw_cell_occupation.mark_ground(19, 18, 0x40);
+        // Ring 1's first cell, whose rect (15..=18, 15..=17) misses (19, 18),
+        // is the frame-0 pick.
+        assert_eq!(sim.session.binary_frame, 0);
         assert_eq!(
             find_naval_base_placement(&sim, &rules, owner),
-            Some((10, 10)),
-            "packed-zero alternate falls back to primary"
+            Some((15, 15))
         );
-        sim.houses.get_mut(&owner).unwrap().base_center = None;
-        assert_eq!(
-            find_naval_base_placement(&sim, &rules, owner),
-            None,
-            "absent Rust primary projects native packed zero and is rejected normally"
-        );
-        sim.houses.get_mut(&owner).unwrap().base_center = Some((10, 10));
-
-        let grid = sim.path_grid.take();
-        assert!(find_naval_base_placement(&sim, &rules, owner).is_none());
-        sim.path_grid = grid;
-        let terrain = sim.resolved_terrain.take();
-        assert!(find_naval_base_placement(&sim, &rules, owner).is_none());
-        sim.resolved_terrain = terrain;
-        let bounds = sim.playfield_bounds.take();
-        assert!(find_naval_base_placement(&sim, &rules, owner).is_none());
-        sim.playfield_bounds = bounds;
-        let size_height = sim.playfield_size_height.take();
-        assert!(find_naval_base_placement(&sim, &rules, owner).is_none());
-        sim.playfield_size_height = size_height;
-    }
-
-    #[test]
-    fn naval_caller_replays_forward_bridge_projection_before_frame_pool_selection() {
-        let rules = naval_integration_rules();
-        let owner_name = "AIHouse";
-
-        let run = |terrain: ResolvedTerrainGrid| {
-            let path = PathGrid::from_resolved_terrain(&terrain);
-            let mut sim = Simulation::new();
-            sim.session.binary_frame = 0;
-            sim.playfield_bounds = Some(broad_bounds());
-            sim.playfield_size_height = Some(20);
-            let owner = sim.interner.intern(owner_name);
-            let country = sim.interner.intern("Americans");
-            let mut house = HouseState::new(owner, 0, Some(country), false, 10_000, 10);
-            house.base_center = Some((5, 5));
-            sim.houses.insert(owner, house);
-            sim.resolved_terrain = Some(terrain);
-            sim.install_fixture_path_grid(Some(&path));
-            find_naval_base_placement(&sim, &rules, owner)
-        };
-
-        assert_eq!(run(water_terrain(20, 20)), Some((5, 5)));
-        let mut projected = water_terrain(20, 20);
-        projected.cell_mut(5, 5).unwrap().bridge_facts.raw_flags = BRIDGE_FLAG_FORWARD_SIDE;
-        projected.cell_mut(6, 6).unwrap().bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
-        assert_eq!(
-            run(projected),
-            Some((4, 4)),
-            "the seed becomes indirect and frame zero selects the first direct ring-one cell"
-        );
-    }
-
-    fn distance_rules(adjacency: i32) -> RuleSet {
-        selector_rules(&[], "", "", "", adjacency)
-    }
-
-    fn live_yard(sim: &mut Simulation, id: u64, cell: (u16, u16), foundation: &str) {
-        let owner = sim.interner.intern("AIHouse");
-        let type_ref = sim.interner.intern("CONYARD");
-        let mut yard = GameEntity::new_at_frame_zero_for_test(
-            id,
-            cell.0,
-            cell.1,
-            0,
-            0,
-            owner,
-            Health::new(1000),
-            type_ref,
-            EntityCategory::Structure,
-            0,
-            5,
-            false,
-        );
-        yard.type_facts
-            .set_foundation_for_test(foundation.to_string());
-        yard.type_facts.set_build_const_eligible_for_test(true);
-        yard.lifecycle.set_in_limbo_for_test(false);
-        yard.lifecycle.set_cell_marked(true);
-        sim.substrate.entities.insert(yard);
-    }
-
-    #[test]
-    fn first_yard_cap_uses_order_foundation_center_cellclass_z_and_signed_threshold() {
-        let mut sim = Simulation::new();
-        let terrain = water_terrain(32, 32);
-        let mut house = HouseState::default();
-        assert!(first_yard_distance_accepts(
-            &sim,
-            &distance_rules(0),
-            &house,
-            (11, 11),
-            &terrain
-        ));
-
-        live_yard(&mut sim, 20, (10, 10), "4x4");
-        house.build_const_order.push(20);
-        assert!(
-            first_yard_distance_accepts(&sim, &distance_rules(1), &house, (11, 11), &terrain),
-            "4x4 GetCoords lies between cell centers: its 181-lepton diagonal fits the one-cell cap"
-        );
-
-        live_yard(&mut sim, 10, (1, 1), "1x1");
-        house.build_const_order = vec![10, 20];
-        assert!(
-            !first_yard_distance_accepts(&sim, &distance_rules(1), &house, (11, 11), &terrain),
-            "first acquisition wins even though stable-id-later yard is at the candidate"
-        );
-
-        live_yard(&mut sim, 30, (10, 10), "1x1");
-        house.build_const_order = vec![30];
-        assert!(
-            first_yard_distance_accepts(&sim, &distance_rules(1), &house, (11, 10), &terrain),
-            "distance equal to the shifted signed cap is admitted"
-        );
-        assert!(
-            !first_yard_distance_accepts(&sim, &distance_rules(1), &house, (12, 10), &terrain),
-            "distance greater than the cap is rejected"
-        );
-        assert!(!first_yard_distance_accepts(
-            &sim,
-            &distance_rules(-1),
-            &house,
-            (10, 10),
-            &terrain
-        ));
-
-        let mut elevated = water_terrain(32, 32);
-        elevated.cell_mut(10, 10).unwrap().level = 1;
-        sim.substrate
-            .entities
-            .get_mut(30)
-            .unwrap()
-            .position
-            .set_exact_z_leptons_for_test(Some(0));
-        assert!(
-            !first_yard_distance_accepts(&sim, &distance_rules(0), &house, (10, 10), &elevated),
-            "CellClass 104-lepton terrain Z makes this nonzero despite identical 2D coordinates"
-        );
-        sim.substrate
-            .entities
-            .get_mut(30)
-            .unwrap()
-            .position
-            .set_exact_z_leptons_for_test(Some(104));
-        assert!(first_yard_distance_accepts(
-            &sim,
-            &distance_rules(0),
-            &house,
-            (10, 10),
-            &elevated
-        ));
-    }
-
-    #[test]
-    fn parsed_readai_buildconst_populates_house_and_enforces_naval_cap() {
-        let rules = naval_integration_rules();
-        assert_eq!(rules.build_const_types, ["gacnst"]);
-        assert!(rules.object("GACNST").unwrap().build_const_eligible);
-
-        let mut sim = Simulation::new();
-        sim.session.binary_frame = 0;
-        sim.playfield_bounds = Some(broad_bounds());
-        sim.playfield_size_height = Some(24);
-        sim.resolved_terrain = Some(water_terrain(24, 24));
-        // The land construction yard has a legal 1x1 clear foundation; its
-        // adjacent naval candidate remains water for the zero-distance test.
-        *sim.resolved_terrain
-            .as_mut()
-            .unwrap()
-            .cell_mut(10, 10)
-            .unwrap() = crate::map::resolved_terrain::test_clear_cell(10, 10);
-        let owner = sim.interner.intern("AIHouse");
-        let country = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, 0, Some(country), false, 10_000, 10),
-        );
-        let yard = sim
-            .spawn_object("GACNST", "AIHouse", 10, 10, 0, &rules)
-            .expect("parsed BuildConst Construction Yard reveals");
-        assert_eq!(sim.houses[&owner].build_const_order, [yard]);
-        assert!(
-            sim.entities()
-                .get(yard)
-                .unwrap()
-                .type_facts
-                .build_const_eligible()
-        );
-
-        sim.houses.get_mut(&owner).unwrap().base_center = Some((11, 10));
-        let path = PathGrid::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap());
-        sim.install_fixture_path_grid(Some(&path));
-        assert_eq!(
-            find_naval_base_placement(&sim, &rules, owner),
-            None,
-            "the zero-cell cap rejects the adjacent result once the parsed yard reaches House state"
-        );
-
-        sim.houses
-            .get_mut(&owner)
-            .unwrap()
-            .build_const_order
-            .clear();
-        assert_eq!(
-            find_naval_base_placement(&sim, &rules, owner),
-            Some((11, 10)),
-            "the same query would pass only through the native empty-vector bypass"
-        );
-    }
-
-    #[test]
-    fn a_naval_building_site_comes_from_the_naval_branch_and_the_house_origin() {
-        let rules = naval_integration_rules();
-        let mut sim = Simulation::new();
-        sim.session.binary_frame = 1;
-        sim.session.map_width = 32;
-        sim.session.map_height = 32;
-        // Keep the entire admissible diamond inside the populated 32x32 map.
-        // The broad query fixture admits missing cells too; blocking only real
-        // Float rows there does not mean that every candidate is blocked.
-        sim.playfield_bounds = Some(PlayfieldBounds::from_normalized_local_size(16, 2, 2, 12, 8));
-        sim.playfield_size_height = Some(32);
-        sim.resolved_terrain = Some(water_terrain(32, 32));
-        let path = PathGrid::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap());
-        sim.install_fixture_path_grid(Some(&path));
-        let owner = sim.interner.intern("AIHouse");
-        let country = sim.interner.intern("Americans");
-        let mut house = HouseState::new(owner, 0, Some(country), false, 10_000, 10);
-        house.base_center = Some((12, 12));
-        house.alternate_base_center = (15, 15);
-        sim.houses.insert(owner, house);
-        let naval = rules.object("NAVAL").unwrap();
-        let land = rules.object("LAND").unwrap();
-        let site = |sim: &Simulation, ty| {
-            crate::sim::ai_base_site::find_base_building_site(
-                sim,
-                &rules,
-                owner,
-                ty,
-                crate::sim::ai_base_site::SiteKey::Ordinary,
-                None,
-            )
-        };
-
-        let naval_site = find_naval_base_placement(&sim, &rules, owner)
-            .expect("open water around the house origin");
-        assert_eq!(
-            site(&sim, naval),
-            (naval_site.0 as i16, naval_site.1 as i16)
-        );
-        // Without a plan centre an ordinary type takes the alternate origin.
-        assert_eq!(site(&sim, land), (15, 15));
-
-        let mut blocked = sim;
-        for cell in &mut blocked.resolved_terrain.as_mut().unwrap().cells {
-            cell.speed_costs.float = Some(0);
-        }
-        let blocked_path =
-            PathGrid::from_resolved_terrain(blocked.resolved_terrain.as_ref().unwrap());
-        blocked.path_grid = Some(std::sync::Arc::new(blocked_path));
-        assert_eq!(site(&blocked, naval), (0, 0));
     }
 }

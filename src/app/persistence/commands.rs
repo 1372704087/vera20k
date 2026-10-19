@@ -97,23 +97,27 @@ fn save(
         .as_ref()
         .ok_or(SaveCommandError::MissingResources("map source"))?;
     let presentation = &state.match_state.match_presentation;
-    let local_view = state.match_state.input.capture_saved_local_view(
+    let mut local_view = state.match_state.input.capture_saved_local_view(
         sim,
         &runtime.resources.rules,
         &presentation.sidebar_gadget_state,
     )?;
-    let clock_now = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
+    local_view.set_power_bar(presentation.power_bar_anim.saved());
+    log::debug!(
+        "Save: captured Power at {}ms: {:?}",
+        state.radar_presentation_ms(),
+        presentation.power_bar_anim,
     );
+    let clock_now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     let clock_save = state
         .match_state
         .scenario_elapsed_clock
         .begin_save(clock_now);
-    let map = crate::sim::snapshot::scenario_resources::SavedMapMetadata::capture(
+    let mut map = crate::sim::snapshot::scenario_resources::SavedMapMetadata::capture(
         map_hash,
         source,
         &state.match_state.map_basic,
+        &state.match_state.map_ranking,
         &presentation.terrain_objects,
         &presentation.house_roster,
         &presentation.house_color_map,
@@ -122,6 +126,7 @@ fn save(
         state.match_state.session.local_player_name(),
         state.audio.theme.saved_slots(),
     );
+    map.set_radar_pause_credit(presentation.radar_movies.scenario_hold());
     let resources = crate::sim::snapshot::scenario_resources::SavedScenarioResourcesRef::capture(
         &runtime.resources,
         processed,
@@ -143,20 +148,21 @@ fn save(
     );
     let tick = sim.session.tick;
     let result = if let Some(path) = overwrite {
-        state.persistence.overwrite_save(path, &bytes, tick)
+        state
+            .persistence
+            .repository
+            .overwrite_existing(path, &bytes)
+            .map(|()| path.to_path_buf())
     } else {
         let filename = match sanitized {
             Some(name) => format!("save_{name}_tick{tick}_{now}.bin"),
             None => format!("save_tick{tick}_{now}.bin"),
         };
-        state.persistence.write_save(&filename, &bytes, tick)
+        state.persistence.repository.write_named(&filename, &bytes)
     };
     // Keep I/O dwell out of the source clock. VERA also resumes on a failed
     // write, preserving its live-match failure policy.
-    let clock_now = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let clock_now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     state
         .match_state
         .scenario_elapsed_clock
@@ -236,10 +242,7 @@ pub(crate) fn try_load_save_file(
     path: &Path,
 ) -> Result<(), crate::app::persistence::PreparedLoadError> {
     // UI559DBC->69BB40->5BF450 precedes the lower load, including failure.
-    let wall_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     use crate::app::persistence::{PreparedLoadError, PreparedSavedGame, SavedGamePreparationView};
@@ -259,13 +262,7 @@ pub(crate) fn try_load_save_file(
             .process_assets
             .native_rules()
             .ok_or(PreparedLoadError::MissingRules)?;
-        let clock_epoch = state.platform.frame_pacer_epoch;
-        let load_clock = || {
-            crate::app::match_runtime::frame_pacer::wall_clock_ms(
-                clock_epoch,
-                std::time::Instant::now(),
-            )
-        };
+        let load_clock = crate::app::match_runtime::frame_pacer::wall_clock_ms;
         PreparedSavedGame::from_repository(
             SavedGamePreparationView {
                 repository: &state.persistence.repository,

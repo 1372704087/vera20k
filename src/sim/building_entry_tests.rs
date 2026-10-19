@@ -158,7 +158,7 @@ fn absorb(sim: &mut Simulation, rules: &RuleSet, building: u64, count: usize) {
             .passenger_role
             .cargo_mut()
             .unwrap()
-            .board_forced(id, 1);
+            .board_forced_chain(&[(id, 1)]);
     }
 }
 
@@ -515,7 +515,8 @@ fn an_absorber_refuses_a_controller() {
 /// EnterBioReactor over its house's absorbers only: a power plant, a full
 /// reactor and another house's reactor stand nearer than the reactor with
 /// room that takes the Foot. The Foot latches, queues Enter, heads for it
-/// and boards through the adapter (module residual).
+/// and, through the Infantry setter's Enter arm, HELLOs it
+/// (`0x0051ACD4`).
 #[test]
 fn the_nearest_own_reactor_with_room_takes_the_foot() {
     let rules = rules();
@@ -540,14 +541,15 @@ fn the_nearest_own_reactor_with_room_takes_the_foot() {
         entity.navigation.nav_com(),
         Some(NavTargetRef::object(room))
     );
-    assert_eq!(entity.passenger_role.boarding_transport_id(), Some(room));
+    assert_eq!(entity.radio_contacts.slot(0), Some(room));
 }
 
 /// Equidistant absorbers through the production walk: the house's list is
 /// walked from its last and only a strictly nearer absorber replaces the
 /// pick, so the one built later takes the Foot, whichever side it stands.
 /// The seeker is a vehicle, which stands at its cell's centre (an
-/// infantryman's sub-cell spot would break the mirror).
+/// infantryman's sub-cell spot would break the mirror); the Unit setter
+/// parks the pick as its pending entry (`0x00741CE5..0x00741D0D`).
 #[test]
 fn of_equidistant_absorbers_the_later_built_takes_the_foot() {
     let rules = rules();
@@ -566,16 +568,14 @@ fn of_equidistant_absorbers_the_later_built_takes_the_foot() {
 
         assert!(seek(&mut sim, &rules, foot));
 
-        assert_eq!(
-            entity(&sim, foot).navigation.nav_com(),
-            Some(NavTargetRef::object(reactors[1]))
-        );
+        assert_eq!(entity(&sim, foot).pending_entry(), Some(reactors[1]));
     }
 }
 
-/// A Foot that is a transport keeps its cargo: the seek orders it to the
-/// absorber, but the Boarding adapter, which keeps one role per object, is
-/// not given it (module residual).
+/// A Foot that is a transport is sent to an absorber as any unit is: on
+/// the queued Enter without a contact, the Unit setter parks the absorber as
+/// its pending entry (`+0x500`) with a NULL destination
+/// (`0x00741CE5..0x00741D0D`), and its cargo stays.
 #[test]
 fn a_transport_sent_to_an_absorber_keeps_its_cargo() {
     let rules = rules();
@@ -592,10 +592,8 @@ fn a_transport_sent_to_an_absorber_keeps_its_cargo() {
         entity.mission.queued(),
         MissionId::from_known(MissionType::Enter)
     );
-    assert_eq!(
-        entity.navigation.nav_com(),
-        Some(NavTargetRef::object(absorber))
-    );
+    assert_eq!(entity.pending_entry(), Some(absorber));
+    assert_eq!(entity.navigation.nav_com(), None);
     assert!(entity.passenger_role.cargo().is_some());
 }
 
@@ -967,7 +965,7 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
         entity(&sim, reactor).position.rx(),
         entity(&sim, reactor).position.ry(),
     );
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let neighbor = |from: (u16, u16), direction: (i32, i32)| {
         (
             (i32::from(from.0) + direction.0) as u16,
@@ -1023,23 +1021,40 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
             if sound_id == "BioReactorExit"
     )));
 
+    // The scan starts behind the facing; a foundation cell refuses the Foot
+    // (its NavCom went with its entry, `0x004DF0D0`), so the first exit is
+    // the first octant off the foundation.
     let facing = entity(&sim, reactor).body_facing_current(sim.session.binary_frame);
-    let start = ((((u32::from(facing.wrapping_add(0x7FFF)) >> 12) + 1) >> 1) & 7) as usize;
-    let exit = adjacent[start];
-    let beyond = neighbor(exit, directions[start]);
+    let start = usize::from(crate::util::direction_tables::dir_from_facing16(
+        facing.wrapping_add(0x7FFF),
+    ));
+    let octant = (0..8)
+        .map(|index| (start + index) & 7)
+        .find(|&octant| {
+            let (x, y) = adjacent[octant];
+            sim.substrate.occupancy.first_building_on_layer(
+                x,
+                y,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            ) != Some(reactor)
+        })
+        .unwrap();
+    let exit = adjacent[octant];
+    let beyond = neighbor(exit, directions[octant]);
     block_foot(&mut sim, exit, false);
     block_foot(&mut sim, beyond, false);
 
     let mut expected_rng = sim.scenario_rng.clone();
     assert!(
-        crate::sim::movement::bump_crush::place_infantry_in_cell(
+        crate::sim::movement::bump_crush::pick_infantry_sublocation(
+            sim.resolved_terrain.as_ref(),
             &sim.substrate.raw_cell_occupation,
-            exit.0,
-            exit.1,
-            crate::sim::movement::locomotor::MovementLayer::Ground,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
+            &sim.substrate.occupancy,
+            &sim.substrate.entities,
+            Some(&rules),
+            &sim.interner,
             &mut expected_rng,
+            crate::sim::components::DriveCoord::cell(exit.0, exit.1, 0),
         )
         .is_some()
     );
@@ -1140,14 +1155,15 @@ fn a_bio_reactor_unlimbo_failure_keeps_the_placement_draw_and_restores_cargo() {
     let exit = (16, 9);
     let mut expected_rng = sim.scenario_rng.clone();
     assert!(
-        crate::sim::movement::bump_crush::place_infantry_in_cell(
+        crate::sim::movement::bump_crush::pick_infantry_sublocation(
+            sim.resolved_terrain.as_ref(),
             &sim.substrate.raw_cell_occupation,
-            exit.0,
-            exit.1,
-            crate::sim::movement::locomotor::MovementLayer::Ground,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
+            &sim.substrate.occupancy,
+            &sim.substrate.entities,
+            Some(&rules),
+            &sim.interner,
             &mut expected_rng,
+            crate::sim::components::DriveCoord::cell(exit.0, exit.1, 0),
         )
         .is_some()
     );
@@ -1218,7 +1234,7 @@ fn a_bio_reactor_scan_uses_location_cell_on_a_multi_cell_foundation() {
         center, base,
         "the 2x2 foundation has a distinct center cell"
     );
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let set_foot = |sim: &mut Simulation, cell: (u16, u16), cost| {
         let terrain = sim
             .resolved_terrain
@@ -1345,7 +1361,7 @@ fn a_bio_reactor_relaxed_scan_wraps_from_octant_seven() {
         .unwrap()
         .passengers()[0];
     let base = (16u16, 10u16);
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let step = |delta: (i32, i32), scale: i32| {
         (
             (i32::from(base.0) + delta.0 * scale) as u16,
@@ -1376,14 +1392,15 @@ fn a_bio_reactor_relaxed_scan_wraps_from_octant_seven() {
         .set(0x7000, sim.session.binary_frame);
     let mut expected_rng = sim.scenario_rng.clone();
     assert!(
-        crate::sim::movement::bump_crush::place_infantry_in_cell(
+        crate::sim::movement::bump_crush::pick_infantry_sublocation(
+            sim.resolved_terrain.as_ref(),
             &sim.substrate.raw_cell_occupation,
-            north.0,
-            north.1,
-            crate::sim::movement::locomotor::MovementLayer::Ground,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
+            &sim.substrate.occupancy,
+            &sim.substrate.entities,
+            Some(&rules),
+            &sim.interner,
             &mut expected_rng,
+            crate::sim::components::DriveCoord::cell(north.0, north.1, 0),
         )
         .is_some()
     );
@@ -1621,8 +1638,8 @@ fn a_bio_reactor_unload_only_dirties_power_for_positive_extra_power() {
     }
 }
 
-/// A reactor destroyed while the Foot walks to it: the adapter lets the
-/// Foot go, Mission_Enter's no-target arm idles it (`0x004D9425..
+/// A reactor destroyed while the Foot walks to it: its contact goes with
+/// the reactor, Mission_Enter's no-target arm idles it (`0x004D9425..
 /// 0x004D9466`), and its Guard head seeks again, finds no taker and clears
 /// the latch, so a team may recruit it again.
 #[test]
@@ -1633,7 +1650,7 @@ fn a_seeker_whose_reactor_dies_gives_up_and_can_be_recruited() {
     let infantry = spawn(&mut sim, &rules, "INIT", "YuriCountry", 10, 10);
     let _team = seek_team(&mut sim, 62, vec![infantry]);
     assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
-        entity(sim, infantry).passenger_role.boarding_transport_id() == Some(reactor)
+        entity(sim, infantry).radio_contacts.slot(0) == Some(reactor)
     }));
 
     sim.despawn_entity(reactor);
@@ -1651,9 +1668,12 @@ fn a_seeker_whose_reactor_dies_gives_up_and_can_be_recruited() {
     assert!(sim.team_can_add(team, infantry, true, &rules).is_some());
 }
 
-/// Two seekers for a reactor's last slot: the first in takes it, the
-/// adapter turns the other away on arrival (module residual), Mission_Enter
-/// idles it, and its Guard head finds no taker and clears the latch.
+/// Two seekers for a reactor's last slot: the first HELLOs it and holds its
+/// one radio slot (`max(NumberOfDocks, 1)`), so the Infantry setter parks
+/// the other as its pending entry (`0x0051AC6D..0x0051ACC5`). Once the
+/// first is in, the full reactor answers the other's CAN_LOAD NEGATORY
+/// (`TryEnterTransport @ 0x0070D825`), which drops the entry, and its Guard
+/// head finds no taker and clears the latch.
 #[test]
 fn a_seeker_beaten_to_the_last_slot_gives_up() {
     let rules = rules();
@@ -1687,6 +1707,201 @@ fn a_seeker_beaten_to_the_last_slot_gives_up() {
         foot.mission.current(),
         MissionId::from_known(MissionType::Enter)
     );
+}
+
+/// The cell coordinate centre of `(rx, ry)`.
+fn cell_centre(rx: u16, ry: u16) -> crate::sim::components::DriveCoord {
+    crate::sim::components::DriveCoord {
+        x: i32::from(rx) * 256 + 128,
+        y: i32::from(ry) * 256 + 128,
+        z: 0,
+    }
+}
+
+/// A Bio Reactor answers DOCK_NOW ROGER whatever its room
+/// (`0x0043C710..0x0043C72C`), and Infantry PerCellProcess's building arm
+/// asks nothing more (`0x0051A298..0x0051A2A7`): a contact ordered in while
+/// it had room goes in on arrival, past `Passengers=`.
+#[test]
+fn a_full_bio_reactor_takes_an_arriving_contact() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
+    let foot = spawn(&mut sim, &rules, "INIT", "YuriCountry", 13, 10);
+    sim.mission_assign_exact(foot, MissionId::from_known(MissionType::Enter), 0)
+        .unwrap();
+    let _ = sim.assign_destination_represented(
+        foot,
+        Some(NavTargetRef::object(reactor)),
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    );
+    assert_eq!(entity(&sim, foot).radio_contacts.slot(0), Some(reactor));
+    absorb(&mut sim, &rules, reactor, 5);
+    sim.foot_set_location_marked(
+        foot,
+        cell_centre(16, 10),
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    );
+
+    sim.per_cell_process(
+        foot,
+        crate::sim::movement::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        entity(&sim, foot).passenger_role.inside_transport_id(),
+        Some(reactor)
+    );
+    assert_eq!(occupants(&sim, reactor).len(), 6);
+}
+
+/// A unit's way into a `UnitAbsorb=` building: the Unit setter parks it as
+/// the unit's pending entry (`0x00741CE5..0x00741D0D`); Foot's AI HELLOs it,
+/// asks CAN_LOAD and takes it as destination (`TryEnterTransport @
+/// 0x0070D7E0`); on its foundation, UnitClass::PerCellProcess's absorber
+/// arm asks CAN_LOAD again and ROGER takes it in (`0x0073A237..
+/// 0x0073A31C`).
+#[test]
+fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let absorber = spawn(&mut sim, &rules, "UABSORB", "YuriCountry", 16, 10);
+    let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 12, 10);
+    assert!(seek(&mut sim, &rules, tank));
+    assert_eq!(entity(&sim, tank).pending_entry(), Some(absorber));
+
+    crate::sim::docking::building_dock::try_pending_entry(
+        &mut sim,
+        &rules,
+        tank,
+        FrameEffects::default(),
+    );
+    assert_eq!(entity(&sim, tank).pending_entry(), None);
+    assert_eq!(entity(&sim, tank).radio_contacts.slot(0), Some(absorber));
+    assert_eq!(
+        entity(&sim, tank).navigation.nav_com(),
+        Some(NavTargetRef::object(absorber))
+    );
+    // Queue_Mission(Enter, 1) commenced it (`0x0070D83C`).
+    assert_eq!(
+        entity(&sim, tank).mission.effective(),
+        MissionId::from_known(MissionType::Enter)
+    );
+    sim.foot_set_location_marked(
+        tank,
+        cell_centre(16, 10),
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    );
+
+    sim.per_cell_process(
+        tank,
+        crate::sim::movement::PerCellReason::Arrival,
+        Some(&rules),
+        None,
+        FrameEffects::default(),
+    )
+    .unwrap();
+
+    assert_eq!(
+        entity(&sim, tank).passenger_role.inside_transport_id(),
+        Some(absorber)
+    );
+    assert_eq!(occupants(&sim, absorber), [tank]);
+}
+
+/// #1045: an infantryman ordered into a Bio Reactor and retasked to Move
+/// while his step onto its foundation is paid finishes that step, but
+/// InfantryClass::PerCellProcess enters only on Enter (`0x0051A21F`), so he
+/// walks on to the Move goal and the reactor keeps no claim on him.
+#[test]
+fn a_foot_retasked_to_move_stays_out_of_the_old_absorber() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "Americans", 16, 10);
+    let foot = spawn(&mut sim, &rules, "INIT", "Americans", 10, 10);
+    let on_foundation = |rx: i32, ry: i32| (16..18).contains(&rx) && (10..12).contains(&ry);
+    let cell = |sim: &Simulation| {
+        let foot = entity(sim, foot);
+        (i32::from(foot.position.rx()), i32::from(foot.position.ry()))
+    };
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::EnterTransport {
+            passenger_id: foot,
+            transport_id: reactor,
+        },
+        Some(&rules),
+    ));
+    let stepping_on = |sim: &Simulation| {
+        let (rx, ry) = cell(sim);
+        !on_foundation(rx, ry)
+            && entity(sim, foot)
+                .locomotor
+                .as_ref()
+                .and_then(|loco| loco.step_head())
+                .is_some_and(|head| on_foundation(head.x / 256, head.y / 256))
+    };
+    assert!(
+        run_until(&mut sim, &rules, &grid, 300, stepping_on),
+        "his step onto the foundation"
+    );
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::Move {
+            entity_id: foot,
+            target_rx: 4,
+            target_ry: 10,
+        },
+        Some(&rules),
+    ));
+    let mut crossed = false;
+    for _ in 0..300 {
+        let commands = sim.take_due_commands();
+        sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
+        assert!(
+            !entity(&sim, foot).passenger_role.is_inside_transport(),
+            "he went into the old absorber"
+        );
+        let (rx, ry) = cell(&sim);
+        crossed |= on_foundation(rx, ry);
+    }
+    assert!(crossed, "the paid step carried him onto the foundation");
+    assert!(occupants(&sim, reactor).is_empty());
+    assert!(cell(&sim).0 < 16, "he walked on toward the Move goal");
+}
+
+/// An order into an absorber is admitted by the CAN_LOAD the click sends
+/// (`InfantryClass::What_Action_OnObject`, `0x0051EE1A`): the building
+/// (`0x0043C2D0`) refuses a class it does not absorb (`0x0043C43B..
+/// 0x0043C4F2`) and asks alliance, not ownership.
+#[test]
+fn an_order_into_an_absorber_is_admitted_by_its_can_load() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
+    let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
+    let guest = spawn(&mut sim, &rules, "INIT", "Americans", 10, 10);
+    let admits =
+        |sim: &Simulation, id| crate::sim::passenger::can_enter_transport(sim, &rules, id, reactor);
+    assert!(!admits(&sim, tank), "a vehicle into an infantry absorber");
+    assert!(!admits(&sim, guest), "an enemy house's infantryman");
+    for (house, ally) in [("YURICOUNTRY", "AMERICANS"), ("AMERICANS", "YURICOUNTRY")] {
+        sim.house_alliances
+            .entry(house.to_string())
+            .or_default()
+            .insert(ally.to_string());
+    }
+    assert!(admits(&sim, guest), "an allied house's infantryman");
 }
 
 /// Retail rules (every layer, gamemd-exact): the Bio Reactor takes a Yuri
@@ -1744,7 +1959,7 @@ fn the_nearest_own_bunker_with_room_takes_an_occupier() {
     );
     assert!(matches!(
         foot.navigation.nav_com(),
-        Some(NavTargetRef::Object { id } | NavTargetRef::Building { id }) if id == near
+        Some(NavTargetRef::Object { id }) if id == near
     ));
     assert!(!entity(&sim, tank).building_entry.seeking());
 
@@ -2240,6 +2455,182 @@ fn a_tank_bunker_team_member_drives_in_and_installs() {
     );
     assert_eq!(install_state(&sim, bunker), (BunkerState::Occupied, None));
     assert!(sim.team_script_vm.team(team).is_none());
+}
+
+#[test]
+fn cancelling_a_manual_bunker_entry_frees_it_for_another_tank() {
+    let rules = rules();
+    for stop in [true, false] {
+        let (mut sim, grid) = arena(&rules);
+        let bunker = spawn(&mut sim, &rules, "NATBNK", "Americans", 16, 10);
+        let first = spawn(&mut sim, &rules, "YTNK", "Americans", 10, 10);
+        let second = spawn(&mut sim, &rules, "YTNK", "Americans", 12, 14);
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::EnterBunker {
+                unit_id: first,
+                bunker_id: bunker,
+            },
+            Some(&rules)
+        ));
+        assert!(!sim.apply_command(
+            "YuriCountry",
+            &Command::Stop { entity_id: first },
+            Some(&rules)
+        ));
+        assert_eq!(
+            install_state(&sim, bunker),
+            (BunkerState::ArriveWait, Some(first))
+        );
+        assert!(run_until(&mut sim, &rules, &grid, 30, |sim| {
+            entity(sim, first).mission.current().known() == Some(MissionType::Enter)
+        }));
+        let cancel = if stop {
+            Command::Stop { entity_id: first }
+        } else {
+            Command::Move {
+                entity_id: first,
+                target_rx: 10,
+                target_ry: 18,
+            }
+        };
+        assert!(sim.apply_command("Americans", &cancel, Some(&rules)));
+        assert!(
+            sim.apply_command(
+                "Americans",
+                &Command::EnterBunker {
+                    unit_id: second,
+                    bunker_id: bunker,
+                },
+                Some(&rules)
+            ),
+            "after {cancel:?}, the empty bunker must accept the second tank"
+        );
+        assert_eq!(entity(&sim, first).bunker.link(), BunkerLink::None);
+        assert!(run_until(&mut sim, &rules, &grid, 900, |sim| {
+            entity(sim, bunker).bunker.occupant() == Some(second)
+        }));
+        assert_eq!(
+            entity(&sim, second).bunker.link(),
+            BunkerLink::Installed(bunker)
+        );
+
+        // Once installed, normal order cancellation must not eject the tank.
+        let installed_order = if stop {
+            Command::Stop { entity_id: second }
+        } else {
+            Command::Move {
+                entity_id: second,
+                target_rx: 12,
+                target_ry: 18,
+            }
+        };
+        assert!(sim.apply_command("Americans", &installed_order, Some(&rules)));
+        assert_eq!(entity(&sim, bunker).bunker.occupant(), Some(second));
+        assert_eq!(
+            entity(&sim, second).bunker.link(),
+            BunkerLink::Installed(bunker)
+        );
+    }
+}
+
+#[test]
+fn replacing_a_bunker_entry_releases_only_the_previous_bunker() {
+    let rules = rules();
+    for ai in [false, true] {
+        let (mut sim, grid) = arena(&rules);
+        let previous = spawn(&mut sim, &rules, "NATBNK", "Americans", 16, 10);
+        let next = spawn(&mut sim, &rules, "NATBNK", "Americans", 24, 18);
+        let first = spawn(&mut sim, &rules, "YTNK", "Americans", 10, 10);
+        let second = spawn(&mut sim, &rules, "YTNK", "Americans", 12, 14);
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::EnterBunker {
+                unit_id: first,
+                bunker_id: previous,
+            },
+            Some(&rules)
+        ));
+        if ai {
+            // The AI seek skips the held previous bunker and queues directly.
+            assert!(tank_bunker_seek(&mut sim, &rules, first));
+        } else {
+            assert!(sim.apply_command(
+                "Americans",
+                &Command::EnterBunker {
+                    unit_id: first,
+                    bunker_id: next,
+                },
+                Some(&rules)
+            ));
+        }
+        assert_eq!(
+            entity(&sim, first).bunker.link(),
+            BunkerLink::Approaching(next)
+        );
+        assert_eq!(install_state(&sim, previous), (BunkerState::Idle, None));
+        assert_eq!(
+            install_state(&sim, next),
+            (BunkerState::ArriveWait, Some(first))
+        );
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::EnterBunker {
+                unit_id: second,
+                bunker_id: previous,
+            },
+            Some(&rules)
+        ));
+        assert!(
+            run_until(&mut sim, &rules, &grid, 900, |sim| {
+                entity(sim, previous).bunker.occupant() == Some(second)
+                    && entity(sim, next).bunker.occupant() == Some(first)
+            }),
+            "replacement via AI seek: {ai}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "slow; run when changing tank-bunker entry"]
+fn retail_manual_tank_bunker_entry_installs_from_each_side() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let rules = &retail.rules;
+    for kind in ["LTNK", "YTNK", "MTNK", "HTNK"] {
+        for (rx, ry) in [(10, 16), (24, 16), (16, 10), (16, 24)] {
+            let (mut sim, grid) = arena(rules);
+            let bunker = spawn(&mut sim, rules, "NATBNK", "Americans", 16, 16);
+            let tank = spawn(&mut sim, rules, kind, "Americans", rx, ry);
+            assert!(
+                sim.apply_command(
+                    "Americans",
+                    &Command::EnterBunker {
+                        unit_id: tank,
+                        bunker_id: bunker
+                    },
+                    Some(rules),
+                ),
+                "{kind} at ({rx}, {ry}) admitted"
+            );
+            let installed = run_until(&mut sim, rules, &grid, 900, |sim| {
+                entity(sim, bunker).bunker.occupant() == Some(tank)
+            });
+            let unit = entity(&sim, tank);
+            assert!(
+                installed,
+                "{kind} from ({rx}, {ry}): cell {:?}, nav {:?}, mission {:?}, link {:?}, bunker {:?}",
+                (unit.position.rx(), unit.position.ry()),
+                unit.navigation.nav_com(),
+                unit.mission,
+                unit.bunker.link(),
+                install_state(&sim, bunker)
+            );
+            assert_eq!(unit.bunker.link(), BunkerLink::Installed(bunker));
+        }
+    }
 }
 
 /// A bunker destroyed while a seeker drives to it, or a seeker destroyed on

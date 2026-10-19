@@ -4,8 +4,8 @@
 //! This module owns production charging and the queue-of-record: a build
 //! starts owing its house's Cost_Of without a money check, `step_all` steps
 //! each build once per rate and charges `balance/steps_left` per step, a
-//! shortfall rewinds the step onto on-hold, a user hold clears the rate until
-//! the same type is produced again, and an abandoned build reports the Balance
+//! shortfall rewinds the step onto on-hold, a user hold sets suspension across
+//! rate refreshes until same-type Resume, and an abandoned build reports the Balance
 //! it still owed for the lifecycle owner's refund. State here is serialized
 //! and folded into the lockstep hash.
 //!
@@ -21,6 +21,7 @@
 //! NEVER on render/ui/audio/net (sim invariant #1).
 
 use std::collections::{BTreeMap, VecDeque};
+use std::hash::{Hash, Hasher};
 
 use crate::rules::object_type::{BuildCategory, FactoryType, ObjectCategory, ObjectType};
 use crate::rules::ruleset::RuleSet;
@@ -86,14 +87,15 @@ pub struct QueueEntry {
 
 /// One authoritative production state machine per (house, category), owned by
 /// `FactoryRegistry`. The factory retains its unpaid obligation; Economy owns cash.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Factory {
     pub owner: InternedId,
     pub category: ProductionCategory,
     /// `0..=54`; completion at `PRODUCTION_STEPS`.
     pub progress: u16,
     /// Frames per step, `clamp(Time_To_Build / 54, 1, 255)` (Factory `+0x38`);
-    /// `0` before the build starts and once it completes.
+    /// `0` before the build starts and after Suspend/completion, until the
+    /// House's rate-only reassessment may rewrite it independently of +70.
     pub step_rate_frames: u16,
     /// The step timer (Factory `+0x2C`), anchored to the native frame: a step
     /// comes once `step_rate_frames` frames have passed since the last one.
@@ -106,17 +108,16 @@ pub struct Factory {
     /// The last step could not be afforded (Factory `+0x5C`); the step was
     /// rewound and the next one retries at the same rate.
     pub on_hold: bool,
-    /// Complete and not yet delivered: the completing step set Factory `+0x70`
-    /// and cleared the rate (`0x004C9C06..`).
+    /// Factory `+0x70`, shared by Suspend4C9E60 and completion4C9C06.
+    /// The rate-only House power pass4CA6E0 preserves this authority even
+    /// when it restores a nonzero rate on a user-held or completed factory.
+    /// Native evidence: tools/sidebar_oracle/factory_hold_resume.md.
     pub suspended: bool,
-    /// The user's hold: `FactoryClass::Suspend(1) @ 0x004C9E60` set Factory
-    /// `+0x70` with its `+0x71` latch and cleared the rate. A PRODUCE of the
-    /// same type restarts it (`Factory::resume`). The system hold (`Suspend(0)`,
-    /// which `HouseClass::Update_Factory_Queue @ 0x00509140` takes at
-    /// `0x0050924D` when only offline factories could build the object and
-    /// lifts at `0x00509283`) is not ported: see
-    /// `FactoryRegistry::plan_revalidation`.
-    pub manual: bool,
+    /// Factory+71: blocks House50927C's automatic recovery while +70 is set.
+    /// Constructor4C98F7 and affordable Resume4C9F6C set it; accepted
+    /// Suspend4C9E71 writes its argument. It is not a second pause flag.
+    /// Only this owner mutates it; save/hash retain the distinction.
+    auto_resume_blocked: bool,
     /// FIFO queue-of-record waiting behind the active object (Factory `+0x40`).
     pub queue: VecDeque<QueueEntry>,
     /// The factory's construction order: gamemd appends each new FactoryClass
@@ -135,9 +136,78 @@ pub struct Factory {
     changed: bool,
 }
 
+impl Default for Factory {
+    fn default() -> Self {
+        Self {
+            owner: Default::default(),
+            category: Default::default(),
+            progress: 0,
+            step_rate_frames: 0,
+            step_timer: Default::default(),
+            balance: 0,
+            object: None,
+            on_hold: false,
+            suspended: false,
+            auto_resume_blocked: true,
+            queue: Default::default(),
+            insertion_seq: 0,
+            changed: false,
+        }
+    }
+}
+
 impl Factory {
-    pub(crate) fn has_changed(&self) -> bool {
-        self.changed
+    /// The world chooses registry holder order;
+    /// this owner folds the complete Factory state, including private latches.
+    pub(crate) fn hash_state(&self, hasher: &mut impl Hasher) {
+        self.owner.hash(hasher);
+        (self.category as u8).hash(hasher);
+        self.insertion_seq.hash(hasher);
+        self.progress.hash(hasher);
+        self.step_rate_frames.hash(hasher);
+        self.step_timer.start_frame().hash(hasher);
+        self.step_timer.duration().hash(hasher);
+        self.balance.hash(hasher);
+        match &self.object {
+            Some(object) => {
+                1u8.hash(hasher);
+                object.type_id.hash(hasher);
+                match object.entity_id {
+                    Some(entity) => {
+                        1u8.hash(hasher);
+                        entity.hash(hasher);
+                    }
+                    None => 0u8.hash(hasher),
+                }
+                object.completion_accounted.hash(hasher);
+            }
+            None => 0u8.hash(hasher),
+        }
+        self.on_hold.hash(hasher);
+        self.suspended.hash(hasher);
+        self.auto_resume_blocked.hash(hasher);
+        if self.changed {
+            b"factory-changed-5d".hash(hasher);
+        }
+        (self.queue.len() as u64).hash(hasher);
+        for entry in &self.queue {
+            entry.type_id.hash(hasher);
+            entry.enqueue_order.hash(hasher);
+        }
+    }
+
+    /// One read-only projection for House and Building holders. All queue,
+    /// sidebar and input consumers share FactoryView's native running test.
+    pub(super) fn view(&self) -> FactoryView<'_> {
+        FactoryView {
+            construction_order: self.insertion_seq,
+            step_rate_frames: self.step_rate_frames,
+            progress: self.progress,
+            on_hold: self.on_hold,
+            suspended: self.suspended,
+            object: self.object.as_ref(),
+            queue: &self.queue,
+        }
     }
 
     /// The step rate for a build of `time_to_build` frames: `clamp(total / 54,
@@ -146,37 +216,51 @@ impl Factory {
     /// computes it at `0x004C9EEF..0x004C9F28`; the house power pass
     /// (`0x004CA6E0`, from `0x00508D88`) rewrites only this rate.
     pub fn set_rate(&mut self, time_to_build: i32) {
-        let per_step = time_to_build / i32::from(PRODUCTION_STEPS);
-        self.step_rate_frames =
-            per_step.clamp(i32::from(STEP_RATE_MIN), i32::from(STEP_RATE_MAX)) as u16;
+        self.step_rate_frames = build_step_rate(time_to_build);
     }
 
-    /// The build start `0x004C9EA0` for a build starting at `frame`: take the
-    /// rate and restart the step timer with it (`0x004C9F20..0x004C9F34`), so
-    /// the first step comes one full rate later.
-    ///
-    /// Its tail (`0x004C9F37..0x004C9F99`) sets the `+0x71` latch when the
-    /// house can afford the next charge, which only the system hold reads, and
-    /// re-suspends the build when Begin_Production passes its held-start
-    /// argument. That argument is set only when a promoted build finds no free
-    /// factory for `FindFactory(0,1,1) @ 0x005F7900` but one for `(1,0,1)`
-    /// (`0x004FA45B`): an airfield with no free dock, or only offline
-    /// factories. Not ported (recorded residual): the aircraft that promotes
-    /// into a full airfield runs instead of starting on hold.
-    pub fn start_rate(&mut self, time_to_build: i32, frame: u32) {
+    /// FactoryResume4C9EA0 for represented Techno-held builds. Admission
+    /// precedes every write. An admitted resume clears +70 and restarts its
+    /// interval BEFORE checking AvailableMoney. A short wallet returns false
+    /// with those effects and the previous +71 intact. Only affordability
+    /// sets +71 and permits the held-start re-suspension4C9F74..4C9F99.
+    /// Special non-Techno Factory+68 products are not represented here.
+    fn resume(
+        &mut self,
+        time_to_build: i32,
+        frame: u32,
+        held_start: bool,
+        available_money: i32,
+    ) -> bool {
+        if self.object.is_none() || !self.suspended || self.progress == PRODUCTION_STEPS {
+            return false;
+        }
+        self.suspended = false;
         self.set_rate(time_to_build);
         self.step_timer = CdTimer::started(frame as i32, i32::from(self.step_rate_frames));
+        // The represented held-Techno guard above excludes stage54;
+        // native4C9F3E..4C9F4D divides by the current remaining stages.
+        let charge = self.balance / (i32::from(PRODUCTION_STEPS) - i32::from(self.progress));
+        if available_money < charge {
+            return false;
+        }
+        self.auto_resume_blocked = true;
+        if held_start {
+            self.suspend(true, frame);
+        }
+        true
     }
 
-    /// `FactoryClass::Suspend(1) @ 0x004C9E60`, the user's hold: refused when
+    /// `FactoryClass::Suspend @ 0x004C9E60`: refused when
     /// the factory is already stopped (`+0x70`, which completion sets too);
     /// otherwise the rate clears and the step timer restarts empty at `frame`.
     /// The progress, balance and a cash stall are kept.
-    fn suspend(&mut self, frame: u32) -> bool {
-        if self.object.is_none() || self.manual || self.suspended {
+    fn suspend(&mut self, user: bool, frame: u32) -> bool {
+        if self.suspended {
             return false;
         }
-        self.manual = true;
+        self.auto_resume_blocked = user;
+        self.suspended = true;
         self.step_rate_frames = 0;
         self.step_timer = CdTimer::started(frame as i32, 0);
         true
@@ -196,8 +280,8 @@ impl Factory {
     ///     (delivery, a later slice, clears the object and advances the queue).
     pub fn advance_one_step(&mut self, economy: &mut Economy) -> StepOutcome {
         // ARMED GATE: not stepping this call -> Idle. No object, or suspended
-        // (complete-held / paused), or a latched on_hold, or a manual pause.
-        if self.object.is_none() || self.suspended || self.on_hold || self.manual {
+        // (complete-held / paused), or a latched on_hold.
+        if self.object.is_none() || self.suspended || self.on_hold {
             return StepOutcome::Idle;
         }
         // Defensive: a settled factory is suspended (caught above); guard anyway.
@@ -257,52 +341,39 @@ impl Factory {
     /// cancel time (`0x004CA037..0x004CA046`), needs the owner's live cost, so
     /// the returned object carries the Balance for the lifecycle owner to
     /// credit. `None` without an active object.
-    fn abandon_production(&mut self) -> Option<AbandonedObject> {
-        let object = self.object.take()?;
-        self.changed = true; //4CA07E; a null held object does not set it.
-        let abandoned = AbandonedObject {
+    fn pending_abandonment(&self) -> Option<AbandonedObject> {
+        let object = self.object.as_ref()?;
+        Some(AbandonedObject {
             type_id: object.type_id,
             balance: self.balance,
             entity_id: object.entity_id,
-        };
-        self.progress = 0;
+        })
+    }
+
+    ///4CA053..4CA07E follows the refund. Keep held identity visible through
+    /// the destructor; PointerExpired/4CA0FF clears it afterward. Native+71
+    /// automatic-recovery latch+71 and cash-stall+5C are untouched.
+    /// NULL held performs no reset.
+    fn abandon_production(&mut self, frame: u32) -> Option<AbandonedObject> {
+        let abandoned = self.pending_abandonment()?;
         self.balance = 0;
         self.step_rate_frames = 0;
-        self.step_timer = CdTimer::default();
-        self.on_hold = false;
-        self.suspended = false;
-        self.manual = false;
-        // The queue is left intact; the caller promotes its front.
+        self.step_timer.start(frame as i32, 0);
+        self.progress = 0;
+        self.suspended = true;
+        self.changed = true;
         Some(abandoned)
     }
 
-    /// `FactoryClass::StartNextQueued @ 0x004CA5A0`: pop the queue's front into
-    /// a fresh active object seeded from `cost` (the popped type's Cost_Of,
-    /// resolved by the caller while it holds `&rules`). Returns the popped
-    /// `type_id`, or `None` when an object is still held (in flight or
-    /// finished) or the queue is empty. Like `FactoryClass::StartProduction
-    /// @ 0x004C9C70`, the new build has no rate yet; the caller's
-    /// [`Factory::start_rate`] arms it. The factory keeps its construction
-    /// order.
-    pub(crate) fn start_next_queued(&mut self, cost: i32) -> Option<InternedId> {
-        if self.object.is_some() {
+    /// Queue-pop kernel of StartNextQueued4CA5A0. The caller must pass the
+    /// popped type through HouseBeginProduction(force=1) before constructing
+    /// anything (4CA60A). Rejection consumes the entry without a new object,
+    /// timer, balance, identity or RNG draw. StartNext never deletes Factory.
+    pub(crate) fn start_next_queued(&mut self) -> Option<InternedId> {
+        if self.object.is_some() || (self.step_rate_frames != 0 && !self.suspended) {
             return None;
         }
-        let next = self.queue.pop_front()?;
-        self.object = Some(PendingObject {
-            type_id: next.type_id,
-            entity_id: None,
-            completion_accounted: false,
-        });
-        self.changed = true; // StartProduction4C9D6E, reached by StartNext.
-        self.progress = 0;
-        self.balance = seeded_balance(cost);
-        self.step_rate_frames = 0;
-        self.step_timer = CdTimer::default();
-        self.suspended = false;
-        self.on_hold = false;
-        self.manual = false;
-        Some(next.type_id)
+        self.queue.pop_front().map(|entry| entry.type_id)
     }
 }
 
@@ -344,6 +415,26 @@ const BUILD_TIME_SCALE: NativeF64Bits = NativeF64Bits::from_bits(0x3FEC_CCCC_CCC
 /// `0.01f` at `0x007F4E34`: the low-power speed when it would be zero.
 const LOW_POWER_SPEED_FLOOR: NativeF32Bits = NativeF32Bits::from_bits(0x3C23_D70A);
 
+/// `TechnoTypeClass::Time_To_Build @ 0x00711EE0`, virtual +0x88:
+/// Cost x BuildSpeed x 0.9, truncated under the process's 53-bit chop
+/// control word. Both the real Techno duration and Select6AB8A3's initial
+/// sidebar prediction call this type-level kernel.
+/// Native executable controls: tools/sidebar_oracle/pending_production.json.
+pub fn type_base_build_time(cost: i32, build_speed: NativeF64Bits) -> i32 {
+    use crate::util::native_x87::MaskedX87Chop53 as X87;
+
+    X87::ftol_i32_low_masked(X87::mul(
+        X87::mul(X87::load_i32(cost), X87::load_f64(build_speed)),
+        X87::load_f64(BUILD_TIME_SCALE),
+    ))
+}
+
+/// Resume4C9EEF and GetRate4C9FC0 share the signed total/54 clamp.
+fn build_step_rate(time_to_build: i32) -> u16 {
+    let per_step = time_to_build / i32::from(PRODUCTION_STEPS);
+    per_step.clamp(i32::from(STEP_RATE_MIN), i32::from(STEP_RATE_MAX)) as u16
+}
+
 /// `TechnoClass::Time_To_Build @ 0x006F47A0`: the frames an object takes to
 /// build, before the build start (`0x004C9EA0`) divides it into 54 steps. Each stage
 /// truncates (`_ftol`) under the process's 53-bit chop control word.
@@ -351,13 +442,7 @@ pub fn time_to_build(inputs: &TimeToBuildInputs) -> i32 {
     use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering as Order};
 
     // TechnoType vt+0x88 (`0x00711EE0`): Cost x BuildSpeed x 0.9.
-    let base = X87::ftol_i32_low_masked(X87::mul(
-        X87::mul(
-            X87::load_i32(inputs.cost),
-            X87::load_f64(inputs.build_speed),
-        ),
-        X87::load_f64(BUILD_TIME_SCALE),
-    ));
+    let base = type_base_build_time(inputs.cost, inputs.build_speed);
     // `0x006F47CE..0x006F47D7`: the country multiplier times that (FIMUL).
     let mut time = X87::ftol_i32_low_masked(X87::mul(
         X87::load_f32(inputs.country_multiplier),
@@ -525,11 +610,12 @@ pub enum CancelOutcome {
     /// Queued copies of `type_id` were removed and the active object kept. No
     /// refund — a queued item was never charged.
     QueuedRemoved,
-    /// A BuildingType with nonzero BuildCat admitted the NULL-held, empty
-    /// factory branch at4FABF6. No object exists to refund or destroy.
-    ReleasedEmpty,
-    /// The active object was abandoned; the lifecycle owner credits its
-    /// refund and destroys it (`FactoryClass::AbandonProduction @ 0x004C9FF0`
+    /// Wildcard -1 or nonzero Building BuildCat admitted NULL-held cleanup.
+    /// No object exists to refund; HouseAbandon's later queue test decides
+    /// StartNext versus Factory deletion.
+    AdmittedEmpty,
+    /// The active object was admitted for abandonment; the lifecycle owner
+    /// credits its refund and destroys it (`FactoryClass::AbandonProduction @ 0x004C9FF0`
     /// deletes the object stored at `Factory+0x58`).
     AbandonedActive(AbandonedObject),
 }
@@ -548,18 +634,9 @@ pub(super) enum EnqueueOutcome {
     AppendRefused,
 }
 
-/// Entity lifecycle work produced by prerequisite revalidation while the
-/// registry is temporarily split from `Simulation`.
-pub(crate) struct RevalidationLifecycle {
-    /// Each abandoned object with its owner, in plan order, for its refund and
-    /// destruction.
-    pub(crate) abandoned: Vec<(InternedId, AbandonedObject)>,
-    pub(crate) promoted: Vec<(InternedId, ProductionCategory, InternedId)>,
-}
-
 /// Borrow-only read view of one factory, for the lifecycle and delivery code and
-/// tests. Never mutates; never hashed. The user hold is not in it: the sidebar reads
-/// that through `production_queue::queue_view_for_owner`.
+/// tests. Never mutates or owns state; suspension covers user hold and completion.
+/// Queue, sidebar and input share its native rate/+70/IsComplete decision.
 pub struct FactoryView<'a> {
     construction_order: u64,
     step_rate_frames: u16,
@@ -573,6 +650,25 @@ pub struct FactoryView<'a> {
 impl<'a> FactoryView<'a> {
     pub fn construction_order(&self) -> u64 {
         self.construction_order
+    }
+
+    /// `FactoryClass::GetRate @ 0x004C9FB0` recomputes the held Techno's
+    /// current duration; it does not read the stored (possibly suspended)
+    /// rate. Select6AB5B3 adds one when resuming its presentation clock.
+    /// An empty Factory supplies zero duration, which the shared clamp maps
+    /// to one. Evidence: tools/sidebar_oracle/pending_production.md.
+    pub fn build_step_rate(&self, sim: &crate::sim::world::Simulation, rules: &RuleSet) -> u16 {
+        let duration = self
+            .object
+            .and_then(|object| object.entity_id)
+            .and_then(|id| sim.substrate.entities.get(id))
+            .and_then(|entity| {
+                sim.object_type(entity.type_ref(), rules).map(|object| {
+                    time_to_build(&time_to_build_inputs(sim, rules, entity.owner(), object))
+                })
+            })
+            .unwrap_or(0);
+        build_step_rate(duration)
     }
 
     /// Select6AAE01/6AAE0D and6AB2A9/6AB2B5, plus Draw6A9E9C/6A9EB0,
@@ -627,23 +723,6 @@ pub struct FactoryRegistry {
     factories: BTreeMap<FactoryHolder, Factory>,
 }
 
-/// One planned P6 revalidation disposition for a `(owner, category)` factory — the output of
-/// the read/classify phase (`plan_revalidation`), consumed by the write phase
-/// (`apply_revalidation`). Split so the classify can borrow `&Simulation` (build eligibility)
-/// while the apply borrows `&mut houses` (refund) without aliasing. Fields are module-private;
-/// the caller holds the plan opaquely.
-pub(crate) struct RevalAction {
-    owner: InternedId,
-    category: ProductionCategory,
-    /// The active in-progress object is permanently blocked -> abandon (partial refund).
-    abandon_active: bool,
-    /// Queued (tail) indices to remove (ascending; removed back-to-front in apply). No refund.
-    drop_queued: Vec<usize>,
-    /// Cost_Of of the first SURVIVING queued entry, when abandoning, so the apply can
-    /// promote it.
-    promote_cost: Option<i32>,
-}
-
 impl FactoryRegistry {
     /// Saved keys participate in factory identity; restoration must validate
     /// them against the embedded values before accepting world relationships.
@@ -675,16 +754,9 @@ impl FactoryRegistry {
 
     /// Read-only sidebar projection. Never mutates.
     pub fn view(&self, owner: InternedId, category: ProductionCategory) -> Option<FactoryView<'_>> {
-        let f = self.factories.get(&FactoryHolder::House(owner, category))?;
-        Some(FactoryView {
-            construction_order: f.insertion_seq,
-            step_rate_frames: f.step_rate_frames,
-            progress: f.progress,
-            on_hold: f.on_hold,
-            suspended: f.suspended,
-            object: f.object.as_ref(),
-            queue: &f.queue,
-        })
+        self.factories
+            .get(&FactoryHolder::House(owner, category))
+            .map(Factory::view)
     }
 
     /// FactoryClass::PointerExpired4CA580, called by Dispatch725957 for
@@ -721,11 +793,13 @@ impl FactoryRegistry {
             })
     }
 
-    /// Number of registered factories (test/observation helper).
+    /// Number of registered factories (test helper).
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.factories.len()
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.factories.is_empty()
     }
@@ -793,9 +867,7 @@ impl FactoryRegistry {
                 .object
                 .as_ref()
                 .is_some_and(|object| object.entity_id == Some(entity))
-                && factory.step_rate_frames != 0
-                && !factory.suspended
-                && !factory.manual
+                && factory.view().is_running()
         })
     }
 
@@ -849,6 +921,7 @@ impl FactoryRegistry {
                 }),
                 insertion_seq,
                 changed: true,
+                suspended: true,
                 ..Factory::default()
             },
         );
@@ -862,14 +935,26 @@ impl FactoryRegistry {
         self.factories.remove(&FactoryHolder::Building(building))
     }
 
-    /// `FactoryClass::AbandonProduction @ 0x004C9FF0`, then the delete, for
-    /// the factory `holder` holds: a building's at `0x0045022C`,
-    /// `0x004502D1`, `BuildingClass::Detach_All(1)` (`0x0044EC0B`) and
-    /// `BuildingClass::ChangeOwner` (`0x004486EB`); any of a house's in
-    /// `AI_Manage_Build_Queue` (`0x004FE06C..0x004FE08F`). Returns the object
-    /// to refund and destroy.
-    pub(super) fn abandon_factory(&mut self, holder: FactoryHolder) -> Option<AbandonedObject> {
-        self.factories.remove(&holder)?.abandon_production()
+    pub(super) fn pending_abandonment(&self, holder: FactoryHolder) -> Option<AbandonedObject> {
+        self.factories.get(&holder)?.pending_abandonment()
+    }
+
+    pub(super) fn reset_for_abandon(&mut self, holder: FactoryHolder, frame: u32) {
+        if let Some(factory) = self.factories.get_mut(&holder) {
+            let _ = factory.abandon_production(frame);
+        }
+    }
+
+    /// Explicit held=NULL4CA0FF follows the product destructor, within the
+    /// caller's ScenarioInit depth. PointerExpired may already have cleared it.
+    pub(super) fn finish_abandon(&mut self, holder: FactoryHolder) {
+        if let Some(factory) = self.factories.get_mut(&holder) {
+            factory.object = None;
+        }
+    }
+
+    pub(super) fn remove_factory(&mut self, holder: FactoryHolder) {
+        self.factories.remove(&holder);
     }
 
     /// The holders of the factories house `owner` owns (`Factory+0x6C`),
@@ -943,7 +1028,7 @@ impl FactoryRegistry {
     /// `0x004C9CEA`, asked before the append).
     ///
     /// A freshly-armed build has no rate yet; the caller constructs its Techno
-    /// and [`Factory::start_rate`] arms it. `cost` is resolved by the caller
+    /// and [`Factory::resume`] arms it. `cost` is resolved by the caller
     /// (which holds `&rules`) so this stays `&sim`-free.
     pub(super) fn enqueue(
         &mut self,
@@ -979,8 +1064,8 @@ impl FactoryRegistry {
                 completion_accounted: false,
             });
             f.on_hold = false;
-            f.suspended = false;
-            f.manual = false;
+            // StartProduction4C9D72 stops the new head until Resume.
+            f.suspended = true;
             f.changed = true;
             return EnqueueOutcome::Started;
         }
@@ -1000,8 +1085,8 @@ impl FactoryRegistry {
                     completion_accounted: false,
                 }),
                 on_hold: false,
-                suspended: false,
-                manual: false,
+                suspended: true,
+                auto_resume_blocked: true,
                 queue: VecDeque::new(),
                 insertion_seq: enqueue_order,
                 changed: true,
@@ -1019,86 +1104,102 @@ impl FactoryRegistry {
         owner: InternedId,
         category: ProductionCategory,
         frame: u32,
+        user: bool,
     ) -> bool {
         self.factories
             .get_mut(&FactoryHolder::House(owner, category))
-            .is_some_and(|f| f.suspend(frame))
+            .is_some_and(|f| f.suspend(user, frame))
     }
 
-    /// Begin_Production's same-type branch (`0x004FA5A8..0x004FA5C4` skips
-    /// StartProduction) for a user-held build: the build start `0x004C9EA0`
-    /// at `0x004FA628` clears the hold and restarts the rate at `frame`.
+    /// The sole registry entry to FactoryResume4C9EA0 for both House and
+    /// Building holders. Callers supply the existing TimeToBuild and
+    /// AvailableMoney owners; the Factory owns admission and every write.
     pub(super) fn resume(
         &mut self,
-        owner: InternedId,
-        category: ProductionCategory,
+        holder: FactoryHolder,
         time_to_build: i32,
         frame: u32,
-    ) {
-        if let Some(f) = self
-            .factories
-            .get_mut(&FactoryHolder::House(owner, category))
-            && f.manual
-        {
-            f.manual = false;
-            f.start_rate(time_to_build, frame);
-        }
+        held_start: bool,
+        available_money: i32,
+    ) -> bool {
+        self.factories.get_mut(&holder).is_some_and(|factory| {
+            factory.resume(time_to_build, frame, held_start, available_money)
+        })
     }
 
-    /// The type and state of the category's active object: `(type, held,
-    /// finished)` where `held` is the user's hold.
+    /// House509275..509287 only recovers a system-held head. A user hold,
+    /// completion or poor-wallet resume keeps its own native latch history.
+    pub(super) fn automatic_resume_pending(
+        &self,
+        owner: InternedId,
+        category: ProductionCategory,
+    ) -> bool {
+        self.factories
+            .get(&FactoryHolder::House(owner, category))
+            .is_some_and(|factory| factory.suspended && !factory.auto_resume_blocked)
+    }
+
+    /// The type and +70 suspension of the category's held object. Completion
+    /// and user hold take the same native Begin_Production branch.
     pub(super) fn active_object(
         &self,
         owner: InternedId,
         category: ProductionCategory,
-    ) -> Option<(InternedId, bool, bool)> {
+    ) -> Option<(InternedId, bool)> {
         let f = self.factories.get(&FactoryHolder::House(owner, category))?;
         let object = f.object.as_ref()?;
-        Some((object.type_id, f.manual, f.progress >= PRODUCTION_STEPS))
+        Some((object.type_id, f.suspended))
     }
 
-    /// Peek the type of the next QUEUED (tail) entry for `(owner, category)` so the caller
-    /// can resolve its cost (in `rules`, not the registry) before promoting it.
-    pub(crate) fn peek_next_queued(
-        &self,
+    /// CompletedProduction4CA1A0 releases a stage54 product without
+    /// removing its House slot or queue. Balance retains its value;
+    /// stage/rate/timer/suspension follow4CA1BA..4CA1DB. The +71 latch is
+    /// preserved; this body does not read or write it.
+    pub(super) fn complete_production(
+        &mut self,
+        owner: InternedId,
+        category: ProductionCategory,
+        frame: u32,
+    ) -> bool {
+        let Some(factory) = self
+            .factories
+            .get_mut(&FactoryHolder::House(owner, category))
+        else {
+            return false;
+        };
+        if factory.progress != PRODUCTION_STEPS {
+            return false;
+        }
+        factory.object = None;
+        factory.suspended = true;
+        factory.changed = true;
+        factory.progress = 0;
+        factory.step_rate_frames = 0;
+        factory.step_timer.start(frame as i32, 0);
+        true
+    }
+
+    pub(super) fn start_next_queued(
+        &mut self,
         owner: InternedId,
         category: ProductionCategory,
     ) -> Option<InternedId> {
         self.factories
-            .get(&FactoryHolder::House(owner, category))
-            .and_then(|f| f.queue.front())
-            .map(|e| e.type_id)
+            .get_mut(&FactoryHolder::House(owner, category))?
+            .start_next_queued()
     }
 
-    /// Clear a delivered/abandoned active object and promote the next queued entry into the
-    /// active slot (C7 StartNextQueued), seeding it from `next_cost`.
-    /// Returns the promoted type. An empty tail releases the House factory
-    /// synchronously: HouseAbandon4FAA10 clears the Infantry slot at4FAC21
-    /// and deletes the factory at4FAC2D after Completed4CA1A0.
-    /// Original final GI PLACE485 clears House and Strip before frame486;
-    /// source: basic-factory-output-prerequisites-research, no-rally control.
-    pub(super) fn clear_active_and_advance(
+    pub(super) fn remove_queued(
         &mut self,
         owner: InternedId,
         category: ProductionCategory,
-        next_cost: i32,
-    ) -> Option<InternedId> {
-        let holder = FactoryHolder::House(owner, category);
-        let f = self.factories.get_mut(&holder)?;
-        f.object = None;
-        f.changed = true; // CompletedProduction4CA1C0 releases the held head.
-        let promoted = f.start_next_queued(next_cost);
-        if promoted.is_none() {
-            self.factories.remove(&holder);
-        }
-        promoted
-    }
-
-    /// Arm the active build's rate and step timer at `frame`
-    /// ([`Factory::start_rate`]).
-    pub(super) fn start_rate(&mut self, holder: FactoryHolder, time_to_build: i32, frame: u32) {
-        if let Some(f) = self.factories.get_mut(&holder) {
-            f.start_rate(time_to_build, frame);
+        index: usize,
+    ) {
+        if let Some(factory) = self
+            .factories
+            .get_mut(&FactoryHolder::House(owner, category))
+        {
+            factory.queue.remove(index);
         }
     }
 
@@ -1120,7 +1221,7 @@ impl FactoryRegistry {
 
     /// Claim the score-screen completion accounting edge for the one active,
     /// completed object. Delivery refusal does not clear the object, so later
-    /// retries observe `false`; `start_next_queued` constructs the next head with
+    /// retries observe `false`; StartProduction constructs the next head with
     /// a fresh `false` latch.
     pub(super) fn account_completed_object_once(
         &mut self,
@@ -1144,125 +1245,6 @@ impl FactoryRegistry {
         }
         object.completion_accounted = true;
         true
-    }
-
-    /// `HouseClass::Update_Factory_Queue @ 0x00509140` over every House
-    /// factory, read-only: a queued build no building may build now,
-    /// `FindFactory(1,0,1)` (whose CanBuild asks only the build limit), is
-    /// dropped (`0x005091B0..0x005091EF`), and an active one, finished or
-    /// not, is abandoned for the next queued build (`0x0050921C`). Returns an
-    /// owned plan so the write phase can borrow `&mut houses` without
-    /// aliasing. Walks `iter_insertion_ordered` (construction order =
-    /// `step_all` charge order = hash fold order) so the plan, and the refund
-    /// order, is replay-stable.
-    ///
-    /// Residual: gamemd runs this only when a factory building of the kind
-    /// changes state (`0x00445DFA..0x00445E14`: it goes online or offline,
-    /// into or out of limbo, or is read from a map; `0x00449267`/
-    /// `0x00449284` at a capture); VERA runs it every frame. Trigger: the
-    /// house's last factory that could build the type starts its sale.
-    /// Effect: VERA abandons at the sale's start, gamemd once the building
-    /// leaves the map. Frequency: occasional.
-    ///
-    /// Residual: the pass also holds an active build that only offline
-    /// factories could build (`FindFactory(1,1,1)` fails: `Suspend(0)` at
-    /// `0x0050924D`, lifted at `0x00509283`). VERA has no such hold. Its only
-    /// offline factory is one in a temporal warp (`GameEntity::building_online`),
-    /// whose start runs no update (`0x004521C0`). GoOffline's callers are not
-    /// ported: a trigger action (`0x006DDFB9`), a map's powered-down building
-    /// (`0x0044FD23`) and the power toggle event (`0x004C6D9A`), which no
-    /// player input reaches (`superweapon::offline_only_supers`). Trigger: a
-    /// building event while every factory of the kind is offline. Effect:
-    /// VERA keeps building. Frequency: rare.
-    pub(super) fn plan_revalidation(
-        &self,
-        sim: &crate::sim::world::Simulation,
-        rules: &RuleSet,
-    ) -> Vec<RevalAction> {
-        let mut plan: Vec<RevalAction> = Vec::new();
-        for f in self.house_factories_insertion_ordered() {
-            let lost = |type_id: InternedId| {
-                sim.object_type(type_id, rules).is_none_or(|object| {
-                    super::can_build::find_factory(sim, rules, f.owner, object, true, false, true)
-                        .is_none()
-                })
-            };
-            let mut drop_queued: Vec<usize> = Vec::new();
-            let mut first_surviving: Option<InternedId> = None;
-            for (i, e) in f.queue.iter().enumerate() {
-                if lost(e.type_id) {
-                    drop_queued.push(i);
-                } else if first_surviving.is_none() {
-                    first_surviving = Some(e.type_id);
-                }
-            }
-            let abandon_active = f.object.as_ref().is_some_and(|o| lost(o.type_id));
-            if !abandon_active && drop_queued.is_empty() {
-                continue;
-            }
-            let promote_cost = if abandon_active {
-                first_surviving
-                    .and_then(|t| sim.object_type(t, rules))
-                    .map(|object| sim.cost_of(f.owner, object, rules))
-            } else {
-                None
-            };
-            plan.push(RevalAction {
-                owner: f.owner,
-                category: f.category,
-                abandon_active,
-                drop_queued,
-                promote_cost,
-            });
-        }
-        plan
-    }
-
-    /// P6 write/apply phase: apply a `plan_revalidation` plan. Drops permanently-blocked
-    /// queued entries (no refund — never charged), abandons a permanently-blocked active
-    /// build (the caller credits its refund and destroys it), then promotes the first
-    /// surviving queued entry (C7 StartNextQueued, cost-seeded; the caller arms its
-    /// rate). This every-frame approximation deletes only a factory actually
-    /// abandoned by its plan. PointerExpired4CA580 itself clears only the
-    /// held object. Native509140 deletes an empty factory at5092A0 when the
-    /// building-state trigger runs; that trigger cadence remains the residual
-    /// documented on `plan_revalidation`, not a reason to delete it every frame.
-    pub(super) fn apply_revalidation(&mut self, plan: &[RevalAction]) -> RevalidationLifecycle {
-        let mut lifecycle = RevalidationLifecycle {
-            abandoned: Vec::new(),
-            promoted: Vec::new(),
-        };
-        for action in plan {
-            let Some(f) = self
-                .factories
-                .get_mut(&FactoryHolder::House(action.owner, action.category))
-            else {
-                continue;
-            };
-            // Remove dropped queued entries back-to-front so the ascending indices stay valid.
-            for &i in action.drop_queued.iter().rev() {
-                if i < f.queue.len() {
-                    f.queue.remove(i);
-                }
-            }
-            if action.abandon_active {
-                if let Some(abandoned) = f.abandon_production() {
-                    lifecycle.abandoned.push((action.owner, abandoned));
-                }
-                if let Some(cost) = action.promote_cost
-                    && let Some(type_id) = f.start_next_queued(cost)
-                {
-                    lifecycle
-                        .promoted
-                        .push((action.owner, action.category, type_id));
-                }
-                if f.object.is_none() && f.queue.is_empty() {
-                    self.factories
-                        .remove(&FactoryHolder::House(action.owner, action.category));
-                }
-            }
-        }
-        lifecycle
     }
 
     /// Strip6A8DD3 calls HasChanged4C9C60 before IsComplete4CA130.
@@ -1351,9 +1333,9 @@ impl FactoryRegistry {
                 continue;
             };
             let owner = f.owner;
-            // Only an armed, in-flight build steps: object held, not complete (held for
-            // delivery), not suspended, not manually paused.
-            if f.object.is_none() || f.suspended || f.manual || f.progress >= PRODUCTION_STEPS {
+            // Only an armed, in-flight build steps: object held, not complete
+            // (held for delivery), with the one suspension authority clear.
+            if f.object.is_none() || f.suspended || f.progress >= PRODUCTION_STEPS {
                 continue;
             }
             let Some(house) = houses.get_mut(&owner) else {
@@ -1385,65 +1367,20 @@ impl FactoryRegistry {
         }
     }
 
-    /// Trainer "instant build": drive every in-flight build to completion.
-    ///
-    /// The same per-step charge `step_all` runs, without the native cadence
-    /// gate, so the wallet is debited exactly what the build costs and a
-    /// factory that cannot pay still stalls — an unaffordable build is not
-    /// made free by this switch. The object stays attached and suspended on
-    /// reaching 54; delivery is still the normal later slice's job, which
-    /// keeps placement, voice and queue advancing identical to a build that
-    /// finished at its natural pace.
-    pub(super) fn cheat_complete(
-        &mut self,
-        houses: &mut BTreeMap<InternedId, crate::sim::house_state::HouseState>,
-        frame: u32,
-        owner: InternedId,
-    ) {
-        let order: Vec<FactoryHolder> = self
-            .holders_insertion_ordered()
-            .into_iter()
-            .map(|(holder, _)| holder)
-            .collect();
-        for holder in order {
-            let Some(f) = self.factories.get_mut(&holder) else {
-                continue;
-            };
-            if f.object.is_none() || f.suspended || f.owner != owner {
-                continue;
-            }
-            let factory_owner = f.owner;
-            let Some(house) = houses.get_mut(&factory_owner) else {
-                continue;
-            };
-            for _ in 0..PRODUCTION_STEPS {
-                if f.progress >= PRODUCTION_STEPS {
-                    break;
-                }
-                f.on_hold = false;
-                if !matches!(f.advance_one_step(&mut house.economy), StepOutcome::Stepped) {
-                    break;
-                }
-            }
-            if f.progress >= PRODUCTION_STEPS {
-                f.step_rate_frames = 0;
-                f.step_timer.start(frame as i32, 0);
-            }
-        }
-    }
-
     /// The ABANDON / ABANDON_ALL events for `type_id` in (owner, category):
     /// `HouseClass::Abandon_Production @ 0x004FAA10`. A single abandon removes
     /// the first queued copy and stops there (`0x004FAAEE`, `0x004FAB29`); with
     /// no queued copy, or for ABANDON_ALL once every copy is gone
     /// (`0x004FAB01..0x004FAB0B`), the active object goes if it is this type,
     /// finished or not (`0x004FAB3D..0x004FAB5E`), for the lifecycle owner to
-    /// refund (`0x004FABA6`). The caller promotes the next queued build.
+    /// refund/destruction (`0x004FABA6`). The held pointer remains visible
+    /// until that synchronous lifecycle owner finishes. The caller promotes
+    /// the next queued build.
     pub(super) fn cancel_one(
         &mut self,
         owner: InternedId,
         category: ProductionCategory,
-        type_id: InternedId,
+        type_id: Option<InternedId>,
         all: bool,
         build_cat: Option<BuildCategory>,
     ) -> CancelOutcome {
@@ -1453,28 +1390,30 @@ impl FactoryRegistry {
         else {
             return CancelOutcome::NoMatch;
         };
-        // House4FAACA→4FABEE→4FABF6 admits an empty Building factory when
-        // requested BuildCat is nonzero, without matching a held type. A
-        // BuildCat0 request retains it. No product means no refund/destructor.
-        if build_cat.is_some() && f.object.is_none() && f.queue.is_empty() {
-            self.factories
-                .remove(&FactoryHolder::House(owner, category));
-            return CancelOutcome::ReleasedEmpty;
-        }
-        // `FactoryClass::Remove_First @ 0x004CA620`: the first match, the
-        // survivors keeping their order.
+        // Indexed BuildCat0 first removes matching queued types. Nonzero
+        // Building BuildCat and the -1 wildcard skip this arm4FAAC4..4FAB0B.
         let mut removed = false;
-        while let Some(idx) = f.queue.iter().position(|e| e.type_id == type_id) {
-            f.queue.remove(idx);
-            removed = true;
-            if !all {
-                return CancelOutcome::QueuedRemoved;
+        if let Some(type_id) = type_id
+            && build_cat.is_none()
+        {
+            while let Some(index) = f.queue.iter().position(|entry| entry.type_id == type_id) {
+                f.queue.remove(index);
+                removed = true;
+                if !all {
+                    return CancelOutcome::QueuedRemoved;
+                }
             }
         }
-        if f.object.as_ref().is_some_and(|o| o.type_id == type_id)
-            && let Some(object) = f.abandon_production()
+        if f.object
+            .as_ref()
+            .is_some_and(|object| type_id.is_none_or(|type_id| object.type_id == type_id))
         {
-            return CancelOutcome::AbandonedActive(object);
+            return CancelOutcome::AbandonedActive(f.pending_abandonment().unwrap());
+        }
+        //4FAB45 NULL-held indexed BuildCat0 refuses. Wildcard and nonzero
+        //BuildCat proceed to the ordinary prefix and queue-count policy.
+        if f.object.is_none() && (type_id.is_none() || build_cat.is_some()) {
+            return CancelOutcome::AdmittedEmpty;
         }
         if removed {
             CancelOutcome::QueuedRemoved
@@ -1529,16 +1468,179 @@ fn native_time_to_build_rows() -> Vec<(TimeToBuildInputs, i32, serde_json::Value
 /// (`tools/spatial_oracle/factory_cadence.py`): `starts` rows run the build
 /// start alone, `builds` rows then run `FactoryClass::AI` once per frame.
 #[cfg(any(test, feature = "test-support"))]
-pub(super) fn native_factory_cadence() -> serde_json::Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/factory_cadence.json",
-    ))
-    .expect("cadence oracle")
+pub(super) fn native_factory_cadence() -> &'static serde_json::Value {
+    crate::test_fixture::json("tools/spatial_oracle/factory_cadence.json")
 }
+
+/// One representation adapter for the consumed E2 held-head controls.
+#[cfg(test)]
+fn native_e2_head(
+    reg: &FactoryRegistry,
+    houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
+    owner: InternedId,
+    type_id: InternedId,
+) -> serde_json::Value {
+    let holder = FactoryHolder::House(owner, ProductionCategory::Infantry);
+    let f = &reg.factories[&holder];
+    serde_json::json!({
+        "stage": f.progress, "rate": f.step_rate_frames,
+        "timer_start": f.step_timer.start_frame(), "timer_duration": f.step_timer.duration(),
+        "balance": f.balance, "on_hold": f.on_hold, "suspended": f.suspended,
+        "changed": f.changed, "latch": f.auto_resume_blocked, "credits": houses[&owner].economy.credits(),
+        "spent": houses[&owner].economy.spent_credits(),
+        "held_type": f.object.as_ref().map(|obj| { assert_eq!(obj.type_id, type_id); "E2" }),
+        "held_id": f.object.as_ref().and_then(|obj| obj.entity_id),
+        "queue": f.queue.iter().map(|entry| { assert_eq!(entry.type_id, type_id); "E2" }).collect::<Vec<_>>()
+    })
+}
+
+#[cfg(test)]
+#[path = "factory_system_hold_tests.rs"]
+mod system_hold_tests;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn type_base_duration_matches_executed_pending_production_controls() {
+        let corpus = crate::test_fixture::json("tools/sidebar_oracle/pending_production.json");
+        let rows = corpus["numeric_controls"].as_array().unwrap();
+        let mut compared = 0;
+        for row in rows {
+            let Some(expected) = row["base_duration_i32"].as_i64() else {
+                continue;
+            };
+            let inputs = &row["inputs"];
+            let speed = u64::from_str_radix(inputs["build_speed_bits"].as_str().unwrap(), 16)
+                .unwrap()
+                .swap_bytes();
+            assert_eq!(
+                type_base_build_time(
+                    inputs["cost"].as_i64().unwrap() as i32,
+                    NativeF64Bits::from_bits(speed),
+                ),
+                expected as i32,
+                "{}: original711EE0 return",
+                row["name"],
+            );
+            compared += 1;
+        }
+        assert_eq!(compared, 7);
+    }
+
+    /// Whole original Suspend/Resume and following FactoryAI, including the
+    /// short-wallet return AFTER unpausing and the affordable held-start tail.
+    /// TimeToBuild's argument comes from its recorded original return value;
+    /// its numeric owner has separate consumed native controls.
+    #[test]
+    fn system_hold_resume_kernels_match_native() {
+        use crate::sim::house_state::HouseState;
+        use crate::sim::rng::trace_draws;
+
+        let corpus = crate::test_fixture::json("tools/sidebar_oracle/factory_system_hold.json");
+        let rows = corpus["resume"].as_array().unwrap();
+        assert_eq!(rows.len(), 4);
+        let owner = InternedId::from_index(1);
+        let type_id = InternedId::from_index(2);
+        let category = ProductionCategory::Infantry;
+        let holder = FactoryHolder::House(owner, category);
+        let int = |state: &serde_json::Value, key: &str| state[key].as_i64().unwrap() as i32;
+        let mut phases = 0;
+        for row in rows {
+            let initial = &row["initial"]["factory"];
+            let factory = Factory {
+                owner,
+                category,
+                progress: int(initial, "stage") as u16,
+                step_rate_frames: int(initial, "rate") as u16,
+                step_timer: CdTimer::from_raw(
+                    int(initial, "timer_start"),
+                    int(initial, "timer_duration"),
+                ),
+                balance: int(initial, "balance"),
+                object: Some(PendingObject {
+                    type_id,
+                    entity_id: initial["held_id"].as_u64(),
+                    ..Default::default()
+                }),
+                on_hold: initial["on_hold"].as_bool().unwrap(),
+                suspended: initial["suspended"].as_bool().unwrap(),
+                changed: initial["changed"].as_bool().unwrap(),
+                queue: VecDeque::from([QueueEntry {
+                    type_id,
+                    enqueue_order: 1,
+                }]),
+                ..Default::default()
+            };
+            let mut reg = reg_with(owner, category, factory);
+            let mut house = HouseState::new(
+                owner,
+                0,
+                None,
+                true,
+                int(initial, "credits") + int(initial, "spent"),
+                10,
+            );
+            house.economy.spend_money(int(initial, "spent"));
+            let mut houses = BTreeMap::from([(owner, house)]);
+            assert_eq!(native_e2_head(&reg, &houses, owner, type_id), *initial);
+            for phase in row["phases"].as_array().unwrap() {
+                let name = phase["name"].as_str().unwrap();
+                let frame = phase["after"]["frame"].as_u64().unwrap() as u32;
+                let label = format!("{} {name}", row["name"]);
+                let ((), draws) = trace_draws(|| match name {
+                    "system_suspend_kernel" => assert!(reg.suspend(owner, category, frame, false)),
+                    "external_spend_wallet" => {
+                        let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                        economy.spend_money(economy.credits());
+                    }
+                    "resume_kernel" => {
+                        let calls = phase["calls"].as_array().unwrap();
+                        let time_to_build = calls
+                            .iter()
+                            .find(|c| c["name"] == "time_to_build")
+                            .unwrap()["return_eax_raw"]
+                            .as_i64()
+                            .unwrap() as i32;
+                        let native_return = calls
+                            .iter()
+                            .find(|c| c["name"] == "set_production_rate")
+                            .unwrap()["return_low_byte"]
+                            .as_u64()
+                            .unwrap()
+                            != 0;
+                        let actual = reg.resume(
+                            holder,
+                            time_to_build,
+                            frame,
+                            row["inputs"]["held_start"].as_bool().unwrap(),
+                            houses[&owner].economy.credits(),
+                        );
+                        assert_eq!(actual, native_return, "{label}");
+                    }
+                    "same_frame_factory_ai" | "next_frame_factory_ai" => {
+                        reg.step_all(&mut houses, frame)
+                    }
+                    other => panic!("unconsumed native phase {other}"),
+                });
+                assert!(draws.is_empty(), "{label}: kernel has no RNG draws");
+                assert_eq!(phase["rng"]["unchanged"], true, "{label}");
+                assert_eq!(phase["rng"]["raw_advance_count"], 0, "{label}");
+                assert_eq!(
+                    native_e2_head(&reg, &houses, owner, type_id),
+                    phase["after"]["factory"],
+                    "{label}"
+                );
+                phases += 1;
+            }
+            assert_eq!(
+                row["rng_before"], row["rng_after"],
+                "all three native buffers"
+            );
+        }
+        assert_eq!(phases, 18);
+    }
 
     // ---- P2 pure-type tests ----
 
@@ -1616,8 +1718,17 @@ mod tests {
                 native,
                 "{row}"
             );
-            let mut f = Factory::default();
-            f.start_rate(native, start_frame);
+            // The native fixture holds its dummy Techno at +58, starts
+            // suspended, and supplies Cost/credits before calling Resume.
+            let mut f = armed_factory(native_time_to_build_inputs(row).cost);
+            f.suspended = true;
+            let started = f.resume(
+                native,
+                start_frame,
+                false,
+                row["credits"].as_i64().unwrap() as i32,
+            );
+            assert_eq!(started, row["after_start"]["started"].as_bool().unwrap());
             let after = &row["after_start"];
             let int = |key: &str| after[key].as_i64().unwrap() as i32;
             assert_eq!(
@@ -1747,7 +1858,6 @@ mod tests {
                             12
                         },
                         suspended: status == "held" || status == "complete",
-                        manual: status == "held",
                         on_hold: status == "held",
                         balance: cost,
                         step_rate_frames: 77,
@@ -1791,6 +1901,131 @@ mod tests {
         ));
     }
 
+    /// Original whole Select/receive controls expose the reported hold/rate
+    /// mismatch, paid-poor Resume0 and complete same-type refusal. This compares
+    /// the existing Factory kernels at every measured boundary, using native
+    /// pre-state and actual Time_To_Build return values as inputs. +71/system
+    /// holds and whole UI/audio/save behavior remain outside this kernel test.
+    #[test]
+    fn factory_hold_resume_matches_native_paid_boundaries() {
+        use crate::sim::house_state::HouseState;
+
+        let corpus = crate::test_fixture::json("tools/sidebar_oracle/factory_hold_resume.json");
+        let controls = corpus["controls"].as_array().unwrap();
+        assert_eq!(controls.len(), 3);
+        let owner = InternedId::from_index(1);
+        let type_id = InternedId::from_index(2);
+        let category = ProductionCategory::Infantry;
+        let holder = FactoryHolder::House(owner, category);
+        for row in controls {
+            let initial = &row["initial"]["factory"];
+            let int = |state: &serde_json::Value, key: &str| state[key].as_i64().unwrap() as i32;
+            assert_eq!(initial["held_type"], "E2");
+            let mut reg = reg_with(
+                owner,
+                category,
+                Factory {
+                    owner,
+                    category,
+                    progress: int(initial, "stage") as u16,
+                    step_rate_frames: int(initial, "rate") as u16,
+                    step_timer: CdTimer::started(
+                        int(initial, "timer_start"),
+                        int(initial, "timer_duration"),
+                    ),
+                    balance: int(initial, "balance"),
+                    object: Some(PendingObject {
+                        type_id,
+                        entity_id: initial["held_id"].as_u64(),
+                        ..Default::default()
+                    }),
+                    on_hold: initial["on_hold"].as_bool().unwrap(),
+                    suspended: initial["suspended"].as_bool().unwrap(),
+                    changed: initial["changed"].as_bool().unwrap(),
+                    queue: initial["queue"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|name| {
+                            assert_eq!(name, "E2");
+                            QueueEntry {
+                                type_id,
+                                enqueue_order: 1,
+                            }
+                        })
+                        .collect(),
+                    ..Default::default()
+                },
+            );
+            let mut house = HouseState::new(
+                owner,
+                0,
+                None,
+                true,
+                int(initial, "credits") + int(initial, "spent"),
+                10,
+            );
+            house.economy.spend_money(int(initial, "spent"));
+            let mut houses = BTreeMap::from([(owner, house)]);
+            let project = |reg: &FactoryRegistry, houses: &BTreeMap<InternedId, HouseState>| {
+                native_e2_head(reg, houses, owner, type_id)
+            };
+            let normalized = |state: &serde_json::Value| state["factory"].clone();
+            for phase in row["phases"].as_array().unwrap() {
+                let label = format!("{} {}", row["name"], phase["name"]);
+                assert_eq!(
+                    project(&reg, &houses),
+                    normalized(&phase["before"]),
+                    "{label} before"
+                );
+                let frame = phase["before"]["frame"].as_u64().unwrap() as u32;
+                let ttb = || {
+                    let call = phase["calls"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .find(|call| call["name"] == "time_to_build")
+                        .expect("original Time_To_Build output supplies the kernel input");
+                    assert_eq!(call["held_object"], true, "{label} original TTB receiver");
+                    call["return_eax_raw"].as_u64().unwrap() as u32 as i32
+                };
+                match phase["name"].as_str().unwrap() {
+                    "suspend_receive" => {
+                        assert!(reg.suspend(owner, category, frame, true));
+                    }
+                    "rate_refresh" => reg.factories.get_mut(&holder).unwrap().set_rate(ttb()),
+                    "resume_receive" => {
+                        reg.resume(
+                            holder,
+                            ttb(),
+                            frame,
+                            false,
+                            houses[&owner].economy.credits(),
+                        );
+                    }
+                    "completed_same_type_begin" => {
+                        // Native Resume refuses before reading Time_To_Build.
+                        reg.resume(holder, 0, frame, false, houses[&owner].economy.credits());
+                    }
+                    "spend_wallet" => {
+                        let economy = &mut houses.get_mut(&owner).unwrap().economy;
+                        economy.spend_money(economy.credits());
+                    }
+                    "paused_ai" | "refreshed_paused_ai" | "same_frame_ai" | "next_frame_ai" => {
+                        reg.step_all(&mut houses, frame)
+                    }
+                    "right_select" | "left_select" => {}
+                    name => panic!("unconsumed native phase {name}"),
+                }
+                assert_eq!(
+                    project(&reg, &houses),
+                    normalized(&phase["after"]),
+                    "{label} after"
+                );
+            }
+        }
+    }
+
     /// Whole builds against the originals' per-frame `FactoryClass::AI`
     /// (`0x004C9B20`, the cadence oracle): every step attempt with the progress,
     /// hold flag and credits after it, and the state at the end. The rows cover
@@ -1814,11 +2049,15 @@ mod tests {
             } else {
                 ProductionCategory::Vehicle
             };
-            let mut reg = reg_with(owner, category, armed_factory(inputs.cost));
-            reg.start_rate(
+            let mut initial = armed_factory(inputs.cost);
+            initial.suspended = true;
+            let mut reg = reg_with(owner, category, initial);
+            reg.resume(
                 FactoryHolder::House(owner, category),
                 time_to_build(&inputs),
                 start_frame,
+                false,
+                int(&row["credits"]),
             );
             let mut houses = BTreeMap::from([(
                 owner,
@@ -1852,11 +2091,15 @@ mod tests {
                 // same-type build start, which VERA takes only for a user hold.
                 for &(_, kind) in orders.iter().filter(|(at, _)| *at == frame) {
                     let accepted = if kind == "suspend" {
-                        reg.suspend(owner, category, frame)
+                        reg.suspend(owner, category, frame, true)
                     } else {
-                        let held = reg.factories[&FactoryHolder::House(owner, category)].manual;
-                        reg.resume(owner, category, time_to_build(&inputs), frame);
-                        held
+                        reg.resume(
+                            FactoryHolder::House(owner, category),
+                            time_to_build(&inputs),
+                            frame,
+                            false,
+                            houses[&owner].economy.credits(),
+                        )
                     };
                     let f = &reg.factories[&FactoryHolder::House(owner, category)];
                     order_results.push(serde_json::json!([
@@ -1867,7 +2110,7 @@ mod tests {
                         f.step_timer.start_frame(),
                         f.step_timer.duration(),
                         f.progress,
-                        f.manual || f.suspended,
+                        f.suspended,
                     ]));
                 }
                 let before = reg.factories[&FactoryHolder::House(owner, category)]
@@ -2188,7 +2431,9 @@ mod tests {
             ));
         }
         let balance = f.balance;
-        let abandoned = f.abandon_production().expect("active build is abandonable");
+        let abandoned = f
+            .abandon_production(0)
+            .expect("active build is abandonable");
         assert_eq!(
             abandoned,
             AbandonedObject {
@@ -2203,11 +2448,81 @@ mod tests {
             700 - econ.spent_credits(),
             "cancel pays nothing"
         );
-        assert!(f.object.is_none(), "the partial object is destroyed");
+        assert!(
+            f.object.is_some(),
+            "held pointer survives until the world destructor"
+        );
         assert_eq!(f.progress, 0);
         assert_eq!(f.balance, 0);
         assert_eq!(f.step_rate_frames, 0, "no-object => rate-0 sentinel");
-        assert!(!f.suspended && !f.on_hold && !f.manual);
+        assert!(f.suspended && !f.on_hold);
+    }
+
+    /// Original whole BuildingLimbo reaches this reset with the held pointer
+    /// still visible at Infantry's scalar-destructor entry. Compare its
+    /// executed state, including timer anchors and suspension, before the
+    /// world owner completes disposal/PointerExpired. Native Resume's +71
+    /// latch remains separate from VERA's existing user-hold model.
+    #[test]
+    fn abandon_reset_matches_native_sale_destructor_boundary() {
+        let native: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/sidebar_oracle/factory_sale_queue.json",
+        ))
+        .unwrap();
+        let mut compared = 0;
+        for row in native["controls"].as_array().unwrap() {
+            let Some(checkpoint) = row["checkpoints"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|checkpoint| checkpoint["event"] == "infantry_destructor_entry")
+            else {
+                continue;
+            };
+            let input = &row["initial"];
+            let expected = &checkpoint["state"];
+            let int = |state: &serde_json::Value, key: &str| state[key].as_i64().unwrap() as i32;
+            let product = PendingObject {
+                entity_id: input["held_id"].as_u64(),
+                ..Default::default()
+            };
+            let mut factory = Factory {
+                object: Some(product.clone()),
+                progress: int(input, "stage") as u16,
+                balance: int(input, "balance"),
+                step_rate_frames: int(input, "rate") as u16,
+                step_timer: CdTimer::from_raw(
+                    int(&input["timer"], "start"),
+                    int(&input["timer"], "duration"),
+                ),
+                suspended: int(input, "suspended") != 0,
+                on_hold: int(input, "cash_stall") != 0,
+                ..Default::default()
+            };
+            let abandoned = factory
+                .abandon_production(int(expected, "frame") as u32)
+                .unwrap();
+            assert_eq!(abandoned.balance, int(input, "balance"));
+            assert_eq!(
+                factory.object.as_ref().unwrap().entity_id,
+                product.entity_id
+            );
+            assert!(expected["held_present"].as_bool().unwrap());
+            assert_eq!(i32::from(factory.progress), int(expected, "stage"));
+            assert_eq!(factory.balance, int(expected, "balance"));
+            assert_eq!(i32::from(factory.step_rate_frames), int(expected, "rate"));
+            assert_eq!(
+                factory.step_timer,
+                CdTimer::from_raw(
+                    int(&expected["timer"], "start"),
+                    int(&expected["timer"], "duration")
+                )
+            );
+            assert_eq!(factory.suspended, int(expected, "suspended") != 0);
+            assert_eq!(factory.on_hold, int(expected, "cash_stall") != 0);
+            compared += 1;
+        }
+        assert_eq!(compared, 2);
     }
 
     #[test]
@@ -2215,19 +2530,19 @@ mod tests {
         // A never-stepped build still owes its whole Balance, so the refund is 0.
         let mut f = armed_factory(700);
         assert_eq!(
-            f.abandon_production().map(|abandoned| abandoned.balance),
+            f.abandon_production(0).map(|abandoned| abandoned.balance),
             Some(700)
         );
         assert!(
-            f.object.is_none(),
-            "factory reset even on a zero-refund cancel"
+            f.object.is_some(),
+            "zero-refund cancellation still retains the pointer through destruction"
         );
         assert_eq!(f.progress, 0);
     }
 
     #[test]
     fn abandon_without_an_object_is_a_noop() {
-        assert_eq!(Factory::default().abandon_production(), None);
+        assert_eq!(Factory::default().abandon_production(0), None);
     }
 
     #[test]
@@ -2244,12 +2559,15 @@ mod tests {
         assert_eq!(f.progress, PRODUCTION_STEPS);
         assert!(f.suspended && f.object.is_some(), "completed-but-held");
         assert_eq!(
-            f.abandon_production().map(|abandoned| abandoned.balance),
+            f.abandon_production(0).map(|abandoned| abandoned.balance),
             Some(0),
             "nothing is owed, so the refund is the whole Cost_Of"
         );
-        assert!(f.object.is_none(), "the finished object is destroyed");
-        assert!(!f.suspended);
+        assert!(
+            f.object.is_some(),
+            "destructor has not run in this scalar kernel"
+        );
+        assert!(f.suspended);
     }
 
     #[test]
@@ -2265,7 +2583,7 @@ mod tests {
                         break;
                     }
                 }
-                if let Some(abandoned) = f.abandon_production() {
+                if let Some(abandoned) = f.abandon_production(0) {
                     assert_eq!(
                         econ.credits() + cost - abandoned.balance,
                         cost,
@@ -2292,7 +2610,7 @@ mod tests {
             ..Factory::default()
         };
         let mut reg = reg_with(owner, ProductionCategory::Vehicle, f);
-        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, a, false, None);
+        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, Some(a), false, None);
         assert_eq!(outcome, CancelOutcome::QueuedRemoved);
         let q: Vec<InternedId> = reg
             .view(owner, ProductionCategory::Vehicle)
@@ -2324,7 +2642,7 @@ mod tests {
             ..Factory::default()
         };
         let mut reg = reg_with(owner, ProductionCategory::Vehicle, f);
-        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, a, false, None);
+        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, Some(a), false, None);
         assert_eq!(
             outcome,
             CancelOutcome::QueuedRemoved,
@@ -2356,7 +2674,7 @@ mod tests {
             ..Factory::default()
         };
         let mut reg = reg_with(owner, ProductionCategory::Vehicle, f);
-        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, a, false, None);
+        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, Some(a), false, None);
         assert_eq!(
             outcome,
             CancelOutcome::AbandonedActive(AbandonedObject {
@@ -2366,7 +2684,10 @@ mod tests {
             })
         );
         let view = reg.view(owner, ProductionCategory::Vehicle).unwrap();
-        assert!(view.object.is_none(), "active object abandoned");
+        assert!(
+            view.object.is_some(),
+            "admission leaves refund/destruction to the lifecycle owner"
+        );
         let q: Vec<InternedId> = view.queue.iter().map(|e| e.type_id).collect();
         assert_eq!(
             q,
@@ -2396,7 +2717,7 @@ mod tests {
             ..Factory::default()
         };
         let mut reg = reg_with(owner, ProductionCategory::Vehicle, f);
-        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, a, false, None);
+        let outcome = reg.cancel_one(owner, ProductionCategory::Vehicle, Some(a), false, None);
         assert_eq!(
             outcome,
             CancelOutcome::AbandonedActive(AbandonedObject {
@@ -2407,7 +2728,10 @@ mod tests {
             "nothing is owed, so the refund is the whole Cost_Of"
         );
         let view = reg.view(owner, ProductionCategory::Vehicle).unwrap();
-        assert!(view.object.is_none(), "the finished object is destroyed");
+        assert!(
+            view.object.is_some(),
+            "admitted completed object still awaits settlement"
+        );
     }
 
     /// ABANDON_ALL (`0x004FAB01..0x004FAB0B`) removes every queued copy and
@@ -2442,7 +2766,7 @@ mod tests {
 
         let mut reg = reg_with(owner, ProductionCategory::Infantry, factory(a));
         assert_eq!(
-            reg.cancel_one(owner, ProductionCategory::Infantry, a, true, None),
+            reg.cancel_one(owner, ProductionCategory::Infantry, Some(a), true, None),
             CancelOutcome::AbandonedActive(AbandonedObject {
                 type_id: a,
                 balance: 150,
@@ -2454,12 +2778,12 @@ mod tests {
             reg.view(owner, ProductionCategory::Infantry)
                 .unwrap()
                 .object
-                .is_none()
+                .is_some()
         );
 
         let mut reg = reg_with(owner, ProductionCategory::Infantry, factory(b));
         assert_eq!(
-            reg.cancel_one(owner, ProductionCategory::Infantry, a, true, None),
+            reg.cancel_one(owner, ProductionCategory::Infantry, Some(a), true, None),
             CancelOutcome::QueuedRemoved,
             "another type's active build stays"
         );
@@ -2508,7 +2832,7 @@ mod tests {
         let z = InternedId::from_index(9);
         let mut empty = FactoryRegistry::default();
         assert_eq!(
-            empty.cancel_one(owner, ProductionCategory::Vehicle, a, false, None),
+            empty.cancel_one(owner, ProductionCategory::Vehicle, Some(a), false, None),
             CancelOutcome::NoMatch,
             "no factory -> NoMatch"
         );
@@ -2526,7 +2850,7 @@ mod tests {
         };
         let mut reg = reg_with(owner, ProductionCategory::Vehicle, f);
         assert_eq!(
-            reg.cancel_one(owner, ProductionCategory::Vehicle, z, false, None),
+            reg.cancel_one(owner, ProductionCategory::Vehicle, Some(z), false, None),
             CancelOutcome::NoMatch,
             "type absent -> NoMatch"
         );
@@ -2543,9 +2867,11 @@ mod tests {
             queue: std::collections::VecDeque::from(vec![qe(x), qe(y), qe(z)]),
             ..Factory::default()
         };
-        assert_eq!(f.start_next_queued(0), Some(x), "the FRONT is popped");
-        assert_eq!(f.object.as_ref().map(|o| o.type_id), Some(x), "active = X");
-        assert_eq!(f.progress, 0, "fresh active object starts at progress 0");
+        assert_eq!(f.start_next_queued(), Some(x), "the FRONT is popped");
+        assert!(
+            f.object.is_none(),
+            "Begin admission must precede construction"
+        );
         let q: Vec<InternedId> = f.queue.iter().map(|e| e.type_id).collect();
         assert_eq!(q, vec![y, z], "queue advanced to [Y,Z]");
     }
@@ -2561,7 +2887,7 @@ mod tests {
             ..Factory::default()
         };
         assert_eq!(
-            f.start_next_queued(0),
+            f.start_next_queued(),
             None,
             "a held object blocks the advance"
         );
@@ -2573,16 +2899,14 @@ mod tests {
     #[test]
     fn start_next_queued_empty_queue_is_noop() {
         let mut f = Factory::default();
-        assert_eq!(f.start_next_queued(0), None);
+        assert_eq!(f.start_next_queued(), None);
         assert!(f.object.is_none(), "no object created from an empty queue");
     }
 
-    /// A promoted queue entry seeds `balance == cost` and resets progress; the
-    /// factory keeps its construction order (gamemd's Factories vector never
-    /// reorders, `0x0055B66A`). Like StartProduction it leaves the rate to the
-    /// build start.
+    /// StartNext does not manufacture an object/balance before forced Begin
+    /// admission. A running unsuspended Factory refuses the pop as4CA5B3 does.
     #[test]
-    fn start_next_queued_keeps_the_construction_order_and_seeds_the_balance() {
+    fn start_next_queued_requires_stopped_or_suspended_factory() {
         let x = InternedId::from_index(1);
         let mut f = Factory {
             object: None,
@@ -2594,12 +2918,19 @@ mod tests {
             step_rate_frames: 9,
             ..Factory::default()
         };
-        let popped = f.start_next_queued(500);
-        assert_eq!(popped, Some(x));
-        assert_eq!(f.insertion_seq, 7, "the construction order stays");
-        assert_eq!(f.balance, 500);
-        assert_eq!(f.progress, 0);
-        assert_eq!(f.step_rate_frames, 0, "the build start arms the new build");
+        assert_eq!(f.start_next_queued(), None);
+        assert_eq!(f.queue.len(), 1);
+        f.suspended = true;
+        let prior = f.clone();
+        assert_eq!(f.start_next_queued(), Some(x));
+        assert_eq!(f.insertion_seq, prior.insertion_seq);
+        assert_eq!(f.balance, prior.balance);
+        assert_eq!(f.progress, prior.progress);
+        assert_eq!(f.step_rate_frames, prior.step_rate_frames);
+        assert_eq!(f.step_timer, prior.step_timer);
+        assert_eq!(f.suspended, prior.suspended);
+        assert_eq!(f.changed, prior.changed);
+        assert!(f.object.is_none());
         assert!(f.queue.is_empty());
     }
 
@@ -2626,12 +2957,15 @@ mod tests {
             reg.enqueue(owner, vehicle, tank, 2, 700, 5, false),
             EnqueueOutcome::Queued
         );
+        reg.reset_for_abandon(FactoryHolder::House(owner, vehicle), 0);
+        reg.finish_abandon(FactoryHolder::House(owner, vehicle));
+        assert_eq!(reg.start_next_queued(owner, vehicle), Some(tank));
         assert_eq!(
-            reg.clear_active_and_advance(owner, vehicle, 700),
-            Some(tank)
+            reg.enqueue(owner, vehicle, tank, 2, 700, 5, false),
+            EnqueueOutcome::Started
         );
-        reg.start_rate(FactoryHolder::House(owner, vehicle), 540, 100);
-        reg.start_rate(FactoryHolder::House(owner, infantry), 540, 100);
+        reg.resume(FactoryHolder::House(owner, vehicle), 540, 100, false, 13);
+        reg.resume(FactoryHolder::House(owner, infantry), 540, 100, false, 13);
         // The first steps charge 700 / 53 = 13 and 200 / 53 = 3; the house has 13.
         let mut houses = BTreeMap::from([(
             owner,

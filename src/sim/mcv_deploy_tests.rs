@@ -1,6 +1,8 @@
 use super::*;
 use crate::rules::ini_parser::IniFile;
+use crate::sim::combat::TargetKind;
 use crate::sim::command::{Command, CommandEnvelope};
+use crate::sim::components::NavTargetRef;
 use crate::sim::movement::FacingClass;
 use crate::sim::world::TickResult;
 
@@ -470,6 +472,39 @@ fn retail_mcv_and_target_rules_deploy_with_one_command() {
     }
 }
 
+/// Event9's4C77C7 query must not find a factory after its Mark removal just
+/// because the retained entity still has its old foundation/position.
+#[test]
+fn cell_building_query_deploy_ignores_a_stored_unmarked_factory() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    assert!(rules.object("GAWEAP").unwrap().weapons_factory);
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 20, 20, 0, &rules)
+        .unwrap();
+    assert!(sim.unmark_entity_remove(
+        factory,
+        crate::sim::world::UninitContext::with_rules(&rules)
+    ));
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 21, 21, 0, &rules)
+        .unwrap();
+    assert!(crate::sim::deploy::issue_order(
+        &mut sim,
+        mcv,
+        &rules,
+        crate::sim::world::FrameEffects::default()
+    ));
+    assert_eq!(
+        sim.entities().get(mcv).unwrap().mission.queued().known(),
+        Some(MissionType::Unload)
+    );
+}
+
 #[test]
 fn active_track_and_same_cell_destination_preserve_the_rotation_latch() {
     let (mut sim, rules, id) = fixture("AMCV", 128, 5, 4);
@@ -689,6 +724,15 @@ fn house_fixture(human: bool, land: &str) -> (Simulation, RuleSet, u64) {
     .unwrap();
     let mut sim = Simulation::new();
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    install_base_building_house(&mut sim, human);
+    let id = sim
+        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
+        .unwrap();
+    (sim, rules, id)
+}
+
+/// [`house_fixture`]'s `Americans`, in a multiplayer game.
+fn install_base_building_house(sim: &mut Simulation, human: bool) {
     sim.session.game_mode_nonzero = true;
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 5000, 10);
@@ -704,10 +748,6 @@ fn house_fixture(human: bool, land: &str) -> (Simulation, RuleSet, u64) {
     }];
     sim.houses.insert(owner, house);
     sim.session.house_order.push(owner);
-    let id = sim
-        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
-        .unwrap();
-    (sim, rules, id)
 }
 
 const BUILDABLE: &str = "[Clear]\nBuildable=yes\n";
@@ -824,6 +864,125 @@ fn a_computer_house_without_a_yard_hunts_and_deploys_its_mcv() {
     );
 }
 
+/// [`house_fixture`] with a tank and an infantryman for `Americans` and a
+/// tank for a human `Russians` house, each holding an archive target.
+fn ground_force_fixture(human: bool) -> (Simulation, RuleSet, u64, [u64; 3]) {
+    let text = "[InfantryTypes]\n0=E1\n[AircraftTypes]\n[VehicleTypes]\n0=AMCV\n1=MTNK\n\
+         [BuildingTypes]\n0=YARD\n[AI]\nBuildConst=YARD\n\
+         [AMCV]\nStrength=1000\nSpeed=5\nROT=5\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\nDeploysInto=YARD\n\
+         [MTNK]\nStrength=400\nSpeed=6\nROT=5\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [E1]\nStrength=125\nSpeed=4\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nDeployFacing=4\n\
+         [Hunt]\nRate=0.016\n[Guard]\nRate=0.016\n[Unload]\nRate=0.016\n[Clear]\nBuildable=yes\n";
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(
+        &IniFile::from_str(text),
+        &IniFile::from_str("[YARD]\nFoundation=4x3\n"),
+    )
+    .unwrap();
+    let mut sim = Simulation::new();
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    install_base_building_house(&mut sim, human);
+    let enemy = sim.interner.intern("Russians");
+    sim.houses.insert(
+        enemy,
+        crate::sim::house_state::HouseState::new(enemy, 1, None, true, 0, 10),
+    );
+    sim.session.house_order.push(enemy);
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
+        .unwrap();
+    let forces = [
+        ("MTNK", "Americans", 8, 26),
+        ("E1", "Americans", 9, 27),
+        ("MTNK", "Russians", 28, 8),
+    ]
+    .map(|(kind, owner, x, y)| {
+        let id = sim.spawn_object(kind, owner, x, y, 0, &rules).unwrap();
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_archive_target(Some(TargetKind::Cell(x, y)));
+        id
+    });
+    (sim, rules, mcv, forces)
+}
+
+/// A computer house's yard deploy calls `HouseClass::MoveGroundForcesToBase
+/// @ 0x0050C920`: its Units and Infantry get one shared cell destination
+/// beside the base, lose their archive target and queue Move. The new yard
+/// and another house's tank keep their orders, and a human house's deploy
+/// moves nobody.
+#[test]
+fn a_computer_yard_deploy_sends_its_ground_force_to_the_base() {
+    for human in [false, true] {
+        let (mut sim, rules, mcv, [tank, infantry, enemy]) = ground_force_fixture(human);
+        let command = human.then_some(Command::DeployMcv { entity_id: mcv });
+        let mut deploy_frame = sim.session.binary_frame;
+        tick(&mut sim, &rules, command);
+        for _ in 0..140 {
+            if !yard_cells(&sim).is_empty() {
+                break;
+            }
+            deploy_frame = sim.session.binary_frame;
+            tick(&mut sim, &rules, None);
+        }
+        let yard = yard_cells(&sim);
+        assert_eq!(yard.len(), 1, "human={human}");
+        // The new yard's base origin seeds the Foot 4x4 search, whose
+        // no-target pick reads the deploy frame's counter. The port's
+        // arguments and filters are pinned by its own test in house_base.
+        let owner = sim.interner.get("Americans").unwrap();
+        let origin = sim.houses[&owner].base_origin();
+        let frame = std::mem::replace(&mut sim.session.binary_frame, deploy_frame);
+        let destination = sim
+            .nearby_passable_cell(
+                (i32::from(origin.0), i32::from(origin.1)),
+                crate::sim::find_nearby_cell::NearbyArgs::plain(
+                    crate::sim::find_nearby_cell::PassabilityArgs {
+                        speed_type: crate::rules::locomotor_type::SpeedType::Foot,
+                        required_zone_id: None,
+                        movement_zone: crate::rules::locomotor_type::MovementZone::Normal,
+                        bridge_aware_zone: false,
+                    },
+                    crate::sim::find_nearby_cell::NearbyFootprint::new(4, 4),
+                ),
+            )
+            .map(|(x, y)| NavTargetRef::cell(x + 1, y + 1));
+        sim.session.binary_frame = frame;
+        let entity = |id| sim.substrate.entities.get(id).unwrap();
+        let ordered = |id| {
+            let mission = &entity(id).mission;
+            mission.current() == MissionId::from_known(MissionType::Move)
+                || mission.queued() == MissionId::from_known(MissionType::Move)
+        };
+        let enemy_cell = Some(TargetKind::Cell(28, 8));
+        assert_eq!(entity(enemy).archive_target(), enemy_cell, "human={human}");
+        assert!(!ordered(enemy) && entity(enemy).navigation.nav_com().is_none());
+        if human {
+            for id in [tank, infantry] {
+                assert!(entity(id).archive_target().is_some());
+                assert!(!ordered(id) && entity(id).navigation.nav_com().is_none());
+            }
+            continue;
+        }
+        assert!(destination.is_some());
+        for id in [tank, infantry] {
+            assert_eq!(entity(id).navigation.nav_com(), destination);
+            assert_eq!(entity(id).archive_target(), None);
+            assert!(ordered(id));
+        }
+        let yard_id = sim
+            .substrate
+            .entities
+            .iter_sorted()
+            .find(|(_, e)| e.category() == EntityCategory::Structure)
+            .unwrap()
+            .0;
+        assert!(!ordered(yard_id));
+    }
+}
+
 /// With a yard already standing, Mission_Guard's arm queues Unload and the
 /// second MCV deploys through Mission_Unload.
 #[test]
@@ -900,7 +1059,7 @@ fn retail_dustbowl_computer_mcv() -> (
                     terrain.cell(cx, cy).is_some_and(|cell| {
                         cell.level == level
                             && cell.slope_type == 0
-                            && buildable.contains(&cell.yr_cell_land_type)
+                            && buildable.contains(&cell.land_type)
                             && cell.terrain_object_occupation.is_none()
                             && !cell.has_bridge_deck
                             && !cell.bridge_facts.has_structural_bridge()

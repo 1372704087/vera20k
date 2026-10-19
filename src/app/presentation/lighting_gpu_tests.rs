@@ -88,18 +88,15 @@ fn stock_lamp_loaded_by_scenario_changes_actual_terrain_pixels() {
             z: cell.level,
             rx,
             ry,
-            is_water: false,
             variant: 0,
             tint: [1.0; 3],
             radar_left: [0; 3],
             radar_right: [0; 3],
-            has_damaged_data: false,
         }],
         world_width: tile.width as f32,
         world_height: tile.height as f32,
         origin_x: 0.0,
         origin_y: 0.0,
-        local_bounds: None,
         bridge_middle_tiles: None,
     };
     let mut lighting = MatchLighting::default();
@@ -107,7 +104,7 @@ fn stock_lamp_loaded_by_scenario_changes_actual_terrain_pixels() {
         CellLightGrid::new(),
         parse_lighting(&scenario.map.ini),
         2,
-        Some((terrain, &scenario.runtime.simulation, rules)),
+        Some((terrain, &scenario.runtime.simulation)),
     );
     let lit_scalar = lighting
         .grid()
@@ -148,7 +145,7 @@ fn stock_lamp_loaded_by_scenario_changes_actual_terrain_pixels() {
     );
     let events = std::mem::take(&mut scenario.runtime.simulation.lighting_sources.pending);
     lighting.apply_events(terrain, &events);
-    lighting.refresh(terrain, &scenario.runtime.simulation, rules, 2);
+    lighting.refresh(terrain, &scenario.runtime.simulation, 2);
     let dark_scalar = lighting
         .grid()
         .cell_light_at((rx, ry))

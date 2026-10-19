@@ -13,8 +13,8 @@
 //! - Part of sim/.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
+use crate::sim::cell_kernel::{CellCoordinate, WorldCoordinate, cell_center};
 use crate::sim::intern::InternedId;
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::util::fixed_math::SimFixed;
 
 pub use crate::sim::movement::ground_pose::Position;
@@ -26,17 +26,33 @@ pub(crate) use crate::sim::building_construction::BuildingDown;
 #[cfg(any(test, feature = "test-support"))]
 pub use crate::sim::building_construction::BuildingUp;
 
-/// Native-like navigation target reference.
+/// A NavCom-family pointer: NavCom (`Foot+0x5A4`), its auxiliary slot
+/// (`+0x5A0`), SuspendedNavCom (`+0x5A8`) and the NavQueue and navigation-list
+/// entries.
 ///
-/// In gamemd this is an `AbstractClass*`. Phase 1 needs cell targets for normal
-/// Drive move commands, while the entity variant gives action lines and later
-/// destination paths a shared shape without claiming those paths are complete.
+/// In gamemd each is an untagged `AbstractClass*`. The Foot setter
+/// (`FootClass::Set_Destination_Internal @ 0x004D94B0`) stores its argument
+/// as given (`0x004D9510`), and readers ask the pointee for its kind or
+/// compare pointers: `AircraftClass::Mission_Enter @ 0x00419C80` compares
+/// NavCom with `+0x6CC` (`0x00419D25`) and calls NavCom's What_Am_I
+/// (virtual `+0x2C`, `0x00419D2F`) to test for a Building (6).
+///
+/// So there is one representation per pointee kind. A Cell is named by its
+/// cell. An Object, a Techno or a Terrain, is named by its stable ID; every
+/// object store draws from one ID namespace (`Simulation::allocate_stable_id`,
+/// and snapshot restore rejects an ID that two registries claim), so the ID
+/// alone says which store holds the object and what kind it is.
+///
+/// A Cell compares by its coordinates, not as the native Dummy cell pointer
+/// (`0x00ABDC50`) that stands for any cell the map lacks: see the residuals
+/// in `sim::aircraft::leave_map` and `Per_Cell_Process` (`movement::per_cell`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum NavTargetRef {
+    /// A `CellClass*`, by its cell.
     Cell { rx: u16, ry: u16 },
-    Entity { id: u64 },
+    /// An `ObjectClass*`, by stable ID: a Techno in the entity store or a
+    /// Terrain object.
     Object { id: u64 },
-    Building { id: u64 },
 }
 
 impl NavTargetRef {
@@ -48,8 +64,12 @@ impl NavTargetRef {
         Self::Object { id }
     }
 
-    pub fn building(id: u64) -> Self {
-        Self::Building { id }
+    /// The object this names; a Cell names none.
+    pub(crate) const fn object_id(self) -> Option<u64> {
+        match self {
+            Self::Object { id } => Some(id),
+            Self::Cell { .. } => None,
+        }
     }
 }
 
@@ -84,12 +104,38 @@ impl Default for FootPathRuntime {
 }
 
 impl FootPathRuntime {
+    /// `Foot+0x64C`'s reload value, the literal 10 every writer stores: the
+    /// constructor (`0x004D332C`), Drive and Ship after a found route
+    /// (`0x004B3285`, `0x006A28D5`), Hover (`0x00516BCD`) and Walk
+    /// (`0x0075B2E2`, `0x0075BA27`).
+    ///
+    /// `Process_Movement` reads `[ECX+0x64C]` at `0x004B2DC8`, and on `> 0`
+    /// decrements and stores it back (`0x004B2DD2`/`0x004B2DD3`) before
+    /// continuing; on `<= 0` it clears the drive coord, calls
+    /// `FootClass::Stop_Moving` plus vtable `+0x480`/`+0x484`, and plays the
+    /// blocked voice at `Foot+0x68A`. So it *is* decremented and it *does* end
+    /// the move at zero.
+    ///
+    /// Recorded difference: **what decrements it.** Native decrements it on every
+    /// pass through the generic blocked label `LAB_004B3282` — reached from
+    /// `Is_Cell_In_Playfield == 0`, from code 3, from `code != 6` and from two
+    /// code-6 sub-failures — and the same label is where the literal 10 is stored.
+    /// VERA decrements per failed repath instead. The escalation clock is a
+    /// separate record: `Foot+0x668` = frame, `Foot+0x66C`, and `Foot+0x670` =
+    /// `Rules+0x1768`, stored only on the `Foot+0x6B7 == 0` transition of the code-2
+    /// arm — which contains no `Scatter_Objects` call at all. Trigger: a unit
+    /// blocked long enough to exhaust the counter. Player effect: the give-up point
+    /// arrives after a different number of ticks than retail's. Frequency: every
+    /// traffic jam, many times a minute once a base has armour queuing. Downstream
+    /// risk: the two clocks are separate fields and must stay separate.
+    pub(crate) const RETRY_RELOAD: u32 = 10;
+
     pub const fn at_frame(frame: u32) -> Self {
         Self {
             movement_timer: crate::sim::timer::CdTimer::started(frame as i32, 0),
             blocked_timer: crate::sim::timer::CdTimer::started(frame as i32, 0),
             path_blocked: false,
-            retries_left: 10,
+            retries_left: Self::RETRY_RELOAD,
             scold_latch: 0,
         }
     }
@@ -189,14 +235,22 @@ pub struct DriveCoord {
 }
 
 impl DriveCoord {
-    const CELL_LEPTONS: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
-    const CELL_CENTER: i32 = crate::util::lepton::CELL_CENTER_LEPTON_I32;
-
+    /// Cell (rx, ry)'s centre ([`cell_center`]) at height `z`.
     pub fn cell(rx: u16, ry: u16, z: i32) -> Self {
+        let cell = CellCoordinate {
+            x: i32::from(rx),
+            y: i32::from(ry),
+        };
+        cell_center(cell, z).into()
+    }
+}
+
+impl From<WorldCoordinate> for DriveCoord {
+    fn from(point: WorldCoordinate) -> Self {
         Self {
-            x: i32::from(rx) * Self::CELL_LEPTONS + Self::CELL_CENTER,
-            y: i32::from(ry) * Self::CELL_LEPTONS + Self::CELL_CENTER,
-            z,
+            x: point.x,
+            y: point.y,
+            z: point.z,
         }
     }
 }
@@ -515,18 +569,6 @@ impl FootSpeedState {
 
 pub use crate::sim::movement::track_process::TrackProgress;
 
-/// Drive-owned occupation mark installed ahead of the live object-list cell.
-///
-/// The cell list remains tied to the unit's committed coordinates. This record
-/// persists the independent head-to mark so the transient per-cell occupation
-/// index can be rebuilt after loading a snapshot.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub struct DriveOccupationFootprint {
-    pub rx: u16,
-    pub ry: u16,
-    pub layer: MovementLayer,
-}
-
 /// Constructor row for a generic AnimClass-like runtime spawn.
 ///
 /// This preserves the fields passed to `AnimClass::Constructor` separately from
@@ -675,16 +717,6 @@ mod tests {
         assert_eq!(coord.x, 45 * 256 + 128);
         assert_eq!(coord.y, 40 * 256 + 128);
         assert_eq!(coord.z, 0);
-    }
-
-    #[test]
-    fn nav_target_ref_has_cell_object_and_building_shapes() {
-        assert_eq!(
-            NavTargetRef::cell(45, 40),
-            NavTargetRef::Cell { rx: 45, ry: 40 }
-        );
-        assert_eq!(NavTargetRef::object(7), NavTargetRef::Object { id: 7 });
-        assert_eq!(NavTargetRef::building(9), NavTargetRef::Building { id: 9 });
     }
 
     #[test]

@@ -4,9 +4,11 @@
 //! reaches (`0x005F5486`, `Flash(7)`); a building's Flash (vt+0x148,
 //! `0x00456E00`, from a C4 plant); team script action 50 (`0x006E9D0A`);
 //! `TeamClass::Flash_Members` (`0x006EF5FB`); and
-//! `TActionClass::FlashBuildingsOfType` (`0x006E45CB`). Not all are ported
-//! yet: the heal flash, the MegaMission flash (`world_commands`) and the
-//! ToggleRepair flash (`production_repair`) are not. The shared late TechnoAI
+//! `TActionClass::FlashBuildingsOfType` (`0x006E45CB`). The heal flash and
+//! the MegaMission event's order-target flash (`0x004C739F`) reach vt+0x148
+//! through [`Simulation::flash_object`]. ToggleRepair447091 reuses the
+//! Building Flash owner for a local repair start.
+//! The shared late TechnoAI
 //! slot steps it (`0x004CC770`, called at `0x006FAC4D`). Presentation reads
 //! its phase bit; there is no separate flash clock.
 
@@ -46,3 +48,71 @@ impl Flashing {
         true
     }
 }
+
+impl crate::sim::world::Simulation {
+    /// vt+0x148 `Flash(frames)` on a represented object. Every Foot class
+    /// keeps `TechnoClass::Flash @ 0x006F9DD0`; `BuildingClass::Flash @
+    /// 0x00456E00` wraps the same body in redraw and relit-anim presentation
+    /// ([`crate::sim::game_entity::GameEntity::flash_base`]). TerrainClass's
+    /// slot (`0x005F4370`) is an empty `RET 4`, so a terrain object needs no
+    /// call.
+    ///
+    /// The Techno body skips the write when the object is disguised to the
+    /// current player (vt+0xC8) and its GetDisguiseHouse(1) (vt+0xD0) is NULL:
+    /// - Building and Aircraft keep the base pair: their raw disguise flag
+    ///   (`0x0041C020`) and NULL (`0x0041BE70`).
+    /// - Infantry's `0x005226C0` with argument 1 answers `+0x51C`, else the
+    ///   current player's house: never NULL while a player exists.
+    /// - Unit's `0x007465F0` answers `+0x51C` as stored, so a Mirage worn as
+    ///   terrain stays dark to an enemy that cannot see through it.
+    pub(crate) fn flash_object(&mut self, id: u64, frames: i32) {
+        use crate::map::entities::EntityCategory;
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        match entity.category() {
+            EntityCategory::Structure | EntityCategory::Aircraft => {}
+            EntityCategory::Infantry => {
+                self.substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .flashing
+                    .start(frames);
+                return;
+            }
+            EntityCategory::Unit => {
+                let hidden = entity
+                    .disguise
+                    .as_ref()
+                    .is_some_and(|disguise| disguise.house().is_none())
+                    && self.session.current_house.is_some_and(|player| {
+                        entity.is_disguised_to(
+                            player,
+                            Some(&self.fog),
+                            Some(&self.house_alliances),
+                            &self.interner,
+                        )
+                    });
+                if !hidden {
+                    self.substrate
+                        .entities
+                        .get_mut(id)
+                        .unwrap()
+                        .flashing
+                        .start(frames);
+                }
+                return;
+            }
+        }
+        self.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .flash_base(frames);
+    }
+}
+
+#[cfg(test)]
+#[path = "flashing_tests.rs"]
+mod tests;

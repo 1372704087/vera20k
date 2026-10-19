@@ -18,6 +18,10 @@ use std::collections::BTreeSet;
 mod damage_dispatch;
 pub(crate) use damage_dispatch::BridgeDamageDrivers;
 use damage_dispatch::LiveCells;
+pub(super) use damage_dispatch::PendingBridgeCells;
+
+#[path = "bridge_moving_collapse.rs"]
+mod moving_collapse;
 
 #[path = "bridge_ground.rs"]
 mod ground_fallout;
@@ -124,7 +128,7 @@ pub(crate) fn damage_at_waypoint(
     let warhead_id = sim.interner.intern(&rules.bridge_warheads.c4_name);
     let mut changed = false;
     for (dx, dy) in [(0, 0), (85, 85), (-85, 85), (85, -85), (-85, -85)] {
-        let [x, y, z] = sim.trigger_waypoint_coord(waypoint)?;
+        let [x, y, z] = sim.trigger_waypoint_location(waypoint)?;
         changed |= apply_area_damage(
             sim,
             rules,
@@ -138,8 +142,8 @@ pub(crate) fn damage_at_waypoint(
     }
     // IsWaypointValid68BD80 gates only the tail, after all five area visits.
     // The retained unset coordinate is zero; the shared session bounds the index.
-    if let Some(cell) = sim.session.waypoint_cell(waypoint)
-        && cell != (0, 0)
+    if sim.session.waypoint_is_valid(waypoint)
+        && let Some(cell) = sim.session.waypoint_cell(waypoint)
     {
         let mut drivers = BridgeDamageDrivers::new(sim, rules, overlay_registry, frame_effects);
         for _ in 0..4 {
@@ -776,6 +780,10 @@ pub(super) fn blow_up_bridge_cell_fallout(
         ry,
         super::UninitContext::new(Some(rules), overlay_registry).with_effects(frame_effects),
     );
+    //47DDD5..47DE2B publishes after ground/deck receivers, before debris
+    //draws/constructors. Direct callers also leave pending entries for save;
+    //only Map587180 owns the clear/consume bracket.
+    sim.pending_bridge_collapses.append((rx as i16, ry as i16));
     let mut one_cell = BTreeSet::new();
     one_cell.insert((rx, ry));
     spawn_bridge_debris(sim, rules, &one_cell);
@@ -1012,23 +1020,31 @@ mod tests {
     }
 
     /// Build a single-cell terrain grid where (5,5) is a bridge deck at
-    /// `deck_level`, ground level=0, water below (`is_water=true`,
-    /// `ground_walk_blocked=true`). Used to verify DropIn lets deck units
-    /// survive even with no walkable ground.
+    /// `deck_level`, ground level=0, Water below (its land, zone and ground
+    /// block). Used to verify DropIn lets deck units survive even with no
+    /// walkable ground.
     pub(super) fn water_below_bridge_terrain(deck_level: u8) -> ResolvedTerrainGrid {
         let mut cells = Vec::new();
         for y in 0..=5u16 {
             for x in 0..=5u16 {
                 let is_bridge = x == 5 && y == 5;
-                cells.push(ResolvedTerrainCell {
-                    is_water: is_bridge,
-                    ground_walk_blocked: is_bridge,
+                let mut cell = ResolvedTerrainCell {
                     has_bridge_deck: is_bridge,
                     bridge_walkable: is_bridge,
                     bridge_transition: is_bridge,
                     bridge_deck_level: if is_bridge { deck_level } else { 0 },
                     ..crate::map::resolved_terrain::test_flat_cell(x, y)
-                });
+                };
+                if is_bridge {
+                    let water = crate::rules::terrain_rules::LandType::Water.as_index();
+                    cell.land_type = water;
+                    cell.base_land_type = water;
+                    cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
+                    cell.ground_walk_blocked = true;
+                    cell.base_ground_walk_blocked = true;
+                    cell.base_build_blocked = true;
+                }
+                cells.push(cell);
             }
         }
         ResolvedTerrainGrid::from_cells(6, 6, cells)
@@ -1758,7 +1774,7 @@ mod tests {
 
         // Consumed Engineers can retain positive HP after UnInit until the
         // deferred drain. The legacy coordinate scan must not restart their
-        // Infantry terminal lifetime when it visits this stored identity.
+        // death when it visits this stored identity.
         let retired = GameEntity::new_at_frame_zero_for_test(
             3,
             5,
@@ -1778,8 +1794,10 @@ mod tests {
         assert!(sim.substrate.entities.get(3).unwrap().health.current() > 0);
 
         let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=256\nArmor=heavy\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
-        )).unwrap();
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=256\nArmor=heavy\n\
+             [CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
+        ))
+        .unwrap();
         let ground = sim.substrate.entities.get_mut(1).unwrap();
         ground.lifecycle.set_in_limbo_for_test(false);
         ground.lifecycle.set_cell_marked(true);
@@ -1807,7 +1825,6 @@ mod tests {
             "unlinked retired object is not a ground receiver"
         );
         assert!(!retired.lifecycle.object_alive());
-        assert!(retired.death.infantry_terminal().is_none());
         assert_eq!(sim.substrate.pending_delete.object_ids(), vec![3, 1]);
 
         let g = sim.substrate.entities.get(1).expect("ground unit present");
@@ -1834,7 +1851,8 @@ mod tests {
         use crate::sim::world::SimSoundEvent;
 
         let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\n\
+             [CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n[Super]\nInfDeath=1\n",
         ))
         .expect("rules parse");
         let mut sim = Simulation::new();

@@ -426,6 +426,9 @@ pub struct SpriteAtlas {
     /// resident; the AnimClass and projectile-image presentation
     /// (`app/presentation/instances/overlays.rs`) reads the same map.
     pub active_anim_frame_counts: HashMap<String, u16>,
+    /// Object type → physical frame count of its resolved object SHP. Kept
+    /// separately from presentation counts, which may exclude shadow frames.
+    object_shp_frame_counts: HashMap<String, u16>,
     /// Keys with nothing to draw: the SHP is missing or fails to decode, or
     /// the frame is empty. Remembered so a refresh never renders them again.
     unrenderable: HashSet<ShpSpriteKey>,
@@ -513,6 +516,7 @@ impl SpriteAtlas {
             entries,
             make_frame_counts: HashMap::new(),
             active_anim_frame_counts: HashMap::new(),
+            object_shp_frame_counts: HashMap::new(),
             unrenderable: HashSet::new(),
             covered_objects: HashMap::new(),
             covered_anim_remaps: HashSet::new(),
@@ -531,6 +535,13 @@ impl SpriteAtlas {
     /// holds this sprite's texture data.
     pub fn get(&self, key: &ShpSpriteKey) -> Option<&ShpSpriteEntry> {
         self.entries.get(key)
+    }
+
+    /// Physical frame count from the object type's resolved SHP source.
+    pub(crate) fn object_shp_frame_count(&self, type_id: &str) -> Option<u16> {
+        self.object_shp_frame_counts
+            .get(&type_id.to_ascii_uppercase())
+            .copied()
     }
 
     /// Exact frame lookup; an absent frame is not substituted or wrapped.
@@ -1120,9 +1131,9 @@ fn infantry_asset_frames(
 /// Infantry disguise type can be absent from the placed set; its rules class
 /// still supplies the Infantry source and signed record bank.
 ///
-/// Return decoded Infantry sources for the render pass to consume, so every
-/// type is decoded whole once and its frame membership is computed once per refresh,
-/// independently of the number of entities or house colours.
+/// Return decoded object sources for the render pass to consume, so each
+/// Infantry type's frame membership and each Structure's shadow frames are
+/// computed from its resolved SHP once per refresh, independent of house colour.
 fn insert_new_object_keys<'a>(
     needed: &mut HashSet<ShpSpriteKey>,
     new_objects: &HashSet<(String, HouseColorIndex)>,
@@ -1201,6 +1212,47 @@ fn insert_new_object_keys<'a>(
             rules,
             infantry_frames,
         );
+
+        if category == EntityCategory::Structure {
+            // Resolve the actual theater/rules-selected object source once and
+            // retain it for rendering. Its physical frame count establishes
+            // the embedded shadow half; Type.Image text alone does not.
+            let source = sources.entry(type_str.clone()).or_insert_with(|| {
+                load_shp_source(
+                    asset_manager,
+                    type_str,
+                    None,
+                    theater_ext,
+                    theater_name,
+                    rules,
+                    art,
+                )
+            });
+            if let Some(raw_count) = source
+                .as_ref()
+                .and_then(|source| u16::try_from(source.shp.frames.len()).ok())
+            {
+                let shadow_start = raw_count / 2;
+                for body_frame in 0..=3 {
+                    let body_key = ShpSpriteKey {
+                        palette_context: ShpPaletteContext::Legacy,
+                        type_id: type_str.clone(),
+                        facing: 0,
+                        frame: body_frame,
+                        house_color: *color_idx,
+                    };
+                    if needed.contains(&body_key) {
+                        let shadow_frame = shadow_start + body_frame;
+                        if shadow_frame < raw_count {
+                            needed.insert(ShpSpriteKey {
+                                frame: shadow_frame,
+                                ..body_key
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
     sources
 }
@@ -1360,7 +1412,7 @@ pub fn build_sprite_atlas(
         .cloned()
         .collect();
     let mut needed: HashSet<ShpSpriteKey> = HashSet::new();
-    let mut infantry_sources = insert_new_object_keys(
+    let mut object_sources = insert_new_object_keys(
         &mut needed,
         &new_objects,
         entities,
@@ -1384,6 +1436,19 @@ pub fn build_sprite_atlas(
             )
         })
         .unwrap_or_default();
+    let mut object_shp_frame_counts = previous_atlas
+        .as_ref()
+        .map(|atlas| atlas.object_shp_frame_counts.clone())
+        .unwrap_or_default();
+    for (type_id, source) in &object_sources {
+        if let Some(source) = source
+            && let Ok(frame_count) = u16::try_from(source.shp.frames.len())
+        {
+            let key = type_id.to_ascii_uppercase();
+            object_shp_frame_counts.insert(key.clone(), frame_count);
+            shp_files.insert(key, source.found_name.clone());
+        }
+    }
     let mut projectile_files = previous_atlas
         .as_ref()
         .map(|atlas| atlas.projectile_files.clone())
@@ -1581,11 +1646,9 @@ pub fn build_sprite_atlas(
     }
 
     // Step 1e: Pre-load the parachute SHP (`[General] Parachute=`).
-    // The canopy's frames are keyed on the unit-palette context the parachute
-    // pass draws with, so they are registered here as well as through the
-    // AnimClass closure `[General] Parachute=` now belongs to. Its palette is not
-    // decided by this registration: `sprite_palette_choice` reads the art type's
-    // `AltPalette=` flag, which PARACH sets, and that selects the unit palette.
+    // This registers the no-remap GlobalAnim/colour-0 fallback. The live
+    // AnimClass remap closure adds SelectedScheme variants for remapped canopies;
+    // both use the unit palette here because PARACH sets `AltPalette=`.
     let parachute = rules
         .filter(|_| previous_atlas.is_none())
         .and_then(|r| r.general.parachute_shp.as_deref());
@@ -1675,7 +1738,8 @@ pub fn build_sprite_atlas(
     );
 
     // Load anim.pal for world effect SHPs. Anim types (explosions, warp flashes,
-    // etc.) are drawn with anim.pal, not unit.pal.
+    // etc.) are drawn with anim.pal, not unit.pal. Init_Game 0x0052BA60
+    // converts ANIM.PAL and PALETTE.PAL like every palette load.
     let effect_palette: Option<Palette> = asset_manager
         .get_ref("anim.pal")
         .and_then(|d| Palette::from_bytes(d).ok());
@@ -1752,10 +1816,11 @@ pub fn build_sprite_atlas(
                     .get(&key.type_id.to_ascii_uppercase())
                     .map(String::as_str)
             };
-            // The Infantry membership pass already decoded this exact source.
-            // Consume it here rather than decoding per colour or a second time.
+            // Object key collection already decoded this exact source for
+            // Infantry admission or Structure shadow-frame registration.
+            // Reuse it instead of decoding the same file a second time.
             let mut loaded = (!projectile)
-                .then(|| infantry_sources.remove(&key.type_id))
+                .then(|| object_sources.remove(&key.type_id))
                 .flatten()
                 .unwrap_or_else(|| {
                     load_shp_source(
@@ -1848,6 +1913,7 @@ pub fn build_sprite_atlas(
     atlas.unrenderable.extend(unrenderable);
     atlas.make_frame_counts = make_frame_counts;
     atlas.active_anim_frame_counts = active_anim_frame_counts;
+    atlas.object_shp_frame_counts = object_shp_frame_counts;
     atlas.shp_files = shp_files;
     atlas.projectile_files = projectile_files;
     for (type_id, color) in new_objects {
@@ -2251,7 +2317,7 @@ fn render_harvest_overlay_frames<'a>(
 }
 
 #[cfg(test)]
-pub(crate) use tests::native_palette_probe_page;
+pub(crate) use tests::{native_palette_probe_page, native_probe_rgb, palette_probe_page};
 
 /// Index bytes of rows at which a map-load upload band closes. A band holds
 /// whole shelves, so it exceeds this by less than its last shelf.

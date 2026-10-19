@@ -10,6 +10,7 @@ use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::locomotor_type::{MovementZone, SpeedType};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::cell_kernel::{CellCoordinate, cell_center};
 use crate::sim::cell_rect::{PlayfieldBounds, cell_is_in_playfield_height_aware_in_query};
 use crate::sim::combat::TargetKind;
 use crate::sim::components::{DriveCoord, NavTargetRef};
@@ -22,7 +23,7 @@ use crate::sim::movement::ground_pose::query_ground_height as query_ground;
 use crate::sim::movement::infantry_entry::{EntryQueryMode, InfantryEntryArgs};
 use crate::sim::occupancy::RawCellOccupationGrid;
 use crate::sim::pathfinding::zone_map::{ZoneGrid, ZoneQueryCell};
-use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, GROUND_LEVEL_HEIGHT_LEPTONS};
+use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
 
 /// What_Action's answer, on a Cell (vt+0x70) or over an object (vt+0x74), in
 /// the rungs a Move click reaches.
@@ -96,9 +97,9 @@ impl Simulation {
     ///
     /// Not modelled, each answering another action where native reaches it:
     /// the planning rung (Ctrl+Alt or +0x43A, `0x00700815..0x007008A3`); the
-    /// attack rungs (`0x007008A6..0x00700AB4`: Ctrl, an enemy wall, a
-    /// destroyable cliff, a veinhole, a fogged building, a TerrainFire weapon
-    /// over a tree); a Unit harvester over ore or weeds
+    /// attack rungs (`0x007008A6..0x00700AB4`), which callers ask first
+    /// (Ctrl's forced shot, and [`Self::cell_attack_rung_admits`]); a Unit
+    /// harvester over ore or weeds
     /// (`0x007405F5..0x007406C3`, app-side in the cursor and the click); a
     /// tube entrance (Unit `0x007406CF`, Infantry `0x0051F9AC`); a JumpJet
     /// soldier over a tube's neighbourhood, which answers 0
@@ -187,6 +188,95 @@ impl Simulation {
             _ => {}
         }
         Ok(action)
+    }
+
+    /// Whether Techno What_Action on a Cell (`0x00700600`) reaches its
+    /// unforced Attack rung for `id` (`0x007008A6..0x007009F1`). The caller
+    /// then resolves that rung's tail (vt+0xA0 or InRange, answering 5) the
+    /// way it resolves a forced shot at the Cell. In order:
+    /// - 0 for a berserk or warped object (`0x00700609`, `0x00700731`,
+    ///   `0x00700743`), and the rung needs a human player's object
+    ///   (`0x007008AC`) holding a current weapon (vt+0x3F4, `0x007008BD`);
+    /// - the Cell must hold a LegalTarget overlay (`0x0070092E..0x0070093E`)
+    ///   or be a destroyable cliff (`0x00486900`) for a warhead without
+    ///   `Fire=` (`0x00700908..0x00700924`);
+    /// - then it attacks with no overlay (the cliff), a live veinhole monster,
+    ///   or a Wall overlay its owner (`CellClass+0x50`) is not allied with
+    ///   (`0x0070097E`), when the warhead has `Wall=`, or `Wood=` against an
+    ///   `Armor=wood` overlay (`0x007009C8..0x007009F1`).
+    ///
+    /// Residuals: the planning rung before it answers for an object whose
+    /// +0x43A is set (`0x00700840`; FootClass::ActivatePlanningWaypoint sets
+    /// it at `0x004DC8D3`), which VERA does not model; the fogged-object scan
+    /// behind the scenario's FogOfWar flag
+    /// (`0x00700761..0x0070080F`: a fogged overlay replaces the live one and
+    /// a fogged enemy building admits the rung) and the veinhole monster
+    /// (`0x00700990`, no VERA owner) are not modelled; the later TerrainFire
+    /// rung (vt+0x398, `0x00700A46`) is not either.
+    pub fn cell_attack_rung_admits(
+        &self,
+        id: u64,
+        cell: (u16, u16),
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+    ) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        if entity.berserk.is_active()
+            || entity.is_warped_out()
+            || entity.is_warping_in()
+            || !self.house_is_human_player(entity.owner())
+        {
+            return false;
+        }
+        let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+            return false;
+        };
+        let Some(weapon) = crate::sim::combat::combat_weapon::current_weapon(
+            entity,
+            object,
+            &self.substrate.entities,
+            rules,
+            &self.interner,
+        ) else {
+            return false;
+        };
+        let warhead = weapon
+            .warhead
+            .as_deref()
+            .and_then(|name| rules.warhead(name));
+        let overlay_cell = self
+            .overlay_grid
+            .as_ref()
+            .map(|grid| grid.cell(cell.0, cell.1));
+        let overlay = overlay_cell
+            .and_then(|cell| cell.overlay_id)
+            .and_then(|overlay_id| registry?.flags(overlay_id));
+        let cliff = self
+            .resolved_terrain
+            .as_ref()
+            .is_some_and(|terrain| terrain.is_destroyable_cliff(cell.0, cell.1))
+            && !warhead.is_some_and(|warhead| warhead.fire);
+        if !(overlay.is_some_and(|overlay| overlay.legal_target) || cliff) {
+            return false;
+        }
+        let Some(overlay) = overlay else {
+            return true;
+        };
+        let enemy_owned = overlay_cell
+            .and_then(|cell| cell.wall_owner)
+            .is_some_and(|owner| {
+                !crate::map::houses::is_allied_with(
+                    &self.house_alliances,
+                    self.interner.resolve(owner),
+                    self.interner.resolve(entity.owner()),
+                )
+            });
+        enemy_owned
+            && overlay.wall
+            && warhead
+                .is_some_and(|warhead| warhead.wall || (warhead.wood && overlay.armor_is_wood))
     }
 
     /// `MapClass::IsShrouded @ 0x00586360` for `viewer` at a clicked Cell's
@@ -427,9 +517,9 @@ impl Simulation {
             return Ok(None);
         }
         let navigation = crate::sim::movement::nav_target_coordinate(
-            NavTargetRef::Entity { id: target },
+            NavTargetRef::object(target),
             None,
-            &self.substrate.entities,
+            self,
             Some(terrain),
             Some((rules, &self.interner)),
         )?;
@@ -458,9 +548,7 @@ impl Simulation {
             .playfield_bounds
             .ok_or("Move click needs the playfield")?;
         let size = self
-            .playfield_size_height
-            .map(|height| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+            .map_size_diamond()
             .ok_or("Move click needs the map Size")?;
         //One fresh query identity starts from the canonical retained bytes.
         let cells = NativeCellQuery::isolated(terrain);
@@ -471,6 +559,7 @@ impl Simulation {
             cells,
             zones,
             raw: &self.substrate.raw_cell_occupation,
+            overlays: self.overlay_grid.as_ref(),
             bounds,
             size,
             frame: self.session.binary_frame,
@@ -523,23 +612,16 @@ struct ClickMover {
 }
 
 impl ClickMover {
-    /// IsInAir (vt+0x54, `0x005F6B90`): two levels above the ground.
-    fn in_air(&self, cells: &NativeCellQuery<'_>) -> Result<bool, String> {
-        //5F6B90 samples height only when Object+74 is true; +1C8 subtracts
-        //OnBridge's height independently of the ShouldBeOnBridge query.
-        if !self.marked {
-            return Ok(false);
-        }
-        let height = self
-            .current
-            .z
-            .wrapping_sub(query_ground(cells, self.current)?)
-            .wrapping_sub(if self.on_bridge {
-                BRIDGE_DECK_HEIGHT_LEPTONS
-            } else {
-                0
-            });
-        Ok(height >= 2 * GROUND_LEVEL_HEIGHT_LEPTONS)
+    /// IsInAir (vt+0x54, `0x005F6B90`): GetHeight (`0x005F5F40`) two levels
+    /// above the ground, sampled only when Object+74 is true. GetHeight
+    /// subtracts OnBridge's deck independently of the ShouldBeOnBridge query.
+    fn in_air(&self, cells: &NativeCellQuery<'_>) -> bool {
+        use crate::sim::movement::air_movement::{object_flight_predicate, object_height_in_query};
+        object_flight_predicate(
+            self.marked,
+            || object_height_in_query(self.current, self.on_bridge, Some(cells)),
+            true,
+        )
     }
 }
 
@@ -548,6 +630,8 @@ struct ClickMap<'a> {
     cells: NativeCellQuery<'a>,
     zones: &'a ZoneGrid,
     raw: &'a RawCellOccupationGrid,
+    /// The live overlays whose `Wall=` FNPC's passability test reads.
+    overlays: Option<&'a crate::sim::overlay_grid::OverlayGrid>,
     bounds: PlayfieldBounds,
     size: (i32, i32),
     frame: u32,
@@ -658,7 +742,7 @@ impl ClickMap<'_> {
                 target_cell: None,
                 path_grid: None,
                 resolved_terrain: Some(self.cells.terrain()),
-                overlay_grid: None,
+                overlay_grid: self.overlays,
                 occupancy: None,
                 entities: None,
                 zone_grid: Some(self.zones),
@@ -702,21 +786,24 @@ fn clicked_coordinate(
     cells: &NativeCellQuery<'_>,
     clicked: (i16, i16),
 ) -> Result<DriveCoord, String> {
-    let mut point = cell_centre(clicked);
+    let centre = cell_center(
+        CellCoordinate {
+            x: i32::from(clicked.0),
+            y: i32::from(clicked.1),
+        },
+        0,
+    );
+    let mut point = DriveCoord {
+        x: centre.x,
+        y: centre.y,
+        z: 0,
+    };
     point.z = query_ground(cells, point)?;
     //4DE242/4DE38C are separate Map calls after the height query.
     if cells.flags(cells.lookup_world(point.x, point.y)) & 0x100 != 0 {
         point.z = point.z.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS);
     }
     Ok(point)
-}
-
-fn cell_centre(cell: (i16, i16)) -> DriveCoord {
-    DriveCoord {
-        x: i32::from(cell.0) * 256 + 128,
-        y: i32::from(cell.1) * 256 + 128,
-        z: 0,
-    }
 }
 
 /// Original 4DE1D0 for every Foot. No A* search and no
@@ -739,7 +826,7 @@ fn resolve_foot_cell_click(
         return Ok(None);
     }
     let source = map.source(&click.mover);
-    let in_air = click.mover.in_air(cells)?;
+    let in_air = click.mover.in_air(cells);
     //4DE2B7..4DE2DA: Subterranean searches as Normal. Fly becomes Infantry
     //only when House53A130 answers true, and it is constant false.
     let movement_zone = match click.mover.movement_zone {
@@ -808,10 +895,21 @@ fn resolve_foot_object_click(
         MovementZone::Fly => MovementZone::Infantry,
         zone => zone,
     };
-    let special = click.mover.in_air(cells)? || click.mover.special_type;
+    let special = click.mover.in_air(cells) || click.mover.special_type;
     let source_bridge = map.source_bridge(&click.mover)?;
     //4D7990..4D79DF: the Cell's centre on its ground, with no bridge raise.
-    let mut centre = cell_centre(click.target);
+    let point = cell_center(
+        CellCoordinate {
+            x: i32::from(click.target.0),
+            y: i32::from(click.target.1),
+        },
+        0,
+    );
+    let mut centre = DriveCoord {
+        x: point.x,
+        y: point.y,
+        z: 0,
+    };
     centre.z = query_ground(cells, centre)?;
     let shrouded = crate::sim::vision::coordinate_is_shrouded(cells, centre, &open)?;
     let own_zone = Some((source, source_bridge));

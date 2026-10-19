@@ -15,7 +15,6 @@ use std::collections::HashMap;
 
 use crate::assets::fnt_file::{FntFile, FntGlyph};
 use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
-use crate::render::gpu::GpuContext;
 use crate::render::shell_text_reveal::{PathAReveal, encoded_unit_rgb};
 
 /// Hardcoded inter-glyph spacing.
@@ -126,6 +125,31 @@ impl BitFont {
     }
     pub fn cell_height(&self) -> f32 {
         self.cell_height as f32
+    }
+
+    /// ComputeTextRect4A59E0: whole-string width, horizontal alignment and
+    /// signed margins. Unlike the shell's wrapped layout, this query uses the
+    /// font's cell height and measures before clipping. PRIMARY70AC60 supplies
+    /// flags149 and margins[4,2]. Native pixels: primary_factory_status.json.
+    pub(crate) fn compute_text_rect(
+        &self,
+        text: &str,
+        [mut x, y]: [i32; 2],
+        flags: u32,
+        [margin_x, margin_y]: [i32; 2],
+    ) -> [i32; 4] {
+        let width = self.text_width(text) as i32;
+        if flags & 0x100 != 0 {
+            x = x.wrapping_sub(width / 2);
+        } else if flags & 0x200 != 0 {
+            x = x.wrapping_sub(width);
+        }
+        [
+            x.wrapping_sub(margin_x),
+            y.wrapping_sub(margin_y),
+            width.wrapping_add(margin_x.wrapping_mul(2)),
+            (self.cell_height as i32).wrapping_add(margin_y.wrapping_mul(2)),
+        ]
     }
 
     pub fn build_text(
@@ -528,7 +552,7 @@ impl BitFont {
         ]
     }
 
-    pub fn fallback_5x7(gpu: &GpuContext, batch: &BatchRenderer) -> Self {
+    pub fn fallback_5x7(device: &wgpu::Device, queue: &wgpu::Queue, batch: &BatchRenderer) -> Self {
         const GLYPH_W: u32 = 5;
         const GLYPH_H: u32 = 7;
         const GLYPH_PAD: u32 = 1;
@@ -567,7 +591,9 @@ impl BitFont {
 
         Self {
             source_identity: None,
-            atlas_texture: Some(batch.create_texture(gpu, &rgba, atlas_w, atlas_h)),
+            atlas_texture: Some(
+                batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None),
+            ),
             glyphs,
             missing_glyph: None,
             cell_height: GLYPH_H + 1,
@@ -580,7 +606,12 @@ impl BitFont {
         }
     }
 
-    pub fn from_fnt(gpu: &GpuContext, batch: &BatchRenderer, fnt: &FntFile) -> Self {
+    pub fn from_fnt(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &BatchRenderer,
+        fnt: &FntFile,
+    ) -> Self {
         let mut entries: Vec<(u16, &FntGlyph)> = Vec::new();
         for cp in PACKED_CODEPOINT_RANGE {
             if let Some(g) = fnt.glyph(cp) {
@@ -609,7 +640,7 @@ impl BitFont {
 
         if entries.is_empty() && missing_owned.is_none() {
             log::warn!("FNT has no glyphs, falling back to hardcoded font");
-            return Self::fallback_5x7(gpu, batch);
+            return Self::fallback_5x7(device, queue, batch);
         }
 
         // Reserve a sentinel codepoint for the missing glyph that won't collide
@@ -690,8 +721,10 @@ impl BitFont {
             .glyph(0x20)
             .map(|g| g.width)
             .unwrap_or(DEFAULT_SPACE_WIDTH);
-        let atlas_texture = batch.create_texture(gpu, &rgba, atlas_w, atlas_h);
-        let darken_texture = batch.create_texture(gpu, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1);
+        let atlas_texture =
+            batch.create_texture_on_device(device, queue, &rgba, atlas_w, atlas_h, None);
+        let darken_texture =
+            batch.create_texture_on_device(device, queue, &[0u8, 0, 0, DARKEN_ALPHA], 1, 1, None);
 
         log::info!(
             "BitFont atlas: {}x{} px, {} glyphs (+missing={}), space_width={}",

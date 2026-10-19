@@ -121,12 +121,38 @@ pub(super) fn radar_entity_owner_color(
     owner_dot_color(owner_str, house_colors, ramps)
 }
 
+/// RenderCellPixel's combat flash (`0x00655FEB..0x00656042`): while an
+/// object of the current player has frames `r > 0` left on its radar combat
+/// flash (`TechnoClass+0x174`), its pixel word is inverted whenever
+/// `(r - 1) / FlashFrameTime` is odd. TechnoClass+0x4A0's matching redraw
+/// request at each period boundary (`0x0070DBCC..0x0070DC37`) is subsumed:
+/// every dot is recomputed on each minimap update.
+///
+/// RESIDUAL: `FlashFrameTime=0` divides by zero natively; here it never
+/// flashes.
+pub(super) fn radar_combat_flash_inverts(
+    entity: &crate::sim::game_entity::GameEntity,
+    current_player: Option<InternedId>,
+    binary_frame: u32,
+    rules: Option<&RuleSet>,
+) -> bool {
+    let Some(period) = rules
+        .map(|rules| rules.general.flash_frame_time)
+        .filter(|&period| period != 0)
+    else {
+        return false;
+    };
+    let remaining = entity.radar_combat_flash.remaining(binary_frame as i32);
+    remaining > 0 && (remaining - 1) / period % 2 == 1 && current_player == Some(entity.owner())
+}
+
 pub(super) fn radar_pixel_candidate_eligible(
     entry: RadarTrackerEntry,
     entities: &crate::sim::entity_store::EntityStore,
     houses: &BTreeMap<InternedId, crate::sim::house_state::HouseState>,
     local_owner: Option<InternedId>,
     fog: &FogState,
+    alliances: &crate::map::houses::HouseAllianceMap,
     full_visibility: bool,
     game_mode_nonzero: bool,
     rules: Option<&RuleSet>,
@@ -141,8 +167,13 @@ pub(super) fn radar_pixel_candidate_eligible(
 
     if let Some(local_owner) = local_owner {
         let friendly = entity.owner() == local_owner
-            || interner
-                .is_some_and(|interner| fog.is_friendly_id(local_owner, entity.owner(), interner));
+            || interner.is_some_and(|interner| {
+                crate::map::houses::are_houses_friendly(
+                    alliances,
+                    interner.resolve(local_owner),
+                    interner.resolve(entity.owner()),
+                )
+            });
         if !full_visibility {
             let (rx, ry) = projection
                 .pixel_to_cell(entry.x, entry.y)
@@ -444,6 +475,25 @@ impl RetainedRadarTracker {
             .rev()
             .find(|entry| entry.x == x && entry.y == y)
             .map(|entry| entry.stable_id)
+    }
+
+    /// An installed pixel whose reverse hit still selects this object. A
+    /// covered or retired entry cannot supply an ordinary input target. The caller
+    /// admits only pixels represented by its current screen geometry.
+    pub fn clickable_pixel(
+        &self,
+        stable_id: u64,
+        mut usable: impl FnMut((i32, i32)) -> bool,
+    ) -> Option<(i32, i32)> {
+        let cache = self.objects.get(&stable_id)?;
+        if !cache.registered {
+            return None;
+        }
+        cache
+            .pixels
+            .iter()
+            .copied()
+            .find(|&(x, y)| self.object_at_pixel(x, y) == Some(stable_id) && usable((x, y)))
     }
 
     #[cfg(test)]

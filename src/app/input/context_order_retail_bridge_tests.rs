@@ -20,11 +20,8 @@ use crate::sim::world::bridge_test_evidence;
 use serde_json::{Value, json};
 use std::cell::{Cell, RefCell};
 
-fn packet() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/engineer_bridge_cursor_caller.json",
-    ))
-    .unwrap()
+fn packet() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/engineer_bridge_cursor_caller.json")
 }
 
 /// Supplied target identity, classified by the same loaded friendship owner
@@ -78,8 +75,16 @@ fn resolve_hut_orders(
             repairable_span
         ))
     );
-    let feedback =
-        capability_cursor_for_hover(sim, &original_selection, best, &hover, Some(rules), None);
+    let feedback = capability_cursor_for_hover(
+        sim,
+        &original_selection,
+        best,
+        &hover,
+        Some(rules),
+        None,
+        crate::app::input::context_order::OrderModifier::Normal,
+        false,
+    );
     // The executed caller proves identical action for self/allied/hostile.
     // Check every relation golden, avoiding an invented expected-action formula.
     let mut action = None;

@@ -11,7 +11,8 @@ use crate::map::rmg::grid::RmgGrid;
 use crate::map::rmg::rng::{RANGE_K_BITS, RmgRng};
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::tiles::TileIds;
-use crate::map::rmg::x87::{self, Gaussian, TruncF64, approx_sqrt};
+use crate::map::rmg::x87::{Gaussian, TruncF64, approx_sqrt};
+use crate::util::native_x87::X87Chop53;
 
 use super::blob::MinHeap;
 
@@ -178,7 +179,9 @@ fn mean_draw(rng: &mut RmgRng) -> i32 {
     let scale = t(f64::from_bits(MEAN_K_BITS));
     let offset = t(MEAN_OFFSET);
     loop {
-        let value = x87::ftol(t(f64::from(rng.next_u32())).mul(scale).add(offset).to_f64());
+        let value = X87Chop53::ftol_f64_low_masked(
+            t(f64::from(rng.next_u32())).mul(scale).add(offset).to_f64(),
+        );
         if value <= MEAN_MAX {
             return value;
         }
@@ -193,7 +196,7 @@ fn patch_size(gauss: &mut Gaussian, rng: &mut RmgRng, mean: i32, scale: f64, max
             .add(t(f64::from(mean)))
             .to_f64();
         if (SIZE_MIN..=max).contains(&value) {
-            return x87::ftol(value);
+            return X87Chop53::ftol_f64_low_masked(value);
         }
     }
 }
@@ -206,7 +209,7 @@ fn patch_size_other(gauss: &mut Gaussian, rng: &mut RmgRng) -> i32 {
             .add(t(SIZE_BASE_OTHER))
             .to_f64();
         if (SIZE_MIN..=SIZE_MAX_OTHER).contains(&value) {
-            return x87::ftol(value);
+            return X87Chop53::ftol_f64_low_masked(value);
         }
     }
 }
@@ -263,14 +266,15 @@ fn place_patch(ctx: &mut PatchCtx<'_>, origin: (i32, i32), tile: i32, size: i32,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::tiles::TILE_UNASSIGNED;
+    use crate::map::theater::TheaterCliffRanges;
 
     fn ids() -> TileIds {
         TileIds {
             clear: 0,
             ramp_base: 600,
             ramp_smooth: 620,
+            slope_set_pieces: -1,
             rough: 700,
             sand: 800,
             green: 100,
@@ -286,7 +290,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 

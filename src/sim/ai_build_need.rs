@@ -418,7 +418,8 @@ fn sell_node(
     if let Some(overlays) = registry {
         let (x, y) = unpack_base_plan_cell(node.packed_cell);
         let house = sim.interner.resolve(owner).to_string();
-        sim.sell_wall_at_cell(&house, x, y, rules, overlays);
+        // Original 0x4FDFC7 passes 0, as the Event SELL caller does.
+        sim.sell_wall_at_cell(&house, x, y, false, rules, overlays, effects);
     }
     remove_node(sim, owner, index, sale);
 }
@@ -518,3 +519,7 @@ fn restart_production(
 #[cfg(test)]
 #[path = "ai_build_need_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "ai_build_need_retail_tests.rs"]
+mod retail_tests;

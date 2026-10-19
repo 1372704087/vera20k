@@ -29,7 +29,7 @@
  * Schema mirror of `src/sim/telemetry.rs`; keep both in step.
  */
 
-import * as THREE from "three";
+import * as THREE from "./vendor/three.module.js";
 import { t } from "./i18n.js";
 import { DebugPanel, EntityCategory, EntitySpot, HousePopulation, TelemetrySnapshot } from "./types.js";
 

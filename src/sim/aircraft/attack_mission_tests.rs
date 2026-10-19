@@ -5,17 +5,14 @@ use super::*;
 use crate::map::playfield::PlayfieldBounds;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::docking::aircraft_dock::AircraftAmmo;
+use crate::sim::ammo::TechnoAmmo;
 use crate::sim::mission::MissionType;
 use crate::sim::rng::SimRng;
 use crate::sim::world::edge_cell;
 use serde_json::Value;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/aircraft_states.json",
-    ))
-    .expect("aircraft_states.json")
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/aircraft_states.json")
 }
 
 /// Every combination a stored row stands for: the union of its `covers`
@@ -338,7 +335,7 @@ fn original_state10_rows() {
             let get = |key| field(&input, defaults, key);
             let name = &input["name"];
             // The prefix: the latch clears, pending ammo is consumed.
-            let mut ammo = AircraftAmmo::new(10);
+            let mut ammo = TechnoAmmo::new(10);
             ammo.set_current_for_test(get("ammo").as_i64().unwrap() as i32);
             if get("pending").as_i64().unwrap() != 0 {
                 ammo.begin_release();
@@ -511,12 +508,8 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
                 ai_counter: 0,
                 dispatch_timer: crate::sim::mission::MissionDispatchTimer::at_frame(0),
             });
-        plane.aircraft_ammo = Some(AircraftAmmo::new(1));
-        plane
-            .aircraft_ammo
-            .as_mut()
-            .unwrap()
-            .set_current_for_test(0);
+        plane.install_ammo_for_test(Some(TechnoAmmo::new(1)));
+        plane.ammo_mut().unwrap().set_current_for_test(0);
         plane
             .attack_target
             .set_for_test(Some(TargetKind::Cell(45, 40)));
@@ -580,7 +573,7 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
     assert!(plane.radio_contacts.contains(2), "HELLO linked the dock");
     assert_eq!(
         plane.navigation.nav_com(),
-        Some(NavTargetRef::Building { id: 2 }),
+        Some(NavTargetRef::Object { id: 2 }),
         "home to the dock, not to the edge {edge:?}"
     );
     let fly = plane.locomotor.as_ref().unwrap().fly_runtime().unwrap();
@@ -602,10 +595,9 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
 /// of `TechnoTypeClass::ReadINI` (`0x0071465F`), not executed.
 #[test]
 fn retail_attack_loop_inputs() {
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     assert!(rules.general.curley_shuffle);
     for (name, strafe, fighter, delay) in [
         ("HORNET", true, false, Some(76)),

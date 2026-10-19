@@ -24,6 +24,31 @@ use crate::util::native_x87::{
 };
 use glam::IVec3;
 
+/// TechnoClass+308: the retained Spark ParticleSystem, shared by FireAt6FF1F5
+/// and the Cyborg AI producer6FAEDA. Constructor6F3231 clears it;
+/// PointerExpired707AC2..707AD7 clears an exact match for either control byte.
+/// The system's actual Logic/child lifetime owns expiry, not a Techno timer.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub(crate) struct AttachedSpark {
+    system: Option<u64>,
+}
+
+impl AttachedSpark {
+    pub(crate) const fn system(self) -> Option<u64> {
+        self.system
+    }
+
+    /// The native producer stores the constructor result, including NULL.
+    pub(crate) fn bind(&mut self, system: Option<u64>) {
+        self.system = system;
+    }
+
+    pub(crate) fn forget(&mut self) {
+        self.system = None;
+    }
+}
+
 /// The object's damage-Smoke `ParticleSystemClass` (`TechnoClass+0x310`).
 /// The surviving ReceiveDamage postlude creates the system synchronously and
 /// records it here (`Simulation::maintain_damage_smoke_after_receive`); it
@@ -55,6 +80,89 @@ impl DamageSmoke {
 }
 
 impl Simulation {
+    /// Cyborg-only TechnoAI6FACD9..6FAEDA. Stock YR leaves Cyborg unset, so
+    /// ordinary damaged vehicles never enter this producer. Both it and
+    /// FireAt use the actual +308 link and the one system constructor.
+    pub(crate) fn update_damage_spark_after_ai(&mut self, id: u64, rules: &RuleSet) {
+        use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF64Bits};
+
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(object) = self.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        if !object.emits_damage_spark() {
+            return;
+        }
+        let ratio = entity.health.ratio(object.strength);
+        let below = |threshold: f64| {
+            matches!(
+                X87::compare(
+                    ratio,
+                    X87::load_f64(NativeF64Bits::from_bits(threshold.to_bits()))
+                ),
+                MaskedX87Ordering::Less | MaskedX87Ordering::Unordered
+            )
+        };
+        if !below(rules.general.condition_yellow)
+            || self.damage_particle_owner_height(entity) <= -10
+            || entity.spark_particle_system.system().is_some()
+        {
+            return;
+        }
+        // 6FAD51..6FADA1 retains Spark entries in authored list order.
+        let systems: Vec<_> = object
+            .damage_particle_systems
+            .iter()
+            .filter_map(|name| rules.ps_type_id_by_name(name))
+            .filter(|&type_id| {
+                rules.particle_system_type(type_id).behaves_like == ParticleSystemBehavesLike::Spark
+            })
+            .collect();
+        if systems.is_empty() {
+            return;
+        }
+        let threshold = if below(rules.general.condition_red) {
+            rules.general.condition_red_spark_threshold
+        } else {
+            rules.general.condition_yellow_spark_threshold
+        };
+        let offset = damage_particle_offset(object);
+        let origin = crate::sim::movement::ground_pose::object_get_coords(
+            entity,
+            self.resolved_terrain.as_ref(),
+        );
+        let coords = IVec3::new(
+            origin.x.wrapping_add(offset.x),
+            origin.y.wrapping_add(offset.y),
+            origin.z.wrapping_add(offset.z),
+        );
+        // 6FAE11..6FAE40: Scenario ranged probability, then an admitted
+        // list selection. The shared RNG owner handles equal endpoints.
+        if self.scenario_rng.next_range_u32_inclusive(0, 0x7fff_fffe) >= threshold {
+            return;
+        }
+        let selected = self
+            .scenario_rng
+            .next_range_u32_inclusive(0, systems.len() as u32 - 1);
+        // 6FAEBC..6FAED1: supplied target NULL, owner=this, zero fifth
+        // Coord (B0EA90 initialized by6F2A50), owner House NULL. Native
+        // constructor target/owner derivation remains centralized below.
+        let system = self.spawn_particle_system(
+            systems[selected as usize],
+            coords,
+            None,
+            Some(id),
+            IVec3::ZERO,
+            None,
+            rules,
+        );
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.spark_particle_system.bind(system);
+        }
+    }
+
     /// Mark the attached Techno+310 smoke system for retirement while retaining
     /// its owner pointer. Native ParticleSystem virtual F8 (6301E0) only sets
     /// its done-spawning byte; the done-empty Limbo broadcast owns pointer expiry.
@@ -67,7 +175,7 @@ impl Simulation {
         if let Some(system_id) = system_id
             && let Some(system) = self.particle_systems_mut().get_mut(system_id)
         {
-            system.done_spawning = true;
+            system.mark_done_spawning();
         }
     }
 
@@ -111,14 +219,14 @@ impl Simulation {
                 {
                     return true;
                 }
-                self.damage_smoke_owner_height(entity) < -10
+                self.damage_particle_owner_height(entity) < -10
             });
         if retire {
             self.retire_attached_damage_smoke(stable_id);
         }
     }
-    /// Shared original Object5F5F40 adapter for the two distinct smoke gates.
-    fn damage_smoke_owner_height(&self, entity: &crate::sim::game_entity::GameEntity) -> i32 {
+    /// Shared original Object5F5F40 adapter for the Smoke and Cyborg Spark gates.
+    fn damage_particle_owner_height(&self, entity: &crate::sim::game_entity::GameEntity) -> i32 {
         crate::sim::movement::air_movement::current_fly_height(
             entity,
             self.resolved_terrain.as_ref(),
@@ -142,15 +250,12 @@ impl Simulation {
     /// reaches it once per child whose weapon has `IsElectricBolt`, including
     /// retail Electricbounce -> TeslaFragment on elite Tesla discharges.
     ///
-    /// RESIDUAL (GSI-05.13): FireAt6FF1EC's `UseSparkParticles` arm remains
-    /// unwired. It constructs `AttachedParticleSystem` into Techno+0x308,
-    /// one at a time. Retail RepairBullet supplies WeldingSys through the
-    /// repair IFV's Weapon2/EliteWeapon2, so repair ticks lack their welding
-    /// shower. The +0x308 clearing writer/lifecycle still needs tracing.
+    /// FireAt6FF1EC uses this constructor for UseSparkParticles and retains
+    /// its result in the same Techno+308 owner as the Cyborg AI producer.
     /// Other Spark producers are wired through combat/parasite.rs
     /// (62A103), capture_manager.rs (471C15), and powered_unit.rs (7361A4).
     ///
-    /// NOT_APPLICABLE_PROVEN, and recorded so it is not re-attempted: the
+    /// Stock-dormant, and recorded so it is not enabled for vehicles: the
     /// `DamageParticleSystems=` Spark producer in
     /// `TechnoClass::AI_Update @ 0x006FADB3` is Tiberian Sun legacy and never
     /// runs in stock YR, despite 126 of the 141 stock `DamageParticleSystems=`
@@ -158,7 +263,7 @@ impl Simulation {
     /// `TechnoType+0xC8F`, whose only setter is `0x005243E7` in
     /// `InfantryTypeClass::ReadINI`, conditional on the section's `Cyborg=`
     /// bool — and no stock INI authors `Cyborg=` (`rulesmd.ini:3581` mentions
-    /// it only in a TS-inherited comment). Implementing it would both add
+    /// it only in a TS-inherited comment). Enabling it for vehicles would add
     /// sparks retail does not show and consume `ScenarioClass::Random` draws
     /// gamemd does not take, which desyncs. The `Smoke` producer below is a
     /// different function (`TechnoClass::ReceiveDamage @ 0x00701900`) and is
@@ -167,7 +272,7 @@ impl Simulation {
         &mut self,
         type_id: ParticleSystemTypeId,
         coords: IVec3,
-        attached_entity: Option<u64>,
+        target: Option<crate::sim::combat::TargetKind>,
         owner_entity: Option<u64>,
         target_coords: IVec3,
         owner_house: Option<InternedId>,
@@ -187,20 +292,63 @@ impl Simulation {
         // Executed constructor/CRC: procedural_drawing_oracle/electric_bolt.
         let native_unique_id = self.next_native_runtime_id();
         let stable_id = self.allocate_stable_id();
+        // 62DD90..62DE14: a supplied target provides GetCoords; a Cell on
+        // a structural bridge additionally receives the native bridge height.
+        // The existing target-coordinate owner supplies that same Cell result.
+        // Only a NULL target copies the fifth constructor Coord argument.
+        let target_coords = target.map_or(Some(target_coords), |target| {
+            crate::sim::movement::ground_pose::target_get_target_coords(
+                target,
+                self,
+                self.resolved_terrain.as_ref(),
+            )
+            .map(|coord| IVec3::new(coord.x, coord.y, coord.z))
+        })?;
+        // 62DE35..62DE5A: the target pointer and its frozen coordinate are
+        // distinct. An owner Techno contributes its current TarCom; without
+        // an owner the constructor retains the supplied target itself.
+        let target_ref = owner_entity.map_or(target, |owner| {
+            self.substrate
+                .entities
+                .get(owner)
+                .and_then(|owner| owner.attack_target.target())
+        });
+        // Constructor62DE6D..62DEAF: retain Location - owner GetCoords,
+        // not the current type's DamageSmokeOffset. Smoke62ED49 consumes
+        // this stored world-lepton displacement; other behaviors retain it.
+        // Source/control: tools/spatial_oracle/damage_smoke.md (--following).
+        let offset = owner_entity
+            .and_then(|id| {
+                crate::sim::movement::ground_pose::target_get_coords(
+                    crate::sim::combat::TargetKind::Entity(id),
+                    self,
+                    self.resolved_terrain
+                        .as_ref()
+                        .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+                        .as_ref(),
+                )
+            })
+            .map_or(IVec3::ZERO, |origin| {
+                IVec3::new(
+                    coords.x.wrapping_sub(origin.x),
+                    coords.y.wrapping_sub(origin.y),
+                    coords.z.wrapping_sub(origin.z),
+                )
+            });
         let sys = ParticleSystem {
             stable_id,
             native_unique_id,
             in_logic_vector: false,
             type_id,
             coords,
-            offset: IVec3::ZERO,
+            offset,
             particles: Vec::new(),
             spawn_timer: X87Chop53::store_f32(X87Chop53::load_i32(pst.spawn_frames))
                 .expect("signed SpawnFrames fits stored binary32"),
             lifetime: pst.lifetime,
             spark_spawn_frames: pst.spark_spawn_frames as i32,
             facing: 0x1D,
-            attached_entity,
+            target_ref,
             owner_entity,
             target_coords,
             owner_house,
@@ -217,6 +365,78 @@ impl Simulation {
         self.particle_systems_mut().insert(sys);
         self.reveal_particle_system(stable_id, Some(rules));
         Some(stable_id)
+    }
+
+    /// Execute88 at6DF3F7..6DF49B: signed waypoint center642740, then
+    /// Ground578080 (no bridge lookup), then the existing62DC50 constructor.
+    /// Target/owner/House are NULL; target Coord B0E6A0 is zero from6DCF20.
+    /// Original Execute ignores constructor return and returns AL1.
+    pub(crate) fn trigger_create_particle_system_at_waypoint(
+        &mut self,
+        index: i32,
+        waypoint: i32,
+        rules: &RuleSet,
+    ) -> bool {
+        let Some(type_id) = rules.particle_system_type_id_by_index(index) else {
+            // Native indexes unchecked; malformed Rust inputs fail safely.
+            return false;
+        };
+        let Some(cell) = self.session.waypoint_cell(waypoint) else {
+            return false;
+        };
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return false;
+        };
+        let center = crate::sim::cell_kernel::cell_center(
+            crate::sim::cell_kernel::CellCoordinate {
+                x: i32::from(cell.0),
+                y: i32::from(cell.1),
+            },
+            0,
+        );
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        let Ok(z) = crate::sim::movement::ground_pose::query_ground_height(
+            &cells,
+            crate::sim::components::DriveCoord {
+                x: center.x,
+                y: center.y,
+                z: 0,
+            },
+        ) else {
+            return false;
+        };
+        self.spawn_particle_system(
+            type_id,
+            IVec3::new(center.x, center.y, z),
+            None,
+            None,
+            IVec3::ZERO,
+            None,
+            rules,
+        );
+        true
+    }
+
+    /// Execute89 at6DF49E..6DF518: all Alive systems whose GetCell41BEA0
+    /// equals the waypoint receive virtual F8/6301E0. No type/House filter,
+    /// RNG, timer, detach or physical deletion; even an empty list returns1.
+    pub(crate) fn trigger_mark_particle_systems_done_at_waypoint(&mut self, waypoint: i32) -> bool {
+        let Some(cell) = self.session.waypoint_cell(waypoint) else {
+            return false;
+        };
+        for (_, system) in self.particle_systems_mut().iter_mut() {
+            if !system.alive() {
+                continue;
+            }
+            let at = (
+                crate::util::lepton::lepton_to_cell_packed(system.coords.x),
+                crate::util::lepton::lepton_to_cell_packed(system.coords.y),
+            );
+            if at == cell {
+                system.mark_done_spawning();
+            }
+        }
+        true
     }
 
     /// Maintain TechnoClass's attached damage-Smoke slot from the surviving
@@ -258,7 +478,7 @@ impl Simulation {
         let Some((coords, owner_entity, system_types)) =
             self.substrate.entities.get(stable_id).and_then(|entity| {
                 let object = self.interner.object_type(entity.type_ref(), rules)?;
-                let offset = damage_smoke_offset(object);
+                let offset = damage_particle_offset(object);
                 let raw = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
                 let coords = IVec3::new(
                     raw.x.wrapping_add(offset.x),
@@ -291,7 +511,7 @@ impl Simulation {
             .substrate
             .entities
             .get(stable_id)
-            .is_none_or(|entity| self.damage_smoke_owner_height(entity) <= -10)
+            .is_none_or(|entity| self.damage_particle_owner_height(entity) <= -10)
         {
             return;
         }
@@ -319,7 +539,7 @@ impl Simulation {
 /// TechnoTypeClass::GetDamageParticleOffset @0x007178C0. The screen-relative
 /// arm first runs the retail isometric-pixel matrix, then folds authored Z
 /// into all three world axes through Sqrt_Approx/ftol.
-fn damage_smoke_offset(object: &crate::rules::object_type::ObjectType) -> IVec3 {
+fn damage_particle_offset(object: &crate::rules::object_type::ObjectType) -> IVec3 {
     let offset = object.damage_smoke_offset;
     if !object.dam_smk_off_scrn_rel {
         return offset;
@@ -531,7 +751,7 @@ mod tests {
             cell.slope_type = input["slope"].as_u64().unwrap() as u8;
             sim.resolved_terrain = Some(ResolvedTerrainGrid::from_cells(8, 8, vec![cell]));
             assert_eq!(
-                sim.damage_smoke_owner_height(&entity),
+                sim.damage_particle_owner_height(&entity),
                 row["output"]["height"].as_i64().unwrap() as i32
             );
             sim.substrate.entities.insert(entity);
@@ -598,7 +818,7 @@ mod tests {
                 .spawn_particle_system(
                     ParticleSystemTypeId(0),
                     IVec3::ZERO,
-                    Some(id),
+                    Some(crate::sim::combat::TargetKind::Entity(id)),
                     Some(id),
                     IVec3::ZERO,
                     None,
@@ -916,178 +1136,5 @@ mod tests {
         let mut sys = sim.particle_systems_mut().take_for_tick(sys_id).unwrap();
         assert!(!spawn_particle(&mut sys, IVec3::ZERO, &rules, &mut sim));
         assert!(sys.particles.is_empty());
-    }
-}
-
-#[cfg(test)]
-mod gsi_05_13_electric_bolt_sparks {
-    use crate::rules::ini_parser::IniFile;
-    use crate::rules::ruleset::RuleSet;
-    use crate::sim::combat::Health;
-    use crate::sim::command::{Command, CommandEnvelope};
-    use crate::sim::game_entity::GameEntity;
-    use crate::sim::pathfinding::PathGrid;
-    use crate::sim::world::{RevealOutcome, Simulation};
-
-    /// A Tesla-shaped fixture: one `IsElectricBolt=yes` weapon, the
-    /// `[CombatDamage] DefaultSparkSystem` key it resolves through, and the
-    /// stock-shaped Spark system and particle it names.
-    fn tesla_rules() -> RuleSet {
-        let ini = IniFile::from_str(
-            "[VehicleTypes]\n0=TESLA\n1=TARGET\n\n\
-             [TESLA]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=CoilBolt\n\n\
-             [TARGET]\nStrength=400\nArmor=heavy\nSpeed=6\n\n\
-             [CoilBolt]\nDamage=40\nROF=50\nRange=6\nWarhead=AP\nIsElectricBolt=yes\n\n\
-             [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\n\
-             [CombatDamage]\nDefaultSparkSystem=SparkSys\n\n\
-             [ParticleSystems]\n1=SparkSys\n\n\
-             [SparkSys]\nBehavesLike=Spark\nHoldsWhat=Spark\nParticleCap=6\n\
-             SparkSpawnFrames=1\nSpawnSparkPercentage=1\nLightSize=15\nLifetime=200\n\n\
-             [Particles]\n1=Spark\n\n\
-             [Spark]\nBehavesLike=Spark\nMaxEC=500\nXVelocity=10\nYVelocity=10\n\
-             MinZVelocity=40\nZVelocityRange=15\n\
-             ColorList=(255,255,255),(200,200,80),(200,10,10),(0,0,0)\nColorSpeed=.13\n",
-        );
-        RuleSet::from_ini(&ini).expect("tesla rules parse")
-    }
-
-    fn unit(id: u64, type_ref: &str, rx: u16, ry: u16, owner: &str, hp: i32) -> GameEntity {
-        let mut entity = GameEntity::test_default(id, type_ref, owner, rx, ry);
-        entity.health = Health::new(hp);
-        entity
-    }
-
-    #[test]
-    fn firing_an_electric_bolt_weapon_spawns_a_spark_system_at_the_target() {
-        // `EBolt::Init @ 0x004C2A60` constructs one particle system per bolt at
-        // `0x004C2B30` from `Rules+0x1020` (`DefaultSparkSystem`) at the bolt's
-        // target endpoint, and discards the handle. Before this row a Tesla
-        // discharge produced nothing at all.
-        let rules = tesla_rules();
-        let mut sim = Simulation::new();
-        sim.input_delay_ticks = 0;
-        // Ids come from the shared allocator: a particle system takes one from
-        // the same space, and the store asserts they never collide.
-        let attacker = sim.allocate_stable_id();
-        let target = sim.allocate_stable_id();
-        sim.substrate
-            .entities
-            .insert(unit(attacker, "TESLA", 5, 5, "Americans", 300));
-        sim.substrate
-            .entities
-            .insert(unit(target, "TARGET", 8, 5, "Soviet", 400));
-        // The test interner is a thread-local the inserts above write into, so
-        // it must be cloned into the sim AFTER they run.
-        sim.interner = crate::sim::intern::test_interner();
-        assert!(matches!(
-            sim.reveal(attacker),
-            RevealOutcome::Revealed { .. }
-        ));
-        assert!(matches!(sim.reveal(target), RevealOutcome::Revealed { .. }));
-
-        let owner_id = sim.interner.intern("Americans");
-        let grid = PathGrid::test_all_passable(64, 64);
-
-        sim.queue_command(CommandEnvelope::new(
-            owner_id,
-            sim.session.tick + 1,
-            Command::Attack {
-                attacker_id: attacker,
-                target_id: target,
-            },
-        ));
-
-        let mut spark_system_id = None;
-        for _ in 0..200 {
-            let pending = sim.take_due_commands();
-            sim.advance_tick(&pending, Some(&rules), Some(&grid), None, 100);
-            if let Some((&id, _)) = sim.particle_systems().iter().next() {
-                spark_system_id = Some(id);
-                break;
-            }
-        }
-
-        let id = spark_system_id.expect("an electric-bolt discharge spawns a spark system");
-        let system = sim.particle_systems().get(id).expect("stored system");
-        assert_eq!(
-            rules.particle_system_type(system.type_id).behaves_like,
-            crate::rules::particle_system_type::ParticleSystemBehavesLike::Spark
-        );
-        // The bolt's target endpoint: the target sits at cell (8, 5), and
-        // `GameEntity::test_default` centres it in the cell.
-        assert_eq!(system.coords.x / 256, 8);
-        assert_eq!(system.coords.y / 256, 5);
-        assert!(
-            system.owner_entity.is_none() && system.attached_entity.is_none(),
-            "EBolt passes neither an owner house nor an attachment object"
-        );
-    }
-
-    #[test]
-    fn a_weapon_without_the_electric_bolt_flag_spawns_no_spark_system() {
-        // The discriminator: the same fixture with `IsElectricBolt` absent must
-        // produce nothing, or the test above would pass on any fire event.
-        let ini_text = "[VehicleTypes]\n0=TESLA\n1=TARGET\n\n\
-             [TESLA]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=CoilBolt\n\n\
-             [TARGET]\nStrength=400\nArmor=heavy\nSpeed=6\n\n\
-             [CoilBolt]\nDamage=40\nROF=50\nRange=6\nWarhead=AP\n\n\
-             [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\n\
-             [CombatDamage]\nDefaultSparkSystem=SparkSys\n\n\
-             [ParticleSystems]\n1=SparkSys\n\n\
-             [SparkSys]\nBehavesLike=Spark\nHoldsWhat=Spark\nParticleCap=6\n\
-             SparkSpawnFrames=1\nSpawnSparkPercentage=1\nLifetime=200\n\n\
-             [Particles]\n1=Spark\n\n\
-             [Spark]\nBehavesLike=Spark\nMaxEC=500\nXVelocity=10\nYVelocity=10\n\
-             MinZVelocity=40\nZVelocityRange=15\n";
-        let rules = RuleSet::from_ini(&IniFile::from_str(ini_text)).expect("rules parse");
-        let mut sim = Simulation::new();
-        sim.input_delay_ticks = 0;
-        // Ids come from the shared allocator: a particle system takes one from
-        // the same space, and the store asserts they never collide.
-        let attacker = sim.allocate_stable_id();
-        let target = sim.allocate_stable_id();
-        sim.substrate
-            .entities
-            .insert(unit(attacker, "TESLA", 5, 5, "Americans", 300));
-        sim.substrate
-            .entities
-            .insert(unit(target, "TARGET", 8, 5, "Soviet", 400));
-        // The test interner is a thread-local the inserts above write into, so
-        // it must be cloned into the sim AFTER they run.
-        sim.interner = crate::sim::intern::test_interner();
-        assert!(matches!(
-            sim.reveal(attacker),
-            RevealOutcome::Revealed { .. }
-        ));
-        assert!(matches!(sim.reveal(target), RevealOutcome::Revealed { .. }));
-
-        let owner_id = sim.interner.intern("Americans");
-        let grid = PathGrid::test_all_passable(64, 64);
-        sim.queue_command(CommandEnvelope::new(
-            owner_id,
-            sim.session.tick + 1,
-            Command::Attack {
-                attacker_id: attacker,
-                target_id: target,
-            },
-        ));
-
-        let mut fired = false;
-        for _ in 0..200 {
-            let pending = sim.take_due_commands();
-            sim.advance_tick(&pending, Some(&rules), Some(&grid), None, 100);
-            if !sim.fire_events.is_empty() {
-                fired = true;
-            }
-        }
-        assert!(
-            fired,
-            "the fixture must actually fire, or it proves nothing"
-        );
-        assert_eq!(
-            sim.particle_systems().len(),
-            0,
-            "only IsElectricBolt weapons spawn the spark system"
-        );
     }
 }

@@ -78,6 +78,7 @@ fn physical_rules() -> RuleSet {
         None,
         sections_ini(&receipt["art"]),
         sounds,
+        Default::default(),
     )
     .unwrap();
     let (mut rules, _, fixed_art, _) = owner
@@ -136,8 +137,14 @@ fn supplied_rules(input: &Value) -> RuleSet {
     let sounds = Arc::new(SoundRegistry::from_ini(&IniFile::from_str(
         "[SoundList]\n0=WaterEnter\n1=WaterLeave\n",
     )));
-    let mut owner =
-        NativeRulesProcessOwner::from_cold_start_sources(root, None, art, sounds).unwrap();
+    let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+        root,
+        None,
+        art,
+        sounds,
+        Default::default(),
+    )
+    .unwrap();
     let (mut rules, _, fixed_art, _) = owner
         .load_scenario(
             crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
@@ -180,8 +187,8 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
         .flat_map(|y| (0..width).map(move |x| test_flat_cell(x, y)))
         .collect::<Vec<_>>();
     let terrain_cell = &mut cells[usize::from(cell.1) * usize::from(width) + usize::from(cell.0)];
-    terrain_cell.yr_cell_land_type = input["land"].as_u64().unwrap_or(2) as u8;
-    terrain_cell.base_yr_cell_land_type = terrain_cell.yr_cell_land_type;
+    terrain_cell.land_type = input["land"].as_u64().unwrap_or(2) as u8;
+    terrain_cell.base_land_type = terrain_cell.land_type;
     sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(width, height, cells));
     let id = sim
         .construct_object_limbo_at_height(

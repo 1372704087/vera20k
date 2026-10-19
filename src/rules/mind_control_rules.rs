@@ -27,8 +27,11 @@ pub enum CaptureReason {
 
 #[derive(Debug, Clone, Default)]
 pub struct MindControlRules {
+    /// Rules+310; native ordered CombatDamage reader66C914..66C92E.
+    pub attack_line_frames: i32,
     /// `[CombatDamage] ControlledAnimationType=` (Rules `+0x320`, read at
-    /// `0x0066CA11`): the ring a captured object wears (stock `MINDANIM`).
+    /// `0x0066CA11`): the ring a captured object wears (stock `MINDANIM`),
+    /// as the ordered Rules processor's AnimType factory answered it.
     pub controlled_anim: Option<String>,
     /// `[CombatDamage] PermaControlledAnimationType=` (Rules `+0x324`, read
     /// at `0x0066CA4F`): the ring an object the Psychic Dominator captured
@@ -61,23 +64,23 @@ pub struct MindControlRules {
 }
 
 impl MindControlRules {
-    pub fn from_ini(ini: &IniFile) -> Self {
+    /// `attack_line_frames` is the ordered Rules processor's retained value.
+    pub fn from_ini(ini: &IniFile, attack_line_frames: i32) -> Self {
         let combat = ini.section_or_empty("CombatDamage");
         let audio = ini.section_or_empty("AudioVisual");
         let general = ini.section_or_empty("General");
         // `DifficultyClass::ReadINI_IntVector @ 0x00475D70`.
         let list = |section: &IniSection, key: &str| section.read_int_list(key).unwrap_or_default();
         Self {
-            // ReadString 0x80, then the anim or sound lookup.
-            controlled_anim: combat
-                .read_type_name("ControlledAnimationType", 0x80)
-                .map(str::to_string),
-            perma_controlled_anim: combat
-                .read_type_name("PermaControlledAnimationType", 0x80)
-                .map(str::to_string),
+            attack_line_frames,
+            // The constructor's nulls; only the ordered Process owner reads
+            // the two AnimTypes (`RulesTypeReferences`).
+            controlled_anim: None,
+            perma_controlled_anim: None,
             overload_count: list(combat, "OverloadCount"),
             overload_damage: list(combat, "OverloadDamage"),
             overload_frames: list(combat, "OverloadFrames"),
+            // ReadString 0x80, then the sound lookup.
             mind_control_sound: audio
                 .read_type_name("YuriMindControlSound", 0x80)
                 .map(str::to_string),
@@ -126,7 +129,9 @@ mod tests {
              [AudioVisual]\nYuriMindControlSound=YuriMindControl\n\
              MasterMindOverloadDeathSound=MasterMindOverloadVoice\nMindClearedSound=MindCleared\n",
         );
-        let rules = MindControlRules::from_ini(&ini);
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini)
+            .unwrap()
+            .mind_control;
         assert_eq!(rules.controlled_anim.as_deref(), Some("MINDANIM"));
         assert_eq!(rules.overload_count, [3, 6, 10, 50]);
         assert_eq!(rules.overload_damage, [0, 50, 100, 500]);

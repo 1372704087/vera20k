@@ -3,7 +3,8 @@
 //!
 //! Mirrors the original engine fixing one per-match RNG seed before any
 //! setup-phase draw, then seeding the scenario and main streams identically.
-//! Data flows one-way app→sim; this module depends only on sim/ siblings.
+//! Initialization flows app→sim. Scene retirement returns live ambient Rules
+//! writes to the process owner before its next scenario read.
 
 use std::collections::BTreeMap;
 use std::hash::Hash;
@@ -12,6 +13,7 @@ use crate::sim::game_options::GameOptions;
 use crate::sim::house_state::HouseDifficulty;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
+use crate::util::native_x87::{MaskedX87Chop53, NativeF32Bits, NativeF64Bits};
 
 #[path = "scenario_countdown.rs"]
 mod countdown;
@@ -174,7 +176,8 @@ impl NukeFlash {
 /// Persistent ScenarioClass-style authority for global lighting transitions.
 ///
 /// The per-cell grid remains an app-derived cache. Only the profile inputs,
-/// mutable scalar/target, selection, and signed frame timer belong to lockstep.
+/// mutable scalar/target, live ambient inputs, selection and signed frame timer
+/// belong to lockstep.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioLightingState {
     pub normal: ScenarioLightProfileUnits,
@@ -194,6 +197,10 @@ pub struct ScenarioLightingState {
     /// nuke flash runs.
     nuke_change_rate: i32,
     nuke_flash: NukeFlash,
+    /// Live Rules+1668/+1670 writes from Execute72/71. The immutable RuleSet
+    /// supplies untouched inputs; retirement returns writes to the process
+    /// Rules owner before its next prefix/read/reset sequence.
+    ambient_change_overrides: [Option<NativeF64Bits>; 2],
 }
 
 impl ScenarioLightingState {
@@ -218,6 +225,7 @@ impl ScenarioLightingState {
             transition_timer: CdTimer::started(0, 0),
             nuke_change_rate,
             nuke_flash: NukeFlash::OFF,
+            ambient_change_overrides: [None; 2],
         }
     }
 
@@ -346,6 +354,75 @@ impl ScenarioLightingState {
         self.target_ambient = self.profile(profile).ambient_percent;
     }
 
+    /// Execute1426E2E60 /1436E2EB0 /1446E2F00 retains the raw signed
+    /// percentage at3534/3538/353C. RecalcLighting takes all three normal
+    /// percentages times10 with32-bit wrapping, independently of the selected
+    /// alternate profile. Original Steam gamemd3e81a617..08600;30 executed
+    /// controls cover the reader, call arguments and post-call field stores.
+    pub(crate) fn retint_normal_component(&mut self, component: usize, value: i32) -> [i32; 3] {
+        match component {
+            0 => self.normal.red_percent = value,
+            1 => self.normal.green_percent = value,
+            2 => self.normal.blue_percent = value,
+            _ => unreachable!("RGB component comes from action142..=144"),
+        }
+        self.normal.alternate_rgb()
+    }
+
+    /// Execute73 inline6DF292..6DF2D1 writes the ordinary ambient even
+    /// during a storm, but changes the current target only outside a raging
+    /// storm. This does not select a profile or restart/advance the fade.
+    /// Original: trigger_map_lighting.json ambient_controls (+meta).
+    pub(crate) fn set_ambient_light(&mut self, value: i32, storm_active: bool) {
+        self.normal.ambient_percent = value;
+        if !storm_active {
+            self.target_ambient = value;
+        }
+    }
+
+    /// Execute71@6DF250 and72@6DF271 load +90 as binary32, not as an
+    /// integer value, and store binary64 to Rules+1670/+1668. The existing
+    /// integer action reader remains authoritative. No timer/RNG/detach or
+    /// immediate relight occurs. Steam gamemd3e81a617..08600, original
+    /// constructor/read/Execute and Logic controls in the nearby tests.
+    pub(crate) fn set_ambient_change_input(&mut self, rate: bool, bits: i32) {
+        self.ambient_change_overrides[usize::from(!rate)] =
+            Some(MaskedX87Chop53::store_f64_masked_chop(
+                MaskedX87Chop53::load_f32(NativeF32Bits::from_bits(bits as u32)),
+            ));
+    }
+
+    /// Alternate intervals still use the normal rate's zero gate and this
+    /// shared step, as Logic55B351/55B447 require.
+    pub(crate) fn ambient_change_terms(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> (bool, i32, i32) {
+        let [rate, step] = self.ambient_change_overrides;
+        if rate.is_none() && step.is_none() {
+            return (
+                rules.general.ambient_change_rate_nonzero,
+                rules.general.ambient_change_interval_frames,
+                rules.general.ambient_change_step,
+            );
+        }
+        let (nonzero, interval, delta) = crate::rules::ruleset::ambient_change_terms(
+            f64::from_bits(rate.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+            f64::from_bits(step.unwrap_or(NativeF64Bits::POSITIVE_ZERO).bits()),
+        );
+        (
+            rate.map_or(rules.general.ambient_change_rate_nonzero, |_| nonzero),
+            rate.map_or(rules.general.ambient_change_interval_frames, |_| interval),
+            step.map_or(rules.general.ambient_change_step, |_| delta),
+        )
+    }
+
+    /// Return live Rules scalar writes only once the outgoing scene has
+    /// stopped. Unlike TechnoTypes these survive the native Type reset.
+    pub fn retire_ambient_change_inputs(&mut self) -> [Option<NativeF64Bits>; 2] {
+        std::mem::take(&mut self.ambient_change_overrides)
+    }
+
     /// RecalcLighting's RGB for the selected profile (`0x0053AD00`): the
     /// alternate profile's percentages times 10, none for the ordinary one
     /// (`-1, -1, -1`).
@@ -434,6 +511,13 @@ pub struct ScenarioDescriptor {
     pub free_radar: bool,
     /// Map `[Basic] IgnoreGlobalAITriggers`, native Scenario+34B4.
     pub ignore_global_ai_triggers: bool,
+    /// Map Basic.TrainCrate / TruckCrate, reset false by683842/68388D.
+    pub train_crate: bool,
+    pub truck_crate: bool,
+    /// Map Basic.IceGrowthEnabled; None uses SetDefaults683856's true.
+    pub ice_growth_enabled: Option<bool>,
+    /// Basic.VeinGrowthEnabled, constructor68384F true.
+    pub vein_growth_enabled: Option<bool>,
     /// Native `ScenarioClass` flags bit `0x40` (`[SpecialFlags] TiberiumGrows`,
     /// bit layout from the writer `0x006B8B30`). Every skirmish/multiplayer
     /// start forces it on (`OR 0xC0` at `0x005E74CD` on the ordinary skirmish
@@ -529,6 +613,7 @@ pub struct ScenarioSession {
     input_locked: bool,
     /// Native ChronoScreenEffect globals; GPU surface/handle remain app-local.
     chrono_screen: crate::sim::superweapon::chrono_screen::ChronoScreenState,
+    scenario_pause: pause::ScenarioPause,
     /// Scenario+11E8 countdown and authored+11F4/+11F8 caption. Mutations
     /// belong to the countdown owner; UI consumes only its retained view.
     #[serde(default)]
@@ -548,6 +633,18 @@ pub struct ScenarioSession {
     /// Persistent native Scenario+34B4 (`[Basic] IgnoreGlobalAITriggers`).
     #[serde(default)]
     ignore_global_ai_triggers: bool,
+    /// Scenario+34A5/34B1. Unit73838A reads these after passenger/crew escape.
+    #[serde(default)]
+    train_crate: bool,
+    #[serde(default)]
+    truck_crate: bool,
+    /// Scenario+34A8. Execute87 stores the literal low byte at6DDBE1;
+    /// Basic's bool reader normalizes only when it actually reads a value.
+    /// Retain the byte even though no ice-growth simulation leaf is ported.
+    ice_growth: u8,
+    /// Scenario34A7. Native Veinhole74D80A reads this byte; that separate
+    /// TS mechanism is not ported. Do not fabricate growth from this switch.
+    vein_growth: u8,
     /// Persisted native `ScenarioClass` flags bit `0x40` (`TiberiumGrows`);
     /// see the descriptor field of the same name.
     #[serde(default)]
@@ -629,6 +726,12 @@ impl ScenarioSession {
         let index = u32::try_from(index).ok()?;
         (index < crate::map::waypoints::WAYPOINT_SLOT_COUNT)
             .then(|| self.waypoints.get(&index).copied().unwrap_or((0, 0)))
+    }
+
+    /// Scenario IsWaypointValid68BD80: a bounded slot whose packed pair is
+    /// different from the initialized empty cell B05458=(0,0).
+    pub(crate) fn waypoint_is_valid(&self, index: i32) -> bool {
+        self.waypoint_cell(index).is_some_and(|cell| cell != (0, 0))
     }
 
     pub fn first_multiplayer_start(&self) -> Option<crate::map::waypoints::Waypoint> {
@@ -754,6 +857,10 @@ impl ScenarioSession {
             b"scenario-campaign-startup-v1".hash(hasher);
             campaign.hash(hasher);
         }
+        if s.scenario_paused() || s.scenario_pause_timed() {
+            b"scenario-pause-v1".hash(hasher);
+            s.scenario_pause.hash(hasher);
+        }
         if s.input_locked {
             b"scenario-input-lock-v1".hash(hasher);
         }
@@ -786,6 +893,20 @@ impl ScenarioSession {
         }
         if s.ignore_global_ai_triggers {
             b"scenario-ignore-global-ai-triggers-v1".hash(hasher);
+        }
+        if s.train_crate {
+            b"scenario-train-crate-v1".hash(hasher);
+        }
+        if s.truck_crate {
+            b"scenario-truck-crate-v1".hash(hasher);
+        }
+        if s.vein_growth != 1 {
+            b"scenario-vein-growth".hash(hasher);
+            s.vein_growth.hash(hasher);
+        }
+        if s.ice_growth != 1 {
+            b"scenario-ice-growth-v1".hash(hasher);
+            s.ice_growth.hash(hasher);
         }
         // Same legacy-preserving shape for the `0x40`/`0x80` tiberium bits.
         if s.tiberium_grows_flag {
@@ -852,6 +973,10 @@ impl ScenarioSession {
             lighting.nuke_change_rate.hash(hasher);
             lighting.nuke_flash.hash(hasher);
         }
+        if lighting.ambient_change_overrides != [None; 2] {
+            0x1668u16.hash(hasher);
+            lighting.ambient_change_overrides.hash(hasher);
+        }
     }
 
     /// Hash per-match game options for lockstep verification.
@@ -884,6 +1009,39 @@ impl ScenarioSession {
         self.ignore_global_ai_triggers
     }
 
+    pub const fn train_crate(&self) -> bool {
+        self.train_crate
+    }
+
+    pub const fn truck_crate(&self) -> bool {
+        self.truck_crate
+    }
+
+    /// Retained native Scenario+34A8; not a claim of an active ice grower.
+    pub const fn ice_growth_enabled(&self) -> bool {
+        self.ice_growth != 0
+    }
+
+    /// Execute97@6DD8EE and its shared6E3B20 entry: ignore all operands.
+    pub(crate) fn toggle_train_crate(&mut self) {
+        self.train_crate = !self.train_crate;
+    }
+
+    /// Retained Scenario34A7; not a claim of a ported Veinhole consumer.
+    pub const fn vein_growth_enabled(&self) -> bool {
+        self.vein_growth != 0
+    }
+
+    /// Execute85@6DDB94/6E0250: raw low byte, no clamp.
+    pub(crate) fn set_vein_growth(&mut self, value: i32) {
+        self.vein_growth = value as u8;
+    }
+
+    /// Execute87@6DDBD5 and6E0290: no clamp or truth normalization.
+    pub(crate) fn set_ice_growth(&mut self, value: i32) {
+        self.ice_growth = value as u8;
+    }
+
     pub fn from_descriptor(desc: &ScenarioDescriptor) -> Self {
         Self {
             seed: u64::from(desc.seed),
@@ -893,11 +1051,16 @@ impl ScenarioSession {
             campaign: None,
             input_locked: false,
             chrono_screen: crate::sim::superweapon::chrono_screen::ChronoScreenState::default(),
+            scenario_pause: pause::ScenarioPause::default(),
             scenario_countdown: countdown::ScenarioCountdown::default(),
             started: false,
             no_damage: desc.no_damage,
             free_radar: desc.free_radar,
             ignore_global_ai_triggers: desc.ignore_global_ai_triggers,
+            train_crate: desc.train_crate,
+            truck_crate: desc.truck_crate,
+            ice_growth: u8::from(desc.ice_growth_enabled.unwrap_or(true)),
+            vein_growth: u8::from(desc.vein_growth_enabled.unwrap_or(true)),
             tiberium_grows_flag: desc.tiberium_grows_flag,
             tiberium_spreads_flag: desc.tiberium_spreads_flag,
             computer_slot_has_team: false,
@@ -1094,6 +1257,7 @@ mod tests {
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
+                structure_online: true,
                 trigger_tag: None,
             };
             sim.spawn_from_map(&[entity], None);
@@ -1340,3 +1504,5 @@ mod tests {
         assert_eq!(restored.state_hash(), forced.state_hash());
     }
 }
+
+mod pause;

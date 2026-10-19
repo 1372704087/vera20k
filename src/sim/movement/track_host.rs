@@ -13,7 +13,7 @@ use super::track_process::{TrackFamily, TrackInvocation, TrackPayment, TrackProc
 use crate::map::entities::EntityCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::components::{DriveCoord, DriveOccupationFootprint, TrackProgress};
+use crate::sim::components::{DriveCoord, TrackProgress};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::world::{FrameEffects, Simulation};
@@ -380,6 +380,7 @@ impl Simulation {
                     stored_head,
                     cell(current),
                     true,
+                    false,
                     rules,
                     registry,
                     observe,
@@ -398,9 +399,6 @@ impl Simulation {
                             .as_mut()
                             .unwrap()
                             .store_track_progress(family, state);
-                    }
-                    if let Some(loco) = entity.locomotor.as_mut() {
-                        loco.clear_track_occupation_projections();
                     }
                 }
                 // Native clears Head_To and selector before target+4C, then
@@ -425,7 +423,7 @@ impl Simulation {
                 }
                 if reached {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
-                    super::navcom::foot_stop_moving(entity);
+                    entity.navigation.stop_moving();
                     entity.navigation.path_replay.clear_live_head();
                     entity.navigation.settle_destination_setter();
                     if entity.mission.current().known() == Some(MissionType::Move) {
@@ -500,6 +498,7 @@ impl Simulation {
                 },
                 previous,
                 false,
+                family == TrackFamily::Drive,
                 rules,
                 registry,
                 observe,
@@ -612,6 +611,7 @@ impl Simulation {
                 chosen,
                 cell(current),
                 false,
+                false,
                 rules,
                 registry,
                 observe,
@@ -635,15 +635,11 @@ impl Simulation {
             return;
         };
         let coord = position_world_coord(&entity.position);
-        self.track_raw_mark_at(id, coord, put);
+        self.track_raw_mark_at(coord, put);
     }
 
-    pub(super) fn track_raw_mark_at(
-        &mut self,
-        id: u64,
-        coord: DriveCoord,
-        put: bool,
-    ) -> MovementLayer {
+    pub(super) fn track_raw_mark_at(&mut self, coord: DriveCoord, put: bool) {
+        use crate::sim::occupancy::VEHICLE_OCCUPATION_BIT;
         let (at, layer) = super::foot_mark::raw_occupation_plane(
             coord,
             put,
@@ -652,33 +648,11 @@ impl Simulation {
         );
         let raw = &mut self.substrate.raw_cell_occupation;
         match (put, layer) {
-            (true, MovementLayer::Bridge) => raw.mark_deck(at.0, at.1, 0x20),
-            (true, _) => raw.mark_ground(at.0, at.1, 0x20),
-            (false, MovementLayer::Bridge) => raw.clear_deck(at.0, at.1, 0x20),
-            (false, _) => raw.clear_ground(at.0, at.1, 0x20),
+            (true, MovementLayer::Bridge) => raw.mark_deck(at.0, at.1, VEHICLE_OCCUPATION_BIT),
+            (true, _) => raw.mark_ground(at.0, at.1, VEHICLE_OCCUPATION_BIT),
+            (false, MovementLayer::Bridge) => raw.clear_deck(at.0, at.1, VEHICLE_OCCUPATION_BIT),
+            (false, _) => raw.clear_ground(at.0, at.1, VEHICLE_OCCUPATION_BIT),
         }
-        if put {
-            self.substrate
-                .cell_occupation
-                .mark_vehicle_on_layer(at.0, at.1, id, layer);
-        } else {
-            self.substrate
-                .cell_occupation
-                .clear_vehicle_on_layer(at.0, at.1, id, layer);
-        }
-        if !put {
-            let mark = DriveOccupationFootprint {
-                rx: at.0,
-                ry: at.1,
-                layer,
-            };
-            if let Some(entity) = self.substrate.entities.get_mut(id)
-                && let Some(loco) = entity.locomotor.as_mut()
-            {
-                loco.forget_track_occupation(mark);
-            }
-        }
-        layer
     }
 
     fn track_place(
@@ -687,6 +661,7 @@ impl Simulation {
         coord: DriveCoord,
         previous_track_cell: (u16, u16),
         terminal: bool,
+        paid_drive_point: bool,
         rules: Option<&RuleSet>,
         registry: Option<&OverlayTypeRegistry>,
         observe: &mut impl FnMut(&mut Simulation, u64, TrackWorldEvent),
@@ -717,6 +692,18 @@ impl Simulation {
             &self.interner,
         );
         observe(self, id, TrackWorldEvent::SetCoords);
+        // Drive4B17DC SetLocation precedes the selected Cell lookup4B1800.
+        // Keep that identity across Mark(DOWN), which may stamp the shared
+        // Dummy again. Only a crossing paid Drive point reaches4B1999;
+        // terminal/residual placements and same-cell points skip this arm.
+        let pre_entry_cell = if crossing && paid_drive_point {
+            self.resolved_terrain.as_ref().map(|terrain| {
+                crate::map::resolved_terrain::NativeCellQuery::canonical(terrain)
+                    .lookup((selected_cell.0 as i16, selected_cell.1 as i16))
+            })
+        } else {
+            None
+        };
         let grid = self.path_grid.as_deref();
         if crossing && let Some(entity) = self.substrate.entities.get_mut(id) {
             if !terminal {
@@ -766,6 +753,43 @@ impl Simulation {
                 &mut |sim, id| observe(sim, id, TrackWorldEvent::MarkPut),
                 effects,
             );
+        }
+        if let Some(target) = pre_entry_cell {
+            // Drive4B1999..4B19FA, after Mark(DOWN)4B1993 and before
+            // SetHeight/track continuation. Type+D2B is TiltsWhenCrushes;
+            // target+44/+2A8 is the live overlay/Wall, not a navigation head.
+            let wall = self
+                .cell_overlay(target)
+                .overlay_id
+                .and_then(|overlay| registry?.flags(overlay))
+                .is_some_and(|flags| flags.wall);
+            let tilt = wall
+                && self.substrate.entities.get(id).is_some_and(|entity| {
+                    entity
+                        .locomotor
+                        .as_ref()
+                        .and_then(|loco| loco.drive_straight())
+                        == Some(true)
+                        && rules
+                            .and_then(|rules| self.interner.object_type(entity.type_ref(), rules))
+                            .is_some_and(|object| {
+                                object.tilts_when_crushes
+                                    && (object.crusher
+                                        || crate::sim::combat::veterancy::has_weapon_ability(
+                                            entity.veterancy.rank_kind(),
+                                            object,
+                                            crate::rules::object_type::Ability::Crusher,
+                                        ))
+                            })
+                });
+            if tilt && let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity
+                    .rocking
+                    .get_or_insert_with(Default::default)
+                    .set_vel_forwards_native(crate::util::native_x87::NativeF32Bits::from_bits(
+                        0xbd4c_cccd,
+                    ));
+            }
         }
     }
 
@@ -822,29 +846,10 @@ impl Simulation {
                 })
             })
             .flatten();
-        let handoff_mark = handoff.map(|coord| {
-            let layer = self.track_raw_mark_at(id, coord, put);
-            DriveOccupationFootprint {
-                rx: cell(coord).0,
-                ry: cell(coord).1,
-                layer,
-            }
-        });
-        let layer = self.track_raw_mark_at(id, supplied, put);
-        if put
-            && let Some(entity) = self.substrate.entities.get_mut(id)
-            && let Some(loco) = entity.locomotor.as_mut()
-        {
-            loco.publish_track_occupation(
-                family,
-                Some(DriveOccupationFootprint {
-                    rx: cell(supplied).0,
-                    ry: cell(supplied).1,
-                    layer,
-                }),
-                handoff_mark,
-            );
+        if let Some(coord) = handoff {
+            self.track_raw_mark_at(coord, put);
         }
+        self.track_raw_mark_at(supplied, put);
     }
 
     fn track_try_chain(
@@ -1022,7 +1027,7 @@ impl Simulation {
         let coord = super::navcom::nav_target_coordinate(
             target,
             Some(id),
-            &self.substrate.entities,
+            self,
             self.resolved_terrain.as_ref(),
             rules.map(|rules| (rules, &self.interner)),
         )?;
@@ -1128,7 +1133,7 @@ impl Simulation {
                 super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref());
             let there = super::ground_pose::target_get_coords(
                 target,
-                &self.substrate.entities,
+                self,
                 self.resolved_terrain
                     .as_ref()
                     .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
@@ -1153,14 +1158,7 @@ impl Simulation {
                     entity.set_archive_target(None);
                 }
             }
-            let destination = match target {
-                crate::sim::combat::TargetKind::Cell(rx, ry) => {
-                    crate::sim::components::NavTargetRef::cell(rx, ry)
-                }
-                crate::sim::combat::TargetKind::Entity(id) => {
-                    crate::sim::components::NavTargetRef::object(id)
-                }
-            };
+            let destination = crate::sim::components::NavTargetRef::from(target);
             if let Err(cause) =
                 self.assign_infantry_destination(id, destination, rules, registry, effects)
             {
@@ -1511,6 +1509,6 @@ fn cell_land_type_is(
     sim.resolved_terrain.as_ref().is_some_and(|terrain| {
         terrain
             .cell(rx, ry)
-            .is_some_and(|cell| cell.land_type == wanted.as_index())
+            .is_some_and(|cell| cell.land_type() == wanted.as_index())
     })
 }

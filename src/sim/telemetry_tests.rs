@@ -1,6 +1,6 @@
 //! Tests for the dashboard telemetry snapshot.
 //!
-//! Separated from telemetry.rs to stay within the 400-line file limit.
+//! Snapshot bounds, retained-owner observations and simulation invariance.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::art_data::ArtRegistry;
@@ -170,16 +170,28 @@ fn production_rows_report_the_active_build_its_queue_and_ready_stock() {
     let actor = sim.interner.intern("ACTOR");
     // Two factories for one house: the projection groups by owner, not by
     // category, so both must appear rather than one shadowing the other.
-    sim.production
-        .factories
-        .test_enqueue_kernel(americans, ProductionCategory::Infantry, actor, 0, 100);
-    sim.production
-        .factories
-        .test_enqueue_kernel(americans, ProductionCategory::Vehicle, actor, 1, 100);
+    sim.production.factories.test_enqueue_kernel(
+        americans,
+        ProductionCategory::Infantry,
+        actor,
+        0,
+        100,
+    );
+    sim.production.factories.test_enqueue_kernel(
+        americans,
+        ProductionCategory::Vehicle,
+        actor,
+        1,
+        100,
+    );
     // A different house's factory must land on that house's row.
-    sim.production
-        .factories
-        .test_enqueue_kernel(soviets, ProductionCategory::Infantry, actor, 2, 100);
+    sim.production.factories.test_enqueue_kernel(
+        soviets,
+        ProductionCategory::Infantry,
+        actor,
+        2,
+        100,
+    );
 
     let snapshot = sim.telemetry_snapshot();
     let row = house_row(&snapshot, "Americans");
@@ -301,7 +313,7 @@ fn spots_carry_world_positions_and_owner_indices() {
 }
 
 #[test]
-fn snapshot_round_trips_through_bincode() {
+fn snapshot_round_trips_through_save_codec() {
     let rules = vehicle_rules();
     let mut sim = Simulation::with_seed(31);
     let owner = sim.interner.intern("Americans");
@@ -311,8 +323,9 @@ fn snapshot_round_trips_through_bincode() {
         .expect("vehicle spawn");
 
     let snapshot = sim.telemetry_snapshot();
-    let bytes = bincode::serialize(&snapshot).expect("serialize");
-    let restored: TelemetrySnapshot = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = crate::util::save_codec::serialize(&snapshot).expect("serialize");
+    let restored: TelemetrySnapshot =
+        crate::util::save_codec::deserialize(&bytes).expect("deserialize");
     assert_eq!(snapshot, restored);
 }
 
@@ -352,10 +365,276 @@ fn repeated_captures_are_equal() {
 }
 
 #[test]
-fn debug_panel_round_trips_through_bincode() {
+fn snapshot_and_profiling_switches_leave_hash_and_saved_bytes_unchanged() {
+    let rules = vehicle_rules();
+    let mut sim = Simulation::with_seed(71);
+    let owner = sim.interner.intern("Americans");
+    sim.houses
+        .insert(owner, HouseState::new(owner, 0, None, true, 1000, 10));
+    sim.spawn_object_limbo_at_height("ACTOR", "Americans", 3, 3, 0, 0, &rules)
+        .unwrap();
+    let hash = sim.state_hash();
+    let saved = crate::sim::snapshot::GameSnapshot::save_validated(&sim, 0, 0, "telemetry", 0);
+    sim.set_frame_profiling(true);
+    for _ in 0..3 {
+        let snapshot = sim.telemetry_snapshot();
+        assert_eq!(snapshot.entities_total, 1);
+        assert!(snapshot.profile.is_none());
+    }
+    assert_eq!(sim.state_hash(), hash);
+    assert_eq!(
+        crate::sim::snapshot::GameSnapshot::save_validated(&sim, 0, 0, "telemetry", 0),
+        saved
+    );
+    sim.set_frame_profiling(false);
+    assert_eq!(sim.state_hash(), hash);
+    assert_eq!(
+        crate::sim::snapshot::GameSnapshot::save_validated(&sim, 0, 0, "telemetry", 0),
+        saved
+    );
+}
+
+#[test]
+fn profiled_frames_preserve_gameplay_and_reset_only_at_observer_transitions() {
+    let mut observed = Simulation::with_seed(79);
+    let mut control = Simulation::with_seed(79);
+    observed.set_frame_profiling(true);
+    for _ in 0..3 {
+        let actual = observed.advance_tick(&[], None, None, None, 67);
+        let expected = control.advance_tick(&[], None, None, None, 67);
+        assert_eq!(actual.tick, expected.tick);
+        assert_eq!(actual.frame_committed, expected.frame_committed);
+        assert_eq!(observed.state_hash(), control.state_hash());
+        assert_eq!(
+            crate::util::save_codec::serialize(&observed).unwrap(),
+            crate::util::save_codec::serialize(&control).unwrap()
+        );
+    }
+    assert_eq!(control.frame_profile().frames(), 0);
+    let report = observed.frame_profile().report().unwrap();
+    assert_eq!(report.frames, 3);
+    assert!((report.phases_ms.iter().sum::<f64>() - report.mean_frame_ms).abs() < 1e-6);
+    observed.set_frame_profiling(true);
+    assert_eq!(observed.frame_profile().frames(), 3);
+    let mut restored: Simulation = crate::util::save_codec::deserialize(
+        &crate::util::save_codec::serialize(&observed).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(restored.frame_profile().frames(), 0);
+    restored.advance_tick(&[], None, None, None, 67);
+    assert_eq!(
+        restored.frame_profile().frames(),
+        0,
+        "load defaults to disabled"
+    );
+    observed.set_frame_profiling(false);
+    observed.advance_tick(&[], None, None, None, 67);
+    assert_eq!(observed.frame_profile().frames(), 0);
+}
+
+#[test]
+fn roster_keeps_identical_names_in_distinct_categories_and_reads_team_flags() {
+    let mut sim = Simulation::with_seed(83);
+    let owner = sim.interner.intern("Americans");
+    let kind = sim.interner.intern("SharedName");
+    let script = sim.interner.intern("Script");
+    sim.houses
+        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+    let mut members = Vec::new();
+    for category in [EntityCategory::Unit, EntityCategory::Infantry] {
+        members.push(sim.insert_synthetic_techno_for_diagnostics(
+            3,
+            3,
+            0,
+            0,
+            owner,
+            Health::new(100),
+            kind,
+            category,
+            0,
+            1,
+            false,
+        ));
+    }
+    sim.team_script_vm.create_team(owner, script, members, 0);
+    let snapshot = sim.telemetry_snapshot();
+    let house = house_row(&snapshot, "Americans");
+    assert_eq!(house.roster.len(), 2);
+    assert_eq!(house.counts.unit, 1);
+    assert_eq!(house.counts.infantry, 1);
+    assert_eq!(house.squads[0].composition.len(), 2);
+    assert_eq!(house.squads[0].members, 2);
+    assert!(house.squads[0].formed, "read the actual Team owner");
+    assert!(!house.squads[0].under_strength);
+    assert!(!house.squads[0].suspended);
+}
+
+#[test]
+fn snapshot_bounds_long_names_house_rows_and_production_queues() {
+    use crate::sim::production::ProductionCategory;
     use crate::sim::telemetry::{
-        DebugEventEntry, DebugPanel, EntityDesc, LandRow, MinerDebug, OverlayFlags, PathStep,
-        SelectedDebug,
+        TELEMETRY_MAX_HOUSES, TELEMETRY_MAX_NAME_BYTES, TELEMETRY_MAX_QUEUE,
+    };
+    let mut sim = Simulation::with_seed(89);
+    let kind = sim.interner.intern(&"é".repeat(200));
+    let mut first = None;
+    for index in 0..TELEMETRY_MAX_HOUSES + 3 {
+        let owner = sim.interner.intern(&format!("House{index}"));
+        first.get_or_insert(owner);
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+    }
+    let owner = first.unwrap();
+    sim.production
+        .factories
+        .test_enqueue_kernel(owner, ProductionCategory::Vehicle, kind, 0, 1);
+    for index in 0..TELEMETRY_MAX_QUEUE + 4 {
+        sim.production.factories.test_enqueue_kernel(
+            owner,
+            ProductionCategory::Vehicle,
+            kind,
+            index as u64 + 1,
+            1,
+        );
+    }
+    let snapshot = sim.telemetry_snapshot();
+    assert_eq!(snapshot.houses.len(), TELEMETRY_MAX_HOUSES);
+    let production = &snapshot.houses[0].production[0];
+    assert_eq!(production.queue.len(), TELEMETRY_MAX_QUEUE);
+    assert_eq!(
+        production.active_type.as_ref().unwrap().len(),
+        TELEMETRY_MAX_NAME_BYTES
+    );
+    assert!(
+        production
+            .queue
+            .iter()
+            .all(|name| name.len() <= TELEMETRY_MAX_NAME_BYTES)
+    );
+    let json = serde_json::to_value(&snapshot).unwrap();
+    assert!(json.get("cheats").is_none());
+    assert_eq!(json["version"], 22);
+}
+
+#[test]
+fn capped_core_payload_leaves_room_in_the_eight_mib_transport_budget() {
+    use crate::sim::telemetry::*;
+    let name = "\0".repeat(TELEMETRY_MAX_NAME_BYTES);
+    let count = TypeCount {
+        type_name: name.clone(),
+        category: EntityCategory::Structure,
+        count: u32::MAX,
+    };
+    let mut sim = Simulation::new();
+    let owner = sim.interner.intern("Owner");
+    sim.houses
+        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+    let mut snapshot = sim.telemetry_snapshot();
+    let mut house = snapshot.houses[0].clone();
+    house.name = name.clone();
+    house.side_name = Some(name.clone());
+    house.roster = vec![count.clone(); TELEMETRY_MAX_ROSTER];
+    house.production = vec![
+        ProductionLine {
+            category: "Infantry".to_owned(),
+            active_type: Some(name.clone()),
+            progress: 54,
+            on_hold: false,
+            suspended: false,
+            queue: vec![name.clone(); TELEMETRY_MAX_QUEUE],
+            ready_to_place: vec![name.clone()],
+        };
+        TELEMETRY_MAX_PRODUCTION
+    ];
+    house.squads = vec![
+        AiSquad {
+            id: u64::MAX,
+            team_type: Some(name.clone()),
+            task_force: Some(name.clone()),
+            members: u32::MAX,
+            composition: vec![count; TELEMETRY_MAX_COMPOSITION],
+            script_step: i32::MIN,
+            formed: false,
+            under_strength: true,
+            suspended: false,
+        };
+        TELEMETRY_MAX_SQUADS
+    ];
+    house.base_plan = vec![
+        BasePlan {
+            x: u16::MAX,
+            y: u16::MAX,
+            building: Some(name),
+            is_base: true
+        };
+        TELEMETRY_MAX_BASE_PLAN
+    ];
+    snapshot.houses = vec![house; TELEMETRY_MAX_HOUSES];
+    snapshot.spots = vec![
+        EntitySpot {
+            x: 65535.996,
+            y: 65535.996,
+            z: u8::MAX,
+            category: EntityCategory::Structure,
+            owner_index: u16::MAX
+        };
+        TELEMETRY_MAX_SPOTS
+    ];
+    // Control bytes expand to six-byte JSON escapes: this also checks the
+    // worst string-escaping case, leaving at least one MiB for app observations.
+    assert!(serde_json::to_vec(&snapshot).unwrap().len() < 7 * 1024 * 1024);
+}
+
+#[test]
+fn project_scale_capture_counts_thirty_houses_and_caps_twenty_thousand_spots() {
+    use crate::sim::telemetry::TELEMETRY_MAX_SPOTS;
+    let mut sim = Simulation::with_seed(97);
+    let kind = sim.interner.intern("ACTOR");
+    let owners: Vec<_> = (0..30)
+        .map(|index| {
+            let owner = sim.interner.intern(&format!("Player{index}"));
+            sim.houses
+                .insert(owner, HouseState::new(owner, 0, None, false, 1000, 10));
+            owner
+        })
+        .collect();
+    for index in 0..=TELEMETRY_MAX_SPOTS {
+        sim.insert_synthetic_techno_for_diagnostics(
+            (index % 100) as u16,
+            (index / 100) as u16,
+            0,
+            0,
+            owners[index % owners.len()],
+            Health::new(100),
+            kind,
+            EntityCategory::Unit,
+            0,
+            1,
+            false,
+        );
+    }
+    let hash = sim.state_hash();
+    let snapshot = sim.telemetry_snapshot();
+    assert_eq!(snapshot.entities_total, (TELEMETRY_MAX_SPOTS + 1) as u32);
+    assert_eq!(snapshot.spots.len(), TELEMETRY_MAX_SPOTS);
+    assert_eq!(snapshot.houses.len(), 30);
+    assert_eq!(
+        snapshot
+            .houses
+            .iter()
+            .map(|house| house.counts.total())
+            .sum::<u32>(),
+        snapshot.entities_total
+    );
+    assert!(snapshot.spots.iter().all(|spot| spot.owner_index < 30));
+    assert!(serde_json::to_vec(&snapshot).unwrap().len() < 8 * 1024 * 1024);
+    assert_eq!(sim.state_hash(), hash);
+}
+
+#[test]
+fn debug_panel_round_trips_through_save_codec() {
+    use crate::sim::telemetry::{
+        DebugPanel, EntityDesc, LandRow, MinerDebug, OverlayFlags, PathStep, SelectedDebug,
     };
     let debug = DebugPanel {
         cursor_cell: Some((12, 34)),
@@ -401,23 +680,21 @@ fn debug_panel_round_trips_through_bincode() {
                 archived_ore: Some((50, 60)),
                 teleport_active: false,
             }),
-            inspector_active: true,
-            events: vec![DebugEventEntry {
-                tick: 99,
-                text: "[99] Repath: blocked (12 steps)".to_string(),
-            }],
         }],
         overlays: OverlayFlags {
             terrain_costs: true,
             heightmap: false,
             cell_grid: true,
             fog: true,
-            unit_inspector: false,
             foot_path: false,
             paused: false,
         },
     };
-    let bytes = bincode::serialize(&debug).expect("serialize");
-    let restored: DebugPanel = bincode::deserialize(&bytes).expect("deserialize");
+    let bytes = crate::util::save_codec::serialize(&debug).expect("serialize");
+    let restored: DebugPanel = crate::util::save_codec::deserialize(&bytes).expect("deserialize");
     assert_eq!(debug, restored);
+    let json = serde_json::to_value(&debug).unwrap();
+    assert!(json["selected"][0].get("inspector_active").is_none());
+    assert!(json["selected"][0].get("events").is_none());
+    assert!(json["overlays"].get("unit_inspector").is_none());
 }

@@ -1,4 +1,4 @@
-//! Bridge body artwork and the original indexed shadow stencils.
+//! CellClass overlay shadow stencils and high-bridge bodies.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -22,7 +22,7 @@ pub enum BridgeFrameKind {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BridgeAtlasKey {
     pub name: String,
-    pub frame: u8,
+    pub frame: u16,
     pub kind: BridgeFrameKind,
 }
 
@@ -32,7 +32,7 @@ pub struct BridgeAtlas {
 }
 
 impl BridgeAtlas {
-    pub fn body_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry> {
+    pub fn body_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry> {
         self.entries.get(&BridgeAtlasKey {
             name: name.to_string(),
             frame,
@@ -40,7 +40,7 @@ impl BridgeAtlas {
         })
     }
 
-    pub fn shadow_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry> {
+    pub fn shadow_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry> {
         self.entries.get(&BridgeAtlasKey {
             name: name.to_string(),
             frame,
@@ -52,16 +52,16 @@ impl BridgeAtlas {
 /// Atlas lookup interface — abstracts the GPU-backed `BridgeAtlas` so that
 /// instance builders can be exercised in unit tests with a pure-data mock.
 pub trait BridgeAtlasLookup {
-    fn body_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry>;
-    fn shadow_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry>;
+    fn body_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry>;
+    fn shadow_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry>;
 }
 
 impl BridgeAtlasLookup for BridgeAtlas {
-    fn body_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry> {
+    fn body_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry> {
         BridgeAtlas::body_entry(self, name, frame)
     }
 
-    fn shadow_entry(&self, name: &str, frame: u8) -> Option<&OverlaySpriteEntry> {
+    fn shadow_entry(&self, name: &str, frame: u16) -> Option<&OverlaySpriteEntry> {
         BridgeAtlas::shadow_entry(self, name, frame)
     }
 }
@@ -105,7 +105,7 @@ fn needed_bridge_sprite_keys(overlay_names: &BTreeMap<u8, String>) -> HashSet<Br
         .collect();
     let mut needed = HashSet::new();
     for name in names {
-        for frame in 0u8..18u8 {
+        for frame in 0u16..18u16 {
             needed.insert(BridgeAtlasKey {
                 name: name.clone(),
                 frame,
@@ -134,33 +134,87 @@ pub fn build_bridge_atlas(
     overlay_registry: &OverlayTypeRegistry,
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
+    rubble_arts: &[crate::rules::building_rubble::RubbleArt],
 ) -> Option<BridgeAtlas> {
     let needed = needed_bridge_sprite_keys(overlay_names);
-    if needed.is_empty() {
-        return None;
-    }
-
-    let mut rendered: Vec<RenderedBridge> = Vec::with_capacity(needed.len());
-    for key in &needed {
-        let flags: OverlayTypeFlags = overlay_registry
-            .flags_by_name(&key.name)
+    let mut names: HashSet<&String> = needed.iter().map(|key| &key.name).collect();
+    names.extend(overlay_names.values().filter(|name| {
+        overlay_registry
+            .flags_by_name(name)
+            .is_some_and(|flags| flags.wall || flags.is_rubble || flags.crate_type)
+    }));
+    let mut rendered = Vec::new();
+    for name in names {
+        let flags = overlay_registry
+            .flags_by_name(name)
             .cloned()
             .unwrap_or_default();
-        let palette: &Palette = if flags.wall {
-            unit_palette
-        } else {
-            theater_palette
-        };
-        if let Some(sprite) = render_bridge_sprite(
+        let Some(shp) = load_bridge_shape(
             asset_manager,
-            palette,
-            key,
+            name,
             theater_ext,
             theater_name,
             rules_ini,
             art_registry,
-            &flags,
-        ) {
+        ) else {
+            continue;
+        };
+        let palette = if flags.wall {
+            unit_palette
+        } else {
+            theater_palette
+        };
+        let mut keys: HashSet<BridgeAtlasKey> = needed
+            .iter()
+            .filter(|key| &key.name == name)
+            .cloned()
+            .collect();
+        // Cell47F5E2 and outer bounds47FE3F force Crate data0, even though
+        // Mark5FD105 writes FF. Walls retain raw state + SHP count/2.
+        // IsRubble needs this overlay-image rectangle for the outer47FDE0
+        // gate, before the building image supplies its stencil.
+        // DamageLevels does not bound that material domain.
+        // Native body+shadow execution: concrete_wall_render.json.
+        // Original callers/raster: bridge_shadow_render.py --crate.
+        if flags.wall || flags.is_rubble || flags.crate_type {
+            let frame_count = if flags.crate_type {
+                1
+            } else {
+                (shp.frames.len() - shp.frames.len() / 2).min(256)
+            };
+            for frame in 0..frame_count {
+                keys.insert(BridgeAtlasKey {
+                    name: name.clone(),
+                    frame: frame as u16,
+                    kind: BridgeFrameKind::Shadow,
+                });
+            }
+        }
+        for key in keys {
+            if let Some(sprite) = render_bridge_sprite(&shp, palette, &key, &flags) {
+                rendered.push(sprite);
+            }
+        }
+    }
+    // Cell47F64B uses its recorded BuildingType's image, independently of
+    // the overlay image whose rectangle admits the outer Tactical sweep.
+    let mut loaded_rubble = HashSet::new();
+    for art in rubble_arts {
+        let key = BridgeAtlasKey {
+            name: crate::render::overlay_atlas::rubble_image_name(&art.shp),
+            frame: art.shadow_frame,
+            kind: BridgeFrameKind::Shadow,
+        };
+        if !loaded_rubble.insert(key.clone()) {
+            continue;
+        }
+        let Some(shp) = asset_manager
+            .get_ref(&art.shp)
+            .and_then(|bytes| ShpFile::from_bytes(bytes).ok())
+        else {
+            continue;
+        };
+        if let Some(sprite) = render_shadow_sprite(&shp, key, usize::from(art.shadow_frame), 0.0) {
             rendered.push(sprite);
         }
     }
@@ -182,32 +236,30 @@ fn shadow_stencil_to_rgba(stencil: &[u8]) -> Vec<u8> {
     rgba
 }
 
-fn render_bridge_sprite(
+fn load_bridge_shape(
     asset_manager: &AssetManager,
-    palette: &Palette,
-    key: &BridgeAtlasKey,
+    name: &str,
     theater_ext: &str,
     theater_name: &str,
     rules_ini: &IniFile,
     art_registry: &ArtRegistry,
-    flags: &OverlayTypeFlags,
-) -> Option<RenderedBridge> {
-    let image_id: String = art_registry.resolve_overlay_image_id(&key.name, rules_ini);
+) -> Option<ShpFile> {
+    let image_id: String = art_registry.resolve_overlay_image_id(name, rules_ini);
     let mut candidates: Vec<String> = art_data::overlay_shp_candidates(
         Some(art_registry),
-        &key.name,
+        name,
         &image_id,
         theater_ext,
         theater_name,
     );
-    if let Some(alias) = decrement_numeric_suffix(&key.name) {
+    if let Some(alias) = decrement_numeric_suffix(name) {
         candidates.push(format!("{}.{}", alias, theater_ext));
         candidates.push(format!("{}.shp", alias));
         candidates.push(format!("{}.{}", alias.to_ascii_lowercase(), theater_ext));
         candidates.push(format!("{}.shp", alias.to_ascii_lowercase()));
     }
 
-    let shp: ShpFile = candidates.iter().find_map(|name| {
+    candidates.iter().find_map(|name| {
         let data = asset_manager.get_ref(name)?;
         let shp = ShpFile::from_bytes(data).ok()?;
         let has_drawable = shp
@@ -215,34 +267,22 @@ fn render_bridge_sprite(
             .iter()
             .any(|fr| fr.frame_width > 0 && fr.frame_height > 0);
         has_drawable.then_some(shp)
-    })?;
+    })
+}
 
+fn render_bridge_sprite(
+    shp: &ShpFile,
+    palette: &Palette,
+    key: &BridgeAtlasKey,
+    flags: &OverlayTypeFlags,
+) -> Option<RenderedBridge> {
     // CellClass::DrawOverlay_Shadow @ 0047F510 indexes raw state + count/2.
     // Empty/out-of-range shadow frames draw nothing; no substitute artwork.
     // Keep the original cropped rectangle for CC_Draw_Shape's row walker.
     // Executable comparison: tools/spatial_oracle/bridge_shadow_render.py.
     if key.kind == BridgeFrameKind::Shadow {
         let frame_idx = shp.frames.len() / 2 + usize::from(key.frame);
-        let frame = shp.frames.get(frame_idx)?;
-        if frame.frame_width == 0 || frame.frame_height == 0 {
-            return None;
-        }
-        let (offset_x, offset_y) = stored_frame_offset(
-            shp.width,
-            shp.height,
-            frame.frame_x,
-            frame.frame_y,
-            flags.y_draw_offset(),
-        );
-        return Some(RenderedBridge {
-            key: key.clone(),
-            rgba: shadow_stencil_to_rgba(&frame.pixels),
-            source_indices: frame.pixels.clone(),
-            width: u32::from(frame.frame_width),
-            height: u32::from(frame.frame_height),
-            offset_x,
-            offset_y,
-        });
+        return render_shadow_sprite(shp, key.clone(), frame_idx, flags.y_draw_offset());
     }
 
     // Cell47F6A0 forwards the selected raw frame unchanged. Empty frames
@@ -287,6 +327,31 @@ fn render_bridge_sprite(
         height: full_h,
         offset_x: -((full_w / 2) as f32),
         offset_y: -((full_h / 2) as f32) + flags.y_draw_offset(),
+    })
+}
+
+/// Shared SHP stencil extraction for the Cell shadow sweep. Pixel darkening,
+/// signed depth admission and stores stay in TerrainDrawRenderer.
+fn render_shadow_sprite(
+    shp: &ShpFile,
+    key: BridgeAtlasKey,
+    frame_idx: usize,
+    y_bias: f32,
+) -> Option<RenderedBridge> {
+    let frame = shp.frames.get(frame_idx)?;
+    if frame.frame_width == 0 || frame.frame_height == 0 {
+        return None;
+    }
+    let (offset_x, offset_y) =
+        stored_frame_offset(shp.width, shp.height, frame.frame_x, frame.frame_y, y_bias);
+    Some(RenderedBridge {
+        key,
+        rgba: shadow_stencil_to_rgba(&frame.pixels),
+        source_indices: frame.pixels.clone(),
+        width: u32::from(frame.frame_width),
+        height: u32::from(frame.frame_height),
+        offset_x,
+        offset_y,
     })
 }
 

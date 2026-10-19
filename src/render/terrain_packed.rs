@@ -7,14 +7,20 @@
 //! native framebuffer word order. No immutable-piece shortcut is used there.
 
 use super::batching::{TerrainBatches, TerrainCommand};
-use super::{TerrainBatchStats, TerrainDrawRenderer, piece_scissor};
-use crate::render::batch::{BatchRenderer, SPRITE_INSTANCE_ATTRIBUTES, SpriteInstance};
+use super::{PackedSurface, TerrainBatchStats, TerrainDrawRenderer, piece_scissor};
+use crate::render::batch::{
+    BatchRenderer, CameraUniform, SPRITE_INSTANCE_ATTRIBUTES, SpriteInstance,
+};
 use crate::render::tactical_draw_plan::RenderZPolicy;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PackedSpriteKind {
     Shp,
     Voxel,
+    /// Original source-index stencil, with no palette, A or Z source reads.
+    IndexMask,
+    /// Ordinary N=1 UI source, already converted to native surface colours.
+    UiPalette,
 }
 
 /// Same-parent VXL layers compose into one indexed source stencil, then one
@@ -43,7 +49,7 @@ struct Params {
     reads_depth: u32,
 }
 
-struct Stencil {
+pub(super) struct Stencil {
     words: wgpu::TextureView,
     candidates: wgpu::TextureView,
 }
@@ -52,6 +58,8 @@ pub(super) struct PackedSpriteGpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
     shp: wgpu::RenderPipeline,
+    mask: wgpu::RenderPipeline,
+    ui: wgpu::RenderPipeline,
     voxel: wgpu::RenderPipeline,
     clear: wgpu::RenderPipeline,
     compute: wgpu::ComputePipeline,
@@ -234,6 +242,26 @@ impl PackedSpriteGpu {
                 batch.texture_bind_group_layout(),
                 batch.zshape_bind_group_layout(),
             ),
+            mask: raster(
+                &format!(
+                    "{}\n{}",
+                    crate::render::tactical_shader::SPRITE_SOURCE,
+                    include_str!("zsprite_shader.wgsl")
+                ),
+                include_str!("terrain_packed_mask.wgsl"),
+                batch.texture_bind_group_layout(),
+                batch.zshape_bind_group_layout(),
+            ),
+            ui: raster(
+                &format!(
+                    "{}\n{}",
+                    crate::render::tactical_shader::SPRITE_SOURCE,
+                    include_str!("zsprite_shader.wgsl")
+                ),
+                include_str!("terrain_packed_ui.wgsl"),
+                batch.texture_bind_group_layout(),
+                batch.zshape_bind_group_layout(),
+            ),
             voxel: raster(
                 include_str!("sprite_voxel_shader.wgsl"),
                 include_str!("terrain_packed_voxel.wgsl"),
@@ -280,6 +308,11 @@ impl PackedSpriteGpu {
     }
 
     pub(super) fn prepare(&mut self, size: wgpu::Extent3d) {
+        self.stencil = Some(self.create_stencil(size));
+        self.results = None;
+    }
+
+    pub(super) fn create_stencil(&self, size: wgpu::Extent3d) -> Stencil {
         let create = |format| {
             self.device
                 .create_texture(&wgpu::TextureDescriptor {
@@ -295,11 +328,10 @@ impl PackedSpriteGpu {
                 })
                 .create_view(&Default::default())
         };
-        self.stencil = Some(Stencil {
+        Stencil {
             words: create(wgpu::TextureFormat::R32Uint),
             candidates: create(wgpu::TextureFormat::R32Float),
-        });
-        self.results = None;
+        }
     }
 
     pub(super) fn begin_frame(&mut self) {
@@ -353,6 +385,40 @@ impl PackedSpriteGpu {
 }
 
 impl TerrainDrawRenderer {
+    /// Longest adjacent prefix whose complete sprite groups have disjoint
+    /// conservative clips. The accumulated union deliberately over-fences;
+    /// overlap retains source order, including stores outside a packed marker.
+    pub(crate) fn disjoint_sprite_prefix<'a>(
+        &self,
+        groups: impl IntoIterator<Item = &'a [SpriteInstance]>,
+        tactical: [u32; 4],
+    ) -> usize {
+        let mut bounds: Option<[u32; 4]> = None;
+        let mut count = 0;
+        for group in groups {
+            let rect = group
+                .iter()
+                .filter_map(|instance| piece_scissor(instance, self.camera, tactical))
+                .reduce(union);
+            if let Some(rect) = rect {
+                if let Some(prior) = bounds {
+                    if rect[0] < prior[0] + prior[2]
+                        && prior[0] < rect[0] + rect[2]
+                        && rect[1] < prior[1] + prior[3]
+                        && prior[1] < rect[1] + rect[3]
+                    {
+                        break;
+                    }
+                    bounds = Some(union(prior, rect));
+                } else {
+                    bounds = Some(rect);
+                }
+            }
+            count += 1;
+        }
+        count
+    }
+
     /// Pixel-local, equal-policy composites commute only when their complete
     /// conservative rectangles are disjoint. Reuse the destination-edit tile
     /// scheduler; displaced neighbor reads remain strict sequential fences.
@@ -444,16 +510,77 @@ impl TerrainDrawRenderer {
         render_z: RenderZPolicy,
         tactical: Option<[u32; 4]>,
     ) -> TerrainBatchStats {
+        self.draw_packed_target(
+            encoder,
+            color,
+            depth,
+            buffer,
+            pieces,
+            render_z,
+            tactical,
+            self.camera,
+            batch.camera_bind_group(),
+            None,
+        )
+    }
+
+    /// The same packed transaction on an output-owned surface/camera. Sidebar
+    /// StripDraw6A9B46 is a no-Z source-index stencil, rather than a tactical
+    /// sprite or another brightness implementation.
+    pub(crate) fn draw_packed_surface(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        color: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        surface: &PackedSurface,
+        camera: CameraUniform,
+        camera_group: &wgpu::BindGroup,
+        buffer: &wgpu::Buffer,
+        pieces: &[PackedCompositePiece<'_>],
+    ) -> TerrainBatchStats {
+        assert!(pieces.iter().all(|piece| {
+            matches!(
+                (piece.kind, piece.instance.draw_state.native_selector_bits()),
+                (PackedSpriteKind::IndexMask, 1) | (PackedSpriteKind::UiPalette, 4)
+            )
+        }));
+        self.draw_packed_target(
+            encoder,
+            color,
+            depth,
+            buffer,
+            pieces,
+            RenderZPolicy::None,
+            None,
+            camera,
+            camera_group,
+            Some(surface),
+        )
+    }
+
+    fn draw_packed_target(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        color: &wgpu::TextureView,
+        depth: &wgpu::TextureView,
+        buffer: &wgpu::Buffer,
+        pieces: &[PackedCompositePiece<'_>],
+        render_z: RenderZPolicy,
+        tactical: Option<[u32; 4]>,
+        camera: CameraUniform,
+        camera_group: &wgpu::BindGroup,
+        surface: Option<&PackedSurface>,
+    ) -> TerrainBatchStats {
         let Some(first) = pieces.first() else {
             return TerrainBatchStats::default();
         };
         let tactical = tactical.unwrap_or([
             0,
             0,
-            self.camera.screen_size[0] as u32,
-            self.camera.screen_size[1] as u32,
+            camera.screen_size[0] as u32,
+            camera.screen_size[1] as u32,
         ]);
-        let rect = composite_rect(pieces, self.camera, tactical);
+        let rect = composite_rect(pieces, camera, tactical);
         let Some(rect) = rect else {
             return TerrainBatchStats::default();
         };
@@ -466,12 +593,10 @@ impl TerrainDrawRenderer {
         );
         // Original write-Z selector ignores bit8 (native 495D60/499860).
         let offset = effective_offset(first.instance, render_z);
-        let size = self
-            .targets
-            .as_ref()
-            .expect("packed draw after prepare")
-            .source_color
-            .size();
+        let targets = surface
+            .map(|surface| &surface.targets)
+            .unwrap_or_else(|| self.targets.as_ref().expect("packed draw after prepare"));
+        let size = targets.source_color.size();
         let read_rect = read_halo(rect, offset, size.width, size.height);
         let params = Params {
             rect,
@@ -487,11 +612,15 @@ impl TerrainDrawRenderer {
         );
         let (params, results, uniform_offset) = self.packed.transaction_buffers(params, bytes);
         let packed = &self.packed;
-        let targets = self.targets.as_ref().expect("packed draw after prepare");
-        let stencil = packed
-            .stencil
-            .as_ref()
-            .expect("packed source after prepare");
+        let targets = surface
+            .map(|surface| &surface.targets)
+            .unwrap_or_else(|| self.targets.as_ref().expect("packed draw after prepare"));
+        let stencil = surface.map(|surface| &surface.stencil).unwrap_or_else(|| {
+            packed
+                .stencil
+                .as_ref()
+                .expect("packed source after prepare")
+        });
         let view = |binding, view| wgpu::BindGroupEntry {
             binding,
             resource: wgpu::BindingResource::TextureView(view),
@@ -556,9 +685,9 @@ impl TerrainDrawRenderer {
             pass.set_scissor_rect(rect[0], rect[1], rect[2], rect[3]);
             pass.draw(0..3, 0..1);
             pass.set_vertex_buffer(0, buffer.slice(..));
-            pass.set_bind_group(0, batch.camera_bind_group(), &[]);
+            pass.set_bind_group(0, camera_group, &[]);
             for piece in pieces {
-                let Some(clip) = piece_scissor(piece.instance, self.camera, tactical) else {
+                let Some(clip) = piece_scissor(piece.instance, camera, tactical) else {
                     continue;
                 };
                 assert_eq!(
@@ -569,6 +698,8 @@ impl TerrainDrawRenderer {
                 pass.set_pipeline(match piece.kind {
                     PackedSpriteKind::Shp => &packed.shp,
                     PackedSpriteKind::Voxel => &packed.voxel,
+                    PackedSpriteKind::IndexMask => &packed.mask,
+                    PackedSpriteKind::UiPalette => &packed.ui,
                 });
                 pass.set_bind_group(1, piece.source, &[]);
                 pass.set_bind_group(2, piece.material, &[]);

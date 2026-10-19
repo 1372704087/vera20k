@@ -325,15 +325,13 @@ impl Simulation {
     ) -> bool {
         use crate::rules::locomotor_type::{MovementZone, SpeedType};
         use crate::sim::cell_rect::{
-            IsClearToMoveResult, LiveCellPassabilityQuery, cell_is_in_playfield_height_aware,
-            evaluate_live_cell_passability,
+            CellPassabilityArgs, canonical_cell_ref, cell_is_in_playfield_height_aware,
+            check_cell_passability,
         };
         let e = self.substrate.entities.get(id).unwrap();
         let (requested, object) = match destination {
             NavTargetRef::Cell { rx, ry } => ((rx as i16, ry as i16), None),
-            NavTargetRef::Entity { id: object }
-            | NavTargetRef::Object { id: object }
-            | NavTargetRef::Building { id: object } => {
+            NavTargetRef::Object { id: object } => {
                 let Some(center) = self.fire_location_center(destination) else {
                     return false;
                 };
@@ -377,35 +375,26 @@ impl Simulation {
                                 .is_some_and(|o| o.spawned)
                     });
         }
-        let grid = self.path_grid_snapshot();
-        let land = self
-            .resolved_terrain
-            .as_ref()
-            .and_then(|t| t.cell(cell.0 as u16, cell.1 as u16))
-            .is_some_and(|c| {
-                rules
-                    .and_then(|r| r.terrain_rules.semantics_for_land_type(c.yr_cell_land_type))
-                    .and_then(|row| row.cost_for_speed_type(SpeedType::Track))
-                    .is_some_and(|cost| cost > 0)
-            });
-        let result = evaluate_live_cell_passability(LiveCellPassabilityQuery {
-            target: (cell.0 as u16, cell.1 as u16),
-            speed_type: SpeedType::Track,
-            movement_zone: MovementZone::Normal,
-            requested_zone: None,
-            actual_zone: 0,
-            requested_layer: None,
-            ignore_infantry: false,
-            ignore_vehicles: false,
-            land_passable: land,
-            path_grid: grid.as_deref(),
-            resolved_terrain: self.resolved_terrain.as_ref(),
-            raw_occupation: Some(&self.substrate.raw_cell_occupation),
-        });
-        if !matches!(
-            result,
-            IsClearToMoveResult::Clear { .. } | IsClearToMoveResult::ClearWinged
-        ) {
+        // 0x004DDD66..0x004DDD85: (Track, 0, 0, -1, Normal, -1, 1) on the
+        // Cell its lookup returned.
+        let (Some(terrain), Some(retained)) = (self.resolved_terrain.as_ref(), identity) else {
+            return false;
+        };
+        if !check_cell_passability(
+            &canonical_cell_ref(terrain, retained),
+            CellPassabilityArgs {
+                speed_type: SpeedType::Track,
+                ignore_infantry: false,
+                ignore_vehicles: false,
+                zone: None,
+                movement_zone: MovementZone::Normal,
+                level: None,
+                is_bridge: true,
+            },
+            &self.cell_passability_map(),
+        )
+        .admits()
+        {
             return false;
         }
         !self.substrate.entities.values().any(|other| {
@@ -428,14 +417,7 @@ impl Simulation {
                             },
                         )
                     }
-                    (
-                        Some(object),
-                        Some(
-                            NavTargetRef::Entity { id: nav }
-                            | NavTargetRef::Object { id: nav }
-                            | NavTargetRef::Building { id: nav },
-                        ),
-                    ) => nav == object,
+                    (Some(object), Some(NavTargetRef::Object { id: nav })) => nav == object,
                     _ => false,
                 }
         })
@@ -462,11 +444,7 @@ impl Simulation {
                 !e.radio_contacts.is_empty()
                     && e.navigation.nav_com().is_some()
                     && match e.navigation.nav_com() {
-                        Some(
-                            NavTargetRef::Entity { id }
-                            | NavTargetRef::Object { id }
-                            | NavTargetRef::Building { id },
-                        ) => e.radio_contacts.slot(0) != Some(id),
+                        Some(NavTargetRef::Object { id }) => e.radio_contacts.slot(0) != Some(id),
                         Some(NavTargetRef::Cell { .. }) => true,
                         None => false,
                     }
@@ -483,46 +461,27 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) -> bool {
         use crate::rules::locomotor_type::{MovementZone, SpeedType};
-        use crate::sim::find_nearby_cell::{
-            NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell,
-            map_owned_radius_cap,
-        };
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
         let Some(rules) = rules else {
             return false;
         };
         let e = self.substrate.entities.get(id).unwrap();
         let coord = ground_pose::position_world_coord(&e.position);
         self.begin_fly_takeoff(id, Some(rules));
-        let grid = self.path_grid_snapshot();
-        let Some((width, height)) = self.map_size_diamond() else {
+        if self.map_size_diamond().is_none() {
             return false;
-        };
-        let target = find_nearby_passable_cell(
+        }
+        let target = self.nearby_passable_cell(
             ((coord.x / 256) as i16 as i32, (coord.y / 256) as i16 as i32),
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-                passability: PassabilityArgs {
+            NearbyArgs::plain(
+                PassabilityArgs {
                     speed_type: SpeedType::Track,
                     required_zone_id: None,
                     movement_zone: MovementZone::Fly,
                     bridge_aware_zone: false,
                 },
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells: true,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: map_owned_radius_cap(width, height),
-                target_cell: None,
-                path_grid: grid.as_deref(),
-                resolved_terrain: self.resolved_terrain.as_ref(),
-                overlay_grid: self.overlay_grid.as_ref(),
-                occupancy: Some(&self.substrate.occupancy),
-                entities: Some(&self.substrate.entities),
-                zone_grid: self.zone_grid.as_ref(),
-                playfield_bounds: self.playfield_bounds,
-            },
-            self.session.binary_frame,
+                NearbyFootprint::SINGLE,
+            ),
         );
         if let Some(cell) = target {
             //4CEAD9..4CEB35 constructs from the selected CellStruct, then
@@ -879,6 +838,19 @@ mod tests {
                 },
             )))
             .unwrap();
+            // The map loaded under these rules: its Clear cells carry their
+            // Clear row, which `0x004834A0` reads through `Cell+0xEC`.
+            let clear = rules
+                .terrain_rules
+                .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
+                .expect("[Clear]")
+                .speed_costs;
+            let terrain = sim.resolved_terrain.as_mut().unwrap();
+            terrain.set_land_speed_rules_for_test(&rules.terrain_rules);
+            for cell in &mut terrain.cells {
+                cell.speed_costs = clear;
+                cell.base_speed_costs = clear;
+            }
             let query = input
                 .get("query")
                 .cloned()
@@ -1122,7 +1094,8 @@ mod tests {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let e = sim.substrate.entities.get(1).unwrap();
         assert!(e.air_spatial_bucket().is_some());
         assert!(
@@ -1150,7 +1123,8 @@ mod tests {
                     Some(&rules),
                     None,
                     crate::sim::world::FrameEffects::default(),
-                );
+                )
+                .unwrap();
             }
             assert_eq!(sim.state_hash(), restored.state_hash(), "frame{frame}");
         }

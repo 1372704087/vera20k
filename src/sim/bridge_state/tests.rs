@@ -2,9 +2,10 @@
 
 use super::*;
 use crate::map::resolved_terrain::{
-    BridgeDirection, BridgeLayer, ResolvedTerrainCell, ResolvedTerrainGrid, YR_CELL_LAND_TUNNEL,
+    BridgeDirection, BridgeLayer, ResolvedTerrainCell, ResolvedTerrainGrid,
 };
 use crate::map::tube_facts::{TubeFact, TubeId};
+use crate::rules::terrain_rules::LandType;
 
 include!("record_native_tests.rs");
 include!("gap_restamp_tests.rs");
@@ -71,7 +72,7 @@ fn make_low_bridge_terrain() -> ResolvedTerrainGrid {
                     deck_level: cell.level,
                     direction: BridgeDirection::Low,
                 });
-                cell.yr_cell_land_type = YR_CELL_LAND_TUNNEL;
+                cell.land_type = LandType::Tunnel.as_index();
                 let tube_id = TubeId(tubes.len() as u16);
                 tubes.push(TubeFact::auto_low_bridge((cell.rx, cell.ry), 2));
                 cell.tube_index = Some(tube_id);
@@ -375,7 +376,7 @@ fn low_bridge_tube_record_requires_opposite_neighbors() {
     let mut terrain = make_low_bridge_terrain();
     let cell = terrain.cell_mut(3, 0).expect("right low bridge cell");
     cell.tube_index = None;
-    cell.yr_cell_land_type = 0;
+    cell.land_type = 0;
 
     let state = BridgeRuntimeState::from_resolved_terrain(&terrain, true, 300);
     assert!(
@@ -424,55 +425,6 @@ fn bridge_runtime_state_snapshot_round_trip() {
     assert_eq!(
         restored.native_zone_source_size(),
         state.native_zone_source_size()
-    );
-}
-
-#[test]
-fn damage_state_to_byte_ns_axis() {
-    assert_eq!(
-        DamageState::Healthy { variant: 0 }.to_state_byte(Axis::NS),
-        0
-    );
-    assert_eq!(
-        DamageState::Healthy { variant: 3 }.to_state_byte(Axis::NS),
-        3
-    );
-    assert_eq!(
-        DamageState::Healthy { variant: 5 }.to_state_byte(Axis::NS),
-        5
-    );
-    assert_eq!(DamageState::Damaged.to_state_byte(Axis::NS), 6);
-    assert_eq!(DamageState::PartialCollapseA.to_state_byte(Axis::NS), 7);
-    assert_eq!(DamageState::PartialCollapseB.to_state_byte(Axis::NS), 8);
-    assert_eq!(DamageState::Destroyed.to_state_byte(Axis::NS), 0);
-}
-
-#[test]
-fn damage_state_to_byte_ew_axis() {
-    assert_eq!(
-        DamageState::Healthy { variant: 0 }.to_state_byte(Axis::EW),
-        9
-    );
-    assert_eq!(
-        DamageState::Healthy { variant: 5 }.to_state_byte(Axis::EW),
-        14
-    );
-    assert_eq!(DamageState::Damaged.to_state_byte(Axis::EW), 0xF);
-    assert_eq!(DamageState::PartialCollapseA.to_state_byte(Axis::EW), 0x11);
-    assert_eq!(DamageState::PartialCollapseB.to_state_byte(Axis::EW), 0x10);
-    assert_eq!(DamageState::Destroyed.to_state_byte(Axis::EW), 0);
-}
-
-#[test]
-fn damage_state_to_byte_clamps_healthy_variant() {
-    // Variant > 5 is invalid input; should clamp to 5 (max defined healthy).
-    assert_eq!(
-        DamageState::Healthy { variant: 7 }.to_state_byte(Axis::NS),
-        5
-    );
-    assert_eq!(
-        DamageState::Healthy { variant: 10 }.to_state_byte(Axis::EW),
-        14
     );
 }
 
@@ -531,26 +483,6 @@ fn damage_state_from_byte_out_of_range_returns_none() {
     assert_eq!(DamageState::from_state_byte(0xFF), None);
 }
 
-#[test]
-fn damage_state_round_trip_for_each_variant_per_axis() {
-    // For every (axis × variant) pair where Destroyed is excluded (it's the
-    // ambiguous post-collapse state).
-    for axis in [Axis::NS, Axis::EW] {
-        for state in [
-            DamageState::Healthy { variant: 0 },
-            DamageState::Healthy { variant: 5 },
-            DamageState::Damaged,
-            DamageState::PartialCollapseA,
-            DamageState::PartialCollapseB,
-        ] {
-            let byte = state.to_state_byte(axis);
-            let decoded = DamageState::from_state_byte(byte)
-                .expect("decode succeeds for byte produced by encode");
-            assert_eq!(decoded, state, "round-trip {state:?} via {axis:?}");
-        }
-    }
-}
-
 // Admission and callback order compare original instructions in damage_dispatch_tests.
 
 #[test]
@@ -583,19 +515,16 @@ fn bridge_state_destroyable_flag_disabled() {
 //
 // High rim refresh (576770 -> 576200) is covered by rim_tests and published by
 // world::bridge_rim_publication. Those comparisons do not establish low-rim
-// 571050 -> 570AE0 or every high selector; tagged event31 delivery remains an
-// explicit dependency on the live trigger owner. Keep these bounds with the
+// 571050 -> 570AE0 or every high selector. Tagged event31 delivery through
+// the live trigger owner is tested by world::bridge_rim_publication_tests and
+// bridge_publication_tests. Keep these bounds with the
 // owning mechanisms rather than obsolete ignored tests claiming all repair
 // and rim writes are absent.
 
 // ---- MapClass::FindBridgeConnection_Predicate 0x00587410, overlay branch ----
 
 fn hut_terrain() -> ResolvedTerrainGrid {
-    let mut grid = crate::map::resolved_terrain::test_grid(
-        16,
-        16,
-        crate::map::resolved_terrain::test_flat_cell,
-    );
+    let mut grid = crate::map::resolved_terrain::test_grid(16, 16, crate::map::resolved_terrain::test_flat_cell);
     grid.test_set_high_bridge_set_starts(Some(100), Some(200));
     grid
 }

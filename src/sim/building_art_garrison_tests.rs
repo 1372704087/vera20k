@@ -114,7 +114,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet, u64) {
         occupant.set_owner_for_test(sim.interner.intern("A"));
         occupant.passenger_role = PassengerRole::inside_for_test(id, false);
         sim.substrate.entities.insert(occupant);
-        assert!(cargo.board(occupant_id, 1));
+        cargo.board_forced_chain(&[(occupant_id, 1)]);
     }
     let building = sim.substrate.entities.get_mut(id).unwrap();
     building.passenger_role = PassengerRole::transport(cargo);

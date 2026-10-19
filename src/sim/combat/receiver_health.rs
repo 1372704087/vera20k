@@ -64,9 +64,12 @@ impl super::object_health::ObjectHealthHost for ReceiverHealthHost<'_, '_, '_> {
         let context =
             UninitContext::new(Some(self.rules), self.registry).with_effects(self.effects);
         match callback {
-            //456E00 is redraw/parent notification. Its visual body is outside
-            //this represented receiver boundary, not a retained damaged-art latch.
-            HealthCallback::Changed => {}
+            //5F5486: a heal that changed Strength calls vt+148 Flash(7).
+            HealthCallback::Changed => {
+                if self.execute_world_callbacks {
+                    self.world.flash_object(id, 7);
+                }
+            }
             HealthCallback::Tag { kind, with_source } => {
                 if self.execute_world_callbacks
                     && super::world_receiver::callbacks_enabled(self.world)
@@ -201,7 +204,10 @@ pub(super) fn commit_receiver_health(
         let ty = world.interner.object_type(target.type_ref(), rules)?;
         if target.category() == EntityCategory::Structure {
             building_entry_frame = Some(crate::sim::building_art::receiver_body_frame(
-                target, ty, rules,
+                target,
+                ty,
+                rules,
+                world.object_tech_level(ty),
             ));
         }
         (
@@ -337,6 +343,24 @@ pub(super) fn commit_receiver_health(
                 smoke_maintenance = None;
                 latch_hostile_hit = false;
             }
+        }
+        // `0x00701E6D..0x00701FC8`: any result but 0 (Unaffected) or 5
+        // (AlreadyDead, which returned) starts the radar combat flash, a
+        // death included, except the delay-kill death arm, which returns 5
+        // first (`0x00701ED0..0x00701F7D`).
+        if reached_survivor_postlude
+            && postmortem_candidate.is_none()
+            && matches!(
+                state,
+                damage::DamageState::Damaged
+                    | damage::DamageState::Yellow
+                    | damage::DamageState::Red
+                    | damage::DamageState::Dead
+            )
+        {
+            target
+                .radar_combat_flash
+                .start(binary_frame as i32, rules.general.radar_combat_flash_time);
         }
     }
     Some(ReceiverHealthCommit {

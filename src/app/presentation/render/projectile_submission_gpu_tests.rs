@@ -56,9 +56,7 @@ fn many_ordinary_fences_submit_in_order_and_preserve_native_destination_words() 
                 &[33],
             ),
         }]);
-        let palette = crate::assets::pal_file::Palette {
-            colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-        };
+        let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
         let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
         let palettes =
             PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
@@ -67,7 +65,7 @@ fn many_ordinary_fences_submit_in_order_and_preserve_native_destination_words() 
             for piece in 0..4 {
                 let (target, render_z, mut instance) = match piece {
                     0 => (
-                        ObjectTexture::ProjectileShp(0, TerrainPiece::Body),
+                        ObjectTexture::SpriteAtlasEdit(0, TerrainPiece::Body),
                         RenderZPolicy::ReadOnly,
                         sprite([0., 1.], [8., 2.], 3.),
                     ),
@@ -82,7 +80,7 @@ fn many_ordinary_fences_submit_in_order_and_preserve_native_destination_words() 
                         sprite([2., 1.], [2., 2.], 0.),
                     ),
                     _ => (
-                        ObjectTexture::ProjectileShp(0, TerrainPiece::Shadow),
+                        ObjectTexture::SpriteAtlasEdit(0, TerrainPiece::Shadow),
                         RenderZPolicy::ReadOnly,
                         sprite([0., 1.], [8., 2.], 3.),
                     ),
@@ -138,6 +136,8 @@ fn many_ordinary_fences_submit_in_order_and_preserve_native_destination_words() 
             Some(&shp),
             Some(&palettes),
             batch.default_zshape_bind_group(),
+            None,
+            None,
         );
         assert_eq!(stats.pieces, ROUNDS * 2);
         assert_eq!(stats.passes, (ROUNDS + 1) * 4);

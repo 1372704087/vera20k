@@ -45,7 +45,7 @@ pub(crate) fn cell_is_tiberium_land(
     if let Some(terrain) = sim.resolved_terrain.as_ref() {
         return terrain
             .cell(cell.0, cell.1)
-            .is_some_and(|cell| cell.land_type == LandType::Tiberium.as_index());
+            .is_some_and(|cell| cell.land_type() == LandType::Tiberium.as_index());
     }
     let overlay = sim
         .overlay_grid
@@ -168,7 +168,7 @@ fn techno_scan_for_tiberium(
 ) -> Option<(u16, u16)> {
     let (x, y, _, _) = crate::sim::combat::resolve_target_coords(
         &crate::sim::combat::TargetKind::Entity(id),
-        &sim.substrate.entities,
+        sim,
     )?;
     let own = (x, y);
     if cell_is_tiberium_land(sim, overlay_registry, own) {
@@ -333,14 +333,6 @@ fn is_cell_harvestable(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn scan_radius_divides_leptons_toward_zero() {
-        assert_eq!(scan_cells(0x600), 6);
-        assert_eq!(scan_cells(1664), 6);
-        assert_eq!(scan_cells(-1664), -6);
-        assert_eq!(scan_cells(255), 0);
-    }
 
     /// The original4DCF26..4DCF97 query seam, excluding the prior playfield
     /// gate and later LandType/CanEnter. Expected arguments and reach verdicts

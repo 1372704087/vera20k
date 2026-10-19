@@ -1,5 +1,5 @@
 //! Process diagnostics owner (F12 `DiagnosticsState`): debug overlay toggles,
-//! the frame stepper, the parity digest sink, and dev-overlay bookkeeping.
+//! the frame stepper, the frame timer and the parity digest sink.
 //!
 //! Match-lifetime diagnostic replay lives in `app::match_diagnostics`; this
 //! owner is process-scoped tooling state.
@@ -9,16 +9,18 @@ use std::time::{Duration, Instant};
 
 const FRAME_TIMER_WINDOW: usize = 60;
 
-/// Rolling means of one in-game render's phase spans.
+/// Means of in-game render phase spans during one observation window.
 ///
 /// The spans are wall time from `presentation::render::render_game`; this meter
 /// only averages them, so a single slow frame cannot mislead the report.
+#[cfg(feature = "telemetry-dashboard")]
 #[derive(Clone, Copy, Default)]
 pub(crate) struct RenderTimingMeter {
     frames: u32,
     sums: [Duration; 7],
 }
 
+#[cfg(feature = "telemetry-dashboard")]
 impl RenderTimingMeter {
     /// Fold one finished render into the totals.
     pub(crate) fn record(&mut self, phases: crate::app::presentation::render::RenderPhases) {
@@ -42,7 +44,7 @@ impl RenderTimingMeter {
         Some(means)
     }
 
-    /// The wire form: rolling means, or `None` before the first render.
+    /// The wire form: per-render means, or `None` before the first render.
     pub(crate) fn report(&self) -> Option<crate::sim::telemetry::RenderTimingReport> {
         let means = self.mean_ms()?;
         Some(crate::sim::telemetry::RenderTimingReport {
@@ -58,7 +60,7 @@ impl RenderTimingMeter {
     }
 }
 
-/// Rolling FPS / frame-time tracker. Sampled once per `render_frame`.
+/// Rolling frame-time tracker. Sampled once per `render_frame`.
 pub(crate) struct FrameTimer {
     samples: VecDeque<Duration>,
     last_tick: Option<Instant>,
@@ -84,6 +86,12 @@ impl FrameTimer {
         self.last_tick = Some(now);
     }
 
+    #[cfg(feature = "telemetry-dashboard")]
+    pub(crate) fn fps(&self) -> f32 {
+        let ms = self.frame_ms_mean();
+        if ms > 0.0 { 1000.0 / ms } else { 0.0 }
+    }
+
     /// Mean frame time in milliseconds over the current window, or 0
     /// if no samples have been recorded yet.
     pub(crate) fn frame_ms_mean(&self) -> f32 {
@@ -93,14 +101,6 @@ impl FrameTimer {
         let total_ns: u128 = self.samples.iter().map(|d| d.as_nanos()).sum();
         let mean_ns: u128 = total_ns / self.samples.len() as u128;
         (mean_ns as f64 / 1_000_000.0) as f32
-    }
-
-    /// FPS derived from the mean frame time, or 0 if no samples. Read only to
-    /// fill the dashboard's timing block.
-    #[cfg(feature = "telemetry-dashboard")]
-    pub(crate) fn fps(&self) -> f32 {
-        let ms = self.frame_ms_mean();
-        if ms <= 0.0 { 0.0 } else { 1000.0 / ms }
     }
 }
 
@@ -112,7 +112,7 @@ impl Default for FrameTimer {
 
 pub(crate) struct DiagnosticsState {
     presentation_clock: PresentationClock,
-    /// One-shot: advance a single sim tick while paused (dev overlay).
+    /// One-shot: advance a single sim tick while paused (Period).
     pub(crate) debug_frame_step_requested: bool,
     /// PathGrid walkability overlay toggle (P / F9).
     pub(crate) debug_show_pathgrid: bool,
@@ -127,26 +127,21 @@ pub(crate) struct DiagnosticsState {
     /// remaining route as a numbered line, so the shape and the step order both
     /// read at a glance. Independent of the PathGrid terrain-cost overlay.
     pub(crate) debug_show_foot_path: bool,
-    /// Debug unit inspector (X): mirrors sim-side per-entity event logging.
-    pub(crate) debug_unit_inspector: bool,
     /// Optional per-tick parity digest capture (diagnostics; never perturbs
     /// the run being measured).
     pub(crate) parity_digest_sink: Option<crate::sim::parity_digest::ParityDigestSink>,
-    /// Rolling frame-time statistics for the dev overlay.
+    /// Rolling frame-time statistics for map observation metadata.
     pub(crate) frame_timer: FrameTimer,
-    /// Rolling per-phase statistics for one in-game render.
+    #[cfg(feature = "telemetry-dashboard")]
     pub(crate) render_timing: RenderTimingMeter,
-    /// CPU / memory / thread sampling for the dashboard. Process-wide and
-    /// never reset per match: CPU share is a delta between readings, so a
-    /// per-match reset would report a full core's worth of "new" work. Read
-    /// only when the dashboard assembles a snapshot.
     #[cfg(feature = "telemetry-dashboard")]
     pub(crate) process_stats: crate::app::process_stats::ProcessStatsSampler,
-    /// Browser dashboard transport, while `VERA_TELEMETRY_ADDR` is set.
-    /// App-owned: publishing snapshots never blocks or perturbs the
-    /// simulation, and dropping this owner stops the server.
     #[cfg(feature = "telemetry-dashboard")]
     pub(crate) telemetry_server: Option<crate::app::telemetry_server::TelemetryServer>,
+    #[cfg(feature = "telemetry-dashboard")]
+    pub(crate) telemetry_last_publish: Option<Instant>,
+    #[cfg(feature = "telemetry-dashboard")]
+    pub(crate) telemetry_observer: crate::app::match_runtime::telemetry::ObserverSession,
 }
 
 /// A diagnostic input policy, never a second simulation clock. The map route
@@ -172,15 +167,26 @@ impl DiagnosticsState {
             debug_show_cell_grid: false,
             debug_show_heightmap: false,
             debug_show_foot_path: false,
-            debug_unit_inspector: false,
             parity_digest_sink,
             frame_timer: FrameTimer::new(),
-            render_timing: RenderTimingMeter::default(),
+            #[cfg(feature = "telemetry-dashboard")]
+            render_timing: Default::default(),
             #[cfg(feature = "telemetry-dashboard")]
             process_stats: Default::default(),
             #[cfg(feature = "telemetry-dashboard")]
             telemetry_server: None,
+            #[cfg(feature = "telemetry-dashboard")]
+            telemetry_last_publish: None,
+            #[cfg(feature = "telemetry-dashboard")]
+            telemetry_observer: Default::default(),
         }
+    }
+
+    #[cfg(feature = "telemetry-dashboard")]
+    pub(crate) fn telemetry_active(&self) -> bool {
+        self.telemetry_server
+            .as_ref()
+            .is_some_and(|server| server.has_clients())
     }
 
     pub(crate) fn use_map_presentation_clock(&mut self) -> anyhow::Result<()> {
@@ -221,10 +227,9 @@ impl crate::app::AppState {
         self.diag.presentation_ms(tick)
     }
 
-    pub(crate) fn radar_presentation_ms(&self, now: std::time::Instant) -> u64 {
-        self.diagnostic_presentation_ms().unwrap_or_else(|| {
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(self, now)
-        })
+    pub(crate) fn radar_presentation_ms(&self) -> u64 {
+        self.diagnostic_presentation_ms()
+            .unwrap_or_else(crate::app::match_runtime::frame_pacer::wall_clock_ms)
     }
 }
 
@@ -273,7 +278,6 @@ mod tests {
     fn frame_timer_empty_returns_zero() {
         let t = FrameTimer::new();
         assert_eq!(t.frame_ms_mean(), 0.0);
-        assert_eq!(t.fps(), 0.0);
     }
 
     #[test]
@@ -293,8 +297,6 @@ mod tests {
         t.sample(t1);
         let mean = t.frame_ms_mean();
         assert!((mean - 16.0).abs() < 0.5, "expected ~16ms, got {mean}");
-        let fps = t.fps();
-        assert!((fps - 62.5).abs() < 5.0, "expected ~62.5 fps, got {fps}");
     }
 
     #[test]

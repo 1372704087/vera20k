@@ -19,6 +19,7 @@
 //! | `read_double` (`_bits`, `_to_float`, `_with`, `read_float`) | `CCINIClass::ReadDouble` 0x005283D0 |
 //! | `read_string`, `read_name`, `read_type_name` | `CCINIClass::ReadString` 0x00528A10 |
 //! | `read_movie` | `CCINIClass::ReadMovie` 0x004757D0 |
+//! | `read_pip` | `CCINIClass::ReadPip` 0x004748A0 |
 //! | `read_edge` | `CCINIClass::ReadEdge` 0x00475980 |
 //! | `read_color_scheme` | `CCINIClass::ReadColor` 0x00474A90 |
 //! | `read_list` | ReadString, then `strtok(",")` (every type, house, sound and ability list) |
@@ -150,6 +151,44 @@ const ABSTRACT_TYPES: &[(&str, i32)] = &[
 ];
 
 impl IniSection {
+    /// ReadPip4748A0: the default is a TABLE INDEX; the result is a frame.
+    /// ReadString32 always runs, including missing/empty cache entries, then
+    /// an11-entry case-insensitive scan returns1 for an unknown name. Returned
+    /// frames11/12 index the adjacent Ammo/Tiberium names on the next pass;
+    /// neither name belongs to the11-entry pip scan. Original executable:
+    /// procedural_drawing_oracle/passenger_pips.json/read_pip.
+    pub(crate) fn read_pip(&self, key: &str, current: u32) -> u32 {
+        const PIPS: [(&str, u32); 11] = [
+            ("green", 1),
+            ("yellow", 2),
+            ("white", 3),
+            ("red", 4),
+            ("blue", 5),
+            ("persongreen", 7),
+            ("personyellow", 8),
+            ("personwhite", 9),
+            ("personred", 10),
+            ("personblue", 11),
+            ("personpurple", 12),
+        ];
+        // Constructor1/7 and every mapped frame close over indices0..=12.
+        // The adjacent literal pointers are original81B9B0/81B9B8; their
+        // unrelated numeric table values must not become pip return values.
+        let default = match current {
+            11 => "Ammo",
+            12 => "Tiberium",
+            _ => {
+                PIPS.get(current as usize)
+                    .expect("ReadPip current must be a constructor or returned frame")
+                    .0
+            }
+        };
+        let name = self.read_string(key, default, 0x20);
+        PIPS.iter()
+            .find_map(|&(candidate, frame)| candidate.eq_ignore_ascii_case(&name).then_some(frame))
+            .unwrap_or(1)
+    }
+
     /// ReadFactory474FF0 -> AbstractType_From_Name40DCE0. Each BuildingType
     /// pass460529 supplies its current RTTI name as ReadString32's default;
     /// absent therefore retains it. A present unknown/empty cache value is0.
@@ -244,6 +283,39 @@ impl IniSection {
         self.fold_rules_values(key, default, parse_read_int)
     }
 
+    /// Ares Valueable<int>: ReadString(2048), then Parser<int>::TryParse.
+    /// Absent, empty or failed conversions keep the current value. The `$`
+    /// branch scans decimal (`$%d`), while a final `h`/`H` scans hex (`%xh`).
+    /// Source: Ares 4f1d9299, Utilities/{TemplateDef.h,Parser.h,INIParser.h}.
+    /// Scanner overflow keeps VERA's deterministic low-32-bit convention;
+    /// out-of-range Ares CRT behavior is not claimed equivalent.
+    pub fn read_ares_int(&self, key: &str, default: i32) -> i32 {
+        self.read_string_with(key, 2048, default, |current, value| {
+            let parsed = if let Some(decimal) = value.strip_prefix('$') {
+                scan_decimal_i32(&mut decimal.as_bytes())
+            } else if value
+                .as_bytes()
+                .last()
+                .is_some_and(|last| last.eq_ignore_ascii_case(&b'h'))
+            {
+                scan_hex_u32(value.as_bytes()).map(|value| value as i32)
+            } else {
+                scan_decimal_i32(&mut value.as_bytes())
+            };
+            parsed.unwrap_or(current)
+        })
+    }
+
+    /// Campaign `Read_Time @ 0x0052A760`: the stored map text is parsed with
+    /// `sscanf("%02d:%02d:%02d")` into three zero-initialized ints, then
+    /// converted to Scenario clock ticks. A missing key keeps its current
+    /// field; malformed or partial text leaves unassigned components at zero.
+    /// Native conversion is `(hours * 3600 + minutes * 60 + seconds) * 60` and
+    /// has no range clamp. Arithmetic wraps like the native 32-bit fields.
+    pub fn read_campaign_score_time(&self, key: &str, default: i32) -> i32 {
+        self.fold_rules_values(key, default, |_, raw| parse_campaign_score_time(raw))
+    }
+
     /// ReadBool (P6, P18): `toupper(first char)` in {'1','T','Y'}=true,
     /// {'0','F','N'}=false, else default. `on`/`off` (first char 'o') -> default.
     /// Present-empty (no first char) -> default.
@@ -291,6 +363,26 @@ impl IniSection {
         self.fold_rules_values(key, current, |current, raw| {
             apply(current, parse_read_double(raw))
         })
+    }
+
+    /// ReadGeneral671E3B..671E81: unsigned current ticks * the native f32
+    /// reciprocal of60, ReadDouble5283D0, then *60 and ftol low32. This runs
+    /// even for an omitted key on an admitted General pass. Steam3e81a617.
+    pub(crate) fn read_talk_bubble_time(&self, current: i32) -> i32 {
+        let default = MaskedX87Chop53::mul(
+            MaskedX87Chop53::load_f64(NativeF64Bits::from_bits(
+                f64::from(current as u32).to_bits(),
+            )),
+            MaskedX87Chop53::load_f32(NativeF32Bits::from_bits(0x3c88_8889)),
+        );
+        let seconds = self.read_double(
+            "TalkBubbleTime",
+            f64::from_bits(MaskedX87Chop53::store_f64_masked_chop(default).bits()),
+        );
+        MaskedX87Chop53::ftol_i32_low_masked(MaskedX87Chop53::mul(
+            MaskedX87Chop53::load_f64(NativeF64Bits::from_bits(seconds.to_bits())),
+            MaskedX87Chop53::load_i32(60),
+        ))
     }
 
     /// ReadDouble into a double field, keeping the stored bits.
@@ -616,15 +708,29 @@ impl IniSection {
     /// Original474B50: ReadString64 then one `%d,%d,%d` scan, byte narrowing.
     /// Literal commas must immediately follow each of the first two numbers;
     /// a suffix there stops the WHOLE scan. Absent/empty input keeps the default.
-    /// Original incomplete nonempty scans copy uninitialized stack bytes. We
-    /// deterministically retain the current RGB for that malformed domain,
-    /// matching read_coord3's policy instead of reproducing fixture stack data.
-    /// Full-reader controls: tools/projectile_oracle/line_trail.json.
-    pub fn read_color_rgb(&self, key: &str, default: [u8; 3]) -> [u8; 3] {
+    /// Original incomplete nonempty scans copy uninitialized/reused locals.
+    /// A proven native caller loop may supply its reused scanf destinations;
+    /// an empty value returns the default without touching those destinations.
+    /// Other callers pass None, retaining the current RGB on incomplete scans
+    /// as deterministic recovery for their uninitialized-stack domain.
+    /// Full-reader controls: tools/projectile_oracle/line_trail.json and
+    /// tools/berserk_color.json (all three ColorAdd caller loops).
+    pub fn read_color_rgb(
+        &self,
+        key: &str,
+        default: [u8; 3],
+        mut scan_locals: Option<&mut [i32; 3]>,
+    ) -> [u8; 3] {
         self.fold_rules_values(key, default, |current, raw| {
-            let mut out = [0; 3];
             let value = strtrim_ascii(truncate_native_bytes(raw, 63));
-            if scan_int_fields(value, &mut out) == out.len() {
+            if value.is_empty() {
+                return current;
+            }
+            let retained = scan_locals.is_some();
+            let mut fresh = [0; 3];
+            let out = scan_locals.as_deref_mut().unwrap_or(&mut fresh);
+            let assigned = scan_int_fields(value, out);
+            if retained || assigned == out.len() {
                 out.map(|component| component as u8)
             } else {
                 current
@@ -740,6 +846,52 @@ impl IniSection {
 
 fn parse_read_int(default: i32, raw: &str) -> i32 {
     parse_read_int_value(raw).unwrap_or(default)
+}
+
+fn parse_campaign_score_time(raw: &str) -> i32 {
+    let bytes = raw.as_bytes();
+    let mut cursor = 0;
+    let mut parts = [0i32; 3];
+    for index in 0..3 {
+        let Some((value, next)) = scan_decimal_i32_width(bytes, cursor, 2) else {
+            break;
+        };
+        parts[index] = value;
+        cursor = next;
+        if index != 2 {
+            if bytes.get(cursor) != Some(&b':') {
+                break;
+            }
+            cursor += 1;
+        }
+    }
+    parts[0]
+        .wrapping_mul(3_600)
+        .wrapping_add(parts[1].wrapping_mul(60))
+        .wrapping_add(parts[2])
+        .wrapping_mul(60)
+}
+
+fn scan_decimal_i32_width(bytes: &[u8], mut cursor: usize, width: usize) -> Option<(i32, usize)> {
+    while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+        cursor += 1;
+    }
+    let start = cursor;
+    if bytes
+        .get(cursor)
+        .is_some_and(|byte| matches!(byte, b'+' | b'-'))
+    {
+        cursor += 1;
+    }
+    let digit_start = cursor;
+    while cursor < bytes.len() && cursor - start < width && bytes[cursor].is_ascii_digit() {
+        cursor += 1;
+    }
+    if cursor == digit_start {
+        return None;
+    }
+    let token = std::str::from_utf8(&bytes[start..cursor]).ok()?;
+    Some((token.parse().ok()?, cursor))
 }
 
 /// Source bytes `INIClass__ReadCommaHexUTF16` copies before trimming: the
@@ -1085,6 +1237,40 @@ mod tests {
     use super::{crt_atoi, parse_leading_f32, strtok, truncate_native_bytes};
     use crate::rules::ini_parser::{IniFile, IniSection};
 
+    #[test]
+    fn ares_integer_reader_retains_failed_values_and_uses_ares_dollar_decimal() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+
+        for (value, expected) in [
+            ("", -500),
+            ("garbage", -500),
+            ("$bad", -500),
+            ("0", 0),
+            ("$100", 100),
+            ("100h", 256),
+            ("-700tail", -700),
+            ("$-100", -100),
+            ("$10h", 10),
+            ("0x10", 0),
+            ("-2147483648", i32::MIN),
+        ] {
+            let mut layers = RulesLayerStack::new(IniFile::from_str(
+                "[SuperWeaponTypes]\n0=Paid\n[Paid]\nType=PsychicReveal\nMoney.Amount=-500\n",
+            ));
+            layers.push(
+                RulesLayerKind::Scenario,
+                IniFile::from_str(&format!("[Paid]\nMoney.Amount={value}\n")),
+            );
+            let processed = layers.process_with_fixed_art(&IniFile::empty()).unwrap();
+            let rules = crate::rules::ruleset::RuleSet::from_processed_rules(&processed).unwrap();
+            assert_eq!(
+                rules.super_weapon("Paid").unwrap().money_amount,
+                expected,
+                "{value}"
+            );
+        }
+    }
+
     fn sec(body: &str) -> IniFile {
         IniFile::from_str(body)
     }
@@ -1226,6 +1412,20 @@ mod tests {
         let ini = sec("[S]\nA=0x1A\n");
         // atoi("0x1A") = 0 (stops at 'x'); $/h branches don't fire.
         assert_eq!(ini.section("S").unwrap().read_int("A", -9), 0);
+    }
+
+    #[test]
+    fn campaign_read_time_matches_native_sscanf_and_clock_ticks() {
+        let ini = sec(
+            "[S]\nFull=01:02:03\nPartial=12:3\nBad=not a time\nLong=123:45:67\nNegative=-1:02:03\n",
+        );
+        let section = ini.section("S").unwrap();
+        assert_eq!(section.read_campaign_score_time("Missing", 0xE10), 0xE10);
+        assert_eq!(section.read_campaign_score_time("Full", 0), 223_380);
+        assert_eq!(section.read_campaign_score_time("Partial", 99), 2_602_800);
+        assert_eq!(section.read_campaign_score_time("Bad", 99), 0);
+        assert_eq!(section.read_campaign_score_time("Long", 0), 2_592_000);
+        assert_eq!(section.read_campaign_score_time("Negative", 0), -208_620);
     }
 
     #[test]
@@ -1485,10 +1685,10 @@ mod tests {
     fn test_read_color_rgb() {
         let ini = sec("[S]\nC=12,34,56\nWide=300,-1,256\nShort=1,2\n");
         let s = ini.section("S").unwrap();
-        assert_eq!(s.read_color_rgb("C", [0, 0, 0]), [12, 34, 56]);
-        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0]), [44, 255, 0]);
-        assert_eq!(s.read_color_rgb("Short", [7, 8, 9]), [7, 8, 9]);
-        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3]), [1, 2, 3]);
+        assert_eq!(s.read_color_rgb("C", [0, 0, 0], None), [12, 34, 56]);
+        assert_eq!(s.read_color_rgb("Wide", [0, 0, 0], None), [44, 255, 0]);
+        assert_eq!(s.read_color_rgb("Short", [7, 8, 9], None), [7, 8, 9]);
+        assert_eq!(s.read_color_rgb("MISSING", [1, 2, 3], None), [1, 2, 3]);
     }
 
     #[test] // P19

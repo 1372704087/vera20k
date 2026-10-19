@@ -44,15 +44,14 @@ impl Simulation {
             .playfield_bounds
             .ok_or("rally input lacks playfield bounds")?;
         let size = self
-            .playfield_size_height
-            .map(|height| (bounds.base, height))
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())
+            .map_size_diamond()
             .ok_or("rally input lacks native map dimensions")?;
         let cells = NativeCellQuery::isolated(terrain);
         resolve_rally_cell_click(
             &cells,
             zones,
             &self.substrate.raw_cell_occupation,
+            self.overlay_grid.as_ref(),
             bounds,
             size,
             self.session.binary_frame,
@@ -63,9 +62,8 @@ impl Simulation {
                 naval: object.naval,
             },
         )
-        // A miss sends no rally event and keeps ArchiveTarget. The separate
-        // redeployable ConstructionYard branch requires its repack/move owner;
-        // it is not admitted by the current HasRallyPoint cell-click route.
+        // A miss sends no rally event and keeps ArchiveTarget. The click
+        // owner still queues the following SELL for an UndeploysInto type.
     }
 }
 
@@ -82,6 +80,7 @@ fn resolve_rally_cell_click(
     cells: &NativeCellQuery<'_>,
     zones: &ZoneGrid,
     raw: &RawCellOccupationGrid,
+    overlays: Option<&crate::sim::overlay_grid::OverlayGrid>,
     bounds: PlayfieldBounds,
     size: (i32, i32),
     frame: u32,
@@ -122,7 +121,7 @@ fn resolve_rally_cell_click(
             target_cell: None,
             path_grid: None,
             resolved_terrain: Some(terrain),
-            overlay_grid: None,
+            overlay_grid: overlays,
             occupancy: None,
             entities: None,
             zone_grid: Some(zones),
@@ -259,6 +258,7 @@ mod tests {
                 &cells,
                 &zones,
                 &raw,
+                None,
                 bounds(),
                 (8, 8),
                 input["frame"].as_u64().unwrap_or(100) as u32,
@@ -286,5 +286,38 @@ mod tests {
             assert_eq!(terrain.dummy_cell_requested_coord(), (99, 98), "{input}");
         }
         assert_eq!(compared, 25);
+    }
+
+    /// A wall on the clicked cell refuses the rally search's Foot through
+    /// `0x004834A0`'s wall test, so FNPC answers a neighbour. The input view
+    /// reads the live overlay grid; without it every wall cell would pass.
+    #[test]
+    fn a_rally_click_on_a_wall_answers_a_neighbour() {
+        let (mut terrain, zones, raw) = native_fixture(&json!({}));
+        let click = RallyCellClick {
+            clicked: (11, 5),
+            location: coord(&json!([1344, 1344, 0])),
+            factory: Some(FactoryType::UnitType),
+            naval: false,
+        };
+        let resolve =
+            |terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
+             overlays: Option<&crate::sim::overlay_grid::OverlayGrid>| {
+                resolve_rally_cell_click(
+                    &NativeCellQuery::isolated(terrain),
+                    &zones,
+                    &raw,
+                    overlays,
+                    bounds(),
+                    (8, 8),
+                    100,
+                    &click,
+                )
+                .unwrap()
+            };
+        assert_eq!(resolve(&terrain, None), Some((11, 5)));
+        let walls = crate::sim::overlay_grid::test_wall_overlays(&mut terrain, &[(11, 5)]);
+        let answer = resolve(&terrain, Some(&walls)).expect("a neighbour passes");
+        assert_ne!(answer, (11, 5));
     }
 }

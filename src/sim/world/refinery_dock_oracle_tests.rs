@@ -59,11 +59,8 @@ pub(super) const RULES: &str = "[VehicleTypes]\n0=HARV\n1=MTNK\n\
 const NW: (u16, u16) = (6, 9);
 const OTHER_NW: (u16, u16) = (20, 20);
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/refinery_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/refinery_dock.json")
 }
 
 pub(super) struct Scene {
@@ -264,9 +261,29 @@ pub(super) fn scene_with(input: &Value, rules: RuleSet, ini: &IniFile) -> Scene 
     let (x, y) = input.get("miner_cell").map_or((10, 10), cell);
     let relocate = input["unlimbo_at_cell"] != true;
     let (spawn_x, spawn_y) = if relocate { (16, 16) } else { (x, y) };
+    // These native controls begin with an admitted miner. Some supply a
+    // subsequent FNPC miss by making every Wheel row impassable; permit only
+    // the fixture's bootstrap placement, then restore the measured map.
+    let spawn_speed_costs = {
+        let cell = sim
+            .resolved_terrain
+            .as_mut()
+            .unwrap()
+            .cell_mut(spawn_x, spawn_y)
+            .unwrap();
+        let prior = cell.speed_costs;
+        cell.speed_costs.wheel = Some(100);
+        prior
+    };
     let miner = sim
         .spawn_object(miner_type, "Americans", spawn_x, spawn_y, 0, &rules)
         .expect("miner");
+    sim.resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut(spawn_x, spawn_y)
+        .unwrap()
+        .speed_costs = spawn_speed_costs;
     if relocate {
         let entity = sim.substrate.entities.get_mut(miner).unwrap();
         entity.position.set_rx_for_test(x);
@@ -351,7 +368,9 @@ fn dress(mut s: Scene, input: &Value) -> Scene {
             .health
             .set_for_test(input["refinery_health"].as_i64().unwrap_or(900) as i32);
         if input["online"] == false {
-            building.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(other);
+            building.set_temporal_for_test(
+                crate::sim::temporal::TemporalState::warped_by_for_test(other),
+            );
         }
         if input["refinery_tether"] == true {
             building.tether.set_for_test(Some(miner));
@@ -802,8 +821,14 @@ fn mission_harvest_states_two_and_three_match_the_original_dispatch() {
             vec![s.other]
         };
         for id in offline {
-            s.sim.substrate.entities.get_mut(id).unwrap().temporal =
-                crate::sim::temporal::TemporalState::warped_by_for_test(s.miner);
+            s.sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+                    s.miner,
+                ));
         }
         // Full cargo: the Harvest handler is on its return states.
         {

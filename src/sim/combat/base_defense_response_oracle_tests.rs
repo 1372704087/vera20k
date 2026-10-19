@@ -239,11 +239,8 @@ fn native_base_response_dispatch_matches_14_represented_original_tails() {
     assert_eq!(compared, 14);
 }
 
-fn corpus() -> Value {
-    let rows: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/base_defense_response.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let rows = crate::test_fixture::json("tools/spatial_oracle/base_defense_response.json");
     assert_eq!(rows["schema_version"], 1);
     assert_eq!(
         rows["native_sha256"],
@@ -561,7 +558,7 @@ fn native_base_response_live_threat_matches_representable_original_rows() {
         if count > 0 {
             let mut cargo = PassengerCargo::new(count as u32, 1);
             for id in 0..count as u64 {
-                assert!(cargo.board(id + 10, 1));
+                cargo.board_forced_chain(&[(id + 10, 1)]);
             }
             owner.passenger_role = PassengerRole::transport(cargo);
         }

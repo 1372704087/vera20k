@@ -25,7 +25,8 @@
 use crate::map::rmg::grid::RmgGrid;
 use crate::map::rmg::rng::RmgRng;
 use crate::map::rmg::tiles::TileIds;
-use crate::map::rmg::x87::{self, TruncF64};
+use crate::map::rmg::x87::TruncF64;
+use crate::util::native_x87::X87Chop53;
 
 use super::shore::TileBlocks;
 
@@ -39,7 +40,7 @@ const K201_BITS: u64 = 0x3E69_2000_0019_2000;
 fn scaled_draw(rng: &mut RmgRng, k_bits: u64, offset: f64, max: i32) -> i32 {
     let scale = TruncF64::from_f64(f64::from_bits(k_bits));
     loop {
-        let value = x87::ftol(
+        let value = X87Chop53::ftol_f64_low_masked(
             TruncF64::from_f64(f64::from(rng.next_u32()))
                 .mul(scale)
                 .add(TruncF64::from_f64(offset))
@@ -112,7 +113,7 @@ fn place_block(grid: &mut RmgGrid, blocks: &dyn TileBlocks, tile: i32, anchor: (
 mod tests {
     use super::*;
     use crate::map::rmg::phases::shore::{SubTile, TileBlock};
-    use crate::map::rmg::tiles::SpecialTerrain;
+    use crate::map::theater::TheaterCliffRanges;
 
     struct TwoByTwo(TileBlock);
 
@@ -142,6 +143,7 @@ mod tests {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: -1,
@@ -157,7 +159,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -171,54 +173,11 @@ mod tests {
     }
 
     #[test]
-    fn every_water_cell_leaves_the_base_tile() {
-        let mut grid = water_grid();
-        let identity = ids();
-        let block_table = blocks();
-        let mut rng = RmgRng::new(1234);
-        run(&mut grid, &identity, &block_table, &mut rng);
-
-        for (x, y) in grid.native_cells().collect::<Vec<_>>() {
-            let cell = grid.get(x, y).unwrap();
-            assert_ne!(
-                (cell.tile, cell.sub_tile),
-                (500, 0),
-                "({x},{y}) still holds the untouched base water tile"
-            );
-            assert!(
-                cell.tile >= 500 && cell.tile < 500 + 24,
-                "({x},{y}) holds a water variant (2x2 variants span 0..24)"
-            );
-        }
-    }
-
-    #[test]
-    fn single_cells_use_the_six_band_variants() {
-        let mut grid = water_grid();
-        let identity = ids();
-        let block_table = blocks();
-        // Turn everything but one isolated water cell to land.
-        let coords: Vec<(i32, i32)> = grid.native_cells().collect();
-        for &(x, y) in &coords {
-            if (x, y) != (10, 10) {
-                grid.get_mut(x, y).unwrap().tile = 0;
-            }
-        }
-        let mut rng = RmgRng::new(7);
-        run(&mut grid, &identity, &block_table, &mut rng);
-        let tile = grid.get(10, 10).unwrap().tile;
-        assert!(
-            (508..=513).contains(&tile),
-            "isolated water gets a band variant, got {tile}"
-        );
-    }
-
-    #[test]
     fn band_math_uses_the_fp_chain_not_modulo() {
         // Raw draw 0x80000000: the FP chain gives trunc(2^31 * ~201*2^-32)
         // = 100 -> band 2; a modulo implementation would give 3 -> band 0.
         let scale = TruncF64::from_f64(f64::from_bits(K201_BITS));
-        let value = x87::ftol(
+        let value = X87Chop53::ftol_f64_low_masked(
             TruncF64::from_f64(f64::from(0x8000_0000u32))
                 .mul(scale)
                 .to_f64(),

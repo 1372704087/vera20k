@@ -9,6 +9,7 @@
 //! - **Windows**: `GetProcessTimes` (CPU time), `GetProcessMemoryInfo`
 //!   (working set), a toolhelp32 thread snapshot (thread count).
 //! - **Linux**: the same three facts from `/proc/self`.
+//! - **macOS**: `proc_pidinfo` and `getrusage` for this process only.
 //! - **Anything else**: zeros. The dashboard shows the row rather than
 //!   pretending the numbers exist.
 //!
@@ -41,7 +42,7 @@ impl ProcessStatsSampler {
     /// Sample CPU share, memory and thread count.
     ///
     /// `cpu_percent` is the share of the **whole machine** (all cores), so a
-    /// 4-core machine fully used by us reads 25%. The first call has no
+    /// single busy core on a 4-core machine reads 25%. The first call has no
     /// previous reading and reports zero.
     pub fn sample(&self) -> ProcessStats {
         let cores = logical_cores();
@@ -53,7 +54,7 @@ impl ProcessStatsSampler {
                 let wall = now.duration_since(previous_instant).as_secs_f64();
                 let used = cpu_seconds - previous_cpu;
                 if wall > 0.0 && used >= 0.0 {
-                    (used / wall / cores as f64 * 100.0) as f32
+                    ((used / wall / cores as f64 * 100.0) as f32).clamp(0.0, 100.0)
                 } else {
                     0.0
                 }
@@ -100,8 +101,8 @@ fn bytes_to_mb(bytes: u64) -> f64 {
 
 #[cfg(windows)]
 mod platform {
-    //! Minimal Win32 declarations. The crate ships no Windows bindings crate, so
-    //! the three calls the dashboard needs are declared here directly.
+    //! Read-only Win32 queries; local ABI declarations avoid enabling additional
+    //! windows-sys feature groups solely for these process statistics.
 
     const TH32CS_SNAPTHREAD: u32 = 0x0000_0004;
     const INVALID_HANDLE_VALUE: isize = -1;
@@ -259,9 +260,14 @@ mod platform {
     pub(super) fn read_cpu_memory() -> (f64, u64, u64) {
         let cpu_seconds = std::fs::read_to_string("/proc/self/stat")
             .ok()
-            .and_then(|stat| cpu_seconds_from_stat(&stat))
+            .and_then(|stat| {
+                let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+                cpu_seconds_from_stat(&stat, hz)
+            })
             .unwrap_or(0.0);
-        let page_size = 4096u64;
+        // sysconf units vary across systems; do not assume 4 KiB pages or 100 Hz.
+        // https://man7.org/linux/man-pages/man3/sysconf.3.html
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(0) as u64;
         let resident_pages = std::fs::read_to_string("/proc/self/statm")
             .ok()
             .and_then(|statm| {
@@ -271,7 +277,8 @@ mod platform {
                     .and_then(|value| value.parse::<u64>().ok())
             })
             .unwrap_or(0);
-        let peak_pages = std::fs::read_to_string("/proc/self/status")
+        let working = resident_pages.saturating_mul(page_size);
+        let peak_bytes = std::fs::read_to_string("/proc/self/status")
             .ok()
             .and_then(|status| {
                 status.lines().find_map(|line| {
@@ -279,20 +286,23 @@ mod platform {
                     rest.split_whitespace().next()?.parse::<u64>().ok()
                 })
             })
-            .unwrap_or(resident_pages);
-        (cpu_seconds, resident_pages * page_size, peak_pages * 1024)
+            .map(|kib| kib.saturating_mul(1024))
+            .unwrap_or(working);
+        (cpu_seconds, working, peak_bytes.max(working))
     }
 
     /// Fields 14 and 15 (`utime`, `stime`) in clock ticks; the second field is
     /// the command name in parentheses and may contain spaces.
-    fn cpu_seconds_from_stat(stat: &str) -> Option<f64> {
+    fn cpu_seconds_from_stat(stat: &str, ticks_per_second: libc::c_long) -> Option<f64> {
+        if ticks_per_second <= 0 {
+            return None;
+        }
         let after_comm = stat.rsplit_once(") ")?.1;
         let fields: Vec<&str> = after_comm.split_whitespace().collect();
         // `fields[0]` is `state`, which is field 3, so field 14 is index 11.
-        let ticks_per_second = 100.0;
         let utime: f64 = fields.get(11)?.parse().ok()?;
         let stime: f64 = fields.get(12)?.parse().ok()?;
-        Some((utime + stime) / ticks_per_second)
+        Some((utime + stime) / ticks_per_second as f64)
     }
 
     pub(super) fn thread_count() -> u32 {
@@ -308,9 +318,56 @@ mod platform {
     }
 }
 
+// ---------------------------------------------------------------- macOS
+
+#[cfg(target_os = "macos")]
+mod platform {
+    fn task_info() -> Option<libc::proc_taskinfo> {
+        let mut info = std::mem::MaybeUninit::<libc::proc_taskinfo>::uninit();
+        let size = std::mem::size_of::<libc::proc_taskinfo>() as libc::c_int;
+        // SAFETY: proc_pidinfo writes at most the supplied buffer size. Only a
+        // complete, successful query of our own PID is read as initialized.
+        let written = unsafe {
+            libc::proc_pidinfo(
+                libc::getpid(),
+                libc::PROC_PIDTASKINFO,
+                0,
+                info.as_mut_ptr().cast(),
+                size,
+            )
+        };
+        (written == size).then(|| unsafe { info.assume_init() })
+    }
+
+    pub(super) fn read_cpu_memory() -> (f64, u64, u64) {
+        let working = task_info().map_or(0, |info| info.pti_resident_size);
+        let mut usage = std::mem::MaybeUninit::<libc::rusage>::uninit();
+        // SAFETY: getrusage initializes the provided record on success.
+        if unsafe { libc::getrusage(libc::RUSAGE_SELF, usage.as_mut_ptr()) } != 0 {
+            return (0.0, working, working);
+        }
+        let usage = unsafe { usage.assume_init() };
+        let seconds = |time: libc::timeval| time.tv_sec as f64 + time.tv_usec as f64 / 1e6;
+        // Darwin's calcru copies resident_size_max directly: ru_maxrss is bytes,
+        // unlike Linux's KiB. XNU bsd/kern/kern_resource.c, calcru/getrusage:
+        // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_resource.c
+        (
+            seconds(usage.ru_utime) + seconds(usage.ru_stime),
+            working,
+            (usage.ru_maxrss.max(0) as u64).max(working),
+        )
+    }
+
+    pub(super) fn thread_count() -> u32 {
+        // proc_taskinfo reports only our task's threads and acquires no handles.
+        // https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h
+        task_info().map_or(0, |info| info.pti_threadnum.max(0) as u32)
+    }
+}
+
 // --------------------------------------------------------------- fallback
 
-#[cfg(not(any(windows, target_os = "linux")))]
+#[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
 mod platform {
     pub(super) fn read_cpu_memory() -> (f64, u64, u64) {
         (0.0, 0, 0)
@@ -356,7 +413,7 @@ mod tests {
     fn thread_count_is_refreshed_and_nonzero_on_supported_platforms() {
         let sampler = ProcessStatsSampler::default();
         let stats = sampler.sample();
-        if cfg!(any(windows, target_os = "linux")) {
+        if cfg!(any(windows, target_os = "linux", target_os = "macos")) {
             assert!(stats.threads > 0, "the main thread alone counts as one");
         }
     }

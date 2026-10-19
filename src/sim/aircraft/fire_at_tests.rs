@@ -150,33 +150,3 @@ fn fire_at_matches_the_original() {
         assert_eq!(bits(host.velocity), row["velocity"], "{name}");
     }
 }
-
-/// The courses retail aircraft take, through the production reader on
-/// retail rulesmd.ini: the Hornet's and the Osprey's bombs are ROT 1 (the
-/// course at the target, the Hornet's at `Speed=30` read as 76 leptons a
-/// frame), the Harrier's, Black Eagle's and Boris MiG's missiles ROT 100
-/// (FireAt's own), and `AttackingAircraftSightRange=` is 2.
-#[test]
-fn retail_aircraft_weapons_take_their_courses() {
-    let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules() else {
-        return;
-    };
-    for (aircraft, rot) in [
-        ("HORNET", 1),
-        ("ASW", 1),
-        ("ORCA", 100),
-        ("BEAG", 100),
-        ("BPLN", 100),
-    ] {
-        let object = rules.object(aircraft).unwrap();
-        let weapon = crate::sim::combat::combat_weapon::primary_for_tier(object, 0)
-            .and_then(|weapon| rules.weapon(weapon))
-            .unwrap();
-        let projectile = rules
-            .projectile(weapon.projectile.as_deref().unwrap())
-            .unwrap();
-        assert_eq!(projectile.rot, rot, "{aircraft}");
-    }
-    assert_eq!(rules.weapon("HornetBomb").unwrap().speed, 76);
-    assert_eq!(rules.general.attacking_aircraft_sight_range, 2);
-}

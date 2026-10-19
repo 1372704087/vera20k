@@ -30,14 +30,15 @@ use crate::sim::radar::RadarEventType;
 use crate::sim::scenario_session::{ScenarioLightingProfile, ScenarioLightingState};
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{SimSoundEvent, Simulation};
+use crate::util::save_codec;
 use serde_json::{Value, json};
 
 const TARGET: (u16, u16) = (40, 40);
 /// The lib fixture's supplied `NUKEBALL.SHP` frame bound; no SHP is loaded.
 const NUKE_BALL_FRAMES: i32 = 20;
 
-fn oracle() -> Value {
-    serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+fn oracle() -> &'static Value {
+    crate::test_fixture::json("tools/superweapon_oracle.json")
 }
 
 fn rows<'a>(oracle: &'a Value, section: &str) -> &'a [Value] {
@@ -1139,7 +1140,7 @@ fn nuke_awaited_anim_retirement_routes_release_before_next_bullet_visit() {
                 sim.destroy_anim(ball, &rules);
                 assert_eq!(sim.sound_events.len(), events, "repeat Destroy is inert");
             }
-            "building scalar" => sim.scalar_delete_building_anim(ball),
+            "building scalar" => sim.scalar_delete_anim(ball),
             "terrain scalar" => {
                 sim.substrate.anims.get_mut(ball).unwrap().terrain_attached = true;
                 assert_eq!(sim.scalar_delete_load_terrain_anims(), 1);
@@ -1250,7 +1251,7 @@ fn nuke_awaited_anim_expiry_after_waiter_retirement_is_safe() {
         .unwrap();
     sim.notify_anim_pointer_expired(unrelated);
     assert_eq!(sim.projectiles.get(id).unwrap().awaited_anim(), Some(ball));
-    sim.scalar_delete_building_anim(unrelated);
+    sim.scalar_delete_anim(unrelated);
     assert!(sim.retire_non_entity_object(id, crate::sim::world::UninitContext::with_rules(&rules)));
     sim.process_pending_delete();
     assert!(sim.projectiles.get(id).is_none());
@@ -1273,7 +1274,7 @@ fn nuke_shared_anim_waiters_keep_live_cursor_compaction() {
         let (early, ball) = impact_waiting_nuke(&mut sim, &rules);
         let (late, unused_ball) = impact_waiting_nuke(&mut sim, &rules);
         sim.projectiles.await_anim(late, Some(ball));
-        sim.scalar_delete_building_anim(unused_ball);
+        sim.scalar_delete_anim(unused_ball);
         let middle = if spacer {
             Some(
                 sim.spawn_object_at_height("COW", "Americans", 30, 30, 0, 0, &rules)
@@ -1333,7 +1334,7 @@ fn nuke_awaited_anim_reference_restore_validates_without_wait_flag() {
     sim.admit_projectile(id, spawn);
     assert!(!sim.projectiles.get(id).unwrap().awaiting_anim());
     sim.projectiles.await_anim(id, Some(9999));
-    let before = bincode::serialize(&sim.projectiles).unwrap();
+    let before = save_codec::serialize(&sim.projectiles).unwrap();
     assert_eq!(
         sim.restore_after_snapshot_load(),
         Err(
@@ -1347,7 +1348,7 @@ fn nuke_awaited_anim_reference_restore_validates_without_wait_flag() {
         )
     );
     assert_eq!(
-        bincode::serialize(&sim.projectiles).unwrap(),
+        save_codec::serialize(&sim.projectiles).unwrap(),
         before,
         "invalid restore leaves Bullet state atomic"
     );

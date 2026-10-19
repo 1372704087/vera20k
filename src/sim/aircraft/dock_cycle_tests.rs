@@ -52,8 +52,7 @@ fn run_cycle(sim: &mut Simulation, rules: &RuleSet, orca: u64, airfield: u64) ->
         seen.linked |= linked;
         seen.landed_linked |= linked && height == 0;
         let full = entity
-            .aircraft_ammo
-            .as_ref()
+            .ammo()
             .is_some_and(|ammo| ammo.current() == ammo.max());
         seen.reloaded |= seen.landed_linked && full;
         if seen.reloaded
@@ -94,11 +93,7 @@ fn spent_orca(rules: &RuleSet, human: bool) -> (Simulation, u64, u64) {
     };
     assert_eq!(mission(&sim, orca), Some(pick));
     let entity = sim.substrate.entities.get_mut(orca).unwrap();
-    entity
-        .aircraft_ammo
-        .as_mut()
-        .unwrap()
-        .set_current_for_test(0);
+    entity.ammo_mut().unwrap().set_current_for_test(0);
     (sim, orca, airfield)
 }
 
@@ -147,6 +142,262 @@ fn a_guarding_aircraft_with_a_target_leaves_its_pad_to_attack() {
         }
     }
     assert!(relaunched, "a guarding aircraft holding a Target attacks");
+}
+
+/// Building4422F9 saves all four contacts before Destroy/Stun clears the
+/// live radio links. Its NowDead4425B6 continuation must still enter every
+/// aircraft's receiver, including the normal death effects and UnInit.
+#[test]
+fn an_airfield_killing_hit_destroys_all_four_docked_aircraft() {
+    use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags};
+    use crate::sim::world::FrameEffects;
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "{RULES}\n[CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n\
+         [Super]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    )))
+    .unwrap();
+    let (mut sim, first, airfield) = spent_orca(&rules, true);
+    let mut aircraft = vec![first];
+    for x in 25..28 {
+        let id = sim
+            .spawn_object("ORCA", "Americans", x, 12, 0, &rules)
+            .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .ammo_mut()
+            .unwrap()
+            .set_current_for_test(0);
+        aircraft.push(id);
+    }
+    let docked = |sim: &Simulation, id| {
+        let e = sim.substrate.entities.get(id).unwrap();
+        e.radio_contacts.contains(airfield)
+            && sim
+                .substrate
+                .entities
+                .get(airfield)
+                .unwrap()
+                .radio_contacts
+                .contains(id)
+            && air_movement::current_fly_height(e, sim.resolved_terrain.as_ref()) == 0
+            && mission(sim, id) == Some(MissionType::Guard)
+            && e.ammo().unwrap().current() == e.ammo().unwrap().max()
+            && !air_movement::tests::fly_moving(e)
+    };
+    for _ in 0..4000 {
+        sim.advance_tick(&[], Some(&rules), None, None, 33);
+        if aircraft.iter().all(|&id| docked(&sim, id)) {
+            break;
+        }
+    }
+    assert!(
+        aircraft.iter().all(|&id| docked(&sim, id)),
+        "all four pads are occupied"
+    );
+    // A plane flying nearby without a radio link is not a hosted contact.
+    let airborne = sim
+        .spawn_object_at_height("ORCA", "Americans", 18, 18, 0, 0, &rules)
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(airborne)
+        .unwrap()
+        .position
+        .put_z(800);
+    assert!(
+        !sim.substrate
+            .entities
+            .get(airfield)
+            .unwrap()
+            .radio_contacts
+            .contains(airborne)
+    );
+    let c4 = sim.interner.intern("Super");
+    sim.commit_direct_damage_receiver(
+        &rules,
+        None,
+        EntityDamageEvent::direct_receiver(
+            airfield,
+            1000,
+            0,
+            RAD_NO_ATTACKER,
+            None,
+            c4,
+            ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: true,
+            },
+        ),
+        FrameEffects::default(),
+    );
+    for id in aircraft {
+        assert!(
+            sim.substrate.entities.get(id).is_none_or(|e| !e.is_alive()),
+            "docked aircraft {id} must die in the building's killing hit",
+        );
+    }
+    assert!(sim.substrate.entities.get(airborne).unwrap().is_alive());
+}
+
+/// The native Helipad gate does not test aircraft height. An already-linked
+/// incoming plane takes its ordinary receiver and Crash, whose deferred death
+/// outputs must reach the outer transaction as well.
+#[test]
+fn a_linked_airborne_aircraft_crashes_in_the_airfields_damage_transaction() {
+    use crate::sim::combat::{
+        EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags, world_receiver,
+    };
+    use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
+    use crate::sim::world::FrameEffects;
+
+    // A custom C4 reference also guards against hard-coding retail Super.
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "{RULES}\n[CombatDamage]\nC4Warhead=DockC4\n[Warheads]\n0=DockC4\n\
+         [DockC4]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    )))
+    .unwrap();
+    let (mut sim, plane, airfield) = spent_orca(&rules, true);
+    sim.substrate
+        .entities
+        .get_mut(plane)
+        .unwrap()
+        .position
+        .put_z(800);
+    assert_eq!(
+        radio::transmit(
+            &mut sim,
+            plane,
+            airfield,
+            RadioMessage::Hello,
+            RadioPayload::default(),
+            Some(&rules),
+            FrameEffects::default(),
+        ),
+        RadioResponse::Roger
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(airfield)
+            .unwrap()
+            .radio_contacts
+            .contains(plane)
+    );
+    let c4 = sim.interner.intern("DockC4");
+    let (effects, _) = world_receiver::commit_entities(
+        &mut sim,
+        &mut world_receiver::ReceiverRun::default(),
+        &[EntityDamageEvent::direct_receiver(
+            airfield,
+            1000,
+            0,
+            RAD_NO_ATTACKER,
+            None,
+            c4,
+            ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: true,
+            },
+        )],
+        Some(false),
+        &rules,
+        None,
+    );
+    let plane = sim
+        .substrate
+        .entities
+        .get(plane)
+        .expect("crashing plane remains represented");
+    assert_eq!(plane.health.current(), 0);
+    assert!(plane.crash.is_crashing());
+    assert!(effects.despawned_ids.contains(&plane.stable_id()));
+    assert_eq!(
+        effects.unit_lost_events.len(),
+        1,
+        "outer receiver retains the aircraft's announcement"
+    );
+}
+
+#[test]
+fn a_non_helipad_kills_near_contacts_and_releases_distant_contacts() {
+    use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags};
+    use crate::sim::components::DriveCoord;
+    use crate::sim::movement::ground_pose;
+    use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
+    use crate::sim::world::FrameEffects;
+
+    let mut ini = IniFile::from_str(RULES);
+    ini.merge(&IniFile::from_str(
+        "[GAAIRC]\nHelipad=no\n[CombatDamage]\nC4Warhead=Super\n[Warheads]\n0=Super\n\
+         [Super]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    ));
+    let rules = RuleSet::from_ini(&ini).unwrap();
+    for (delta, killed) in [
+        ([255, 0, 0], true),
+        ([256, 0, 0], false),
+        ([0, 0, 256], false),
+    ] {
+        let mut sim = Simulation::new();
+        let building = sim
+            .spawn_object("GAAIRC", "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        let unit = sim
+            .spawn_object("VICTIM", "Americans", 18, 10, 0, &rules)
+            .unwrap();
+        let centre =
+            ground_pose::object_get_coords(sim.substrate.entities.get(building).unwrap(), None);
+        sim.substrate
+            .entities
+            .get_mut(unit)
+            .unwrap()
+            .position
+            .put_location(DriveCoord {
+                x: centre.x + delta[0],
+                y: centre.y + delta[1],
+                z: centre.z + delta[2],
+            });
+        assert_eq!(
+            radio::transmit(
+                &mut sim,
+                unit,
+                building,
+                RadioMessage::Hello,
+                RadioPayload::default(),
+                Some(&rules),
+                FrameEffects::default(),
+            ),
+            RadioResponse::Roger
+        );
+        let c4 = sim.interner.intern("Super");
+        sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            EntityDamageEvent::direct_receiver(
+                building,
+                1000,
+                0,
+                RAD_NO_ATTACKER,
+                None,
+                c4,
+                ReceiverCallFlags {
+                    ignore_defenses: true,
+                    arg6: true,
+                },
+            ),
+            FrameEffects::default(),
+        );
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(unit)
+                .is_none_or(|e| !e.is_alive()),
+            killed,
+            "delta {delta:?}"
+        );
+    }
 }
 
 /// TechnoClass::AI_Update's passive block (`0x006FA65A..0x006FA6EE`) runs
@@ -200,84 +451,26 @@ fn a_guarding_aircraft_scans_passively_unless_its_type_may_not_and_takes_nothing
 /// The loop on a retail map through the production loader and the player's
 /// order path: two Harriers of a human house, beside its Airforce Command
 /// (`GAAIRC`, four docks), strike an enemy Rhino, fly home, land on the pads
-/// their radio contacts name, reload and guard there.
+/// their radio contacts name, reload and guard there, then die when the
+/// airfield takes a killing hit.
 #[test]
 #[ignore = "physical retail map, rules and art (RA2_DIR)"]
 fn retail_harriers_strike_return_reload_and_guard_at_their_airfield() {
     use crate::sim::command::{Command, CommandEnvelope};
-    use crate::sim::house_state::HouseState;
-    use crate::sim::runtime::SimRuntime;
     let retail = std::path::PathBuf::from(std::env::var_os("RA2_DIR").expect("RA2_DIR"));
-    let mut scenario =
-        crate::headless_scenario::load(&retail, "Death.mmx", 0x5EED_0001).expect("retail map");
-    let SimRuntime {
-        simulation: sim,
-        resources,
-    } = &mut scenario.runtime;
-    let rules = &resources.rules;
-    // Both houses human, so no house AI moves the Rhino.
-    let mut owners = Vec::new();
-    for (index, name) in ["Player", "Enemy"].into_iter().enumerate() {
-        let id = sim.interner.intern(name);
-        let mut house = HouseState::new(id, index as u8, None, true, 0, 10);
-        house.multiplay_passive = true;
-        sim.houses.insert(id, house);
-        sim.session.house_order.push(id);
-        owners.push(id);
-    }
-    let mut cells: Vec<(u16, u16)> = sim
-        .resolved_terrain
-        .iter()
-        .flat_map(|terrain| terrain.iter().map(|cell| (cell.rx, cell.ry)))
-        .collect();
-    let (sum_x, sum_y) = cells.iter().fold((0_i64, 0_i64), |(x, y), &(rx, ry)| {
-        (x + i64::from(rx), y + i64::from(ry))
-    });
-    let centre = (sum_x / cells.len() as i64, sum_y / cells.len() as i64);
-    let reach = |(rx, ry): (u16, u16)| {
-        (i64::from(rx) - centre.0).pow(2) + (i64::from(ry) - centre.1).pow(2)
-    };
-    cells.sort_by_key(|&cell| (reach(cell), cell));
-    // Each object takes the cell nearest the map centre at least `cells_out`
-    // cells out that admits it; the airfield a site its owner could build on
-    // (`BuildingTypeClass::CanPlaceAt @ 0x00464AC0`).
-    let airfield_type = rules.object("GAAIRC").expect("GAAIRC");
-    let mut spawn = |name: &str, owner: usize, cells_out: i64| {
-        let house = sim.interner.resolve(owners[owner]).to_owned();
-        for &(rx, ry) in cells
-            .iter()
-            .filter(|&&cell| reach(cell) >= cells_out * cells_out)
-        {
-            let site = (rx as i16, ry as i16);
-            if name == "GAAIRC"
-                && !crate::sim::build_site::can_place_building_at(
-                    sim,
-                    rules,
-                    None,
-                    airfield_type,
-                    site,
-                    Some(owners[owner]),
-                    None,
-                )
-            {
-                continue;
-            }
-            if let Some(id) = sim.spawn_object(name, &house, rx, ry, 0, rules) {
-                return id;
-            }
-        }
-        panic!("no room for {name}")
-    };
-    let airfield = spawn("GAAIRC", 0, 0);
-    let harriers = [spawn("ORCA", 0, 4), spawn("ORCA", 0, 5)];
-    let rhino = spawn("HTNK", 1, 18);
-    sim.resolve_type_handles(rules);
-    let tick = sim.session.tick + 1;
+    let crate::sim::arena_fixture::RetailHarrierDockScene {
+        mut runtime,
+        player,
+        airfield,
+        harriers,
+        target: rhino,
+    } = crate::sim::arena_fixture::retail_harrier_dock_scene(&retail).expect("retail scene");
+    let tick = runtime.simulation.session.tick + 1;
     let orders: Vec<CommandEnvelope> = harriers
         .iter()
         .map(|&attacker_id| {
             CommandEnvelope::new(
-                owners[0],
+                player,
                 tick,
                 Command::Attack {
                     attacker_id,
@@ -286,7 +479,6 @@ fn retail_harriers_strike_return_reload_and_guard_at_their_airfield() {
             )
         })
         .collect();
-    let runtime = &mut scenario.runtime;
     let mut seen = [(); 2].map(|_| Milestones::default());
     let mut fired = [false; 2];
     for frame in 0..9000 {
@@ -301,7 +493,7 @@ fn retail_harriers_strike_return_reload_and_guard_at_their_airfield() {
                 .entities
                 .get(harrier)
                 .expect("Harrier survives");
-            let ammo = entity.aircraft_ammo.as_ref().expect("Harrier ammo");
+            let ammo = entity.ammo().expect("Harrier ammo");
             fired[n] |= ammo.current() < ammo.max();
             let linked = entity.radio_contacts.contains(airfield)
                 && sim
@@ -334,5 +526,52 @@ fn retail_harriers_strike_return_reload_and_guard_at_their_airfield() {
         assert!(seen.landed_linked, "Harrier {n} lands linked: {seen:?}");
         assert!(seen.reloaded, "Harrier {n} reloads: {seen:?}");
         assert!(seen.guarding_frames >= 300, "Harrier {n} guards: {seen:?}");
+    }
+    let rules = &runtime.resources.rules;
+    for name in ["GAAIRC", "AMRADR"] {
+        let object = rules.object(name).expect("retail airfield");
+        assert!(object.helipad, "{name}: the native kill branch is active");
+        eprintln!(
+            "retail {name}: Helipad={}, NumberOfDocks={}",
+            object.helipad, object.number_of_docks
+        );
+    }
+    assert_eq!(rules.object("ORCA").unwrap().strength, 150);
+    assert_eq!(rules.object("BEAG").unwrap().strength, 200);
+    assert_eq!(rules.bridge_warheads.c4_name, "Super");
+    let sim = &mut runtime.simulation;
+    let health = sim
+        .substrate
+        .entities
+        .get(airfield)
+        .unwrap()
+        .health
+        .current();
+    let c4 = sim.interner.intern(&rules.bridge_warheads.c4_name);
+    sim.commit_direct_damage_receiver(
+        rules,
+        Some(&runtime.resources.overlay_registry),
+        crate::sim::combat::EntityDamageEvent::direct_receiver(
+            airfield,
+            health,
+            0,
+            crate::sim::combat::RAD_NO_ATTACKER,
+            None,
+            c4,
+            crate::sim::combat::ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: true,
+            },
+        ),
+        crate::sim::world::FrameEffects::default(),
+    );
+    for harrier in harriers {
+        assert!(
+            sim.substrate
+                .entities
+                .get(harrier)
+                .is_none_or(|e| !e.is_alive()),
+            "retail docked Harrier dies with its airfield"
+        );
     }
 }

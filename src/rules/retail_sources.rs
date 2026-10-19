@@ -9,7 +9,7 @@ use crate::assets::asset_manager::AssetManager;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::process_owner::NativeRulesProcessOwner;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::sound_ini::SoundRegistry;
+use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 use crate::util::sha256::sha256_hex;
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -21,6 +21,7 @@ pub struct IniSourceIdentity {
     pub(crate) source_sha256: String,
 }
 
+#[cfg_attr(any(test, feature = "test-support"), derive(Clone))]
 pub struct SelectedIni {
     pub ini: IniFile,
     pub source: IniSourceIdentity,
@@ -49,10 +50,36 @@ pub fn select_ini(assets: &AssetManager, name: &str) -> Result<SelectedIni, Stri
     })
 }
 
+/// Select the native mode object's INI, if there is a mode object.
+/// Reset668B8E..668BAA gates on that object, then always processes the INI
+/// returned by 5D67B0. A missing file or empty filename therefore still adds
+/// an empty Process pass, including its fixed-ART reads and weapon postpass.
+/// `None` means no selected object, not an unavailable file. Missing sources
+/// have no fabricated archive identity. Present parse failures propagate;
+/// native behavior for malformed data is not established here.
+pub fn select_mode_ini(
+    assets: &AssetManager,
+    selected_name: Option<&str>,
+) -> Result<Option<IniFile>, String> {
+    let Some(name) = selected_name else {
+        return Ok(None);
+    };
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(Some(IniFile::empty()));
+    }
+    if assets.resolve_ref(name).is_none() {
+        log::warn!("Selected mode INI {name} is missing; processing an empty layer");
+        return Ok(Some(IniFile::empty()));
+    }
+    select_ini(assets, name).map(|selected| Some(selected.ini))
+}
+
 /// Transient selected inputs, consumed when the process authority is constructed.
 /// Optional LANGRULE retains the existing production missing/parse-failure
 /// policy. ART is fixed and never enters the scenario layer stack. Audio
 /// definitions are separately selected and injected before Rules construction.
+#[cfg_attr(any(test, feature = "test-support"), derive(Clone))]
 pub struct RetailRulesSources {
     pub rulesmd: SelectedIni,
     pub langrule: Option<SelectedIni>,
@@ -71,14 +98,29 @@ impl RetailRulesSources {
         })
     }
 
-    pub fn into_startup(self, sounds: Arc<SoundRegistry>) -> Result<StartupRulesLoad, String> {
-        let native_owner = NativeRulesProcessOwner::from_cold_start_sources(
+    /// The cold-started native Rules authority alone, without the shell
+    /// compatibility projection [`Self::into_startup`] also derives.
+    pub fn into_owner(
+        self,
+        sounds: Arc<SoundRegistry>,
+        eva: Arc<EvaRegistry>,
+    ) -> Result<NativeRulesProcessOwner, String> {
+        NativeRulesProcessOwner::from_cold_start_sources(
             self.rulesmd.ini,
             self.langrule.map(|source| source.ini),
             self.artmd.ini,
             sounds,
+            eva,
         )
-        .map_err(|error| format!("Native rules cold startup failed: {error}"))?;
+        .map_err(|error| format!("Native rules cold startup failed: {error}"))
+    }
+
+    pub fn into_startup(
+        self,
+        sounds: Arc<SoundRegistry>,
+        eva: Arc<EvaRegistry>,
+    ) -> Result<StartupRulesLoad, String> {
+        let native_owner = self.into_owner(sounds, eva)?;
         let (compatibility_rules, compatibility_projection) =
             match native_owner.startup_compatibility_projection() {
                 Ok(processed) => {
@@ -88,7 +130,7 @@ impl RetailRulesSources {
                         })
                         .ok();
                     if let Some(rules) = compatibility_rules.as_mut() {
-                        native_owner.bind_type_sound_references(rules, &processed);
+                        native_owner.bind_type_audio_references(rules, &processed);
                     }
                     let compatibility_projection =
                         processed.into_projection_discarding_native_receipt();
@@ -131,9 +173,10 @@ impl StartupRulesLoad {
 pub fn load_startup_rules(
     assets: &AssetManager,
     sounds: Arc<SoundRegistry>,
+    eva: Arc<EvaRegistry>,
 ) -> Option<StartupRulesLoad> {
     RetailRulesSources::select(assets)
-        .and_then(|sources| sources.into_startup(sounds))
+        .and_then(|sources| sources.into_startup(sounds, eva))
         .map_err(|error| log::warn!("{error}"))
         .ok()
 }
@@ -157,7 +200,7 @@ mod tests {
         directory.write("rulesmd.ini", b"[General]\nBuildSpeed=9\n");
         directory.write("artmd.ini", b"[TECH]\nFoundation=8x8\n");
         let (_, _, mut owner) = selected
-            .into_startup(Arc::default())
+            .into_startup(Arc::default(), Default::default())
             .expect("cold startup")
             .into_parts();
         let (rules, projection, art, _) = owner
@@ -193,6 +236,124 @@ mod tests {
     }
 
     #[test]
+    fn optional_mode_ini_missing_file_continues_with_an_empty_layer() {
+        // Reset668BA0..668BAA processes the empty INI returned by 5D67B0.
+        // ReadTypeData679A5D..679A82 must sweep fixed ART before the map
+        // allocates MAP, including an animation first named by AudioVisual.
+        let directory = TestDirectory::new("optional-mode-ini-missing");
+        directory.write(
+            "rulesmd.ini",
+            b"[General]\nBuildSpeed=.7\n[AudioVisual]\nSmoke=LATE\n",
+        );
+        directory.write("artmd.ini", b"[LATE]\nNext=CHILD\n[CHILD]\nRate=1\n");
+        directory.write("MPEmptyMD.ini", b"");
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        assert!(
+            select_ini(&assets, "MPMissingMD.ini").is_err(),
+            "the required-INI selector keeps a missing file fatal (rulesmd policy)"
+        );
+        let load = |name| {
+            let selected = select_mode_ini(&assets, Some(name)).expect("select mode");
+            let (_, _, mut owner) = load_startup_rules(&assets, Arc::default(), Default::default())
+                .expect("startup")
+                .into_parts();
+            let (rules, ini, _, receipt) = owner
+                .load_scenario(
+                    crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(
+                        selected.as_ref(),
+                    ),
+                    &IniFile::from_str("[Animations]\n0=MAP\n[General]\nFlightLevel=1500\n"),
+                )
+                .expect("scenario rebuild with selected mode")
+                .into_parts();
+            assert_eq!(
+                rules.production.build_speed.bits(),
+                f64::from(0.7_f32).to_bits()
+            );
+            assert_eq!(
+                ini.section("General").unwrap().get_for_test("FlightLevel"),
+                Some("1500")
+            );
+            let (pre, post) = receipt.into_parts();
+            (rules.source_ini_hash(), pre.into_parts(), post.into_parts())
+        };
+        let missing = load("MPMissingMD.ini");
+        let empty = load("MPEmptyMD.ini");
+        assert_eq!(
+            missing.2, empty.2,
+            "a missing file must retain the empty Process pass"
+        );
+        assert_eq!(
+            missing.1, empty.1,
+            "the pre-reset constructor prefix stays identical"
+        );
+        assert_eq!(
+            missing.0, empty.0,
+            "selected empty sources have the same rules identity"
+        );
+        assert_eq!(
+            load(""),
+            empty,
+            "an object with an empty filename still processes its INI"
+        );
+    }
+
+    #[test]
+    fn no_selected_mode_object_selects_no_layer() {
+        let directory = TestDirectory::new("no-mode-ini");
+        directory.write("rulesmd.ini", b"[General]\nBuildSpeed=.7\n");
+        directory.write("artmd.ini", b"[TECH]\nFoundation=2x3\n");
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        let selected = select_mode_ini(&assets, None).expect("no selected mode");
+        assert!(selected.is_none());
+    }
+
+    #[test]
+    fn optional_mode_ini_present_file_overlays_rulesmd_under_the_map() {
+        let directory = TestDirectory::new("optional-mode-ini-present");
+        directory.write(
+            "rulesmd.ini",
+            b"[General]\nBuildSpeed=.7\nFlightLevel=1500\n",
+        );
+        directory.write("artmd.ini", b"[TECH]\nFoundation=2x3\n");
+        directory.write("MPBattleMD.ini", b"[General]\nFlightLevel=1200\n");
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        let selected = select_mode_ini(&assets, Some("MPBattleMD.ini"))
+            .expect("present optional INI selects")
+            .expect("a present file yields a layer");
+        assert_eq!(
+            selected
+                .section("General")
+                .unwrap()
+                .get_for_test("FlightLevel"),
+            Some("1200")
+        );
+        let (_, _, mut owner) = load_startup_rules(&assets, Arc::default(), Default::default())
+            .expect("startup")
+            .into_parts();
+        let (_, ini, _, _) = owner
+            .load_scenario(
+                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(
+                    &selected,
+                )),
+                &IniFile::from_str("[General]\nBuildSpeed=1\n"),
+            )
+            .expect("scenario rebuild with the mode layer")
+            .into_parts();
+        let general = ini.section("General").unwrap();
+        assert_eq!(
+            general.get_for_test("FlightLevel"),
+            Some("1200"),
+            "the mode layer beats rulesmd"
+        );
+        assert_eq!(
+            general.get_for_test("BuildSpeed"),
+            Some("1"),
+            "the map layer beats the mode layer"
+        );
+    }
+
+    #[test]
     fn langrule_overlays_standalone_rulesmd_through_retained_owner() {
         // Migrated from the deleted app-local compose_rules_layers regression.
         let owner = NativeRulesProcessOwner::from_cold_start_sources(
@@ -200,6 +361,7 @@ mod tests {
             Some(IniFile::from_str("[General]\nBuildSpeed=.58\n")),
             IniFile::empty(),
             Arc::default(),
+            Default::default(),
         )
         .expect("cold startup");
         let processed = owner
@@ -228,7 +390,7 @@ mod tests {
         directory.write("langrule.ini", b"[AI]\nNeutralTechBuildings=TECH2\n");
         directory.write("artmd.ini", b"[TECH2]\nFoundation=2x3\n");
         let assets = AssetManager::from_loose_root_for_test(directory.path());
-        let (_, _, owner) = load_startup_rules(&assets, Arc::default())
+        let (_, _, owner) = load_startup_rules(&assets, Arc::default(), Default::default())
             .expect("startup")
             .into_parts();
         directory.write("langrule.ini", b"[AI]\nNeutralTechBuildings=WRONG\n");
@@ -236,7 +398,10 @@ mod tests {
         let projected = owner
             .startup_compatibility_projection()
             .expect("read-only startup projection");
-        let types = crate::map::rmg::tech_catalog::resolve(projected.ini(), owner.fixed_art());
+        let types = crate::map::rmg::tech_catalog::resolve(
+            projected.neutral_tech_buildings(),
+            owner.fixed_art(),
+        );
         assert_eq!(types.len(), 1);
         assert_eq!(types[0].name, "TECH2");
         assert_eq!(

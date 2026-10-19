@@ -10,7 +10,6 @@
 use super::{PlacementEvidence, Simulation, entry_test_fixture};
 use crate::map::entities::parse_map_entities;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
@@ -37,11 +36,8 @@ use serde_json::{Value, json};
 
 const NATIVE_SHA256: &str = "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c";
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/anytown_damage/unit_unlimbo.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/anytown_damage/unit_unlimbo.json");
     assert_eq!(corpus["schema_version"], 1);
     assert_eq!(corpus["native_sha256"], NATIVE_SHA256);
     assert_eq!(corpus["direct_rows"].as_array().unwrap().len(), 9);
@@ -94,9 +90,6 @@ fn retail_world(rules: &RuleSet, terrain_rules: &TerrainRules) -> Simulation {
             (0..128).map(move |rx| {
                 let mut cell = super::lifecycle_tests::common_raw_terrain_cell(rx, ry, 4, false);
                 cell.land_type = 1;
-                cell.yr_cell_land_type = 1;
-                cell.terrain_class = road.terrain_class;
-                cell.base_terrain_class = road.terrain_class;
                 cell.speed_costs = road.speed_costs;
                 cell.base_speed_costs = road.speed_costs;
                 cell.final_tile_index = 294;
@@ -916,7 +909,7 @@ fn retail_reused_unit_unlimbo_matches_original_stage_and_rng_tail() {
             if large { "true" } else { "no" },
         )));
         let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&variant_ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
         assert_eq!(flags(&rules), json!([u8::from(small), u8::from(large)]));
         let mut sim = retail_world(&base_rules, &terrain_rules);
         let id = sim
@@ -1074,8 +1067,14 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
                 fixture_ini.merge(&IniFile::from_str(&format!("[GAWEAP]\nExitCoord={raw}\n")));
             }
         }
-        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
-        rules.install_art_data(ArtRegistry::from_ini(&art));
+        // Uncontrolled rows read the stock rules other tests share.
+        let rules = if control.is_some() {
+            let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&fixture_ini, &art).unwrap();
+            rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(&art));
+            rules
+        } else {
+            crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art().unwrap()
+        };
         let registry = OverlayTypeRegistry::from_ini(&fixture_ini, Some(&art));
         let terrain_rules = TerrainRules::from_ini(&fixture_ini);
         let mut sim = retail_world(&rules, &terrain_rules);
@@ -1186,10 +1185,7 @@ fn retail_land_factory_delivery_matches_original_unit_unlimbo_suffix() {
             target.level = native["level"].as_u64().unwrap() as u8;
             target.slope_type = native["slope"].as_u64().unwrap() as u8;
             target.land_type = land;
-            target.yr_cell_land_type = land;
             target.zone_type = native["zone_type"].as_u64().unwrap() as u8;
-            target.terrain_class = semantics.terrain_class;
-            target.base_terrain_class = semantics.terrain_class;
             target.speed_costs = semantics.speed_costs;
             target.base_speed_costs = semantics.speed_costs;
             target.final_tile_index = int(&native["tile"]);

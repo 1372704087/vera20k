@@ -189,8 +189,8 @@ pub(crate) fn push(host: &mut impl KamikazeHost, child: u64, target_xy: Option<[
         Some([x, y]) => (lepton_to_cell_packed(x), lepton_to_cell_packed(y)),
         None => {
             let [x, y] = host.location_xy(child);
-            let direction = ((u32::from(host.facing(child)) >> 12) + 1) >> 1;
-            let (dx, dy) = crate::util::direction_tables::CELL_DELTAS[(direction & 7) as usize];
+            let direction = crate::util::direction_tables::dir_from_facing16(host.facing(child));
+            let (dx, dy) = crate::util::direction::cell_delta_unchecked(direction);
             // Adjacent_Cell adds the step to the occupied cell's 16-bit coordinate.
             (
                 lepton_to_cell_packed(x).wrapping_add(dx as i16),
@@ -274,7 +274,7 @@ impl KamikazeHost for WorldHost<'_> {
             .substrate
             .entities
             .get_mut(child)
-            .and_then(|entity| entity.aircraft_ammo.as_mut())
+            .and_then(|entity| entity.ammo_mut())
         {
             ammo.load_single_round();
         }
@@ -323,12 +323,8 @@ impl Simulation {
                 .resolved_terrain
                 .as_ref()
                 .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-            crate::sim::movement::ground_pose::target_get_coords(
-                target,
-                &self.substrate.entities,
-                cells.as_ref(),
-            )
-            .map(|coord| [coord.x, coord.y])
+            crate::sim::movement::ground_pose::target_get_coords(target, self, cells.as_ref())
+                .map(|coord| [coord.x, coord.y])
         });
         push(
             &mut WorldHost {

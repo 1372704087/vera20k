@@ -5,7 +5,7 @@
  * `TelemetrySnapshot` JSON at ~10 Hz and renders:
  *  - a 3D battlefield overview (three.js InstancedMesh),
  *  - a streaming tick-cost chart (canvas),
- *  - the former egui debug panels (hotkeys, terrain, event history),
+ *  - read-only terrain, selected paths and miner state,
  *  - per-house population and roster panels.
  *
  * Schema mirror of `src/sim/telemetry.rs`; keep both in step.
@@ -24,11 +24,9 @@ import {
   DebugPanel,
   EntityDesc,
   FrameProfileReport,
-  CheatReport,
   HousePopulation,
   LogBatch,
   LogRecord,
-  OverlayFlags,
   ProcessStats,
   RenderTimingReport,
   SCHEMA_VERSION,
@@ -41,129 +39,14 @@ import {
 /** Chart window: the ring keeps the last N samples. */
 const CHART_WINDOW = 240;
 
-/** The three walls the header tabs pick between. */
+/** The four views the header tabs pick between. */
 type AppView = "wall" | "detail" | "report" | "logs";
 
 let map3d: Map3D | null = null;
 /** Latest snapshot, kept so a language switch can re-render every panel. */
 let lastSnapshot: TelemetrySnapshot | null = null;
-/** The live socket; switches send their commands back through it. */
+/** The authenticated read-only telemetry socket. */
 let socket: WebSocket | null = null;
-
-// ---------------------------------------------------------------- switches
-
-type DebugSwitchName =
-  | "terrain_costs"
-  | "heightmap"
-  | "cell_grid"
-  | "unit_inspector"
-  | "debug_pause";
-
-/** One toggle chip: the engine switch it drives, its label, its state flag. */
-const TOGGLE_SWITCHES: {
-  name: DebugSwitchName;
-  key: string;
-  flag: keyof OverlayFlags;
-}[] = [
-  { name: "terrain_costs", key: "sw.terrainCosts", flag: "terrain_costs" },
-  { name: "heightmap", key: "sw.heightmap", flag: "heightmap" },
-  { name: "cell_grid", key: "sw.cellGrid", flag: "cell_grid" },
-  { name: "unit_inspector", key: "sw.inspector", flag: "unit_inspector" },
-  { name: "debug_pause", key: "sw.pause", flag: "paused" },
-];
-
-let switchesBuilt = false;
-
-/** Ask the engine to act on one switch (fire-and-forget JSON frame). */
-function sendCommand(command: Record<string, unknown>): void {
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(command));
-  }
-}
-
-function buildSwitches(): void {
-  const container = document.getElementById("switches");
-  if (!container) return;
-  container.textContent = "";
-
-  const toggles = document.createElement("div");
-  toggles.className = "switches";
-  for (const spec of TOGGLE_SWITCHES) {
-    const button = document.createElement("button");
-    button.className = "switch";
-    button.dataset.switch = spec.name;
-    button.addEventListener("click", () =>
-      sendCommand({ cmd: "toggle", switch: spec.name }),
-    );
-    toggles.append(button);
-  }
-
-  const steps = document.createElement("div");
-  steps.className = "switches";
-  const previous = document.createElement("button");
-  previous.className = "switch step";
-  previous.id = "speed-prev";
-  previous.textContent = "\u2039";
-  previous.addEventListener("click", () =>
-    sendCommand({ cmd: "cycle_speed_type", forward: false }),
-  );
-  const speedValue = document.createElement("span");
-  speedValue.className = "switch-value";
-  speedValue.id = "speed-value";
-  const next = document.createElement("button");
-  next.className = "switch step";
-  next.id = "speed-next";
-  next.textContent = "\u203a";
-  next.addEventListener("click", () =>
-    sendCommand({ cmd: "cycle_speed_type", forward: true }),
-  );
-  const frameStep = document.createElement("button");
-  frameStep.className = "switch";
-  frameStep.id = "frame-step";
-  frameStep.addEventListener("click", () => sendCommand({ cmd: "frame_step" }));
-  const hint = document.createElement("span");
-  hint.className = "switch-value";
-  hint.id = "switch-state";
-
-  steps.append(previous, speedValue, next, frameStep, hint);
-  container.append(toggles, steps);
-  switchesBuilt = true;
-}
-
-/** Reflect the engine's real switch state (hotkeys move it too). */
-function renderSwitches(debug: DebugPanel | null): void {
-  if (!switchesBuilt) buildSwitches();
-  const container = document.getElementById("switches");
-  if (!container) return;
-  const overlays = debug?.overlays ?? null;
-
-  for (const spec of TOGGLE_SWITCHES) {
-    const button = container.querySelector<HTMLButtonElement>(
-      `[data-switch="${spec.name}"]`,
-    );
-    if (!button) continue;
-    button.textContent = t(spec.key);
-    button.classList.toggle("on", overlays ? overlays[spec.flag] : false);
-    button.disabled = overlays === null;
-  }
-
-  const previous = document.getElementById("speed-prev") as HTMLButtonElement | null;
-  const next = document.getElementById("speed-next") as HTMLButtonElement | null;
-  const speedValue = document.getElementById("speed-value");
-  const frameStep = document.getElementById("frame-step") as HTMLButtonElement | null;
-  const hint = document.getElementById("switch-state");
-  // The SpeedType notch only drives the terrain-cost wash while it is on —
-  // the same guard the `[` `]` hotkeys use.
-  const speedEnabled = overlays?.terrain_costs ?? false;
-  if (previous) previous.disabled = !speedEnabled;
-  if (next) next.disabled = !speedEnabled;
-  if (speedValue) speedValue.textContent = debug ? debug.active_speed_type : "-";
-  if (frameStep) {
-    frameStep.textContent = t("sw.frameStep");
-    frameStep.disabled = !(overlays?.paused ?? false);
-  }
-  if (hint) hint.textContent = overlays ? "" : t("sw.noMatch");
-}
 
 // ---------------------------------------------------------------- map
 
@@ -222,8 +105,8 @@ function drawChart(timing: TimingSample | null): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
-  const budget = timing?.budget_ms ?? 16.67;
-  const peak = Math.max(budget * 1.4, ...chartSamples.map((s) => s.p99), 1);
+  const budget = timing?.budget_ms ?? null;
+  const peak = Math.max((budget ?? 0) * 1.4, ...chartSamples.map((s) => s.p99), 1);
   const y = (ms: number) => height - 4 - (ms / peak) * (height - 10);
 
   // Palette matches the tech-wall chrome: cyan traces, amber budget.
@@ -237,20 +120,22 @@ function drawChart(timing: TimingSample | null): void {
     ctx.stroke();
   }
 
-  ctx.save();
-  ctx.strokeStyle = "#ffb648";
-  ctx.shadowColor = "rgba(255, 182, 72, 0.8)";
-  ctx.shadowBlur = 6;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(0, y(budget));
-  ctx.lineTo(width, y(budget));
-  ctx.stroke();
-  ctx.restore();
-  ctx.setLineDash([]);
-  ctx.fillStyle = "#ffb648";
-  ctx.font = "10px monospace";
-  ctx.fillText(t("chart.budget", { ms: budget.toFixed(1) }), 6, y(budget) - 3);
+  if (budget !== null) {
+    ctx.save();
+    ctx.strokeStyle = "#ffb648";
+    ctx.shadowColor = "rgba(255, 182, 72, 0.8)";
+    ctx.shadowBlur = 6;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, y(budget));
+    ctx.lineTo(width, y(budget));
+    ctx.stroke();
+    ctx.restore();
+    ctx.setLineDash([]);
+    ctx.fillStyle = "#ffb648";
+    ctx.font = "10px monospace";
+    ctx.fillText(t("chart.budget", { ms: budget.toFixed(1) }), 6, y(budget) - 3);
+  }
 
   if (chartSamples.length > 1) {
     const step = width / (CHART_WINDOW - 1);
@@ -338,11 +223,14 @@ function updateCost(snapshot: TelemetrySnapshot): void {
   document.getElementById("p50")!.textContent = timing ? fmt(timing.p50_ms) : "-";
   document.getElementById("p99")!.textContent = timing ? fmt(timing.p99_ms) : "-";
   const budgetCell = document.getElementById("budget")!;
-  if (timing) {
+  if (timing && timing.budget_utilization !== null) {
     budgetCell.textContent = `${Math.round(timing.budget_utilization * 100)}`;
     budgetCell.className = `value ${budgetClass(timing.budget_utilization)}`;
+    budgetCell.title = "";
   } else {
-    budgetCell.textContent = "-";
+    budgetCell.textContent = "—";
+    budgetCell.className = "value";
+    budgetCell.title = timing ? t("cost.unbounded") : "";
   }
   // Two different clocks: presentation frames vs committed sim ticks. While
   // paused the tick rate is a true 0, not missing data — the hyphen is
@@ -355,7 +243,7 @@ function updateCost(snapshot: TelemetrySnapshot): void {
     : "-";
 }
 
-/** The egui Terrain Debug panel's content, from the snapshot's debug block. */
+/** Terrain inspection data from the snapshot's debug block. */
 function updateTerrain(debug: DebugPanel | null): void {
   const panel = document.getElementById("terrain")!;
   panel.textContent = "";
@@ -367,7 +255,7 @@ function updateTerrain(debug: DebugPanel | null): void {
   }
   panel.append(
     kv(t("terr.grid"), debug.grid ? `${debug.grid[0]}x${debug.grid[1]}` : t("terr.none")),
-    kv(t("terr.overlay"), `${debug.active_speed_type}  ${t("terr.cycleHint")}`),
+    kv(t("terr.overlay"), debug.active_speed_type),
     kv(
       t("terr.vxl"),
       debug.vxl_sprites === null ? "-" : `${debug.vxl_sprites}`,
@@ -484,6 +372,41 @@ function selectedRows(selected: SelectedDebug): HTMLDivElement[] {
   return rows;
 }
 
+/** Rule and telemetry strings are text even when they contain markup. */
+function renderStatGrid(container: HTMLElement, cells: [string, string][]): void {
+  const rows = cells.map(([key, value]) => {
+    const row = document.createElement("div");
+    const label = document.createElement("span");
+    label.className = "k";
+    label.textContent = key;
+    const text = document.createElement("b");
+    text.textContent = value;
+    row.append(label, text);
+    return row;
+  });
+  container.replaceChildren(...rows);
+}
+
+function renderHouseTags(container: HTMLElement, house: HousePopulation): void {
+  const tags: HTMLElement[] = [];
+  const tag = (className: string, label: string): void => {
+    const node = document.createElement("span");
+    node.className = `tag ${className}`;
+    node.textContent = label;
+    tags.push(node);
+  };
+  if (house.is_human) tag("human", t("tag.human"));
+  else {
+    const difficulty = ["easy", "normal", "hard"].includes(house.difficulty)
+      ? house.difficulty
+      : "normal";
+    tag(`ai ${difficulty}`, t(`diff.${difficulty}`));
+  }
+  if (isPassiveHouse(house)) tag("passive", t("dp.passive"));
+  if (house.defeated) tag("dead", t("dp.defeated"));
+  container.replaceChildren(...tags);
+}
+
 /** A house's side, from the loaded rules' own `[Sides]` key.
  *
  * The numeric index is only a position in that section (retail order is not
@@ -508,42 +431,6 @@ function sideName(house: HousePopulation): string {
   const key = known[raw.toLowerCase()];
   if (key) return t(key);
   return raw || t("side.unknown", { n: house.side_index });
-}
-
-/** The egui Event History panel: the selected entities' event logs. */
-function updateEvents(debug: DebugPanel | null): void {
-  const panel = document.getElementById("events")!;
-  panel.textContent = "";
-  if (!debug || debug.selected.length === 0) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = t("ev.pick");
-    panel.append(empty);
-    return;
-  }
-  for (const selected of debug.selected) {
-    const header = document.createElement("div");
-    header.className = "sub";
-    header.textContent = `${selected.type_name} (id=${selected.stable_id})`;
-    panel.append(header);
-    if (!selected.inspector_active) {
-      panel.append(kv("", t("ev.noInspector"), "dim"));
-      continue;
-    }
-    if (selected.events.length === 0) {
-      panel.append(kv("", t("ev.noneRecorded"), "dim"));
-      continue;
-    }
-    const list = document.createElement("div");
-    list.className = "event-list";
-    for (const event of selected.events) {
-      const line = document.createElement("div");
-      line.className = "event";
-      line.textContent = event.text;
-      list.append(line);
-    }
-    panel.append(list);
-  }
 }
 
 function updatePopulation(snapshot: TelemetrySnapshot): void {
@@ -592,21 +479,19 @@ function updatePopulation(snapshot: TelemetrySnapshot): void {
   }
 }
 
-/** The running frame split, as the two pies of the end-of-match report:
- *  the whole frame and the simulation alone. One accumulator feeds both, so
- *  the wall and the archived report can never disagree. */
+/** A measured phase within one sample population: simulation ticks or renders.
+ *  The two populations have independent clocks, totals and sample counts. */
 interface Slice {
   key: string;
   ms: number;
   color: string;
 }
 
-const FRAME_COLORS: Record<string, string> = {
+const PHASE_COLORS: Record<string, string> = {
   objects: "#2f6fb0",
   tail: "#d94f5c",
   vision: "#4fb8a8",
   logic: "#3f9f5f",
-  render: "#e08b2a",
   unmarked: "#9a9a9a",
 };
 
@@ -697,9 +582,8 @@ function drawPie(
     angle += sweep;
   }
   if (drew) {
-    // The hole answers the question this panel exists for — what dominates the
-    // frame. Milliseconds and the per-phase split are already in the caption and
-    // the legend, so only the share goes here.
+    // The dominant share stays within this pie's sample population. Simulation
+    // tick costs and measured render costs are never added or divided together.
     const head = document.createElementNS("http://www.w3.org/2000/svg", "text");
     head.setAttribute("x", String(center));
     head.setAttribute("y", String(center));
@@ -731,40 +615,42 @@ function drawPie(
   }
 }
 
-/**
- * Slice set for one frame split: the simulation phases on their own, and the
- * whole frame with the presentation cost (whatever the wall spent outside the
- * simulation) in front of them. Both the main wall and the report wall draw
- * from this, so the two cannot drift apart.
- */
-function buildFrameSlices(
-  profile: FrameProfileReport,
-  frameMs: number,
-): { sim: Slice[]; frame: Slice[]; simTotal: number; frameTotal: number } {
-  const renderMs = Math.max(0, frameMs - profile.mean_frame_ms);
-  const sim: Slice[] = [
-    { key: "rep.objects", ms: profile.objects_ms, color: FRAME_COLORS.objects },
-    { key: "rep.tail", ms: profile.tail_ms, color: FRAME_COLORS.tail },
-    { key: "rep.vision", ms: profile.vision_ms, color: FRAME_COLORS.vision },
-    { key: "rep.logic", ms: profile.logic_ms, color: FRAME_COLORS.logic },
-  ];
-  if (profile.unmarked_ms > 0.01) {
-    sim.push({
-      key: "rep.unmarked",
-      ms: profile.unmarked_ms,
-      color: FRAME_COLORS.unmarked,
-    });
+/** Build each distribution from its own measured population. Render spans do
+ *  not include a guessed remainder from FPS, and never share a denominator with
+ *  simulation ticks. These distributions also feed both export formats. */
+function buildTimingSlices(
+  profile: FrameProfileReport | null,
+  render: RenderTimingReport | null,
+): { sim: Slice[]; render: Slice[]; simTotal: number; renderTotal: number } {
+  const sim: Slice[] = profile && profile.frames > 0 ? [
+    { key: "rep.objects", ms: profile.objects_ms, color: PHASE_COLORS.objects },
+    { key: "rep.tail", ms: profile.tail_ms, color: PHASE_COLORS.tail },
+    { key: "rep.vision", ms: profile.vision_ms, color: PHASE_COLORS.vision },
+    { key: "rep.logic", ms: profile.logic_ms, color: PHASE_COLORS.logic },
+  ] : [];
+  if (profile && profile.frames > 0 && profile.unmarked_ms > 0) {
+    sim.push({ key: "rep.unmarked", ms: profile.unmarked_ms, color: PHASE_COLORS.unmarked });
   }
-  const frame: Slice[] = [
-    { key: "rep.render", ms: renderMs, color: FRAME_COLORS.render },
-    ...sim,
-  ];
+  const rendered: Slice[] = render && render.frames > 0 ? [
+    { key: "rnd.world", ms: render.world_ms, color: "#e08b2a" },
+    { key: "rnd.debug", ms: render.debug_ms, color: "#a884ff" },
+    { key: "rnd.shroud", ms: render.shroud_ms, color: "#4fb8a8" },
+    { key: "rnd.ui", ms: render.ui_ms, color: "#2f6fb0" },
+    { key: "rnd.sidebar", ms: render.sidebar_ms, color: "#3f9f5f" },
+    { key: "rnd.upload", ms: render.upload_ms, color: "#d94f5c" },
+    { key: "rnd.other", ms: render.other_ms, color: "#9a9a9a" },
+  ] : [];
   return {
     sim,
-    frame,
+    render: rendered,
     simTotal: sim.reduce((sum, slice) => sum + slice.ms, 0),
-    frameTotal: frame.reduce((sum, slice) => sum + slice.ms, 0),
+    renderTotal: rendered.reduce((sum, slice) => sum + slice.ms, 0),
   };
+}
+
+/** A zero-duration measurement is valid; no samples is unknown. */
+function measuredCost(total: number, samples: number): string {
+  return samples > 0 ? `${fmt(total, 2)} ms` : "—";
 }
 
 /** Per-subsystem ledger keys, in the engine's `PHASE_KEYS` order (schema v13).
@@ -808,149 +694,64 @@ function fmtPhase(ms: number): string {
   return fmt(ms, 2);
 }
 
-/** The slice of the render wedge `render_game` does not own: surface
- *  acquisition, encoder creation, submit, present and the loop around them.
- *  Always emitted, so the render group keeps a fixed row count. */
-function outsideRow(ms: number, frameTotal: number): string {
-  const percent = ms > 0.01 ? `${fmt((ms / Math.max(frameTotal, 0.0001)) * 100, 1)}%` : "—";
-  return (
-    `<tr><td class="ph-name">${t("rnd.outside")}</td>` +
-    `<td class="ph-bar"></td>` +
-    `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
-    `<td class="ph-pct">—</td>` +
-    `<td class="ph-pct">${percent}</td></tr>`
-  );
-}
-
-/**
- * The full frame ledger: every stamped subsystem, heaviest first.
- *
- * `simTotal` / `frameTotal` come from `buildFrameSlices`, so the percentages
- * here are the pies' own denominators — the table can explain a wedge but can
- * never contradict it.
- */
+/** Independent simulation and measured-render ledgers. Percentages are only
+ *  within their own group; no whole-frame total or inferred idle cost exists. */
 function renderPhaseTable(
   table: HTMLElement | null,
-  profile: FrameProfileReport,
+  profile: FrameProfileReport | null,
   render: RenderTimingReport | null,
-  simTotal: number,
-  frameTotal: number,
 ): void {
   if (!table) return;
-  // Rebuilding the table must not move the reader's scroll position.
   const scroller = table.closest(".table-wrap") as HTMLElement | null;
   const scrollTop = scroller?.scrollTop ?? 0;
-  const values = profile.phases_ms ?? [];
-  // Engine and dashboard disagree on the ledger: say so rather than drawing
-  // rows under the wrong names.
-  if (values.length !== PHASE_KEYS.length) {
-    table.innerHTML =
-      `<tr><td class="ph-empty">phase ledger mismatch: ` +
-      `${values.length} phases on the wire, ${PHASE_KEYS.length} expected</td></tr>`;
-    return;
-  }
-  const rows = PHASE_KEYS.map((key, index) => ({
-    label: t(`phase.${key}`),
-    ms: values[index] ?? 0,
-    order: index,
-  }));
-  // Aborted frames leave a residue the phases never stamped. The row is always
-  // present — letting it appear and vanish resizes the table under the reader —
-  // and reads "—" when there is nothing to report.
-  rows.push({ label: t("rep.unmarked"), ms: profile.unmarked_ms, order: PHASE_KEYS.length });
-  // Heaviest first, but rows below a hundredth of a millisecond are all noise:
-  // keep those in their declared order so they stop trading places on every
-  // refresh, which is what the eye reads as jitter.
-  rows.sort((a, b) => {
-    const quiet = 0.01;
-    if (a.ms < quiet && b.ms < quiet) return a.order - b.order;
-    return b.ms - a.ms;
-  });
-
+  const { render: rendered, simTotal, renderTotal } = buildTimingSlices(profile, render);
   const share = (ms: number, total: number): number =>
     total > 0 ? Math.min(100, (ms / total) * 100) : 0;
-
-  const body = rows
-    .map(({ label, ms }) => {
-      const ofSim = share(ms, simTotal);
-      const ofFrame = share(ms, frameTotal);
-      // The bar measures the phase against its own neighbours (share of the
-      // simulation), not against the frame: a 9 %-of-frame row would draw a bar
-      // too short to compare at a glance.
-      return (
-        `<tr><td class="ph-name">${label}</td>` +
-        `<td class="ph-bar" style="--share:${ofSim.toFixed(2)}%"><span class="ph-fill"></span></td>` +
-        `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
-        `<td class="ph-pct">${ms > 0 ? `${fmt(ofSim, 1)}%` : "—"}</td>` +
-        `<td class="ph-pct">${ms > 0 ? `${fmt(ofFrame, 1)}%` : "—"}</td></tr>`
-      );
-    })
-    .join("");
-
-  // The render's own phases, under a group header. Their share of the
-  // simulation would be meaningless, so that column reads "—" here.
-  const renderMs = Math.max(0, frameTotal - simTotal);
-  const renderTotal = render
-    ? render.world_ms + render.debug_ms + render.shroud_ms + render.ui_ms +
-      render.sidebar_ms + render.upload_ms + render.other_ms
-    : 0;
-  const renderRows = render
-    ? [
-        { label: t("rnd.world"), ms: render.world_ms },
-        { label: t("rnd.debug"), ms: render.debug_ms },
-        { label: t("rnd.shroud"), ms: render.shroud_ms },
-        { label: t("rnd.ui"), ms: render.ui_ms },
-        { label: t("rnd.sidebar"), ms: render.sidebar_ms },
-        { label: t("rnd.upload"), ms: render.upload_ms },
-        { label: t("rnd.other"), ms: render.other_ms },
-      ].sort((a, b) => b.ms - a.ms)
-    : [];
-  const renderBody =
-    renderRows.length === 0
-      ? ""
-      : `<tbody><tr class="ph-group"><td colspan="5">${t("rnd.group")}</td></tr>` +
-        renderRows
-          .map(
-            ({ label, ms }) =>
-              `<tr><td class="ph-name" title="${label}">${label}</td>` +
-              `<td class="ph-bar" style="--share:${share(ms, renderTotal).toFixed(2)}%">` +
-              `<span class="ph-fill"></span></td>` +
-              `<td class="ph-ms"><b>${fmtPhase(ms)}</b></td>` +
-              `<td class="ph-pct">—</td>` +
-              `<td class="ph-pct">${ms > 0 ? `${fmt(share(ms, frameTotal), 1)}%` : "—"}</td></tr>`,
-          )
-          .join("") +
-        // `render_game` is not the whole render wedge: surface acquisition, the
-        // command encoder, submit, present and the rest of the loop sit outside
-        // it. Showing the difference keeps this group summing to the footer.
-        outsideRow(renderMs - renderTotal, frameTotal) +
-        `</tbody>`;
-
-  // Close the ledger with the frame's own account: simulation, the render /
-  // submit remainder, and the frame those two add up to. The footer prints the
-  // same totals the pies do, so a reader can arrive from either direction.
-  const foot =
-    `<tfoot>` +
-    `<tr><td class="ph-name">${t("rep.phaseTotal")}</td>` +
-    `<td class="ph-bar"></td>` +
-    `<td class="ph-ms"><b>${fmtPhase(simTotal)}</b></td>` +
-    `<td class="ph-pct">100%</td>` +
-    `<td class="ph-pct">${fmt(share(simTotal, frameTotal), 1)}%</td></tr>` +
-    `<tr><td class="ph-name">${t("rep.render")}</td>` +
-    `<td class="ph-bar"></td>` +
-    `<td class="ph-ms"><b>${fmtPhase(renderMs)}</b></td>` +
-    `<td class="ph-pct">—</td>` +
-    `<td class="ph-pct">${fmt(share(renderMs, frameTotal), 1)}%</td></tr>` +
-    `<tr><td class="ph-name">${t("rep.whole")}</td>` +
-    `<td class="ph-bar"></td>` +
-    `<td class="ph-ms"><b>${fmtPhase(frameTotal)}</b></td>` +
-    `<td class="ph-pct">—</td><td class="ph-pct">100%</td></tr>` +
-    `</tfoot>`;
-
-  table.innerHTML =
+  const rowsFor = (
+    rows: { label: string; ms: number }[], total: number, kind: "sim" | "render",
+  ): string => rows.map(({ label, ms }) => {
+    const percent = share(ms, total);
+    const text = ms > 0 && total > 0 ? `${fmt(percent, 1)}%` : "—";
+    return `<tr><td class="ph-name">${escapeHtml(label)}</td>` +
+      `<td class="ph-bar" style="--share:${percent.toFixed(2)}%"><span class="ph-fill"></span></td>` +
+      `<td class="ph-ms"><b>${escapeHtml(fmtPhase(ms))}</b></td>` +
+      `<td class="ph-pct">${kind === "sim" ? text : "—"}</td>` +
+      `<td class="ph-pct">${kind === "render" ? text : "—"}</td></tr>`;
+  }).join("");
+  const totalRow = (label: string, total: number, kind: "sim" | "render"): string =>
+    `<tr class="ph-total"><td class="ph-name">${escapeHtml(label)}</td><td class="ph-bar"></td>` +
+    `<td class="ph-ms"><b>${escapeHtml(fmtPhase(total))}</b></td>` +
+    `<td class="ph-pct">${kind === "sim" && total > 0 ? "100%" : "—"}</td>` +
+    `<td class="ph-pct">${kind === "render" && total > 0 ? "100%" : "—"}</td></tr>`;
+  let body = "";
+  if (profile && profile.frames > 0) {
+    body += `<tbody><tr class="ph-group"><td colspan="5">${escapeHtml(t("rep.simTick"))}` +
+      ` · ${thousands(profile.frames)} ${escapeHtml(t("rep.frames"))}</td></tr>`;
+    const values = profile.phases_ms;
+    if (values.length === PHASE_KEYS.length) {
+      const rows = PHASE_KEYS.map((key, index) => ({
+        label: t(`phase.${key}`), ms: values[index] ?? 0, order: index,
+      }));
+      rows.push({ label: t("rep.unmarked"), ms: profile.unmarked_ms, order: PHASE_KEYS.length });
+      rows.sort((a, b) => a.ms < 0.01 && b.ms < 0.01 ? a.order - b.order : b.ms - a.ms);
+      body += rowsFor(rows, simTotal, "sim");
+      body += totalRow(t("rep.phaseTotal"), simTotal, "sim");
+    } else {
+      body += `<tr><td colspan="5">phase ledger mismatch: ${values.length} phases on the wire, ` +
+        `${PHASE_KEYS.length} expected</td></tr>`;
+    }
+    body += "</tbody>";
+  }
+  if (render && render.frames > 0) {
+    body += `<tbody><tr class="ph-group"><td colspan="5">${escapeHtml(t("rep.renderSample"))}` +
+      ` · ${thousands(render.frames)} ${escapeHtml(t("rep.renders"))}</td></tr>`;
+    body += rowsFor(rendered.map((slice) => ({ label: t(slice.key), ms: slice.ms }))
+      .sort((a, b) => b.ms - a.ms), renderTotal, "render");
+    body += totalRow(t("rep.renderSample"), renderTotal, "render") + "</tbody>";
+  }
+  table.innerHTML = body ?
     `<thead><tr><th>${t("th.phase")}</th><th class="ph-bar-col"></th><th>${t("th.ms")}</th>` +
-    `<th>${t("th.shareSim")}</th><th>${t("th.shareFrame")}</th></tr></thead>` +
-    `<tbody>${body}</tbody>${renderBody}${foot}`;
+    `<th>${t("th.shareSim")}</th><th>${t("th.shareRender")}</th></tr></thead>${body}` : "";
   if (scroller) scroller.scrollTop = scrollTop;
 }
 
@@ -1008,7 +809,7 @@ interface LedgerRow {
   name: string;
   ms: string;
   sim: string;
-  frame: string;
+  render: string;
   bar: number;
   group: boolean;
   foot: boolean;
@@ -1020,6 +821,7 @@ function readLedgerRows(): LedgerRow[] {
   const table = document.getElementById("report-phases");
   const rows: LedgerRow[] = [];
   if (!table) return rows;
+  renderPhaseTable(table, lastSnapshot?.profile ?? null, lastSnapshot?.render ?? null);
   table.querySelectorAll("tr").forEach((tr) => {
     if (tr.closest("thead")) return;
     const cells = tr.querySelectorAll("td");
@@ -1031,10 +833,10 @@ function readLedgerRows(): LedgerRow[] {
       name: (cells[0]?.textContent ?? "").trim(),
       ms: (cells[1 + offset]?.textContent ?? "").trim(),
       sim: (cells[2 + offset]?.textContent ?? "").trim(),
-      frame: (cells[3 + offset]?.textContent ?? "").trim(),
+      render: (cells[3 + offset]?.textContent ?? "").trim(),
       bar: Number.isFinite(bar) ? bar : 0,
       group: tr.classList.contains("ph-group"),
-      foot: tr.closest("tfoot") !== null,
+      foot: tr.classList.contains("ph-total"),
     });
   });
   return rows;
@@ -1051,7 +853,7 @@ function buildPhaseLedgerCanvas(): HTMLCanvasElement | null {
   const barW = 240;
   const msRight = 650;
   const simRight = 780;
-  const frameRight = width - pad;
+  const renderRight = width - pad;
   const titleH = 54;
   const headH = 24;
   const rowH = 23;
@@ -1105,7 +907,7 @@ function buildPhaseLedgerCanvas(): HTMLCanvasElement | null {
   ctx.textAlign = "right";
   ctx.fillText(t("th.ms").toUpperCase(), msRight, y + headH / 2);
   ctx.fillText(t("th.shareSim").toUpperCase(), simRight, y + headH / 2);
-  ctx.fillText(t("th.shareFrame").toUpperCase(), frameRight, y + headH / 2);
+  ctx.fillText(t("th.shareRender").toUpperCase(), renderRight, y + headH / 2);
   y += headH;
   rule(y, soften(pal.accent, 0.34));
 
@@ -1151,7 +953,7 @@ function buildPhaseLedgerCanvas(): HTMLCanvasElement | null {
     ctx.fillText(row.ms, msRight, mid);
     ctx.fillStyle = pal.dim;
     ctx.fillText(row.sim, simRight, mid);
-    ctx.fillText(row.frame, frameRight, mid);
+    ctx.fillText(row.render, renderRight, mid);
 
     rule(y + h, soften(pal.accent, row.foot ? 0.28 : 0.09));
     y += h;
@@ -1173,6 +975,16 @@ function buildPhaseLedgerCanvas(): HTMLCanvasElement | null {
  *  the user is looking at. */
 let shotBlob: Blob | null = null;
 let shotUrl: string | null = null;
+let shotTick = 0;
+
+function fitCanvasText(ctx: CanvasRenderingContext2D, text: string, width: number): string {
+  if (ctx.measureText(text).width <= width) return text;
+  const characters = Array.from(text);
+  while (characters.length && ctx.measureText(characters.join("") + "…").width > width) {
+    characters.pop();
+  }
+  return characters.join("") + "…";
+}
 
 /** Build the ledger and show it in the preview dialog. Nothing is downloaded
  *  until the user asks — the table is taller than its panel, so seeing the
@@ -1185,6 +997,11 @@ function pieWedge(cx: number, cy: number, r: number, start: number, sweep: numbe
   };
   const [x0, y0] = at(start);
   const [x1, y1] = at(start + sweep);
+  if (sweep >= 360) {
+    const [oppositeX, oppositeY] = at(start + 180);
+    return `M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 0 1 ${oppositeX} ${oppositeY}` +
+      ` A ${r} ${r} 0 0 1 ${x0} ${y0} Z`;
+  }
   return (
     `M ${cx} ${cy} L ${x0.toFixed(2)} ${y0.toFixed(2)} ` +
     `A ${r} ${r} 0 ${sweep > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)} Z`
@@ -1206,17 +1023,17 @@ const REPORT_RULE = "#e2e8f0";
 function buildReportCanvas(): HTMLCanvasElement | null {
   const snapshot = lastSnapshot;
   const profile = snapshot?.profile ?? null;
-  if (!snapshot || !profile || profile.frames === 0) return null;
+  const render = snapshot?.render ?? null;
+  if (!snapshot || !(profile?.frames || render?.frames)) return null;
 
-  const frameMs = snapshot.timing ? 1000 / Math.max(1, snapshot.timing.fps) : 0;
-  const { sim: simSlices, frame: frameSlices, simTotal, frameTotal } =
-    buildFrameSlices(profile, frameMs);
+  const { sim: simSlices, render: renderSlices, simTotal, renderTotal } =
+    buildTimingSlices(profile, render);
   const ledger = readLedgerRows();
   const parties = snapshot.houses.filter((house) => !house.passive);
 
   const width = 1000;
   const pad = 34;
-  const headerH = 118;
+  const headerH = 142;
   const pieH = 280;
   const tableHeadH = 28;
   const rowH = 23;
@@ -1256,21 +1073,21 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   ctx.fillStyle = REPORT_DIM;
   ctx.font = `12.5px ${EXPORT_FONT}`;
   const tickHz = snapshot.timing?.tick_hz ?? 0;
-  const duration = tickHz > 0 ? snapshot.tick / tickHz : 0;
   ctx.fillText(
-    `tick ${thousands(snapshot.tick)} · ${t("rep.duration")} ${fmt(duration, 0)} s · ` +
+    `tick ${thousands(snapshot.tick)} · ` +
       `${t("rep.fps")} ${fmt(snapshot.timing?.fps ?? 0, 0)} fps · ${fmt(tickHz, 1)} tick/s · ` +
       `${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}`,
     pad,
     68,
   );
   ctx.fillText(
-    `${t("rep.frame")} ${fmt(frameTotal, 2)} ms · ${t("rep.sim")} ${fmt(profile.mean_frame_ms, 2)} ms ` +
-      `(${fmt(frameTotal > 0 ? (profile.mean_frame_ms / frameTotal) * 100 : 0, 0)}%) · ` +
-      `${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms`,
+    `${t("rep.sim")} ${measuredCost(profile?.mean_frame_ms ?? 0, profile?.frames ?? 0)} · ` +
+      `${t("rep.peak")} ${measuredCost(profile?.peak_frame_ms ?? 0, profile?.frames ?? 0)}`,
     pad,
     88,
   );
+  ctx.font = `10px ${EXPORT_FONT}`;
+  ctx.fillText(t("rep.note"), pad, 110, width - pad * 2);
   rule(headerH - 14);
 
   // ------------------------------------------------------------------ pies
@@ -1281,11 +1098,15 @@ function buildReportCanvas(): HTMLCanvasElement | null {
     slices: Slice[],
     total: number,
     caption: string,
+    samples: number,
+    countLabel: string,
   ): void => {
     ctx.textAlign = "left";
     ctx.fillStyle = REPORT_DIM;
     ctx.font = `600 12px ${EXPORT_FONT}`;
-    ctx.fillText(`${caption}  ${fmt(total, 2)} ms`, cx - radius, cy - radius - 24);
+    ctx.fillText(`${caption}  ${measuredCost(total, samples)}`, cx - radius, cy - radius - 24);
+    ctx.font = `10.5px ${EXPORT_FONT}`;
+    ctx.fillText(`${thousands(samples)} ${countLabel}`, cx - radius, cy - radius - 8);
 
     let angle = -90;
     for (const slice of slices) {
@@ -1332,8 +1153,10 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   };
 
   const pieTop = headerH + 46;
-  paintPie(pad + radius + 4, pieTop + radius, frameSlices, frameTotal, t("rep.whole"));
-  paintPie(width / 2 + radius + 40, pieTop + radius, simSlices, simTotal, t("rep.simOnly"));
+  paintPie(pad + radius + 4, pieTop + radius, renderSlices, renderTotal,
+    t("rep.renderSample"), render?.frames ?? 0, t("rep.renders"));
+  paintPie(width / 2 + radius + 40, pieTop + radius, simSlices, simTotal,
+    t("rep.simTick"), profile?.frames ?? 0, t("rep.frames"));
 
   // ---------------------------------------------------------------- ledger
   let y = headerH + pieH;
@@ -1347,7 +1170,7 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   const barW = 250;
   const msRight = 690;
   const simRight = 820;
-  const frameRight = width - pad;
+  const renderRight = width - pad;
 
   ctx.fillStyle = "#6b7b8d";
   ctx.font = `600 10.5px ${EXPORT_FONT}`;
@@ -1356,7 +1179,7 @@ function buildReportCanvas(): HTMLCanvasElement | null {
   ctx.textAlign = "right";
   ctx.fillText(t("th.ms").toUpperCase(), msRight, y + 10);
   ctx.fillText(t("th.shareSim"), simRight, y + 10);
-  ctx.fillText(t("th.shareFrame"), frameRight, y + 10);
+  ctx.fillText(t("th.shareRender"), renderRight, y + 10);
   y += tableHeadH;
   rule(y, "#cbd5e1");
 
@@ -1385,7 +1208,7 @@ function buildReportCanvas(): HTMLCanvasElement | null {
     ctx.fillText(row.ms, msRight, mid);
     ctx.fillStyle = REPORT_DIM;
     ctx.fillText(row.sim, simRight, mid);
-    ctx.fillText(row.frame, frameRight, mid);
+    ctx.fillText(row.render, renderRight, mid);
     rule(y + h, row.foot ? "#cbd5e1" : "#edf1f6");
     y += h;
   }
@@ -1405,7 +1228,7 @@ function buildReportCanvas(): HTMLCanvasElement | null {
     ctx.textAlign = "right";
     ctx.fillText(t("rep.buildings"), 640, y);
     ctx.fillText(t("rep.credits"), 800, y);
-    ctx.fillText(t("rep.score"), frameRight, y);
+    ctx.fillText(t("rep.score"), renderRight, y);
     y += 16;
     rule(y, "#cbd5e1");
     y += 8;
@@ -1413,13 +1236,13 @@ function buildReportCanvas(): HTMLCanvasElement | null {
       ctx.textAlign = "left";
       ctx.fillStyle = "#2f3f52";
       ctx.font = `11.5px ${EXPORT_FONT}`;
-      ctx.fillText(house.name, nameX, y + 8);
+      ctx.fillText(fitCanvasText(ctx, house.name, 306 - nameX), nameX, y + 8);
       ctx.fillText(house.is_human ? t("tag.human") : t("tag.ai"), 330, y + 8);
       ctx.textAlign = "right";
       ctx.fillText(fmt(house.counts.structure, 0), 640, y + 8);
       ctx.fillStyle = REPORT_DIM;
       ctx.fillText(fmt(house.credits, 0), 800, y + 8);
-      ctx.fillText(fmt(house.score, 0), frameRight, y + 8);
+      ctx.fillText(fmt(house.score, 0), renderRight, y + 8);
       y += 26;
     }
   }
@@ -1444,17 +1267,16 @@ function buildReportCanvas(): HTMLCanvasElement | null {
 function buildReportHtml(): string | null {
   const snapshot = lastSnapshot;
   const profile = snapshot?.profile ?? null;
-  if (!snapshot || !profile || profile.frames === 0) return null;
+  const render = snapshot?.render ?? null;
+  if (!snapshot || !(profile?.frames || render?.frames)) return null;
 
-  const frameMs = snapshot.timing ? 1000 / Math.max(1, snapshot.timing.fps) : 0;
-  const { sim: simSlices, frame: frameSlices, simTotal, frameTotal } =
-    buildFrameSlices(profile, frameMs);
+  const { sim: simSlices, render: renderSlices, simTotal, renderTotal } =
+    buildTimingSlices(profile, render);
   const ledger = readLedgerRows();
   const parties = snapshot.houses.filter((house) => !house.passive);
   const tickHz = snapshot.timing?.tick_hz ?? 0;
-  const duration = tickHz > 0 ? snapshot.tick / tickHz : 0;
 
-  const pie = (slices: Slice[], total: number, caption: string): string => {
+  const pie = (slices: Slice[], total: number, caption: string, samples: number, countLabel: string): string => {
     const radius = 88;
     const size = 180;
     let angle = -90;
@@ -1477,7 +1299,8 @@ function buildReportHtml(): string | null {
       )
       .join("");
     return (
-      `<figure class="pie"><figcaption>${escapeHtml(caption)} <b>${fmt(total, 2)} ms</b></figcaption>` +
+      `<figure class="pie"><figcaption>${escapeHtml(caption)} <b>${measuredCost(total, samples)}</b>` +
+      ` · ${thousands(samples)} ${escapeHtml(countLabel)}</figcaption>` +
       `<div class="body"><svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">${wedges}</svg>` +
       `<ul>${legend}</ul></div></figure>`
     );
@@ -1486,10 +1309,10 @@ function buildReportHtml(): string | null {
   const rows = ledger
     .map((row) =>
       row.group
-        ? `<tr class="group"><td colspan="5">${escapeHtml(row.name)}</td></tr>`
+        ? `<tr class="group"><td colspan="4">${escapeHtml(row.name)}</td></tr>`
         : `<tr class="${row.foot ? "foot" : ""}"><td>${escapeHtml(row.name)}</td>` +
-          `<td class="n">${row.ms}</td><td class="n">${row.sim}</td>` +
-          `<td class="n">${row.frame}</td></tr>`,
+          `<td class="n">${escapeHtml(row.ms)}</td><td class="n">${escapeHtml(row.sim)}</td>` +
+          `<td class="n">${escapeHtml(row.render)}</td></tr>`,
     )
     .join("");
 
@@ -1504,9 +1327,8 @@ function buildReportHtml(): string | null {
     )
     .join("");
 
-  const share = frameTotal > 0 ? (profile.mean_frame_ms / frameTotal) * 100 : 0;
   return `<!doctype html>
-<html lang="${document.documentElement.lang || "en"}">
+<html lang="${escapeHtml(document.documentElement.lang || "en")}">
 <head><meta charset="utf-8"><title>${escapeHtml(t("rep.title"))} · tick ${thousands(snapshot.tick)}</title>
 <style>
 *{box-sizing:border-box;margin:0}
@@ -1527,23 +1349,28 @@ table{border-collapse:collapse;font-variant-numeric:tabular-nums;width:100%}
 th,td{text-align:left;padding:4px 22px 4px 0;border-bottom:1px solid #e8edf3;font-size:13px}
 th{color:#6b7b8d;font-weight:600;font-size:12px}
 th.n,td.n{text-align:right;padding-right:0}
+.houses{table-layout:fixed}
+.houses th:first-child{width:40%}
+.houses td:first-child{overflow-wrap:anywhere}
 tr.group td{color:#4a5b6e;font-weight:600;padding-top:14px}
 tr.foot td{font-weight:600;color:#1d2733;border-bottom:none}
 .note{margin-top:22px;color:#7b8b9d;font-size:12px}
 </style></head>
 <body>
 <h1>${escapeHtml(t("rep.title"))}</h1>
-<div class="sub">tick ${thousands(snapshot.tick)} · ${t("rep.duration")} ${fmt(duration, 0)} s · ${t("rep.fps")} ${fmt(snapshot.timing?.fps ?? 0, 0)} fps · ${fmt(tickHz, 1)} tick/s · ${t("hdr.map")} ${snapshot.map_width}x${snapshot.map_height}<br>
-${t("rep.frame")} ${fmt(frameTotal, 2)} ms · ${t("rep.sim")} ${fmt(profile.mean_frame_ms, 2)} ms（${fmt(share, 0)}%） · ${t("rep.peak")} ${fmt(profile.peak_frame_ms, 2)} ms</div>
-<div class="pies">${pie(frameSlices, frameTotal, t("rep.whole"))}${pie(simSlices, simTotal, t("rep.simOnly"))}</div>
+<div class="sub">tick ${thousands(snapshot.tick)} · ${t("rep.fps")} ${fmt(snapshot.timing?.fps ?? 0, 0)} fps · ${fmt(tickHz, 1)} tick/s · ${t("hdr.map")} ${fmt(snapshot.map_width, 0)}x${fmt(snapshot.map_height, 0)}<br>
+${t("rep.sim")} ${measuredCost(profile?.mean_frame_ms ?? 0, profile?.frames ?? 0)} · ${t("rep.peak")} ${measuredCost(profile?.peak_frame_ms ?? 0, profile?.frames ?? 0)}</div>
+<p class="note">${escapeHtml(t("rep.note"))}</p>
+<div class="pies">${pie(renderSlices, renderTotal, t("rep.renderSample"), render?.frames ?? 0, t("rep.renders"))}${pie(simSlices, simTotal, t("rep.simTick"), profile?.frames ?? 0, t("rep.frames"))}</div>
 <h2>${escapeHtml(t("rep.phases"))}</h2>
-<table><thead><tr><th>${escapeHtml(t("th.phase"))}</th><th class="n">${escapeHtml(t("th.ms").toUpperCase())}</th><th class="n">${escapeHtml(t("th.shareSim"))}</th><th class="n">${escapeHtml(t("th.shareFrame"))}</th></tr></thead><tbody>${rows}</tbody></table>
-${parties.length > 0 ? `<h2>${escapeHtml(t("rep.houses"))}</h2><table><thead><tr><th>${escapeHtml(t("th.house"))}</th><th>${escapeHtml(t("rep.kind"))}</th><th class="n">${escapeHtml(t("rep.buildings"))}</th><th class="n">${escapeHtml(t("rep.credits"))}</th><th class="n">${escapeHtml(t("rep.score"))}</th></tr></thead><tbody>${partyRows}</tbody></table>` : ""}
+<table><thead><tr><th>${escapeHtml(t("th.phase"))}</th><th class="n">${escapeHtml(t("th.ms").toUpperCase())}</th><th class="n">${escapeHtml(t("th.shareSim"))}</th><th class="n">${escapeHtml(t("th.shareRender"))}</th></tr></thead><tbody>${rows}</tbody></table>
+${parties.length > 0 ? `<h2>${escapeHtml(t("rep.houses"))}</h2><table class="houses"><thead><tr><th>${escapeHtml(t("th.house"))}</th><th>${escapeHtml(t("rep.kind"))}</th><th class="n">${escapeHtml(t("rep.buildings"))}</th><th class="n">${escapeHtml(t("rep.credits"))}</th><th class="n">${escapeHtml(t("rep.score"))}</th></tr></thead><tbody>${partyRows}</tbody></table>` : ""}
 <p class="note">VERA20k · schema v${SCHEMA_VERSION} · ${new Date().toLocaleString()}</p>
 </body></html>`;
 }
 
 function openShotPreview(kind: "ledger" | "report" = "ledger"): void {
+  const tick = lastSnapshot?.tick ?? 0;
   const canvas = kind === "report" ? buildReportCanvas() : buildPhaseLedgerCanvas();
   if (!canvas) return;
   // The report can also be saved as HTML; the ledger snapshot cannot.
@@ -1552,6 +1379,7 @@ function openShotPreview(kind: "ledger" | "report" = "ledger"): void {
     if (!blob) return;
     if (shotUrl) URL.revokeObjectURL(shotUrl);
     shotBlob = blob;
+    shotTick = tick;
     shotUrl = URL.createObjectURL(blob);
     const image = document.getElementById("shot-img") as HTMLImageElement | null;
     if (image) image.src = shotUrl;
@@ -1601,7 +1429,7 @@ function saveShot(): void {
   if (!shotUrl) return;
   const link = document.createElement("a");
   link.href = shotUrl;
-  link.download = `phase-ledger-tick${lastSnapshot?.tick ?? 0}.png`;
+  link.download = `phase-ledger-tick${shotTick}.png`;
   link.click();
 }
 
@@ -1612,7 +1440,7 @@ function saveReportHtml(): void {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = `vera20k-report-tick${lastSnapshot?.tick ?? 0}.html`;
+  link.download = `vera20k-report-tick${shotTick}.html`;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -1622,41 +1450,24 @@ let shotHtml: string | null = null;
 
 function updateFrameProfile(
   profile: FrameProfileReport | null,
-  frameMs: number,
+  render: RenderTimingReport | null,
 ): void {
   const summary = document.getElementById("frame-summary");
   if (!summary) return;
-  if (!profile || profile.frames === 0) {
-    document.getElementById("pie-frame")!.textContent = "";
-    document.getElementById("pie-sim")!.textContent = "";
-    document.getElementById("pie-frame-legend")!.textContent = "";
-    document.getElementById("pie-sim-legend")!.textContent = "";
-    document.getElementById("pie-frame-total")!.textContent = "-";
-    document.getElementById("pie-sim-total")!.textContent = "-";
-    summary.innerHTML = `<div class='row'><span>${t("rep.waiting")}</span></div>`;
-    return;
-  }
-  const { sim: simSlices, frame: frameSlices, simTotal, frameTotal } =
-    buildFrameSlices(profile, frameMs);
-  drawPie("pie-frame", "pie-frame-legend", frameSlices, frameTotal);
-  drawPie("pie-sim", "pie-sim-legend", simSlices, simTotal);
-  document.getElementById("pie-frame-total")!.textContent = `${fmt(frameTotal, 1)} ms`;
-  document.getElementById("pie-sim-total")!.textContent = `${fmt(simTotal, 1)} ms`;
-
-  const share = frameTotal > 0 ? (simTotal / frameTotal) * 100 : 0;
-  const rows: [string, string, boolean][] = [
-    [t("rep.frame"), `${fmt(frameMs, 2)} ms`, false],
-    [t("rep.sim"), `${fmt(profile.mean_frame_ms, 2)} ms`, false],
-    [t("rep.objects"), `${fmt(profile.objects_ms, 2)} ms`, false],
-    [t("rep.peak"), `${fmt(profile.peak_frame_ms, 2)} ms`, false],
-    [t("rep.frames"), fmt(profile.frames, 0), false],
-    [t("rep.share"), `${fmt(share, 0)}%`, false],
+  const { sim, render: rendered, simTotal, renderTotal } = buildTimingSlices(profile, render);
+  drawPie("pie-frame", "pie-frame-legend", rendered, renderTotal);
+  drawPie("pie-sim", "pie-sim-legend", sim, simTotal);
+  document.getElementById("pie-frame-total")!.textContent = measuredCost(renderTotal, render?.frames ?? 0);
+  document.getElementById("pie-sim-total")!.textContent = measuredCost(simTotal, profile?.frames ?? 0);
+  const rows: [string, string][] = [
+    [t("rep.sim"), measuredCost(profile?.mean_frame_ms ?? 0, profile?.frames ?? 0)],
+    [t("rep.peak"), measuredCost(profile?.peak_frame_ms ?? 0, profile?.frames ?? 0)],
+    [t("rep.frames"), thousands(profile?.frames ?? 0)],
+    [t("rep.renderSample"), measuredCost(renderTotal, render?.frames ?? 0)],
+    [t("rep.renders"), thousands(render?.frames ?? 0)],
   ];
   summary.innerHTML = rows
-    .map(
-      ([key, value, hot]) =>
-        `<div class='row${hot ? " hot" : ""}'><span>${key}</span><b>${value}</b></div>`,
-    )
+    .map(([key, value]) => `<div class='row'><span>${key}</span><b>${value}</b></div>`)
     .join("");
 }
 
@@ -1726,7 +1537,7 @@ function updateProcess(process: ProcessStats | null): void {
 }
 
 /** Two panels paginate: the cost column switches between tick cost and host
- *  resources, the frame panel between whole frame and simulation only. Each
+ *  resources, the measured-cost panel between renders and simulation ticks. Each
  *  panel carries its own `data-page`, so switching one never hides the other's
  *  content. A hidden page's canvas has zero size, so returning to the cost
  *  chart redraws it; the pies are inline SVG and need no redraw. */
@@ -1783,7 +1594,7 @@ function houseCss(house: HousePopulation): string {
 
 /** A house that never fights: Neutral / Special (MultiplayPassive in rules). */
 function isPassiveHouse(house: HousePopulation): boolean {
-  return !house.is_human && (house.side_name === "Civilian" || house.side_name === "Mutant");
+  return house.passive;
 }
 
 function detailTotal(counts: HousePopulation["counts"]): number {
@@ -2065,14 +1876,7 @@ function renderDetailCards(snapshot: TelemetrySnapshot): void {
     view.dot.style.background = color;
     view.dot.style.boxShadow = `0 0 8px ${color}`;
 
-    const badges: string[] = [
-      house.is_human
-        ? `<span class="tag human">${t("tag.human")}</span>`
-        : `<span class="tag ai ${house.difficulty}">${t(`diff.${house.difficulty}`)}</span>`,
-    ];
-    if (isPassiveHouse(house)) badges.push(`<span class="tag passive">${t("dp.passive")}</span>`);
-    if (house.defeated) badges.push(`<span class="tag dead">${t("dp.defeated")}</span>`);
-    view.tags.innerHTML = badges.join(" ");
+    renderHouseTags(view.tags, house);
 
     view.credits.textContent = fmt(house.credits, 0);
     view.delta.className = `delta ${delta > 0 ? "up" : delta < 0 ? "down" : ""}`;
@@ -2087,9 +1891,7 @@ function renderDetailCards(snapshot: TelemetrySnapshot): void {
       [t("dp.side"), sideName(house)],
       [t("dp.units"), fmt(detailTotal(house.counts), 0)],
     ];
-    view.stats.innerHTML = cells
-      .map(([key, value]) => `<div><span class="k">${key}</span><b>${value}</b></div>`)
-      .join("");
+    renderStatGrid(view.stats, cells);
 
     const total = Math.max(1, detailTotal(house.counts));
     view.bar.textContent = "";
@@ -2108,15 +1910,17 @@ function renderDetailCards(snapshot: TelemetrySnapshot): void {
       seg.style.background = css;
       view.bar.append(seg);
     }
-    view.compLegend.innerHTML = segments
+    view.compLegend.replaceChildren(...segments
       .filter(([key]) => house.counts[key] > 0)
-      .map(
-        ([key, css]) =>
-          `<span><i style="background:${css}"></i>${t(detailCategoryKey(
-            key === "infantry" ? "Infantry" : key === "unit" ? "Unit" : key === "aircraft" ? "Aircraft" : "Structure",
-          ))} ${house.counts[key]}</span>`,
-      )
-      .join("");
+      .map(([key, css]) => {
+        const legend = document.createElement("span");
+        const dot = document.createElement("i");
+        dot.style.background = css;
+        const category = key === "infantry" ? "Infantry" : key === "unit" ? "Unit"
+          : key === "aircraft" ? "Aircraft" : "Structure";
+        legend.append(dot, document.createTextNode(`${t(detailCategoryKey(category))} ${house.counts[key]}`));
+        return legend;
+      }));
 
     // One line of evidence, not the list itself: the full roster is a click
     // away in the house modal, where the whole list can scroll.
@@ -2207,36 +2011,27 @@ function renderHouseModal(): void {
   const title = document.getElementById("house-modal-title");
   if (title) title.textContent = house.name;
 
-  const badges: string[] = [
-    house.is_human
-      ? `<span class="tag human">${t("tag.human")}</span>`
-      : `<span class="tag ai ${house.difficulty}">${t(`diff.${house.difficulty}`)}</span>`,
-  ];
-  if (isPassiveHouse(house)) badges.push(`<span class="tag passive">${t("dp.passive")}</span>`);
-  if (house.defeated) badges.push(`<span class="tag dead">${t("dp.defeated")}</span>`);
   const tags = document.getElementById("house-modal-tags");
-  if (tags) tags.innerHTML = badges.join(" ");
+  if (tags) renderHouseTags(tags, house);
 
   // The economy strip and the composition bar are the same drawings the card
   // makes, so the modal cannot quote a different number than the card does.
   const stats = document.getElementById("house-modal-stats");
   if (stats) {
     const powerState = house.low_power
-      ? t("cheat.powerLow")
-      : t("cheat.powerOk");
+      ? t("dp.powerLow")
+      : t("dp.powerOk");
     const cells: [string, string][] = [
       [t("dp.credits"), fmt(house.credits, 0)],
       [t("dp.spent"), fmt(house.spent, 0)],
       [t("dp.score"), fmt(house.score, 0)],
-      [t("cheat.power"), `${thousands(house.power_output)} / ${thousands(house.power_drain)}`],
+      [t("dp.power"), `${thousands(house.power_output)} / ${thousands(house.power_drain)}`],
       [t("dp.units"), fmt(detailTotal(house.counts), 0)],
       [t("dp.base"), house.base_center ? `${house.base_center[0]}, ${house.base_center[1]}` : "-"],
       [t("dp.side"), sideName(house)],
       [t("hdr.tick"), thousands(snapshot.tick)],
     ];
-    stats.innerHTML = cells
-      .map(([key, value]) => `<div><span class="k">${key}</span><b>${value}</b></div>`)
-      .join("");
+    renderStatGrid(stats, cells);
     const power = document.getElementById("house-modal-power");
     if (power) power.textContent = powerState;
   }
@@ -2336,10 +2131,17 @@ function renderHouseModal(): void {
           : !squad.formed
             ? t("dp.squadForming")
             : "";
-        head.innerHTML =
-          `<span>${label}</span>` +
-          `<em>${squad.members}</em>` +
-          (flag ? `<i class="squad-flag">${flag}</i>` : "");
+        const name = document.createElement("span");
+        name.textContent = label;
+        const members = document.createElement("em");
+        members.textContent = String(squad.members);
+        head.append(name, members);
+        if (flag) {
+          const status = document.createElement("i");
+          status.className = "squad-flag";
+          status.textContent = flag;
+          head.append(status);
+        }
         squads.append(head);
         for (const entry of squad.composition) {
           const row = document.createElement("li");
@@ -2413,10 +2215,14 @@ function renderHouseModal(): void {
       for (const [category, entries] of groups) {
         const head = document.createElement("li");
         head.className = "roster-group";
-        head.innerHTML =
-          `<i class="cat-dot" style="background:${DETAIL_CATEGORY_COLOR[category] ?? DETAIL_ORPHAN_COLOR}"></i>` +
-          `<span>${t(detailCategoryKey(category))}</span>` +
-          `<em>${entries.reduce((sum, entry) => sum + entry.count, 0)}</em>`;
+        const dot = document.createElement("i");
+        dot.className = "cat-dot";
+        dot.style.background = DETAIL_CATEGORY_COLOR[category] ?? DETAIL_ORPHAN_COLOR;
+        const label = document.createElement("span");
+        label.textContent = t(detailCategoryKey(category));
+        const total = document.createElement("em");
+        total.textContent = String(entries.reduce((sum, entry) => sum + entry.count, 0));
+        head.append(dot, label, total);
         list.append(head);
         for (const entry of entries) {
           const row = document.createElement("li");
@@ -2476,9 +2282,8 @@ function renderDetail(snapshot: TelemetrySnapshot): void {
 }
 
 
-/** Header tabs: show one wall, hide the others. A switch into the detail view
- *  redraws immediately — its canvases were zero-sized while hidden. A switch
- *  into the report re-reads the sidecar, in case a newer match just ended. */
+/** Header tabs: show one view, hide the others. A switch into the detail view
+ *  redraws immediately because its canvases were zero-sized while hidden. */
 function setupViews(): void {
   const show = (view: AppView): void => {
     currentView = view;
@@ -2495,7 +2300,6 @@ function setupViews(): void {
   document.getElementById("view-detail")?.addEventListener("click", () => show("detail"));
   document.getElementById("view-report")?.addEventListener("click", () => show("report"));
   document.getElementById("view-logs")?.addEventListener("click", () => show("logs"));
-  bindCheats();
   document.getElementById("log-pause")?.addEventListener("click", toggleLogPause);
   document.getElementById("log-clear")?.addEventListener("click", clearLogs);
   document.getElementById("log-follow")?.addEventListener("change", (event) => {
@@ -2555,9 +2359,8 @@ function setupViews(): void {
 
 /**
  * The report wall: the match being played right now, not a file the engine
- * freezes at the end. It draws the same split the main wall's frame-occupancy
- * panel draws — built by the same `buildFrameSlices`, so the two can never
- * disagree — at report size, and pairs it with the house table so the numbers
+ * freezes at the end. It draws the same independent measured populations as
+ * the main wall, built by `buildTimingSlices`, and pairs them with the house table so the numbers
  * can be read against who is on the map while they are being measured.
  */
 // ------------------------------------------------------------ log console
@@ -2676,148 +2479,6 @@ function clearLogs(): void {
   rebuildLogView();
 }
 
-// ------------------------------------------------------------ trainer panel
-
-/** The switches the panel owns, in the order the engine names them. */
-const CHEAT_SWITCHES = [
-  "infinite_money",
-  "infinite_power",
-  "instant_build",
-  "build_anywhere",
-  "invincible",
-  "reveal_map",
-  "tech_all",
-  "tech_boost",
-] as const;
-type CheatSwitch = (typeof CHEAT_SWITCHES)[number];
-
-function cheatInput(selector: string): HTMLInputElement | null {
-  return document.querySelector<HTMLInputElement>(selector);
-}
-
-function cheatChecked(name: CheatSwitch): boolean {
-  return cheatInput(`input[data-cheat="${name}"]`)?.checked ?? false;
-}
-
-/**
- * Read the panel. Built from the DOM, not a cached object: the engine echoes
- * its own values back on every snapshot, and a cached copy would send stale
- * numbers the moment one field was clamped on arrival.
- */
-function currentCheatFlags(): Record<string, unknown> {
-  const money = Number(cheatInput("#cheat-money")?.value ?? 0);
-  const damage = Number(cheatInput("#cheat-damage")?.value ?? 1);
-  const flags: Record<string, unknown> = {};
-  for (const name of CHEAT_SWITCHES) flags[name] = cheatChecked(name);
-  flags.money_target = Math.max(0, Math.min(9_999_999, Math.round(money) || 0));
-  flags.damage_scale = Math.max(1, Math.min(65_535, Math.round(damage) || 1));
-  return flags;
-}
-
-function sendCheats(): void {
-  sendCommand({ cmd: "set_cheats", flags: currentCheatFlags() });
-  markCheatChip();
-}
-
-/** Highlight the preset that matches the current multiplier. */
-function markCheatChip(): void {
-  const value = Number(cheatInput("#cheat-damage")?.value ?? 1);
-  document.querySelectorAll<HTMLButtonElement>(".cheat-chip").forEach((chip) => {
-    chip.classList.toggle("on", Number(chip.dataset.scale) === value);
-  });
-}
-
-/** Take the engine's values (authoritative) and show them. */
-function syncCheats(report: CheatReport | null | undefined): void {
-  if (!report) return;
-  for (const name of CHEAT_SWITCHES) {
-    const input = cheatInput(`input[data-cheat="${name}"]`);
-    if (input) input.checked = report[name];
-  }
-  const money = cheatInput("#cheat-money");
-  // A zero floor is the engine's "unset"; keeping the panel's default avoids
-  // showing a field the user never typed into.
-  if (money && document.activeElement !== money && report.money_target > 0) {
-    money.value = String(report.money_target);
-  }
-  const damage = cheatInput("#cheat-damage");
-  if (damage && document.activeElement !== damage) {
-    // The engine stores 0 for "never set"; the panel speaks 1 = off, because
-    // "damage ×0" reads like it disables the weapons.
-    damage.value = String(Math.max(1, report.damage_scale));
-  }
-  const owner = document.getElementById("cheat-owner");
-  if (owner) {
-    if (!report.owner) {
-      owner.textContent = "";
-    } else {
-      // Show the wallet beside the house: the money switch's effect is the
-      // thing a reader checks first, and this saves a trip to the wall.
-      const house = lastSnapshot?.houses.find((row) => row.name === report.owner);
-      const wallet = house ? ` · ${t("cheat.wallet")} ${thousands(house.credits)}` : "";
-      owner.textContent = `${t("cheat.owner")} ${report.owner}${wallet}`;
-    }
-    // The power reading is the only way to tell "the switch is doing its job"
-    // from "the base was already powered and there was nothing to do".
-    const power = document.getElementById("cheat-power");
-    if (power) {
-      const house = lastSnapshot?.houses.find((row) => row.name === report.owner);
-      if (!house) {
-        power.textContent = "";
-      } else {
-        const state = report.power_forced
-          ? t("cheat.powerForced")
-          : house.low_power
-            ? t("cheat.powerLow")
-            : t("cheat.powerOk");
-        power.textContent =
-          `${t("cheat.power")} ${thousands(house.power_output)} / ${thousands(house.power_drain)}` +
-          ` · ${state}`;
-      }
-    }
-    // An empty line above the cards reads as a rendering fault.
-    owner.hidden = !report.owner;
-  }
-  markCheatChip();
-}
-
-function bindCheats(): void {
-  for (const name of CHEAT_SWITCHES) {
-    cheatInput(`input[data-cheat="${name}"]`)?.addEventListener("change", sendCheats);
-  }
-  // `change`, not `input`: a number field fires per keystroke and every send
-  // re-asserts every switch.
-  cheatInput("#cheat-money")?.addEventListener("change", sendCheats);
-  cheatInput("#cheat-damage")?.addEventListener("change", sendCheats);
-
-  document.querySelectorAll<HTMLButtonElement>(".cheat-chip").forEach((chip) => {
-    chip.addEventListener("click", () => {
-      const damage = cheatInput("#cheat-damage");
-      if (damage) damage.value = chip.dataset.scale ?? "1";
-      sendCheats();
-    });
-  });
-
-  const act = (id: string, action: string): void => {
-    document
-      .getElementById(id)
-      ?.addEventListener("click", () => sendCommand({ cmd: "cheat_action", action }));
-  };
-  act("cheat-heal", "heal_all");
-  act("cheat-veteran", "veteran_all");
-  act("cheat-supers", "superweapons_ready");
-
-  document.getElementById("cheat-reset")?.addEventListener("click", () => {
-    for (const name of CHEAT_SWITCHES) {
-      const input = cheatInput(`input[data-cheat="${name}"]`);
-      if (input) input.checked = false;
-    }
-    const damage = cheatInput("#cheat-damage");
-    if (damage) damage.value = "1";
-    sendCheats();
-  });
-}
-
 /** The stream arrives ~11×/s. Rebuilding a forty-row table that often reads as
  *  flicker rather than as live data, so the wall redraws at most four times a
  *  second and coalesces whatever arrived in between. */
@@ -2845,107 +2506,77 @@ function renderReport(): void {
   const table = document.getElementById("report-houses");
   const foot = document.getElementById("report-foot");
   if (!facts || !table || !foot) return;
-
   const snapshot = lastSnapshot;
   const profile = snapshot?.profile ?? null;
+  const render = snapshot?.render ?? null;
   const headLine = document.getElementById("report-head");
   const note = document.getElementById("report-note");
   const housesPanel = table.closest("section");
   const phasesTable = document.getElementById("report-phases");
   const phasesPanel = phasesTable?.closest("section");
-  if (!snapshot || !profile || profile.frames === 0) {
-    drawPie("rep-pie-frame", "rep-frame-legend", [], 0);
-    drawPie("rep-pie-sim", "rep-sim-legend", [], 0);
-    document.getElementById("rep-frame-total")!.textContent = "-";
-    document.getElementById("rep-sim-total")!.textContent = "-";
+  const { sim, render: rendered, simTotal, renderTotal } = buildTimingSlices(profile, render);
+  drawPie("rep-pie-frame", "rep-frame-legend", rendered, renderTotal);
+  drawPie("rep-pie-sim", "rep-sim-legend", sim, simTotal);
+  document.getElementById("rep-frame-total")!.textContent = measuredCost(renderTotal, render?.frames ?? 0);
+  document.getElementById("rep-sim-total")!.textContent = measuredCost(simTotal, profile?.frames ?? 0);
+  const hasSamples = !!(profile?.frames || render?.frames);
+  if (housesPanel) housesPanel.hidden = !snapshot;
+  if (phasesPanel) phasesPanel.hidden = !hasSamples;
+  document.getElementById("report")?.classList.toggle("only-pies", !snapshot);
+  renderPhaseTable(phasesTable, profile, render);
+  if (!snapshot) {
     facts.innerHTML = `<div class='row'><span>${t("rep.waiting")}</span></div>`;
     table.textContent = "";
     foot.textContent = "";
-    if (phasesTable) phasesTable.textContent = "";
     if (headLine) headLine.textContent = "";
     if (note) note.textContent = "";
-    // Nothing to list yet: an empty table panel reads as a fault, so hide it.
-    if (housesPanel) housesPanel.hidden = true;
-    if (phasesPanel) phasesPanel.hidden = true;
-    document.getElementById("report")?.classList.add("only-pies");
     return;
   }
-  if (housesPanel) housesPanel.hidden = false;
-  if (phasesPanel) phasesPanel.hidden = false;
-  document.getElementById("report")?.classList.remove("only-pies");
-
-  const frameMs = snapshot.timing ? 1000 / Math.max(1, snapshot.timing.fps) : 0;
-  const { sim: simSlices, frame: frameSlices, simTotal, frameTotal } =
-    buildFrameSlices(profile, frameMs);
-  drawPie("rep-pie-frame", "rep-frame-legend", frameSlices, frameTotal);
-  drawPie("rep-pie-sim", "rep-sim-legend", simSlices, simTotal);
-  document.getElementById("rep-frame-total")!.textContent = `${fmt(frameTotal, 1)} ms`;
-  document.getElementById("rep-sim-total")!.textContent = `${fmt(simTotal, 1)} ms`;
-
-  const share = frameTotal > 0 ? (simTotal / frameTotal) * 100 : 0;
   const rows: [string, string][] = [
-    [t("hdr.map"), `${snapshot.map_width}x${snapshot.map_height}`],
-    [t("rep.frame"), `${fmt(frameMs, 2)} ms`],
-    [t("rep.tickP50"), `${fmt(snapshot.timing?.p50_ms ?? 0, 2)} ms`],
-    [t("rep.sim"), `${fmt(profile.mean_frame_ms, 2)} ms`],
-    [t("rep.peak"), `${fmt(profile.peak_frame_ms, 2)} ms`],
-    [t("rep.share"), `${fmt(share, 0)} %`],
+    [t("hdr.map"), `${fmt(snapshot.map_width, 0)}x${fmt(snapshot.map_height, 0)}`],
+    [t("rep.tickP50"), snapshot.timing ? `${fmt(snapshot.timing.p50_ms, 2)} ms` : "—"],
+    [t("rep.sim"), measuredCost(profile?.mean_frame_ms ?? 0, profile?.frames ?? 0)],
+    [t("rep.peak"), measuredCost(profile?.peak_frame_ms ?? 0, profile?.frames ?? 0)],
+    [t("rep.frames"), thousands(profile?.frames ?? 0)],
+    [t("rep.renderSample"), measuredCost(renderTotal, render?.frames ?? 0)],
+    [t("rep.renders"), thousands(render?.frames ?? 0)],
   ];
   facts.innerHTML = rows
     .map(([key, value]) => `<div class='row'><span>${key}</span><b>${value}</b></div>`)
     .join("");
-
-  renderPhaseTable(phasesTable, profile, snapshot.render ?? null, simTotal, frameTotal);
-
   const head =
     `<tr><th>${t("th.house")}</th><th>${t("rep.kind")}</th>` +
     `<th>${t("rep.buildings")}</th><th>${t("rep.credits")}</th><th>${t("rep.score")}</th></tr>`;
-  table.innerHTML =
-    head +
-    snapshot.houses
-      // `Neutral` and `Special` hold the map's own scenery and civilians; they
-      // are not playing, so they have no place in the lineup.
-      .filter((house) => !house.passive)
-      .map(
-        (house) =>
-          `<tr><td>${escapeHtml(house.name)}</td>` +
-          `<td>${house.is_human ? t("tag.human") : t("tag.ai")}</td>` +
-          `<td>${fmt(house.counts.structure, 0)}</td>` +
-          `<td>${fmt(house.credits, 0)}</td>` +
-          `<td>${fmt(house.score, 0)}</td></tr>`,
-      )
-      .join("");
-
-  // One line of whole-match facts above the pies: how far the match has run,
-  // how fast ticks are actually committing, and what a frame costs.
-  const tickHz = snapshot.timing?.tick_hz ?? 0;
-  const fps = snapshot.timing?.fps ?? 0;
+  table.innerHTML = head + snapshot.houses
+    .filter((house) => !isPassiveHouse(house))
+    .map((house) => `<tr><td>${escapeHtml(house.name)}</td>` +
+      `<td>${house.is_human ? t("tag.human") : t("tag.ai")}</td>` +
+      `<td>${fmt(house.counts.structure, 0)}</td>` +
+      `<td>${fmt(house.credits, 0)}</td><td>${fmt(house.score, 0)}</td></tr>`)
+    .join("");
   if (headLine) {
-    // Scale and rates only: the cost figures each appear once, in the facts
-    // row under the pies.
     const parts = [
       `tick <b>${thousands(snapshot.tick)}</b>`,
-      `${t("rep.duration")} <b>${tickHz > 0 ? thousands(snapshot.tick / tickHz) : "-"}</b> s`,
-      // Both rates side by side: the render loop's and the committed tick's.
-      `${t("rep.fps")} <b>${fmt(fps, 0)}</b> fps`,
-      `<b>${fmt(tickHz, 1)}</b> tick/s`,
+      `${t("rep.fps")} <b>${fmt(snapshot.timing?.fps ?? 0, 0)}</b> fps`,
+      `<b>${fmt(snapshot.timing?.tick_hz ?? 0, 1)}</b> tick/s`,
     ];
     headLine.innerHTML = parts.join(`<span class="sep">·</span>`);
   }
-  // The render wedge is nothing but that difference; saying so saves the
-  // reader from subtracting two numbers off two different pies.
-  if (note) {
-    const renderMs = Math.max(0, frameMs - profile.mean_frame_ms);
-    note.innerHTML = `${t("rep.note")} ≈ <b>${fmt(renderMs, 1)}</b> ms ${t("rep.noteTail")}`;
-  }
-
+  if (note) note.textContent = t("rep.note");
   foot.textContent = t("rep.source");
 }
 
 // ---------------------------------------------------------------- socket
 
 let statusOpen = false;
-let statusOverride: string | null = null;
+let statusOverride: { key: string; vars?: Record<string, string | number> } | null = null;
+let sessionToken: string | null = null;
+let reconnectTimer: number | null = null;
+let connectionTimer: number | null = null;
+let reconnectAttempts = 0;
+let disposed = false;
+const SOCKET_PROTOCOL = "vera-telemetry.v1";
+const MAX_RECONNECT_ATTEMPTS = 6;
 let everConnected = false;
 /** Snapshots seen since the last second closed, and the rate that second made. */
 let snapTicks = 0;
@@ -2957,7 +2588,7 @@ function renderStatus(): void {
   document.getElementById("status")!.classList.toggle("open", statusOpen);
   document.getElementById("dot")!.classList.toggle("open", statusOpen);
   document.getElementById("statustext")!.textContent =
-    statusOverride ??
+    (statusOverride ? t(statusOverride.key, statusOverride.vars) : null) ??
     (statusOpen
       ? snapHz > 0
         ? t("status.liveHz", { n: snapHz })
@@ -2967,37 +2598,117 @@ function renderStatus(): void {
         : t("status.connecting"));
 }
 
-function setStatus(open: boolean, text?: string): void {
+function setStatus(open: boolean, key?: string, vars?: Record<string, string | number>): void {
   statusOpen = open;
   if (open) everConnected = true;
-  statusOverride = text ?? null;
+  statusOverride = key ? { key, vars } : null;
   renderStatus();
 }
 
+/** Consume the session link once. The credential never enters storage or a URL request. */
+function consumeSessionToken(): string | null {
+  const url = new URL(location.href);
+  const tokens = new URLSearchParams(url.hash.slice(1)).getAll("token");
+  if (url.hash) {
+    url.hash = "";
+    try {
+      history.replaceState(history.state, "", url.pathname + url.search);
+    } catch {
+      // Do not connect if the credential could not be removed from history.
+      return null;
+    }
+  }
+  return tokens.length === 1 && /^[a-f0-9]{64}$/i.test(tokens[0]) ? tokens[0] : null;
+}
+
+function clearConnectionTimer(): void {
+  if (connectionTimer !== null) window.clearTimeout(connectionTimer);
+  connectionTimer = null;
+}
+
+function scheduleReconnect(): void {
+  if (disposed || !sessionToken || reconnectTimer !== null) return;
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    setStatus(false, "status.connectionFailed");
+    return;
+  }
+  const delay = Math.min(30_000, 1000 * 2 ** reconnectAttempts);
+  reconnectAttempts += 1;
+  setStatus(false, "status.reconnecting");
+  reconnectTimer = window.setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, delay);
+}
+
 function connect(): void {
-  const next = new WebSocket(`ws://${location.host}/ws`);
+  if (disposed) return;
+  if (!sessionToken || !["http:", "https:"].includes(location.protocol)) {
+    setStatus(false, "status.sessionRequired");
+    return;
+  }
+  if (socket && (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN)) {
+    return;
+  }
+  const endpoint = new URL("/ws", location.href);
+  endpoint.protocol = location.protocol === "https:" ? "wss:" : "ws:";
+  let next: WebSocket;
+  try {
+    next = new WebSocket(endpoint, [SOCKET_PROTOCOL, `vera-auth.${sessionToken}`]);
+  } catch {
+    // Never retry without authentication or with a different host.
+    setStatus(false, "status.connectionFailed");
+    return;
+  }
   socket = next;
-  next.onopen = () => setStatus(true);
-  next.onclose = () => {
-    setStatus(false);
-    window.setTimeout(connect, 1000);
+  let terminalFailure = false;
+  connectionTimer = window.setTimeout(() => {
+    connectionTimer = null;
+    if (socket === next && next.readyState === WebSocket.CONNECTING) next.close();
+  }, 10_000);
+  next.onopen = () => {
+    if (disposed || socket !== next) return;
+    clearConnectionTimer();
+    if (next.protocol !== SOCKET_PROTOCOL) {
+      terminalFailure = true;
+      setStatus(false, "status.sessionRejected");
+      next.close(1002, "Unexpected protocol");
+      return;
+    }
+    setStatus(true);
   };
-  next.onerror = () => next.close();
+  next.onclose = (event) => {
+    if (socket !== next) return;
+    clearConnectionTimer();
+    socket = null;
+    if (disposed) return;
+    if (terminalFailure || event.code === 1008 || event.code === 1002) {
+      setStatus(false, "status.sessionRejected");
+      return;
+    }
+    scheduleReconnect();
+  };
+  next.onerror = () => {
+    if (socket === next && !disposed) next.close();
+  };
   next.onmessage = (event) => {
+    if (disposed || socket !== next || typeof event.data !== "string") return;
     let snapshot: TelemetrySnapshot;
     try {
-      snapshot = JSON.parse(event.data as string) as TelemetrySnapshot;
+      snapshot = JSON.parse(event.data) as TelemetrySnapshot;
     } catch {
       return;
     }
+    if (!snapshot || typeof snapshot !== "object") return;
     if (snapshot.version !== SCHEMA_VERSION) {
-      setStatus(true, t("status.unsupported", { v: snapshot.version }));
+      setStatus(true, "status.unsupported", { v: String(snapshot.version) });
       return;
     }
+    if (!Array.isArray(snapshot.houses) || !Array.isArray(snapshot.spots)) return;
+    reconnectAttempts = 0;
     lastSnapshot = snapshot;
     snapTicks += 1;
     acceptLogs(snapshot.logs);
-    syncCheats(snapshot.cheats);
     setStatus(true);
     // The detail view's history must keep flowing while the data wall shows,
     // or its charts restart at every switch.
@@ -3024,10 +2735,8 @@ function connect(): void {
     updateCost(snapshot);
     updateProcess(snapshot.process);
     updateTerrain(snapshot.debug);
-    renderSwitches(snapshot.debug);
-    updateEvents(snapshot.debug);
     updatePopulation(snapshot);
-    updateFrameProfile(snapshot.profile, snapshot.timing ? 1000 / Math.max(1, snapshot.timing.fps) : 0);
+    updateFrameProfile(snapshot.profile, snapshot.render);
     drawChart(snapshot.timing);
     // Live snapshots, so the report wall just rides the stream: no polling,
     // and no waiting for a match to end before it has anything to show.
@@ -3035,61 +2744,13 @@ function connect(): void {
   };
 }
 
-// ------------------------------------------------------------------ menu
-
-/** The debug menu (switches + hotkeys) is a drawer, not dashboard content:
- *  the main view stays data-only. Esc, the backdrop and the close button all
- *  dismiss it. */
-function setupMenus(): void {
-  const showDebug = bindDrawer("menu", "menu-open", "menu-close");
-  const showTrainer = bindDrawer("cheat-menu", "cheats-open", "cheats-close", () =>
-    syncCheats(lastSnapshot?.cheats),
-  );
-  // Two drawers on one edge: opening one closes the other, so the header
-  // buttons never leave a stack of panels behind each other.
-  document.getElementById("menu-open")?.addEventListener("click", () => showTrainer(false));
-  document.getElementById("cheats-open")?.addEventListener("click", () => showDebug(false));
-}
-
-/**
- * Wire one right-edge drawer. Returns its `show`, so callers can close it from
- * outside; `onOpen` refreshes state that may have moved since last time.
- */
-function bindDrawer(
-  id: string,
-  openId: string,
-  closeId: string,
-  onOpen?: () => void,
-): (visible: boolean) => void {
-  const drawer = document.getElementById(id);
-  if (!drawer) return () => {};
-  const show = (visible: boolean): void => {
-    if (visible) onOpen?.();
-    drawer.classList.toggle("open", visible);
-    drawer.setAttribute("aria-hidden", String(!visible));
-  };
-  document.getElementById(openId)?.addEventListener("click", () => show(true));
-  document.getElementById(closeId)?.addEventListener("click", () => show(false));
-  drawer.addEventListener("click", (event) => {
-    // Only the backdrop itself (not the panel) dismisses.
-    if (event.target === drawer) show(false);
-  });
-  window.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") show(false);
-  });
-  return show;
-}
-
 // ------------------------------------------------------------ bootstrap
 
 applyStaticTranslations();
 syncSwitcher();
 renderStatus();
-setupMenus();
 setupViews();
 setupPager();
-// The switches exist (disabled) before the first snapshot arrives.
-renderSwitches(null);
 
 for (const button of document.querySelectorAll<HTMLElement>("#lang [data-locale]")) {
   button.addEventListener("click", () => {
@@ -3102,7 +2763,6 @@ for (const button of document.querySelectorAll<HTMLElement>("#lang [data-locale]
 onLocaleChange(() => {
   syncSwitcher();
   renderStatus();
-  renderSwitches(lastSnapshot?.debug ?? null);
   // The detail cards bake labels into their DOM; force a structural rebuild.
   detailCardKeys = [];
   if (currentView === "detail" && lastSnapshot) renderDetailCards(lastSnapshot);
@@ -3110,12 +2770,8 @@ onLocaleChange(() => {
   if (currentView === "report") renderReportSoon();
   if (!lastSnapshot) return;
   updateTerrain(lastSnapshot.debug);
-  updateEvents(lastSnapshot.debug);
   updatePopulation(lastSnapshot);
-  updateFrameProfile(
-    lastSnapshot.profile,
-    lastSnapshot.timing ? 1000 / Math.max(1, lastSnapshot.timing.fps) : 0,
-  );
+  updateFrameProfile(lastSnapshot.profile, lastSnapshot.render);
   drawChart(lastSnapshot.timing);
 });
 
@@ -3126,13 +2782,34 @@ window.addEventListener("resize", () => {
 // One-second window on the push rate. A 1s period is already past every
 // hidden-tab timer clamp, so the reading stays true when the tab is in the
 // background.
-window.setInterval(() => {
+const statusTimer = window.setInterval(() => {
   snapHz = snapTicks;
   snapTicks = 0;
   renderStatus();
 }, 1000);
 
+sessionToken = consumeSessionToken();
 connect();
+
+window.addEventListener("pagehide", () => {
+  disposed = true;
+  sessionToken = null;
+  window.clearInterval(statusTimer);
+  if (reconnectTimer !== null) window.clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  clearConnectionTimer();
+  if (reportRenderTimer !== null) window.clearTimeout(reportRenderTimer);
+  reportRenderTimer = null;
+  if (logSearchTimer !== null) window.clearTimeout(logSearchTimer);
+  logSearchTimer = null;
+  const previous = socket;
+  socket = null;
+  previous?.close(1000, "Dashboard closed");
+});
+
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted && disposed) setStatus(false, "status.sessionRequired");
+});
 
 /** Read-only handle for the screenshot harness: headless browsers refuse
  *  downloads, so this is the only way to assert on the generated report. It

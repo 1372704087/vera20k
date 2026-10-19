@@ -49,7 +49,6 @@ use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::rng::SimRng;
-use crate::util::fixed_math::facing_from_delta_int;
 
 // --- Internal submodules ---
 pub(crate) mod at_coord;
@@ -154,40 +153,10 @@ pub(crate) use movement_commands::{can_accept_destination, prepare_walk_destinat
 pub(crate) use movement_path::{
     path_search_used_zone_grid_marker, reset_path_search_used_zone_grid_marker,
 };
-pub(crate) use navcom::{
-    foot_stop_moving, nav_targets_same_receiver, set_destination_internal_cell, target_cell_coord,
-    track_stop_moving,
-};
+pub(crate) use navcom::{set_destination_internal_cell, target_cell_coord, track_stop_moving};
 // Legacy batch tick used by focused movement fixtures.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use movement_tick::tick_movement_with_grids;
-
-// ---------------------------------------------------------------------------
-// Constants — shared across movement submodules via `super::`
-// ---------------------------------------------------------------------------
-
-/// Initial path retry counter before giving up (`Foot+0x64C`, init 10).
-///
-/// The mechanism is real and this constant is right: `Process_Movement` reads
-/// `[ECX+0x64C]` at `0x004B2DC8`, and on `> 0` decrements and stores it back
-/// (`0x004B2DD2`/`0x004B2DD3`) before continuing; on `<= 0` it clears the drive
-/// coord, calls `FootClass::Stop_Moving` plus vtable `+0x480`/`+0x484`, and
-/// plays the blocked voice at `Foot+0x68A`. So it *is* decremented and it *does*
-/// end the move at zero.
-///
-/// Recorded difference: **what decrements it.** Native decrements it on every
-/// pass through the generic blocked label `LAB_004B3282` — reached from
-/// `Is_Cell_In_Playfield == 0`, from code 3, from `code != 6` and from two
-/// code-6 sub-failures — and the same label is where the literal 10 is stored.
-/// VERA decrements per failed repath instead. The escalation clock is a
-/// separate record: `Foot+0x668` = frame, `Foot+0x66C`, and `Foot+0x670` =
-/// `Rules+0x1768`, stored only on the `Foot+0x6B7 == 0` transition of the code-2
-/// arm — which contains no `Scatter_Objects` call at all. Trigger: a unit
-/// blocked long enough to exhaust the counter. Player effect: the give-up point
-/// arrives after a different number of ticks than retail's. Frequency: every
-/// traffic jam, many times a minute once a base has armour queuing. Downstream
-/// risk: the two clocks are separate fields and must stay separate.
-const PATH_STUCK_INIT: u32 = 10;
 
 // ---------------------------------------------------------------------------
 // Types — shared across movement submodules
@@ -213,11 +182,10 @@ pub(super) struct MoverSnapshot {
     pub movement_zone: MovementZone,
     pub omni_crusher: bool,
     pub regular_crusher: bool,
-    pub on_bridge: bool,
     pub locomotor: Option<locomotor::LocomotorState>,
     /// Native AStar hierarchy admission reads the stored TechnoClass+0x3D5
-    /// byte. False under live MapClass authority bypasses hierarchy and uses
-    /// flat A*; headless fixtures without authority retain hierarchy.
+    /// byte. False under live MapClass authority bypasses hierarchy and runs
+    /// the plain cell A*; headless fixtures without authority retain hierarchy.
     pub allow_zone_hierarchy: bool,
 }
 
@@ -238,14 +206,6 @@ impl MovementTickStats {
 // ---------------------------------------------------------------------------
 // Public utilities
 // ---------------------------------------------------------------------------
-
-/// Compute the active-retail screen-relative facing byte from a coordinate delta.
-///
-/// Computed directions use the high byte of the native 65,534-scale word;
-/// authored quarter-turn values remain distinct.
-pub fn facing_from_delta(dx: i32, dy: i32) -> u8 {
-    facing_from_delta_int(dx, dy)
-}
 
 // ---------------------------------------------------------------------------
 // Tick entry points (thin wrappers)
@@ -286,8 +246,6 @@ pub(crate) fn tick_movement_with_grid(
     lifecycle_requests: &mut Vec<LifecycleRequest>,
 ) -> MovementTickStats {
     let mut sound_events: Vec<crate::sim::world::SimSoundEvent> = Vec::new();
-    let mut cell_occupation =
-        crate::sim::occupancy::CellOccupationGrid::rebuild(entities, occupancy);
     let mut raw_cell_occupation = crate::sim::occupancy::RawCellOccupationGrid::new();
     tick_movement_with_grids(
         entities,
@@ -295,7 +253,6 @@ pub(crate) fn tick_movement_with_grid(
         path_grid,
         alliances,
         occupancy,
-        &mut cell_occupation,
         &mut raw_cell_occupation,
         rng,
         sim_tick,
@@ -325,8 +282,6 @@ mod ground_pose_tests;
 mod movement_bridge_retail_tests;
 #[cfg(test)]
 mod movement_tests;
-#[cfg(test)]
-mod prone_speed_tests;
 
 #[cfg(test)]
 mod foot_timer_migration_tests;

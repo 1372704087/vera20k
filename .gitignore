@@ -17,6 +17,7 @@ Thumbs.db
 *.log
 *.txt
 !tools/requirements-test.txt
+!tools/telemetry-dashboard/vendor/THREE-LICENSE.txt
 *.tmp
 *.map
 *_todo.md
@@ -28,9 +29,13 @@ Thumbs.db
 /infodocs/
 
 /docs/*
+!/docs/ares-generic-warhead.md
 !/docs/_config.yml
 !/docs/index.md
 !/docs/Networking.md
+!/docs/ares-unit-delivery.md
+!/docs/ares-superweapon-building-gates.md
+!/docs/ares-superweapon-money.md
 !/docs/ar/
 !/docs/de/
 !/docs/ru/
@@ -74,15 +79,5 @@ tools/vendor-eval/
 # throwaway verification build dir (parallel-session exe lock workaround)
 /target-verify/
 
-# dashboard dependencies (npm install output, not source)
-node_modules/
-
-# local tool state: session screenshots, backups, memory
-.workbuddy/
-
-# generated match reports (the engine writes these per match)
-tools/telemetry-dashboard/reports/
-
-# local map harness: imports map3d.js by relative path, so it has to sit in
-# the web root to run same-origin. Scratch, not a shipped dashboard file.
-tools/telemetry-dashboard/map-harness.html
+# Dashboard build dependencies; compiled JS is intentionally tracked.
+/tools/telemetry-dashboard/node_modules/

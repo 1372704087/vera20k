@@ -33,13 +33,11 @@ use crate::sim::snapshot::GameSnapshot;
 use crate::sim::stage::StageClass;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
+use crate::util::save_codec;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/infantry_teleport_destination.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/infantry_teleport_destination.json")
 }
 
 fn signed(value: &Value) -> i32 {
@@ -674,11 +672,7 @@ fn full_transport_arrival_replays_original_warp_in_refusal_tail() {
             .passenger_role
             .cargo_mut()
             .unwrap()
-            .board_forced(occupant, rules.object("E1").unwrap().size);
-        crate::sim::passenger::begin_boarding(
-            sim.substrate.entities.get_mut(id).unwrap(),
-            transport,
-        );
+            .board_forced_chain(&[(occupant, rules.object("E1").unwrap().size)]);
         let runtime = sim
             .substrate
             .entities
@@ -900,7 +894,7 @@ fn stop_does_not_touch_a_stashed_native_cleg_request() {
         super::super::motion_query::is_moving(sim.substrate.entities.get(id).unwrap()),
         Some(false)
     );
-    let raw = bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap();
+    let raw = save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap();
     execute(&mut sim, id, &boundaries[1]["input"], &rules, None);
     let entity = sim.substrate.entities.get_mut(id).unwrap();
     assert_eq!(
@@ -932,7 +926,7 @@ fn stop_does_not_touch_a_stashed_native_cleg_request() {
         "restored active Stop",
     );
     assert_eq!(
-        bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+        save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
         raw,
         "neither Stop releases the retained reservation"
     );
@@ -991,8 +985,8 @@ fn native_cleg_reservation_survives_snapshot_and_is_hashed() {
             !stashed
         );
         assert_eq!(
-            bincode::serialize(&restored.substrate.raw_cell_occupation).unwrap(),
-            bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap()
+            save_codec::serialize(&restored.substrate.raw_cell_occupation).unwrap(),
+            save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap()
         );
         let expected = sim
             .substrate
@@ -1175,8 +1169,8 @@ fn overlay_destination_without_registered_inputs_is_atomic() {
             .unwrap()
             .place_overlay(12, 10, ore, 0);
         let before = (
-            bincode::serialize(sim.substrate.entities.get(id).unwrap()).unwrap(),
-            bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+            save_codec::serialize(sim.substrate.entities.get(id).unwrap()).unwrap(),
+            save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
             sim.rng_state(),
         );
         let target = NavTargetRef::cell(12, 10);
@@ -1196,8 +1190,8 @@ fn overlay_destination_without_registered_inputs_is_atomic() {
         );
         assert_eq!(
             (
-                bincode::serialize(sim.substrate.entities.get(id).unwrap()).unwrap(),
-                bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+                save_codec::serialize(sim.substrate.entities.get(id).unwrap()).unwrap(),
+                save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
                 sim.rng_state(),
             ),
             before,
@@ -1223,7 +1217,7 @@ fn teleport_admission_input_error_restores_physical_occupation() {
         .cell_mut(12, 10)
         .unwrap()
         .speed_costs = crate::rules::terrain_rules::SpeedCostProfile::default();
-    let raw = bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap();
+    let raw = save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap();
     assert!(
         !sim.assign_infantry_destination(
             id,
@@ -1245,7 +1239,7 @@ fn teleport_admission_input_error_restores_physical_occupation() {
     assert_eq!(super::super::motion_query::is_moving(actor), Some(false));
     assert_eq!(actor.navigation.nav_com(), None);
     assert_eq!(
-        bincode::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
+        save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap(),
         raw
     );
     let after = &row["boundaries"][0]["after"]["actor"];

@@ -29,8 +29,8 @@ pub enum BunkerLink {
     /// Ordered into bunker `id`, still approaching (pre-install); the install
     /// machine resets once this marker no longer names its bunker. Cleared by
     /// the install and by either side's despawn
-    /// (`bunker_link::break_links_on_despawn`); a retask leaves it
-    /// (`sim::building_entry` residual).
+    /// (`bunker_link::break_links_on_despawn`) and by cancelled/replaced orders
+    /// ([`cancel_approach`]).
     Approaching(u64),
     /// Installed inside bunker `id` (reciprocal of the building's occupant).
     Installed(u64),
@@ -93,9 +93,6 @@ impl BunkerLinks {
     }
 }
 
-/// Exit-search ring limit for the normal release (mirrors the refinery exit).
-const BUNKER_EXIT_SEARCH_MAX_RADIUS: i32 = 16;
-
 /// The tank bunker admission at `0x0070FB50`: the object's type is
 /// `Bunkerable=` (`+0xD2E`) and has a `Turret=` (`+0xCA1`), its current
 /// weapon (vt+0x3F4, `GetCurrentWeapon @ 0x0070E1A0`) has a type, its
@@ -152,6 +149,10 @@ pub(crate) fn begin_entry(
     {
         return false;
     }
+    // Replacing a seek must release its previous bunker, including the AI
+    // caller whose retask only queues a mission. Native HELLO replaces the
+    // old radio link (65A970); this adapter carries that link separately.
+    cancel_approach(sim, unit_id);
     transmit(
         sim,
         unit_id,
@@ -183,6 +184,32 @@ pub(crate) fn begin_entry(
         log::warn!("Bunker approach {unit_id}: {cause}");
     }
     true
+}
+
+/// Cancel only the entry adapter's pre-install link. Native accepted orders
+/// break contact at Event 0x004C72F8 (MEGAMISSION) /0x004C75E0 (Stop).
+/// Radio 0x0065A8A0 clears the bunker's contact; UpdateBunker 0x00458E50
+/// then finds neither an occupant nor contact, and 0x00458E7E..0x00458E98
+/// resets status and queues Guard(5,0).
+/// The adapter has no radio contact, so the same order boundaries must release
+/// its two ends explicitly. Installed occupants use the distinct release paths.
+pub(crate) fn cancel_approach(sim: &mut Simulation, unit_id: u64) {
+    let Some(unit) = sim.substrate.entities.get_mut(unit_id) else {
+        return;
+    };
+    let BunkerLink::Approaching(building_id) = unit.bunker.link else {
+        return;
+    };
+    unit.bunker.link = BunkerLink::None;
+    let held_by_unit = sim.substrate.entities.get(building_id).is_some_and(|b| {
+        b.bunker.occupant().is_none()
+            && b.bunker_runtime
+                .is_some_and(|runtime| runtime.installing_unit() == Some(unit_id))
+    });
+    if held_by_unit {
+        reset_bunker_idle(sim, building_id);
+        queue_guard(sim, building_id);
+    }
 }
 
 /// Bunker install state 5 (459301..459337): reciprocal links, deselection,
@@ -273,9 +300,9 @@ pub(crate) fn emit_bunker_wall_sound(sim: &mut Simulation, building_id: u64, up:
 
 /// Normal release4595C0, reached by linked Unit Mission_Unload73D66D.
 /// Unlike sell/death, it clears the unit link before Power_On/Force, then
-/// assigns a nearby destination and queues Move before clearing the building.
-/// The existing nearest-passable search and wall-animation projection remain
-/// bounded adapters; they are not a native execution comparison.
+/// assigns a nearby destination ([`bunker_exit_cell`]) and queues Move before
+/// clearing the building. The wall-animation projection remains a bounded
+/// adapter; it is not a native execution comparison.
 pub(crate) fn release_normal(
     sim: &mut Simulation,
     building_id: u64,
@@ -304,8 +331,7 @@ pub(crate) fn release_normal(
     #[cfg(test)]
     release_tests::record(sim, building_id, unit_id, "unit-link");
     power_and_force_release(sim, building_id, unit_id, Some(rules), effects);
-    let cell = bunker_exit_cell(sim, building_id);
-    if let Some(cell) = cell {
+    if let Some(cell) = bunker_exit_cell(sim, building_id, unit_id, rules) {
         let terrain = sim.resolved_terrain.as_ref();
         let frame = sim.session.binary_frame;
         if let Some(unit) = sim.substrate.entities.get_mut(unit_id) {
@@ -553,26 +579,43 @@ fn reset_bunker_idle(sim: &mut Simulation, building_id: u64) {
     }
 }
 
-/// gamemd exit anchor for the normal release: building NW corner + (-1 west,
-/// +1 south), then the nearest passable cell (modulo-spread pick). Falls back to
-/// the anchor cell when no path grid is available (headless tests). The anchor
-/// is `BuildingClass::EmptyBunker` (`0x004595C0`)'s `0x0045977E..0x00459794`.
-fn bunker_exit_cell(sim: &Simulation, building_id: u64) -> Option<(u16, u16)> {
-    let b = sim.substrate.entities.get(building_id)?;
-    let ax = b.position.rx() as i32 - 1;
-    let ay = b.position.ry() as i32 + 1;
-    match sim.path_grid() {
-        Some(g) => crate::sim::miner::find_nearby_passable_cell_with_index(
-            ax,
-            ay,
-            g,
-            Some(&sim.substrate.occupancy),
-            BUNKER_EXIT_SEARCH_MAX_RADIUS,
-            sim.session.binary_frame as u64,
-        ),
-        None if ax >= 0 && ay >= 0 => Some((ax as u16, ay as u16)),
-        None => Some((b.position.rx(), b.position.ry())),
-    }
+/// The normal release's exit cell, `BuildingClass::EmptyBunker @ 0x004595C0`:
+/// FNPC on g_Map (`0x004597E3`) seeded one cell west and one south of the
+/// building's cell (`0x0045977E..0x00459794`). The pushes at
+/// `0x0045979D..0x004597DD` are the plain shape: the occupant's `Type+0x67C`
+/// SpeedType, zone -1, MovementZone Normal, 1x1, bridges allowed and a
+/// zeroed target. A failed search is the zero cell, which the caller still
+/// takes as the destination (`0x004597E8..0x004597FA`).
+fn bunker_exit_cell(
+    sim: &Simulation,
+    building_id: u64,
+    unit_id: u64,
+    rules: &RuleSet,
+) -> Option<(u16, u16)> {
+    use crate::rules::locomotor_type::MovementZone;
+    use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
+    let building = sim.substrate.entities.get(building_id)?;
+    let unit = sim.substrate.entities.get(unit_id)?;
+    let speed_type = sim.object_type(unit.type_ref(), rules)?.speed_type;
+    let seed = (
+        i32::from((building.position.rx() as i16).wrapping_sub(1)),
+        i32::from((building.position.ry() as i16).wrapping_add(1)),
+    );
+    Some(
+        sim.nearby_passable_cell(
+            seed,
+            NearbyArgs::plain(
+                PassabilityArgs {
+                    speed_type,
+                    required_zone_id: None,
+                    movement_zone: MovementZone::Normal,
+                    bridge_aware_zone: false,
+                },
+                NearbyFootprint::SINGLE,
+            ),
+        )
+        .unwrap_or((0, 0)),
+    )
 }
 
 /// Execute native wall-slot changes and record an observation. `up` raises the walls
@@ -844,6 +887,9 @@ mod tests {
 
     pub(super) fn installed_sim() -> Simulation {
         let mut sim = Simulation::new();
+        // Clear ground with its Size, playfield and zones: the release's exit
+        // search runs on the map.
+        crate::sim::arena_fixture::supply_native_map(&mut sim);
         let rules = rules();
         spawn_bunker(&mut sim, 2, "Americans");
         spawn_tank(&mut sim, 1, "Americans", "TANK");
@@ -851,6 +897,72 @@ mod tests {
         install_bunker_link(&mut sim, 2, 1, &rules);
         sim.sound_events.clear(); // drop the install up-sound; assert on down events
         sim
+    }
+
+    /// Techno Assign_Target's bunker redirect (`0x006FCE4B..0x006FCEB5`): a
+    /// bunkered tank becomes its bunker for an airstrike owner or an
+    /// IsLocomotor weapon 0, not for an ordinary gun; the receiver itself
+    /// becomes the Cell under it (`0x006FCEB8`).
+    #[test]
+    fn assign_target_redirects_a_bunkered_tank_to_its_bunker() {
+        use crate::sim::combat::TargetKind;
+        use crate::sim::mission::concrete_effects::assign_target_stored;
+        let mut sim = installed_sim();
+        let rules = rules();
+        spawn_tank(&mut sim, 3, "Russians", "TANK");
+        spawn_tank(&mut sim, 4, "Russians", "MAGNET");
+        let magnet_rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=MAGNET\n\n[InfantryTypes]\n\n[AircraftTypes]\n\n\
+             [BuildingTypes]\n\n[MAGNET]\nStrength=400\nPrimary=MagBeam\n\n\
+             [WeaponTypes]\n0=MagBeam\n\n[MagBeam]\nDamage=1\nRange=5\nWarhead=Mag\n\n\
+             [Warheads]\n0=Mag\n\n[Mag]\nIsLocomotor=yes\n",
+        ))
+        .unwrap();
+        let tank = Some(TargetKind::Entity(1));
+        let stored = |sim: &Simulation, receiver, rules| {
+            assign_target_stored(
+                &sim.substrate.entities,
+                &sim.production.terrain_objects,
+                receiver,
+                tank,
+                Some((rules, &sim.interner)),
+            )
+        };
+        assert_eq!(stored(&sim, 3, &rules), tank);
+        assert_eq!(stored(&sim, 4, &magnet_rules), Some(TargetKind::Entity(2)));
+        sim.substrate
+            .entities
+            .get_mut(3)
+            .unwrap()
+            .airstrike
+            .set_test_link(Some(3));
+        assert_eq!(stored(&sim, 3, &rules), Some(TargetKind::Entity(2)));
+        let own = assign_target_stored(
+            &sim.substrate.entities,
+            &sim.production.terrain_objects,
+            3,
+            Some(TargetKind::Entity(3)),
+            None,
+        );
+        assert_eq!(own, Some(TargetKind::Cell(12, 12)));
+        // The same-target test compares the request, so asking for the tank
+        // again while the bunker is held stores the bunker again.
+        for _ in 0..2 {
+            let held = stored(&sim, 3, &rules);
+            let receiver = sim.substrate.entities.get_mut(3).unwrap();
+            crate::sim::mission::concrete_effects::represented_assign_target_admitted(
+                receiver, tank, held,
+            );
+            assert_eq!(receiver.attack_target.target(), Some(TargetKind::Entity(2)));
+        }
+        // An object only approaching its bunker (no +0x2E4) is not redirected.
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Approaching(2));
+        assert_eq!(stored(&sim, 3, &rules), tank);
     }
 
     fn down_sounds(sim: &Simulation) -> usize {
@@ -876,7 +988,8 @@ mod tests {
         assert!(!unit.lifecycle.in_limbo());
         assert!(unit.lifecycle.cell_marked());
         assert_eq!((unit.position.rx(), unit.position.ry()), (12, 12));
-        // The existing exit-search adapter supplies NavCom; Force moves later.
+        // FNPC's seed, one cell west and south of the bunker, is clear and
+        // supplies NavCom; Force moves later.
         assert_eq!(
             unit.navigation.nav_com(),
             Some(crate::sim::components::NavTargetRef::cell(9, 11))
@@ -901,6 +1014,41 @@ mod tests {
             None
         );
         assert_eq!(down_sounds(&sim), 1, "one walls-down on normal eject");
+    }
+
+    /// `EmptyBunker`'s exit search is FNPC (`0x004597E3`): CellRect passability
+    /// reads the live raw occupation byte with both ignore flags clear
+    /// (`0x0056E854`, `0x0056E856`), so a raw bit no object list shows still
+    /// blocks a cell. With the seed and seven of its eight first-ring cells
+    /// marked, the one clear ring cell is the exit.
+    #[test]
+    fn release_normal_exit_skips_raw_occupied_cells_around_the_seed() {
+        let mut sim = installed_sim();
+        let seed = (9u16, 11u16);
+        let exit = (10u16, 12u16);
+        for dx in -1i32..=1 {
+            for dy in -1i32..=1 {
+                let cell = (
+                    (i32::from(seed.0) + dx) as u16,
+                    (i32::from(seed.1) + dy) as u16,
+                );
+                if cell != exit {
+                    sim.substrate
+                        .raw_cell_occupation
+                        .mark_ground(cell.0, cell.1, 0x01);
+                }
+            }
+        }
+        release_normal(
+            &mut sim,
+            2,
+            &rules(),
+            crate::sim::world::FrameEffects::default(),
+        );
+        assert_eq!(
+            sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
+            Some(crate::sim::components::NavTargetRef::cell(exit.0, exit.1))
+        );
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::render::batch::InstanceBufferPool;
 use crate::render::tactical_draw_plan::{BlitPolicy, ObjectDraw, SpriteEncoding, TacticalLayer};
 use crate::render::terrain_draw::{TerrainDrawRenderer, TerrainPiece};
 use crate::render::terrain_draw_gpu_tests::{Gpu, camera, clear, encoded, extent, sprite};
+use crate::util::save_codec;
 use wgpu::util::DeviceExt;
 
 #[test]
@@ -68,7 +69,7 @@ fn retained_ground_history_controls_overlapping_atlas_pixels() {
     }
     // Save/restore must not replace retained history with freshly sorted keys.
     let display: DisplayLayers =
-        bincode::deserialize(&bincode::serialize(&display).unwrap()).unwrap();
+        save_codec::deserialize(&save_codec::serialize(&display).unwrap()).unwrap();
     let order = NativeDisplayOrder::new(display.members(DisplayLayer::GROUND));
     let gpu = Gpu::new();
     let size = [4, 2];
@@ -144,6 +145,8 @@ fn retained_ground_history_controls_overlapping_atlas_pixels() {
         Some(&shp),
         None,
         batch.default_zshape_bind_group(),
+        None,
+        None,
     );
     let reads = [gpu.read(&mut encoder, &color)];
     let output = gpu.finish(encoder, &reads, size);
@@ -199,9 +202,7 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
             ),
         },
     ]);
-    let palette = crate::assets::pal_file::Palette {
-        colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-    };
+    let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
     let palettes =
         PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
@@ -283,6 +284,8 @@ fn vehicle_shadow_after_body_preserves_body_and_clipped_read_only_depth() {
         None,
         Some(&palettes),
         batch.default_zshape_bind_group(),
+        None,
+        None,
     );
     assert_eq!(
         stats.pieces, 0,
@@ -358,9 +361,7 @@ fn tree_transactions_preserve_tmp_shp_voxel_overlap_and_coalesced_order() {
     let units = UnitAtlas::from_test_pages(vec![crate::render::unit_atlas::UnitAtlasPage {
         texture: batch.create_unit_atlas_texture_on_device(&gpu.device, &gpu.queue, 1, 1, &[33]),
     }]);
-    let palette = crate::assets::pal_file::Palette {
-        colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-    };
+    let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
     let palettes =
         PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
@@ -511,6 +512,8 @@ fn tree_transactions_preserve_tmp_shp_voxel_overlap_and_coalesced_order() {
             Some(&shp),
             Some(&palettes),
             batch.default_zshape_bind_group(),
+            None,
+            None,
         );
         let tree_steps = steps[..count]
             .iter()
@@ -590,9 +593,7 @@ fn destination_batching_layer_fences_do_not_plan_ordinary_unit_instances() {
     let units = UnitAtlas::from_test_pages(vec![crate::render::unit_atlas::UnitAtlasPage {
         texture: batch.create_unit_atlas_texture_on_device(&gpu.device, &gpu.queue, 1, 1, &[0]),
     }]);
-    let palette = crate::assets::pal_file::Palette {
-        colors: [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-    };
+    let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
     let palettes =
         PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);
@@ -600,7 +601,7 @@ fn destination_batching_layer_fences_do_not_plan_ordinary_unit_instances() {
     for (layer_index, read_only) in [(2usize, false), (3usize, true)] {
         let destination = |piece| {
             if read_only {
-                ObjectTexture::ProjectileShp(0, piece)
+                ObjectTexture::SpriteAtlasEdit(0, piece)
             } else {
                 ObjectTexture::TerrainShp(piece)
             }
@@ -679,6 +680,8 @@ fn destination_batching_layer_fences_do_not_plan_ordinary_unit_instances() {
                     Some(&shp),
                     Some(&palettes),
                     batch.default_zshape_bind_group(),
+                    None,
+                    None,
                 );
                 let encode_us = start.elapsed().as_secs_f64() * 1e6;
                 if sample > 0 {

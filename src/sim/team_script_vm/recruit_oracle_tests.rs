@@ -12,7 +12,7 @@ use serde_json::Value;
 
 use super::actions::{
     TargetBuilding, attack_check_frame, gather_seed_cell, guard_frames, own_building_pick,
-    quarry_mask, regroup_seed_cell, target_building_pick,
+    regroup_seed_cell, target_building_pick,
 };
 use super::membership::{RecruitCandidate, entry_short, recruit_pick};
 use super::team_ai::{CenterSample, center_of, center_sample};
@@ -20,15 +20,17 @@ use super::*;
 use crate::map::entities::EntityCategory;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::quarry_mask;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::lepton_to_cell_packed;
 
 fn rows(section: &str) -> Vec<Value> {
-    let oracle: Value =
-        serde_json::from_str(crate::test_fixture::text("tools/team_recruit_oracle.json")).unwrap();
-    oracle[section].as_array().unwrap().clone()
+    crate::test_fixture::json("tools/team_recruit_oracle.json")[section]
+        .as_array()
+        .unwrap()
+        .clone()
 }
 
 fn int(value: &Value) -> i32 {
@@ -132,7 +134,12 @@ fn recalc_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
 fn recalc_matches_the_original() {
     for (number, row) in rows("recalc").iter().enumerate() {
         let (mut sim, rules, team_id) = recalc_fixture(row);
-        let kept = sim.team_recalc(team_id, &rules, crate::sim::world::FrameEffects::default());
+        let kept = sim.team_recalc(
+            team_id,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
         assert_eq!(
             kept,
             int(&row["result"]) == 1,

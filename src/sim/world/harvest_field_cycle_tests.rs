@@ -217,11 +217,9 @@ fn war_miner_cuts_the_cell_it_drove_onto_from_every_side() {
 /// on the same 19-frame gate.
 #[test]
 fn war_miner_gate_on_retail_rules() {
-    let Some((rules_ini, _art_ini)) = crate::rules::retail_ini_fixture::retail_rules_and_art()
-    else {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let retail = crate::rules::ruleset::RuleSet::from_ini(&rules_ini).unwrap();
     assert_eq!(retail.general.tiberium_short_scan, 1536);
     assert_eq!(retail.general.tiberium_long_scan, 12288);
     assert_eq!(retail.general.harvester_load_rate, 2);

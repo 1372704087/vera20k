@@ -2,15 +2,15 @@
 //! harvester auto-creation, and sell/undeploy flows through the full production pipeline.
 
 use super::production_spawn::mark_war_factory_spawn_contact;
-use super::{ProductionCategory, STARTING_CREDITS, credits_for_owner, is_matching_factory};
+use super::{ProductionCategory, STARTING_CREDITS, credits_for_owner};
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
-use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::Health;
 use crate::sim::occupancy::CellListInsertion;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::Simulation;
+use crate::util::save_codec;
 
 pub(super) fn basic_infantry_rules() -> RuleSet {
     let ini = IniFile::from_str(
@@ -233,8 +233,15 @@ pub(super) fn build_catalog_rules() -> RuleSet {
 }
 
 pub(super) fn naval_production_rules() -> RuleSet {
-    let ini = IniFile::from_str(
-        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n\
+    naval_rules_with_infantry("", "")
+}
+
+/// [`naval_production_rules`] with `infantry` listed under `[InfantryTypes]`
+/// and `sections` appended. A non-empty `infantry` also binds the fixed GI
+/// ART (Image=GI) and its infantry sequences.
+fn naval_rules_with_infantry(infantry: &str, sections: &str) -> RuleSet {
+    let ini = IniFile::from_str(&format!(
+        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n{infantry}\
          [VehicleTypes]\n\
          0=DEST\n\
          [AircraftTypes]\n\
@@ -250,7 +257,7 @@ pub(super) fn naval_production_rules() -> RuleSet {
          Naval=yes\n\
          SpeedType=Float\n\
          MovementZone=Water\n\
-         Locomotor={2BEA74E1-7CCA-11d3-BE14-00104B62A16C}\n\
+         Locomotor={{2BEA74E1-7CCA-11d3-BE14-00104B62A16C}}\n\
          TechLevel=1\n\
          Owner=Americans\n\
          [GAYARD]\n\
@@ -263,13 +270,23 @@ pub(super) fn naval_production_rules() -> RuleSet {
          Foundation=4x4\n\
          SpeedType=Float\n\
          WaterBound=yes\n\
-         ExitCoord=512,256,0\n",
-    );
-    RuleSet::from_ini_with_fixed_art_for_test(
-        &ini,
-        &IniFile::from_str("[GAYARD]\nFoundation=4x4\n"),
-    )
-    .expect("naval production rules and ART should parse")
+         ExitCoord=512,256,0\n{sections}",
+    ));
+    let gi_art = if infantry.is_empty() {
+        ""
+    } else {
+        crate::rules::retail_ini_fixture::GI_ART_EXCERPT
+    };
+    let art = IniFile::from_str(&format!("[GAYARD]\nFoundation=4x4\n{gi_art}"));
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
+        .expect("naval production rules and ART should parse");
+    if !infantry.is_empty() {
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        rules.bind_animation_sequences(
+            &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+        );
+    }
+    rules
 }
 
 pub(super) fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
@@ -278,18 +295,13 @@ pub(super) fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
         for x in 0..width {
             cells.push(ResolvedTerrainCell {
                 land_type: 2,
-                yr_cell_land_type: 2,
-                terrain_class: crate::rules::terrain_rules::TerrainClass::Water,
                 speed_costs: crate::rules::terrain_rules::SpeedCostProfile {
                     float: Some(100),
                     hover: Some(100),
                     ..crate::rules::terrain_rules::SpeedCostProfile::default()
                 },
-                is_water: true,
                 zone_type: crate::map::resolved_terrain::zone_class::WATER,
                 base_land_type: 2,
-                base_yr_cell_land_type: 2,
-                base_terrain_class: crate::rules::terrain_rules::TerrainClass::Water,
                 base_speed_costs: crate::rules::terrain_rules::SpeedCostProfile {
                     float: Some(100),
                     hover: Some(100),
@@ -619,43 +631,6 @@ pub(super) fn arm_build_via(
 }
 
 #[test]
-fn weat_factory_matches_vehicle_category() {
-    let rules = factory_rules();
-    assert!(is_matching_factory(
-        &rules,
-        "GAWEAT",
-        ObjectCategory::Vehicle
-    ));
-    assert!(!is_matching_factory(
-        &rules,
-        "GAWEAT",
-        ObjectCategory::Infantry
-    ));
-}
-
-#[test]
-fn custom_modded_factory_recognized_via_factory_key() {
-    let rules = factory_rules();
-    // MYBARR has Factory=InfantryType — should be recognized without hardcoding its name.
-    assert!(is_matching_factory(
-        &rules,
-        "MYBARR",
-        ObjectCategory::Infantry
-    ));
-    assert!(!is_matching_factory(
-        &rules,
-        "MYBARR",
-        ObjectCategory::Vehicle
-    ));
-    // XAIRFLD has Factory=AircraftType.
-    assert!(is_matching_factory(
-        &rules,
-        "XAIRFLD",
-        ObjectCategory::Aircraft
-    ));
-}
-
-#[test]
 fn exit_coord_parsed_and_used_for_spawn() {
     let rules = factory_rules();
     // GAWEAP has ExitCoord=512,256,0 → 2 cells right, 1 cell down.
@@ -752,55 +727,122 @@ fn war_factory_spawn_contact_is_marked_per_produced_mover() {
 }
 
 #[test]
-fn naval_factory_spawn_uses_water_exit_cells() {
+fn naval_factory_spawn_uses_water_exit_and_defers_unload_only_without_contacts() {
     let rules = naval_production_rules();
-    let mut sim = Simulation::new();
-    let terrain = water_terrain(32, 32);
-    let grid = PathGrid::from_resolved_terrain(&terrain);
-    sim.install_fixture_path_grid(Some(&grid));
-    sim.resolved_terrain = Some(terrain);
-    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
-        base: 32,
-        off_fc: -100,
-        off_100: -100,
-        off_104: 200,
-        off_108: 200,
-    });
-    sim.playfield_size_height = Some(32);
+    // Exit443C60's 444175..187 gate asks InRadioContact65AE30, which
+    // visits every slot. Both a sparse later contact and a full vector must
+    // suppress the request; a free slot alone does not admit Unload.
+    for occupied_slots in [&[0usize][..], &[1][..], &[0, 1][..], &[][..]] {
+        let mut sim = Simulation::new();
+        let terrain = water_terrain(32, 32);
+        let grid = PathGrid::from_resolved_terrain(&terrain);
+        sim.install_fixture_path_grid(Some(&grid));
+        sim.resolved_terrain = Some(terrain);
+        sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+            base: 32,
+            off_fc: -100,
+            off_100: -100,
+            off_104: 200,
+            off_108: 200,
+        });
+        sim.playfield_size_height = Some(32);
+        sim.session.binary_frame = 37;
 
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 20, 20);
-    stamp_type_foundation(&mut sim, &rules, 1);
-    let produced = sim
-        .construct_object_limbo_at_height(
-            "DEST",
-            "Americans",
-            0,
-            0,
-            0,
-            0,
-            &rules,
-            crate::sim::world::FrameEffects::default(),
-        )
-        .expect("construct the original ExitObject receiver");
-    assert_eq!(
-        super::production_queue::exit_produced_object(
-            &mut sim,
-            &rules,
+        spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 20, 20);
+        stamp_type_foundation(&mut sim, &rules, 1);
+        sim.mission_assign_exact(
             1,
-            produced,
-            None,
-            crate::sim::world::FrameEffects::default()
-        ),
-        crate::sim::ai_base_building::BuildingExit::Placed,
-        "naval factory delivers its actual held Unit through shared ExitObject"
-    );
-    let produced = sim.substrate.entities.get(produced).unwrap();
-
-    assert_eq!(
-        (produced.position.rx(), produced.position.ry()),
-        (22, 22),
-        "4x4 yard fallback starts at BuildingClass::GetCoords foundation centre"
-    );
+            crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Guard),
+            7,
+        )
+        .unwrap();
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .radio_contacts
+            .set_capacity(2);
+        // Stock GAYARD has one slot. This supplied two-slot array tests the
+        // whole-array predicate with real, independently revealed ships;
+        // it does not establish retail capacity or a docking handshake.
+        for &slot in occupied_slots {
+            let contact = sim
+                .spawn_object("DEST", "Americans", 4 + slot as u16, 4, 0, &rules)
+                .expect("contact ship should spawn away from the exit");
+            sim.substrate
+                .entities
+                .get_mut(1)
+                .unwrap()
+                .radio_contacts
+                .set_slot(slot, contact);
+        }
+        let yard = sim.substrate.entities.get(1).unwrap();
+        let contacts_before = yard.radio_contacts.clone();
+        let mission_before = yard.mission;
+        let produced = sim
+            .construct_object_limbo_at_height(
+                "DEST",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .expect("construct the original ExitObject receiver");
+        assert_eq!(
+            super::production_queue::exit_produced_object(
+                &mut sim,
+                &rules,
+                1,
+                produced,
+                None,
+                crate::sim::world::FrameEffects::default()
+            ),
+            crate::sim::ai_base_building::BuildingExit::Placed,
+            "naval factory delivers its actual held Unit through shared ExitObject"
+        );
+        let produced = sim.substrate.entities.get(produced).unwrap();
+        assert_eq!(
+            (produced.position.rx(), produced.position.ry()),
+            (22, 22),
+            "4x4 yard fallback starts at BuildingClass::GetCoords foundation centre"
+        );
+        let yard = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(yard.radio_contacts, contacts_before);
+        if occupied_slots.is_empty() {
+            assert_eq!(
+                yard.mission.queued(),
+                crate::sim::mission::MissionId::from_known(
+                    crate::sim::mission::MissionType::Unload
+                ),
+                "444187 requests Unload when every contact slot is null"
+            );
+            assert_eq!(
+                (
+                    yard.mission.current(),
+                    yard.mission.handler_state(),
+                    yard.mission.mission_start_frame(),
+                    yard.mission.ai_counter(),
+                    yard.mission.dispatch_timer(),
+                ),
+                (
+                    mission_before.current(),
+                    mission_before.handler_state(),
+                    mission_before.mission_start_frame(),
+                    mission_before.ai_counter(),
+                    mission_before.dispatch_timer(),
+                ),
+                "Queue_Mission(Unload, 0) defers dispatch without restarting the producer"
+            );
+        } else {
+            assert_eq!(
+                yard.mission, mission_before,
+                "any occupied contact slot suppresses the producer request"
+            );
+        }
+    }
 }
 
 #[test]
@@ -819,10 +861,7 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     let mut sim = Simulation::new();
     let mut terrain = water_terrain(40, 40);
     let land_exit = terrain.cell_mut(6, 5).unwrap();
-    land_exit.is_water = false;
     land_exit.land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
-    land_exit.yr_cell_land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
-    land_exit.terrain_class = crate::rules::terrain_rules::TerrainClass::Clear;
     let grid = PathGrid::test_all_passable(40, 40);
     sim.install_fixture_path_grid(Some(&grid));
     sim.resolved_terrain = Some(terrain);
@@ -907,13 +946,15 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
 
     assert_eq!(
         sim.production
-            .primary_factory(americans, ProductionCategory::Vehicle)
+            .primary_factory_ids(americans, ProductionCategory::Vehicle)
+            .next()
             .unwrap(),
         1
     );
     assert_eq!(
         sim.production
-            .primary_factory(americans, ProductionCategory::Ship)
+            .primary_factory_ids(americans, ProductionCategory::Ship)
+            .next()
             .unwrap(),
         2
     );
@@ -974,7 +1015,8 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     assert!(destroyer.lifecycle.cell_marked() && !destroyer.lifecycle.in_limbo());
     assert_eq!(
         sim.production
-            .primary_factory(americans, ProductionCategory::Ship)
+            .primary_factory_ids(americans, ProductionCategory::Ship)
+            .next()
             .unwrap(),
         2,
         "the older GAWEAP cannot receive the Ship completion"
@@ -1021,6 +1063,7 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
         off_108: 200,
     });
     sim.playfield_size_height = Some(40);
+    sim.session.binary_frame = 37;
 
     spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 10, 10);
     spawn_structure(&mut sim, &rules, 2, "Americans", "GAYARD", 20, 20);
@@ -1028,6 +1071,14 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
     stamp_type_foundation(&mut sim, &rules, 2);
     super::initialize_factory_primary(&mut sim, 1, &rules);
     super::initialize_factory_primary(&mut sim, 2, &rules);
+    sim.mission_assign_exact(
+        1,
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Guard),
+        7,
+    )
+    .unwrap();
+    let selected_mission = sim.substrate.entities.get(1).unwrap().mission;
+    let other_mission = sim.substrate.entities.get(2).unwrap().mission;
     let mut blocker =
         crate::sim::game_entity::GameEntity::test_default(50, "DEST", "Soviet", 12, 12);
     blocker.set_category_for_test(crate::map::entities::EntityCategory::Unit);
@@ -1064,6 +1115,22 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
         !super::dispatch_production_changes_for_tests(&mut sim, &rules, None),
         "nonzero Unit CanEnter rejects the selected producer's one attempt"
     );
+    let selected = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        selected.mission.queued(),
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Unload),
+        "444187 queues the selected yard's Unload before the later placement refusal"
+    );
+    assert_eq!(selected.mission.current(), selected_mission.current());
+    assert_eq!(
+        selected.mission.dispatch_timer(),
+        selected_mission.dispatch_timer(),
+        "a refused product still leaves only a deferred producer request"
+    );
+    assert_eq!(
+        sim.substrate.entities.get(2).unwrap().mission,
+        other_mission
+    );
     assert!(!sim.substrate.entities.contains(held));
     assert!(
         sim.production
@@ -1074,7 +1141,8 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
     assert_eq!(credits_for_owner(&sim, "Americans"), credits + 1000);
     assert_eq!(
         sim.production
-            .primary_factory(americans, ProductionCategory::Ship),
+            .primary_factory_ids(americans, ProductionCategory::Ship)
+            .next(),
         Some(1),
         "HousePlace does not try the second eligible producer after Exit0"
     );
@@ -1175,6 +1243,11 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
         &mut sim, &rules, None
     ));
     assert_eq!(
+        sim.substrate.entities.get(1).unwrap().mission.queued(),
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Unload),
+        "444187 requests Unload even when the following FNPC finds no usable exit"
+    );
+    assert_eq!(
         retained_dummy.snapshot().coord,
         (0, 0),
         "the caller resolves FNPC's sentinel and restamps the retained dummy"
@@ -1200,9 +1273,9 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(credits_for_owner(&sim, "Americans"), credits + 1000);
     assert_eq!(sim.houses[&americans].stats.built(), 0);
 
-    let bytes =
-        bincode::serialize(&sim.production.factories).expect("serialize the fresh active factory");
-    sim.production.factories = bincode::deserialize(&bytes).unwrap();
+    let bytes = save_codec::serialize(&sim.production.factories)
+        .expect("serialize the fresh active factory");
+    sim.production.factories = save_codec::deserialize(&bytes).unwrap();
     // Publishing alone does not invent another PLACE for an unfinished successor.
     assert!(!super::dispatch_production_changes_for_tests(
         &mut sim, &rules, None
@@ -1214,7 +1287,8 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert_eq!(
         sim.production
-            .primary_factory(americans, ProductionCategory::Ship),
+            .primary_factory_ids(americans, ProductionCategory::Ship)
+            .next(),
         Some(1)
     );
     assert_eq!(sim.houses[&americans].stats.built(), 0);
@@ -1249,9 +1323,9 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     );
 }
 
-#[test]
-fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
-    let rules = naval_production_rules();
+/// A 4x4 naval yard (id 1) at (10, 10) on open water, its rally at
+/// (20, 10).
+fn naval_yard_with_rally(rules: &RuleSet) -> Simulation {
     let mut sim = Simulation::new();
     let terrain = water_terrain(40, 40);
     let grid = PathGrid::from_resolved_terrain(&terrain);
@@ -1268,7 +1342,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
     sim.session.map_width = 40;
     sim.session.map_height = 40;
 
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 10, 10);
+    spawn_structure(&mut sim, rules, 1, "Americans", "GAYARD", 10, 10);
     sim.remove_entity_occupancy(1);
     {
         let yard = sim.substrate.entities.get_mut(1).unwrap();
@@ -1276,6 +1350,79 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         yard.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(20, 10)));
     }
     sim.add_entity_occupancy(1);
+    sim
+}
+
+/// Builds a DEST at the yard of [`naval_yard_with_rally`] and returns its
+/// cell.
+fn deliver_naval_yard_ship(sim: &mut Simulation, rules: &RuleSet) -> (u16, u16) {
+    arm_build_via(sim, rules, "Americans", "DEST", ProductionCategory::Ship, 1);
+    let americans = sim.interner.intern("Americans");
+    assert!(
+        sim.production
+            .factories
+            .test_arm_ready(americans, ProductionCategory::Ship)
+    );
+    assert!(super::dispatch_production_changes_for_tests(
+        sim, rules, None
+    ));
+    sim.substrate
+        .entities
+        .values()
+        .find(|entity| {
+            entity.owner() == americans
+                && sim
+                    .interner
+                    .resolve(entity.type_ref())
+                    .eq_ignore_ascii_case("DEST")
+        })
+        .map(|ship| (ship.position.rx(), ship.position.ry()))
+        .expect("naval Unit delivered")
+}
+
+/// `CellClass::Find_Nearest_Object @ 0x0047C3D0` (`0x00444329`) takes any
+/// Techno in the rally walk's water cell, with no alive or Health test: an
+/// infantry corpse on its Die1 sequence there refuses the fast path, as a
+/// living swimmer would, and the ship leaves by another cell.
+#[test]
+fn an_infantry_corpse_in_the_rally_cell_refuses_the_naval_fast_path() {
+    let rules = naval_rules_with_infantry("0=E1\n", "[E1]\nImage=GI\nStrength=100\n");
+    let mut sim = naval_yard_with_rally(&rules);
+    let mut corpse =
+        crate::sim::game_entity::GameEntity::test_default(50, "E1", "Americans", 14, 12);
+    corpse.set_category_for_test(crate::map::entities::EntityCategory::Infantry);
+    corpse.set_owner_for_test(sim.interner.intern("Americans"));
+    corpse.set_type_ref_for_test(sim.interner.intern("E1"));
+    corpse.mission_leaf = crate::sim::mission::leaf::MissionLeafState::for_entity_category(
+        crate::map::entities::EntityCategory::Infantry,
+    );
+    corpse.health.set_for_test(0);
+    sim.substrate.entities.insert(corpse);
+    sim.substrate.occupancy.add(
+        14,
+        12,
+        50,
+        crate::sim::movement::locomotor::MovementLayer::Ground,
+        Some(0),
+        CellListInsertion::PrependNonBuilding,
+    );
+    sim.begin_infantry_death_sequence(
+        50,
+        crate::sim::world::InfantryDeathSequence::Die1,
+        &rules,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let corpse = sim.substrate.entities.get(50).unwrap();
+    assert_eq!(corpse.mission_leaf.as_infantry().unwrap().doing(), 11);
+    assert_ne!(deliver_naval_yard_ship(&mut sim, &rules), (14, 12));
+    let mut clear = naval_yard_with_rally(&rules);
+    assert_eq!(deliver_naval_yard_ship(&mut clear, &rules), (14, 12));
+}
+
+#[test]
+fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
+    let rules = naval_production_rules();
+    let mut sim = naval_yard_with_rally(&rules);
 
     arm_build_via(
         &mut sim,
@@ -1292,6 +1439,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
 
+    sim.clear_lifecycle_test_events_for_test();
     assert!(super::dispatch_production_changes_for_tests(
         &mut sim, &rules, None
     ));
@@ -1347,6 +1495,41 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
         ),
         "success tail recentres through CellClass::Get_Center_Coords"
     );
+    assert!(produced.lifecycle.cell_marked());
+    assert!(
+        sim.substrate
+            .occupancy
+            .contains_entity(14, 12, produced.stable_id())
+    );
+    assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(14, 12), 0x20);
+    // The first Unlimbo already marks this ship. Exit44443F..44447A must
+    // then remove and replace its real Cell membership/raw occupation around
+    // SetLocation, even when the selected water-cell centre is unchanged.
+    let events = sim.lifecycle_test_events_for_test();
+    let revealed = events
+        .iter()
+        .rposition(|event| *event == crate::sim::world::LifecycleTestEvent::RevealDisplayBoundary)
+        .expect("the delivered ship passed its Unlimbo display boundary");
+    let tail = &events[revealed + 1..];
+    let removed = tail
+        .iter()
+        .position(|event| {
+            *event == crate::sim::world::LifecycleTestEvent::RawOccupationListUnlinked
+        })
+        .expect("success tail must remove the already revealed ship from its Cell list");
+    let cleared = tail
+        .iter()
+        .position(|event| *event == crate::sim::world::LifecycleTestEvent::RawOccupationCleared)
+        .expect("success tail must run the Unit raw-occupation REMOVE receiver");
+    let linked = tail
+        .iter()
+        .position(|event| *event == crate::sim::world::LifecycleTestEvent::RawOccupationListLinked)
+        .expect("success tail must put the ship back on its Cell list");
+    let marked = tail
+        .iter()
+        .position(|event| *event == crate::sim::world::LifecycleTestEvent::RawOccupationMarked)
+        .expect("success tail must run the Unit raw-occupation PUT receiver");
+    assert!(removed < cleared && cleared < linked && linked < marked);
     assert!(
         sim.production
             .factories

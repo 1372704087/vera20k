@@ -1,9 +1,112 @@
 //! Original MapCell/cache controls. Fixture inputs are native supplied storage;
 //! expected values are executed bytes, never a second edge-frame algorithm.
 use super::*;
-use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_clear_cell};
+use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_clear_cell, test_grid};
 use crate::sim::vision::MapTransition;
+use crate::util::save_codec;
 use serde_json::{Value, json};
+
+#[test]
+fn grow_shroud_captures_frontier_before_neighbors_lose_open_and_preserves_counters() {
+    let viewer = crate::sim::intern::test_intern("Player");
+    let other = crate::sim::intern::test_intern("Other");
+    let mut fog = FogState::new(33, 33);
+    for (cell, bits, pending) in [
+        ((10, 10), 8, false),
+        ((11, 10), 24, false),
+        ((20, 20), 24, true),
+        ((22, 20), 0, true),
+        ((1, 1), 8, true), // Outside In_Bounds, despite real storage.
+    ] {
+        fog.set_ground_bits_for_test(viewer, cell.0, cell.1, bits);
+        let vis = fog.by_owner.get_mut(&viewer).unwrap();
+        let index = vis.index(cell.0, cell.1).unwrap();
+        vis.shroud_knowledge[index].counter = -7;
+        vis.shroud_knowledge[index].gap_counter = 3;
+        vis.shroud_knowledge[index].pending = pending;
+        vis.map_cell_edge_cache[index] = MapCellEdgeCache {
+            initialized: true,
+            fog_open: true,
+            frames: [17, 23],
+        };
+        vis.publish_knowledge(index);
+    }
+    fog.set_ground_bits_for_test(other, 10, 10, 24);
+    assert!(fog.admit_whole_map_reveal(viewer));
+    let before = fog.by_owner[&viewer].clone();
+    let other_before = save_codec::serialize(&fog.by_owner[&other]).unwrap();
+    fog.grow_shroud(viewer, (16, 16), None);
+    let vis = &fog.by_owner[&viewer];
+    for (cell, bits, pending) in [
+        ((10, 10), 0, false),
+        ((11, 10), 8, false),
+        ((20, 20), 0, false),
+        ((22, 20), 0, false),
+        ((1, 1), 8, true),
+    ] {
+        let i = vis.index(cell.0, cell.1).unwrap();
+        assert_eq!(vis.ground_flags[i], bits, "{cell:?}");
+        assert_eq!(vis.shroud_knowledge[i].pending, pending, "{cell:?}");
+        assert_eq!(
+            vis.shroud_knowledge[i].counter,
+            before.shroud_knowledge[i].counter
+        );
+        assert_eq!(
+            vis.shroud_knowledge[i].gap_counter,
+            before.shroud_knowledge[i].gap_counter
+        );
+        assert_eq!(vis.map_cell_edge_cache[i], before.map_cell_edge_cache[i]);
+    }
+    assert!(!vis.is_revealed(10, 10));
+    assert!(
+        vis.is_revealed(11, 10),
+        "new frontier waits for the next invocation"
+    );
+    assert!(fog.whole_map_revealed_for_owner(viewer));
+    assert_eq!(
+        save_codec::serialize(&fog.by_owner[&other]).unwrap(),
+        other_before
+    );
+    let mut restored: FogState =
+        save_codec::deserialize(&save_codec::serialize(&fog).unwrap()).unwrap();
+    fog.grow_shroud(viewer, (16, 16), None);
+    restored.grow_shroud(viewer, (16, 16), None);
+    assert!(!restored.by_owner[&viewer].is_revealed(11, 10));
+    assert_eq!(
+        save_codec::serialize(&fog).unwrap(),
+        save_codec::serialize(&restored).unwrap()
+    );
+}
+
+#[test]
+fn grow_shroud_uses_the_shared_dummy_without_clearing_its_cache() {
+    let viewer = crate::sim::intern::test_intern("Player");
+    let mut terrain = test_grid(33, 33, test_clear_cell);
+    terrain.test_set_native_allocated_cells(&[(10, 10)]);
+    let mut fog = FogState::new(33, 33);
+    let mut vis = OwnerVisibility::new(33, 33);
+    vis.dummy_visibility.ground = 8;
+    vis.dummy_visibility.knowledge.open = true;
+    vis.dummy_visibility.knowledge.counter = 9;
+    vis.dummy_visibility.cache = MapCellEdgeCache {
+        initialized: true,
+        fog_open: true,
+        frames: [12, 31],
+    };
+    let cache = vis.dummy_visibility.cache;
+    fog.by_owner.insert(viewer, vis);
+    fog.grow_shroud(
+        viewer,
+        (16, 16),
+        Some(&NativeCellQuery::canonical(&terrain)),
+    );
+    let dummy = fog.by_owner[&viewer].dummy_visibility;
+    assert_eq!(dummy.ground, 0);
+    assert!(!dummy.knowledge.pending);
+    assert!(!dummy.knowledge.open);
+    assert_eq!(dummy.knowledge.counter, 9);
+    assert_eq!(dummy.cache, cache);
+}
 
 pub(crate) fn discovery_corpus() -> Value {
     let rows: Vec<Value> = serde_json::from_str(crate::test_fixture::text(
@@ -84,6 +187,9 @@ pub(crate) fn native_map_cell_fixture(
         .max()
         .unwrap()
         + 1;
+    // A physical map can retain a dense projection wider than its final
+    // allocated Cell. Keep that stride when seeding native component priors.
+    let (width, height) = topology.get("dimensions").map_or((width, height), pair);
     let mut fog = FogState::new(width, height);
     let mut view = OwnerVisibility::new(width, height);
     for input in &inputs {
@@ -156,7 +262,8 @@ fn native_forced_map_frontier_cache_and_notifications_preserve_counters() {
         }
         assert_eq!(row["rng_before"], row["rng_after"]);
         assert!(row["rng_calls"].as_array().unwrap().is_empty());
-        let restored: FogState = bincode::deserialize(&bincode::serialize(&fog).unwrap()).unwrap();
+        let restored: FogState =
+            save_codec::deserialize(&save_codec::serialize(&fog).unwrap()).unwrap();
         for cell in row["cells"].as_array().unwrap() {
             assert_native_cell_history(&restored, viewer, cell, &terrain, false);
         }
@@ -309,7 +416,8 @@ fn native_reshroud_leave_and_signed_clear_gate_preserve_gap_and_edge_bytes() {
             .unwrap()
             .store_reshrouded_map_cell(cell);
         assert_native_cell_history(&fog, viewer, &row["stored"], &terrain, false);
-        let loaded: FogState = bincode::deserialize(&bincode::serialize(&fog).unwrap()).unwrap();
+        let loaded: FogState =
+            save_codec::deserialize(&save_codec::serialize(&fog).unwrap()).unwrap();
         assert_native_cell_history(&loaded, viewer, &row["stored"], &terrain, false);
         assert_eq!(row["rng_before"], row["rng_after"], "{}", row["name"]);
         assert!(row["rng_calls"].as_array().unwrap().is_empty());
@@ -338,7 +446,10 @@ fn native_reshroud_allocated_cursor_stops_on_null_and_calls_shared_receiver() {
             .collect();
         assert_eq!(json!(cells), row["visits"], "{name}");
         assert!(fog.admit_whole_map_reveal(viewer));
-        fog.transition_whole_map_with_gap_reentry(
+        let mut world = crate::sim::world::Simulation::default();
+        world.fog = fog;
+        world.resolved_terrain = Some(terrain.clone());
+        world.transition_whole_map_with_gap_reentry(
             viewer,
             cells,
             MapTransition::Reshroud,
@@ -346,7 +457,10 @@ fn native_reshroud_allocated_cursor_stops_on_null_and_calls_shared_receiver() {
             &std::collections::BTreeMap::new(),
             Some(&[]),
             &std::collections::BTreeMap::new(),
+            &crate::sim::vision::VisionConfig::default(),
+            crate::sim::world::UninitContext::default(),
         );
+        let fog = world.fog;
         assert_eq!(
             fog.whole_map_revealed_for_owner(viewer),
             row["houses"]["player"]["revealed"] == 1,
@@ -369,8 +483,22 @@ fn native_trigger_reveal_edge_channels_match_all_original_masks_and_center_gates
     let viewer = crate::sim::intern::test_intern("Player");
     let (mut fog, terrain) = native_map_cell_fixture(&controls["topology"], viewer);
     let cells = NativeCellQuery::canonical(&terrain);
+    // The same center on a copy whose cells are not all row-major, so it
+    // has no interior cells and every frame looks its neighbours up.
+    let looked_up = {
+        let mut cells = terrain.cells().to_vec();
+        cells.swap(0, 1);
+        ResolvedTerrainGrid::from_cells(terrain.width(), terrain.height(), cells)
+    };
+    assert!(terrain.interior_cells().is_some() && looked_up.interior_cells().is_none());
+    let looked_up = NativeCellQuery::canonical(&looked_up);
     let center = (9, 10);
-    for channel in 0..2usize {
+    for (channel, cells) in [
+        (0usize, &cells),
+        (1, &cells),
+        (0, &looked_up),
+        (1, &looked_up),
+    ] {
         for (mask, expected) in controls["channel_mask_outputs"][channel]
             .as_array()
             .unwrap()
@@ -396,7 +524,7 @@ fn native_trigger_reveal_edge_channels_match_all_original_masks_and_center_gates
                 }
             }
             assert_eq!(
-                i64::from(fog.map_cell_edge_frame(viewer, center, channel != 0, Some(&cells))),
+                i64::from(fog.map_cell_edge_frame(viewer, center, channel != 0, Some(cells))),
                 expected.as_i64().unwrap(),
                 "channel{channel} mask{mask}"
             );
@@ -433,6 +561,7 @@ fn native_trigger_reveal_retained_cache_admission_matches_original_histories() {
             pair(&history["cell"]),
             history["final"] == 1,
             Some(&cells),
+            crate::sim::vision::MapRevealProjection::Transient,
         );
         let expected = history["trace"]
             .as_array()
@@ -450,7 +579,8 @@ fn native_trigger_reveal_retained_cache_admission_matches_original_histories() {
         for row in history["states"].as_array().unwrap() {
             assert_native_cell_history(&fog, viewer, row, &terrain, false);
         }
-        let restored: FogState = bincode::deserialize(&bincode::serialize(&fog).unwrap()).unwrap();
+        let restored: FogState =
+            save_codec::deserialize(&save_codec::serialize(&fog).unwrap()).unwrap();
         for row in history["states"].as_array().unwrap() {
             assert_native_cell_history(&restored, viewer, row, &terrain, false);
         }

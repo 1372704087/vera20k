@@ -10,8 +10,8 @@ from tools.spatial_oracle.building_body_rules import SP,dwords
 from tools.projectile_oracle import bridge_render_inputs as module
 
 class PaletteReader(module.BulletReader):
- def __init__(self,art):
-  super().__init__(art);self.u.mem_map(0x24400000,0x3c00000)
+ def __init__(self,art,root=None):
+  super().__init__(art,root);self.u.mem_map(0x24400000,0x3c00000)
  def alloc(self,n):
   out=self.cursor;self.cursor+=(n+15)&~15;assert self.cursor<0x28000000;return out
  def hook(self,u,p,n,d):
@@ -55,18 +55,36 @@ def initialize(m, *, ordinary=False, early_temperat=False):
   assert u.reg_read(UC_X86_REG_ESP)==SP
  return m
 
-def color_scheme_palette(name='LightGold'):
+def initialize_mouse(m):
+ """Original MOUSEPAL startup on this already initialized PaletteReader.
+
+ Existing callers retain their allocation/startup order. The caller supplies
+ immutable MOUSEPAL.PAL bytes through this owner's existing file transport;
+ original load/copy/byte expansion and the complete N1 Convert run unchanged.
+ """
+ u=m.u
+ u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_EBX,0)
+ run_checked(u,0x52C136,0x52C1EA,count=100000000,timeout_us=120000000,
+  required_addresses=(0x52C142,0x52C194,0x52C1D8,0x48E740,0x4BBB00,0x48EBF0))
+ assert u.reg_read(UC_X86_REG_ESP)==SP
+ convert=m.read32(0x87F6C8);assert convert and m.read32(convert+0x16C)==1
+ return m
+
+def color_scheme_palette(name='LightGold', *, owner=None, physical_assets=None):
  """Native selected temperate palette expansion and whole ColorScheme ctor.
 
  The selected theater/name and spare registry are supplied component inputs;
- no SHP Convert or reconstructed table initializes the voxel Convert.
+ no SHP Convert or reconstructed table initializes the voxel Convert. An
+ existing initialized PaletteReader may own a composed scene; immutable
+ physical_assets then supply the same RULESMD/UNITTEM inputs without another
+ runtime or palette implementation. Default callers retain their old setup.
  """
  from tools.procedural_drawing_oracle.house_color import parse_native_color
- root=module.assets_root();raw=(root/'RULESMD.INI').read_bytes()
+ root=module.assets_root();raw=(physical_assets['RULESMD.INI'] if physical_assets is not None else (root/'RULESMD.INI').read_bytes())
  sections,_=module.lexical(raw,{'Colors'});token=sections['Colors'][name]
  hsv=parse_native_color(name,token)
- m=initialize(PaletteReader({}));u=m.u
- source=m.alloc(768);unit=(root/'UNITTEM.PAL').read_bytes();assert len(unit)==768
+ m=owner if owner is not None else initialize(PaletteReader({}));u=m.u
+ source=m.alloc(768);unit=(physical_assets['UNITTEM.PAL'] if physical_assets is not None else (root/'UNITTEM.PAL').read_bytes());assert len(unit)==768
  u.mem_write(source,unit);u.reg_write(UC_X86_REG_ESI,source)
  u.reg_write(UC_X86_REG_ESP,SP);u.reg_write(UC_X86_REG_EDI,0)
  run_checked(u,0x534cd3,0x534d31,required_addresses=(0x6260d0,))

@@ -48,6 +48,38 @@ divisors 1..7, quotients 1/2/3/7/49/100/1000, exact multiples and their two
 neighbors, in both signs. These include synthetic pointer displacements outside
 the supplied viewport to characterize arithmetic, not desktop cursor reach.
 
+## Radar click and Cell camera target
+
+`python -m tools.input_oracle.fast_scroll --radar-click --check` compares the
+separate `radar_click.json` reference. `--write` deliberately regenerates it;
+the default scrolling command and reference remain unchanged.
+
+The complete original gadget `6539D0` runs through `656750`, the tracked
+object's virtual **+4C**, the signed camera clamp, `Map5657A0`, `Cell480A30`
+and `Tactical6D6070/6D8B30`. A moving AMCV therefore contributes its current
+Drive head through existing `Foot4DBDF0/Drive4AFCC0`, rather than its physical
+Object+48 coordinate. Stop's null head exercises the native current-coordinate
+fallback. Shared Foot/Cell fixture setup and the existing saved-camera VM own
+memory/call transport; no lookup, navigation, ground or camera return is supplied.
+
+Prepared source poses/heads reference the consumed original moving-sight
+`arrival_1`/`stop` histories. The empty ramp uses GoldSt106,34's independently
+executed TMP/Recalc level5/slope1 from `placement_render.json`. The corpus
+records actual tracker results, signed cells, Map identities/Dummy writes,
+Cell center XYZ, camera centers/top-left/viewport and original call order.
+Mode/state, generated-image margin and right-flag controls bound admission.
+
+Sparse Cell enrollment, flat corridor slope/flags, a retained tracker entry,
+generated image geometry and completed radar-online mode/state are declared
+inputs. Native provider/power/opening animation, full radar geometry and tracker
+registration, whole skirmish startup and rendered pixels remain outside this
+comparison. The full viewport updater executes; no ZBuffer is allocated.
+The existing discovery-geometry startup executes original initializers for the
+independent ground/shroud height scalars and projection constants.
+The margin control reaches the original cursor setter's already-set/null-image
+early return. Sidecars record executable identity, replay and these boundaries,
+without repository source hashes.
+
 ## Established native behavior
 
 The active caller chain was checked against original instructions:

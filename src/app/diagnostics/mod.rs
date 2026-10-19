@@ -1,4 +1,4 @@
-//! Diagnostics owner (F12): process debug/capture UI plus the hidden
+//! Diagnostics owner (F12): process debug overlays plus the hidden
 //! shell/tactical capture harnesses. Match-lifetime diagnostic replay lives
 //! in `app::match_diagnostics`.
 

@@ -161,14 +161,8 @@ fn receiver_effect_coord(
     target: &GameEntity,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> ProjectileCoord {
-    let x = i32::from(target.position.rx())
-        .wrapping_mul(256)
-        .wrapping_add(target.position.sub_x().to_num::<i32>());
-    let y = i32::from(target.position.ry())
-        .wrapping_mul(256)
-        .wrapping_add(target.position.sub_y().to_num::<i32>());
-    let z = object_world_z_leptons(target, terrain);
-    ProjectileCoord::new(x, y, z)
+    let location = crate::sim::movement::ground_pose::object_location(target, terrain);
+    ProjectileCoord::new(location.x, location.y, location.z)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -231,7 +225,6 @@ pub(super) fn resolve_receive_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    cheats: &crate::sim::cheats::Cheats,
 ) -> Option<ResolvedReceiveDamage> {
     let distance_leptons = event.distance_leptons;
     let receiver_flags = event.receiver_flags;
@@ -242,6 +235,18 @@ pub(super) fn resolve_receive_damage(
     if target.category() == EntityCategory::Structure && target.health.current() == 0 {
         return None;
     }
+    // Residual: a null warhead (the empty name) finds no WarheadType, so the
+    // hit is dropped. Native passes it with IgnoreDefenses: Object 5F5390
+    // skips 489180, Building 442230 reads it only in its NowYellow/NowRed
+    // Sparky loop, Unit 737C90 and Aircraft 4165C0 never read it, and Foot
+    // 4D7330 and Techno 701BF6 test it, so the target dies; an Infantry death
+    // reads its InfDeath (518369) and crashes. Only custom Rules without
+    // `[CombatDamage] C4Warhead=`/`CrushWarhead=` reach it (retail and all
+    // nine modes set both): the C4 detonation (world_orders), the Fly/Jumpjet
+    // self-destruct (`receive_own_health_c4`), dominated insignificant units
+    // (house_strategy) and the Lift drop crush (locomotor_lift). The tree
+    // death's C4 area damage matches native, which returns on the null
+    // warhead (DamageArea 489280 at 4892D7).
     let warhead = rules.warhead(interner.resolve(event.warhead_ref))?;
     let target_type = interner.object_type(target.type_ref(), rules);
     let source = (event.attacker_id != RAD_NO_ATTACKER)
@@ -262,18 +267,6 @@ pub(super) fn resolve_receive_damage(
             event.damage,
             receiver_flags.ignore_defenses,
         )
-    };
-    // Trainer "one-hit kill": scale what the cheating house deals. The
-    // multiplier acts on the packet the receiver would have seen today, and
-    // only on positive damage — a heal or a repair stays a heal, and a zero
-    // stays zero. `saturating_mul` keeps a 65535x switch from wrapping into a
-    // heal.
-    let receiver_input = if receiver_input > 0
-        && source_house.is_some_and(|owner| cheats.applies_to(owner))
-    {
-        receiver_input.saturating_mul(cheats.damage_multiplier())
-    } else {
-        receiver_input
     };
 
     let allied = |asker: InternedId, other: InternedId| {
@@ -419,7 +412,6 @@ pub(crate) fn wave_post_object_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    cheats: &crate::sim::cheats::Cheats,
 ) -> Option<i32> {
     resolve_receive_damage(
         event,
@@ -431,7 +423,6 @@ pub(crate) fn wave_post_object_damage(
         scenario_no_damage,
         current_tick,
         terrain,
-        cheats,
     )
     .and_then(|resolved| resolved.outcome.post_object_damage)
 }
@@ -492,18 +483,6 @@ pub(super) fn postmortem_duration_for_event(
         .then(|| postmortem_delay_duration(warhead, event.distance_leptons))
 }
 
-/// The vt+0x160 `TechnoClass::IsIronCurtained` (`0x0041BF40`) test that
-/// `Apply_area_damage` (`0x00489280`) makes at `0x0048994E` and `0x00489A4F`.
-pub(super) fn has_active_area_invulnerability(entity: &GameEntity, current_tick: u64) -> bool {
-    // Every GameEntity is a TechnoClass-derived object, so the native
-    // AbstractFlags +0x14 bit-0 identity test is inherent in this store. The
-    // virtual +0x160 result is the existing passive IC/FS timer predicate.
-    crate::sim::superweapon::invulnerability::is_invulnerable(
-        entity.invulnerability.as_ref(),
-        current_tick as u32,
-    )
-}
-
 /// `Apply_area_damage` (`0x00489280`)'s isolation pre-scan (`0x0048993E..0x00489968`):
 /// an Iron Curtained receiver under 85 leptons without the Force Shield byte arms it.
 fn event_arms_ic_isolation(
@@ -514,11 +493,15 @@ fn event_arms_ic_isolation(
     event.near_center_ic_isolation_eligible
         && event.distance_leptons < 85
         && entities.get(event.target_id).is_some_and(|target| {
-            has_active_area_invulnerability(target, current_tick)
-                && target.invulnerability.as_ref().is_some_and(|state| {
-                    state.kind()
-                        == crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain
-                })
+            // 0x0048994E: vt+0x160 IsIronCurtained (0x0041BF40). Every
+            // GameEntity is TechnoClass-derived, so the AbstractFlags +0x14
+            // bit-0 identity test before it is inherent in this store.
+            crate::sim::superweapon::invulnerability::is_invulnerable(
+                target.invulnerability.as_ref(),
+                current_tick as u32,
+            ) && target.invulnerability.as_ref().is_some_and(|state| {
+                state.kind() == crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain
+            })
         })
 }
 

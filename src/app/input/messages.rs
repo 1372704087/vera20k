@@ -104,7 +104,7 @@ pub(crate) fn post_type_select_feedback(state: &mut AppState, csf_key: &str) {
     post_silent_house_feedback(state, csf_key, TYPE_SELECT_MESSAGE_TIMEOUT_MS);
 }
 
-///63A0D0/639FD0 use the same silent730A90 HUD owner with duration1E0.
+///63A0D0/639FD0/639130 use the same silent730A90 HUD owner with duration1E0.
 /// Their separate ScoldSound belongs to the planning input owner.
 pub(crate) fn post_planning_refusal(state: &mut AppState, csf_key: &str) {
     post_silent_house_feedback(state, csf_key, 0x1E0 * 16);
@@ -491,10 +491,9 @@ mod tests {
         // The stock `.6` spelling and the native control's `0.6` both pass
         // through the same production ReadDouble owner. Constructor omission
         // has distinct observed bits and is covered above.
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(stock) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let stock = RuleSet::from_ini(&retail).unwrap();
         let recorded = rows.iter().find(|row| row["input_delay"] == "0.6").unwrap();
         assert_eq!(
             stock.general.message_delay_minutes.bits(),
@@ -510,12 +509,9 @@ mod tests {
 
     #[test]
     fn trigger_message_scenario_side_selects_original_runtime_scheme_in_stock_colors() {
-        use crate::rules::ruleset::RuleSet;
-
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
             return;
         };
-        let rules = RuleSet::from_ini(&retail).unwrap();
         let native = original_trigger_messages();
         for row in native["histories"].as_array().unwrap() {
             let color = row["calls"].as_array().unwrap().last().unwrap()["color"]

@@ -72,11 +72,11 @@ pub struct ParticleType {
     pub max_ec: i32,
     /// Damage amount per damage tick.
     pub damage: i32,
-    /// Warhead reference name, resolved later against the warhead registry.
+    /// `Warhead=`, the stored ID the ordered Rules processor's WarheadType
+    /// factory answered; resolved later against the warhead registry.
     pub warhead: Option<String>,
-    /// Starting animation frame.
-    pub start_frame: u16,
     /// Frames per animation loop.
+    #[cfg(test)]
     pub num_loop_frames: u16,
     /// Base translucency level: 0, 25, or 50.
     pub translucency: u8,
@@ -156,6 +156,7 @@ impl ParticleType {
     /// `next_particle` is always `None` — the resolver in `RuleSet::from_ini`
     /// fills it in after all particle types have been collected.
     /// Use `from_ini_section_pending` if you need the unresolved reference name.
+    #[cfg(test)]
     pub fn from_ini_section(name: &str, section: &IniSection) -> Self {
         Self::from_ini_section_pending(name, section).partial
     }
@@ -188,8 +189,9 @@ impl ParticleType {
             max_dc: section.read_int("MaxDC", 0),
             max_ec: section.read_int("MaxEC", 1),
             damage: section.read_int("Damage", 0),
-            warhead: section.read_name("Warhead", 0x80).map(str::to_owned),
-            start_frame: section.read_int("StartFrame", 0).clamp(0, u16::MAX as i32) as u16,
+            // Constructor null; only the ordered Process owner reads it.
+            warhead: None,
+            #[cfg(test)]
             num_loop_frames: section
                 .read_int("NumLoopFrames", 1)
                 .clamp(0, u16::MAX as i32) as u16,
@@ -214,13 +216,16 @@ impl ParticleType {
 
             color_list: section.read_color_list("ColorList").unwrap_or_default(),
             color_speed: NativeF64Bits::from_bits(section.read_double("ColorSpeed", 0.0).to_bits()),
-            start_color_1: section.read_color_rgb("StartColor1", [0, 0, 0]),
-            start_color_2: section.read_color_rgb("StartColor2", [0, 0, 0]),
+            start_color_1: section.read_color_rgb("StartColor1", [0, 0, 0], None),
+            start_color_2: section.read_color_rgb("StartColor2", [0, 0, 0], None),
 
-            x_velocity: section.read_int("XVelocity", 0),
-            y_velocity: section.read_int("YVelocity", 0),
+            // ParticleTypeCtor644BE0 initializes these divisors to one;
+            // ReadINI64521A/645234/645268 passes each current value as default.
+            // Original constructor/read controls: procedural_drawing_oracle/welding.
+            x_velocity: section.read_int("XVelocity", 1),
+            y_velocity: section.read_int("YVelocity", 1),
             min_z_velocity: section.read_int("MinZVelocity", 0),
-            z_velocity_range: section.read_int("ZVelocityRange", 0),
+            z_velocity_range: section.read_int("ZVelocityRange", 1),
         };
 
         PendingParticleType {
@@ -335,7 +340,6 @@ mod tests {
         assert_eq!(pt.max_dc, 60);
         assert_eq!(pt.max_ec, 448);
         assert_eq!(pt.damage, 0);
-        assert_eq!(pt.warhead.as_deref(), Some("Gas"));
         assert_eq!(pt.end_state_ai, 11);
         assert_eq!(pt.state_ai_advance, 3);
         assert_eq!(pt.translucency, 50);

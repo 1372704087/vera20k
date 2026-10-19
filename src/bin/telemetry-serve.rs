@@ -268,7 +268,7 @@ fn main() -> Result<(), String> {
             std::process::exit(2);
         }
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    vera20k::util::logging::init_stderr_logger("info").map_err(|error| error.to_string())?;
 
     let mut runtime = SimRuntime {
         simulation: build_world(args.seed, args.per_category, args.structures),
@@ -285,7 +285,7 @@ fn main() -> Result<(), String> {
 
     let server = TelemetryServer::start(args.addr, args.web_root)
         .map_err(|error| format!("telemetry server on {}: {error}", args.addr))?;
-    println!("dashboard: http://{}", server.addr());
+    println!("dashboard: {}", server.bootstrap_url());
     println!("Ctrl+C to stop");
 
     let mut ring = TickTimingRing::default();
@@ -307,6 +307,7 @@ fn main() -> Result<(), String> {
 
     loop {
         let frame_started = Instant::now();
+        runtime.simulation.set_frame_profiling(server.has_clients());
         runtime
             .advance_frame_for_tooling(&[], SIM_TICK_MS)
             .map_err(|error| format!("frame {tick}: {error}"))?;
@@ -314,16 +315,23 @@ fn main() -> Result<(), String> {
         ring.push(frame_started.elapsed().as_secs_f32() * 1000.0);
         tick += 1;
 
-        if tick % PUBLISH_EVERY == 0 {
+        if tick % PUBLISH_EVERY == 0 && server.has_clients() {
             let mut snapshot = runtime.simulation.telemetry_snapshot();
+            // This artificial world keeps its engine houses passive to avoid
+            // victory/defeat. Display them as the demo's two participants; the
+            // actual app always publishes the authoritative passive flag.
+            for house in &mut snapshot.houses {
+                house.passive = false;
+            }
             let now = Instant::now();
-            let mut timing = ring.summarize(SIM_TICK_MS as f32);
+            let mut timing = ring.summarize(Some(SIM_TICK_MS as f32));
             // Headless: no render frames, so FPS stays 0. The tick rate is the
             // demo's real wall-clock pace.
             timing.tick_hz =
                 PUBLISH_EVERY as f32 / now.duration_since(last_publish).as_secs_f32().max(1e-3);
             last_publish = now;
             snapshot.timing = Some(timing);
+            snapshot.profile = runtime.simulation.frame_profile().report();
             match serde_json::to_string(&snapshot) {
                 Ok(json) => server.publish(json),
                 Err(error) => log::warn!("snapshot serialization failed: {error}"),
@@ -360,12 +368,12 @@ fn main() -> Result<(), String> {
         }
 
         if args.ticks != 0 && tick >= args.ticks {
-            let timing = ring.summarize(SIM_TICK_MS as f32);
+            let timing = ring.summarize(Some(SIM_TICK_MS as f32));
             println!(
                 "stopped after {tick} ticks: p50 {:.2} ms, p99 {:.2} ms, budget use {:.0}%",
                 timing.p50_ms,
                 timing.p99_ms,
-                timing.budget_utilization * 100.0
+                timing.budget_utilization.unwrap_or(0.0) * 100.0
             );
             return Ok(());
         }

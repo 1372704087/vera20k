@@ -15,7 +15,8 @@
 use crate::rules::ruleset::RuleSet;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
-use crate::util::fixed_math::{SimFixed, facing_from_delta_int_u16};
+use crate::util::direction_tables::facing16_from_delta;
+use crate::util::fixed_math::SimFixed;
 
 /// Compute the signed shortest-path rotation from `current` to `target` in
 /// 8-bit facing space. No production caller; the live shortest-arc logic is the
@@ -52,7 +53,7 @@ pub fn facing_toward_lepton(
     let to_lep_y: i32 = to_ry as i32 * 256 + to_sub_y.to_num::<i32>();
     let dx: i32 = to_lep_x - from_lep_x;
     let dy: i32 = to_lep_y - from_lep_y;
-    facing_from_delta_int_u16(dx, dy)
+    facing16_from_delta(dx, dy)
 }
 
 /// Convert an 8-bit facing to a 16-bit one (shifts into the upper byte).
@@ -81,9 +82,9 @@ pub fn body_facing_to_turret(body: u8) -> u16 {
 pub fn facing_toward_target(
     entity: &GameEntity,
     target: &crate::sim::combat::TargetKind,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
 ) -> Option<u16> {
-    let (trx, try_, tsx, tsy) = crate::sim::combat::resolve_target_coords(target, entities)?;
+    let (trx, try_, tsx, tsy) = crate::sim::combat::resolve_target_coords(target, world)?;
     Some(facing_toward_lepton(
         entity.position.rx(),
         entity.position.ry(),
@@ -193,11 +194,12 @@ pub(crate) struct FacingUpdate {
 /// `game_entity::voxel_recoil`; it does not change aim or consume RNG.
 pub(crate) fn facing_update(
     entity: &GameEntity,
-    entities: &EntityStore,
+    world: &crate::sim::world::Simulation,
     rules: Option<&RuleSet>,
     interner: &crate::sim::intern::StringInterner,
     binary_frame: u32,
 ) -> FacingUpdate {
+    let entities = &world.substrate.entities;
     let mut out = FacingUpdate {
         turret_destination: None,
         turret_spins: false,
@@ -211,7 +213,7 @@ pub(crate) fn facing_update(
     let target_facing: Option<u16> = entity
         .attack_target
         .target()
-        .and_then(|attack| facing_toward_target(entity, &attack, entities));
+        .and_then(|attack| facing_toward_target(entity, &attack, world));
     if let Some(tgt) = target_facing
         && !entity.turret_rotation_latch.is_set()
     {
@@ -267,7 +269,7 @@ pub(crate) fn facing_update(
             // `+0x2E4` — a tank riding a Battle Bunker holds its aim forever.
             let bunkered = entity.bunker.link().installed_in().is_some();
             if dwell_elapsed && !bunkered {
-                out.turret_destination = Some(match nav_destination_facing(entity, entities) {
+                out.turret_destination = Some(match nav_destination_facing(entity, world) {
                     Some(nav) => nav,
                     None => entity.body_facing_current(binary_frame),
                 });
@@ -288,7 +290,9 @@ pub(crate) fn facing_update(
 /// mask to one byte, add 8, then shift into the high byte before calling the
 /// shared `FacingClass::Set @ 0x004C9220` at `0x00736BDD`.
 pub(crate) fn turret_spin_destination(current: u16) -> u16 {
-    (((((current >> 7) + 1) >> 1) & 0x00FF).wrapping_add(8)).wrapping_shl(8)
+    u16::from(crate::util::direction_tables::round_facing16_to_8(current))
+        .wrapping_add(8)
+        .wrapping_shl(8)
 }
 
 /// `[General] GuardAreaTargetingDelay=` fallback for rules-less fixtures. Stock
@@ -302,9 +306,12 @@ const NATIVE_IDLE_TURRET_DWELL_BIAS: i64 = 5;
 /// The idle turret's aim when a move order is live: the NavCom (`+0x5A4`,
 /// read at `0x00736BA3`) through `DirectionToTarget @ 0x005F3DB0`
 /// (`0x00736BC3`), the helper arm A aims with.
-fn nav_destination_facing(entity: &GameEntity, entities: &EntityStore) -> Option<u16> {
+fn nav_destination_facing(
+    entity: &GameEntity,
+    world: &crate::sim::world::Simulation,
+) -> Option<u16> {
     let nav_com = entity.navigation.nav_com()?;
-    facing_toward_target(entity, &nav_com.into(), entities)
+    facing_toward_target(entity, &nav_com.into(), world)
 }
 
 /// Whether this object's currently selected weapon sets `OmniFire=`. Native
@@ -351,12 +358,12 @@ mod tests {
         entity
             .attack_target
             .set_for_test(Some(TargetKind::Cell(10, 5)));
-        let interner = crate::sim::intern::test_interner();
-        let store = EntityStore::new();
+        let mut sim = crate::sim::world::Simulation::new();
+        sim.interner = crate::sim::intern::test_interner();
         for (mode, turns) in [(0, true), (2, false), (0, true)] {
             entity.set_gunner_weapon(mode, object);
             assert_eq!(
-                facing_update(&entity, &store, Some(&rules), &interner, 100)
+                facing_update(&entity, &sim, Some(&rules), &sim.interner, 100)
                     .turret_destination
                     .is_some(),
                 turns,

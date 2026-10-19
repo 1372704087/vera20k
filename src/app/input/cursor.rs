@@ -138,6 +138,24 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // Sidebar/minimap hits are already short-circuited above, so the SW reticle
     // only renders on the tactical map.
     if let Some(section) = state.armed_super_weapon_type() {
+        if let Some(runtime) = state.match_state.sim_runtime.as_ref()
+            && let Some(owner) = preferred_local_owner_name(state)
+                .and_then(|name| runtime.simulation.interner.get(&name))
+            && let Some(sw_type) = runtime.simulation.interner.get(section)
+        {
+            let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+                state,
+                state.match_state.input.cursor_x,
+                state.match_state.input.cursor_y,
+            );
+            if runtime
+                .simulation
+                .super_weapon_target_check(&runtime.resources.rules, owner, sw_type, cell, false)
+                .is_err()
+            {
+                return Some(CursorFeedbackKind::SuperWeaponTarget(CursorId::Default));
+            }
+        }
         let cursor_id = state
             .rules()
             .and_then(|r| r.super_weapon(section))
@@ -222,11 +240,21 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         state.match_state.input.cursor_y,
     );
     let owner_id = sim.interner.get(&owner);
-    let modifier = crate::app::input::context_order::resolve_order_modifiers(
+    let mut modifier = crate::app::input::context_order::resolve_order_modifiers(
         crate::app::input::dispatch::is_ctrl_held(state),
         crate::app::input::dispatch::is_shift_held(state),
         crate::app::input::dispatch::is_alt_held(state),
     );
+    let force_move_key = crate::app::input::dispatch::is_alt_held(state);
+    if modifier == super::context_order::OrderModifier::AttackMove
+        && !super::context_order::selection_can_attack_move(sim, state.rules(), &selected)
+    {
+        modifier = if force_move_key {
+            super::context_order::OrderModifier::ForceMove
+        } else {
+            super::context_order::OrderModifier::Normal
+        };
+    }
     if crate::app::presentation::instances::cell_visibility_for_local_owner(
         owner_id,
         Some(&sim.fog),
@@ -279,14 +307,23 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         });
     let best_id = select_best_for_action(sim, &selected, action_target, state.rules());
 
-    // Unit73FD7C post-processes the base Ctrl/Alt action too; only Shift and
-    // the single-object self action precede that arm. Ctrl+Alt also repairs.
-    if modifier != crate::app::input::context_order::OrderModifier::Shift
-        && let Some(kind) = hover.as_ref().and_then(|hover| {
-            unit_repair_feedback(sim, &selected, best_id, hover, state.rules(), owner_id)
-        })
-    {
-        return Some(kind);
+    if let Some(hover) = hover.as_ref() {
+        let kind = capability_cursor_for_hover(
+            sim,
+            &selected,
+            best_id,
+            hover,
+            state.rules(),
+            state.overlay_registry(),
+            modifier,
+            force_move_key,
+        );
+        return Some(promote_attack_move_feedback(
+            kind,
+            modifier == super::context_order::OrderModifier::AttackMove
+                || state.match_state.input.queued_order_mode
+                    == crate::app::types::OrderMode::AttackMove,
+        ));
     }
 
     // Force-fire override: with Ctrl held the cell path takes the attack branch
@@ -301,17 +338,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // `Primary=`/`Secondary=` is the wrong test for a `TurretCount>0` type —
     // it hid the force-fire cursor for the Prism Tank and the Gattling Cannon.
     if modifier == crate::app::input::context_order::OrderModifier::ForceFire {
-        if let Some(kind) = hover
-            .as_ref()
-            .and_then(|hover| forced_bomb_feedback(sim, &selected, best_id, hover, state.rules()))
-        {
-            return Some(kind);
-        }
-        let target = hover
-            .as_ref()
-            .map_or(combat::TargetKind::Cell(hover_rx, hover_ry), |hover| {
-                combat::TargetKind::Entity(hover.stable_id)
-            });
+        let target = combat::TargetKind::Cell(hover_rx, hover_ry);
         if let Some(feedback) = best_id.and_then(|id| {
             force_fire_feedback(
                 sim,
@@ -325,25 +352,18 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             return feedback;
         }
     }
-    if let Some(hover) = hover.as_ref() {
-        // Shift's native action8 returns before Unit's healing override.
-        if modifier == crate::app::input::context_order::OrderModifier::Shift
-            && unit_repair_feedback(sim, &selected, best_id, hover, state.rules(), owner_id)
-                .is_some()
-        {
-            return Some(CursorFeedbackKind::FriendlyUnit);
-        }
-        let kind = capability_cursor_for_hover(
-            sim,
-            &selected,
-            best_id,
-            hover,
-            state.rules(),
-            state.overlay_registry(),
-        );
-        return Some(kind);
+    if let Some(feedback) = unforced_cell_attack_feedback(
+        sim,
+        owner_id,
+        best_id,
+        (hover_rx, hover_ry),
+        modifier,
+        selected.len(),
+        state.rules(),
+        state.overlay_registry(),
+    ) {
+        return Some(feedback);
     }
-
     Some(empty_cell_feedback(
         state,
         sim,
@@ -352,6 +372,50 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         (hover_rx, hover_ry),
         modifier,
     ))
+}
+
+/// Techno What_Action on a Cell's unforced Attack rung
+/// ([`Simulation::cell_attack_rung_admits`]) precedes its Shift and Move
+/// rungs, so it answers under every chord but Ctrl (the forced rung above)
+/// and Ctrl+Alt. Its tail is the forced shot's; an answer other than Attack
+/// falls through to the Move rungs. Foot's shroud wrapper turns it back into
+/// Move or NoMove over a shrouded Cell (`0x004DDE64..0x004DDEBE`); the
+/// Building wrapper (`0x00447540`) keeps a building's Attack there.
+///
+/// [`Simulation::cell_attack_rung_admits`]: crate::sim::world::Simulation::cell_attack_rung_admits
+#[allow(clippy::too_many_arguments)]
+fn unforced_cell_attack_feedback(
+    sim: &crate::sim::world::Simulation,
+    viewer: Option<crate::sim::intern::InternedId>,
+    best_id: Option<u64>,
+    cell: (u16, u16),
+    modifier: crate::app::input::context_order::OrderModifier,
+    selected_count: usize,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> Option<CursorFeedbackKind> {
+    use crate::app::input::context_order::OrderModifier;
+    let id = best_id?;
+    let foot = sim
+        .entities()
+        .get(id)
+        .is_some_and(|entity| entity.category() != crate::map::entities::EntityCategory::Structure);
+    if matches!(
+        modifier,
+        OrderModifier::ForceFire | OrderModifier::GuardArea
+    ) || (foot
+        && viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true)))
+        || !sim.cell_attack_rung_admits(id, cell, rules?, overlay_registry)
+    {
+        return None;
+    }
+    let target = combat::TargetKind::Cell(cell.0, cell.1);
+    match force_fire_feedback(sim, id, &target, selected_count, rules, overlay_registry)? {
+        Some(feedback @ (CursorFeedbackKind::EnemyUnit | CursorFeedbackKind::EnemyOutOfRange)) => {
+            Some(feedback)
+        }
+        _ => None,
+    }
 }
 
 /// The cursor over a Cell with no object offered: the resolved object's
@@ -393,12 +457,41 @@ fn empty_cell_cursor(
         MoveAction::Move => {}
     }
 
+    if modifier == super::context_order::OrderModifier::GuardArea
+        && let (Some(rules), Some(id)) = (rules, best_id)
+        && super::context_order::guard_area_admitted(sim, rules, id, None)
+    {
+        return CursorFeedbackKind::GuardArea;
+    }
     // Ore/gem harvest hangs off the cell action: UnitClass only substitutes the
     // harvest action when the base action came back Move over a Cell the
     // viewer has mapped (`0x007405DB..0x007405E6`), and it tests the one
     // resolved object's harvester flags, not the whole selection.
     let shrouded =
         viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true));
+    // Building447563..4475EE: an UndeploysInto resource gatherer/destination
+    //shows Harvest over mapped Tiberium land; its click still archives + sells.
+    let refinery_harvest = !shrouded
+        && best_id.is_some_and(|id| {
+            sim.entities().get(id).is_some_and(|entity| {
+                entity.category() == crate::map::entities::EntityCategory::Structure
+                    && rules
+                        .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
+                        .is_some_and(|object| {
+                            object.undeploys_into.is_some()
+                                && object.resource_gatherer
+                                && object.resource_destination
+                        })
+                    && sim.resolved_terrain.as_ref().is_some_and(|terrain| {
+                        let cells =
+                            crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+                        cells.land_type(cells.lookup((cell.0 as i16, cell.1 as i16))) == 5
+                    })
+            })
+        });
+    if refinery_harvest {
+        return CursorFeedbackKind::Harvest;
+    }
     let has_ore = !shrouded
         && match (sim.overlay_grid.as_ref(), registry, rules) {
             (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
@@ -418,6 +511,11 @@ fn empty_cell_cursor(
         return CursorFeedbackKind::Harvest;
     }
     match order_mode {
+        crate::app::presentation::render::OrderMode::Move
+            if modifier == super::context_order::OrderModifier::AttackMove =>
+        {
+            CursorFeedbackKind::AttackMove
+        }
         crate::app::presentation::render::OrderMode::Move => CursorFeedbackKind::Move,
         crate::app::presentation::render::OrderMode::AttackMove => CursorFeedbackKind::AttackMove,
     }
@@ -427,7 +525,7 @@ fn empty_cell_cursor(
 /// asks it: DetermineAction (`0x00692610`) from `0x0069300B` sets the
 /// mouse-over argument, so the sim's [`Simulation::cell_move_action`] never
 /// asks Can_Enter_Cell here and a Cell the click will redirect shows Move.
-/// A selected structure answers Move: VERA answers a rally-point click there.
+/// A selected rally/undeploy structure shares the building cell-order admission.
 /// Without a local House, a resolved object or rules, or for a query the sim
 /// cannot answer (no map cells), the cursor keeps Move: VERA-internal, as a
 /// live gamemd session always has a map and a selection here.
@@ -442,15 +540,24 @@ fn what_action_on_cell(
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> crate::sim::world::MoveAction {
     use crate::sim::world::{CellActionQuery, MoveAction};
-    let (Some(viewer), Some(id), Some(rules)) = (viewer, best_id, rules) else {
+    // gamemd only asks the selected object's What_Action when a selection exists:
+    // `DisplayClass__DetermineAction @ 0x00692610` returns the vtable `+0x70` answer
+    // from inside `if (g_CurrentObjects_Count != 0)`, so hovering a bare Cell with an
+    // empty selection yields no action and keeps the plain arrow.
+    let Some(id) = best_id else {
+        return MoveAction::None;
+    };
+    let (Some(viewer), Some(rules)) = (viewer, rules) else {
         return MoveAction::Move;
     };
-    if sim
-        .entities()
-        .get(id)
-        .is_none_or(|entity| entity.category() == crate::map::entities::EntityCategory::Structure)
+    if let Some(entity) = sim.entities().get(id)
+        && entity.category() == crate::map::entities::EntityCategory::Structure
     {
-        return MoveAction::Move;
+        return if sim.takes_rally_point(id, sim.interner.resolve(viewer), rules) {
+            MoveAction::Move
+        } else {
+            MoveAction::None
+        };
     }
     let query = CellActionQuery {
         mouse_over: true,
@@ -470,13 +577,13 @@ fn what_action_on_cell(
 /// group.
 ///
 /// Priority (highest first):
-/// 1. Deployer self-hover: the selected object itself has a deploy capability.
-/// 2. SabotageCursor: selected unit has SabotageCursor=yes hovering an enemy structure.
+/// 1. Self-hover: deploy/unload capabilities or an own factory's primary action.
+/// 2. Infantry class capabilities, then admitted weapon cursor overrides.
 /// 3. Engineer capturing: selected Engineer hovering capturable enemy building.
 /// 4. Engineer repairing: selected Engineer hovering damaged friendly building.
 /// 5. Infantry boarding: selected infantry hovering friendly transport (Passengers>0).
 /// 6. Infantry garrisoning: selected Occupier infantry hovering friendly CanBeOccupied building.
-/// 7. AttackCursorOnFriendlies: selected unit attacks friendlies, treat as attack target.
+/// 7. Admitted friendly Attack: consume the shared Techno grant and class action.
 /// 8. Harvester docking: selected miner hovering a friendly refinery that admits it (action 3).
 /// 9. Generic friendly/enemy/in-range/out-of-range fallback.
 pub(super) fn capability_cursor_for_hover(
@@ -486,8 +593,18 @@ pub(super) fn capability_cursor_for_hover(
     hover: &crate::app::input::entity_pick::HoverTargetKindWithId,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    modifier: super::context_order::OrderModifier,
+    force_move_key: bool,
 ) -> CursorFeedbackKind {
+    use super::context_order::OrderModifier;
     use crate::map::entities::EntityCategory;
+    if modifier == OrderModifier::Shift
+        && !best_id
+            .and_then(|id| sim.entities().get(id))
+            .is_some_and(|actor| actor.berserk.is_active())
+    {
+        return CursorFeedbackKind::Select;
+    }
 
     if let Some(kind) = unit_repair_feedback(
         sim,
@@ -504,56 +621,51 @@ pub(super) fn capability_cursor_for_hover(
     let hovered_obj =
         rules.and_then(|r| hovered_entity.and_then(|e| sim.interner.object_type(e.type_ref(), r)));
 
-    // 1. Deployer self-hover — the cursor is over the selected unit itself.
-    //    Show the deploy cursor for units with Deployer=yes (e.g. GGI, Guardian GI)
-    //    OR units with DeploysInto= (MCV → ConYard) or IsSimpleDeployer=yes
-    //    (Siege Chopper). Each shows the deploy cursor over itself.
-    //    gamemd gates its self-click actions on a selection of exactly one.
-    if selected.len() == 1 && selected[0] == hover.stable_id {
-        let entity = sim.entities().get(selected[0]);
-        let obj =
-            entity.and_then(|e| rules.and_then(|r| sim.interner.object_type(e.type_ref(), r)));
-        if let (Some(entity), Some(obj)) = (entity, obj) {
-            if super::context_order::is_simple_deploy_unit(entity, obj) {
-                return if rules.is_some_and(|rules| sim.can_simple_deploy(hover.stable_id, rules)) {
-                    CursorFeedbackKind::Deploy
-                } else {
-                    CursorFeedbackKind::NoDeploy
-                };
-            }
-            if obj.deployer || obj.deploys_into.is_some() {
-                // DRIFT, recorded not fixed: this branch does not see the order
-                // modifier, so Alt over a deployer's own body still shows the
-                // deploy cursor while the click issues a move —
-                // native resolves Alt to action 1 at 0x00700B1A and would show
-                // the move cursor. Trigger: holding Alt over the selected
-                // deployer itself. Player effect: the cursor promises a deploy
-                // and the unit moves instead. Frequency: rare — it needs Alt
-                // held over exactly the one selected deployable. Downstream
-                // risk: none; the fix is to thread the resolved modifier into
-                // this helper, which changes no sim state.
-                return CursorFeedbackKind::Deploy;
-            }
-        }
-        // 1b. Garrisoned building self-hover — show deploy cursor to unload occupants.
-        if let Some(entity) = entity
-            && entity.category() == EntityCategory::Structure
+    // Infantry51E462's disarm prefix precedes self post-processing too.
+    if let Some(actor) = best_id.and_then(|id| sim.entities().get(id))
+        && actor.category() == EntityCategory::Infantry
+        && sim.house_is_human_player(actor.owner())
+        && rules
+            .and_then(|rules| sim.interner.object_type(actor.type_ref(), rules))
+            .is_some_and(|object| object.engineer)
+        && hovered_entity.is_some_and(|target| target.bomb.is_some())
+        && sim.bomb_seen_by(hover.stable_id, actor.owner())
+    {
+        return CursorFeedbackKind::DisarmBomb;
+    }
+
+    // Techno7000B9's self action precedes Ctrl/Alt. All self consumers share
+    // admission with click/deploy-key, including loaded mobile transports.
+    if selected == [hover.stable_id]
+        && let (Some(rules), Some(entity)) = (rules, hovered_entity)
+        && sim.session.current_house == Some(entity.owner())
+        && !entity.berserk.is_active()
+    {
+        if super::context_order::self_click_command(
+            sim,
+            rules,
+            entity.owner(),
+            selected,
+            Some(hover),
+        )
+        .is_some()
         {
-            if super::transport_orders::unload_command(entity, obj, sim.session.current_house)
-                .is_some()
-            {
-                return CursorFeedbackKind::Deploy;
-            }
-            // Own occupied tank bunker self-hover → eject (deploy cursor).
-            if entity.bunker.occupant().is_some() {
-                return CursorFeedbackKind::Deploy;
-            }
-            if rules.is_some_and(|rules| {
-                sim.should_show_undeploy_building_command(hover.stable_id, rules)
-            }) {
-                return CursorFeedbackKind::Deploy;
-            }
+            return CursorFeedbackKind::Deploy;
         }
+        if super::context_order::self_deploy_is_refused(sim, rules, entity.owner(), selected, hover)
+            || hovered_obj.is_some_and(|obj| {
+                super::context_order::self_deploy_is_blocked(entity, obj)
+                    || super::context_order::is_simple_deploy_unit(entity, obj)
+            })
+        {
+            return CursorFeedbackKind::NoDeploy;
+        }
+
+        return if entity.category() == EntityCategory::Structure {
+            CursorFeedbackKind::Default
+        } else {
+            CursorFeedbackKind::Invalid
+        };
     }
 
     // The caller already resolved the single object whose action drives the
@@ -574,18 +686,6 @@ pub(super) fn capability_cursor_for_hover(
                 .and_then(|e| rules.and_then(|r| sim.interner.object_type(e.type_ref(), r))),
         )
     {
-        // `InfantryClass::What_Action_OnObject @ 0x0051E3B0`, right after
-        // the base action (0x0051E462..0x0051E49B): an Engineer of the
-        // local player over any object carrying a bomb that player sees
-        // (`+0x38`, `+0x68`) — own, allied or enemy — offers DisarmBomb.
-        if sel_entity.category() == EntityCategory::Infantry
-            && sel_obj.engineer
-            && hovered_entity.is_some_and(|e| e.bomb.is_some())
-            && sim.bomb_seen_by(hover.stable_id, sel_entity.owner())
-        {
-            return CursorFeedbackKind::DisarmBomb;
-        }
-
         // Object51E3B0 hut arm returns action29/32 unconditionally;
         // Display4AAE90 selects Repair/NoRepair, independently of owner.
         if matches!(
@@ -609,42 +709,15 @@ pub(super) fn capability_cursor_for_hover(
             };
         }
 
-        // The infiltration arm (`0x0051EE3B..0x0051EEEF`): a spy over a
-        // building it can enter takes Capture (9), whose cursor is Enter
-        // (`DisplayClass::SetCursorFromAction` 0x004AAE90, row 0x19). Its
-        // place before the garrison and C4 arms is the click's residual
-        // (`context_order`).
-        if matches!(
-            hover.kind,
-            HoverTargetKind::FriendlyStructure | HoverTargetKind::EnemyStructure
-        ) && rules
-            .is_some_and(|rules| sim.infiltrator_building_action(best_id, hover.stable_id, rules))
-        {
-            return CursorFeedbackKind::Enter;
-        }
-
-        // 2. C4 plant: SEAL / Tanya / Psi-Corp Trooper hovering an enemy
-        //    structure with CanC4=yes, not InvisibleInGame, not iron-curtained.
-        //    SabotageCursor flag remains in the data model (parsed in
-        //    object_type.rs) for modder weapon-overlay use, but cursor
-        //    logic is now driven by C4=yes — matches gamemd action 0x10.
-        if sel_obj.c4
-            && matches!(hover.kind, HoverTargetKind::EnemyStructure)
-            && hovered_obj.is_some_and(|o| o.can_c4 && !o.invisible_in_game)
-            && !hovered_entity.is_some_and(|e| {
-                crate::sim::superweapon::invulnerability::is_invulnerable(
-                    e.invulnerability.as_ref(),
-                    sim.session.tick as u32,
-                )
-            })
-        {
-            return CursorFeedbackKind::Demolish;
-        }
-
         let is_infantry = sel_entity.category() == EntityCategory::Infantry;
 
         // 5. Infantry boarding a friendly transport (Passengers > 0).
         if is_infantry
+            && !matches!(
+                modifier,
+                OrderModifier::ForceFire | OrderModifier::ForceMove | OrderModifier::GuardArea
+            )
+            && !(modifier == OrderModifier::AttackMove && force_move_key)
             && matches!(hover.kind, HoverTargetKind::FriendlyUnit)
             && hovered_obj.is_some_and(|o| o.passengers > 0)
         {
@@ -654,45 +727,96 @@ pub(super) fn capability_cursor_for_hover(
         // 6. Infantry garrisoning uses the shared CanBeOccupiedBy-equivalent predicate.
         //    garrisonable — only show Enter for those, not actual enemy-player buildings.
         if is_infantry
+            && !matches!(
+                modifier,
+                OrderModifier::ForceFire | OrderModifier::GuardArea
+            )
             && let Some(rules) = rules
             && crate::sim::passenger::can_enter_transport(sim, rules, best_id, hover.stable_id)
         {
             return CursorFeedbackKind::Enter;
         }
 
-        // 7. AttackCursorOnFriendlies — treat friendly targets as attack targets.
-        //    Not over the lone selected object itself, which takes its self
-        //    action first.
-        if sel_obj.attack_cursor_on_friendlies
-            && !single_self
-            && matches!(
-                hover.kind,
-                HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
-            )
-        {
-            if let Some(rules) = rules {
-                use super::context_order::AttackAction;
-                match super::context_order::attack_action(
+        if modifier == OrderModifier::GuardArea
+            && rules.is_some_and(|rules| {
+                super::context_order::guard_area_admitted(
                     sim,
                     rules,
                     best_id,
-                    &combat::TargetKind::Entity(hover.stable_id),
-                    false,
-                    overlay_registry,
-                ) {
-                    AttackAction::None => return CursorFeedbackKind::Default,
-                    AttackAction::NoMove => return CursorFeedbackKind::Invalid,
-                    AttackAction::Select => return CursorFeedbackKind::FriendlyUnit,
-                    AttackAction::Rally => return CursorFeedbackKind::Move,
-                    AttackAction::Attack => {}
-                }
-            }
-            let in_range = attack_cursor_is_in_range(
+                    Some(hover.stable_id),
+                )
+            })
+        {
+            return CursorFeedbackKind::GuardArea;
+        }
+        if (modifier == OrderModifier::GuardArea
+            || modifier == OrderModifier::ForceMove
+            || (modifier == OrderModifier::AttackMove && force_move_key))
+            && rules.is_some_and(|rules| sim.techno_player_controllable(best_id, rules))
+        {
+            return CursorFeedbackKind::Move;
+        }
+        if modifier == OrderModifier::ForceFire {
+            if let Some(kind) = force_fire_feedback(
                 sim,
                 best_id,
                 &combat::TargetKind::Entity(hover.stable_id),
                 selected.len(),
                 rules,
+                overlay_registry,
+            ) {
+                let kind = kind.unwrap_or(CursorFeedbackKind::Default);
+                return infantry_weapon_feedback(sim, rules, best_id, hover, kind).unwrap_or_else(
+                    || ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj),
+                );
+            }
+        }
+
+        // Native garrison precedes C4, which precedes the late infiltration
+        // arm. C4 can terminate with ordinary Attack, not just Sabotage.
+        let c4_action = rules.and_then(|rules| {
+            super::context_order::infantry_c4_action(sim, rules, best_id, hover, false)
+        });
+        if c4_action == Some(super::context_order::InfantryC4Action::Sabotage) {
+            return CursorFeedbackKind::Demolish;
+        }
+        if c4_action.is_none()
+            && matches!(
+                hover.kind,
+                HoverTargetKind::FriendlyStructure | HoverTargetKind::EnemyStructure
+            )
+            && rules.is_some_and(|rules| {
+                sim.infiltrator_building_action(best_id, hover.stable_id, rules)
+            })
+        {
+            return CursorFeedbackKind::Enter;
+        }
+
+        // 7. Consume the admitted action, including AttackFriendlies and the
+        //    qualified weapon grants. Infantry51EB24..7E's Ivan consumer does
+        //    not require AttackCursorOnFriendlies a second time. A lone
+        //    selected object over itself takes its self action first.
+        if !single_self
+            && matches!(
+                hover.kind,
+                HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
+            )
+            && let Some(rules) = rules
+            && super::context_order::attack_action(
+                sim,
+                rules,
+                best_id,
+                &combat::TargetKind::Entity(hover.stable_id),
+                false,
+                overlay_registry,
+            ) == super::context_order::AttackAction::Attack
+        {
+            let in_range = attack_cursor_is_in_range(
+                sim,
+                best_id,
+                &combat::TargetKind::Entity(hover.stable_id),
+                selected.len(),
+                Some(rules),
                 overlay_registry,
             );
             let kind = if in_range {
@@ -704,7 +828,10 @@ pub(super) fn capability_cursor_for_hover(
             } else {
                 CursorFeedbackKind::EnemyOutOfRange
             };
-            return ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj);
+            return infantry_weapon_feedback(sim, Some(rules), best_id, hover, kind)
+                .unwrap_or_else(|| {
+                    ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
+                });
         }
 
         // 8. Harvester docking — selected miner hovering own/ally refinery
@@ -763,9 +890,35 @@ pub(super) fn capability_cursor_for_hover(
         return CursorFeedbackKind::Invalid;
     }
     match hover.kind {
-        HoverTargetKind::FriendlyUnit => CursorFeedbackKind::FriendlyUnit,
-        HoverTargetKind::FriendlyStructure => CursorFeedbackKind::FriendlyStructure,
-        HoverTargetKind::EnemyUnit | HoverTargetKind::EnemyStructure => {
+        HoverTargetKind::FriendlyUnit
+        | HoverTargetKind::FriendlyStructure
+        | HoverTargetKind::EnemyUnit
+        | HoverTargetKind::EnemyStructure => {
+            // The ordinary Unit object's class tail is shared with click
+            // dispatch. Another allied House is not an own-object Select:
+            // Techno70059B -> Unit7403EB answers NoMove. Other friendly
+            // class routes retain their existing capability/selection paths
+            // until their own What_Action wrappers are audited. Ivan's
+            // admitted Attack was handled above; its refused attack still
+            // follows the shared Select/NoMove tail instead of inventing one.
+            let friendly = matches!(
+                hover.kind,
+                HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
+            );
+            if friendly
+                && !best_is_ivan
+                && !best_id.is_some_and(|id| {
+                    sim.entities()
+                        .get(id)
+                        .is_some_and(|actor| actor.category() == EntityCategory::Unit)
+                })
+            {
+                return if hover.kind == HoverTargetKind::FriendlyUnit {
+                    CursorFeedbackKind::FriendlyUnit
+                } else {
+                    CursorFeedbackKind::FriendlyStructure
+                };
+            }
             if let (Some(rules), Some(id)) = (rules, best_id) {
                 use super::context_order::AttackAction;
                 match super::context_order::attack_action(
@@ -782,6 +935,12 @@ pub(super) fn capability_cursor_for_hover(
                     AttackAction::Rally => return CursorFeedbackKind::Move,
                     AttackAction::Attack => {}
                 }
+            } else if friendly {
+                return if hover.kind == HoverTargetKind::FriendlyUnit {
+                    CursorFeedbackKind::FriendlyUnit
+                } else {
+                    CursorFeedbackKind::FriendlyStructure
+                };
             }
             let in_range = best_id.is_some_and(|id| {
                 attack_cursor_is_in_range(
@@ -794,7 +953,10 @@ pub(super) fn capability_cursor_for_hover(
                 )
             });
             let kind = if in_range {
-                if hover.kind == HoverTargetKind::EnemyUnit {
+                if matches!(
+                    hover.kind,
+                    HoverTargetKind::FriendlyUnit | HoverTargetKind::EnemyUnit
+                ) {
                     CursorFeedbackKind::EnemyUnit
                 } else {
                     CursorFeedbackKind::EnemyStructure
@@ -802,10 +964,64 @@ pub(super) fn capability_cursor_for_hover(
             } else {
                 CursorFeedbackKind::EnemyOutOfRange
             };
-            ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
+            best_id
+                .and_then(|id| infantry_weapon_feedback(sim, rules, id, hover, kind))
+                .unwrap_or_else(|| {
+                    ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
+                })
         }
         HoverTargetKind::HiddenEnemy => CursorFeedbackKind::Invalid,
     }
+}
+
+/// Techno70F0B0 promotes only Move1/Attack5, never Enter/C4/Select.
+fn promote_attack_move_feedback(kind: CursorFeedbackKind, enabled: bool) -> CursorFeedbackKind {
+    if enabled
+        && matches!(
+            kind,
+            CursorFeedbackKind::Move
+                | CursorFeedbackKind::EnemyUnit
+                | CursorFeedbackKind::EnemyStructure
+                | CursorFeedbackKind::EnemyOutOfRange
+        )
+    {
+        CursorFeedbackKind::AttackMove
+    } else {
+        kind
+    }
+}
+
+/// Infantry51EA59..51EB21, before Ivan. Select the actual weapon for this
+/// target (including rank/IFV/naval choice); distance does not bar these rows.
+fn infantry_weapon_feedback(
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    actor_id: u64,
+    hover: &crate::app::input::entity_pick::HoverTargetKindWithId,
+    base: CursorFeedbackKind,
+) -> Option<CursorFeedbackKind> {
+    use super::context_order::InfantryAttackAction;
+    if !matches!(
+        base,
+        CursorFeedbackKind::EnemyUnit
+            | CursorFeedbackKind::EnemyStructure
+            | CursorFeedbackKind::EnemyOutOfRange
+    ) {
+        return None;
+    }
+    Some(
+        match super::context_order::infantry_attack_action(sim, rules?, actor_id, hover.stable_id)?
+        {
+            InfantryAttackAction::Attack => base,
+            InfantryAttackAction::Sabotage | InfantryAttackAction::WeaponDemolish => {
+                CursorFeedbackKind::Demolish
+            }
+            InfantryAttackAction::AirStrike => CursorFeedbackKind::AirStrike,
+            InfantryAttackAction::Select => CursorFeedbackKind::Select,
+            InfantryAttackAction::Infiltrate => CursorFeedbackKind::Enter,
+            InfantryAttackAction::NoMove => CursorFeedbackKind::Invalid,
+        },
+    )
 }
 
 /// The cursor for an empty selection: DetermineAction's no-selection arm
@@ -906,41 +1122,6 @@ fn ivan_bomb_action(
     } else {
         CursorFeedbackKind::Invalid
     }
-}
-
-/// The bomb actions under force-fire. `InfantryClass::What_Action_OnObject`
-/// checks DisarmBomb right after the base action (`0x0051E462`; only the
-/// ToggleSelect return precedes it), so it wins over the forced Attack; a
-/// Crazy Ivan's forced Attack becomes IvanBomb or NoIvanBomb (`0x0051EB24`).
-/// A single selected object over itself keeps its self action.
-fn forced_bomb_feedback(
-    sim: &crate::sim::world::Simulation,
-    selected: &[u64],
-    best_id: Option<u64>,
-    hover: &crate::app::input::entity_pick::HoverTargetKindWithId,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-) -> Option<CursorFeedbackKind> {
-    use crate::map::entities::EntityCategory;
-    let rules = rules?;
-    let best = best_id.and_then(|id| sim.entities().get(id))?;
-    let best_obj = sim.interner.object_type(best.type_ref(), rules)?;
-    let target = sim.entities().get(hover.stable_id)?;
-    if best.category() == EntityCategory::Infantry
-        && best_obj.engineer
-        && target.bomb.is_some()
-        && sim.bomb_seen_by(hover.stable_id, best.owner())
-    {
-        return Some(CursorFeedbackKind::DisarmBomb);
-    }
-    if selected.len() == 1 && selected[0] == hover.stable_id {
-        return None;
-    }
-    best_obj.ivan.then(|| {
-        ivan_bomb_action(
-            Some(target),
-            sim.interner.object_type(target.type_ref(), rules),
-        )
-    })
 }
 
 /// Ordinary Display attack arm (`gamemd` 0x004AB4EE..0x004AB54B): row20
@@ -1111,6 +1292,7 @@ pub(crate) fn cursor_id_for_feedback(kind: CursorFeedbackKind) -> Option<CursorI
         }
         CursorFeedbackKind::Move => Some(CursorId::Move),
         CursorFeedbackKind::AttackMove => Some(CursorId::AttackMove),
+        CursorFeedbackKind::GuardArea => Some(CursorId::GuardArea),
         CursorFeedbackKind::EnemyUnit | CursorFeedbackKind::EnemyStructure => {
             Some(CursorId::Attack)
         }
@@ -1142,6 +1324,7 @@ pub(crate) fn cursor_id_for_feedback(kind: CursorFeedbackKind) -> Option<CursorI
             CursorId::NoRepair
         }),
         CursorFeedbackKind::Demolish => Some(CursorId::Demolish),
+        CursorFeedbackKind::AirStrike => Some(CursorId::AirStrike),
         // `DisplayClass::SetCursorFromAction @ 0x004AAE90`: action 0x35 ->
         // row 0x26, action 0x39 -> row 0x3B (action 0x36 NoIvanBomb shares
         // NoMove's row 0x13, so it is `Invalid`).
@@ -1331,6 +1514,7 @@ pub(crate) fn current_sidebar_view_hit(state: &AppState) -> bool {
 /// unrecognized string. Caller should fall back to `CursorId::Default`.
 pub(crate) fn super_weapon_cursor_id(action: &str) -> Option<CursorId> {
     match action {
+        "Attack" => Some(CursorId::Attack),
         "Nuke" => Some(CursorId::Nuke),
         "ChronoSphere" => Some(CursorId::Chronosphere),
         "ChronoWarp" => Some(CursorId::Chronosphere),
@@ -1697,6 +1881,8 @@ mod tests {
             .spawn_object("NAPOWR", "Soviets", 10, 10, 0, &rules)
             .expect("Power Plant spawned");
 
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = sim.interner.get("Americans");
         // 4. Mark the SEAL as selected (mirrors clicking it in-game).
         if let Some(e) = sim.entities_mut().get_mut(seal_id) {
             e.selection.set_selected_for_test(true);
@@ -1717,6 +1903,8 @@ mod tests {
             &hover,
             Some(&rules),
             None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
         );
 
         // 7. Dump the gate inputs so we can see which condition fails
@@ -1774,6 +1962,8 @@ mod tests {
             &hover,
             Some(&rules),
             None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
         );
         assert_eq!(
             result,
@@ -1784,6 +1974,7 @@ mod tests {
 
     #[test]
     fn maps_every_yr_active_action() {
+        assert_eq!(super_weapon_cursor_id("Attack"), Some(CursorId::Attack));
         assert_eq!(super_weapon_cursor_id("Nuke"), Some(CursorId::Nuke));
         assert_eq!(
             super_weapon_cursor_id("ChronoSphere"),
@@ -1823,6 +2014,24 @@ mod tests {
             super_weapon_cursor_id("PsychicReveal"),
             Some(CursorId::PsychicReveal)
         );
+    }
+
+    #[test]
+    fn unit_delivery_superweapon_custom_action_uses_existing_paradrop_cursor() {
+        let rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+            &crate::rules::ini_parser::IniFile::from_str(
+                "[SuperWeaponTypes]\n0=Delivery\n[Delivery]\nType=UnitDelivery\nAction=Custom\n",
+            ),
+            &crate::rules::ini_parser::IniFile::empty(),
+        )
+        .unwrap();
+        let action = rules
+            .super_weapon("Delivery")
+            .unwrap()
+            .action
+            .as_deref()
+            .unwrap();
+        assert_eq!(super_weapon_cursor_id(action), Some(CursorId::Paradrop));
     }
 
     #[test]
@@ -1935,6 +2144,129 @@ mod tests {
             Some(None),
             "native Action0 must preserve the default arrow, not attack or NoMove"
         );
+    }
+
+    // Techno700600's unforced Attack rung (0x007008A6..0x007009F1): an
+    // enemy-owned Wall overlay under a Wall= warhead answers Attack under a
+    // plain chord, through the forced shot's tail; an own wall, Ctrl+Alt and
+    // a warhead without Wall= stay on the Move rungs.
+    #[test]
+    fn an_enemy_wall_takes_the_unforced_attack_cursor() {
+        use crate::app::input::context_order::OrderModifier;
+        use crate::map::resolved_terrain::ResolvedTerrainGrid;
+        let ini = IniFile::from_str(
+            "[InfantryTypes]
+             [VehicleTypes]
+             0=MTNK
+             1=LTNK
+             [AircraftTypes]
+             [BuildingTypes]
+             [MTNK]
+             Strength=300
+             Primary=105mm
+             Speed=6
+             SpeedType=Track
+             MovementZone=Normal
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}
+             [LTNK]
+             Strength=300
+             Primary=Saw
+             Speed=6
+             SpeedType=Track
+             MovementZone=Normal
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}
+             [WeaponTypes]
+             0=105mm
+             1=Saw
+             [105mm]
+             Damage=60
+             Range=5
+             Warhead=AP
+             [Saw]
+             Damage=60
+             Range=5
+             Warhead=Wd
+             [Warheads]
+             0=AP
+             1=Wd
+             [AP]
+             Wall=yes
+             [Wd]
+             Wood=yes
+             [OverlayTypes]
+             0=GAWALL
+             1=FENCE
+             2=BARRIER
+             [GAWALL]
+             Wall=yes
+             [FENCE]
+             Wall=yes
+             Armor=wood
+             [BARRIER]
+             Wall=yes
+             LegalTarget=no
+",
+        );
+        let rules = RuleSet::from_ini(&ini).expect("wall rules");
+        let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
+        let wall = registry.id_for_name("GAWALL").expect("GAWALL registered");
+        let mut sim = Simulation::new();
+        sim.resolve_type_handles(&rules);
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 2, 2, 0, &rules)
+            .expect("tank spawned");
+        let saw = sim
+            .spawn_object("LTNK", "Americans", 3, 3, 0, &rules)
+            .expect("saw tank spawned");
+        let owner = sim.entities().get(tank).unwrap().owner();
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(owner);
+        sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(
+            32,
+            32,
+            (0..32)
+                .flat_map(|y| {
+                    (0..32).map(move |x| crate::map::resolved_terrain::test_flat_cell(x, y))
+                })
+                .collect(),
+        ));
+        let enemy = sim.interner.intern("Russians");
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
+        grid.place_owned_wall(4, 2, wall, 0, enemy);
+        grid.place_owned_wall(2, 4, wall, 0, owner);
+        sim.fog = crate::sim::vision::FogState::new(32, 32);
+        sim.fog
+            .reveal_cells_for_owner(owner, (0..32).flat_map(|y| (0..32).map(move |x| (x, y))));
+        sim.overlay_grid = Some(grid);
+        let feedback = |cell, modifier| {
+            super::unforced_cell_attack_feedback(
+                &sim,
+                Some(owner),
+                Some(tank),
+                cell,
+                modifier,
+                1,
+                Some(&rules),
+                Some(&registry),
+            )
+        };
+        assert_eq!(
+            feedback((4, 2), OrderModifier::Normal),
+            Some(CursorFeedbackKind::EnemyUnit)
+        );
+        assert_eq!(feedback((2, 4), OrderModifier::Normal), None);
+        assert_eq!(feedback((4, 2), OrderModifier::GuardArea), None);
+        assert_eq!(feedback((5, 5), OrderModifier::Normal), None);
+        // Wood= reaches only an Armor=wood wall; LegalTarget=no bars the rung.
+        let fence = registry.id_for_name("FENCE").expect("FENCE registered");
+        let barrier = registry.id_for_name("BARRIER").expect("BARRIER registered");
+        let grid = sim.overlay_grid.as_mut().unwrap();
+        grid.place_owned_wall(8, 2, fence, 0, enemy);
+        grid.place_owned_wall(10, 2, barrier, 0, enemy);
+        let admits = |id, cell| sim.cell_attack_rung_admits(id, cell, &rules, Some(&registry));
+        assert!(admits(saw, (8, 2)));
+        assert!(!admits(saw, (4, 2)), "GAWALL is not Armor=wood");
+        assert!(!admits(tank, (10, 2)), "LegalTarget=no");
     }
 
     fn stationary_attack_fixture() -> (Simulation, RuleSet, u64) {
@@ -2110,15 +2442,13 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         let gi = sim
             .spawn_object("GI", "Americans", 1, 10, 0, &rules)
             .unwrap();
-        assert!(
-            sim.entities_mut()
-                .get_mut(house)
-                .unwrap()
-                .passenger_role
-                .cargo_mut()
-                .unwrap()
-                .board(gi, 1)
-        );
+        sim.entities_mut()
+            .get_mut(house)
+            .unwrap()
+            .passenger_role
+            .cargo_mut()
+            .unwrap()
+            .board_forced_chain(&[(gi, 1)]);
         assert!(rules.object("HOUSE").unwrap().primary().is_none());
         for (actor, y) in [(tower, 6), (house, 10)] {
             assert_eq!(
@@ -2202,7 +2532,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     .unwrap()
                     .cell_mut(x, 2)
                     .unwrap()
-                    .yr_cell_land_type = u8::try_from(land_type).unwrap();
+                    .land_type = u8::try_from(land_type).unwrap();
             }
             let target = if case["route"] == "cell" {
                 TargetKind::Cell(x, 2)
@@ -2258,7 +2588,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         ] {
             assert_eq!(
                 crate::sim::combat::can_fire_at_target(
-                    sim.entities(),
+                    &sim,
                     &rules,
                     &sim.interner,
                     actor,
@@ -2318,15 +2648,13 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             let target_id = sim
                 .spawn_object("TANK", "Americans", 4, 10, 0, &rules)
                 .unwrap();
-            assert!(
-                sim.entities_mut()
-                    .get_mut(house)
-                    .unwrap()
-                    .passenger_role
-                    .cargo_mut()
-                    .unwrap()
-                    .board(gi, 1)
-            );
+            sim.entities_mut()
+                .get_mut(house)
+                .unwrap()
+                .passenger_role
+                .cargo_mut()
+                .unwrap()
+                .board_forced_chain(&[(gi, 1)]);
             sim.entities_mut().get_mut(gi).unwrap().passenger_role =
                 PassengerRole::inside_for_test(house, false);
             let occupant = sim.entities().get(gi).unwrap();
@@ -2354,7 +2682,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     target_ry: 10,
                 }
             } else {
-                Command::ForceAttack {
+                Command::Attack {
                     attacker_id: house,
                     target_id,
                 }
@@ -2523,6 +2851,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     &hover,
                     Some(&rules),
                     None,
+                    crate::app::input::context_order::OrderModifier::Normal,
+                    false,
                 ),
                 CursorFeedbackKind::EnemyUnit,
             );
@@ -2550,7 +2880,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             actor,
             &target,
             weapon,
-            sim.entities(),
+            &sim,
             terrain,
             (&rules, &sim.interner),
         )
@@ -2563,7 +2893,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             weapon,
             &rules,
             &sim.interner,
-            sim.entities(),
+            &sim,
             terrain,
             &LineOfFireInputs::terrain_only(),
         ));
@@ -2655,6 +2985,33 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         };
         assert_eq!(cursor(seen), CursorFeedbackKind::Harvest);
         assert_eq!(cursor(hidden), CursorFeedbackKind::Move);
+    }
+
+    /// With nothing selected gamemd never asks a What_Action for the hovered Cell:
+    /// `DisplayClass__DetermineAction @ 0x00692610` returns the selected object's
+    /// vtable `+0x70` answer from inside `if (g_CurrentObjects_Count != 0)`, so an
+    /// empty selection answers no action and the pointer stays the plain arrow —
+    /// including over unexplored ground, where the Move cursor used to appear.
+    #[test]
+    fn an_empty_selection_answers_the_default_cursor_on_a_bare_cell() {
+        use crate::app::input::context_order::OrderModifier;
+        use crate::app::presentation::render::OrderMode;
+        let (sim, rules, _) = Simulation::walk_cell_input_test_scene(false);
+        let owner = sim.interner.get("Local").unwrap();
+
+        assert_eq!(
+            empty_cell_cursor(
+                &sim,
+                Some(&rules),
+                None,
+                Some(owner),
+                None,
+                (9, 5),
+                OrderModifier::Normal,
+                OrderMode::Move,
+            ),
+            CursorFeedbackKind::Default,
+        );
     }
 
     /// `Is_Armed` reads the current weapon slot, slot 0 without `TurretCount=`,
@@ -2855,6 +3212,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     },
                     Some(&rules),
                     None,
+                    crate::app::input::context_order::OrderModifier::Normal,
+                    false,
                 );
                 let row = native["actions"]
                     .as_array()
@@ -2964,7 +3323,16 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             kind,
             stable_id: target,
         };
-        capability_cursor_for_hover(sim, &[actor], Some(actor), &hover, Some(rules), None)
+        capability_cursor_for_hover(
+            sim,
+            &[actor],
+            Some(actor),
+            &hover,
+            Some(rules),
+            None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
+        )
     }
 
     /// `InfantryClass::What_Action_OnObject`: a Crazy Ivan offers IvanBomb on
@@ -3268,3 +3636,7 @@ mod cursor_animation_tests {
     // hover, full base WhatAction/modifiers and final SHP drawing remain
     // outside this tactical object-route comparison.
 }
+
+#[cfg(test)]
+#[path = "cursor_contract_tests.rs"]
+mod contract_tests;

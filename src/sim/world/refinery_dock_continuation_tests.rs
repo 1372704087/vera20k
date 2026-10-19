@@ -16,11 +16,8 @@ use crate::sim::mission::{MissionDispatchTimer, MissionId};
 use crate::sim::radio::{self, RadioMessage, RadioPayload};
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/refinery_dock.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/refinery_dock.json")
 }
 
 fn int(v: &Value) -> i32 {
@@ -31,7 +28,7 @@ fn nav(s: &Scene, v: &Value) -> Option<NavTargetRef> {
     if v.is_null() {
         None
     } else if let Some(name) = v.as_str() {
-        Some(NavTargetRef::Building { id: s.id(name) })
+        Some(NavTargetRef::Object { id: s.id(name) })
     } else {
         let (rx, ry) = cell(v);
         Some(NavTargetRef::cell(rx, ry))
@@ -42,11 +39,7 @@ fn nav_name(s: &Scene, v: Option<NavTargetRef>) -> Value {
     match v {
         None => Value::Null,
         Some(NavTargetRef::Cell { rx, ry }) => json!([rx, ry]),
-        Some(
-            NavTargetRef::Building { id }
-            | NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id },
-        ) => s.name(id),
+        Some(NavTargetRef::Object { id }) => s.name(id),
     }
 }
 
@@ -170,11 +163,7 @@ fn fixture(row: &Value) -> Scene {
     }
     let before = &row["before"];
     let raw_nav = nav(&s, &before["miner_nav"]);
-    let archive = nav(&s, &before["archive"]).map(|v| match v {
-        NavTargetRef::Cell { rx, ry } => TargetKind::Cell(rx, ry),
-        NavTargetRef::Building { id } => TargetKind::Entity(id),
-        _ => unreachable!(),
-    });
+    let archive = nav(&s, &before["archive"]).map(TargetKind::from);
     for (id, contact, tether) in [
         (s.miner, "miner_contact", "miner_tether"),
         (s.refinery, "refinery_contact", "refinery_tether"),
@@ -303,10 +292,7 @@ fn compare(s: &Scene, native: &Value, context: &str) {
     let b = s.sim.substrate.entities.get(s.refinery).unwrap();
     let at =
         crate::sim::movement::ground_pose::object_get_coords(e, s.sim.resolved_terrain.as_ref());
-    let archive = e.archive_target().map(|v| match v {
-        TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-        TargetKind::Entity(id) => NavTargetRef::Entity { id },
-    });
+    let archive = e.archive_target().map(NavTargetRef::from);
     let pending = e
         .pending_entry()
         .map(|id| s.name(id))
@@ -610,8 +596,9 @@ fn step(s: &mut Scene, step: &Value, context: &str) {
             s.sim.building_now_dead_contacts(
                 s.refinery,
                 &[s.miner],
-                Some(&s.rules),
-                crate::sim::world::FrameEffects::default(),
+                &s.rules,
+                Some(registry()),
+                &mut crate::sim::combat::world_receiver::ReceiverRun::default(),
             );
         }
         "pointer_expiry" => {

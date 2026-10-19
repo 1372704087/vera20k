@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 use crate::render::batch::SpriteInstance;
+use crate::render::surface_line::SurfaceDraw;
 use crate::render::tactical_draw_plan::{
     BlitPolicy, BuildingOwnedPlan, BuildingPiece, BuildingPieceKind, CellDraw, CellDrawKind,
     DrawId, ObjectDraw, RenderZPolicy, SpriteEncoding, TacticalDrawInput, TacticalDrawPlan,
@@ -36,12 +37,18 @@ pub(crate) struct PlannedBuildingPieceInstance {
 /// key. Parent order comes exclusively from the retained Display vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ObjectTexture {
+    /// Ordered DSurface calls, fenced into this parent's native draw slot.
+    SurfaceLines(usize),
+    /// Temporary System62E280 Spotlight, in this parent's body slot.
+    CombatLight(usize),
+    /// Initial Building Extras status, sharing the late run's instance range.
+    Status(usize),
     OverlayAtlas,
     /// Per-piece native destination edit; never a texture-only coalesced draw.
     TerrainShp(crate::render::terrain_draw::TerrainPiece),
-    /// Bullet body/shadow: signed native Z comparison, destination edits,
-    /// and no depth write. The atlas page is payload, never an ordering key.
-    ProjectileShp(usize, crate::render::terrain_draw::TerrainPiece),
+    /// An atlas SHP whose source mask performs a native destination edit.
+    /// The atlas page is payload, never an ordering key.
+    SpriteAtlasEdit(usize, crate::render::terrain_draw::TerrainPiece),
     UnitAtlasPage(usize),
     UnitPosePage(usize),
     ShpPage(usize),
@@ -56,11 +63,24 @@ pub(crate) struct ObjectPieceInstance {
     pub instance: SpriteInstance,
 }
 
+/// A native body that edits the destination without a source sprite.
+pub(crate) enum ObjectBodyDraw {
+    Surface(SurfaceDraw),
+    Spotlight {
+        glow: Option<crate::render::combat_light::CombatLightDrawRecord>,
+        beams: [Option<SurfaceDraw>; 2],
+    },
+    CombatLight(crate::render::combat_light::CombatLightDrawRecord),
+}
+
 /// One native Display registration and every sprite its display call owns.
 pub(crate) struct PlannedObjectInstance {
     pub parent: ObjectDraw,
     pub pieces: Vec<ObjectPieceInstance>,
     pub building_pieces: Option<Vec<PlannedBuildingPieceInstance>>,
+    pub body_draw: Option<ObjectBodyDraw>,
+    pub brackets: Option<crate::app::presentation::selection_brackets::BuildingBracketLines>,
+    pub status: Option<crate::app::presentation::ui_overlays::TechnoExtras>,
 }
 
 impl PlannedObjectInstance {
@@ -69,6 +89,9 @@ impl PlannedObjectInstance {
             parent,
             pieces,
             building_pieces: None,
+            body_draw: None,
+            brackets: None,
+            status: None,
         }
     }
 
@@ -77,6 +100,9 @@ impl PlannedObjectInstance {
             parent,
             pieces: Vec::new(),
             building_pieces: Some(pieces),
+            body_draw: None,
+            brackets: None,
+            status: None,
         }
     }
 }
@@ -93,11 +119,48 @@ pub(crate) struct ObjectDrawRun {
     pub count: u32,
 }
 
+/// The second Extras sweep (6D9789), in retained Display parent order.
+/// Lines use live Z; ordinary health stores never read or write it. Native
+///6F5190 submits each parent's clock/wrench/rank before its health and pips.
+pub(crate) enum ObjectExtrasRun {
+    Lines {
+        #[cfg(test)]
+        parent: DrawId,
+        lines: std::ops::Range<usize>,
+        batch: crate::render::terrain_draw::SurfaceLineBatch,
+    },
+    Status {
+        #[cfg(test)]
+        parent: DrawId,
+        bomb_clock: Option<u32>,
+        wrench: Option<u32>,
+        rank: Option<u32>,
+        background: Option<u32>,
+        fills: std::ops::Range<u32>,
+        scale: std::ops::Range<u32>,
+        self_heal: Option<u32>,
+        group_rectangles: std::ops::Range<u32>,
+        group_text: std::ops::Range<u32>,
+        talk_bubble: Option<u32>,
+    },
+}
+
 /// One native layer output: exact integer parent order plus flat GPU instances.
 #[derive(Default)]
 pub(crate) struct ObjectLayerPass {
     pub instances: Vec<SpriteInstance>,
     pub runs: Vec<ObjectDrawRun>,
+    /// Native6D913C/6D9153 lines and Particle body points, in parent order.
+    pub surface_draws: Vec<Vec<crate::render::surface_line::SurfaceDraw>>,
+    /// Frame-local uploads of `surface_draws`, prepared after the shared A plane.
+    pub line_batches: Vec<crate::render::terrain_draw::SurfaceLineBatch>,
+    pub light_records: Vec<crate::render::combat_light::CombatLightDrawRecord>,
+    /// Derived offset into this frame's single light upload; assigned on prepare.
+    pub light_record_base: usize,
+    /// Native6D9789 repeats Extras in the same five retained layer orders.
+    pub extras_lines: Vec<crate::render::surface_line::SurfaceLine>,
+    pub extras_instances: Vec<SpriteInstance>,
+    pub extras_runs: Vec<ObjectExtrasRun>,
     /// Aligned with `instances`; retained for executable ordering checks.
     #[cfg(test)]
     pub owners: Vec<DrawId>,
@@ -203,10 +266,26 @@ pub(crate) fn lower_cell_instances_with_policy(
 pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [ObjectLayerPass; 5] {
     let mut ordinary = BTreeMap::new();
     let mut buildings = BTreeMap::new();
+    let mut brackets = BTreeMap::new();
+    let mut status = BTreeMap::new();
+    let mut body_draws = BTreeMap::new();
     let mut inputs = Vec::with_capacity(entries.len());
 
     for entry in entries {
         let id = entry.parent.id;
+        if let Some(draw) = entry.body_draw {
+            assert!(
+                entry.pieces.is_empty() && entry.building_pieces.is_none(),
+                "one Display body uses sprites or one surface operation"
+            );
+            assert!(body_draws.insert(id, draw).is_none());
+        }
+        if let Some(lines) = entry.brackets {
+            assert!(brackets.insert(id, lines).is_none());
+        }
+        if let Some(strip) = entry.status {
+            assert!(status.insert(id, strip).is_none());
+        }
         if let Some(pieces) = entry.building_pieces {
             let mut resolved = BTreeMap::new();
             let planned = pieces
@@ -258,6 +337,204 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
         let lowered = &mut layers[usize::from(layer.layer.0)];
         for entry in layer.entries {
             let owner = entry.object().id;
+            let is_building = matches!(
+                entry,
+                crate::render::tactical_draw_plan::LayerEntry::Building(_)
+            );
+            let lines = brackets.remove(&owner);
+            let strip = status.remove(&owner).map(|strip| {
+                let bomb_clock = strip.bomb_clock.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let wrench = strip.wrench.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let rank = strip.rank.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let background = strip.background.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let start = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.fills);
+                let end = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.scale);
+                let scale_end = lowered.extras_instances.len() as u32;
+                let self_heal = strip.self_heal.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                let rectangles_start = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.group.rectangles);
+                let rectangles_end = lowered.extras_instances.len() as u32;
+                lowered.extras_instances.extend(strip.group.text);
+                let text_end = lowered.extras_instances.len() as u32;
+                let talk_bubble = strip.talk_bubble.map(|instance| {
+                    let index = lowered.extras_instances.len() as u32;
+                    lowered.extras_instances.push(instance);
+                    index
+                });
+                ObjectExtrasRun::Status {
+                    #[cfg(test)]
+                    parent: owner,
+                    bomb_clock,
+                    wrench,
+                    rank,
+                    background,
+                    fills: start..end,
+                    scale: end..scale_end,
+                    self_heal,
+                    group_rectangles: rectangles_start..rectangles_end,
+                    group_text: rectangles_end..text_end,
+                    talk_bubble,
+                }
+            });
+            // Clock6F524E, wrench6F5340 and rank6F5382 precede Building lines
+            //6F5396..5E10; health6F5E27 follows. Split that prefix when lines
+            // fence it, retaining one upload for both native Extras visits.
+            let mut split_prefix = None;
+            if lines.as_ref().is_some_and(|lines| !lines.extras.is_empty()) {
+                if let Some(ObjectExtrasRun::Status {
+                    bomb_clock,
+                    wrench,
+                    rank,
+                    fills,
+                    ..
+                }) = &strip
+                    && (bomb_clock.is_some() || wrench.is_some() || rank.is_some())
+                {
+                    split_prefix = Some(lowered.extras_runs.len());
+                    lowered.extras_runs.push(ObjectExtrasRun::Status {
+                        #[cfg(test)]
+                        parent: owner,
+                        bomb_clock: *bomb_clock,
+                        wrench: *wrench,
+                        rank: *rank,
+                        background: None,
+                        fills: fills.start..fills.start,
+                        scale: fills.start..fills.start,
+                        self_heal: None,
+                        group_rectangles: fills.start..fills.start,
+                        group_text: fills.start..fills.start,
+                        talk_bubble: None,
+                    });
+                }
+            }
+            if let Some(lines) = lines {
+                if let Some(index) = split_prefix.filter(|_| is_building) {
+                    push_surface_draws(
+                        lowered,
+                        lines
+                            .behind
+                            .into_iter()
+                            .map(crate::render::surface_line::SurfaceDraw::Line),
+                    );
+                    push_initial_status(lowered, index);
+                    push_surface_draws(
+                        lowered,
+                        lines
+                            .extras
+                            .iter()
+                            .copied()
+                            .map(crate::render::surface_line::SurfaceDraw::Line),
+                    );
+                } else {
+                    let mut before = lines.behind;
+                    before.extend_from_slice(&lines.extras);
+                    push_surface_draws(
+                        lowered,
+                        before
+                            .into_iter()
+                            .map(crate::render::surface_line::SurfaceDraw::Line),
+                    );
+                }
+                let start = lowered.extras_lines.len();
+                lowered.extras_lines.extend(lines.extras);
+                let end = lowered.extras_lines.len();
+                if start != end {
+                    lowered.extras_runs.push(ObjectExtrasRun::Lines {
+                        #[cfg(test)]
+                        parent: owner,
+                        lines: start..end,
+                        batch: Default::default(),
+                    });
+                }
+            }
+            if let Some(ObjectExtrasRun::Status {
+                bomb_clock,
+                wrench,
+                rank,
+                background,
+                fills,
+                scale,
+                self_heal,
+                group_rectangles,
+                group_text,
+                talk_bubble,
+                ..
+            }) = strip
+            {
+                let bomb_clock = bomb_clock.filter(|_| split_prefix.is_none());
+                let wrench = wrench.filter(|_| split_prefix.is_none());
+                let rank = rank.filter(|_| split_prefix.is_none());
+                if bomb_clock.is_some()
+                    || wrench.is_some()
+                    || rank.is_some()
+                    || background.is_some()
+                    || !fills.is_empty()
+                    || !scale.is_empty()
+                    || self_heal.is_some()
+                    || !group_rectangles.is_empty()
+                    || !group_text.is_empty()
+                    || talk_bubble.is_some()
+                {
+                    if is_building {
+                        // Tactical6D9153 calls Building Extras before its body;
+                        //6D9789 calls it again later. One frame-local strip is
+                        // replayed twice, never produced or uploaded twice.
+                        push_initial_status(lowered, lowered.extras_runs.len());
+                    }
+                    lowered.extras_runs.push(ObjectExtrasRun::Status {
+                        #[cfg(test)]
+                        parent: owner,
+                        bomb_clock,
+                        wrench,
+                        rank,
+                        background,
+                        fills,
+                        scale,
+                        self_heal,
+                        group_rectangles,
+                        group_text,
+                        talk_bubble,
+                    });
+                }
+            }
+            if let Some(body) = body_draws.remove(&owner) {
+                match body {
+                    ObjectBodyDraw::Surface(draw) => {
+                        push_surface_draws(lowered, std::iter::once(draw))
+                    }
+                    ObjectBodyDraw::Spotlight { glow, beams } => {
+                        if let Some(record) = glow {
+                            push_combat_light(lowered, record);
+                        }
+                        push_surface_draws(lowered, beams.into_iter().flatten());
+                    }
+                    ObjectBodyDraw::CombatLight(record) => {
+                        push_combat_light(lowered, record);
+                    }
+                }
+            }
             match entry {
                 crate::render::tactical_draw_plan::LayerEntry::Object(_) => {
                     for piece in ordinary
@@ -282,6 +559,57 @@ pub(crate) fn lower_object_instances(entries: Vec<PlannedObjectInstance>) -> [Ob
         }
     }
     layers
+}
+
+fn push_combat_light(
+    pass: &mut ObjectLayerPass,
+    record: crate::render::combat_light::CombatLightDrawRecord,
+) {
+    let index = pass.light_records.len();
+    pass.light_records.push(record);
+    pass.runs.push(ObjectDrawRun {
+        target: ObjectTexture::CombatLight(index),
+        render_z: RenderZPolicy::None,
+        packed_parent: None,
+        start: pass.instances.len() as u32,
+        count: 0,
+    });
+}
+
+fn push_surface_draws(
+    pass: &mut ObjectLayerPass,
+    draws: impl IntoIterator<Item = crate::render::surface_line::SurfaceDraw>,
+) {
+    // Adjacent surface-only bodies share immutable Z. Keeping their ordered
+    // stores in one batch avoids a snapshot/pass pair per Spark, while any
+    // sprite, status or light command remains a destination/order fence.
+    if let Some(ObjectDrawRun {
+        target: ObjectTexture::SurfaceLines(index),
+        ..
+    }) = pass.runs.last()
+    {
+        pass.surface_draws[*index].extend(draws);
+        return;
+    }
+    let index = pass.surface_draws.len();
+    pass.surface_draws.push(draws.into_iter().collect());
+    pass.runs.push(ObjectDrawRun {
+        target: ObjectTexture::SurfaceLines(index),
+        render_z: RenderZPolicy::ReadOnly,
+        packed_parent: None,
+        start: pass.instances.len() as u32,
+        count: 0,
+    });
+}
+
+fn push_initial_status(pass: &mut ObjectLayerPass, index: usize) {
+    pass.runs.push(ObjectDrawRun {
+        target: ObjectTexture::Status(index),
+        render_z: RenderZPolicy::None,
+        packed_parent: None,
+        start: pass.instances.len() as u32,
+        count: 0,
+    });
 }
 
 #[cfg(test)]
@@ -343,6 +671,283 @@ mod tests {
     use crate::render::tactical_draw_plan::{BlitPolicy, RenderZPolicy, SpriteEncoding};
 
     #[test]
+    fn selected_brackets_follow_display_parents_and_fence_body_batching() {
+        use crate::app::presentation::selection_brackets::BuildingBracketLines;
+        use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
+        let line = |color| SurfaceLine {
+            from: [0, 0],
+            to: [8, 0],
+            z_adjust: [14, 14],
+            blend: SurfaceLineBlend::Replace(color),
+        };
+        let parent = |id, display_order, selected| {
+            let mut parent = PlannedObjectInstance::object(
+                ObjectDraw {
+                    id,
+                    layer: TacticalLayer(2),
+                    display_order,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                },
+                vec![ObjectPieceInstance {
+                    target: ObjectTexture::OverlayAtlas,
+                    render_z: RenderZPolicy::ReadOnly,
+                    instance: SpriteInstance::default(),
+                }],
+            );
+            if selected {
+                parent.brackets = Some(BuildingBracketLines {
+                    behind: vec![line(id as u16)],
+                    extras: vec![line(id as u16 + 1)],
+                });
+            }
+            parent
+        };
+        // Storage/ID order differs from Display. Original6D913C/9153 precede
+        // this parent's body;6D9789 repeats Extras in that same Display order.
+        let pass = lower_ground_object_instances(vec![
+            parent(1, 2, true),
+            parent(500, 1, false),
+            parent(900, 0, true),
+        ]);
+        assert_eq!(pass.owners, [900, 500, 1]);
+        assert_eq!(
+            pass.surface_draws,
+            [
+                vec![SurfaceDraw::Line(line(900)), SurfaceDraw::Line(line(901))],
+                vec![SurfaceDraw::Line(line(1)), SurfaceDraw::Line(line(2))]
+            ]
+        );
+        assert_eq!(pass.extras_lines, [line(901), line(2)]);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Lines { parent: 900, lines: a, .. },
+            ObjectExtrasRun::Lines { parent: 1, lines: b, .. },
+        ] if *a == (0..1) && *b == (1..2)));
+        assert!(matches!(
+            pass.runs[0].target,
+            ObjectTexture::SurfaceLines(0)
+        ));
+        assert_eq!((pass.runs[1].start, pass.runs[1].count), (0, 2));
+        assert!(matches!(
+            pass.runs[2].target,
+            ObjectTexture::SurfaceLines(1)
+        ));
+        assert_eq!((pass.runs[3].start, pass.runs[3].count), (2, 1));
+    }
+
+    #[test]
+    fn building_health_reuses_late_ranges_before_each_parent_body() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
+        };
+        let parent = |id, rank| {
+            let mut parent = PlannedObjectInstance::building(
+                ObjectDraw {
+                    id,
+                    layer: TacticalLayer(2),
+                    display_order: rank,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                },
+                vec![PlannedBuildingPieceInstance {
+                    kind: BuildingPieceKind::Body,
+                    z_bias: 0,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                    target: ObjectTexture::OverlayAtlas,
+                    instance: SpriteInstance::default(),
+                }],
+            );
+            parent.brackets = Some(BuildingBracketLines {
+                behind: vec![],
+                extras: vec![],
+            });
+            parent.status = Some(TechnoExtras {
+                bomb_clock: None,
+                wrench: None,
+                rank: None,
+                background: None,
+                fills: vec![SpriteInstance::default(); 15],
+                scale: Vec::new(),
+                group: Default::default(),
+                talk_bubble: None,
+                self_heal: None,
+            });
+            parent
+        };
+        let pass = lower_ground_object_instances(vec![parent(1, 1), parent(900, 0)]);
+        assert_eq!(pass.owners, [900, 1]);
+        assert_eq!(pass.extras_instances.len(), 30);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Status { parent:900, fills:a, .. },
+            ObjectExtrasRun::Status { parent:1, fills:b, .. },
+        ] if *a == (0..15) && *b == (15..30)));
+        assert_eq!(
+            pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
+            [
+                ObjectTexture::SurfaceLines(0),
+                ObjectTexture::Status(0),
+                ObjectTexture::OverlayAtlas,
+                ObjectTexture::SurfaceLines(1),
+                ObjectTexture::Status(1),
+                ObjectTexture::OverlayAtlas,
+            ]
+        );
+    }
+
+    #[test]
+    fn selected_nonrookie_building_keeps_rank_between_behind_and_extras_lines() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
+        };
+        use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
+        let line = |color| SurfaceLine {
+            from: [0, 0],
+            to: [8, 0],
+            z_adjust: [14, 14],
+            blend: SurfaceLineBlend::Replace(color),
+        };
+        let mut parent = PlannedObjectInstance::building(
+            ObjectDraw {
+                id: 42,
+                layer: TacticalLayer(2),
+                display_order: 0,
+                policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+            },
+            vec![PlannedBuildingPieceInstance {
+                kind: BuildingPieceKind::Body,
+                z_bias: 0,
+                policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+                target: ObjectTexture::OverlayAtlas,
+                instance: SpriteInstance::default(),
+            }],
+        );
+        parent.brackets = Some(BuildingBracketLines {
+            behind: vec![line(10)],
+            extras: vec![line(11)],
+        });
+        parent.status = Some(TechnoExtras {
+            bomb_clock: None,
+            wrench: None,
+            rank: Some(SpriteInstance::default()),
+            background: None,
+            fills: vec![SpriteInstance::default(); 15],
+            scale: Vec::new(),
+            group: Default::default(),
+            talk_bubble: None,
+            self_heal: None,
+        });
+        let pass = lower_ground_object_instances(vec![parent]);
+        // Native6D913C Behind,6D9153 Extras:6F5382 rank,6F5396..5E10
+        // selected Building lines,6F5E27 health, then the body.6D9789 repeats
+        // rank->Extras-lines->health, using the same uploaded instances.
+        assert_eq!(
+            pass.surface_draws,
+            [
+                vec![SurfaceDraw::Line(line(10))],
+                vec![SurfaceDraw::Line(line(11))]
+            ]
+        );
+        assert_eq!(pass.extras_instances.len(), 16);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Status { parent: 42, rank: Some(0), background: None, fills: a, .. },
+            ObjectExtrasRun::Lines { parent: 42, lines, .. },
+            ObjectExtrasRun::Status { parent: 42, rank: None, background: None, fills: b, .. },
+        ] if a.is_empty() && *lines == (0..1) && *b == (1..16)));
+        assert_eq!(
+            pass.runs.iter().map(|run| run.target).collect::<Vec<_>>(),
+            [
+                ObjectTexture::SurfaceLines(0),
+                ObjectTexture::Status(0),
+                ObjectTexture::SurfaceLines(1),
+                ObjectTexture::Status(2),
+                ObjectTexture::OverlayAtlas,
+            ]
+        );
+    }
+
+    #[test]
+    fn late_extras_interleave_rank_health_and_brackets_by_display_parent() {
+        use crate::app::presentation::{
+            selection_brackets::BuildingBracketLines, ui_overlays::TechnoExtras,
+        };
+        use crate::render::surface_line::{SurfaceLine, SurfaceLineBlend};
+        let parent = |id, rank| {
+            PlannedObjectInstance::object(
+                ObjectDraw {
+                    id,
+                    layer: TacticalLayer(2),
+                    display_order: rank,
+                    policy: BlitPolicy::z_read(SpriteEncoding::Plain),
+                },
+                vec![],
+            )
+        };
+        let mut first = parent(901, 0);
+        first.status = Some(TechnoExtras {
+            bomb_clock: None,
+            wrench: None,
+            rank: Some(SpriteInstance {
+                position: [0.0, 0.0],
+                ..Default::default()
+            }),
+            background: Some(SpriteInstance {
+                position: [1.0, 0.0],
+                ..Default::default()
+            }),
+            fills: vec![SpriteInstance {
+                position: [2.0, 0.0],
+                ..Default::default()
+            }],
+            scale: vec![SpriteInstance {
+                position: [3.0, 0.0],
+                ..Default::default()
+            }],
+            group: Default::default(),
+            talk_bubble: None,
+            self_heal: None,
+        });
+        let mut middle = parent(3, 1);
+        middle.brackets = Some(BuildingBracketLines {
+            behind: vec![],
+            extras: vec![SurfaceLine {
+                from: [0, 0],
+                to: [8, 0],
+                z_adjust: [14, 14],
+                blend: SurfaceLineBlend::Replace(65535),
+            }],
+        });
+        let mut last = parent(2, 2);
+        last.status = Some(TechnoExtras {
+            bomb_clock: None,
+            wrench: None,
+            rank: None,
+            background: None,
+            fills: vec![SpriteInstance {
+                position: [4.0, 0.0],
+                ..Default::default()
+            }],
+            scale: Vec::new(),
+            group: Default::default(),
+            talk_bubble: None,
+            self_heal: None,
+        });
+        let pass = lower_ground_object_instances(vec![last, middle, first]);
+        assert!(matches!(&pass.extras_runs[..], [
+            ObjectExtrasRun::Status { parent: 901, rank: Some(0), background: Some(1), fills: a, scale: s, .. },
+            ObjectExtrasRun::Lines { parent: 3, .. },
+            ObjectExtrasRun::Status { parent: 2, rank: None, background: None, fills: b, .. },
+        ] if *a == (2..3) && *s == (3..4) && *b == (4..5)));
+        assert_eq!(
+            pass.extras_instances
+                .iter()
+                .map(|s| s.position[0])
+                .collect::<Vec<_>>(),
+            [0.0, 1.0, 2.0, 3.0, 4.0]
+        );
+        let empty = lower_ground_object_instances(vec![parent(901, 0)]);
+        assert!(empty.extras_runs.is_empty());
+        assert!(empty.extras_instances.is_empty());
+    }
+
+    #[test]
     fn native_non_entity_lifetimes_reach_their_layers_without_family_or_page_sorting() {
         use crate::sim::world::display_layers::{DisplayLayer, DisplayLayers};
         let rows: Vec<serde_json::Value> = serde_json::from_str(crate::test_fixture::text(
@@ -393,8 +998,10 @@ mod tests {
                 }
                 // Load must preserve the retained order even when it is only
                 // partly sorted. Removed actors remain in storage below.
-                let display: DisplayLayers =
-                    bincode::deserialize(&bincode::serialize(&display).unwrap()).unwrap();
+                let display: DisplayLayers = crate::util::save_codec::deserialize(
+                    &crate::util::save_codec::serialize(&display).unwrap(),
+                )
+                .unwrap();
                 let order = NativeDisplayOrder::from_display(&display);
                 let entries = actors
                     .iter()
@@ -411,7 +1018,7 @@ mod tests {
                             .into_iter()
                             .map(|piece| {
                                 marked_piece(
-                                    ObjectTexture::ProjectileShp(index % 2, piece),
+                                    ObjectTexture::SpriteAtlasEdit(index % 2, piece),
                                     id as u32,
                                 )
                             })
@@ -816,6 +1423,14 @@ mod tests {
                         23,
                     ),
                     building_piece(BuildingPieceKind::Body, ObjectTexture::ShpPage(1), 22),
+                    building_piece(
+                        BuildingPieceKind::Shadow,
+                        ObjectTexture::SpriteAtlasEdit(
+                            0,
+                            crate::render::terrain_draw::TerrainPiece::Shadow,
+                        ),
+                        24,
+                    ),
                     building_piece(BuildingPieceKind::Bib, ObjectTexture::ShpPage(0), 21),
                 ],
             ),
@@ -825,13 +1440,35 @@ mod tests {
             ),
         ]);
 
-        assert_eq!(pass.owners, [1, 2, 2, 2, 3]);
+        assert_eq!(pass.owners, [1, 2, 2, 2, 2, 3]);
         assert_eq!(
             pass.instances
                 .iter()
                 .map(|instance| instance.draw_state.fx_flags)
                 .collect::<Vec<_>>(),
-            [1, 21, 22, 23, 3]
+            [1, 22, 24, 21, 23, 3]
+        );
+    }
+    #[test]
+    fn speech_tail_only_parent_keeps_its_native_extras_slot() {
+        use crate::app::presentation::ui_overlays::TechnoExtras;
+        let mut parent = PlannedObjectInstance::object(
+            ObjectDraw {
+                id: 91,
+                layer: TacticalLayer(2),
+                display_order: 0,
+                policy: BlitPolicy::z_read(SpriteEncoding::Rle),
+            },
+            vec![],
+        );
+        parent.status = Some(TechnoExtras {
+            talk_bubble: Some(SpriteInstance::default()),
+            ..Default::default()
+        });
+        let pass = lower_ground_object_instances(vec![parent]);
+        assert_eq!(pass.extras_instances.len(), 1);
+        assert!(
+            matches!(&pass.extras_runs[..], [ObjectExtrasRun::Status { parent:91, talk_bubble:Some(0), fills, scale, group_text, .. }] if fills.is_empty() && scale.is_empty() && group_text.is_empty())
         );
     }
 }

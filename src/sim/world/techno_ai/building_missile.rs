@@ -40,7 +40,7 @@ use crate::util::native_x87::NativeF64Bits;
 
 /// `PSIWARN`, the warning anim's type (`0x0081907C`, found by name at
 /// `0x0044C9FA`).
-const WARNING_ANIM: &str = "PSIWARN";
+const WARNING_ANIM: &str = crate::rules::effect_asset_catalog::PSI_WARNING_ANIM;
 /// The missile's Construct speed, pushed as an immediate (`0x0044CAC8`).
 const MISSILE_SPEED: i32 = 0xFF;
 /// `[0x007E44A8]` = 10.0, the missile's launch velocity scale.
@@ -212,6 +212,7 @@ fn launch_missile(
     .with_installed_weapon(Some(sim.interner.intern(&weapon.id)));
     if let Some(bullet) = FiredBullet::launched(
         sim,
+        rules,
         native_unique_id,
         id,
         ProjectileTarget::Cell { rx, ry },
@@ -303,8 +304,8 @@ mod tests {
     const ART: &str = "[NAMISL]\nFoundation=1x1\n[GAPILE]\nFoundation=1x1\n\
         [PSIWARN]\n[NUKETO]\n";
 
-    fn oracle() -> Value {
-        serde_json::from_str(crate::test_fixture::text("tools/superweapon_oracle.json")).unwrap()
+    fn oracle() -> &'static Value {
+        crate::test_fixture::json("tools/superweapon_oracle.json")
     }
 
     fn int(value: &Value) -> i32 {
@@ -341,7 +342,7 @@ mod tests {
             level: if (x, y) == target { target_level } else { 0 },
             ..test_flat_cell(x, y)
         }));
-        crate::sim::arena_fixture::supply_native_map(&mut sim);
+        crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, (target, target_level));
         let silo = sim
             .spawn_object_at_height(kind, "Russians", 20, 30, 0, 0, rules)
             .unwrap();

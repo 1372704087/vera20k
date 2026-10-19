@@ -1,4 +1,4 @@
-<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20k hero image" width="100%">
+<img src="docs/images/new-conscirpt-hero-image.png" alt="VERA20K hero image" width="100%">
 
 <p align="center" dir="ltr">
   <a href="README.sv.md" lang="sv">Svenska</a> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> · <a href="README.de.md" lang="de">Deutsch</a> · <a href="README.ar.md" lang="ar" dir="rtl">العربية</a> · <a href="README.ru.md" lang="ru">Русский</a> · <a href="README.th.md" lang="th">ไทย</a> · <a href="README.tr.md" lang="tr">Türkçe</a> · <strong>English</strong>
@@ -12,31 +12,48 @@
 
 <!-- Keep all translated READMEs in sync when changing the text below. -->
 
-# VERA20k
+# VERA20K
 
-VERA20k is a community-led rewrite of the original engine, `gamemd.exe`. It uses the original
+VERA20K is a community-led rewrite of the original engine, `gamemd.exe`. It uses the original
 game files, so you'll need your own copy of Red Alert 2: Yuri's Revenge.
 
-VERA20k is made by gamers, for gamers, and gamers have the final say in where it goes.
+VERA20K is made by gamers, for gamers, and gamers have the final say in where it goes.
 
-<img src="docs/images/vera20k-screenshots.png" alt="VERA20k skirmish setup screen and in-game view" width="100%">
+<img src="docs/images/vera20k-screenshots.png" alt="VERA20K skirmish setup screen and in-game view" width="100%">
 
 ## Project goals
 
 1. Keep the gameplay, visuals and atmosphere of the original Red Alert 2: Yuri's Revenge.
 2. Support bigger battles: up to **30 players** and **20,000 units** on 500×500 maps.
-3. Incorporate known RTS features, old and new, and some never seen before.
+3. Incorporate known RTS features and some never seen before.
 4. Integrated multiplayer client
 
 ## Current status
 
-**Mid development.** Local skirmish is playable on Windows against a basic AI. Retail and
-random maps, menus, base building, harvesting, combat and save/load are in place, but there's
-still a lot to fix and finish.
+**In active development.**
 
-Multiplayer, campaigns and the original AI are still missing. Aircraft, mind control, bridges
-and several weapons and effects need more work. We haven't demonstrated 30-player,
-20,000-unit battles yet.
+- **Skirmish:** Playable on Windows, Linux and macOS, with original and random maps,
+  base building, harvesting, combat and save/load.
+- **Campaigns:** Missions can launch; support remains incomplete.
+- **AI:** Parts of the original AI handle base building and scripted attacks.
+- **Ongoing work:** Gameplay accuracy, visuals and performance.
+- **Multiplayer:** Network play is not available yet.
+- **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
+
+## Architecture
+
+The engine has three main parts:
+
+- **Simulation:** Owns gameplay state and logic.
+- **Rendering:** An absolutely new GPU rendering pipeline using the original game assets, built
+  to preserve the original look.
+- **Application:** Handles input, menus, audio, and platform integration, connecting the systems.
+
+This separation supports deterministic gameplay.
+
+Arrows show data flow:
+
+![Application sends commands to simulation, which returns world state; application sends draw data to rendering.](docs/images/architecture.png)
 
 ## Build and run
 
@@ -50,7 +67,7 @@ You need:
   `sudo apt install build-essential libasound2-dev pkg-config`.
 - **Graphics:** a GPU with Vulkan, DirectX 12 or Metal.
 
-VERA20k has been played on Windows, Linux and macOS.
+VERA20K has been played on Windows, Linux and macOS.
 
 ```sh
 git clone https://github.com/YuriPlanet/vera20k.git
@@ -60,33 +77,16 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
-Write `ra2_dir` with forward slashes, like `C:/Games/RA2`. Use `--release` to play; debug
-builds are too slow. The log is in `logs/ra2.log`.
-
-### Debug dashboard
-
-`VERA_TELEMETRY_ADDR` starts a browser view of the running match: frame timing, every house,
-units, terrain, the log console, plus debug switches and a trainer. Run it from the checkout
-root, because the page is served from `tools/telemetry-dashboard`:
-
-```sh
-VERA_TELEMETRY_ADDR=127.0.0.1:9741 cargo run --release --bin vera20k
-```
-
-Then open `http://127.0.0.1:9741/`. There is nothing to build first: the server reads the `.js`
-committed beside each `.ts`. After editing a `.ts`, run `npm ci && npm run build` in
-`tools/telemetry-dashboard` and commit the `.js` together with it. To see the dashboard without
-installing the game, `cargo run --bin telemetry-serve` serves it from a synthetic world.
-
-The port authenticates nobody, so it binds to loopback unless you also set
-`VERA_TELEMETRY_ALLOW_REMOTE`. Published builds carry no dashboard at all: they compile with
-`--no-default-features`, which drops the `telemetry-dashboard` feature.
-
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original
 engine, then port its behavior to Rust and check it with [comparison tools](tools/native_oracle.md)
 and playtesting. Agents follow [AGENTS.md](AGENTS.md).
+
+## Customization
+
+Optional features (e.g. Ares) should be configurable through INI files, with client toggles
+where appropriate.
 
 ## Contributing
 
@@ -94,14 +94,16 @@ Help is welcome. You can write code, refactor the engine, test the game, share i
 it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
 Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
 
-Gameplay is in `src/sim/`, rendering in `src/render/`, and menus and input in `src/app/` and
-`src/ui/`; you don't need the Python tools in `tools/`.
+## Support
 
-To play-test your changes, run `cargo run --profile fast --bin vera20k`. It's optimized like
-`--release` but rebuilds only what you changed, so you're back in the game sooner. Measure
-performance with `--release`.
+<a href="https://paypal.me/vera20k"><img src="docs/images/paypal-support.svg" alt="Support VERA20K via PayPal" height="40"></a>
 
-Contributions are licensed under the GPLv3, like the rest of the project; there's no CLA.
+All donations received are distributed
+to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
+
+Payouts to contributors:
+
+<p><img src="https://img.shields.io/badge/PayPal-003087?style=flat&amp;logo=paypal&amp;logoColor=white" alt="PayPal" height="20"> <img src="https://img.shields.io/badge/China_UnionPay-E21836?style=flat" alt="China UnionPay" height="20"> <img src="https://img.shields.io/badge/Alipay-1677FF?style=flat&amp;logo=alipay&amp;logoColor=white" alt="Alipay" height="20"> <img src="https://img.shields.io/badge/Vipps-FF5B24?style=flat" alt="Vipps" height="20"> <img src="https://img.shields.io/badge/SEPA-2D4B9A?style=flat&amp;logo=sepa&amp;logoColor=white" alt="SEPA" height="20"> <img src="https://img.shields.io/badge/Bitcoin-F7931A?style=flat&amp;logo=bitcoin&amp;logoColor=white" alt="Bitcoin" height="20"></p>
 
 ## Credits and legal
 
@@ -111,4 +113,4 @@ many others.
 
 Licensed under the [GPLv3](LICENSE-GPL). This repository contains no game files. Command &
 Conquer and Red Alert are trademarks of Electronic Arts Inc., and the screenshots show game art
-owned by Electronic Arts. VERA20k is not affiliated with or endorsed by Electronic Arts.
+owned by Electronic Arts. VERA20K is not affiliated with or endorsed by Electronic Arts.

@@ -19,6 +19,7 @@ use crate::sim::world::FrameEffects;
 #[path = "jumpjet_flight.rs"]
 pub mod jumpjet_flight;
 
+use crate::sim::cell_kernel::{WorldCoordinate, cell_center};
 use crate::sim::components::DriveCoord;
 use crate::sim::world::Simulation;
 use crate::util::lepton::lepton_to_cell_packed;
@@ -128,10 +129,6 @@ pub(crate) trait JumpjetOrderHost {
 /// landing admission (`0x0054C6C5..0x0054C6D9`) make.
 pub(crate) fn owner_mission_is_enter(owner: &crate::sim::game_entity::GameEntity) -> bool {
     owner.mission.queued().raw() == 7 || owner.mission.effective().raw() == 7
-}
-
-fn cell_centre(cell: (i16, i16)) -> [i32; 2] {
-    [i32::from(cell.0) * 256 + 128, i32::from(cell.1) * 256 + 128]
 }
 
 /// `0x0054D6D0`'s Unit arm: the `GetCoords` centre of the cell the coordinate
@@ -330,8 +327,7 @@ impl JumpjetRuntime {
             host.move_search(seed, alt, true)
         }
         .unwrap_or((0, 0));
-        let [x, y] = cell_centre(cell);
-        let centre = DriveCoord { x, y, z: 0 };
+        let centre = DriveCoord::from(cell_center(cell.into(), 0));
         let adjusted = if unit {
             Some(unit_destination(centre, host))
         } else {
@@ -372,7 +368,7 @@ impl JumpjetRuntime {
         let Some(cell) = host.stop_search(coord_cell(here)) else {
             return StopOutcome::SearchFailed;
         };
-        let [x, y] = cell_centre(cell);
+        let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
         let mut z = host.floor_height([x, y]);
         if host.cell_high_bridge([x, y]) {
             z = z.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
@@ -401,7 +397,8 @@ impl JumpjetRuntime {
     }
 }
 
-/// 54D6D0's Infantry (RTTI15) receiver: 4ACA10 selects the actual raw
+/// 54D6D0's arm for an owner that is null or not a Unit (`0x0054D6D9..E7`): 4ACA10
+/// ([`super::bump_crush::pick_infantry_sublocation`]) selects the actual raw
 /// subcell, then ground height is sampled AGAIN at the returned XY. The
 /// second sample matters on slopes. No raw reservation is written here.
 pub(crate) fn infantry_destination_coordinate(
@@ -414,31 +411,15 @@ pub(crate) fn infantry_destination_coordinate(
     interner: &crate::sim::intern::StringInterner,
     rng: &mut crate::sim::rng::SimRng,
 ) -> Option<DriveCoord> {
-    use super::locomotor::MovementLayer;
-    use crate::sim::{cell_kernel, occupancy::RawCellKey};
-    let cell = terrain.native_cell_identity(((input.x / 256) as i16, (input.y / 256) as i16));
-    let level = match cell {
-        crate::map::cell_index::NativeCellIdentity::Real(index) => terrain.cells()[index].level,
-        crate::map::cell_index::NativeCellIdentity::Dummy => {
-            terrain.shared_cell_dummy().snapshot().level as u8
-        }
-    };
-    let bridge = cell_kernel::selects_infantry_bridge_layer(
-        terrain.native_cell_flags(cell) & 0x100 != 0,
-        level,
-        input.z,
-    );
-    let key = RawCellKey::from_native(terrain, cell);
-    let layer = if bridge {
-        MovementLayer::Bridge
-    } else {
-        MovementLayer::Ground
-    };
-    let gate_open = super::bump_crush::native_ground_gate_open(
-        raw, occupancy, entities, rules, interner, key, layer,
-    );
-    let slot = super::bump_crush::place_infantry_in_native_cell(
-        raw, key, layer, input, false, gate_open, rng,
+    let (slot, bridge) = super::bump_crush::pick_infantry_sublocation(
+        Some(terrain),
+        raw,
+        occupancy,
+        entities,
+        rules,
+        interner,
+        rng,
+        input,
     )?;
     let first_ground =
         super::ground_pose::ground_surface_z_at([input.x, input.y], false, Some(terrain), None)?;
@@ -465,8 +446,6 @@ struct WorldOrderHost<'a> {
     sim: &'a mut Simulation,
     id: u64,
     rules: Option<&'a crate::rules::ruleset::RuleSet>,
-    path_grid: Option<std::sync::Arc<crate::sim::pathfinding::PathGrid>>,
-    radius_cap: u16,
 }
 
 impl WorldOrderHost<'_> {
@@ -489,31 +468,17 @@ impl WorldOrderHost<'_> {
         passability: crate::sim::find_nearby_cell::PassabilityArgs,
         allow_bridge_cells: bool,
     ) -> Option<(i16, i16)> {
-        use crate::sim::find_nearby_cell::*;
-        find_nearby_passable_cell(
-            (i32::from(seed.0), i32::from(seed.1)),
-            &NearbyQuery {
-                native_cells: None,
-                raw_occupation: Some(&self.sim.substrate.raw_cell_occupation),
-                passability,
-                footprint: NearbyFootprint::SINGLE,
-                allow_bridge_cells,
-                check_height: false,
-                check_occupancy: false,
-                radius_cap: self.radius_cap,
-                target_cell: None,
-                path_grid: self.path_grid.as_deref(),
-                resolved_terrain: Some(self.terrain()),
-                overlay_grid: self.sim.overlay_grid.as_ref(),
-                occupancy: Some(&self.sim.substrate.occupancy),
-                entities: Some(&self.sim.substrate.entities),
-                zone_grid: self.sim.zone_grid.as_ref(),
-                playfield_bounds: self.sim.playfield_bounds,
-            },
-            self.sim.session.binary_frame,
-        )
-        .filter(|cell| *cell != (0, 0))
-        .map(|(x, y)| (x as i16, y as i16))
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint};
+        self.sim
+            .nearby_passable_cell(
+                (i32::from(seed.0), i32::from(seed.1)),
+                NearbyArgs {
+                    allow_bridge_cells,
+                    ..NearbyArgs::plain(passability, NearbyFootprint::SINGLE)
+                },
+            )
+            .filter(|cell| *cell != (0, 0))
+            .map(|(x, y)| (x as i16, y as i16))
     }
     fn cell_identity(&self, xy: [i32; 2]) -> crate::map::cell_index::NativeCellIdentity {
         self.terrain()
@@ -567,7 +532,9 @@ impl JumpjetOrderHost for WorldOrderHost<'_> {
         )
     }
     fn cell_coords(&self, xy: [i32; 2]) -> [i32; 2] {
-        cell_centre(self.terrain().native_cell_coord(self.cell_identity(xy)))
+        let cell = self.terrain().native_cell_coord(self.cell_identity(xy));
+        let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
+        [x, y]
     }
     fn floor_height(&self, xy: [i32; 2]) -> i32 {
         super::ground_pose::ground_surface_z_at(xy, false, Some(self.terrain()), None).unwrap_or(0)
@@ -667,20 +634,10 @@ impl Simulation {
         rules: Option<&crate::rules::ruleset::RuleSet>,
         order: impl FnOnce(&mut JumpjetRuntime, &mut WorldOrderHost<'_>) -> R,
     ) -> Option<R> {
-        let path_grid = self.path_grid_snapshot();
-        let size = self
-            .map_size_diamond()
-            .or_else(|| self.bridge_state.as_ref()?.native_zone_source_size())?;
+        self.map_size_diamond()?;
         self.resolved_terrain.as_ref()?;
-        let radius_cap = crate::sim::find_nearby_cell::map_owned_radius_cap(size.0, size.1);
         self.with_jumpjet_process(id, |runtime, sim| {
-            let mut host = WorldOrderHost {
-                sim,
-                id,
-                rules,
-                path_grid,
-                radius_cap,
-            };
+            let mut host = WorldOrderHost { sim, id, rules };
             order(runtime, &mut host)
         })
     }
@@ -831,7 +788,7 @@ impl Simulation {
         let input = match super::navcom::nav_target_coordinate(
             requested,
             Some(id),
-            &self.substrate.entities,
+            self,
             Some(terrain),
             Some((rules, &self.interner)),
         ) {
@@ -939,7 +896,9 @@ mod tests {
             (!self.fail).then_some((10, 10))
         }
         fn cell_coords(&self, xy: [i32; 2]) -> [i32; 2] {
-            cell_centre((lepton_to_cell_packed(xy[0]), lepton_to_cell_packed(xy[1])))
+            let cell = (lepton_to_cell_packed(xy[0]), lepton_to_cell_packed(xy[1]));
+            let WorldCoordinate { x, y, .. } = cell_center(cell.into(), 0);
+            [x, y]
         }
         fn floor_height(&self, xy: [i32; 2]) -> i32 {
             super::super::ground_pose::ground_surface_z_at(xy, false, Some(self.terrain), None)

@@ -169,27 +169,7 @@ pub fn active_producer_for_owner_category(
         true,
         &sim.interner,
     );
-    let owner_id = sim.interner.get(owner);
-    let active_sid = owner_id.and_then(|id| sim.production.primary_factory(id, category));
-    let selected = active_sid
-        .and_then(|sid| {
-            candidates
-                .iter()
-                .find(|candidate| candidate.0 == sid)
-                .cloned()
-        })
-        .or_else(|| candidates.into_iter().next())?;
-    let display_name = rules
-        .object(&selected.3)
-        .and_then(|obj| obj.name.clone())
-        .unwrap_or_else(|| selected.3.clone());
-    Some(ProducerFocusView {
-        stable_id: selected.0,
-        display_name,
-        category,
-        rx: selected.1,
-        ry: selected.2,
-    })
+    (!candidates.is_empty()).then_some(ProducerFocusView { category })
 }
 
 pub fn cycle_active_producer_for_owner_category(
@@ -210,16 +190,17 @@ pub fn cycle_active_producer_for_owner_category(
         return false;
     }
 
-    let owner_id = sim.interner.intern(owner);
-    let current = sim.production.primary_factory(owner_id, category);
-    let next_sid =
-        match current.and_then(|sid| candidates.iter().position(|candidate| candidate.0 == sid)) {
-            Some(index) => candidates[(index + 1) % candidates.len()].0,
-            None => candidates[0].0,
-        };
-    sim.production
-        .set_primary_factory(owner_id, category, next_sid);
-    true
+    let next_sid = match candidates
+        .iter()
+        .position(|candidate| sim.production.is_primary_factory(candidate.0))
+    {
+        Some(index) => candidates[(index + 1) % candidates.len()].0,
+        None => candidates[0].0,
+    };
+    // Choosing the already-primary sole candidate keeps the VERA-only cycle
+    // a no-op. Every actual change goes through the native manual owner.
+    sim.production.is_primary_factory(next_sid)
+        || super::can_build::toggle_factory_primary(sim, rules, next_sid)
 }
 
 /// One HouseClass::Place_Production4FB0E0 owner. A building PLACE uses
@@ -393,15 +374,31 @@ pub(crate) fn place_production_with_overlays(
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         };
-        if !wall_placement::stamp_wall_with_autofill(sim, rules, registry, obj, (rx, ry), owner_id)
+        //4FB1F7..4FB22E forms centered XY and literal Z0 for +D8. The
+        //shared Building wall arm owns sale/Overlay/radio/sight/UnInit.
+        if sim
+            .reveal_constructed_object_at_coord_with_overlay_context(
+                held.entity_id(),
+                crate::sim::components::DriveCoord {
+                    x: i32::from(rx) * 256 + 128,
+                    y: i32::from(ry) * 256 + 128,
+                    z: 0,
+                },
+                0,
+                crate::sim::world::PlacementEvidence::EvaluateMark,
+                rules,
+                Some(registry),
+                effects,
+            )
+            .is_none()
         {
             failed_building_unlimbo(sim, rules, owner_id, yard, effects);
             return false;
         }
-        // Wall placement consumes the factory-created BuildingClass into
-        // overlay state; the constructor identity is destroyed, never
-        // reconstructed at placement.
-        held.consume_after_wall_stamp(sim, rules, effects);
+        wall_placement::autofill_walls(sim, rules, registry, obj, (rx, ry), owner_id, effects);
+        // UnInit already expired Factory's pointer; keep the admission token
+        // captured before entry. Physical deletion belongs to725C70.
+        let object = held.release_consumed_wall(sim, rules, effects);
         sim.sound_events
             .push(crate::sim::world::SimSoundEvent::BuildingPlaced { owner: owner_id });
         sim.lifecycle_outputs.push(
@@ -414,6 +411,9 @@ pub(crate) fn place_production_with_overlays(
             Some(rules),
             effects,
         );
+        // A consumed wall skips selection, but still reaches BuildingSlam
+        // (4FB2E6 ->4FB2FD..4FB314) and BREAK before Record4FB4B7.
+        super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
         return true;
     }
     let foundation_str: String = rules
@@ -513,7 +513,8 @@ pub(crate) fn place_production_with_overlays(
     );
     // Original4FB4B7 records the successful build after FirstContact BREAK,
     // not during CompletedProduction4FB2A1 or its C message4FB2AD.
-    super::factory_lifecycle::record_last_built(sim, rules, owner_id, type_interned);
+    let object = super::factory_lifecycle::BuiltObject::capture(sim, new_sid);
+    super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
     true
 }
 
@@ -664,9 +665,6 @@ fn evaluate_building_placement(
 
 /// Read-only Display4A8EB0 proximity query, shared by preview and the fresh
 /// LeftUp event gate. Production owns provider lifecycle and adjacency policy.
-/// The trainer's build-anywhere switch lifts the whole ring for the placing
-/// house; every other house — and the computer's own placement — still
-/// answers the proximity query as before.
 pub fn is_within_build_area(
     sim: &Simulation,
     rules: &RuleSet,
@@ -675,14 +673,6 @@ pub fn is_within_build_area(
     rx: u16,
     ry: u16,
 ) -> bool {
-    if sim.cheats.build_anywhere
-        && sim
-            .interner
-            .get(owner)
-            .is_some_and(|owner_id| sim.cheats.applies_to(owner_id))
-    {
-        return true;
-    }
     let (width, height) = foundation_dimensions(&obj.foundation);
     let placed_adjacent = obj.adjacent;
     if placed_adjacent < 0 {
@@ -694,6 +684,9 @@ pub fn is_within_build_area(
             continue;
         }
         if e.category() != EntityCategory::Structure {
+            continue;
+        }
+        if !e.unit_delivery_provides_base_space() {
             continue;
         }
         let provider_owner = sim.interner.resolve(e.owner());

@@ -97,7 +97,6 @@ fn computer_paranoid_allies_the_computers_against_the_human() {
         assert!(sim.houses[passive].grudge_scores.is_empty());
         assert_eq!(sim.houses[passive].enemy_house, None);
     }
-    assert_eq!(sim.fog.alliances, sim.house_alliances);
 
     // A second call allies no one anew and angers each computer again.
     paranoid(&mut sim, &rules);
@@ -228,6 +227,50 @@ fn make_ally_drops_the_targets_on_the_new_ally() {
     );
 }
 
+/// Within a pass the remembered reveal viewers (`vision::RevealViewers`),
+/// direct and allied, follow the ally graph's writers: MakeAlly and MakeEnemy
+/// change them at once. Debug builds also check each remembered answer
+/// against a fresh one.
+#[test]
+fn ally_writes_reach_the_remembered_reveal_viewers() {
+    let rules = rules();
+    let (mut sim, ids) = sim_with(
+        &rules,
+        &[
+            ("Player", "Americans", true),
+            ("Computer1", "Russians", false),
+            ("Computer2", "Russians", false),
+        ],
+    );
+    for &id in &ids {
+        sim.fog
+            .by_owner
+            .get_or_insert_with(id, || crate::sim::vision::OwnerVisibility::new(8, 8));
+    }
+    let config = crate::sim::vision::VisionConfig::default();
+    let viewers = |sim: &mut Simulation| {
+        let direct = sim.reveal_viewers.direct(
+            &sim.fog,
+            &sim.house_alliances,
+            ids[1],
+            &config,
+            &sim.interner,
+        );
+        let allied =
+            sim.reveal_viewers
+                .allied(&sim.fog, &sim.house_alliances, ids[1], &sim.interner);
+        (direct.to_vec(), allied.to_vec())
+    };
+    let (alone, with_ally) = (vec![ids[1]], vec![ids[1], ids[2]]);
+    sim.reveal_viewers.begin();
+    assert_eq!(viewers(&mut sim), (alone.clone(), alone.clone()));
+    sim.make_ally(ids[1], ids[2], &rules, None, FrameEffects::default());
+    assert_eq!(viewers(&mut sim), (with_ally.clone(), with_ally));
+    sim.make_enemy(ids[1], ids[2], &rules);
+    assert_eq!(viewers(&mut sim), (alone.clone(), alone));
+    sim.reveal_viewers.end();
+}
+
 /// MakeEnemy adds the anger first (`0x004F9FDD`), while the house is still
 /// an ally the rescan skips, then breaks both sides (`0x004FA020`,
 /// `0x004FA094`). The next call finds no alliance and names the enemy.
@@ -257,9 +300,55 @@ fn make_enemy_angers_before_it_breaks_both_sides() {
     assert_eq!(sim.houses[&first].grudge_scores.get(&second), Some(&1));
     assert_eq!(sim.houses[&first].enemy_house, None);
     assert!(sim.houses[&second].grudge_scores.is_empty());
-    assert_eq!(sim.fog.alliances, sim.house_alliances);
 
     sim.make_enemy(first, second, &rules);
     assert_eq!(sim.houses[&first].grudge_scores.get(&second), Some(&2));
     assert_eq!(sim.houses[&first].enemy_house, Some(second));
+}
+
+/// TAction30's 0x0050C210 can call ComputerParanoid before clearing placement
+/// scope. CanAlly 0x005015A1 admits that scope before defeated/count gates, while
+/// MakeAlly 0x004F9C31 skips its live target/Paranoid tail. Initial saved-Allies
+/// metadata and native GameMode 4 remain outside the current model.
+#[test]
+fn initial_scope_allies_keep_targets_and_can_ally_without_a_remaining_enemy() {
+    let rules = rules();
+    let (mut sim, ids) = sim_with(
+        &rules,
+        &[
+            ("Computer1", "Russians", false),
+            ("Computer2", "Russians", false),
+        ],
+    );
+    let first = sim
+        .spawn_object_at_height("TANK", "Computer1", 10, 10, 0, 0, &rules)
+        .unwrap();
+    let second = sim
+        .spawn_object_at_height("TANK", "Computer2", 12, 10, 0, 0, &rules)
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(first)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(second)));
+    sim.with_object_placement_scope(|sim| {
+        paranoid(sim, &rules);
+        assert!(sim.object_placement_scope_active());
+    });
+    assert!(!sim.object_placement_scope_active());
+    assert_eq!(allies(&sim, "Computer1"), set(&["Computer2"]));
+    assert_eq!(allies(&sim, "Computer2"), set(&["Computer1"]));
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(first)
+            .unwrap()
+            .attack_target
+            .target(),
+        Some(TargetKind::Entity(second))
+    );
+    sim.with_object_placement_scope(|sim| sim.make_enemy(ids[0], ids[1], &rules));
+    assert!(allies(&sim, "Computer1").is_empty());
+    assert!(allies(&sim, "Computer2").is_empty());
 }

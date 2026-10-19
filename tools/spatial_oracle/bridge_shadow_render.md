@@ -302,3 +302,93 @@ Final release SHA-256:
 `6a07e15bbf01369807e4c011dd7a90095a649b20f0518dd15ac3f9ccb3bc88f7`.
 The timing table predates this allocation-only refactor; no frame-time saving
 is claimed without measurement.
+
+
+## Paid concrete-wall body and shadow
+
+`python -m tools.spatial_oracle.bridge_shadow_render --concrete-wall --check`
+replays the component inputs in `concrete_wall_render.json`. `--write` regenerates
+that corpus from the original executable. The selected initial, partially damaged,
+stage-two, endpoint and erased cells come from `anytown_damage/concrete_wall.json`;
+the normal paid-production Rust path independently reaches these states.
+
+Each row retains the original body comparison, an independent shadow surface,
+and body followed by shadow on the same RGB/Z/A stores. The shadow executes
+`CellClass::DrawOverlay_Shadow @ 0047F510` through its original indexed destination
+blitter. The erased case uses the Tactical admission gate. Physical retail inputs,
+component points, clipping and surface initialization are declared by the sidecar.
+This bounds cell raster behavior; it does not compare a whole Tactical frame or
+execute the native paid Factory lifecycle.
+
+The Rust consumer is
+`app::presentation::instances::overlays::ore_gpu_tests::retail_paid_concrete_wall_fire_reaches_index_a_and_native_cell_raster`.
+It reads published overlay-index entries and the live grid after ordinary paid
+construction and combat, then exercises the existing overlay-body and shared
+Cell-shadow production renderers in both sRGB formats. Wall shadows use each
+material's actual SHP half-count, independently of DamageLevels, and share the
+native traversal order with retained high-bridge shadows.
+
+## Building rubble own-image shadow
+
+`python -m tools.spatial_oracle.bridge_shadow_render --rubble --check`
+uses the existing Cell/physical archive/palette/SHP raster owner. Its separate
+`building_rubble_shadow_render.json` corpus is consumed by the production rubble
+renderer tests; `--write` deliberately regenerates it from the original executable.
+Historical bridge, wall and resource corpora retain their original generators.
+
+The component constructs and reads stock CAHSE05 and RUBBLE_OVERLAY through native
+constructors/readers using physical RULESMD, MPBattleMD and XMP03T4 map layers and
+fixed ARTMD. The selected optional LANGRULE file is absent. Original
+`Cell47F510 -> BuildingType45F1D0 -> 4AED70` selects CTHSE05 frame7 for the own-image
+rubble shadow. The callee's CustomRubble arm writes outputs but returns false;
+it is covered as an explicit supplied negative admission, not an alternate stock
+rule configuration. No `NoShadow` check exists in this complete rubble callee.
+
+The caller's outer bounds use a different image: RUBBLE_OVERLAY's Image=SROCK01,
+fixed ART Theater=yes, and physical SROCK01.TEM frame1. The original47FDE0 rectangle,
+projection and Tactical intersection execute in the existing bounded traversal
+suffix. Normal Cell data0 is supplied, matching the separately observed ordinary
+production path; supplied data255 selects an out-of-range rock frame and rejects
+the shadow call. The small rock proxy is native behavior; it is not replaced by
+the building's larger frame7 bounds in this oracle.
+
+Raster inputs are explicit projected points, signed levels, clips, destination
+color/Z and A127. Actual original pixels supply the stencil and color/depth runs.
+Controls cover ordinary level5, supplied0/6/-1, clip/repeat/depth, LeaveRubble,
+missing retained BuildingType, CustomRubble and cleared overlay admission. The
+component does not emulate fatal damage, native map initialization, fogged
+snapshot drawing, GPU submission or a whole native frame. No gameplay RNG draw,
+gameplay timer write or detach call occurs in this draw component.
+
+The same component also retains original `Cell47F6A0 -> BuildingType45F160`
+body frame3 on a fresh surface followed by original shadow frame7 on the same
+color/Z/A buffers and physical ISO Cell Convert. Actual body/combined attachments
+are native outputs. Both calls share original480110, including its literal
+overlay-ID `0xEF` subtraction of15Y when high-bridge bit80 is clear; this draw
+offset is independent of the retained BuildingType and IsRubble flag. No host
+body arithmetic or second composition implementation supplies the result.
+
+## Ordinary crate shadow
+
+`python -m tools.spatial_oracle.bridge_shadow_render --crate --check` consumes
+the separate `crate_shadow_render.json` corpus through the existing Cell,
+physical archive/INI, LightConvert and raster owners. Physical RULESMD,
+MPBattleMD and stock XMP03T4 layers construct/read CRATE; fixed ART binds
+CRATE.TEM. Original constructor Crate=false and layered reader retention are
+recorded; optional LANGRULE is absent.
+
+Normal crate Mark writes rawFF at5FD105. Both original47F510 shadow selector
+and47FDE0 outer bounds force crate data0 before selecting physical half-frame1;
+rawFF and supplied0 must therefore produce identical pixels and admission.
+Original body47F6A0 independently selects frame0. Its body followed by shadow
+runs on the SAME color/Z/A attachments and native CellConvert, with actual
+output retained rather than a host composition rule.
+
+Cell52,120/level4/rawFF/flags0 correspond to a separately observed ordinary
+Crates-enabled stock XMP03T4 path. Local projected point/clip and prior
+color/Z/A/light are explicit numeric component inputs. Controls cover signed
+levels, clipping, observed candidate depth, repeat and erased live identity.
+The source shadow stencil contains199 admitted native pixels; body/depth/clip
+may change how many final scene pixels visibly darken. Native map creation,
+Mark execution, RNG, pickup/reward/timer lifecycle, GPU and whole-frame parity
+remain outside this bounded raster comparison.

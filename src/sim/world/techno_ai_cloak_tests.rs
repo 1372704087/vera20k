@@ -114,39 +114,8 @@ fn stock_cloak_producer_healthy_trace_uses_type_speed_and_no_rng() {
 }
 
 #[test]
-fn stock_cloak_producer_current_fire_and_weapons_factory_contact_block_entry() {
+fn stock_cloak_producer_weapons_factory_contact_blocks_entry() {
     let (mut sim, rules, id) = spawned_sub();
-    sim.substrate
-        .entities
-        .get_mut(id)
-        .unwrap()
-        .attack_target
-        .set_for_test(Some(TargetKind::Entity(999)));
-    tick_stock_cloak_producer(
-        &mut sim,
-        id,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
-    assert_eq!(
-        sim.substrate
-            .entities
-            .get(id)
-            .unwrap()
-            .cloak
-            .as_ref()
-            .unwrap()
-            .state(),
-        0
-    );
-
-    sim.substrate
-        .entities
-        .get_mut(id)
-        .unwrap()
-        .attack_target
-        .set_for_test(None);
     let yard = sim
         .spawn_object_at_height("NAYARD", "Soviet", 30, 40, 0, 0, &rules)
         .unwrap();
@@ -295,8 +264,11 @@ fn chrono_warp_surfaces_a_fully_cloaked_sub() {
         .as_mut()
         .unwrap()
         .establish_unlimbo_fully_cloaked();
-    sim.substrate.entities.get_mut(id).unwrap().temporal =
-        crate::sim::temporal::TemporalState::warped_by_for_test(99);
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(99));
     tick_stock_cloak_producer(
         &mut sim,
         id,
@@ -395,7 +367,7 @@ fn sensor_deposit_alone_never_force_cloaks_an_eligible_unit() {
         .unwrap();
     sim.fog.mark_visible_for_owner(owner, cell.0, cell.1);
 
-    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules);
+    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules, None);
 
     assert_eq!(outcome, SensorCloakReevaluation::default());
     assert_eq!(
@@ -457,7 +429,7 @@ fn sensor_callback_reassigns_admitted_targeters_in_forward_techno_registration_o
         sensor_admitted,
         cloaker,
     ]);
-    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules);
+    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules, None);
 
     assert!(outcome.cloak_transitioned);
     assert_eq!(
@@ -559,7 +531,7 @@ fn already_cloaked_object_is_refused_by_can_auto_cloak_step_two() {
     let mission_before = sim.substrate.entities.get(targeter).unwrap().mission;
     let hash_before = sim.state_hash();
 
-    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules);
+    let outcome = sensor_reevaluate_stock_cloak(&mut sim, cloaker, &rules, None);
 
     assert_eq!(outcome, SensorCloakReevaluation::default());
     assert!(sim.sound_events.is_empty());
@@ -1136,4 +1108,68 @@ fn the_sensors_neighbour_pick_is_nearest_to_the_cell_origin_not_lowest_id() {
             "the single inspected object is the one nearest the cell origin"
         );
     }
+}
+
+/// CloakingTick6FBC0B..6FBC32: completing the cloak makes a computer's Unit
+/// Scatter(null, 1, 0), which picks a nearby cell and sets its destination;
+/// the same completion leaves a human-owned sub where it is.
+#[test]
+fn completing_the_cloak_scatters_only_a_computer_owned_unit() {
+    // A ground locomotor: the shared fixture's SUB has none, and Scatter
+    // refuses an active Teleport locomotor.
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nCloakingStages=9\nCloakDelay=.02\n\
+         [VehicleTypes]\n0=SUB\n\
+         [SUB]\nStrength=600\nSpeed=4\nCloakable=yes\nCloakingSpeed=1\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
+    ))
+    .expect("ground cloak rules");
+    let mut sim = Simulation::with_seed(0xC10A_C002);
+    for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
+        let house = sim.interner.intern(name);
+        sim.houses.insert(
+            house,
+            crate::sim::house_state::HouseState::new(house, side, None, human, 0, 10),
+        );
+        sim.session.house_order.push(house);
+    }
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+    let human = sim
+        .spawn_object_at_height("SUB", "Americans", 10, 10, 0, 0, &rules)
+        .unwrap();
+    let computer = sim
+        .spawn_object_at_height("SUB", "Russians", 20, 20, 0, 0, &rules)
+        .unwrap();
+    let state = |sim: &Simulation, id| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .cloak
+            .as_ref()
+            .unwrap()
+            .state()
+    };
+    let nav = |sim: &Simulation, id| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .navigation
+            .nav_com()
+            .is_some()
+    };
+    for _ in 0..30 {
+        assert!(!nav(&sim, computer), "no NavCom before the completion");
+        sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
+        if state(&sim, computer) == 2 {
+            break;
+        }
+    }
+    assert_eq!((state(&sim, human), state(&sim, computer)), (2, 2));
+    assert!(!nav(&sim, human));
+    assert!(
+        nav(&sim, computer),
+        "the computer's sub scatters on completion"
+    );
 }

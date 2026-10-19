@@ -8,21 +8,19 @@
 
 use std::collections::HashSet;
 use std::path::Path;
+#[cfg(feature = "telemetry-dashboard")]
 use std::time::Instant;
 
 use crate::app::AppState;
 use crate::app::input::commands::{preferred_local_owner, preferred_local_owner_name};
 use crate::app::match_runtime::session::SessionMode;
 
-use crate::app::types::SIM_TICK_HZ;
 use crate::app::types::SIM_TICK_MS;
-use crate::assets::asset_manager::AssetManager;
-use crate::assets::pal_file::Palette;
 use crate::map::terrain;
 use crate::render::sprite_atlas;
 use crate::render::unit_atlas;
 use crate::sim::production;
-use crate::sim::replay::{ReplayHeader, ReplayLog};
+use crate::sim::replay::ScenarioServiceInput;
 use crate::sim::trigger_runtime::TriggerEffect;
 use crate::sim::world::{FrameEffects, LifecycleOutput, SimFireEvent, SimFrameOutput, TickLane};
 use crate::ui::game_screen::GameScreen;
@@ -40,7 +38,9 @@ const REPLAYS_DIR: &str = "replays";
 /// stream in `sim::replay`. No-op when nothing was recorded. A successful
 /// write consumes the log so repeated teardown hooks do not duplicate it; any
 /// failure restores it for a later retry. Writes
-/// `replays/replay_tick{tick}_{unix_secs}.json`.
+/// `replays/replay_tick{tick}_{unix_secs}.json`, taking an incrementing
+/// `_n` suffix instead of replacing a segment already published under the
+/// same `(tick, unix second)`.
 pub(crate) fn flush_replay_log(state: &mut AppState) {
     let (session_tick, now) = replay_flush_facts(state);
     match state
@@ -129,9 +129,6 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
                 outcome.kind,
             ),
         );
-        // Written after the outcome is latched so the report names the result,
-        // and while the phase stamps still describe this match alone.
-        crate::app::frame_report::write_match_report(state);
     }
 
     let voices_active = match (
@@ -164,22 +161,183 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     state.frontend.finished_game_count = state.frontend.finished_game_count.saturating_add(1);
-    let elapsed_seconds = state.match_state.scenario_elapsed_clock.stop(wall_ms);
-    let model = build_score_screen_model(state, elapsed_seconds);
-    // The outcome handlers at 0x00685670 / 0x00685DC0 begin only after the
-    // HouseClass timer and 0x78-bucket Vox wait. From here the existing cascade
-    // performs their master fade, 300-bucket tail, hard stop, and SCORE handoff.
-    state.match_state.scenario_exit = Some(
-        crate::app::match_runtime::scenario_exit::ScenarioExitCascade::start(
-            wall_ms,
-            crate::app::match_runtime::scenario_exit::ScenarioExitDestination::Score {
-                title: crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string(),
-                detail: crate::app::match_runtime::scenario_exit::outcome_detail(outcome)
-                    .to_string(),
-                model,
-            },
-        ),
+    let elapsed_score_ticks = state
+        .match_state
+        .scenario_elapsed_clock
+        .stop_buckets(wall_ms);
+    let elapsed_seconds = elapsed_score_ticks / 60;
+    let title = crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string();
+    let detail = crate::app::match_runtime::scenario_exit::outcome_detail(outcome).to_string();
+    let destination = crate::app::match_runtime::scenario_exit::scenario_exit_destination(
+        state.match_state.session.mode(),
+        outcome,
+        state.match_state.map_basic.skip_score.unwrap_or(false),
+        title,
+        detail,
+        || build_campaign_score_screen_model(state, elapsed_score_ticks),
+        || build_score_screen_model(state, elapsed_seconds),
     );
+    // Native campaign victories enter the standalone dialog `0x103`; campaign
+    // defeats take a separate prompt path. Only GameMode!=0 takes the generic
+    // `ScoreDialog__Run 0x5C9720` / SCORE-theme handoff.
+    state.match_state.scenario_exit = Some(
+        crate::app::match_runtime::scenario_exit::ScenarioExitCascade::start(wall_ms, destination),
+    );
+}
+
+fn build_campaign_score_screen_model(
+    state: &AppState,
+    elapsed_score_ticks: i32,
+) -> crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+    let difficulty = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .simulation
+                .session
+                .campaign_house_difficulties()
+                // Retain the raw campaign selector index: GameExit copies
+                // OptionsClass::Difficulty into Scenario+0x60C (0=Easy,
+                // 1=Medium, 2=Hard) before the standalone score lookup.
+                .map(|(player, _)| player as i32)
+        })
+        .unwrap_or(state.persistence.options_profile.difficulty);
+    let houses = state.match_state.sim_runtime.as_ref().map(|runtime| {
+        runtime
+            .simulation
+            .houses
+            .values()
+            .map(|house| (house.player_control, house.stats.kills()))
+            .collect::<Vec<_>>()
+    });
+    let side = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .simulation
+                .session
+                .current_house
+                .and_then(|owner| runtime.simulation.houses.get(&owner))
+                .map(|house| house.side_index)
+        })
+        .unwrap_or(0);
+    build_campaign_score_screen_model_from_sources(
+        elapsed_score_ticks,
+        difficulty,
+        &state.match_state.map_ranking,
+        houses.unwrap_or_default(),
+        side,
+        |key| resolve_campaign_score_label(state, key),
+    )
+}
+
+fn build_campaign_score_screen_model_from_sources(
+    elapsed_score_ticks: i32,
+    difficulty: i32,
+    ranking: &crate::map::ranking::RankingSection,
+    houses: impl IntoIterator<Item = (bool, u32)>,
+    side: u8,
+    mut resolve_label: impl FnMut(&str) -> String,
+) -> crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+    let mut model = crate::ui::campaign_score_shell::CampaignScoreScreenModel {
+        side,
+        ..Default::default()
+    };
+    let elapsed_score_seconds = elapsed_score_ticks / 60;
+    model.your_time = format_campaign_score_time(elapsed_score_seconds);
+    let par_score_ticks = ranking.par_time_for_difficulty(difficulty);
+    let par_score_seconds = par_score_ticks / 60;
+    model.par_time = format_campaign_score_time(par_score_seconds);
+    // Native `0x6C9231..33` divides both Scenario+0x61C and ParTime by 60,
+    // then selects the over-par strings only when elapsed is strictly greater.
+    let (rank_key, commendation_key) = if elapsed_score_seconds <= par_score_seconds {
+        (&ranking.under_par_title, &ranking.under_par_message)
+    } else {
+        (&ranking.over_par_title, &ranking.over_par_message)
+    };
+    model.rank = resolve_label(rank_key);
+    model.commendation = resolve_label(commendation_key);
+    // Native 0x6C92C1 sums all four Killed*Types arrays for every HouseClass
+    // with PlayerControl set. MatchStatistics is the existing per-house total
+    // owner; `player_control` is the matching +0x1ED bit.
+    let enemies_destroyed = houses
+        .into_iter()
+        .fold(0u32, |sum, (player_control, kills)| {
+            if player_control {
+                sum.wrapping_add(kills)
+            } else {
+                sum
+            }
+        });
+    model.enemies_destroyed = enemies_destroyed.to_string();
+    model
+}
+
+fn resolve_campaign_score_label(state: &AppState, native_key: &str) -> String {
+    crate::app::frontend::shell_pass::resolve_csf(state, native_key).into_owned()
+}
+
+fn format_campaign_score_time(total_seconds: i32) -> String {
+    let hours = total_seconds / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+    format!("{hours:02}:{minutes:02}:{seconds:02}")
+}
+
+#[cfg(test)]
+mod campaign_score_model_tests {
+    use super::build_campaign_score_screen_model_from_sources;
+    use crate::assets::csf_file::test_csf;
+    use crate::map::ranking::parse_ranking_section;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::house_state::MatchStatistics;
+
+    #[test]
+    fn campaign_score_model_uses_ranking_difficulty_native_buckets_csf_and_player_control_kills() {
+        let ranking = parse_ranking_section(&IniFile::from_str(
+            "[Ranking]\nParTimeEasy=00:00:01\nParTimeMedium=00:00:02\nParTimeHard=00:00:15\nUnderParTitle=GUI:FastRank\nUnderParMessage=GUI:FastMessage\nOverParTitle=GUI:SlowRank\nOverParMessage=GUI:SlowMessage\n",
+        ));
+        let csf = test_csf(&[
+            ("GUI:FastRank", "Gold"),
+            ("GUI:FastMessage", "Under par"),
+            ("GUI:SlowRank", "Silver"),
+            ("GUI:SlowMessage", "Over par"),
+        ]);
+        // Production supplies the existing per-house MatchStatistics::kills()
+        // projection; these represent two PlayerControl houses plus an AI.
+        let player_a = MatchStatistics::from_totals_for_test(3, 2, 0, 0, 0);
+        let player_b = MatchStatistics::from_totals_for_test(4, 1, 0, 0, 0);
+        let computer = MatchStatistics::from_totals_for_test(90, 10, 0, 0, 0);
+        let houses = [
+            (true, player_a.kills()),
+            (true, player_b.kills()),
+            (false, computer.kills()),
+        ];
+        let resolve = |key: &str| csf.text(key).into_owned();
+
+        // Scenario+0x60C raw 2 selects ParTimeHard. Elapsed=959 and Par=900
+        // both divide to the same native 60-tick bucket, so this is UnderPar.
+        let equal_bucket =
+            build_campaign_score_screen_model_from_sources(959, 2, &ranking, houses, 0, resolve);
+        assert_eq!(equal_bucket.par_time, "00:00:15");
+        assert_eq!(equal_bucket.your_time, "00:00:15");
+        assert_eq!(equal_bucket.rank, "Gold");
+        assert_eq!(equal_bucket.commendation, "Under par");
+        assert_eq!(equal_bucket.enemies_destroyed, "10");
+
+        let over_bucket =
+            build_campaign_score_screen_model_from_sources(960, 2, &ranking, houses, 0, |key| {
+                csf.text(key).into_owned()
+            });
+        assert_eq!(over_bucket.your_time, "00:00:16");
+        assert_eq!(over_bucket.rank, "Silver");
+        assert_eq!(over_bucket.commendation, "Over par");
+        assert_eq!(over_bucket.enemies_destroyed, "10");
+    }
 }
 
 /// A score row's name: the house's UI name (`house+0x1602A`, copied at
@@ -352,10 +510,6 @@ pub(crate) enum ExactStepError {
     FrameDelta { actual: u32 },
 }
 
-pub(crate) fn monotonic_frame_pacer_ms(state: &AppState, now: Instant) -> u64 {
-    crate::app::match_runtime::frame_pacer::wall_clock_ms(state.platform.frame_pacer_epoch, now)
-}
-
 /// One `AudioSystem::Pump @ 0x00406F70` service pass, run every frame whether
 /// or not the simulation stepped.
 ///
@@ -404,7 +558,9 @@ pub(crate) fn pump_audio_service(state: &mut AppState, now_ms: u64) {
     // only the process before its first scenario uses the frontend cursor.
     //Full-screen5BED40 acquires its own shared movie hold synchronously.
     //It does not also call the scenario/menu pause path684140.
-    let paused = state.match_state.presentation_paused();
+    let paused = state
+        .match_state
+        .presentation_paused(&state.frontend.screen);
     let assets = crate::app::loading::pump::audio_service_asset_manager(
         &state.process_assets,
         state.frontend.loading_session.as_ref(),
@@ -485,6 +641,7 @@ pub(crate) struct RuntimePassInputs {
     pub(crate) startup_admitted: bool,
     pub(crate) frame_stepping: bool,
     pub(crate) paused: bool,
+    pub(crate) scenario_paused: bool,
     pub(crate) menu_open: bool,
     pub(crate) session_mode: SessionMode,
     /// The frame pacer's pure timing answer (`should_admit` with no pause
@@ -534,6 +691,11 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
     );
     let pacer_admitted = service.simulation && inputs.pacer_timing_admits;
     let run_sim = !inputs.focus_frozen
+        && !(inputs.scenario_paused
+            && matches!(
+                inputs.session_mode,
+                SessionMode::Campaign | SessionMode::Skirmish
+            ))
         && inputs.startup_admitted
         && (inputs.frame_stepping || pacer_admitted);
     let tick_lane = if inputs.paused && inputs.session_mode.is_network() {
@@ -604,7 +766,7 @@ pub(crate) fn advance_in_game_runtime_exact_step(
         .ok_or(ExactStepError::SimulationMissing)?;
 
     advance_in_game_runtime_mode(state, RuntimeAdvanceMode::ExactOneStep, admitted);
-    let now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     state.platform.frame_pacer.reanchor(now_ms);
 
     let (tick_after, binary_frame_after) = state
@@ -645,14 +807,6 @@ fn advance_in_game_runtime_mode(
     mode: RuntimeAdvanceMode,
     startup_admitted: bool,
 ) {
-    // Browser switches arrive between frames and must be visible to this
-    // frame's decision — including unpause (which otherwise never runs the
-    // simulation pass again) and frame step (which the decision below reads).
-    // Same toggles as the Ctrl+Shift chord, so the two input paths cannot
-    // drift. Absent with the dashboard: no build that cannot serve one has a
-    // route from a socket into these toggles.
-    #[cfg(feature = "telemetry-dashboard")]
-    crate::app::telemetry_command::drain_and_apply(state);
     let frame_stepping = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
         && state.diag.debug_frame_step_requested;
     let pacer_timing_admits = match mode {
@@ -681,6 +835,35 @@ fn advance_in_game_runtime_mode(
         }
         RuntimeAdvanceMode::ExactOneStep => false,
     };
+    let wall_ms = match mode {
+        RuntimeAdvanceMode::WallClock { now_ms } => now_ms,
+        RuntimeAdvanceMode::ExactOneStep => crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+    };
+    let service_live = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
+        && !state.match_state.match_presentation.in_game_menu.is_open()
+        && !state.match_state.debug_pause
+        && !state.platform.focus_freeze_active();
+    if service_live {
+        super::scenario_pause::poll(state, wall_ms);
+    }
+    let scenario_paused = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|rt| rt.simulation.session.scenario_paused());
+    if service_live
+        && scenario_paused
+        && matches!(
+            state.match_state.session.mode(),
+            SessionMode::Campaign | SessionMode::Skirmish
+        )
+        && pacer_timing_admits
+    {
+        // Main_Tick55D830..55D859 services53B560 and returns without Logic.
+        // A Finish here admits the world only on the following pass.
+        super::scenario_pause::apply_service(state, ScenarioServiceInput::StepChronoScreen);
+        state.platform.frame_pacer.record_admitted_frame(wall_ms);
+    }
     let decision = decide_runtime_pass(RuntimePassInputs {
         exact_step: matches!(mode, RuntimeAdvanceMode::ExactOneStep),
         window_active: state.platform.window_active,
@@ -688,6 +871,7 @@ fn advance_in_game_runtime_mode(
         startup_admitted,
         frame_stepping,
         paused: state.match_state.paused(),
+        scenario_paused,
         menu_open: state.match_state.match_presentation.in_game_menu.is_open(),
         session_mode: state.match_state.session.mode(),
         pacer_timing_admits,
@@ -707,30 +891,27 @@ fn advance_in_game_runtime_mode(
     if decision.run_sim {
         let tick_lane = decision.tick_lane;
         let frame_committed = advance_one_simulation_frame(state, tick_lane, mouse_scroll);
-        // The dashboard's tick rate is committed ticks over wall time — not
-        // frames — so a pacer stall or a game-speed change reads honestly.
-        if frame_committed {
-            state
-                .match_state
-                .telemetry_tick_rate
-                .record(std::time::Instant::now());
-        }
-        // A frame step commits a tick that the cadence gate may skip, and the
-        // paused runtime will not publish again — echo it now.
         #[cfg(feature = "telemetry-dashboard")]
-        if frame_stepping {
-            crate::app::telemetry_capture::publish_now(state);
+        if frame_committed && state.diag.telemetry_active() {
+            state.match_state.telemetry_tick_rate.record(Instant::now());
         }
         crate::app::presentation::sidebar_render::advance_sidebar_credits_after_frame(
             state,
             frame_committed,
             tick_lane,
         );
-        // Native Strip AI6A8CF3 requests redraw throughout the authored
-        // flash window, even with no input. Reuse the one projection owner
-        // only in that window; ordinary idle ticks do not enumerate cameos.
-        if frame_committed
-            && state
+        if frame_committed {
+            // House4F92E2's strip pass reaches this frame as a pending
+            // recheck; membership must not wait for the next player input.
+            let recheck = state
+                .match_state
+                .match_presentation
+                .sidebar_projection
+                .cameo_recheck_pending();
+            // Native Strip AI6A8CF3 requests redraw throughout the authored
+            // flash window, even with no input. Reuse the one projection owner
+            // only in these windows; ordinary idle ticks do not enumerate cameos.
+            let flashing = state
                 .match_state
                 .sim_runtime
                 .as_ref()
@@ -740,9 +921,17 @@ fn advance_in_game_runtime_mode(
                         .match_presentation
                         .sidebar_projection
                         .cameo_redraw_requested(runtime.simulation.session.binary_frame as i32)
-                })
-        {
-            crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+                });
+            // StripDraw6A9540 asks each entry's availability and reads its
+            // Factory while drawing, so the drawn state follows the simulation
+            // even when no pass, input or flash window rebuilt the projection
+            // this frame.
+            if recheck || flashing {
+                // The rebuilt view takes the same drawn state.
+                crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+            } else {
+                crate::app::presentation::sidebar_render::refresh_sidebar_cameo_draw_state(state);
+            }
         }
         if frame_committed && decision.admitted_by_pacer {
             let RuntimeAdvanceMode::WallClock { now_ms } = mode else {
@@ -756,7 +945,7 @@ fn advance_in_game_runtime_mode(
 
     // MainThrottle55E33B publishes Logic visits per60 wall-clock buckets,
     // including the path where the pacer admitted no simulation frame.
-    let wall_ms = state.radar_presentation_ms(Instant::now());
+    let wall_ms = state.radar_presentation_ms();
     state
         .match_state
         .match_presentation
@@ -769,7 +958,7 @@ fn advance_in_game_runtime_mode(
     refresh_cell_lighting(state);
 
     crate::app::presentation::building_anim::update_radar_state(state);
-    crate::app::presentation::building_anim::update_power_bar_anim(state);
+    crate::app::presentation::building_anim::update_power_bar_anim(state, wall_ms);
     crate::app::presentation::sidebar_gadgets::update_sidebar_gadget_state(state);
     // Per-frame gadget idle tick (G22 rows 2/3 drag-off/drag-back tracking).
     crate::app::input::gadget_input::idle_tick(state);
@@ -785,7 +974,7 @@ fn advance_in_game_runtime_mode(
     // only `Main_Tick @ 0x0055D360`'s scenario-running head rule (retained ==
     // -1 -> `Queue_Song(-2)`; `InGameMusic == 0` -> `Stop(1)` + `Queue(-3)`)
     // belongs to the in-game frame.
-    let music_now_ms = monotonic_frame_pacer_ms(state, Instant::now());
+    let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::presentation::building_anim::drain_sound_events(state);
     let in_game_music = state.persistence.options_profile.in_game_music;
     state.audio.main_tick_theme(in_game_music, music_now_ms);
@@ -812,6 +1001,8 @@ fn advance_one_simulation_frame(
     mouse_scroll: Option<(f32, f32)>,
 ) -> bool {
     let mut refresh_atlases_after_tick = false;
+    #[cfg(feature = "telemetry-dashboard")]
+    let telemetry_active = state.diag.telemetry_observer.active();
     // Trigger definitions are runtime-bound (F07), so a live runtime is the
     // only activity source; the old trigger-only fixture mode is unrepresentable.
     let runtime_active = state.match_state.sim_runtime.is_some();
@@ -825,21 +1016,7 @@ fn advance_one_simulation_frame(
     let mut frame_committed = state.match_state.sim_runtime.is_none();
 
     if let Some(rt) = state.match_state.sim_runtime.as_ref() {
-        // F10: the segment opens lazily on the first frame of a timeline and
-        // lives on the app-owned diagnostics owner, never on the simulation.
-        if state.match_state.match_diagnostics.replay_log.is_none() {
-            let sim = &rt.simulation;
-            state.match_state.match_diagnostics.replay_log = Some(ReplayLog::new(ReplayHeader {
-                pixel_conversion_bounds: sim.session.pixel_conversion_bounds,
-                version: 1,
-                tick_hz: SIM_TICK_HZ,
-                seed: sim.session.seed,
-                // Scenario identity is session state — the header derives
-                // from the sim, not from app-resident view fields.
-                map_name: sim.session.map_name.clone(),
-                rules_hash: rules_hash(&rt.resources.rules),
-            }));
-        }
+        state.match_state.match_diagnostics.get_or_begin_replay(rt);
     }
 
     for _ in 0..1 {
@@ -882,12 +1059,10 @@ fn advance_one_simulation_frame(
             } else {
                 Vec::new()
             };
+            #[cfg(feature = "telemetry-dashboard")]
+            let telemetry_advance_started = telemetry_active.then(Instant::now);
             // F07: the runtime is the one production frame API — bound
             // resources, no caller-substitutable inputs.
-            // App-owned telemetry: the wall-clock cost of this frame's sim
-            // advance transaction, sampled beside the runtime (never inside
-            // `Simulation`).
-            let telemetry_advance_started = Instant::now();
             let mut output = {
                 let playback = match (
                     state.audio.sfx_player.as_mut(),
@@ -911,24 +1086,31 @@ fn advance_one_simulation_frame(
                         minimap.admit_radar_event(request, tick, Some(rules))
                     })
                 };
-                let boundary = super::sound_dispatch::FrameSoundBoundary::new(
+                let boundary = super::frame_effects::FrameClientBoundary::new(
                     playback,
                     local_owner_name.as_deref(),
                     &mut state.match_state.match_audio.sound_events,
                     &mut admit_radar,
+                )
+                .with_planning(
+                    &mut state.match_state.input.planning,
+                    &mut state.match_state.input.selection_state,
                 );
                 rt.advance_frame(
                     &due_commands,
                     SIM_TICK_MS,
                     tick_lane,
-                    FrameEffects::for_sound(&boundary),
+                    FrameEffects::for_sound(&boundary).with_local_defeat(&boundary),
                 )
                 .expect("simulation frame failed; prior world mutations remain")
             };
-            state
-                .match_state
-                .telemetry_timing
-                .push(telemetry_advance_started.elapsed().as_secs_f32() * 1000.0);
+            #[cfg(feature = "telemetry-dashboard")]
+            if let Some(started) = telemetry_advance_started {
+                state
+                    .match_state
+                    .telemetry_timing
+                    .push(started.elapsed().as_secs_f32() * 1000.0);
+            }
             let admitted_commands = output.take_admitted_commands();
             let SimFrameOutput {
                 tick: tick_result,
@@ -983,6 +1165,7 @@ fn advance_one_simulation_frame(
                             .match_presentation
                             .in_game_options
                             .detail_level,
+                        &mut state.match_state.match_presentation.detail.borrow_mut(),
                     );
             }
             // Parity capture, if requested. The sim has already finalized all
@@ -1121,7 +1304,7 @@ fn advance_one_simulation_frame(
                 .match_state
                 .match_presentation
                 .sidebar_projection
-                .apply_factory_output(&output, local_house)
+                .apply_lifecycle_output(&output, local_house)
             {
                 state
                     .match_state
@@ -1150,7 +1333,10 @@ fn advance_one_simulation_frame(
                         },
                     );
                 }
-                LifecycleOutput::ProductionFactoryLinked { .. }
+                LifecycleOutput::SidebarConstructionOption { .. }
+                | LifecycleOutput::SidebarRecalculated { .. }
+                | LifecycleOutput::ProductionBeginAttempted { .. }
+                | LifecycleOutput::ProductionFactoryLinked { .. }
                 | LifecycleOutput::ProductionFactoryAbandoning { .. }
                 | LifecycleOutput::ProductionFactoryUnlinked { .. }
                 | LifecycleOutput::BuildingPlacementRetry { .. }
@@ -1212,6 +1398,13 @@ fn advance_one_simulation_frame(
                         .electric_bolts
                         .create(birth);
                 }
+                LifecycleOutput::RadiationBeamCreated(birth) => {
+                    state
+                        .match_state
+                        .match_presentation
+                        .radiation_beams
+                        .create(birth);
+                }
                 LifecycleOutput::LineTrailConstructed { stable_id, style } => {
                     let presentation = &mut state.match_state.match_presentation;
                     presentation.line_trails.attach(
@@ -1231,11 +1424,14 @@ fn advance_one_simulation_frame(
                 // Attached anims are simulation objects; the store detaches
                 // them itself.
                 LifecycleOutput::DetachAttachedAnims { .. } => {}
-                LifecycleOutput::DisplayRemove { .. } => {
+                // Unlimbo's Display admission can introduce a model without
+                // TickResult::spawned_entities (e.g. Action7's ALL01 ORCA
+                // teams). Resolve it before their first ordinary body draw;
+                // crash-pose rendering must not be the first path to load it.
+                LifecycleOutput::RevealDisplay { .. } | LifecycleOutput::DisplayRemove { .. } => {
                     refresh_atlases_after_tick = true;
                 }
-                LifecycleOutput::RevealDisplay { .. }
-                | LifecycleOutput::DirtyTacticalRect { .. }
+                LifecycleOutput::DirtyTacticalRect { .. }
                 | LifecycleOutput::ClearDrawnState { .. }
                 | LifecycleOutput::ClearRedraw { .. } => {}
             }
@@ -1255,41 +1451,6 @@ fn advance_one_simulation_frame(
         // map with holes left in it, which only appears well into a session.
         if census_tick.is_some_and(|tick| tick == 150 || (tick > 150 && tick % 900 == 0)) {
             crate::app::input::dispatch::report_black_cell_causes(state);
-        }
-
-        // Tick-cost telemetry on the same early-plus-minute cadence: one log
-        // line per window summarizing the app-owned timing ring, so soak runs
-        // carry the frame-cost trend in their logs without a dashboard
-        // attached. Utilization above 100% means the tick cost exceeded its
-        // budget and the pacer can no longer hold the tick rate.
-        if census_tick.is_some_and(|tick| tick == 150 || (tick > 150 && tick % 900 == 0)) {
-            let timing = state
-                .match_state
-                .telemetry_timing
-                .summarize(SIM_TICK_MS as f32);
-            log::info!(
-                "tick cost: last {:.2} ms, p50 {:.2} ms, p99 {:.2} ms, budget use {:.0}%",
-                timing.tick_ms,
-                timing.p50_ms,
-                timing.p99_ms,
-                timing.budget_utilization * 100.0
-            );
-        }
-
-        // Dashboard publish: ~11 Hz on committed ticks (every fourth frame at
-        // the 45 Hz sim step), read-only capture beside the runtime. The
-        // snapshot serializes once here; the server fans that string out
-        // without ever blocking this thread.
-        #[cfg(feature = "telemetry-dashboard")]
-        if let Some(tick) = census_tick
-            && tick % 4 == 0
-            && let Some(server) = state.diag.telemetry_server.as_ref()
-            && let Some(snapshot) = crate::app::telemetry_capture::capture_snapshot(state)
-        {
-            match serde_json::to_string(&snapshot) {
-                Ok(json) => server.publish(json),
-                Err(error) => log::warn!("telemetry snapshot serialization failed: {error}"),
-            }
         }
 
         for message in hud_messages {
@@ -1350,17 +1511,39 @@ fn refresh_cell_lighting(state: &mut AppState) {
     presentation.lighting.refresh(
         terrain,
         &runtime.simulation,
-        &runtime.resources.rules,
         presentation.in_game_options.detail_level,
     );
 }
 
-fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
+pub(crate) fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
     let mut refresh_sidebar = false;
     for effect in effects {
         match effect {
+            TriggerEffect::ScenarioPause {
+                duration,
+                outermost,
+            } => {
+                let now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                super::scenario_pause::enter(state, *duration, *outermost, now);
+            }
+            TriggerEffect::ScenarioResume => {
+                let now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                super::scenario_pause::resume(state, now);
+            }
+            TriggerEffect::TalkBubble {
+                actor,
+                value,
+                duration,
+            } => {
+                let now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                state
+                    .match_state
+                    .match_presentation
+                    .talk_bubble
+                    .set(*actor, *value, *duration, now);
+            }
             TriggerEffect::MusicTheme { request } => {
-                let wall_ms = monotonic_frame_pacer_ms(state, Instant::now());
+                let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
                 state.audio.queue_theme(request, wall_ms);
             }
             TriggerEffect::ChronoScreen { command } => {
@@ -1388,6 +1571,9 @@ fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
             }
             // Consumed by the frame's existing bridge/terrain refresh.
             TriggerEffect::BridgeStateChanged => {}
+            TriggerEffect::HomeCamera { coord } => {
+                crate::app::input::camera::apply_home_camera(state, *coord);
+            }
             TriggerEffect::CameraAtCoord { coord, velocity } => {
                 crate::app::input::camera::apply_trigger_camera(state, *coord, *velocity);
             }
@@ -1560,12 +1746,12 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
         return;
     }
 
-    let unit_palette = load_unit_palette(
+    // Growth pages must key on the palettes the load-time pages used.
+    let Some((palette, cell_palette)) = crate::map::theater::load_theater_unit_and_iso_palettes(
         asset_manager,
-        &state.match_state.match_presentation.theater_ext,
-    );
-    let Some(palette) = unit_palette else {
-        log::warn!("Atlas refresh skipped: unit palette not found");
+        &state.match_state.match_presentation.theater_name,
+    ) else {
+        log::warn!("Atlas refresh skipped: theater palettes not found");
         return;
     };
 
@@ -1596,10 +1782,6 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             .flat_map(|terrain| terrain.tile_animations())
             .map(|anim| anim.anim_name.to_ascii_uppercase())
             .collect();
-        let cell_palette = load_iso_palette(
-            asset_manager,
-            &state.match_state.match_presentation.theater_ext,
-        );
         if let Some(new_sprite_atlas) = sprite_atlas::build_sprite_atlas(
             &state.renderer.gpu.device,
             &state.renderer.gpu.queue,
@@ -1615,7 +1797,7 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             &extra_buildings,
             &anim_remap_keys,
             &cell_drawer_type_ids,
-            cell_palette.as_ref(),
+            Some(&cell_palette),
             existing,
             Some(&sim.interner),
         ) {
@@ -1670,34 +1852,6 @@ fn upsert_overlay_entries(
     let synced = index.upsert_occupied(candidates);
     *existing = index.as_slice().to_vec();
     synced
-}
-
-fn load_unit_palette(asset_manager: &AssetManager, theater_ext: &str) -> Option<Palette> {
-    let themed = format!("unit{}.pal", theater_ext.to_ascii_lowercase());
-    let candidates = [
-        themed.as_str(),
-        "unittem.pal",
-        "unitsno.pal",
-        "uniturb.pal",
-        "unit.pal",
-        "temperat.pal",
-    ];
-    for name in candidates {
-        let Some(data) = asset_manager.get(name) else {
-            continue;
-        };
-        if let Ok(pal) = Palette::from_bytes(&data) {
-            return Some(pal);
-        }
-    }
-    None
-}
-
-fn load_iso_palette(asset_manager: &AssetManager, theater_ext: &str) -> Option<Palette> {
-    let name = format!("iso{}.pal", theater_ext.to_ascii_lowercase());
-    asset_manager
-        .get_ref(&name)
-        .and_then(|bytes| Palette::from_bytes(bytes).ok())
 }
 
 pub(crate) fn screen_point_to_world(state: &AppState, screen_x: f32, screen_y: f32) -> (f32, f32) {
@@ -1803,15 +1957,6 @@ pub(crate) fn clamp_cell_to_grid(
     (cell.0.min(max_x), cell.1.min(max_y))
 }
 
-pub(crate) fn rules_hash(rules: &crate::rules::ruleset::RuleSet) -> u64 {
-    // Compatibility covers the processed rules layers plus resolved entity
-    // animation, effect/particle timing, terrain-spawner raw frame timing, and
-    // smudge-selection frame dimensions.
-    // Compatibility must distinguish static inputs that can advance the same
-    // entity differently.
-    rules.simulation_config_hash()
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1820,7 +1965,7 @@ mod tests {
     };
     use crate::map::overlay::OverlayEntry;
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-    use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
     use crate::sim::intern::StringInterner;
     use crate::sim::terrain_object::{
         TerrainObjectState, mark_terrain_occupation, unmark_terrain_occupation,
@@ -1858,12 +2003,9 @@ mod tests {
             vec![ResolvedTerrainCell {
                 tileset_index: None,
                 land_type: LandType::Clear.as_index(),
-                yr_cell_land_type: LandType::Clear.as_index(),
                 speed_costs,
                 zone_type: zone_class::GROUND,
                 base_land_type: LandType::Clear.as_index(),
-                base_yr_cell_land_type: LandType::Clear.as_index(),
-                base_terrain_class: TerrainClass::Clear,
                 base_speed_costs: speed_costs,
                 ..crate::map::resolved_terrain::test_flat_cell(0, 0)
             }],
@@ -2063,7 +2205,6 @@ mod modal_pump_tests {
             destroyed_structure: false,
             ownership_changed: false,
             bridge_state_changed: false,
-            movement: Default::default(),
         };
 
         assert!(should_record_replay_tick(&tick, &[]));

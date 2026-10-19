@@ -47,6 +47,20 @@ pub(crate) fn retail_rules_binding(anims: &[(&str, i32)]) -> Option<RuleSet> {
     Some(rules)
 }
 
+/// [`retail_rules_binding`] with `artmd.ini`'s infantry sequences bound, as
+/// the app binds them: a killed infantryman plays its Die sequence instead of
+/// having a zero-count request refused (`0x0051D70F`) and reviving at
+/// Health 1 on its next visit (`0x0051BC57`).
+pub(crate) fn retail_rules_with_sequences(anims: &[(&str, i32)]) -> Option<RuleSet> {
+    let mut rules = retail_rules_binding(anims)?;
+    rules.bind_animation_sequences(
+        &crate::rules::infantry_sequence::parse_infantry_sequence_registry(
+            &crate::rules::retail_ini_fixture::retail_ini("artmd.ini")?,
+        ),
+    );
+    Some(rules)
+}
+
 /// Retail rules and a flat 64x64 map ([`world_with`]).
 pub fn retail_world() -> Option<(RuleSet, Simulation, InternedId)> {
     Some(world_with(retail_rules()?, 64, &[]))
@@ -61,7 +75,7 @@ pub(crate) fn world_with(
     size: u16,
     levels: &[((u16, u16), u8)],
 ) -> (RuleSet, Simulation, InternedId) {
-    world_with_cells(rules, size, |x, y| {
+    world_with_cells(rules, size, ("flat", levels.to_vec()), |x, y| {
         crate::map::resolved_terrain::ResolvedTerrainCell {
             level: levels
                 .iter()
@@ -72,10 +86,11 @@ pub(crate) fn world_with(
     })
 }
 
-/// [`world_with`] over the cells `cell` builds.
+/// [`world_with`] over the cells `cell` builds, which `terrain_key` names.
 fn world_with_cells(
     rules: RuleSet,
     size: u16,
+    terrain_key: (&'static str, Vec<((u16, u16), u8)>),
     cell: impl FnMut(u16, u16) -> crate::map::resolved_terrain::ResolvedTerrainCell,
 ) -> (RuleSet, Simulation, InternedId) {
     let mut sim = Simulation::with_seed(17);
@@ -101,36 +116,37 @@ fn world_with_cells(
     sim.session.map_width = size;
     sim.session.map_height = size;
     sim.install_resolved_terrain_for_new_map(test_grid(size, size, cell));
-    crate::sim::arena_fixture::supply_native_map(&mut sim);
+    crate::sim::arena_fixture::supply_native_map_keyed(
+        &mut sim,
+        ("chronosphere world", size, terrain_key),
+    );
     (rules, sim, americans)
 }
 
 /// Retail rules and a flat 64x64 map of open water.
 fn retail_water_world() -> Option<(RuleSet, Simulation, InternedId)> {
-    use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
     let float = SpeedCostProfile {
         float: Some(100),
         ..SpeedCostProfile::default()
     };
     let water = LandType::Water.as_index();
-    Some(world_with_cells(retail_rules()?, 64, |x, y| {
-        crate::map::resolved_terrain::ResolvedTerrainCell {
+    Some(world_with_cells(
+        retail_rules()?,
+        64,
+        ("water", Vec::new()),
+        |x, y| crate::map::resolved_terrain::ResolvedTerrainCell {
             land_type: water,
-            yr_cell_land_type: water,
             base_land_type: water,
-            base_yr_cell_land_type: water,
-            terrain_class: TerrainClass::Water,
-            base_terrain_class: TerrainClass::Water,
             speed_costs: float,
             base_speed_costs: float,
-            is_water: true,
             zone_type: 4,
             ground_walk_blocked: true,
             base_ground_walk_blocked: true,
             base_build_blocked: true,
             ..crate::map::resolved_terrain::test_flat_cell(x, y)
-        }
-    }))
+        },
+    ))
 }
 
 fn spawn(sim: &mut Simulation, rules: &RuleSet, kind: &str, owner: &str, at: (u16, u16)) -> u64 {

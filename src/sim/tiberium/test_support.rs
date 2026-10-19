@@ -7,14 +7,16 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use crate::map::resolved_terrain::ResolvedTerrainGrid;
+use crate::map::resolved_terrain::{
+    ResolvedTerrainCell, ResolvedTerrainGrid, TEST_RETAIL_CLEAR_SPEED_COSTS,
+};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::intern::StringInterner;
 use crate::sim::miner::ResourceType;
-use crate::sim::occupancy::OccupancyGrid;
+use crate::sim::occupancy::{OccupancyGrid, RawCellOccupationGrid};
 use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::tiberium::TiberiumPlacementObjectContext;
 use crate::sim::world::Simulation;
@@ -22,12 +24,16 @@ use crate::sim::world::Simulation;
 /// Side length of the overlay grid [`place_tiberium`] creates on demand.
 pub(crate) const TEST_GRID_SIZE: u16 = 64;
 
+/// Flat Clear cells that allow tiberium and carry the retail `[Clear]` row,
+/// whose Track entry a new ore Overlay's Mark admission reads
+/// (`CellClass::CheckCellPassability @ 0x004834A0`, called at `0x005FD00C`;
+/// `0x005FD04F` for TIB01).
 pub(crate) fn flat_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-    crate::map::resolved_terrain::test_grid(
-        width,
-        height,
-        crate::map::resolved_terrain::test_tiberium_cell,
-    )
+    crate::map::resolved_terrain::test_grid(width, height, |rx, ry| ResolvedTerrainCell {
+        speed_costs: TEST_RETAIL_CLEAR_SPEED_COSTS,
+        base_speed_costs: TEST_RETAIL_CLEAR_SPEED_COSTS,
+        ..crate::map::resolved_terrain::test_tiberium_cell(rx, ry)
+    })
 }
 
 /// A world with no objects in it: the live-object half of a
@@ -35,6 +41,7 @@ pub(crate) fn flat_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
 pub(crate) struct NoLiveObjects {
     entities: EntityStore,
     occupancy: OccupancyGrid,
+    raw_occupation: RawCellOccupationGrid,
     rules: RuleSet,
     interner: StringInterner,
     terrain_object_cells: BTreeMap<(u16, u16), u64>,
@@ -45,6 +52,7 @@ impl NoLiveObjects {
         Self {
             entities: EntityStore::new(),
             occupancy: OccupancyGrid::new(),
+            raw_occupation: RawCellOccupationGrid::new(),
             rules: RuleSet::from_ini(&IniFile::from_str(
                 "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n",
             ))
@@ -58,6 +66,7 @@ impl NoLiveObjects {
         TiberiumPlacementObjectContext::new(
             &self.entities,
             &self.occupancy,
+            &self.raw_occupation,
             &self.rules,
             &self.interner,
             &self.terrain_object_cells,
@@ -177,30 +186,4 @@ fn is_tiberium(overlay_id: u8) -> bool {
     overlay_registry()
         .flags(overlay_id)
         .is_some_and(|flags| flags.tiberium)
-}
-
-/// Whether a cell holds a tiberium overlay, at any density.
-pub(crate) fn has_tiberium(sim: &Simulation, cell: (u16, u16)) -> bool {
-    sim.overlay_grid
-        .as_ref()
-        .and_then(|grid| grid.cell(cell.0, cell.1).overlay_id)
-        .is_some_and(is_tiberium)
-}
-
-/// Remove whatever overlay the cell holds; on a fixture with map cells the
-/// cell is recalculated as RecalcAttributes does (LandType back to the
-/// ground's).
-pub(crate) fn clear_tiberium(sim: &mut Simulation, cell: (u16, u16)) {
-    if let Some(grid) = sim.overlay_grid.as_mut() {
-        grid.clear_overlay(cell.0, cell.1);
-        if let Some(terrain) = sim.resolved_terrain.as_mut() {
-            grid.recalculate_runtime_cell(terrain, overlay_registry_with_land(), cell);
-        }
-    }
-}
-
-/// A cell's tiberium in the retired stock units (`bales * 120`, the ore rate),
-/// so density assertions written against those units keep their numbers.
-pub(crate) fn stock_amount_at(sim: &Simulation, cell: (u16, u16)) -> u16 {
-    u16::from(bales_at(sim, cell.0, cell.1)) * 120
 }

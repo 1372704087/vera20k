@@ -5,7 +5,6 @@
 
 use super::{ObjectAiCtx, RuleSet, Simulation, mission_unload};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::rules::art_data::ArtRegistry;
 use crate::rules::foundation::FOUNDATION_TABLE;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
@@ -27,11 +26,8 @@ use serde_json::{Value, json};
 
 const NATIVE_SHA256: &str = "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c";
 
-fn corpus() -> Value {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/anytown_damage/unit_unlimbo.json",
-    ))
-    .unwrap();
+fn corpus() -> &'static Value {
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/anytown_damage/unit_unlimbo.json");
     assert_eq!(corpus["schema_version"], 1);
     assert_eq!(corpus["native_sha256"], NATIVE_SHA256);
     assert_eq!(corpus["factory_unload_rows"].as_array().unwrap().len(), 1);
@@ -86,30 +82,16 @@ fn f64_hex(value: f64) -> String {
         .collect()
 }
 
-/// Decode only the receipt's representation of an existing RNG object. No
-/// Rust seed/search or replacement Random2 decision supplies native answers.
-fn rng_input(hex: &Value) -> SimRng {
-    let raw = bytes(hex.as_str().unwrap());
-    assert_eq!(raw.len(), 0x3f4);
-    let words: Vec<u32> = raw[12..]
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|word| u32::from_le_bytes(*word))
-        .collect();
-    serde_json::from_value(json!({
-        "disabled": dword(&raw, 0),
-        "index_a": dword(&raw, 4),
-        "index_b": dword(&raw, 8),
-        "state": words,
-    }))
-    .unwrap()
-}
-
+/// Import the receipt through the RNG owner's complete native-state seam;
+/// no Rust seed/search supplies a replacement Random2 decision.
 fn import_rng(sim: &mut Simulation, native: &Value) {
-    sim.main_rng = rng_input(&native["main"]["before_hex"]).into();
-    sim.scenario_rng = rng_input(&native["scenario"]["before_hex"]);
-    sim.mapgen_rng = rng_input(&native["mapgen"]["before_hex"]);
+    sim.main_rng =
+        SimRng::from_native_state_hex_for_test(native["main"]["before_hex"].as_str().unwrap())
+            .into();
+    sim.scenario_rng =
+        SimRng::from_native_state_hex_for_test(native["scenario"]["before_hex"].as_str().unwrap());
+    sim.mapgen_rng =
+        SimRng::from_native_state_hex_for_test(native["mapgen"]["before_hex"].as_str().unwrap());
 }
 
 fn assert_rng(sim: &Simulation, native: &Value, boundary: &str, name: &str) {
@@ -132,7 +114,7 @@ fn parsed_rules(ini: &IniFile, art: &IniFile, patch: Option<&str>) -> RuleSet {
     }
     let mut rules =
         RuleSet::from_processed_rules(&layers.process_with_fixed_art(art).unwrap()).unwrap();
-    rules.install_art_data(ArtRegistry::from_ini(art));
+    rules.install_art_data(crate::rules::retail_ini_fixture::art_registry(art));
     rules
 }
 
@@ -352,9 +334,6 @@ fn fixture(rules: &RuleSet, ini: &IniFile) -> Fixture {
                 let mut cell =
                     crate::sim::world::lifecycle_tests::common_raw_terrain_cell(rx, ry, 4, false);
                 cell.land_type = 1;
-                cell.yr_cell_land_type = 1;
-                cell.terrain_class = road.terrain_class;
-                cell.base_terrain_class = road.terrain_class;
                 cell.speed_costs = road.speed_costs;
                 cell.base_speed_costs = road.speed_costs;
                 cell
@@ -773,6 +752,339 @@ fn retail_factory_unload_leaves_match_original_door_track_and_cadence() {
     // Carrying Door across the real producer calls pins completion ordering.
     // Per-leaf full RNG imports measure each cadence draw without attributing
     // the 75 unexecuted UnitAI turns to this Rust comparison.
+}
+
+/// Two original44D880 leaves, not a replay of the intervening BuildingAI,
+/// UnitAI or AnimAI visits. Each prior (including all three RNG objects) is
+/// imported from that actual call's entry, independently of the Rust result.
+#[test]
+fn stock_naval_unload_leaves_match_original_mission_door_slots_and_rng() {
+    let native = crate::test_fixture::json("tools/sidebar_oracle/factory_naval_output.json");
+    let provenance =
+        crate::test_fixture::json("tools/sidebar_oracle/factory_naval_output.meta.json");
+    assert_eq!(native["schema"], 1);
+    assert_eq!(provenance["native_sha256"], NATIVE_SHA256);
+    let control = native["controls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["input"]["name"] == "stock_dest_no_rally")
+        .expect("original stock GAYARD/DEST control");
+    let calls: Vec<_> = control["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| call["name"] == "mission_unload")
+        .collect();
+    assert_eq!(
+        calls
+            .iter()
+            .map(|call| int(&call["frame"]))
+            .collect::<Vec<_>>(),
+        [0, 15]
+    );
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("Hills.mmx")
+    else {
+        return;
+    };
+    let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let mut rules = retail.rules;
+    crate::map::theater::load_theater(&mut assets, "TEMPERATE").unwrap();
+    rules
+        .bind_scheduler_anim_assets(
+            &["GAYARD_A".into(), "GAYARD_C".into(), "GAYARD_D".into()],
+            &assets,
+            "tem",
+            "TEMPERATE",
+        )
+        .expect("native-read slot names need their physical retail SHP bounds");
+
+    let assert_boundary = |sim: &Simulation, yard: u64, expected: &Value| {
+        let entity = sim.substrate.entities.get(yard).unwrap();
+        let producer = &expected["producer"];
+        assert_eq!(
+            json!([
+                entity.mission.current().raw(),
+                entity.mission.queued().raw(),
+                entity.mission.handler_state(),
+                entity.mission.mission_start_frame(),
+                entity.mission.ai_counter(),
+            ]),
+            json!([
+                producer["current"],
+                producer["queued"],
+                producer["status"],
+                producer["mission_start"],
+                producer["ai_counter"],
+            ]),
+            "original current/queued mission and retained dispatch state"
+        );
+        let dispatch = entity.mission.dispatch_timer();
+        assert_eq!(
+            json!([dispatch.start_frame(), dispatch.delay()]),
+            producer["dispatch_timer"],
+            "the leaf returns a delay; the enclosing Mission AI owns its timer write"
+        );
+        assert_eq!(
+            json!([
+                entity.building_body_state().unwrap(),
+                entity.queued_building_body_state().unwrap(),
+                entity.building_ready_latch(),
+            ]),
+            json!([
+                expected["bstate"],
+                expected["queued_bstate"],
+                expected["ready"]
+            ]),
+            "body mode and its sole ready byte are independent of mission status"
+        );
+        let flags = match entity.door_phase() {
+            DoorPhase::ClosedStable => (0, 0),
+            DoorPhase::Opening => (1, 1),
+            DoorPhase::OpenStable => (0, 1),
+            DoorPhase::Closing => (1, 0),
+        };
+        let (anchor, duration, total) = entity.door_timer_fields();
+        assert_eq!(
+            json!([flags.0, flags.1, anchor, duration, total]),
+            json!([
+                expected["door"]["active"],
+                expected["door"]["opening"],
+                expected["door"]["timer"][0],
+                expected["door"]["timer"][1],
+                expected["door"]["retained_duration"],
+            ]),
+            "original Door transition and meaningful retained timer fields"
+        );
+        for slot in expected["slots"].as_array().unwrap() {
+            let index = int(&slot["slot"]) as usize;
+            let actual = entity.building_art.anim_slots()[index]
+                .map(|id| sim.interner.resolve(sim.anim(id).unwrap().type_id));
+            assert_eq!(json!(actual), slot["type"], "native slot{index}");
+            if let Some(id) = entity.building_art.anim_slots()[index] {
+                let anim = sim.anim(id).unwrap();
+                let native_anim = expected["selected_anims"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|anim| anim["pointer"] == slot["pointer"])
+                    .unwrap();
+                let mut runtime = serde_json::to_value(&anim.runtime).unwrap();
+                for flag in [
+                    "first_ai_guard",
+                    "constructor_reverse",
+                    "inactive",
+                    "paused",
+                ] {
+                    runtime[flag] = json!(u8::from(runtime[flag].as_bool().unwrap()));
+                }
+                runtime["frame_timer"] = json!([
+                    anim.runtime.frame_timer.start_frame(),
+                    anim.runtime.frame_timer.duration(),
+                ]);
+                assert_eq!(runtime, native_anim["runtime"], "native slot{index} clock");
+            }
+        }
+    };
+
+    for call in calls {
+        assert_eq!(call["entry"], "0x44d880");
+        let before = &call["entry_state"];
+        let after = &call["return_state"];
+        let now = int(&call["frame"]) as u32;
+        let mut sim = Simulation::with_seed(0);
+        // The joined original fixture supplies its stored speed separately
+        // from retail lobby defaults. Normalized Anim constructor clocks
+        // consume the value actually read at this native boundary.
+        assert!(
+            sim.session
+                .game_options
+                .apply_in_game_speed(int(&before["game_speed"]) as u8)
+        );
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let owner = sim.interner.intern("Americans");
+        sim.houses
+            .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
+        // Both receivers come from their real retail constructors. The DEST
+        // starts held in Limbo; this leaf imports its measured post-Exit prior
+        // rather than substituting a land tank or claiming to replay Exit.
+        let yard = sim
+            .construct_object_limbo_at_height(
+                "GAYARD",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+        let product = sim
+            .construct_object_limbo_at_height(
+                "DEST",
+                "Americans",
+                0,
+                0,
+                0,
+                0,
+                &rules,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
+        for (id, actor) in [(yard, &before["producer"]), (product, &before["product"])] {
+            let entity = sim.substrate.entities.get_mut(id).unwrap();
+            entity.position.put_location(coord(&actor["location"]));
+            entity.health.set_for_test(int(&actor["health"]));
+            entity
+                .lifecycle
+                .set_object_alive_for_test(actor["alive"] == 1);
+            entity.lifecycle.set_in_limbo_for_test(actor["limbo"] == 1);
+            entity.lifecycle.set_cell_marked(actor["marked"] == 1);
+            entity.in_logic_vector.set_for_test(actor["logic"] == 1);
+            entity.set_in_playfield(actor["in_playfield"] == 1);
+            assert_eq!(actor["contacts"], json!([0]));
+            assert!(entity.radio_contacts.is_empty());
+            assert_eq!(
+                json!(entity.radio_contacts.capacity()),
+                actor["radio_capacity"]
+            );
+            assert_eq!(actor["tether"], 0);
+            assert_eq!(entity.tether.partner(), None);
+            entity.mission.apply_test_fixture(MissionTestFixture {
+                current: MissionId::from_raw(int(&actor["current"])),
+                suspended: MissionId::NONE,
+                queued: MissionId::from_raw(int(&actor["queued"])),
+                movement_bypass_latch: 0,
+                handler_state: int(&actor["status"]) as u32,
+                mission_start_frame: int(&actor["mission_start"]) as u32,
+                ai_counter: int(&actor["ai_counter"]) as u32,
+                dispatch_timer: MissionDispatchTimer::from_raw(
+                    int(&actor["dispatch_timer"][0]),
+                    int(&actor["dispatch_timer"][1]),
+                ),
+            });
+        }
+        {
+            let entity = sim.substrate.entities.get_mut(yard).unwrap();
+            assert_eq!(before["bstate"], 1);
+            assert_eq!(before["queued_bstate"], -1);
+            entity.initialize_building_idle_body(0);
+            entity
+                .mission_leaf
+                .set_building_ready_latch(int(&before["ready"]) as u8);
+            entity
+                .building_art
+                .set_actually_placed_for_test(before["lifecycle_bytes"]["6E4"] == 1);
+            assert_eq!(
+                json!(u8::from(entity.building_art.damage_state_active())),
+                before["lifecycle_bytes"]["6E6"]
+            );
+            assert_eq!(
+                json!(u8::from(entity.building_art.stuff_enabled())),
+                before["lifecycle_bytes"]["6EA"]
+            );
+            if before["door"]["opening"] == 1 {
+                entity.open_door(
+                    int(&before["door"]["retained_duration"]) as u32,
+                    int(&before["door"]["timer"][0]) as u32,
+                );
+                entity.advance_door(now);
+            }
+        }
+        sim.substrate.occupancy =
+            crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
+        for slot in before["slots"].as_array().unwrap() {
+            let Some(name) = slot["type"].as_str() else {
+                continue;
+            };
+            let id = sim
+                .set_building_anim_slot(yard, int(&slot["slot"]) as u8, false, false, 0, &rules)
+                .unwrap();
+            assert_eq!(sim.interner.resolve(sim.anim(id).unwrap().type_id), name);
+            let prior = before["selected_anims"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|anim| anim["pointer"] == slot["pointer"])
+                .unwrap();
+            let runtime = &prior["runtime"];
+            let anim = sim.substrate.anims.get_mut(id).unwrap();
+            anim.runtime.current_frame = int(&runtime["current_frame"]);
+            anim.runtime.frame_step = int(&runtime["frame_step"]);
+            anim.runtime.delay_remaining = int(&runtime["delay_remaining"]) as u16;
+            anim.runtime.rate_reload = int(&runtime["rate_reload"]) as u16;
+            anim.runtime.frame_timer = CdTimer::from_raw(
+                int(&runtime["frame_timer"][0]),
+                int(&runtime["frame_timer"][1]),
+            );
+            anim.runtime.loop_remaining = int(&runtime["loop_remaining"]) as u8;
+            anim.runtime.first_ai_guard = runtime["first_ai_guard"] == 1;
+            anim.runtime.constructor_reverse = runtime["constructor_reverse"] == 1;
+            anim.runtime.inactive = runtime["inactive"] == 1;
+            anim.runtime.paused = runtime["paused"] == 1;
+        }
+        sim.session.binary_frame = now;
+        sim.main_rng =
+            SimRng::from_native_state_hex_for_test(before["rng"]["main"].as_str().unwrap()).into();
+        sim.scenario_rng =
+            SimRng::from_native_state_hex_for_test(before["rng"]["scenario"].as_str().unwrap());
+        sim.mapgen_rng =
+            SimRng::from_native_state_hex_for_test(before["rng"]["mapgen"].as_str().unwrap());
+        assert_boundary(&sim, yard, before);
+        let slots_before = *sim
+            .substrate
+            .entities
+            .get(yard)
+            .unwrap()
+            .building_art
+            .anim_slots();
+        let production_before =
+            slots_before[8].map(|id| (id, sim.anim(id).unwrap().runtime.clone()));
+        let delay = mission_unload(&mut sim, yard, &rules, ObjectAiCtx::default()).unwrap();
+        assert_eq!(
+            json!(delay),
+            call["return_eax"],
+            "frame{now}: original handler delay"
+        );
+        assert_eq!(call["return_eax"], 15);
+        assert_boundary(&sim, yard, after);
+        for (name, actual) in [
+            ("main", sim.main_rng.native_state_hex()),
+            ("scenario", sim.scenario_rng.native_state_hex()),
+            ("mapgen", sim.mapgen_rng.native_state_hex()),
+        ] {
+            assert!(
+                actual == after["rng"][name].as_str().unwrap(),
+                "frame{now}: exact original {name} RNG output"
+            );
+        }
+        if let Some(idle) = slots_before[18] {
+            assert!(
+                sim.anim(idle).is_none(),
+                "the displaced Idle18 is scalar-deleted"
+            );
+        }
+        if let Some((id, runtime)) = production_before {
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(yard)
+                    .unwrap()
+                    .building_art
+                    .anim_slots()[8],
+                Some(id)
+            );
+            assert_eq!(
+                sim.anim(id).unwrap().runtime,
+                runtime,
+                "state4 retains the actual running Production8"
+            );
+        }
+    }
 }
 
 #[test]

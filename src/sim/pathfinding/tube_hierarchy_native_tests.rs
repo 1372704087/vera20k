@@ -148,7 +148,7 @@ fn tube_hierarchy_generated_records_connect_full_and_local_precheck() {
         .map(|(i, x)| {
             let cell = &mut cells[32 * usize::from(width) + usize::from(x)];
             cell.tube_index = Some(TubeId(i as u16));
-            cell.yr_cell_land_type = LandType::Tunnel.as_index();
+            cell.land_type = LandType::Tunnel.as_index();
             TubeFact::explicit((x, 32), (x + 32, 32), 0, vec![2; 32])
         })
         .collect();
@@ -201,9 +201,10 @@ fn tube_hierarchy_generated_records_connect_full_and_local_precheck() {
         bridges.native_zone_source_size(),
     );
     let counts = super::super::BlockerNeighborCounts::new(width, height);
-    let route = super::super::zone_search::find_path_zoned_marker(
+    let route = super::super::zone_search::find_layered_path_zoned_marker(
         &path,
         (16, 32),
+        crate::sim::movement::locomotor::MovementLayer::Ground,
         (48, 32),
         Some(&zone_grid),
         MovementZone::Normal,
@@ -214,11 +215,11 @@ fn tube_hierarchy_generated_records_connect_full_and_local_precheck() {
         true,
         None,
     )
-    .expect("generated Tube graph reaches live flat route selection");
+    .expect("generated Tube graph reaches live route selection");
     assert!(
         route
             .windows(2)
-            .any(|pair| pair[0].0.abs_diff(pair[1].0) > 1),
+            .any(|pair| pair[0].rx.abs_diff(pair[1].rx) > 1),
         "the class barrier is crossed by the Tube path transition"
     );
     for level in 0..3 {
@@ -323,4 +324,30 @@ fn tube_hierarchy_constant_walk_endpoints_match_original_executable() {
             "raw token {token}"
         );
     }
+}
+
+/// 582D70 picks the bucket from the zones it was given but stores the
+/// sign-extended transcript, so two pairs can store the same edge under
+/// different buckets. Each bucket keeps its copy; a repeat in one bucket
+/// keeps the first flag.
+#[test]
+fn a_sign_extended_pair_is_kept_once_per_bucket() {
+    let mut buckets = HierarchyEdgeBuckets::new();
+    register_native_hierarchy_pair(&mut buckets, 1, 0x8001, 0);
+    register_native_hierarchy_pair(&mut buckets, 2, 0x8001, 0);
+    register_native_hierarchy_pair(&mut buckets, 1, 0x8001, 1);
+    let stored: Vec<_> = buckets
+        .buckets
+        .iter()
+        .enumerate()
+        .flat_map(|(i, bucket)| {
+            bucket
+                .iter()
+                .map(move |e| (i, e.existing, e.current, e.flag))
+        })
+        .collect();
+    assert_eq!(
+        stored,
+        [(0x11, 0xffff, 0x8001, 0), (0x21, 0xffff, 0x8001, 0)]
+    );
 }

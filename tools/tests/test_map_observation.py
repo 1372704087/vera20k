@@ -52,11 +52,15 @@ class MapObservationTests(unittest.TestCase):
         self.effect_frames = {}
         self.laser_frames = {}
         self.electric_frames = {}
+        self.radiation_frames = {}
+        self.radiation_draws = {}
         self.bomb_frames = {}
+        self.crate_frames = {}
         self.input_frames = {}
         self.gesture_receipts = []
         self.keyboard_bindings = []
         self.sidebar_frames = []
+        self.tooltip_frames = {}
         self.tactical_extent = None
         self.change = lambda manifest: None
         self.result = ChildResult(42, 0, False, b'child output\n', b'', ())
@@ -109,6 +113,10 @@ class MapObservationTests(unittest.TestCase):
                       'pixel_layout': 'BGRA8', 'surface_format': 'Bgra8UnormSrgb'},
             'native_comparator': 'NONE', 'parity_certification': 'NONE',
         }
+        if self.profile.get('observe_tooltips', False):
+            for row in manifest['render']['presentation_clock']['draws']:
+                row['tooltip'] = deepcopy(self.tooltip_frames.get(
+                    row['completed_steps'], self.tooltip_observation()))
         if 'cursor_position' in self.profile:
             manifest['render']['cursor_position'] = [float(value) for value in self.profile['cursor_position']]
         seen = set()
@@ -138,8 +146,12 @@ class MapObservationTests(unittest.TestCase):
                 frames[-1]['lasers'] = deepcopy(self.laser_frames.get(step, self.laser_snapshot()))
             if observation._observes_electric_step(self.profile, step):
                 frames[-1]['electric_bolts'] = deepcopy(self.electric_frames.get(step, self.electric_snapshot()))
+            if self.profile.get('observe_radiation_beams', False):
+                frames[-1]['radiation_beams'] = deepcopy(self.radiation_frames.get(step, self.radiation_snapshot()))
             if self.profile.get('observe_bombs', False):
                 frames[-1]['bombs'] = deepcopy(self.bomb_frames.get(step, {'carriers': [], 'records': []}))
+            if self.profile.get('observe_crates', False):
+                frames[-1]['crates'] = deepcopy(self.crate_frames.get(step, []))
         manifest['observations'] = {
             'policy': observation.OBSERVATION_POLICY, 'owners': self.profile.get('observe_owners', []),
             'rule_types': deepcopy(self.rule_types),
@@ -163,6 +175,13 @@ class MapObservationTests(unittest.TestCase):
                             'simulation_tick': step, 'binary_frame': step,
                             'effects': deepcopy(self.electric_frames.get(step, self.electric_snapshot()))}
                            for index, step in enumerate(draw_steps)]}
+        if self.profile.get('observe_radiation_beams', False):
+            manifest['observations']['radiation_beam_draws'] = {
+                'policy': 'radiation-beam-after-each-tactical-composite-v1',
+                'frames': [{'ordinal': index, 'completed_steps': step,
+                            'simulation_tick': step, 'binary_frame': step,
+                            'beams': deepcopy(self.radiation_draws.get(step, self.radiation_snapshot()))}
+                           for index, step in enumerate(range(1, ticks + 1) if ticks else [0])]}
         if 'observe_types' in self.profile:
             manifest['observations']['type_filter'] = deepcopy(self.profile['observe_types'])
         if 'gestures' in self.profile:
@@ -249,6 +268,39 @@ class MapObservationTests(unittest.TestCase):
                        'payload': {'ForceAttackCell': {'attacker_id': 1, 'target_rx': 87, 'target_ry': 53}}}])
         self.profile_path.write_text(json.dumps(self.profile))
         self.actor_frames = {step: [self.actor()] for step in range(4)}
+
+    def test_crate_profile_and_occupied_slot_receipts_round_trip(self):
+        self.scripted_profile()
+        self.profile['observe_crates'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.crate_frames[0] = [{'slot': 3, 'cell': [10, 12], 'start_frame': 50,
+                                 'aux': 777, 'duration': 100, 'overlay': {'id': 4, 'data': 20}}]
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual(frames[0]['crates'], self.crate_frames[0])
+        self.assertEqual(frames[1]['crates'], [])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_crates=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_crates=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_crates=value))
+
+    def test_crate_slots_reject_empty_duplicate_and_malformed_rows(self):
+        slot = {'slot': 3, 'cell': [10, 12], 'start_frame': 50,
+                'aux': 777, 'duration': 100, 'overlay': {'id': 4, 'data': 20}}
+        self.assertEqual(observation._crate_slots([slot], 'crates'), 1)
+        for changed in [dict(slot, cell=[0, 0]), dict(slot, slot=256),
+                        dict(slot, cell=[-32769, 12]), dict(slot, aux=-1),
+                        dict(slot, duration=True), dict(slot, overlay={'id': 4, 'data': 256})]:
+            with self.subTest(changed=changed), self.assertRaises(ValidationError):
+                observation._crate_slots([changed], 'crates')
+        with self.assertRaises(ValidationError):
+            observation._crate_slots([slot, slot], 'crates')
 
     def test_v2_records_exact_issue_order_without_input_delay_and_every_actor_frame(self):
         self.scripted_profile()
@@ -477,6 +529,21 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(transcript['commands'][0]['payload'], {'Stop': {'entity_id': 7}})
         self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
 
+    def test_observed_commands_preserve_serde_unit_variants_and_reject_missing_tags(self):
+        self.gesture_profile()
+        self.gesture_receipts[0]['queued_commands'][0]['payload'] = 'Cheer'
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        receipts = report['capture']['observations']['gesture_input']['receipts']
+        self.assertEqual(receipts[0]['queued_commands'][0]['payload'], 'Cheer')
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        for index, payload in enumerate(('', None, 1, [], {}, {'': {}}, {'Cheer': None})):
+            with self.subTest(payload=payload):
+                self.output = self.root / f'bad-observed-command-tag-{index}'
+                self.change = lambda manifest, value=payload: manifest['observations'][
+                    'gesture_input']['receipts'][0]['queued_commands'][0].update(payload=value)
+                self.assertEqual(self.run_capture()['status'], 'INVALID')
+
     def command_bar_profile(self):
         self.gesture_profile()
         request, receipt = self.profile['gestures'][0], self.gesture_receipts[0]
@@ -555,6 +622,144 @@ class MapObservationTests(unittest.TestCase):
                     self.run_capture()
                 child.assert_not_called()
 
+    def thumb_profile(self, *, locked=False):
+        self.command_bar_profile()
+        request, receipt = self.profile['gestures'][0], self.gesture_receipts[0]
+        request['gesture']['command'] = 'Thumb'
+        receipt['gesture'] = deepcopy(request['gesture'])
+        bar = receipt['command_bar']
+        bar.pop('slot')
+        bar['command'] = 'Thumb'
+        state = {'closed': True, 'pressed': False, 'sticky': False, 'gadget_id': bar['gadget_id'],
+                 'rect': [1, 6, 2, 1], 'disabled': False, 'current_house': 'VERA-OBSERVER',
+                 'side_index': 0, 'local_player_defeated': True, 'input_locked': locked,
+                 'has_lost': True, 'exit_ready': False, 'left_held': False}
+        # Synthetic schema fixtures, not native or gameplay expectations. In
+        # particular, the unlocked defeated Thumb may visibly reopen before a fix.
+        bar['thumb'] = {
+            'before': deepcopy(state),
+            'press': {'state': dict(state, pressed=not locked, left_held=True),
+                      'dispatch': None if locked else
+                          {'masked_flags': 1, 'modifier': 0, 'key_after': 0, 'action_result': 0}},
+            'release': {'state': dict(state, closed=locked),
+                        'dispatch': None if locked else
+                            {'masked_flags': 2, 'modifier': 0, 'key_after': 0x80f1, 'action_result': 1}},
+            'after': dict(state, closed=locked),
+        }
+        receipt['left_press_captured'] = not locked
+        receipt['queued_commands'] = []
+        self.profile_path.write_text(json.dumps(self.profile))
+
+    def test_thumb_receipt_round_trip_keeps_real_result_distinct_from_mutable_key(self):
+        self.thumb_profile()
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        transcript = report['capture']['observations']['gesture_input']
+        self.assertEqual(transcript['receipts'], self.gesture_receipts)
+        bar = transcript['receipts'][0]['command_bar']
+        self.assertNotIn('slot', bar)
+        self.assertFalse(bar['thumb']['after']['closed'], 'capture validity must not manufacture parity')
+        self.assertEqual(bar['thumb']['release']['dispatch']['key_after'], 0x80f1)
+        self.assertEqual(bar['thumb']['release']['dispatch']['action_result'], 1)
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertEqual(observation._command_bar_gesture(bar, 'Thumb', 'thumb', (8, 8)), 7)
+        for phase in ('press', 'release'):
+            bar['thumb'][phase]['dispatch'] = None
+        self.assertEqual(observation._command_bar_gesture(bar, 'Thumb', 'thumb', (8, 8)), 5)
+
+    def test_locked_thumb_refusal_retains_physical_edges_without_stale_dispatch(self):
+        self.thumb_profile(locked=True)
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        transcript = report['capture']['observations']['gesture_input']
+        count = observation._gesture_observations(transcript, self.profile)
+        with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', count - 1):
+            with self.assertRaises(ValidationError):
+                observation._gesture_observations(transcript, self.profile)
+        mutations = [lambda t: t['before'].update(input_locked=False),
+                     lambda t: t['press']['state'].update(input_locked=False),
+                     lambda t: t['release']['state'].update(input_locked=False),
+                     lambda t: t['after'].update(closed=False),
+                     lambda t: t['press']['state'].update(closed=False),
+                     lambda t: t['release']['state'].update(closed=False),
+                     lambda t: t['release'].update(dispatch={
+                         'masked_flags': 0, 'modifier': 0, 'key_after': 0, 'action_result': 0})]
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index), self.assertRaises(ValidationError):
+                candidate = deepcopy(transcript)
+                mutate(candidate['receipts'][0]['command_bar']['thumb'])
+                observation._gesture_observations(candidate, self.profile)
+        for phase in ('before', 'press', 'release', 'after'):
+            with self.subTest(physical_phase=phase), self.assertRaises(ValidationError):
+                candidate = deepcopy(transcript)
+                thumb = candidate['receipts'][0]['command_bar']['thumb']
+                state = thumb[phase]['state'] if phase in ('press', 'release') else thumb[phase]
+                state['left_held'] = not state['left_held']
+                observation._gesture_observations(candidate, self.profile)
+        for key in ('neutral_input_restored', 'left_press_captured'):
+            candidate = deepcopy(transcript)
+            candidate['receipts'][0][key] = 0
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._gesture_observations(candidate, self.profile)
+
+    def test_thumb_cannot_relax_unlocked_or_legacy_command_press_capture(self):
+        self.thumb_profile()
+        self.gesture_receipts[0]['left_press_captured'] = False
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
+        self.command_bar_profile()
+        self.output = self.root / 'uncaptured-command'
+        self.gesture_receipts[0]['left_press_captured'] = False
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
+
+    def test_thumb_schema_requires_exact_typed_states_edges_and_unsigned_dispatch(self):
+        self.thumb_profile()
+        original = self.gesture_receipts[0]['command_bar']
+        mutations = [lambda b: b.pop('thumb'), lambda b: b.update(slot=0),
+                     lambda b: b['thumb'].update(extra=True),
+                     lambda b: b['thumb']['press'].pop('dispatch'),
+                     lambda b: b['thumb']['release'].update(extra=True),
+                     lambda b: b['thumb']['release'].update(state=None)]
+        for phase in ('before', 'press', 'release', 'after'):
+            for key, value in (('closed', 1), ('pressed', None), ('sticky', 'false'), ('disabled', 0),
+                               ('left_held', 0), ('local_player_defeated', 1), ('input_locked', None),
+                               ('has_lost', 0), ('exit_ready', 1), ('current_house', 0),
+                               ('side_index', True), ('side_index', 256), ('side_index', -1),
+                               ('gadget_id', True), ('gadget_id', 65536), ('gadget_id', -1),
+                               ('rect', [1.0, 6, 2, 1]), ('rect', [1, 6, 2]),
+                               ('rect', [1, 6, 2, 1 << 31]), ('extra', True)):
+                def mutate(bar, phase=phase, key=key, value=value):
+                    target = bar['thumb'][phase]
+                    state = target['state'] if phase in ('press', 'release') else target
+                    state[key] = value
+                mutations.append(mutate)
+            def missing(bar, phase=phase):
+                target = bar['thumb'][phase]
+                (target['state'] if phase in ('press', 'release') else target).pop('exit_ready')
+            mutations.append(missing)
+        for phase in ('press', 'release'):
+            for key, value in (('masked_flags', -1), ('masked_flags', 65536), ('modifier', 256),
+                               ('key_after', True), ('key_after', 65536), ('action_result', -1),
+                               ('action_result', 1 << 32), ('action_result', True), ('extra', 0)):
+                mutations.append(lambda b, p=phase, k=key, v=value: b['thumb'][p]['dispatch'].update({k: v}))
+            mutations.append(lambda b, p=phase: b['thumb'][p]['dispatch'].pop('key_after'))
+        for index, mutate in enumerate(mutations):
+            with self.subTest(case=index), self.assertRaises(ValidationError):
+                candidate = deepcopy(original)
+                mutate(candidate)
+                observation._command_bar_gesture(candidate, 'Thumb', 'thumb', (8, 8))
+        nullable = deepcopy(original)
+        for phase in ('before', 'press', 'release', 'after'):
+            target = nullable['thumb'][phase]
+            state = target['state'] if phase in ('press', 'release') else target
+            state.update(current_house=None, side_index=None, has_lost=None, exit_ready=None)
+        self.assertEqual(observation._command_bar_gesture(nullable, 'Thumb', 'thumb', (8, 8)), 7)
+        self.command_bar_profile()
+        legacy = deepcopy(self.gesture_receipts[0]['command_bar'])
+        self.assertEqual(observation._command_bar_gesture(legacy, 'Guard', 'guard', (8, 8)), 1)
+        legacy['thumb'] = original['thumb']
+        with self.assertRaises(ValidationError):
+            observation._command_bar_gesture(legacy, 'Guard', 'guard', (8, 8))
+
     @staticmethod
     def local_input_observation():
         return {'camera_top_left': [100.0, -50.0], 'camera_zoom': 1.0,
@@ -587,6 +792,39 @@ class MapObservationTests(unittest.TestCase):
             row = self.input_frames.setdefault(step, self.input_observation())
             row['local_input'] = self.local_input_observation()
         self.profile_path.write_text(json.dumps(self.profile))
+
+    def test_minimap_gesture_uses_render_bounds_and_preserves_camera_receipts(self):
+        self.keyboard_profile()
+        # The radar lies outside the tactical viewport (6x6), inside8x8.
+        for request, receipt in zip(self.profile['gestures'], self.gesture_receipts):
+            request['gesture'] = {'kind': 'minimap', 'position': [6, 2]}
+            receipt['gesture'] = deepcopy(request['gesture'])
+            receipt.pop('keyboard')
+            receipt['left_press_captured'] = True
+            receipt['queued_commands'] = []
+            receipt['minimap'] = {'resolved_position': [6, 2], 'tracker_hit': None,
+                                  'cell': [55, 55], 'world_leptons': [14208, 14208, 0]}
+        self.gesture_receipts[0]['after']['local_input']['camera_top_left'] = [30.0, 40.0]
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertEqual(report['capture']['observations']['gesture_input']['receipts'][0][
+            'after']['local_input']['camera_top_left'], [30.0, 40.0])
+        for request, receipt in zip(self.profile['gestures'], self.gesture_receipts):
+            request['gesture'] = {'kind': 'minimap_object', 'entity_id': 935}
+            receipt['gesture'] = deepcopy(request['gesture'])
+            receipt['minimap']['tracker_hit'] = 935
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.output = self.root / 'minimap-tracker-object'
+        self.assertEqual(self.run_capture()['status'], 'VALID')
+        self.gesture_receipts[0]['minimap']['tracker_hit'] = 936
+        self.output = self.root / 'minimap-wrong-tracker-object'
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
+        self.profile['gestures'][0]['gesture'] = {'kind': 'click', 'position': [6, 2]}
+        self.gesture_receipts[0]['gesture'] = deepcopy(self.profile['gestures'][0]['gesture'])
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.output = self.root / 'tactical-click-cannot-use-radar-bounds'
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
 
     def test_literal_keys_preserve_same_step_order_loaded_binding_and_pending_voice_receipts(self):
         self.keyboard_profile()
@@ -786,6 +1024,30 @@ class MapObservationTests(unittest.TestCase):
                 self.assertEqual(observation._sound_state(observed, 'sound'),
                                  2 + (len(rows) if rows is not None else 0))
                 self.assertEqual(observed, retained, 'validation must not drive or rewrite requests')
+
+    def test_watched_coordinate_scope_is_explicit_and_rejects_unwatched_receipt_rows(self):
+        self.audio_profile()
+        request = {'request_id': 1, 'sound_id': 'SquidMove',
+                   'source_world_pixels': [30.0, -15.0], 'source_cell': [0, 1], 'suspend_depth': 0}
+        state = {'main_rng_cursor': [0, 103], 'scenario_rng_cursor': [0, 103],
+                 'actors': [], 'coordinate_requests': [request]}
+        # Historical/default scope retains all coordinate owners.
+        self.assertEqual(observation._sound_state(state, 'sound', profile=self.profile), 3)
+        self.profile['observe_audio']['coordinate_request_scope'] = 'watched'
+        observation._profile_extensions(self.profile)
+        self.assertEqual(observation._sound_state(state, 'sound', profile=self.profile), 3)
+        for name in ('Ambient', None):
+            bad = deepcopy(state)
+            bad['coordinate_requests'][0]['sound_id'] = name
+            with self.assertRaises(ValidationError):
+                observation._sound_state(bad, 'sound', profile=self.profile)
+        for scope in (None, False, 'unknown'):
+            bad = deepcopy(self.profile)
+            bad['observe_audio']['coordinate_request_scope'] = scope
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(bad)
+        self.profile['observe_audio']['coordinate_request_scope'] = 'all'
+        observation._profile_extensions(self.profile)
 
     def test_coordinate_request_rows_reject_forged_owners_coordinates_and_depths(self):
         request = {'request_id': 1, 'sound_id': 'Cue', 'source_world_pixels': [30.0, -15.0],
@@ -1991,6 +2253,28 @@ class MapObservationTests(unittest.TestCase):
                 self.change = lambda manifest, value=value: manifest['render'].update(frame_wall_mean_ms=value)
                 self.assertEqual(self.run_capture()['status'], 'INVALID')
 
+    def test_ammo_projection_round_trips_signed_owner_and_legacy_omission(self):
+        observation._actor(self.actor(), 'legacy actor')
+        for value in (None, -(1 << 31), -1, 0, 1, (1 << 31) - 1):
+            actor = self.actor()
+            actor['foot']['ammo_2fc'] = value
+            observation._actor(actor, 'actor')
+        self.scripted_profile()
+        for step, actors in self.actor_frames.items():
+            actors[0]['foot']['ammo_2fc'] = 1 if step < 2 else 0
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual([row['actors'][0]['foot']['ammo_2fc'] for row in frames], [1, 1, 0, 0])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    def test_ammo_projection_rejects_nonsigned_counts(self):
+        for value in (True, 1.0, '1', -(1 << 31) - 1, 1 << 31):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                actor = self.actor()
+                actor['foot']['ammo_2fc'] = value
+                observation._actor(actor, 'actor')
+
     def test_pending_entry_projection_round_trips_null_and_stable_target(self):
         self.scripted_profile()
         for step, actors in self.actor_frames.items():
@@ -2089,7 +2373,8 @@ class MapObservationTests(unittest.TestCase):
                        {'suspended_target': {'Entity': 0}, 'suspended_nav': None},
                        {'suspended_target': {'Cell': {'rx': 1, 'ry': 2}}, 'suspended_nav': None},
                        {'suspended_target': None, 'suspended_nav': {'Cell': [1, 2]}},
-                       {'suspended_target': None, 'suspended_nav': {'Object': {'id': True}}}):
+                       {'suspended_target': None, 'suspended_nav': {'Object': {'id': True}}},
+                       {'suspended_target': None, 'suspended_nav': {'Building': {'id': 9}}}):
             with self.subTest(retask=retask), self.assertRaises(ValidationError):
                 observation._actor(dict(self.actor(), retask=retask), 'actor')
 
@@ -2121,6 +2406,104 @@ class MapObservationTests(unittest.TestCase):
             self.assertEqual(frame['actors'][0]['cloak'],
                              self.actor_frames[frame['completed_steps']][0]['cloak'])
         self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    @staticmethod
+    def cloak_state_with_runtime():
+        timer = {'start_frame': 17, 'duration': 5, 'remaining': 4}
+        return dict(state_i32=1, progress_i32=0, cloaking_stages_i32=9,
+                    voxel=True, no_shadow=False,
+                    runtime={'in_playfield': True, 'step_delta_i32': 1, 'step_speed_i32': 5,
+                             'step_timer': dict(timer), 'recloak_delay': dict(timer, duration=0, remaining=0)})
+
+    def test_cloak_runtime_opt_in_reuses_fire_and_preserves_sealed_projection(self):
+        self.scripted_profile()
+        self.profile['observe_cloak'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            actors[0].update(cloak=self.cloak_state_with_runtime(), fire=self.fire_state())
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertTrue(all(frame['actors'][0]['cloak'] == self.cloak_state_with_runtime()
+                            and frame['actors'][0]['fire'] == self.fire_state()
+                            and 'bombs' not in frame
+                            for frame in report['capture']['observations']['frames']))
+        actor = dict(self.actor(), cloak=self.cloak_state_with_runtime(), fire=self.fire_state())
+        observation._actor(actor, 'actor', cloak=True, bombs=True)
+        for missing in ('cloak', 'fire'):
+            row = dict(actor)
+            del row[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValidationError):
+                observation._actor(row, 'actor', cloak=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        observation._actor(dict(actor, cloak=None), 'actor', cloak=True)
+
+    def test_cloak_runtime_profile_presence_and_old_policy_compatibility(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_cloak=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_cloak=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_cloak=value))
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_cloak=True), {}, **prior)
+        self.profile['observe_cloak'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            old = self.cloak_state_with_runtime()
+            del old['runtime']
+            actors[0]['cloak'] = old
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('runtime' not in frame['actors'][0]['cloak']
+                            and 'fire' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_cloak_runtime_shape_and_signed_timer_inputs_are_strict(self):
+        observation._cloak(self.cloak_state_with_runtime(), 'cloak', runtime=True)
+        for key, value in (('in_playfield', 1), ('step_speed_i32', True),
+                           ('step_delta_i32', 1 << 31), ('step_timer', None),
+                           ('recloak_delay', {'start_frame': 0, 'duration': 1, 'remaining': True})):
+            row = self.cloak_state_with_runtime()
+            row['runtime'][key] = value
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._cloak(row, 'cloak', runtime=True)
+        for key in ('runtime', 'step_timer'):
+            row = self.cloak_state_with_runtime()
+            if key == 'runtime':
+                del row[key]
+            else:
+                del row['runtime'][key]
+            with self.subTest(missing=key), self.assertRaises(ValidationError):
+                observation._cloak(row, 'cloak', runtime=True)
+        row = self.cloak_state_with_runtime()
+        row['runtime']['step_delta_i32'] = -(1 << 31)
+        row['runtime']['step_timer'] = {'start_frame': -(1 << 31), 'duration': (1 << 31) - 1,
+                                        'remaining': -1}
+        observation._cloak(row, 'cloak', runtime=True)
+
+    def test_cloak_runtime_uses_shared_sample_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_cloak=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), cloak=self.cloak_state_with_runtime(), fire=self.fire_state())]
+        # One actor, one House and one immutable cloak-runtime row.
+        for budget, status in ((2, 'INVALID'), (3, 'VALID')):
+            self.output = self.root / f'cloak-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
 
     @staticmethod
     def action_line_inputs():
@@ -2202,13 +2585,14 @@ class MapObservationTests(unittest.TestCase):
         # Protocol fixture only: native lifetime/FPS results live in building_prism.json.
         return {'detail': {'frame_rate': 44, 'minimum': 15, 'buffer': 5, 'reduced': False,
                            'logic_visits': 0, 'sample_start': 60, 'sample_duration': 60,
-                           'initialized': True}, 'live': []}
+                           'initialized': True}, 'live': [], 'disk_shots': []}
 
     @staticmethod
     def laser_beam():
         return {'birth_frame': 37, 'from': [9694, 12254, 378], 'to': [11776, 12544, 0],
                 'z_adjust': -58, 'width': 5, 'supported': True, 'house_color': True,
-                'rgb': [0, 0, 255], 'duration': 15, 'age': 1,
+                'rgb': [0, 0, 255], 'outer': [0, 0, 0], 'spread': [0, 0, 0],
+                'fade_end_bits': 0, 'duration': 15, 'age': 1,
                 'timer_start': 38, 'timer_duration': 1}
 
     @staticmethod
@@ -2218,6 +2602,150 @@ class MapObservationTests(unittest.TestCase):
                 'live': [], 'lights': [], 'particle_systems': [], 'native_id_cursor': 1000,
                 'rng': {name: {'disabled': 0, 'index_a': 0, 'index_b': 103, 'words': [0] * 250}
                         for name in ('main', 'scenario', 'mapgen')}}
+
+    @staticmethod
+    def radiation_snapshot(populated=False):
+        # Protocol fixture only, never native numeric or lifetime goldens.
+        if not populated:
+            return {'live': [], 'composites': [], 'segments': []}
+        return {'live': [{'birth_frame': 7, 'from': [256, 256, 0], 'to': [768, 256, 0],
+                          'z_adjust': -32, 'color': [0, 255, 0], 'duration': 15,
+                          'amplitude_bits': 0x4044000000000000, 'progress': 14,
+                          'spacing': 10, 'length_bits': 0x4080000000000000}],
+                'composites': [{'birth_frame': 7, 'progress_before': 13, 'progress_after': 14,
+                                'expired': False, 'segments': 1}],
+                'segments': [{'from': [-1, 32], 'to': [2, 34], 'z_adjust': [-32, -2], 'rgb565': 2016}]}
+
+    def test_radiation_observer_keeps_logic_and_actual_composite_snapshots_separate(self):
+        self.scripted_profile()
+        self.profile['observe_radiation_beams'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        logic = self.radiation_snapshot(True)
+        self.radiation_frames[2] = logic
+        draw = self.radiation_snapshot(True)
+        draw['live'].clear()
+        draw['composites'][0].update(progress_before=14, progress_after=15, expired=True)
+        self.radiation_draws[2] = draw
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertEqual(observed['frames'][2]['radiation_beams'], logic)
+        self.assertEqual(observed['radiation_beam_draws']['frames'][1]['beams'], draw)
+        self.assertTrue(draw['segments'])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.output = self.root / 'missing-radiation-composite'
+        self.change = lambda m: m['observations']['radiation_beam_draws']['frames'].pop()
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'INVALID')
+        self.assertTrue(any('each requested composite' in error for error in report['errors']), report['errors'])
+
+    def test_radiation_flag_is_strict_and_opt_out_preserves_old_policy_rows(self):
+        self.scripted_profile()
+        for schema in (observation.PROFILE_V2, observation.PROFILE_V3):
+            for enabled in (False, True):
+                observation._profile_extensions(dict(self.profile, schema_version=schema,
+                                                       observe_radiation_beams=enabled))
+        for enabled in (False, True):
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_radiation_beams=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_radiation_beams=value))
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_radiation_beams=True), {}, **prior)
+        self.profile['observe_radiation_beams'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertNotIn('radiation_beam_draws', observed)
+        self.assertTrue(all('radiation_beams' not in frame for frame in observed['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_radiation_composites_ignore_electric_sampling_whitelist(self):
+        self.scripted_profile()
+        self.profile.update(observe_radiation_beams=True, observe_electric_bolts=True,
+                            observe_electric_bolt_steps=[0, 2])
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            for actor in actors:
+                actor['prism'] = ({'support_count': 0, 'pending': None,
+                                   'rearm': {'start': -1, 'duration': 0, 'remaining': 0}}
+                                  if actor['category'] == 'Structure' else None)
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        observed = report['capture']['observations']
+        self.assertEqual([row['completed_steps'] for row in observed['electric_bolt_draws']['frames']], [2])
+        self.assertEqual([row['completed_steps'] for row in observed['radiation_beam_draws']['frames']], [1, 2, 3])
+
+    def test_unrequested_radiation_observations_are_rejected(self):
+        self.scripted_profile()
+        self.profile['observe_radiation_beams'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        for index, change in enumerate((
+                lambda m: m['observations']['frames'][0].update(radiation_beams=self.radiation_snapshot()),
+                lambda m: m['observations'].update(radiation_beam_draws={
+                    'policy': 'radiation-beam-after-each-tactical-composite-v1', 'frames': []}))):
+            self.output = self.root / f'unrequested-radiation-{index}'
+            self.change = change
+            report = self.run_capture()
+            self.assertEqual(report['status'], 'INVALID', report['errors'])
+
+    def test_radiation_repeated_same_logic_frame_retains_expiry_and_geometry(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_radiation_beams=True, ticks=0)
+        rows = []
+        for index in range(3):
+            snapshot = self.radiation_snapshot(True)
+            if index == 2:
+                snapshot['live'].clear()
+                snapshot['composites'][0].update(progress_before=14, progress_after=15, expired=True)
+            rows.append({'ordinal': index, 'completed_steps': 0, 'simulation_tick': 0,
+                         'binary_frame': 0, 'beams': snapshot})
+        value = {'policy': 'radiation-beam-after-each-tactical-composite-v1', 'frames': rows}
+        self.assertEqual(observation._radiation_beam_draws(value, self.profile, [], 2), 11)
+        with self.assertRaises(ValidationError):
+            observation._radiation_beam_draws(value, self.profile, [], 0)
+        value['frames'][2]['binary_frame'] = 1
+        with self.assertRaises(ValidationError):
+            observation._radiation_beam_draws(value, self.profile, [], 2)
+
+    def test_radiation_snapshot_shapes_bits_and_actual_segment_tally_are_strict(self):
+        self.assertEqual(observation._radiation_beams(self.radiation_snapshot(), 'beams'), 1)
+        self.assertEqual(observation._radiation_beams(self.radiation_snapshot(True), 'beams'), 4)
+        for group, key, value in (('live', 'amplitude_bits', 1 << 64), ('live', 'length_bits', True),
+                                 ('live', 'progress', 1 << 31), ('live', 'from', [1, 2]),
+                                 ('live', 'color', [0, 0, 256]), ('live', 'duration', True),
+                                 ('composites', 'expired', 1), ('composites', 'segments', 2),
+                                 ('segments', 'rgb565', 65536), ('segments', 'z_adjust', [0, True]),
+                                 ('segments', 'blend', 'add')):
+            row = self.radiation_snapshot(True)
+            row[group][0][key] = value
+            with self.subTest(group=group, key=key), self.assertRaises(ValidationError):
+                observation._radiation_beams(row, 'beams')
+        row = self.radiation_snapshot(True)
+        row['live'][0]['length_bits'] = None
+        observation._radiation_beams(row, 'beams')
+        del row['composites'][0]['progress_before']
+        with self.assertRaises(ValidationError):
+            observation._radiation_beams(row, 'beams')
+
+    def test_radiation_logic_and_composite_rows_share_aggregate_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_radiation_beams=True, ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.radiation_frames[0] = self.radiation_snapshot(True)
+        self.radiation_draws[0] = self.radiation_snapshot(True)
+        for budget, status in ((7, 'INVALID'), (8, 'VALID')):
+            self.output = self.root / f'radiation-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
 
     def test_electric_observations_preserve_owner_ids_and_all_rng_words(self):
         self.scripted_profile()
@@ -2428,6 +2956,35 @@ class MapObservationTests(unittest.TestCase):
             observation._actor(self.actor_frames[2][0], 'actor')
         self.assertEqual(observation._lasers(self.laser_frames[2], 'lasers'), 2)
 
+        # Retain the actual v7 / ordinary-v4 shape, with no invented disk or
+        # color/fade evidence. The walk actor observations remain unchanged.
+        manifest = self.output / 'child-output/capture.json'
+
+        def prior_walk_observations(document):
+            document['observations']['policy'] = observation.WALK_OBSERVATION_POLICY
+            for frame in document['observations']['frames']:
+                frame['lasers'].pop('disk_shots')
+                for beam in frame['lasers']['live']:
+                    for key in ('outer', 'spread', 'fade_end_bits'):
+                        beam.pop(key)
+
+        def convert_child(document):
+            document['schema_version'] = observation.WALK_CHILD_SCHEMA
+            prior_walk_observations(document)
+
+        self.edit_json(manifest, convert_child)
+
+        def convert_wrapper(document):
+            document['schema_version'] = observation.WALK_RUN_SCHEMA
+            prior_walk_observations(document['capture'])
+            document['capture']['manifest'].update(byte_length=manifest.stat().st_size,
+                                                   sha256=sha256_bytes(manifest.read_bytes()))
+
+        self.edit_json(self.output / 'run.json', convert_wrapper)
+        original = manifest.read_bytes()
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertEqual(manifest.read_bytes(), original)
+
     def test_lasers_profile_rejects_legacy_presence_and_wrong_types(self):
         self.scripted_profile()
         for enabled in (False, True):
@@ -2453,6 +3010,109 @@ class MapObservationTests(unittest.TestCase):
     def fire_state():
         return {'last_fire_frame': -1, 'body_counter': (1 << 32) - 1, 'stage_value': 2,
                 'rearm': {'start_frame': -1, 'duration': 0, 'remaining': 0}}
+
+    @staticmethod
+    def spawn_state():
+        return {'type_spawns_number': 3, 'spawn_type': 'HORNET',
+                'count_docked': 2, 'count_alive': 2, 'mode': 'Returning',
+                'regen_rate': 600, 'reload_rate': 150,
+                'current_target': {'Entity': 8}, 'queued_target': {'Cell': [52, 48]},
+                'update_timer': {'start_frame': -(1 << 31), 'duration': 10},
+                'spawn_timer': {'start_frame': -1, 'duration': 0},
+                'slots': [
+                    {'child': 9, 'state': 'ReadyDocked',
+                     'timer': {'start_frame': -1, 'duration': 0}, 'is_missile': False},
+                    {'child': 7, 'state': 'Reloading',
+                     'timer': {'start_frame': (1 << 31) - 1, 'duration': 150}, 'is_missile': False},
+                    {'child': None, 'state': 'Regenerating',
+                     'timer': {'start_frame': 1, 'duration': 600}, 'is_missile': False}]}
+
+    def test_spawns_opt_in_round_trips_ordered_pool_null_owner_and_retirement(self):
+        self.scripted_profile()
+        self.profile['observe_spawns'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for step, actors in self.actor_frames.items():
+            actors[0]['spawns'] = self.spawn_state() if step < 2 else None
+        self.actor_frames[3] = []
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual(frames[0]['actors'][0]['spawns'], self.spawn_state())
+        self.assertIsNone(frames[2]['actors'][0]['spawns'])
+        self.assertEqual(frames[3]['missing_actor_ids'], [1])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.assertEqual(observation._spawns(self.spawn_state(), 'spawns'), 4)
+        self.assertEqual(observation._spawns(None, 'spawns'), 0)
+        # Query values remain independent recorded reads, not wrapper counters.
+        independent = dict(self.spawn_state(), type_spawns_number=-1, count_docked=9, count_alive=8)
+        observation._spawns(independent, 'spawns')
+
+    def test_spawns_profile_and_actor_fields_require_explicit_boolean_opt_in(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_spawns=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_spawns=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_spawns=value))
+        with self.assertRaises(ValidationError):
+            observation._actor(self.actor(), 'actor', spawns=True)
+        actor = dict(self.actor(), spawns=None)
+        observation._actor(actor, 'actor', spawns=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        self.profile['observe_spawns'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('spawns' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+
+    def test_spawns_rejects_invalid_fields_targets_states_ids_and_signed_timers(self):
+        for key, value in (('type_spawns_number', 1 << 31), ('spawn_type', ''),
+                           ('count_docked', -1), ('count_alive', True), ('mode', 0),
+                           ('regen_rate', 1 << 32), ('reload_rate', -1),
+                           ('current_target', {'Entity': 0}), ('queued_target', {'Cell': [-1, 48]}),
+                           ('update_timer', {'start_frame': 0, 'duration': True}),
+                           ('spawn_timer', {'start_frame': 0, 'duration': 0, 'remaining': 0}),
+                           ('slots', None), ('extra', 0)):
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._spawns(dict(self.spawn_state(), **{key: value}), 'spawns')
+        for key, value in (('child', 0), ('child', True), ('child', 1 << 64),
+                           ('state', 'Dead'), ('state', 6), ('is_missile', 0),
+                           ('timer', {'start_frame': -(1 << 31) - 1, 'duration': 0}),
+                           ('index', 0)):
+            row = self.spawn_state()
+            row['slots'][0][key] = value
+            with self.subTest(key=key, value=value), self.assertRaises(ValidationError):
+                observation._spawns(row, 'spawns')
+        for state in ('ReadyDocked', 'KamikazeWait', 'InFlight', 'Attacking',
+                      'ComingHome', 'Reloading', 'Regenerating'):
+            row = self.spawn_state()
+            row['slots'][0]['state'] = state
+            observation._spawns(row, 'spawns')
+        row = self.spawn_state()
+        del row['slots'][0]['timer']
+        with self.assertRaises(ValidationError):
+            observation._spawns(row, 'spawns')
+        with self.assertRaises(ValidationError):
+            observation._spawns({}, 'spawns')
+
+    def test_spawns_manager_and_slots_charge_aggregate_sample_budget_at_boundary(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_spawns=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), spawns=self.spawn_state())]
+        # One actor, one House, one manager and its three ordered slots.
+        for budget, status in ((5, 'INVALID'), (6, 'VALID')):
+            self.output = self.root / f'spawn-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
+            if status == 'INVALID':
+                self.assertTrue(any('sample budget' in error for error in report['errors']))
 
     def test_bomb_owner_snapshots_and_fire_state_survive_retirement_and_sealed_recheck(self):
         self.scripted_profile()
@@ -2494,6 +3154,98 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(report['status'], 'VALID', report['errors'])
         self.assertTrue(all('bombs' not in frame and 'fire' not in frame['actors'][0]
                             for frame in report['capture']['observations']['frames']))
+
+    @staticmethod
+    def temporal_state():
+        return {'has_link': True, 'warp_target': 9, 'chain_head': None,
+                'inside_transport': None,
+                'cargo': {'count': 2, 'passengers': [11, 8]}}
+
+    def test_temporal_snapshots_and_shared_fire_readback_survive_sealed_recheck(self):
+        self.scripted_profile()
+        self.profile['observe_temporal'] = True
+        self.profile_path.write_text(json.dumps(self.profile))
+        for actors in self.actor_frames.values():
+            actors[0].update(temporal=self.temporal_state(), fire=self.fire_state())
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertTrue(all(frame['actors'][0]['temporal'] == self.temporal_state()
+                            and frame['actors'][0]['fire'] == self.fire_state()
+                            and 'bombs' not in frame for frame in frames))
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    def test_temporal_opt_in_preserves_opt_out_rows_and_requires_current_policy(self):
+        self.scripted_profile()
+        for enabled in (False, True):
+            observation._profile_extensions(dict(self.profile, observe_temporal=enabled))
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile,
+                    schema_version=observation.PROFILE_V1, observe_temporal=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_temporal=value))
+        actor = dict(self.actor(), temporal=self.temporal_state(), fire=self.fire_state())
+        observation._actor(actor, 'actor', temporal=True)
+        observation._actor(actor, 'actor', temporal=True, bombs=True)
+        for missing in ('fire', 'temporal'):
+            incomplete = dict(actor)
+            del incomplete[missing]
+            with self.subTest(missing=missing), self.assertRaises(ValidationError):
+                observation._actor(incomplete, 'actor', temporal=True)
+        with self.assertRaises(ValidationError):
+            observation._actor(actor, 'actor')
+        for prior in ({'walk_state': False}, {'disk_laser_state': False}):
+            with self.subTest(prior=prior), self.assertRaisesRegex(ValidationError, 'current v8'):
+                observation._observations({}, dict(self.profile, observe_temporal=True), {}, **prior)
+        # The extension is additive inside v8. False has the exact historical
+        # actor shape, so old policy fixtures need no inferred Temporal fields.
+        self.profile['observe_temporal'] = False
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertTrue(all('temporal' not in frame['actors'][0]
+                            and 'fire' not in frame['actors'][0]
+                            for frame in report['capture']['observations']['frames']))
+        self.make_historical_docking(self.output)
+        manifest = self.output / 'child-output/capture.json'
+        original = manifest.read_bytes()
+        checked = observation.validate_run(self.output)
+        self.assertEqual(checked['status'], 'VALID', checked['errors'])
+        self.assertEqual(manifest.read_bytes(), original)
+
+    def test_temporal_snapshot_keeps_independent_queries_and_checks_shapes(self):
+        self.assertEqual(observation._temporal(self.temporal_state(), 'temporal'), 3)
+        row = dict(self.temporal_state(), has_link=False, warp_target=9,
+                   chain_head=10,
+                   inside_transport={'transport': 13, 'open_topped': True},
+                   cargo={'count': 99, 'passengers': [11, 8]})
+        self.assertEqual(observation._temporal(row, 'temporal'), 3)
+        self.assertEqual(observation._temporal(dict(row, cargo=None), 'temporal'), 1)
+        for key, value in (('has_link', 1), ('warp_target', 0), ('chain_head', True),
+                           ('chain_head', 1 << 64),
+                           ('cargo', {'count': 0, 'passengers': [True]}),
+                           ('inside_transport', {'transport': 8, 'open_topped': 1})):
+            with self.subTest(key=key), self.assertRaises(ValidationError):
+                observation._temporal(dict(row, **{key: value}), 'temporal')
+        for cargo in ({'count': -1, 'passengers': []}, {'count': 1, 'passengers': None},
+                      {'count': 1, 'passengers': [0]}, {'count': 1, 'passengers': [], 'extra': 0}):
+            with self.subTest(cargo=cargo), self.assertRaises(ValidationError):
+                observation._temporal(dict(row, cargo=cargo), 'temporal')
+        with self.assertRaises(ValidationError):
+            observation._temporal(dict(row, extra=0), 'temporal')
+
+    def test_temporal_cargo_uses_shared_aggregate_sample_budget(self):
+        self.profile.update(schema_version=observation.PROFILE_V2, observe_temporal=True,
+                            observe_owners=['Computer1'], ticks=0)
+        self.profile_path.write_text(json.dumps(self.profile))
+        self.actor_frames[0] = [dict(self.actor(), temporal=self.temporal_state(), fire=self.fire_state())]
+        # One actor, one House, one Temporal snapshot and two cargo entries.
+        for budget, status in ((4, 'INVALID'), (5, 'VALID')):
+            self.output = self.root / f'temporal-budget-{budget}'
+            with patch.object(observation, 'MAX_OBSERVATION_SAMPLES', budget):
+                report = self.run_capture()
+            self.assertEqual(report['status'], status, report['errors'])
 
     def test_electric_and_bomb_observations_keep_both_actor_extensions(self):
         self.scripted_profile()
@@ -2562,7 +3314,8 @@ class MapObservationTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValidationError):
                 observation._lasers(row, 'lasers')
         for key, value in (('from', [1, 2]), ('duration', True), ('rgb', [1, 2, 256]),
-                           ('supported', 1), ('age', 1 << 31)):
+                           ('outer', [0, 0]), ('spread', [0, True, 0]),
+                           ('fade_end_bits', 1 << 32), ('supported', 1), ('age', 1 << 31)):
             row = self.laser_snapshot()
             row['live'] = [dict(self.laser_beam(), **{key: value})]
             with self.subTest(key=key), self.assertRaises(ValidationError):
@@ -2671,7 +3424,7 @@ class MapObservationTests(unittest.TestCase):
         self.actor_frames[3][0]['building']['animation_slots'][0]['animation']['stable_id'] = 101
         report = self.run_capture()
         self.assertEqual(report['status'], 'VALID', report['errors'])
-        self.assertEqual(report['schema_version'], 'vera20k.map-observation-run.v7')
+        self.assertEqual(report['schema_version'], 'vera20k.map-observation-run.v8')
         observed = report['capture']['observations']
         self.assertEqual(observed['rule_types'], self.rule_types)
         self.assertEqual([row['payload'] for row in observed['commands']],
@@ -2680,13 +3433,15 @@ class MapObservationTests(unittest.TestCase):
                          self.actor_frames[3][0]['building'])
         self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
 
-    def test_engineer_and_paid_repair_orders_keep_the_existing_command_payload(self):
+    def test_engineer_c4_and_paid_repair_orders_keep_the_existing_command_payload(self):
         self.production_profile()
         self.profile['commands'] = [
             {'issue_after_step': 0, 'owner': 'Computer1',
              'payload': {'ToggleRepair': {'entity_id': 1}}},
             {'issue_after_step': 2, 'owner': 'Computer1',
-             'payload': {'CaptureBuilding': {'engineer_id': 7, 'target_building_id': 1}}}]
+             'payload': {'CaptureBuilding': {'engineer_id': 7, 'target_building_id': 1}}},
+            {'issue_after_step': 2, 'owner': 'Computer1',
+             'payload': {'PlantC4': {'attacker_id': 7, 'target_building_id': 1}}}]
         self.profile_path.write_text(json.dumps(self.profile))
         report = self.run_capture()
         self.assertEqual(report['status'], 'VALID', report['errors'])
@@ -2714,6 +3469,22 @@ class MapObservationTests(unittest.TestCase):
                 self.change = lambda m, i=index, v=variant, k=key: \
                     m['observations']['commands'][i]['payload'][v].update({k: 99})
                 self.assertEqual(self.run_capture()['status'], 'INVALID')
+
+    def test_primary_selection_keeps_target_and_rejects_a_changed_receipt(self):
+        self.production_profile()
+        self.profile['commands'] = [
+            {'issue_after_step': 0, 'owner': 'Computer1',
+             'payload': {'TogglePrimaryFactory': {'entity_id': 9}}}]
+        self.profile_path.write_text(json.dumps(self.profile))
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        self.assertEqual(report['capture']['observations']['commands'][0]['payload'],
+                         self.profile['commands'][0]['payload'])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        self.output = self.root / 'changed-primary-target'
+        self.change = lambda m: m['observations']['commands'][0]['payload'][
+            'TogglePrimaryFactory'].update(entity_id=10)
+        self.assertEqual(self.run_capture()['status'], 'INVALID')
 
     def test_rally_order_keeps_existing_producer_ids_and_coordinate_payload(self):
         self.production_profile()
@@ -3638,6 +4409,114 @@ class MapObservationTests(unittest.TestCase):
             with self.subTest(ticks=ticks), self.assertRaises(ValidationError):
                 observation._presentation_clock(self.clock(1), ticks)
 
+    @staticmethod
+    def tooltip_observation():
+        return {'cursor_px': [-1, 480], 'camera_top_left': [-300.5, 1200.0],
+                'camera_zoom': 1.0, 'cursor_coordinates': False, 'captured': False,
+                'input_locked': False, 'camera_blocks_tooltip': False,
+                'plane_xyz': [-256, 128, 0], 'plane_cell': [-1, 0],
+                'ground_unshrouded': False, 'active': None}
+
+    def test_tooltip_projection_opt_in_reaches_capture_and_retained_run_validation(self):
+        self.profile.update(schema_version=observation.PROFILE_V3, observe_tooltips=True)
+        self.profile_path.write_text(json.dumps(self.profile))
+        shown = self.tooltip_observation()
+        shown['active'] = {'id': 500, 'text': 'Unrevealed Terrain',
+                           'cursor_px': [400, 200], 'shown_at_ms': 44}
+        self.tooltip_frames[3] = shown
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report)
+        rows = report['capture']['presentation_clock']['draws']
+        self.assertIsNone(rows[0]['tooltip']['active'])
+        self.assertEqual(rows[2]['tooltip'], shown)
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+
+    def test_tooltip_profile_and_per_draw_opt_in_are_strict(self):
+        for schema in (observation.PROFILE_V2, observation.PROFILE_V3):
+            for enabled in (False, True):
+                observation._profile_extensions(dict(self.profile, schema_version=schema,
+                                                     observe_tooltips=enabled))
+        for enabled in (False, True):
+            with self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, schema_version=observation.PROFILE_V1,
+                                                     observe_tooltips=enabled))
+        for value in (None, 0, 1, 'true', [], {}):
+            with self.subTest(value=value), self.assertRaises(ValidationError):
+                observation._profile_extensions(dict(self.profile, observe_tooltips=value))
+        clock = self.clock(1)
+        for kwargs in ({}, {'observe_tooltips': False}):
+            self.assertEqual(observation._presentation_clock(clock, 1, **kwargs), clock)
+            extra = deepcopy(clock)
+            extra['draws'][0]['tooltip'] = self.tooltip_observation()
+            with self.assertRaises(ValidationError):
+                observation._presentation_clock(extra, 1, **kwargs)
+        with self.assertRaises(ValidationError):
+            observation._presentation_clock(clock, 1, observe_tooltips=True)
+        extra['draws'][0]['tooltip'] = None
+        with self.assertRaises(ValidationError):
+            observation._presentation_clock(extra, 1, observe_tooltips=True)
+
+    def test_tooltip_projection_rejects_malformed_payloads_and_numeric_types(self):
+        good = self.tooltip_observation()
+        changes = [lambda t: t.update(extra=True), lambda t: t.update(active=[])]
+        for key in good:
+            changes.append(lambda t, k=key: t.pop(k))
+        for key in ('cursor_coordinates', 'captured', 'input_locked',
+                    'camera_blocks_tooltip', 'ground_unshrouded'):
+            for value in (0, 1, None, 'false'):
+                changes.append(lambda t, k=key, v=value: t.update({k: v}))
+        for key in ('cursor_px', 'camera_top_left', 'plane_xyz', 'plane_cell'):
+            for value in (None, {}, 'point', [], [0], [0, 0, 0, 0]):
+                changes.append(lambda t, k=key, v=value: t.update({k: v}))
+        for key in ('cursor_px', 'plane_xyz', 'plane_cell'):
+            for value in (True, 0.0, '0', None, 1 << 32, -(1 << 32)):
+                changes.append(lambda t, k=key, v=value: t[k].__setitem__(0, v))
+        for value in (True, None, '1', float('inf'), float('-inf'), float('nan')):
+            changes.append(lambda t, v=value: t['camera_top_left'].__setitem__(0, v))
+            changes.append(lambda t, v=value: t.update(camera_zoom=v))
+        for value in (0, -1, -0.01):
+            changes.append(lambda t, v=value: t.update(camera_zoom=v))
+        for index, change in enumerate(changes):
+            with self.subTest(case=index), self.assertRaises(ValidationError):
+                malformed = deepcopy(good)
+                change(malformed)
+                observation._tooltip_projection(malformed, 'tooltip', 66)
+
+    def test_tooltip_active_shape_unicode_cap_and_monotone_clock_are_checked(self):
+        good = self.tooltip_observation()
+        active = {'id': (1 << 32) - 1, 'text': '界😀' * 128,
+                  'cursor_px': [-(1 << 31), (1 << 31) - 1], 'shown_at_ms': 66}
+        good['active'] = active
+        observation._tooltip_projection(good, 'tooltip', 66)
+        # The field schema admits empty strings; production poll owns whether
+        # an empty region ever constructs an active tip.
+        observation._tooltip_projection(dict(good, active=dict(active, text='')), 'tooltip', 66)
+        changes = [lambda a: a.update(extra=True), lambda a: a.update(text='界' * 257),
+                   lambda a: a.update(cursor_px=[0]), lambda a: a.update(cursor_px=[True, 0])]
+        for key in active:
+            changes.append(lambda a, k=key: a.pop(k))
+        for key in ('id', 'shown_at_ms'):
+            for value in (True, 0.0, '0', None, -1, 1 << 64):
+                changes.append(lambda a, k=key, v=value: a.update({k: v}))
+        changes.append(lambda a: a.update(id=1 << 32))
+        for value in (None, [], 1):
+            changes.append(lambda a, v=value: a.update(text=v))
+        for index, change in enumerate(changes):
+            with self.subTest(case=index), self.assertRaises(ValidationError):
+                malformed = deepcopy(active)
+                change(malformed)
+                observation._tooltip_projection(dict(good, active=malformed), 'tooltip', 66)
+        clock = self.clock(3)
+        for row in clock['draws']:
+            row['tooltip'] = deepcopy(good)
+        clock['draws'][0]['tooltip']['active']['shown_at_ms'] = 23
+        with self.assertRaisesRegex(ValidationError, 'later than its tooltip clock'):
+            observation._presentation_clock(clock, 3, observe_tooltips=True)
+        # Load-segment clock resets do not prove that retained presentation
+        # state was reset, so only the u64 type/range is asserted there.
+        observation._tooltip_projection(dict(good, active=dict(active, shown_at_ms=(1 << 64) - 1)),
+                                        'tooltip', None)
+
     def test_clock_schema_and_every_consumed_time_are_strict(self):
         changes = [lambda c: c.update(extra='unrecognized'),
                    lambda c: c.update(policy='wall-clock'),
@@ -3700,6 +4579,79 @@ class MapObservationTests(unittest.TestCase):
     def test_loose_map_receipt_is_supported(self):
         self.change = lambda m: m['map_source'].update(kind='loose', path='/retail/Fight.MAP')
         self.assertEqual(self.run_capture()['status'], 'VALID')
+
+    def test_generated_seed_receipt_requires_and_retains_consumed_identity(self):
+        # Protocol receipts only: these do not execute Generate or establish
+        # native gameplay/pixel parity. The production reader owns consumption.
+        for index, name in enumerate(('CellRamp11.SED', 'CellRamp11.sEd')):
+            with self.subTest(name=name):
+                self.profile['launch']['selected_map_file'] = name
+                self.profile_path.write_text(json.dumps(self.profile))
+                source = {'kind': 'generated', 'seed_name': name,
+                          'seed_source': {'path': '/retail/' + name, 'payload_len': 90,
+                                          'source_sha256': 'b' * 64}}
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'VALID', report['errors'])
+                self.assertEqual(report['capture']['map_source'], source)
+                retained = observation.validate_run(self.output)
+                self.assertEqual(retained['status'], 'VALID', retained['errors'])
+
+    def test_generated_seed_receipt_rejects_missing_or_malformed_consumed_identity(self):
+        self.profile['launch']['selected_map_file'] = 'CellRamp11.SED'
+        self.profile_path.write_text(json.dumps(self.profile))
+        original = {'kind': 'generated', 'seed_name': 'CellRamp11.SED',
+                    'seed_source': {'path': '/retail/CellRamp11.SED', 'payload_len': 90,
+                                    'source_sha256': 'b' * 64}}
+        cases = [('name_only', lambda value: value.pop('seed_source')),
+                 ('null_source', lambda value: value.update(seed_source=None)),
+                 ('array_source', lambda value: value.update(seed_source=[])),
+                 ('missing_name', lambda value: value.pop('seed_name')),
+                 ('wrong_name', lambda value: value.update(seed_name='Other.SED')),
+                 ('name_case_mismatch', lambda value: value.update(seed_name='cellramp11.SED')),
+                 ('null_name', lambda value: value.update(seed_name=None))]
+        for field in ('path', 'payload_len', 'source_sha256'):
+            cases.append(('missing_' + field,
+                          lambda value, key=field: value['seed_source'].pop(key)))
+        for field, values in (('path', ('', None, 17)),
+                              ('payload_len', (0, -1, None, True, 1.5)),
+                              ('source_sha256', ('bad', 'B' * 64, 'g' * 64, None, 17))):
+            for index, invalid in enumerate(values):
+                cases.append((f'{field}_{index}',
+                              lambda value, key=field, bad=invalid:
+                              value['seed_source'].update({key: bad})))
+        # An authored-map identity at the top level cannot stand in for the
+        # missing nested identity of the actual seed bytes.
+        cases.append(('top_level_identity_only', lambda value: value.update(
+            seed_source=None, path='/retail/CellRamp11.SED', payload_len=90,
+            source_sha256='b' * 64)))
+        cases.append(('top_level_hash_cannot_repair_nested', lambda value: (
+            value.update(source_sha256='b' * 64),
+            value['seed_source'].pop('source_sha256'))))
+        for index, (name, mutate) in enumerate(cases):
+            with self.subTest(name=name):
+                source = deepcopy(original)
+                mutate(source)
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-invalid-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'INVALID', name)
+                self.assertTrue(report['errors'], name)
+
+    def test_generated_seed_receipt_requires_terminal_seed_selection(self):
+        for index, name in enumerate(('CellRamp11.SED.bak', 'CellRamp11.map', 'CellRamp11sed')):
+            with self.subTest(name=name):
+                self.profile['launch']['selected_map_file'] = name
+                self.profile_path.write_text(json.dumps(self.profile))
+                source = {'kind': 'generated', 'seed_name': name,
+                          'seed_source': {'path': '/retail/' + name, 'payload_len': 90,
+                                          'source_sha256': 'b' * 64}}
+                self.change = lambda m, value=source: m.update(map_source=deepcopy(value))
+                self.output = self.root / f'generated-nonseed-{index}'
+                report = self.run_capture()
+                self.assertEqual(report['status'], 'INVALID')
+                self.assertTrue(any('must end in .SED' in error for error in report['errors']))
 
     def test_existing_output_is_never_reused(self):
         self.output.mkdir()
@@ -3880,7 +4832,7 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(report['presentation_clock']['policy'], observation.CLOCK_POLICY)
         self.assertNotIn('observations', report['capture'])
         self.assertEqual((run / 'run.json').read_bytes(), original)
-        current = self.valid_capture('current-v7')
+        current = self.valid_capture('current-v8')
         report = observation.compare_runs(run, current)
         self.assertEqual(report['status'], 'INVALID')
         self.assertIn('observation policies differ', report['errors'][0])
@@ -4122,7 +5074,9 @@ class MapObservationTests(unittest.TestCase):
 
     def test_historical_v6_rejects_v7_walk_fields_child_and_policy(self):
         self.scripted_profile()
-        changes = [lambda m: m.update(schema_version=observation.CHILD_SCHEMA),
+        changes = [lambda m: m.update(schema_version=observation.WALK_CHILD_SCHEMA),
+                   lambda m: m['observations'].update(policy=observation.WALK_OBSERVATION_POLICY),
+                   lambda m: m.update(schema_version=observation.CHILD_SCHEMA),
                    lambda m: m['observations'].update(policy=observation.OBSERVATION_POLICY)]
         for key in ('walk_head_leptons', 'walk_destination_leptons', 'walk_is_moving'):
             changes.append(lambda m, k=key:
@@ -4133,15 +5087,17 @@ class MapObservationTests(unittest.TestCase):
             self.edit_json(run / 'child-output/capture.json', change)
             self.assertEqual(observation.validate_run(run)['status'], 'INVALID')
 
-    def test_wrapper_v7_requires_child_v7_and_walk_observation_policy(self):
+    def test_wrapper_v8_requires_child_v8_and_disk_laser_observation_policy(self):
         for index, change in enumerate((
                 lambda m: m.update(schema_version=observation.TRAJECTORY_CHILD_SCHEMA),
                 lambda m: m.update(schema_version=observation.BUILDING_CHILD_SCHEMA),
                 lambda m: m.update(schema_version=observation.DOCKING_CHILD_SCHEMA),
+                lambda m: m.update(schema_version=observation.WALK_CHILD_SCHEMA),
                 lambda m: m['observations'].update(policy=observation.TRAJECTORY_OBSERVATION_POLICY),
                 lambda m: m['observations'].update(policy=observation.BUILDING_OBSERVATION_POLICY),
-                lambda m: m['observations'].update(policy=observation.DOCKING_OBSERVATION_POLICY))):
-            self.output = self.root / f'v7-generation-mismatch-{index}'
+                lambda m: m['observations'].update(policy=observation.DOCKING_OBSERVATION_POLICY),
+                lambda m: m['observations'].update(policy=observation.WALK_OBSERVATION_POLICY))):
+            self.output = self.root / f'v8-generation-mismatch-{index}'
             self.change = change
             self.assertEqual(self.run_capture()['status'], 'INVALID')
 

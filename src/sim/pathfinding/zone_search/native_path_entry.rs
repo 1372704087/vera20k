@@ -60,14 +60,16 @@ fn live_high_nonrock(terrain: &ResolvedTerrainGrid, cell: &CellRef<'_>) -> bool 
     match cell {
         CellRef::Real(cell) => {
             terrain.high_bridge_tile_offset(cell).is_some()
-                && cell.yr_cell_land_type != crate::rules::terrain_rules::LandType::Rock.as_index()
+                && cell.land_type() != crate::rules::terrain_rules::LandType::Rock.as_index()
         }
         // Constructor65535 is outside all hash-bound retail high sets.
         CellRef::Dummy { .. } => false,
     }
 }
 
-fn live_mode_one(
+/// `MapClass::Is_Cell_In_Playfield(c, 1)` (`0x00578460`) for one path
+/// search. A fixture without bounds admits every cell.
+pub(super) fn live_mode_one(
     terrain: &ResolvedTerrainGrid,
     bounds: Option<PlayfieldBounds>,
     c: (u16, u16),

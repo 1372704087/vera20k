@@ -54,25 +54,12 @@
 //! global-registry pick, signed ftol ties, latch and reissue, with admission
 //! answers supplied; the production retail test covers the real INI reader.
 //!
+//! A Bio Reactor seek's entry runs as a player's Enter order does: the
+//! class setter's Enter arm makes the absorber the Foot's radio contact or
+//! its pending entry, Mission_Enter (`0x004D9290`) probes it each dispatch,
+//! and the class PerCellProcess takes the Foot in (`sim::movement::per_cell`).
+//!
 //! RESIDUALS:
-//! - An absorber entry runs through VERA's Boarding adapter
-//!   (`passenger::tick_passenger_system`), as a player's Enter order does:
-//!   the class setter's Enter arm (radio HELLO and DOCKING,
-//!   `0x0051AC25..0x0051AD17`) and InfantryClass::PerCellProcess's DOCK_NOW
-//!   to that contact (`0x0051A298..0x0051A2A7`) are not represented. The
-//!   reissue test below never finds the absorber as a radio contact; while
-//!   the adapter walks the Foot, Mission_Enter (`0x004D9290`) is not run, so
-//!   its DOCKING probe and its Rate epilogue draw (RandomRanged(0, 2) on the
-//!   Scenario stream) are skipped each dispatch; and a Foot that arrives at
-//!   an absorber filled meanwhile is turned away, where DOCK_NOW, which an
-//!   absorber answers ROGER, would let it in. Mission_Enter then idles it
-//!   and its Guard head seeks again. Trigger: every seek. Frequency: AI Yuri
-//!   games with Bio Reactors.
-//! - A Foot that is itself a transport or a passenger is not handed to the
-//!   adapter, which keeps one role per object; it takes the Enter order and
-//!   the destination only. Trigger: a transport seeking a `UnitAbsorb=`
-//!   building (retail has none), or an open-topped rider whose Guard head
-//!   runs with the latch set.
 //! - Mission_Unload's eject clears the latch of a human house's passenger
 //!   (`0x0044DBEA`); the absorber Unload path calls
 //!   [`Simulation::clear_human_absorber_seek_on_unload`].
@@ -97,16 +84,18 @@
 //!   retail "Yuri Unit Hunter" TeamTypes reaching action 61 while its house
 //!   has a free Yuri Tank Bunker (`ThirdBaseDefenses=`). Effect: the
 //!   Scenario stream misses one draw per approaching unit per dispatch.
-//!   Frequency: AI Yuri games with Tank Bunkers. A player order to a unit on
-//!   its way in keeps the bunker holding it, where the order's break of the
-//!   first radio contact (`0x004C72F8`) would free it. Neither an owner
-//!   change nor a retask clears the approach, and the install does not check
-//!   the unit's owner, so a seeker mind-controlled on its way still installs
+//!   Frequency: AI Yuri games with Tank Bunkers. Player retasks and Stop
+//!   explicitly cancel this contact-free approach through
+//!   [`bunker_link::cancel_approach`]. An owner change does not clear it,
+//!   and the install does not check the unit's owner, so a seeker
+//!   mind-controlled on its way still installs
 //!   into its old house's bunker; what native ChangeOwner does to radio
 //!   contacts is unverified (the DOCKING arm's head, `0x0043C7E9..0x0043C882`,
 //!   has no house test).
-//! - The grinder seek (vt+0x33C `0x004DFA70`, script action 60,
-//!   DecideUnitFate's choice 2) is not ported.
+//!
+//! Script60 and CaptureManager share Foot's grinder seek (4DFA70).
+//! Infantry51973C..519948 and Unit739F7D..73A234 share the Eaten arrival
+//! transaction below; Unit additionally consumes cargo and releases parasites.
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -219,15 +208,219 @@ fn pick_nearest_admitted(
 /// (`0x004DFDBA..0x004DFDD2`) and GarrisonStructure
 /// (`0x004DFF0D..0x004DFF18`): none while NavCom is the pick on Capture.
 fn garrison_seek_reissues(pick: u64, nav_com: Option<NavTargetRef>, mission: MissionId) -> bool {
-    let heading = matches!(
-        nav_com,
-        Some(NavTargetRef::Entity { id } | NavTargetRef::Object { id } | NavTargetRef::Building { id })
-            if id == pick
-    );
+    let heading = nav_com == Some(NavTargetRef::object(pick));
     !(heading && mission == MissionId::from_known(MissionType::Capture))
 }
 
 impl Simulation {
+    /// Foot PutInGrinder4DFA70..4DFB6D, original Steam gamemd
+    /// SHA2563e81a617..08600. No radio admission, latch or reissue gate:
+    /// walk House+98 backwards, keep the first strict nearest, set its
+    /// destination, then Queue(Eaten9,0). Distance shares the existing port.
+    pub(crate) fn foot_enter_grinder(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let Some(foot) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let walk = self.walk_from_last(foot, self.house_grinders(foot.owner(), rules));
+        let Some(best) = pick_nearest_admitted(walk, |_| true) else {
+            return false;
+        };
+        let _ = self.assign_destination_represented(
+            id,
+            Some(NavTargetRef::object(best)),
+            Some(rules),
+            registry,
+            effects,
+        );
+        let _ = self.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Eaten),
+            0,
+            self.session.binary_frame,
+            &LiveReadyInputProvider { rules },
+        );
+        true
+    }
+
+    /// Infantry PerCell51973C..519948 / Unit739F7D..73A234, before other
+    /// building-entry arms. Unit additionally refunds cargo and its parasite.
+    /// Effective Eaten and the first ground Building matching NavCom OR
+    /// TarCom admit this transaction, even if its type is not Grinding.
+    /// Original Steam gamemd SHA2563e81a617..08600, instruction-level reading.
+    pub(crate) fn foot_per_cell_eaten(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        use crate::sim::combat::TargetKind;
+        use crate::sim::movement::locomotor::MovementLayer;
+        use crate::sim::world::{SimSoundEvent, UninitContext};
+
+        let Some(foot) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        if foot.mission.effective().known() != Some(MissionType::Eaten) {
+            return false;
+        }
+        let Some(building_id) = self.substrate.occupancy.first_building_on_layer(
+            foot.position.rx(),
+            foot.position.ry(),
+            MovementLayer::Ground,
+        ) else {
+            return false;
+        };
+        let nav_matches = foot.navigation.nav_com() == Some(NavTargetRef::object(building_id));
+        if !nav_matches && foot.attack_target.target() != Some(TargetKind::Entity(building_id)) {
+            return false;
+        }
+        let unit = foot.category() == crate::map::entities::EntityCategory::Unit;
+        let coordinate = object_get_coords(foot, self.resolved_terrain.as_ref());
+        let entry_world = crate::sim::anim_class::AnimWorldCoord {
+            x: coordinate.x,
+            y: coordinate.y,
+            z: coordinate.z,
+        };
+        let context = UninitContext::new(Some(rules), registry).with_effects(effects);
+        self.dispatch_object_tag_event(building_id, 1, Some(id), None, context);
+
+        //519790..519865: VoiceDie (local human only), then DieSound.
+        //Playback may draw Main too, so flush before selecting the next list.
+        for voice in [true, false] {
+            if let Some(foot) = self.substrate.entities.get(id)
+                && let Some(object) = self.object_type(foot.type_ref(), rules)
+                && (!voice || self.house_is_human_player(foot.owner()))
+                && let Some(sound_id) = crate::sim::combat::select_death_sound(
+                    if voice {
+                        &object.voice_die
+                    } else {
+                        &object.die_sounds
+                    },
+                    &self.main_rng,
+                )
+            {
+                self.sound_events
+                    .push(SimSoundEvent::voc_at_world_coord(sound_id, entry_world));
+                effects.flush_sound(self, Some(rules));
+            }
+        }
+        // Infantry51986A / Unit73A0A5: the actor's refund comes first.
+        self.credit_grinder_refund(id, building_id, rules);
+        if unit {
+            //73A0BC..73A13C explicitly pops two cargo levels through Foot's
+            //RemoveFirstPassenger (including RemoveGunner), child before parent.
+            self.grind_cargo(id, building_id, true, rules, registry, effects);
+            //73A13E..73A18D credits the eater before suppression50 + ExitUnit.
+            if let Some(eater) = self
+                .substrate
+                .entities
+                .get(id)
+                .and_then(|v| v.parasite.eater())
+            {
+                self.credit_grinder_refund(eater, building_id, rules);
+                self.parasite_force_release(
+                    eater,
+                    crate::sim::combat::parasite::FORCED_RELEASE_SUPPRESSION_FRAMES,
+                    rules,
+                    effects,
+                );
+            }
+        }
+        self.dispatch_object_tag_event(id, 48, Some(id), None, context);
+        if let Some(building) = self.substrate.entities.get(building_id)
+            && let Some(object) = self.object_type(building.type_ref(), rules)
+            && object.grinding
+        {
+            let damaged = building.building_art.anim_slots()[3].map(|_| {
+                crate::sim::building_art::requested_damage_state(
+                    building.health,
+                    object.strength,
+                    rules.general.condition_yellow,
+                )
+            });
+            if let Some(sound_id) = rules.general.enter_grinder_sound.clone()
+                && let Some(foot) = self.substrate.entities.get(id)
+            {
+                let coordinate = object_get_coords(foot, self.resolved_terrain.as_ref());
+                self.sound_events.push(SimSoundEvent::voc_at_world_coord(
+                    sound_id,
+                    crate::sim::anim_class::AnimWorldCoord {
+                        x: coordinate.x,
+                        y: coordinate.y,
+                        z: coordinate.z,
+                    },
+                ));
+                effects.flush_sound(self, Some(rules));
+            }
+            //5198CE gates the animation switch on the existing Active3
+            //instance, not on the presence of a SpecialAnim declaration.
+            if let Some(damaged) = damaged {
+                self.clear_building_anim_slot(building_id, 3);
+                self.set_building_anim_slot(building_id, 10, damaged, false, 0, rules);
+            }
+        }
+        self.uninit_with_context(id, context);
+        true
+    }
+
+    /// Refund reads the victim's current house; income goes to the building's
+    /// current house (51986A..519874 /73A0A5..73A0B7). Re-read after callbacks.
+    fn credit_grinder_refund(&mut self, victim: u64, building: u64, rules: &RuleSet) {
+        if let Some(refund) = crate::sim::production::techno_refund(self, rules, victim)
+            && let Some(owner) = self.substrate.entities.get(building).map(GameEntity::owner)
+        {
+            crate::sim::credit_income::add_credits(self, owner, refund);
+        }
+    }
+
+    fn grind_cargo(
+        &mut self,
+        transport: u64,
+        building: u64,
+        include_nested: bool,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        use crate::sim::passenger::{DepartureRoute, depart_cargo_head};
+        let context =
+            crate::sim::world::UninitContext::new(Some(rules), registry).with_effects(effects);
+        while self
+            .substrate
+            .entities
+            .get(transport)
+            .and_then(|e| e.passenger_role.cargo())
+            .is_some_and(|cargo| !cargo.is_empty())
+        {
+            let removed = depart_cargo_head(
+                self,
+                rules,
+                registry,
+                transport,
+                DepartureRoute::Vehicle,
+                |sim, passenger| {
+                    if include_nested {
+                        sim.grind_cargo(passenger, building, false, rules, registry, effects);
+                    }
+                    sim.credit_grinder_refund(passenger, building, rules);
+                    sim.uninit_with_context(passenger, context);
+                    Ok(())
+                },
+                effects,
+            );
+            if removed.is_err() {
+                break;
+            }
+        }
+    }
+
     /// Bio Reactor Unload's `IsHuman` gate (`House+0x1EC` at `0x0044DBE6`) and
     /// passenger latch clear. Computer-owned passengers retain the seek byte.
     pub(crate) fn clear_human_absorber_seek_on_unload(&mut self, stable_id: u64) {
@@ -322,11 +515,6 @@ impl Simulation {
             registry,
             effects,
         );
-        // The Boarding adapter carries the entry to the absorber (module
-        // residual).
-        if let Some(foot) = self.substrate.entities.get_mut(id) {
-            crate::sim::passenger::begin_boarding(foot, best);
-        }
         true
     }
 
@@ -541,3 +729,7 @@ pub(crate) fn set_should_enter_nearest_occupiable_for_test(entity: &mut GameEnti
 #[cfg(test)]
 #[path = "building_entry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "grinder_tests.rs"]
+mod grinder_tests;

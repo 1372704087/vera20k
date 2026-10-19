@@ -49,7 +49,8 @@ impl TickTimingRing {
     /// exceeded the budget and the pacer can no longer hold the tick rate.
     /// `fps` and `tick_hz` are filled by the caller (they come from other
     /// owners: the render-frame timer and the committed-tick meter).
-    pub fn summarize(&self, budget_ms: f32) -> TimingSample {
+    pub fn summarize(&self, budget_ms: Option<f32>) -> TimingSample {
+        let budget_ms = budget_ms.filter(|value| value.is_finite() && *value > 0.0);
         let mut sorted: Vec<f32> = self.samples.iter().copied().collect();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let tick_ms = self.samples.back().copied().unwrap_or(0.0);
@@ -58,7 +59,7 @@ impl TickTimingRing {
             p50_ms: percentile(&sorted, 0.5),
             p99_ms: percentile(&sorted, 0.99),
             budget_ms,
-            budget_utilization: tick_ms / budget_ms,
+            budget_utilization: budget_ms.map(|budget| tick_ms / budget),
             fps: 0.0,
             tick_hz: 0.0,
         }
@@ -70,6 +71,32 @@ impl Default for TickTimingRing {
         Self {
             samples: VecDeque::with_capacity(RING_CAPACITY),
         }
+    }
+}
+
+/// App-owned subscription epoch. Synchronization runs outside tick admission,
+/// so leaving/rejoining while paused starts a fresh observation window too.
+#[derive(Default)]
+pub(crate) struct ObserverSession {
+    active: bool,
+}
+
+impl ObserverSession {
+    pub(crate) fn active(&self) -> bool {
+        self.active
+    }
+
+    pub(crate) fn synchronize(
+        &mut self,
+        simulation: Option<&mut crate::sim::world::Simulation>,
+        active: bool,
+    ) -> bool {
+        if let Some(simulation) = simulation {
+            simulation.set_frame_profiling(active);
+        }
+        let changed = self.active != active;
+        self.active = active;
+        changed
     }
 }
 
@@ -113,7 +140,8 @@ impl TickRateMeter {
             // "ticks per second" means.
             let intervals = self.events.saturating_sub(1) as f32;
             self.rate = intervals / elapsed.as_secs_f32();
-            self.events = 0;
+            // This event also anchors the next window's first interval.
+            self.events = 1;
             self.window_start = Some(now);
         }
     }
@@ -148,13 +176,46 @@ mod tests {
     use super::*;
 
     #[test]
+    fn paused_disconnect_and_reconnect_start_a_fresh_observation_window() {
+        let mut simulation = crate::sim::world::Simulation::with_seed(41);
+        let mut observer = ObserverSession::default();
+        assert!(observer.synchronize(Some(&mut simulation), true));
+        simulation.advance_tick(&[], None, None, None, 67);
+        assert_eq!(simulation.frame_profile().frames(), 1);
+        let paused_tick = simulation.session.tick;
+        let saved = crate::util::save_codec::serialize(&simulation).unwrap();
+        assert!(observer.synchronize(Some(&mut simulation), false));
+        assert_eq!(simulation.frame_profile().frames(), 0);
+        assert!(observer.synchronize(Some(&mut simulation), true));
+        assert_eq!(simulation.frame_profile().frames(), 0);
+        assert_eq!(simulation.session.tick, paused_tick);
+        assert_eq!(
+            crate::util::save_codec::serialize(&simulation).unwrap(),
+            saved
+        );
+        simulation.advance_tick(&[], None, None, None, 67);
+        assert!(!observer.synchronize(Some(&mut simulation), true));
+        assert_eq!(simulation.frame_profile().frames(), 1);
+    }
+
+    #[test]
+    fn uncapped_speed_has_no_budget_percentage() {
+        let mut ring = TickTimingRing::default();
+        ring.push(30.0);
+        let unbounded = ring.summarize(None);
+        assert_eq!(unbounded.budget_ms, None);
+        assert_eq!(unbounded.budget_utilization, None);
+        assert_eq!(ring.summarize(Some(48.0)).budget_utilization, Some(0.625));
+    }
+
+    #[test]
     fn empty_window_summarizes_to_zero() {
-        let sample = TickTimingRing::default().summarize(16.0);
+        let sample = TickTimingRing::default().summarize(Some(16.0));
         assert_eq!(sample.tick_ms, 0.0);
         assert_eq!(sample.p50_ms, 0.0);
         assert_eq!(sample.p99_ms, 0.0);
-        assert_eq!(sample.budget_ms, 16.0);
-        assert_eq!(sample.budget_utilization, 0.0);
+        assert_eq!(sample.budget_ms, Some(16.0));
+        assert_eq!(sample.budget_utilization, Some(0.0));
     }
 
     #[test]
@@ -163,12 +224,12 @@ mod tests {
         for ms in [1.0, 2.0, 3.0, 4.0] {
             ring.push(ms);
         }
-        let sample = ring.summarize(16.0);
+        let sample = ring.summarize(Some(16.0));
         assert_eq!(sample.tick_ms, 4.0, "tick_ms is the most recent sample");
         assert_eq!(sample.p50_ms, 2.0, "nearest-rank median of four samples");
         assert_eq!(sample.p99_ms, 4.0);
-        assert_eq!(sample.budget_ms, 16.0);
-        assert_eq!(sample.budget_utilization, 4.0 / 16.0);
+        assert_eq!(sample.budget_ms, Some(16.0));
+        assert_eq!(sample.budget_utilization, Some(4.0 / 16.0));
     }
 
     #[test]
@@ -178,7 +239,7 @@ mod tests {
             ring.push(ms as f32);
         }
         ring.push(999.0);
-        let sample = ring.summarize(16.0);
+        let sample = ring.summarize(Some(16.0));
         assert_eq!(sample.tick_ms, 999.0);
         assert_eq!(
             sample.p50_ms, 120.0,
@@ -200,6 +261,19 @@ mod tests {
     }
 
     #[test]
+    fn tick_rate_keeps_the_boundary_tick_in_the_next_window() {
+        let mut meter = TickRateMeter::default();
+        let start = Instant::now();
+        for step in 0..=30u32 {
+            let now = start + Duration::from_millis(u64::from(step) * 50);
+            meter.record(now);
+            if step > 0 && step % 10 == 0 {
+                assert_eq!(meter.rate(now), 20.0);
+            }
+        }
+    }
+
+    #[test]
     fn tick_rate_meter_decays_to_zero_when_silent() {
         let mut meter = TickRateMeter::default();
         let start = Instant::now();
@@ -218,6 +292,6 @@ mod tests {
         let mut ring = TickTimingRing::default();
         ring.push(5.0);
         ring.clear();
-        assert_eq!(ring.summarize(16.0).tick_ms, 0.0);
+        assert_eq!(ring.summarize(Some(16.0)).tick_ms, 0.0);
     }
 }

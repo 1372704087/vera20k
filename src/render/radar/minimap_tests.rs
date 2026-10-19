@@ -50,12 +50,10 @@ fn playfield_projection_grid(side: u16) -> TerrainGrid {
                 z: 0,
                 rx,
                 ry,
-                is_water: false,
                 variant: 0,
                 tint: [1.0; 3],
                 radar_left: [20, 80, 20],
                 radar_right: [40, 100, 40],
-                has_damaged_data: false,
             });
         }
     }
@@ -65,7 +63,6 @@ fn playfield_projection_grid(side: u16) -> TerrainGrid {
         world_height: 1.0,
         origin_x: 0.0,
         origin_y: 0.0,
-        local_bounds: None,
         bridge_middle_tiles: None,
     }
 }
@@ -215,8 +212,7 @@ fn test_minimap_entity_visible_for_allied_owner() {
     alliances.insert("AMERICANS".to_string(), allied_names.clone());
     alliances.insert("BRITISH".to_string(), allied_names);
 
-    let mut fog = FogState::new(64, 64);
-    fog.alliances = alliances;
+    let fog = FogState::new(64, 64);
     let pos = Position::new(
         10,
         12,
@@ -228,6 +224,7 @@ fn test_minimap_entity_visible_for_allied_owner() {
     assert!(minimap_entity_visible(
         test_intern("Americans"),
         &fog,
+        &alliances,
         &pos,
         test_intern("British"),
     ));
@@ -611,21 +608,17 @@ fn minimap_techno_membership_is_height_aware_at_raised_slope_edge() {
 
 #[test]
 fn playfield_projection_updates_camera_bounds_and_click_inverse_mapping() {
-    let mut grid = playfield_projection_grid(64);
+    let grid = playfield_projection_grid(64);
     let initial_geometry = PlayfieldPresentationGeometry::from_grid(&grid, expanded_playfield())
         .expect("expanded geometry");
     let shrunk_geometry = PlayfieldPresentationGeometry::from_grid(&grid, shrunken_playfield())
         .expect("shrunken geometry");
-    let camera_bounds = crate::map::terrain::LocalBounds::from_playfield(shrunken_playfield());
+    let (_, camera_y, _, camera_h) =
+        crate::app::input::camera::tactical_scroll_rect(shrunken_playfield());
     // Radar enumerates playable cells; camera6D8640 has its own headroom.
     // Sharing MapClass authority does not make their pixel extents identical.
-    assert_ne!(camera_bounds.pixel_y, shrunk_geometry.origin_y);
-    assert_ne!(camera_bounds.pixel_h, shrunk_geometry.world_height);
-    grid.install_playfield_local_bounds(Some(expanded_playfield()));
-    let installed_initial = grid.local_bounds.expect("initial camera authority");
-    grid.install_playfield_local_bounds(Some(shrunken_playfield()));
-    assert_eq!(grid.local_bounds, Some(camera_bounds));
-    assert_ne!(grid.local_bounds, Some(installed_initial));
+    assert_ne!(camera_y, shrunk_geometry.origin_y);
+    assert_ne!(camera_h, shrunk_geometry.world_height);
 
     let projection = MinimapPlayfieldProjection::derive(
         &grid,
@@ -734,6 +727,7 @@ fn radar_pixel_shroud_exception_distinguishes_local_pointer_from_singleplayer_hu
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         false,
         Some(&rules),
@@ -746,6 +740,7 @@ fn radar_pixel_shroud_exception_distinguishes_local_pointer_from_singleplayer_hu
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         true,
         Some(&rules),
@@ -765,13 +760,15 @@ fn radar_pixel_radar_invisible_precedes_radar_visible_but_alliance_restores() {
         y: 0,
     };
     let rules = radar_gate_rules("RadarInvisible=yes\nRadarVisible=yes");
-    let mut fog = FogState::default();
+    let fog = FogState::default();
+    let mut alliances = HouseAllianceMap::default();
     assert!(!radar_pixel_candidate_eligible(
         entry,
         &entities,
         &houses,
         Some(local),
         &fog,
+        &alliances,
         true,
         true,
         Some(&rules),
@@ -780,15 +777,20 @@ fn radar_pixel_radar_invisible_precedes_radar_visible_but_alliance_restores() {
     ));
 
     let allies = BTreeSet::from(["LOCAL".to_string(), "ENEMY".to_string()]);
-    fog.alliances.insert("LOCAL".to_string(), allies.clone());
-    fog.alliances.insert("ENEMY".to_string(), allies);
-    assert!(fog.is_friendly_id(local, enemy, &interner));
+    alliances.insert("LOCAL".to_string(), allies.clone());
+    alliances.insert("ENEMY".to_string(), allies);
+    assert!(crate::map::houses::are_houses_friendly(
+        &alliances,
+        interner.resolve(local),
+        interner.resolve(enemy),
+    ));
     assert!(radar_pixel_candidate_eligible(
         entry,
         &entities,
         &houses,
         Some(local),
         &fog,
+        &alliances,
         true,
         true,
         Some(&rules),
@@ -817,6 +819,7 @@ fn radar_pixel_insignificant_passive_owner_requires_radar_visible() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         true,
         true,
         Some(&hidden),
@@ -829,6 +832,7 @@ fn radar_pixel_insignificant_passive_owner_requires_radar_visible() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         true,
         true,
         Some(&restored),
@@ -856,6 +860,7 @@ fn radar_pixel_fogged_but_explored_cell_passes_render_gate_without_gap_proxy() {
         &houses,
         Some(local),
         &fog,
+        &Default::default(),
         false,
         true,
         Some(&radar_gate_rules("")),
@@ -1009,4 +1014,66 @@ fn mirage_radar_house_and_null_pixel_match_original_executable() {
             row["name"]
         );
     }
+}
+
+/// RenderCellPixel inverts the current player's pixel while
+/// `(r - 1) / FlashFrameTime` is odd for `r > 0` frames left
+/// (`0x00655FEB..0x00656042`): with retail 49 and 7, the first 7 frames
+/// draw normally, the next 7 inverted, and so on.
+#[test]
+fn the_radar_combat_flash_inverts_on_odd_periods_for_the_current_player() {
+    let mut interner = crate::sim::intern::StringInterner::new();
+    let owner = interner.intern("Americans");
+    let other = interner.intern("Russians");
+    let mut entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
+        1,
+        5,
+        5,
+        0,
+        0,
+        owner,
+        crate::sim::combat::Health::new(100),
+        interner.intern("MTNK"),
+        crate::map::entities::EntityCategory::Unit,
+        0,
+        5,
+        false,
+    );
+    let mut rules = crate::rules::ruleset::RuleSet::from_ini(
+        &crate::rules::ini_parser::IniFile::from_str("[General]\nFlashFrameTime=7\n"),
+    )
+    .unwrap();
+    entity.radar_combat_flash = crate::sim::timer::CdTimer::started(100, 49);
+    let inverted = |entity: &crate::sim::game_entity::GameEntity, frame: u32, viewer| {
+        crate::render::radar::tracker::radar_combat_flash_inverts(
+            entity,
+            Some(viewer),
+            frame,
+            Some(&rules),
+        )
+    };
+    let pattern: Vec<bool> = (100..150)
+        .map(|frame| inverted(&entity, frame, owner))
+        .collect();
+    let expected: Vec<bool> = (100..150)
+        .map(|frame| {
+            let remaining = 149 - frame;
+            remaining > 0 && (remaining - 1) / 7 % 2 == 1
+        })
+        .collect();
+    assert_eq!(pattern, expected);
+    assert!(!inverted(&entity, 100, owner), "r = 49 draws normally");
+    assert!(inverted(&entity, 107, owner), "r = 42 is inverted");
+    assert!(
+        !inverted(&entity, 107, other),
+        "another viewer never sees it"
+    );
+    assert!(!inverted(&entity, 149, owner), "the flash is over");
+    rules.general.flash_frame_time = 0;
+    assert!(!crate::render::radar::tracker::radar_combat_flash_inverts(
+        &entity,
+        Some(owner),
+        107,
+        Some(&rules)
+    ));
 }

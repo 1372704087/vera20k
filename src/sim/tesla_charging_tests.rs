@@ -173,7 +173,7 @@ fn retail_electric_assault_enables_the_coils_overpowered_weapon() {
         object,
         &combat_weapon::attacker_facts(coil, object),
         Some(&TargetKind::Entity(target)),
-        &f.sim.substrate.entities,
+        &f.sim,
         &f.sim.interner,
         f.sim.resolved_terrain.as_ref(),
         Some(&f.sim.house_alliances),
@@ -299,8 +299,14 @@ fn operational_power_and_overpowered_weapon_use_different_thresholds() {
 #[test]
 fn two_retained_chargers_bypass_the_buildings_offline_latch() {
     let Some(mut f) = Fixture::new() else { return };
-    f.sim.substrate.entities.get_mut(f.coil).unwrap().temporal =
-        crate::sim::temporal::TemporalState::warped_by_for_test(f.troopers[2]);
+    f.sim
+        .substrate
+        .entities
+        .get_mut(f.coil)
+        .unwrap()
+        .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+            f.troopers[2],
+        ));
     assert!(
         !f.sim
             .substrate

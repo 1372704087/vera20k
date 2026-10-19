@@ -19,7 +19,6 @@ fn ordinary_frame(sim: &mut Simulation, rules: &RuleSet) -> Vec<super::SimFireEv
             None,
             33,
             TickLane::Ordinary,
-            None,
             FrameEffects::default(),
         )
         .expect("ordinary retail Kirov frame");
@@ -61,6 +60,9 @@ fn stock_kirov_bomb_impact_rocks_its_live_neighbor_then_rolls_it() {
     let strength = rules.object("MTNK").unwrap().strength;
 
     let mut sim = crate::sim::arena_fixture::rival_arena_with_size(&rules, 0x489b49, 64);
+    // The arena supplies terrain/navigation; establish this visibility
+    // domain before Unlimbo can create source and border viewer planes.
+    sim.fog = crate::sim::vision::FogState::new(64, 64);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     sim.resolve_rule_animation_lists(&rules);

@@ -956,11 +956,15 @@ fn break_depot_contact(
     }
 }
 
-/// The pending entry (`Unit+0x500`): the building a Foot waits to enter,
-/// independent of its Radio contacts. The Techno constructor clears it
-/// (`0x006F310C`).
+/// The pending entry (QueueUpToEnter, `Unit+0x500`): the Techno a Foot waits
+/// to enter, independent of its Radio contacts. The Techno constructor
+/// clears it (`0x006F310C`).
 ///
-/// - [`Self::install`]: the class destination setters' `UnitRepair=` arms
+/// - [`Self::install`]: the class destination setters' Enter arms: the
+///   Infantry setter's for a Unit or Building already in radio contact
+///   (`0x0051AC6D..0x0051ACC5`); the Unit setter's for a Unit or a
+///   `UnitAbsorb=` building while it holds no contact (`0x00741C4F..
+///   0x00741CCC`, `0x00741CE5..0x00741D0D`); and the `UnitRepair=` arms
 ///   (`UnitClass::Set_Destination` `0x00741D9F`, `AircraftClass::
 ///   Set_Destination` `0x0041ABC4`), for a building holding no free slot.
 /// - [`Self::clear`]: `FootClass::TryEnterTransport`'s admission, refusal
@@ -977,14 +981,15 @@ fn break_depot_contact(
 pub(crate) struct PendingEntry(Option<u64>);
 
 impl PendingEntry {
-    /// The building waited for.
+    /// The Techno waited for.
     pub(crate) const fn get(self) -> Option<u64> {
         self.0
     }
 
-    /// A class destination setter's store of a full `UnitRepair=` building.
-    pub(crate) fn install(&mut self, building: u64) {
-        self.0 = Some(building);
+    /// A class destination setter's store of the Techno it waits for (see the
+    /// type).
+    pub(crate) fn install(&mut self, target: u64) {
+        self.0 = Some(target);
     }
 
     /// Drop the entry (see the type).
@@ -1009,7 +1014,7 @@ pub(crate) fn set_pending_entry(sim: &mut Simulation, id: u64, depot: Option<u64
 }
 
 /// `FootClass::TryEnterTransport @ 0x0070D7E0` (the name is a lead; it serves
-/// every `Unit+0x500` pending entry) for a pending depot, called from
+/// every `Unit+0x500` pending entry), called from
 /// `FootClass::AI` (0x004DAEDC) whenever vt+0x1D8 (the warp-in) is clear:
 /// - the depot no longer alive (`+0x90`, 0x0070D7F2) drops the entry;
 /// - HELLO (0x0070D815): NEGATORY while the depot's slot is held, and the
@@ -1041,13 +1046,16 @@ pub(crate) fn try_pending_entry(
         .substrate
         .entities
         .get(depot)
-        .is_some_and(|depot| depot.is_object_alive())
+        .is_some_and(|target| target.is_object_alive())
     {
         if let Some(unit) = sim.substrate.entities.get_mut(id) {
             unit.pending_entry.clear();
         }
         return;
-    };
+    }
+    //70D846 passes the actual Techno target, a depot or a mobile Unit,
+    //tagged as the MEGAMISSION arm tags an Enter destination.
+    let destination = crate::sim::components::NavTargetRef::object(depot);
     if radio::transmit(
         sim,
         id,
@@ -1085,7 +1093,7 @@ pub(crate) fn try_pending_entry(
         // its own (`AircraftClass::Assign_Destination` sets it).
         let _ = sim.assign_destination_represented(
             id,
-            Some(crate::sim::components::NavTargetRef::Building { id: depot }),
+            Some(destination),
             Some(rules),
             None,
             frame_effects,
@@ -1253,10 +1261,7 @@ fn release_contact(
         locomotor.power_on();
     }
     let destination = if let Some(archive) = ai_archive {
-        match archive {
-            TargetKind::Cell(x, y) => Some(crate::sim::components::NavTargetRef::cell(x, y)),
-            TargetKind::Entity(id) => Some(crate::sim::components::NavTargetRef::Entity { id }),
-        }
+        Some(archive.into())
     } else {
         let Some(building) = sim.substrate.entities.get(depot) else {
             return;
@@ -1323,6 +1328,15 @@ pub(crate) fn mission_repair(
     };
     let building = sim.substrate.entities.get(depot)?;
     let object = sim.object_type(building.type_ref(), rules)?;
+    if object.hospital && !object.construction_yard {
+        return Some(super::hospital::mission_repair(
+            sim,
+            rules,
+            depot,
+            registry,
+            frame_effects,
+        ));
+    }
     if !object.unit_repair {
         // The ConstructionYard, Hospital and Armory arms come first.
         let reload =
@@ -1435,7 +1449,7 @@ pub(crate) fn mission_repair(
             if let Some(contact) = sim.substrate.entities.get_mut(unit)
                 && contact.navigation.nav_com().is_some()
             {
-                crate::sim::movement::foot_stop_moving(contact);
+                contact.navigation.stop_moving();
             }
         }
         if radio::transmit_to_contact(
@@ -1663,7 +1677,6 @@ mod tests {
                 ),
                 &IniFile::from_str("[GAPILE]\nFoundation=3x2\n[GAPOWR]\nFoundation=2x2\n"),
             );
-        sim.playfield_size_height = Some(16);
         spawn_exit_query_building(&mut sim, &rules, DEPOT, "GAPILE", 14, 14);
         spawn_entity(&mut sim, 1, "E1", EntityCategory::Infantry, 14, 14, 125);
         sim.substrate
@@ -1821,7 +1834,6 @@ mod tests {
                  NumberOfDocks=1\nNumberImpassableRows=1\n",
                 &IniFile::from_str("[NADEPT]\nFoundation=4x3\n"),
             );
-        sim.playfield_size_height = Some(16);
         spawn_exit_query_building(&mut sim, &rules, DEPOT, "NADEPT", 6, 9);
         spawn_tank(&mut sim, 1, 8, 10);
         sim.substrate
@@ -2348,7 +2360,7 @@ mod tests {
         assert_eq!(unit.mission.queued(), MissionId::NONE);
         assert_eq!(
             unit.navigation.nav_com(),
-            Some(NavTargetRef::Building { id: DEPOT })
+            Some(NavTargetRef::Object { id: DEPOT })
         );
         assert_eq!(unit.pending_entry(), None);
         assert!(linked(&sim, 1));
@@ -2611,7 +2623,7 @@ mod tests {
         assert_eq!(sim.substrate.entities.get(1).unwrap().pending_entry(), None);
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
-            Some(NavTargetRef::Building { id: DEPOT })
+            Some(NavTargetRef::object(DEPOT))
         );
         for tank in 2..=3 {
             let e = sim.substrate.entities.get(tank).unwrap();
@@ -2879,8 +2891,11 @@ mod tests {
         assert!(linked(&sim, 1));
         let nav = sim.substrate.entities.get(1).unwrap().navigation.nav_com();
         assert!(nav.is_some());
-        sim.substrate.entities.get_mut(DEPOT).unwrap().temporal =
-            crate::sim::temporal::TemporalState::warped_by_for_test(999);
+        sim.substrate
+            .entities
+            .get_mut(DEPOT)
+            .unwrap()
+            .set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(999));
         let due = {
             let timer = sim
                 .substrate
@@ -3355,6 +3370,9 @@ mod tests {
             108,
         ));
         let factory = sim.production.factories.test_first_mut().unwrap();
+        // The kernel fixture supplies an already-running head. StartProduction
+        // itself now correctly leaves +70 stopped until the separate Resume.
+        factory.suspended = false;
         factory.step_rate_frames = 1;
         factory.step_timer = CdTimer::from_raw(0, 0);
         for id in [DEPOT, 1, 501] {

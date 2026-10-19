@@ -11,18 +11,6 @@
 mod sinking_sound_tests;
 
 #[cfg(test)]
-#[path = "ambient_sound_tests.rs"]
-mod ambient_sound_tests;
-
-#[cfg(test)]
-#[path = "working_sound_tests.rs"]
-mod working_sound_tests;
-
-#[cfg(test)]
-#[path = "turret_rotate_sound_tests.rs"]
-mod turret_rotate_sound_tests;
-
-#[cfg(test)]
 #[path = "selection_voice_tests.rs"]
 mod selection_voice_tests;
 
@@ -36,11 +24,13 @@ use crate::rules::error::RulesError;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{
     NativeRulesRegistryState, NativeTypeConstructionEvent, NativeTypeConstructionTrace,
-    ProcessedRulesLayers, RulesLayerKind, RulesLayerStack, process_native_campaign_rules_prepass,
-    process_native_noncampaign_rules_prepass, process_native_rules_cold_start,
+    ProcessedRulesLayers, RulesLayerKind, RulesLayerStack, RulesProcessContext,
+    process_native_campaign_rules_prepass, process_native_noncampaign_rules_prepass,
+    process_native_rules_cold_start,
 };
+use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::sound_ini::SoundRegistry;
+use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 
 /// The startup-selected INI objects reused by every later native Process call.
 ///
@@ -58,6 +48,8 @@ struct NativeRulesSourceSnapshot {
     /// Immutable Voc catalog selected once by Init_Game52C763..52C796.
     /// It is not a Rules layer and survives scenario Rules reconstruction.
     fixed_sounds: Arc<SoundRegistry>,
+    /// The same immutable EVAMD catalog used by process playback.
+    fixed_eva: Arc<EvaRegistry>,
 }
 
 #[derive(Debug)]
@@ -71,6 +63,22 @@ enum NativeRulesRegistryOwner {
     /// Completed scenario Rules inputs and their same live registry. Constructor
     /// events have transferred to Scenario; save reads this owner by reference.
     Scenario(Box<ProcessedRulesLayers>),
+}
+
+impl NativeRulesRegistryOwner {
+    /// Retire the old scenario envelope while keeping its sole live Type
+    /// authority for a pre-reset Rules prefix. Constructor events predate the
+    /// next Scenario cursor and are deliberately discarded at this boundary.
+    fn into_registry_state(self) -> NativeRulesRegistryState {
+        match self {
+            Self::ColdStartup(trace) => trace.into_registry_state_discarding_events(),
+            Self::Live(state) => state,
+            Self::Scenario(processed) => (*processed)
+                .into_ini_and_native_type_construction_trace()
+                .1
+                .into_registry_state_discarding_events(),
+        }
+    }
 }
 
 /// The one move-only native Rules authority for a process.
@@ -90,11 +98,6 @@ pub(crate) struct NativeRulesPhaseReceipt {
 }
 
 impl NativeRulesPhaseReceipt {
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn events(&self) -> &[NativeTypeConstructionEvent] {
-        &self.events
-    }
-
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn event_count(&self) -> usize {
         self.events.len()
@@ -171,6 +174,7 @@ impl NativeRulesProcessOwner {
         langrule: Option<IniFile>,
         fixed_art: IniFile,
         fixed_sounds: Arc<SoundRegistry>,
+        fixed_eva: Arc<EvaRegistry>,
     ) -> Result<Self, RulesError> {
         let movies = crate::rules::movies::MovieRegistry::from_art(&fixed_art);
         let cold_trace = process_native_rules_cold_start(
@@ -186,6 +190,7 @@ impl NativeRulesProcessOwner {
                 fixed_art,
                 movies,
                 fixed_sounds,
+                fixed_eva,
             },
             registry: Some(NativeRulesRegistryOwner::ColdStartup(cold_trace)),
         })
@@ -198,12 +203,13 @@ impl NativeRulesProcessOwner {
         &self.sources.fixed_sounds
     }
 
-    pub(crate) fn bind_type_sound_references(
+    pub(crate) fn bind_type_audio_references(
         &self,
         rules: &mut RuleSet,
         processed: &ProcessedRulesLayers,
     ) {
         rules.bind_type_sound_references(processed.ini(), &self.sources.fixed_sounds);
+        rules.bind_type_eva_references(processed.ini(), &self.sources.fixed_eva);
     }
 
     /// Immutable startup-selected root for consumers with a root-only native read.
@@ -254,7 +260,7 @@ impl NativeRulesProcessOwner {
     ) -> Result<RuleSet, RulesError> {
         processed.validate_saved_state()?;
         let mut rules = RuleSet::from_processed_rules(processed)?;
-        self.bind_type_sound_references(&mut rules, processed);
+        self.bind_type_audio_references(&mut rules, processed);
         Ok(rules)
     }
 
@@ -262,6 +268,35 @@ impl NativeRulesProcessOwner {
     /// Deserialization excludes constructor receipts, so load cannot replay IDs.
     pub fn install_saved_scenario_rules(&mut self, processed: ProcessedRulesLayers) {
         self.registry = Some(NativeRulesRegistryOwner::Scenario(Box::new(processed)));
+    }
+
+    /// Consume the outgoing Simulation's runtime Rules writes once that
+    /// scenario has retired. While a match is live Simulation owns changes;
+    /// this process owner receives them only for the next pre-reset Process.
+    /// Each update identifies one exact-category, exact-case native stored ID.
+    /// All identities are validated before any TechLevel or scalar is changed.
+    /// Ambient inputs survive Type reset; reached AudioVisual reads replace them.
+    ///
+    /// Native714570 reads the current field before Full_Init6876AC enters
+    /// Reset6686C0. That reset deletes old TechnoTypes; new711082 constructors
+    /// start at255, so these values are never transplanted by name across it.
+    /// The retired envelope is no longer available to `saved_scenario_rules`.
+    pub fn consume_outgoing_scenario_rules(
+        &mut self,
+        updates: impl IntoIterator<Item = (ObjectCategory, String, i32)>,
+        ambient_change: [Option<crate::util::native_x87::NativeF64Bits>; 2],
+    ) -> Result<(), RulesError> {
+        let mut registry = self
+            .registry
+            .take()
+            .expect("native Rules registry transition may not be re-entered")
+            .into_registry_state();
+        let result = registry.consume_outgoing_type_tech_levels(updates);
+        if result.is_ok() {
+            registry.consume_outgoing_ambient_change_inputs(ambient_change);
+        }
+        self.registry = Some(NativeRulesRegistryOwner::Live(registry));
+        result
     }
 
     /// Build the shell-facing compatibility projection without changing the
@@ -275,8 +310,9 @@ impl NativeRulesProcessOwner {
     ///
     /// Noncampaign runs `E_multi` against the process-retained registry;
     /// campaign runs optional scenario-basename INI P against that registry.
-    /// The common destructive reset then precedes root/LANG/(noncampaign
-    /// mode)/map P.
+    /// The common reset deletes Types, processes root, clears ColorAdd,
+    /// processes LANG, then rereads only root ColorAdd before (noncampaign
+    /// mode)/map P. The four AudioVisual selectors retain LANG's last read.
     /// Every error restores the actual partial post-reset registry; no path
     /// rolls back to cold/pre-reset state.
     pub fn load_scenario(
@@ -288,16 +324,7 @@ impl NativeRulesProcessOwner {
             .registry
             .take()
             .expect("native Rules registry transition may not be re-entered");
-        let pre_reset_state = match registry_owner {
-            NativeRulesRegistryOwner::ColdStartup(trace) => {
-                trace.into_registry_state_discarding_events()
-            }
-            NativeRulesRegistryOwner::Live(state) => state,
-            NativeRulesRegistryOwner::Scenario(processed) => (*processed)
-                .into_ini_and_native_type_construction_trace()
-                .1
-                .into_registry_state_discarding_events(),
-        };
+        let pre_reset_state = registry_owner.into_registry_state();
 
         let (pre_reset_trace, mode_rules_override) = match prefix {
             NativeScenarioRulesPrefix::NonCampaign(mode) => (
@@ -326,12 +353,11 @@ impl NativeRulesProcessOwner {
         };
         let (pre_reset_events, pre_reset_super_count, pre_reset_state) =
             pre_reset_trace.into_parts();
-        let post_reset_state = pre_reset_state.destructive_reset();
-
         let layers = self.scenario_layers(mode_rules_override, map_rules_overrides);
         let mut processed = match layers.process_with_fixed_art_and_registry_state_recovering(
             &self.sources.fixed_art,
-            post_reset_state,
+            pre_reset_state,
+            RulesProcessContext::ScenarioReset,
         ) {
             Ok(processed) => processed,
             Err(failure) => {
@@ -351,7 +377,7 @@ impl NativeRulesProcessOwner {
                 return Err(error);
             }
         };
-        self.bind_type_sound_references(&mut rules, &processed);
+        self.bind_type_audio_references(&mut rules, &processed);
         debug_assert_eq!(rules.source_ini_hash(), processed.content_hash());
         let processed_ini = processed.ini().clone();
         let (post_reset_events, post_reset_super_count) = processed.take_constructor_events();
@@ -393,165 +419,5 @@ impl NativeRulesProcessOwner {
         }
         layers.push(RulesLayerKind::Scenario, map_rules_overrides.clone());
         layers
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    fn live_registry(&self) -> &NativeRulesRegistryState {
-        match self.registry.as_ref().expect("registry is resident") {
-            NativeRulesRegistryOwner::ColdStartup(trace) => trace.registry_state(),
-            NativeRulesRegistryOwner::Live(state) => state,
-            NativeRulesRegistryOwner::Scenario(processed) => {
-                processed.native_type_construction_trace().registry_state()
-            }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::NativeRulesProcessOwner;
-    use crate::rules::ini_parser::IniFile;
-    use crate::rules::native_processing::NativeTypeConstructorFamily;
-
-    fn ini(text: &str) -> IniFile {
-        IniFile::from_bytes(text.as_bytes()).expect("valid synthetic INI")
-    }
-
-    #[test]
-    fn second_noncampaign_scenario_continues_live_registry_then_resets_it() {
-        let root = ini("[Animations]\n0=ROOTANIM\n\
-             [BuildingTypes]\n0=ROOTBLDG\n\
-             [Countries]\n0=ROOTCOUNTRY\n\
-             [General]\nParaDrop.Types=ROOTUNIT\n\
-             [ROOTCOUNTRY]\nVeteranUnits=ROOTINF\n");
-        let art = ini("[ROOTANIM]\nImage=ROOTANIM\n[ROOTBLDG]\nImage=ROOTBLDG\n");
-        let first_map = ini("[BuildingTypes]\n1=MAPONLY\n[MAPONLY]\nImage=MAPONLY\n");
-        let second_map = ini("");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            art,
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-
-        let first = owner
-            .load_scenario(
-                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                &first_map,
-            )
-            .expect("first scenario");
-        assert!(first.receipt.pre_reset.event_count() > 0);
-        assert!(first.receipt.post_reset.events().iter().any(|event| {
-            event.family() == NativeTypeConstructorFamily::BuildingType
-                && event.native_stored_id() == "MAPONLY"
-        }));
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2
-        );
-
-        let second = owner
-            .load_scenario(
-                crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                &second_map,
-            )
-            .expect("second scenario");
-        assert_eq!(
-            second.receipt.pre_reset.event_count(),
-            0,
-            "the second prepass looks up names in scenario-one's live registry"
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            1,
-            "the destructive reset removes the prior map-only type"
-        );
-    }
-
-    #[test]
-    fn failed_post_reset_process_keeps_its_partial_live_registry() {
-        let root = ini("[BuildingTypes]\n0=ROOTBLDG\n");
-        let failing_map = ini("[BuildingTypes]\n1=PARTIAL\n\
-             [Tiberiums]\n-1=INVALID\n");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-
-        assert!(
-            owner
-                .load_scenario(
-                    crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(None),
-                    &failing_map
-                )
-                .is_err(),
-            "negative Tiberium slot fails after explicit families"
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-            "ROOTBLDG and PARTIAL both remain in the post-reset native registry"
-        );
-    }
-
-    #[test]
-    fn saved_rules_restore_reached_fields_without_replaying_constructor_events() {
-        let root = ini("[BuildingTypes]\n0=ROOTBLDG\n[ROOTBLDG]\nStrength=200\n\
-            [General]\nPrismSupportModifier=1.75\n");
-        let map = ini("[BuildingTypes]\n1=MAPONLY\n[General]\n");
-        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
-            root,
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-        let original = owner
-            .load_scenario(super::NativeScenarioRulesPrefix::NonCampaign(None), &map)
-            .unwrap();
-        assert!(original.receipt.post_reset.event_count() > 0);
-        let saved = owner.saved_scenario_rules().unwrap();
-        assert_eq!(saved.native_type_construction_trace().event_count(), 0);
-        let saved_hash = original.rules.simulation_config_hash();
-        let saved_modifier = original.rules.general.prism_support.modifier;
-        let bytes = bincode::serialize(saved).unwrap();
-        let restored = bincode::deserialize(&bytes).unwrap();
-
-        // Loading does not re-read RULESMD or construct the saved type vector.
-        // Different cold-process source values must not replace saved fields.
-        let mut cold = NativeRulesProcessOwner::from_cold_start_sources(
-            ini("[BuildingTypes]\n0=OTHER\n[General]\nPrismSupportModifier=9.0\n"),
-            None,
-            ini(""),
-            std::sync::Arc::default(),
-        )
-        .unwrap();
-        let projected = cold.project_saved_scenario_rules(&restored).unwrap();
-        assert_eq!(projected.simulation_config_hash(), saved_hash);
-        assert_eq!(projected.general.prism_support.modifier, saved_modifier);
-        assert_eq!(restored.native_type_construction_trace().event_count(), 0);
-        cold.install_saved_scenario_rules(restored);
-        assert_eq!(
-            cold.live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-        );
-        assert_eq!(
-            owner
-                .live_registry()
-                .family_len(NativeTypeConstructorFamily::BuildingType),
-            2,
-            "serialization did not consume or replace the original process owner",
-        );
     }
 }

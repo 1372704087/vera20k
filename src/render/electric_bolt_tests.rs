@@ -5,7 +5,7 @@
 use super::*;
 use crate::render::batch::BatchRenderer;
 use crate::render::electric_bolt::{ElectricBoltDraw, ElectricBoltPalette};
-use crate::render::laser::LaserDraw;
+use crate::render::laser::{LaserDraw, LaserDrawColor};
 use crate::render::terrain_draw_gpu_tests::{Gpu, camera, clear, encoded, seed_depth_grid};
 use crate::sim::projectile::ProjectileCoord;
 use crate::sim::rng::{MainRng, SimRng};
@@ -71,9 +71,12 @@ fn laser(row: &Value) -> Option<LaserDraw> {
             z_adjust: integer(&laser["z_adjust"]),
             width: integer(&laser["width"]),
             supported: laser["supported"] == 1,
-            rgb: point::<3>(&laser["inner"]).map(|value| value as u8),
+            color: LaserDrawColor::House(point::<3>(&laser["inner"]).map(|value| value as u8)),
             age: integer(&laser["age"]),
             duration: integer(&laser["duration"]),
+            fade_end: crate::util::native_x87::NativeF32Bits::from_bits(
+                laser["fade_end_bits"].as_u64().unwrap() as u32,
+            ),
         })
 }
 
@@ -372,14 +375,20 @@ fn production_electric_bolt_pixels_match_native_with_bounded_edge_residuals() {
                     let (lines, _, _, main) = visit_lines(row, index);
                     assert_eq!(main, visit["rng_after"]["main"].as_str().unwrap());
                     let trails = trails(row, visit);
-                    terrain.prepare_surface_lines(
+                    terrain.begin_surface_lines();
+                    let prepared_lines = terrain.prepare_surface_lines(
                         &gpu.device,
                         &gpu.queue,
                         laser(row),
-                        &lines,
+                        lines
+                            .iter()
+                            .copied()
+                            .map(crate::render::surface_line::SurfaceDraw::Line),
                         &trails,
+                        &[],
+                        &[],
                         viewport(input),
-                        || true,
+                        |_| true,
                         |[x, y]| match input["alpha"].as_str() {
                             Some("mixed") => [0, 1, 63, 127, 255][((x / 9 + y / 7) % 5) as usize],
                             Some("black") => 0,
@@ -392,7 +401,7 @@ fn production_electric_bolt_pixels_match_native_with_bounded_edge_residuals() {
                     } else {
                         clear(&mut encoder, &cv, &dv, z[0], wgpu::LoadOp::Load);
                     }
-                    terrain.draw_surface_lines(&mut encoder, &cv);
+                    terrain.draw_surface_lines(&mut encoder, &cv, prepared_lines);
                     let reads = [
                         gpu.read(&mut encoder, &color),
                         gpu.read(&mut encoder, &depth),

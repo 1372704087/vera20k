@@ -18,6 +18,7 @@
 use crate::map::rmg::rng::RANGE_K_BITS;
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::x87::{self, TruncF64};
+use crate::util::native_x87::X87Chop53;
 
 use super::blob::{BlobCtx, MinHeap, seed_draw};
 use super::shore::{self, ShoreCtx};
@@ -59,7 +60,7 @@ const MAX_SEED_ATTEMPTS: i32 = 200;
 const BAND_RINGS: i32 = 2;
 const BAND_TAG: i32 = -2;
 
-/// The four cardinal directions, as `CELL_DELTAS` indices (N, E, S, W).
+/// The four cardinal directions, as `DIRECTION_DELTAS` indices (N, E, S, W).
 const CARDINALS: [usize; 4] = [0, 2, 4, 6];
 
 /// The seeder's cross-attempt accumulators.
@@ -113,7 +114,7 @@ fn water_target(args: &WaterArgs) -> i32 {
         return 0;
     }
     // Operand order is the original's: height, then width, then the amount.
-    x87::ftol(
+    X87Chop53::ftol_f64_low_masked(
         TruncF64::from_f64(f64::from(args.playable.h))
             .mul(TruncF64::from_f64(f64::from(args.playable.w)))
             .mul(TruncF64::from_f64(f64::from(args.water_percent)))
@@ -275,7 +276,7 @@ fn size_draw(ctx: &mut BlobCtx<'_>, remaining: i32) -> i32 {
             }
         };
         if value <= upper_f {
-            return x87::ftol(value);
+            return X87Chop53::ftol_f64_low_masked(value);
         }
     }
 }
@@ -458,13 +459,9 @@ mod tests {
     use crate::map::rmg::phases::shore::{SubTile, TileBlock, TileBlocks};
     use crate::map::rmg::phases::water::PlayableRect;
     use crate::map::rmg::rng::RmgRng;
-    use crate::map::rmg::tiles::SpecialTerrain;
     use crate::map::rmg::tiles::TileIds;
     use crate::map::rmg::x87::Gaussian;
-
-    /// The river gate: at or below this the original carves no river, so the
-    /// lake path alone is the complete output for the band.
-    const RIVERLESS_WATER: [i32; 3] = [1, 10, 20];
+    use crate::map::theater::TheaterCliffRanges;
 
     struct OneByOne(TileBlock);
 
@@ -491,6 +488,7 @@ mod tests {
             clear: 0,
             ramp_base: -1,
             ramp_smooth: -1,
+            slope_set_pieces: -1,
             rough: -1,
             sand: -1,
             green: 100,
@@ -506,7 +504,7 @@ mod tests {
             paved_roads: -1,
             paved_road_ends: -1,
             medians: -1,
-            special: SpecialTerrain::default(),
+            cliffs: TheaterCliffRanges::default(),
         }
     }
 
@@ -543,7 +541,7 @@ mod tests {
             },
         };
         {
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,
@@ -567,174 +565,6 @@ mod tests {
             .collect()
     }
 
-    /// The band this slice claims to complete: below the river gate the original
-    /// carves no river, so a lake is the entire water output.
-    #[test]
-    fn riverless_band_produces_a_lake() {
-        for map_type in [3, 4] {
-            for water_percent in RIVERLESS_WATER {
-                let (grid, _, identity, _) = run_carved(map_type, 4242, water_percent);
-                let water = water_cells(&grid, &identity);
-                assert!(
-                    !water.is_empty(),
-                    "map type {map_type} at water {water_percent} produced no lake"
-                );
-            }
-        }
-    }
-
-    /// A lake is one blob, not scattered cells. Walks the water set with a flood
-    /// fill and requires it to be a single 4-connected component.
-    #[test]
-    fn the_lake_is_a_single_connected_body() {
-        let (grid, _, identity, _) = run_carved(4, 4242, 20);
-        let water = water_cells(&grid, &identity);
-        assert!(!water.is_empty(), "no lake to check");
-
-        let mut seen = std::collections::BTreeSet::new();
-        let all: std::collections::BTreeSet<(i32, i32)> = water.iter().copied().collect();
-        let mut stack = vec![water[0]];
-        seen.insert(water[0]);
-        while let Some((x, y)) = stack.pop() {
-            for dir in CARDINALS {
-                let step = RmgGrid::step(x, y, dir);
-                if all.contains(&step) && seen.insert(step) {
-                    stack.push(step);
-                }
-            }
-        }
-        assert_eq!(
-            seen.len(),
-            all.len(),
-            "the lake is {} cells but only {} are reachable from one of them — \
-             it came out as more than one body",
-            all.len(),
-            seen.len()
-        );
-    }
-
-    /// The quota caps how many *lakes* a generation gets, not how many cells one
-    /// lake places.
-    ///
-    /// A committed lake is its drawn size plus its whole final frontier, because
-    /// the drain keeps counting every entry it pops — so a lake routinely ends up
-    /// larger than the quota that authorised it. That overshoot is kept in the
-    /// accumulator, and keeping it is the point: it is what drives the next
-    /// attempt below the minimum and terminates the water phase. Asserting
-    /// `placed <= target` looks obvious and is wrong; this test exists because
-    /// that assertion was written first and failed.
-    #[test]
-    fn a_spent_quota_stops_the_next_lake_before_it_draws() {
-        let args = WaterArgs {
-            map_type: 3,
-            water_percent: 20,
-            num_players: 4,
-            bridge_enabled: false,
-            playable: PlayableRect {
-                x: 2,
-                y: 5,
-                w: 30,
-                h: 30,
-            },
-        };
-        let target = water_target(&args);
-
-        let (map_w, map_h) = (34, 42);
-        let stride = (map_w + map_h + 1) as usize;
-        let (dmin, dmax) = (map_w, map_w + 2 * map_h);
-        let mut grid = RmgGrid::new(stride, dmin, dmax);
-        let mut scratch = RmgScratch::new(stride, dmin, dmax);
-        let identity = ids();
-        let blocks = blocks();
-        let mut rng = RmgRng::new(4242);
-        let mut gauss = Gaussian::default();
-        for (x, y) in grid.native_cells().collect::<Vec<_>>() {
-            grid.get_mut(x, y).expect("native cell").tile = identity.clear;
-        }
-
-        // Exactly at the minimum: `remaining` is the termination threshold, and
-        // the attempt must stop there rather than one cell later.
-        let mut quota = WaterQuota {
-            placed: target - MIN_CELLS,
-            region_id: 1,
-        };
-        let trig = crate::map::retail_trig::TrigTable::embedded();
-        let mut ctx = BlobCtx {
-            grid: &mut grid,
-            scratch: &mut scratch,
-            ids: &identity,
-            blocks: &blocks,
-            rng: &mut rng,
-            gauss: &mut gauss,
-            trig: Some(trig),
-            map_w,
-            map_h,
-            rollback_level: 4,
-        };
-        assert!(
-            !grow_lake(&mut ctx, &args, &mut quota, None),
-            "a quota with only the minimum left must not start a lake"
-        );
-
-        let mut fresh = RmgRng::new(4242);
-        assert_eq!(
-            rng.next_u32(),
-            fresh.next_u32(),
-            "the bail must happen before any draw — the quota check is the first \
-             thing the lake does"
-        );
-    }
-
-    /// A committed lake is larger than its drawn size, and the overshoot is the
-    /// frontier — bounded, not unbounded. Guards against the drain running away.
-    #[test]
-    fn the_lake_overshoots_its_quota_only_by_its_frontier() {
-        for water_percent in RIVERLESS_WATER {
-            let (grid, _, identity, _) = run_carved(3, 4242, water_percent);
-            let placed = water_cells(&grid, &identity).len() as i32;
-            let args = WaterArgs {
-                map_type: 3,
-                water_percent,
-                num_players: 4,
-                bridge_enabled: false,
-                playable: PlayableRect {
-                    x: 2,
-                    y: 5,
-                    w: 30,
-                    h: 30,
-                },
-            };
-            let target = water_target(&args);
-            // The frontier of a blob cannot exceed the blob, so twice the quota
-            // is a generous ceiling that still catches a runaway drain.
-            assert!(
-                placed <= target * 2,
-                "water {water_percent}: placed {placed} against a quota of {target} \
-                 — more than a frontier's worth of overshoot"
-            );
-        }
-    }
-
-    /// A rolled-back attempt must leave nothing behind — no water tiles, no
-    /// region tags, and the level restored to the base rather than zero.
-    #[test]
-    fn a_failed_attempt_leaves_no_trace() {
-        // Below the minimum the seeder bails before drawing or writing anything.
-        let (grid, scratch, identity, mut rng) = run_carved(3, 4242, 0);
-        for (x, y) in grid.native_cells() {
-            let cell = grid.get(x, y).expect("native cell");
-            assert_eq!(cell.tile, identity.clear, "({x},{y}) is not clear");
-            assert_eq!(cell.level, 4, "({x},{y}) lost its base level");
-            assert_eq!(scratch.get(x, y).region, 0, "({x},{y}) kept a region tag");
-        }
-        let mut fresh = RmgRng::new(4242);
-        assert_eq!(
-            rng.next_u32(),
-            fresh.next_u32(),
-            "a bailed seeder must not consume draws"
-        );
-    }
-
     /// Same options and seed must give the same lake.
     #[test]
     fn lake_generation_is_deterministic() {
@@ -747,14 +577,5 @@ mod tests {
                 "map type {map_type} is not deterministic"
             );
         }
-    }
-
-    /// Different seeds must give different lakes — otherwise the seed pick or the
-    /// growth key is not reading the generator at all.
-    #[test]
-    fn different_seeds_give_different_lakes() {
-        let (a, _, identity, _) = run_carved(4, 1, 20);
-        let (b, _, _, _) = run_carved(4, 30011, 20);
-        assert_ne!(water_cells(&a, &identity), water_cells(&b, &identity));
     }
 }

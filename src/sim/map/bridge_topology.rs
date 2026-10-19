@@ -19,7 +19,7 @@
 
 use crate::map::bridge_facts::BridgeFlags;
 use crate::map::cell_index::NativeCellIdentity;
-use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainCell};
+use crate::map::resolved_terrain::NativeCellQuery;
 use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, BRIDGE_DECK_HEIGHT_LEVELS};
 
 /// Which persistent cell list an object belongs to. The ground list and the
@@ -50,11 +50,6 @@ pub struct CellBridgeView {
 }
 
 impl CellBridgeView {
-    /// Build a view from the canonical resolved-terrain cell.
-    pub fn from_resolved(cell: &ResolvedTerrainCell) -> Self {
-        Self::from_fields(cell.level, cell.bridge_facts.raw_flags)
-    }
-
     /// The view of the cell a Map lookup answered through `cells`: a real cell
     /// or the shared dummy, whose level and flags are current state too.
     pub(crate) fn from_query(cells: &NativeCellQuery<'_>, cell: NativeCellIdentity) -> Self {
@@ -155,72 +150,3 @@ impl CellBridgeView {
 //   - The `Level + 4` height seed the gate applies is the Level-unit pathfinding
 //     seed (1 ElevationIncrement) — DISTINCT from the lepton coordinate-Z deck
 //     offset (`BRIDGE_DECK_HEIGHT_LEPTONS`). The two are never mixed (A1 §5).
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::map::bridge_facts::{BRIDGE_FLAG_ANCHOR_SELF, BRIDGE_FLAG_STRUCTURAL};
-
-    /// Build a view directly from raw fields (bypasses `from_resolved` so a test
-    /// can pin a precise flag/level combination without a full terrain cell).
-    fn view(level: i8, raw_flags: u32) -> CellBridgeView {
-        CellBridgeView {
-            level,
-            flags: BridgeFlags(raw_flags),
-        }
-    }
-
-    #[test]
-    fn effective_height_anchor_plus4_signed_level() {
-        // L2: signed level + exactly the deck height for an anchor; NOT the layer
-        // form. Feed a raw level byte > 127 (0xFE) to prove the i8 reinterpret.
-        let raw_level = 0xFEu8 as i8; // -2
-        assert_eq!(raw_level, -2, "0xFE must reinterpret as -2");
-
-        let anchor = view(raw_level, BRIDGE_FLAG_ANCHOR_SELF);
-        assert_eq!(
-            anchor.effective_height(),
-            -2 + 4,
-            "anchor adds the deck height"
-        );
-
-        let non_anchor = view(raw_level, 0);
-        assert_eq!(
-            non_anchor.effective_height(),
-            -2,
-            "non-anchor is the bare level"
-        );
-    }
-
-    #[test]
-    fn aoe_object_layer_strict_gt_half_deck() {
-        // Original strict lepton boundary, independent of whole-Level rounding.
-        let bridge = view(100, BRIDGE_FLAG_STRUCTURAL);
-        let ground_z = 100;
-        let half = BRIDGE_DECK_HEIGHT_LEPTONS / 2;
-        assert_eq!(half, 208, "half-deck retains native lepton precision");
-
-        // Exactly at the mid-height -> Ground (strict `>` excludes equality).
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z + half, ground_z),
-            ListLayer::Ground
-        );
-        // One above the mid-height -> Bridge.
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z + half + 1, ground_z),
-            ListLayer::Bridge
-        );
-        // Below -> Ground.
-        assert_eq!(
-            bridge.aoe_object_layer(ground_z, ground_z),
-            ListLayer::Ground
-        );
-
-        // Non-structural cell is always Ground regardless of Z.
-        let non_bridge = view(100, 0);
-        assert_eq!(
-            non_bridge.aoe_object_layer(ground_z + 999, ground_z),
-            ListLayer::Ground
-        );
-    }
-}

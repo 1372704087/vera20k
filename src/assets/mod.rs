@@ -28,6 +28,7 @@ pub mod bink_bits;
 pub mod bink_data;
 pub mod bink_decode;
 pub mod bink_file;
+pub(crate) mod blowfish;
 pub mod csf_file;
 pub mod error;
 pub mod fnt_file;
@@ -36,11 +37,7 @@ pub mod hva_file;
 pub mod ima_adpcm;
 pub mod mix_archive;
 pub mod mix_crypto;
-#[cfg(test)]
-mod mix_diag_tests;
 pub mod mix_hash;
-#[cfg(test)]
-mod mix_tests;
 pub mod pal_file;
 pub mod pcx_file;
 pub mod shp_decode;

@@ -10,11 +10,8 @@ use crate::sim::docking::building_dock::try_pending_entry;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 
-fn waiter_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_repair.depot_waiters.json",
-    ))
-    .unwrap()
+fn waiter_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_repair.depot_waiters.json")
 }
 
 fn waiter_scene(golden: &Value, case: &Value, control: &Value) -> Scene {
@@ -155,7 +152,7 @@ fn native_marked_foundation_entry_parking_and_retry_match_shared_owners() {
                 "busy_destination" => {
                     scene.sim.set_unit_destination(
                         scene.tank,
-                        NavTargetRef::Building { id: scene.depot },
+                        NavTargetRef::Object { id: scene.depot },
                         &scene.rules,
                         true,
                         crate::sim::world::FrameEffects::default(),

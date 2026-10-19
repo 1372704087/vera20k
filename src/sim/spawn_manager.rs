@@ -73,7 +73,7 @@ use crate::sim::intern::InternedId;
 use crate::sim::mission::MissionType;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{Simulation, UninitContext};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 #[cfg(test)]
 #[path = "spawn_manager_oracle_tests.rs"]
@@ -262,11 +262,6 @@ impl SpawnManagerState {
         self.spawn_type
     }
 
-    /// The child's rocket family, if any.
-    pub fn missile_family(&self) -> Option<MissileFamily> {
-        self.missile_family
-    }
-
     /// `SpawnRegenRate=` in frames.
     pub fn regen_rate(&self) -> u32 {
         self.regen_rate
@@ -275,11 +270,6 @@ impl SpawnManagerState {
     /// `SpawnReloadRate=` in frames.
     pub fn reload_rate(&self) -> u32 {
         self.reload_rate
-    }
-
-    /// The pool's kamikaze wait in frames.
-    pub fn kamikaze_wait_frames(&self) -> u32 {
-        self.kamikaze_wait_frames
     }
 
     /// The pool's slots.
@@ -1277,7 +1267,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         };
         let sim = &*self.sim;
         crate::sim::combat::can_fire_at_target(
-            &sim.substrate.entities,
+            sim,
             rules,
             &sim.interner,
             self.owner_id,
@@ -1297,7 +1287,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .substrate
             .entities
             .get(child)
-            .and_then(|c| c.aircraft_ammo.as_ref())
+            .and_then(|c| c.ammo())
             .map(|a| a.current())
             // Real Aircraft retain their signed count, including -1. This
             // fallback applies only to incomplete/non-Aircraft data.
@@ -1479,7 +1469,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         if let Some(child) = self.sim.substrate.entities.get_mut(child) {
             child.health.set(strength);
             child.estimated_health.reset(strength);
-            if let Some(ammo) = child.aircraft_ammo.as_mut() {
+            if let Some(ammo) = child.ammo_mut() {
                 ammo.refill();
             }
         }
@@ -1538,7 +1528,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
 
 /// The eight-direction cell step native uses for the owner-relative hold cell.
 fn adjacent_cell(rx: u16, ry: u16, direction: u8) -> (u16, u16) {
-    let (dx, dy) = CELL_DELTAS[(direction & 7) as usize];
+    let (dx, dy) = DIRECTION_DELTAS[(direction & 7) as usize];
     (
         (rx as i32 + dx).max(0) as u16,
         (ry as i32 + dy).max(0) as u16,

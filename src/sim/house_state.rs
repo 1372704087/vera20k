@@ -58,17 +58,6 @@ impl HouseDifficulty {
     pub const fn table_index(self) -> usize {
         self as usize
     }
-
-    /// Telemetry spelling. The native ladder is hardest-first
-    /// (`AIVirtualPurifiers` reads Brutal/Medium/Easy), so "hard" is the
-    /// Brutal tier the skirmish screen labels 冷酷.
-    pub const fn telemetry_name(self) -> &'static str {
-        match self {
-            Self::Hard => "hard",
-            Self::Normal => "normal",
-            Self::Easy => "easy",
-        }
-    }
 }
 
 /// House4F54A0's seven scalar doubles (+188..+1B8) and two delays
@@ -254,8 +243,9 @@ impl HouseStrategyEmergencyState {
         self.last_attacker_house_index
     }
 
-    /// Trigger action9 writes only House+250=4 at6DEAFF; the existing
-    /// strategy timer and its eventual FireSale/Hunt remain untouched.
+    /// Trigger action9 (6DEAFF) and Team script30 (6E99E5) write only
+    /// House+250=4; the existing strategy timer and eventual FireSale/Hunt
+    /// remain untouched.
     pub(crate) fn set_state_four(&mut self) {
         self.mode = 4;
     }
@@ -403,6 +393,12 @@ impl Default for LastBuiltTypes {
 pub struct HouseState {
     /// Owner name as interned ID (resolve via interner for display).
     pub name: InternedId,
+    /// House+15FF4's bounded narrow name, independent of its owner key and
+    /// participant display handle. Fresh scenario initialization installs it
+    /// before map objects; None marks partial diagnostic Houses that have not
+    /// run that admission. Save504080/Load503040 retain the native name.
+    #[serde(default)]
+    native_scenario_name: Option<String>,
     #[serde(default)]
     native_construction: Option<NativeHouseConstruction>,
     #[serde(default)]
@@ -603,7 +599,8 @@ pub struct HouseState {
     /// `UnitsKilled`/`BuildingsKilled` tables that the score screen sums, a
     /// `UnitsLost`/`BuildingsLost` pair, and four "quantity built" counters that
     /// its `Record_Last_Built` step increments once per finished factory item.
-    /// Only the totals are player-visible, so the Rust model keeps totals.
+    /// The score reads totals; negative BuildLimit additionally reads the
+    /// successful-production items retained by `produced_type_counts`.
     ///
     /// House Save504080/Load503040 preserve the native inline statistics and
     /// all four built Counters (naval_house_stats native execution). Keep the
@@ -615,8 +612,8 @@ pub struct HouseState {
     /// House+244: Engineer PerCell519F4F records that this House has had a
     /// building captured. Constructor4F577D clears it, and the original
     /// TEvent Evaluate71F0E1 reads it for event kind3 (tables71F328/71F350).
-    /// There is no clearing writer. Live Tag/TEvent polling remains a separate
-    /// trigger mechanism; retaining this prerequisite does not implement it.
+    /// There is no clearing writer. TEvent3 also retains its native raised-kind
+    /// gate: the ordinary House event8 poll alone does not satisfy it.
     #[serde(default)]
     building_capture_notified: bool,
     /// Last type ArrayIndex in each ObjectCategory registry (not a count).
@@ -626,6 +623,20 @@ pub struct HouseState {
     /// Executed controls: tag_lifecycle --build-type-events (Steam3e81a617).
     #[serde(default)]
     last_built_types: LastBuiltTypes,
+    /// Successful scored factory deliveries by category and native Type
+    /// ArrayIndex: House+55A0/55B4/55C8/55DC, Record_Last_Built4FB6B0
+    /// -> Counter49FA00. Owned/active tracking, discovery, construction and
+    /// ChangeOwner do not write this history. Missing indices mean zero;
+    /// registration growth cannot erase earlier items. Save504080/Load503040
+    /// retain the four native streams (naval_house_stats executed corpus).
+    ///
+    /// House4F5B13..34 calls Counter constructor49F9B0, starting empty.
+    /// Starting forces never call Record in this model, so their
+    /// clear5D6FAD..5D6FDA is an elided zero reset.
+    /// Only nonzero items are stored; MatchStatistics.built is their wrapping
+    /// sum, updated by the same owner and checked when restoring a save.
+    #[serde(default)]
+    produced_type_counts: [BTreeMap<i32, i32>; 4],
     /// House+54E0: the last building that left this House through an owner
     /// change. `BuildingClass::ChangeOwner` records it on the old owner after
     /// the Techno owner swap (`0x00448C70`) and forgets it on the new owner
@@ -649,8 +660,7 @@ pub struct HouseState {
     /// House+1F4: first discovery of this House's foreign object by PlayerPtr.
     /// Constructor4F5716 clears it; TechnoDiscovered6F4A25 sets it and no
     /// clearing writer exists. TEvent71F0FB reads it for event kind5, after
-    /// resolving the House by its CountryType index through502D30. Live
-    /// Tag/TEvent evaluation remains a separate trigger mechanism.
+    /// resolving the House by its CountryType index through502D30.
     /// Native House CRC502D60 omits1F4. Like Techno41A/B/C this is a
     /// client-relative retained observation and is excluded from peer hashing.
     #[serde(default)]
@@ -741,43 +751,91 @@ pub struct HouseState {
     #[serde(default)]
     spatial_threat: crate::sim::house_threat::HouseSpatialThreat,
     #[serde(default)]
-    super_weapon_cells: HouseSuperWeaponCells,
+    super_weapon_targets: HouseSuperWeaponTargets,
 }
 
-/// The super weapon cells a House keeps: where its nuclear missile flies
-/// (`HouseClass+0x5784`) and its last super weapon alert (`+0x54F4` cell,
-/// `+0x54FC` frame).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-struct HouseSuperWeaponCells {
+/// The super weapon targeting state a House keeps: where its nuclear missile flies
+/// (`HouseClass+0x5784`), its scripted offensive target (`+0x54F0`) and its
+/// last super weapon alert (`+0x54F4` cell, `+0x54FC` frame).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct HouseSuperWeaponTargets {
     /// `+0x5784` NukeTarget: `SuperClass::Launch`'s MultiMissile arm stores
     /// the target cell (`0x006CDDC4`) and the silo's Mission_Missile reads
     /// it for the warning anim and the missile (`0x0044C9DC`, `0x0044CAA9`).
     /// Constructor (0, 0) (`0x004F5C8D`).
     nuke_target: (u16, u16),
+    /// House+54F0; constructor4F5A81/88 writes (0,0). TAction135/136
+    /// change this preference, not the already-launched NukeTarget+5784.
+    #[serde(default)]
+    preferred_target: (u16, u16),
     /// `+0x54F4` PreferredDefensiveCell: the base the launch alert
     /// (`0x004FB0BD`) asks the computer to shield. `HouseClass::AI_TryFireSW
     /// @ 0x005098F0` aims its ForceShield there (`0x00509A6D..0x00509A9B`)
     /// while the alert is younger than `[General] AISuperDefenseFrames=`
     /// (`superweapon::ai_fire`). Constructor (0, 0) (`0x004F5A8F`); trigger
-    /// actions also write it (`0x0050DA20`, `0x0050DA50`), which VERA does not
-    /// run.
+    /// actions140/141 also write it (`0x0050DA20`, `0x0050DA50`).
     defense_cell: (u16, u16),
     /// `+0x54FC`: the frame of that alert (`0x004FB0C9`); constructor -100
     /// (`0x004F5AB1`).
     defense_frame: i32,
+    /// House+54EC: constructor4F5A77 writes1; active Execute35 stores the
+    /// signed Action+90 at6DE1F1. AI target pickers read it independently of
+    /// the scripted target cell. Steam gamemd3e81a617..08600.
+    #[serde(default = "default_super_target_kind")]
+    preferred_kind: i32,
 }
 
-impl Default for HouseSuperWeaponCells {
+const fn default_super_target_kind() -> i32 {
+    1
+}
+
+impl Default for HouseSuperWeaponTargets {
     fn default() -> Self {
         Self {
             nuke_target: (0, 0),
+            preferred_target: (0, 0),
             defense_cell: (0, 0),
             defense_frame: -100,
+            preferred_kind: default_super_target_kind(),
         }
     }
 }
 
 impl HouseState {
+    /// Final fresh-reader name: HouseReadINI500A62 or offline generated
+    /// CreateHouses688072/688238. The original copies at most20 narrow bytes;
+    /// parsed INI names use one widened scalar per native byte. No case/space
+    /// normalization or mutable human/owner classification chooses this name.
+    pub(crate) fn initialize_scenario_name(&mut self, name: &str) {
+        assert!(
+            self.native_scenario_name.is_none(),
+            "fresh House name installed once"
+        );
+        self.native_scenario_name = Some(
+            name.split('\0')
+                .next()
+                .unwrap_or_default()
+                .chars()
+                .take(20)
+                .collect(),
+        );
+    }
+
+    pub(crate) fn native_scenario_name(&self) -> Option<&str> {
+        self.native_scenario_name.as_deref()
+    }
+
+    pub(crate) fn validate_scenario_name(&self) -> Result<(), &'static str> {
+        if self.native_scenario_name.as_ref().is_some_and(|name| {
+            name.contains('\0')
+                || name.chars().count() > 20
+                || name.chars().any(|c| u32::from(c) > 255)
+        }) {
+            return Err("House native name exceeds its terminated20-byte storage");
+        }
+        Ok(())
+    }
+
     /// The shared House field writer for production4FB6B0 and discovery44D601.
     /// Scoring, admission and notification effects stay with those callers.
     pub(crate) fn record_built_type(&mut self, category: ObjectCategory, type_index: i32) {
@@ -787,6 +845,80 @@ impl HouseState {
     /// HasOccurred71EFEB..71F03D reads the incoming House's class-local slot.
     pub(crate) fn last_built_type_index(&self, category: ObjectCategory) -> i32 {
         self.last_built_types.0[category as usize]
+    }
+
+    /// Record4FB6B0's four DontScore-admitted Counter increments. The caller
+    /// stores LastBuilt first and retains cue/tech-recheck ordering afterward.
+    pub(crate) fn record_scored_production(&mut self, category: ObjectCategory, type_index: i32) {
+        assert!(type_index >= 0, "produced Type must have a registry index");
+        let items = &mut self.produced_type_counts[category as usize];
+        let count = items.entry(type_index).or_default();
+        *count = count.wrapping_add(1);
+        if *count == 0 {
+            items.remove(&type_index);
+        }
+        self.stats.record_built();
+    }
+
+    /// Counter49FAE0's logical item query. Sparse lookup replaces native
+    /// allocation/zero-fill; allocator capacity has no gameplay consumer here.
+    pub(crate) fn produced_count(&self, category: ObjectCategory, type_index: i32) -> i32 {
+        self.produced_type_counts[category as usize]
+            .get(&type_index)
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// Explicit retained Counter prior for native execution comparisons.
+    /// Normal construction/acquisition must never call this fixture adapter.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_produced_count_for_test(
+        &mut self,
+        category: ObjectCategory,
+        type_index: i32,
+        count: i32,
+    ) {
+        assert!(type_index >= 0);
+        let items = &mut self.produced_type_counts[category as usize];
+        if count == 0 {
+            items.remove(&type_index);
+        } else {
+            items.insert(type_index, count);
+        }
+        self.stats.built = self
+            .produced_type_counts
+            .iter()
+            .flat_map(|items| items.values())
+            .fold(0_u32, |total, &item| total.wrapping_add(item as u32));
+    }
+
+    pub(crate) fn hash_production_history(&self, hasher: &mut impl std::hash::Hasher) {
+        if self
+            .produced_type_counts
+            .iter()
+            .any(|items| !items.is_empty())
+        {
+            std::hash::Hash::hash(b"house-produced-type-counts-v1", hasher);
+            std::hash::Hash::hash(&self.produced_type_counts, hasher);
+        }
+    }
+
+    /// VERA's derived Built cache is not independently mutable or rebuilt
+    /// from live objects. Reject an inconsistent saved cache before commit.
+    pub(crate) fn validate_production_history(&self) -> Result<(), &'static str> {
+        let mut total = 0_u32;
+        for items in &self.produced_type_counts {
+            for (&index, &count) in items {
+                if index < 0 || count == 0 {
+                    return Err("produced items require nonnegative indices and nonzero counts");
+                }
+                total = total.wrapping_add(count as u32);
+            }
+        }
+        if total != self.stats.built() {
+            return Err("Built total disagrees with produced type history");
+        }
+        Ok(())
     }
 
     /// Original50D610 appends even when an earlier snapshot already exists.
@@ -912,6 +1044,22 @@ impl HouseState {
         ]
     }
 
+    /// Active Execute77/78/79 stores the full signed Action+90 at
+    /// 6DF38E/6DF3B8/6DF3E2 (Steam gamemd 3e81a617..08600). These are the
+    /// existing ReadScenarioINI500B40 fields +5660/+5664/+5668, independent
+    /// of the live AI-trigger selector's +565C ratio. No timer or RNG write.
+    pub(crate) fn set_aircraft_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_aircraft = value;
+    }
+
+    pub(crate) fn set_infantry_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_infantry = value;
+    }
+
+    pub(crate) fn set_unit_team_ratio(&mut self, value: i32) {
+        self.scenario_parameters.ratio_team_units = value;
+    }
+
     pub(crate) fn hash_scenario_parameters(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         if self.scenario_parameters != HouseScenarioParameters::default() {
@@ -926,6 +1074,10 @@ impl HouseState {
 
     pub(crate) fn hash_native_construction(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
+        if let Some(name) = &self.native_scenario_name {
+            b"house-native-scenario-name-v1".hash(hasher);
+            name.hash(hasher);
+        }
         if let Some(construction) = self.native_construction {
             b"house-native-construction-v1".hash(hasher);
             construction.hash(hasher);
@@ -971,35 +1123,90 @@ impl HouseState {
 
     /// The cell the house's nuclear missile flies to (`HouseClass+0x5784`).
     pub(crate) fn nuke_target(&self) -> (u16, u16) {
-        self.super_weapon_cells.nuke_target
+        self.super_weapon_targets.nuke_target
     }
 
     /// `SuperClass::Launch 0x006CDDC4`: the MultiMissile arm's target.
     pub(crate) fn set_nuke_target(&mut self, cell: (u16, u16)) {
-        self.super_weapon_cells.nuke_target = cell;
+        self.super_weapon_targets.nuke_target = cell;
+    }
+
+    /// House+54EC, separate from the scripted offensive target cell.
+    pub(crate) fn preferred_super_weapon_target_kind(&self) -> i32 {
+        self.super_weapon_targets.preferred_kind
+    }
+
+    /// Execute35 at6DE1F1 stores the full signed dword without clamping,
+    /// starting a timer, drawing RNG or changing an already launched Super.
+    pub(crate) fn set_preferred_super_weapon_target_kind(&mut self, value: i32) {
+        self.super_weapon_targets.preferred_kind = value;
+    }
+
+    /// House+54F0, shared by AI superweapon target consumers.
+    pub(crate) fn preferred_super_weapon_target(&self) -> (u16, u16) {
+        self.super_weapon_targets.preferred_target
+    }
+
+    /// House50DA00, reached by TAction1356E43E0. The action rejects an
+    /// empty waypoint; this owner stores its packed cell without map clamps.
+    /// Identity/controls: tools/spatial_oracle/trigger_superweapon_state.meta.json.
+    pub(crate) fn set_preferred_super_weapon_target(&mut self, cell: (u16, u16)) {
+        self.super_weapon_targets.preferred_target = cell;
+    }
+
+    /// House50DA10, reached by TAction1366E4440, copies the initialized
+    /// empty cell A8EF98. No timer, RNG, object pointer or detach is involved.
+    pub(crate) fn clear_preferred_super_weapon_target(&mut self) {
+        self.super_weapon_targets.preferred_target = (0, 0);
     }
 
     /// The last super weapon alert's defence cell and frame (`+0x54F4`,
     /// `+0x54FC`).
     pub(crate) fn super_weapon_defense(&self) -> ((u16, u16), i32) {
         (
-            self.super_weapon_cells.defense_cell,
-            self.super_weapon_cells.defense_frame,
+            self.super_weapon_targets.defense_cell,
+            self.super_weapon_targets.defense_frame,
         )
     }
 
-    /// The launch alert's stores (`0x004FB0BD`, `0x004FB0C9`).
+    /// The launch alert's stores (`0x004FB0BD`, `0x004FB0C9`), also made by
+    /// House50DA20 from TAction1406E4460 with the current binary frame.
     pub(crate) fn alert_super_weapon_defense(&mut self, cell: (u16, u16), frame: i32) {
-        self.super_weapon_cells.defense_cell = cell;
-        self.super_weapon_cells.defense_frame = frame;
+        self.super_weapon_targets.defense_cell = cell;
+        self.super_weapon_targets.defense_frame = frame;
+    }
+
+    /// House50DA50, reached by TAction1416E44C0: clear the alert and restore
+    /// its constructor frame (-100). Original Steam gamemd3e81a617..08600,
+    /// instruction reading. Native also clears +54F8, which currently retains
+    /// its constructor zero here (ai_fire's secondary-cell residual).
+    pub(crate) fn clear_super_weapon_defense(&mut self) {
+        self.super_weapon_targets.defense_cell = (0, 0);
+        self.super_weapon_targets.defense_frame = -100;
     }
 
     /// Folded only off the constructor values, so houses that never saw a
     /// super weapon hash as earlier schemas did.
-    pub(crate) fn hash_super_weapon_cells(&self, hasher: &mut impl std::hash::Hasher) {
-        if self.super_weapon_cells != HouseSuperWeaponCells::default() {
+    pub(crate) fn hash_super_weapon_targets(&self, hasher: &mut impl std::hash::Hasher) {
+        let cells = &self.super_weapon_targets;
+        let default = HouseSuperWeaponTargets::default();
+        if cells.nuke_target != default.nuke_target
+            || cells.defense_cell != default.defense_cell
+            || cells.defense_frame != default.defense_frame
+        {
             std::hash::Hash::hash(b"house-super-weapon-cells-v1", hasher);
-            std::hash::Hash::hash(&self.super_weapon_cells, hasher);
+            // Preserve the original three-field fold for existing launches.
+            std::hash::Hash::hash(&cells.nuke_target, hasher);
+            std::hash::Hash::hash(&cells.defense_cell, hasher);
+            std::hash::Hash::hash(&cells.defense_frame, hasher);
+        }
+        if cells.preferred_kind != default.preferred_kind {
+            std::hash::Hash::hash(b"house-super-target-kind-v1", hasher);
+            std::hash::Hash::hash(&cells.preferred_kind, hasher);
+        }
+        if cells.preferred_target != default.preferred_target {
+            std::hash::Hash::hash(b"house-preferred-super-target-v377", hasher);
+            std::hash::Hash::hash(&cells.preferred_target, hasher);
         }
     }
     /// The old House's notification before the arrival's Building ChangeOwner.
@@ -1008,7 +1215,6 @@ impl HouseState {
     }
 
     /// Retained input to original TEvent kind3, not current building ownership.
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn building_capture_notified(&self) -> bool {
         self.building_capture_notified
     }
@@ -1047,16 +1253,19 @@ impl HouseState {
         self.tech_recheck
     }
 
-    /// `BuildingClass::Infiltrate`'s tech arm (`0x004573C6..0x004573E4`): the
+    /// `BuildingClass::Infiltrate`'s tech arm (`0x004573C6..0x004573EA`): the
     /// infiltrated BuildTech building's `AIBasePlanningSide=` names the side
     /// whose technology this house now has: 0 the Allies' (`+0x2BE`), 1 the
-    /// Soviets' (`+0x2BD`), any other the third side's (`+0x2BC`).
+    /// Soviets' (`+0x2BD`), any other the third side's (`+0x2BC`). Every
+    /// accepted infiltration then requests House+1FC, even if already gained.
+    /// Native execution: tools/spy_infiltration_oracle.md.
     pub(crate) fn steal_tech(&mut self, planning_side: i32) {
         match planning_side {
             0 => self.spy_gains.allied_tech = true,
             1 => self.spy_gains.soviet_tech = true,
             _ => self.spy_gains.third_tech = true,
         }
+        self.request_tech_recheck();
     }
 
     /// `HouseClass::CanBuild`'s `RequiresStolen*Tech=` gates
@@ -1069,16 +1278,21 @@ impl HouseState {
     }
 
     /// Infiltrate's factory arm on a `Factory=InfantryType` building
-    /// (`0x0045751E`): this house's infantry start veteran from now on.
+    /// (`0x0045751E..0x00457524`): this house's infantry start veteran from
+    /// now on, then House+1FC requests the existing tech/sidebar pass.
+    /// Native execution: tools/spy_infiltration_oracle.md.
     pub fn grant_veteran_infantry(&mut self) {
         self.spy_gains.veteran_infantry = true;
+        self.request_tech_recheck();
     }
 
     /// Infiltrate's factory arm on a `Factory=UnitType` building
-    /// (`0x004574BD`): this house's vehicles (and undeploying buildings)
-    /// start veteran from now on.
+    /// (`0x004574BD..0x004574C3`): this house's vehicles (and undeploying
+    /// buildings) start veteran from now on, then House+1FC requests the
+    /// existing tech/sidebar pass. Native execution: tools/spy_infiltration_oracle.md.
     pub fn grant_veteran_units(&mut self) {
         self.spy_gains.veteran_units = true;
+        self.request_tech_recheck();
     }
 
     /// House `+0x2BF`, read by `InfantryClass::InitFromType` (`0x00517D2A`).
@@ -1144,7 +1358,6 @@ impl HouseState {
         self.discovered_by_current_house = true;
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn discovered_by_current_house(&self) -> bool {
         self.discovered_by_current_house
     }
@@ -1396,6 +1609,14 @@ impl HouseState {
         self.ai_activation.ai_triggers_active = active;
     }
 
+    /// Execute30 at 0x006DE206 tests Action+0x90's low byte, then writes 1/0 to
+    /// House+0x1F3. Production/autocreate/AI-trigger latches stay independent.
+    pub(crate) fn set_auto_base_building_from_trigger(&mut self, value: i32) -> bool {
+        let enabled = value as u8 != 0;
+        self.ai_activation.auto_base_building = enabled;
+        enabled
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_ai_activation_for_test(&mut self, latches: HouseAiActivationLatches) {
         self.ai_activation = latches;
@@ -1416,6 +1637,13 @@ impl HouseState {
     /// AutocreateAllowed/AITriggersActive/AutoBaseBuilding sibling latch.
     pub(crate) fn enable_scripted_production(&mut self) {
         self.ai_activation.production = true;
+    }
+
+    /// Execute13 6DEB18 -> shared House selector6E45E0 ->6DEB41 writes
+    /// only House+1EF=1 (Steam gamemd 3e81a617..08600). This neither
+    /// co-enables the other activation bytes nor immediately creates a team.
+    pub(crate) fn enable_scripted_autocreate(&mut self) {
+        self.ai_activation.autocreate_allowed = true;
     }
 
     /// Run the early `HouseClass__Update` AI-activation transition.
@@ -1540,6 +1768,7 @@ impl HouseState {
     ) -> Self {
         Self {
             name,
+            native_scenario_name: None,
             native_construction: None,
             scenario_parameters: HouseScenarioParameters::default(),
             initial_techno_records: Vec::new(),
@@ -1580,6 +1809,7 @@ impl HouseState {
             stats: MatchStatistics::default(),
             building_capture_notified: false,
             last_built_types: LastBuiltTypes::default(),
+            produced_type_counts: Default::default(),
             lost_building: None,
             spy_gains: SpyGains::default(),
             powered_unit_centers: 0,
@@ -1597,8 +1827,28 @@ impl HouseState {
             repair_start_latch: false,
             repair_latch_timer: CdTimer::started(0, 0),
             spatial_threat: Default::default(),
-            super_weapon_cells: HouseSuperWeaponCells::default(),
+            super_weapon_targets: HouseSuperWeaponTargets::default(),
         }
+    }
+}
+
+impl crate::sim::world::Simulation {
+    /// Bind the common exact-name query's native ordinal to the existing
+    /// internal House identity. Only fully initialized scenario Houses take
+    /// this path; generated preconsumed and partial diagnostic rows retain
+    /// their explicit internal-key projection in the map constructor owner.
+    pub(crate) fn scenario_house_named(&self, requested: &str) -> Option<InternedId> {
+        let index = crate::map::houses::find_house_index(
+            self.session.house_order.iter().map(|owner| {
+                self.houses
+                    .get(owner)
+                    .expect("registered House array entry")
+                    .native_scenario_name()
+                    .expect("scenario House names initialized before object readers")
+            }),
+            requested,
+        )?;
+        Some(self.session.house_order[index])
     }
 }
 
@@ -1626,8 +1876,8 @@ pub struct MatchStatistics {
     units_lost: u32,
     /// Admitted building loss callbacks for this house, including captures.
     buildings_lost: u32,
-    /// Objects of this house that left their factory, `DontScore=` types
-    /// excepted: placed buildings and delivered units
+    /// Derived wrapping sum of HouseState's successful-production items:
+    /// placed buildings and delivered units, `DontScore=` types excepted
     /// (`production::factory_lifecycle::record_last_built`).
     built: u32,
 }
@@ -1637,10 +1887,12 @@ pub struct MatchStatistics {
 mod statistics_tests;
 
 impl MatchStatistics {
+    #[cfg(test)]
     pub const fn units_killed(&self) -> u32 {
         self.units_killed
     }
 
+    #[cfg(test)]
     pub const fn buildings_killed(&self) -> u32 {
         self.buildings_killed
     }
@@ -1680,13 +1932,13 @@ impl MatchStatistics {
         *counter = counter.wrapping_add(1);
     }
 
-    /// The existing Record_Last_Built caller owns its DontScore admission.
-    pub(crate) fn record_built(&mut self) {
+    /// Only HouseState's successful-production owner updates this derived sum.
+    fn record_built(&mut self) {
         self.built = self.built.wrapping_add(1);
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn from_totals_for_test(
+    pub const fn from_totals_for_test(
         units_killed: u32,
         buildings_killed: u32,
         units_lost: u32,
@@ -1704,7 +1956,7 @@ impl MatchStatistics {
 
     /// Score-screen Kills column: units + buildings destroyed.
     pub const fn kills(&self) -> u32 {
-        self.units_killed + self.buildings_killed
+        self.units_killed.wrapping_add(self.buildings_killed)
     }
 
     /// Score-screen Losses column: units + buildings lost.
@@ -2213,50 +2465,6 @@ mod difficulty_tests {
                 "{input}"
             );
         }
-    }
-}
-
-#[cfg(test)]
-mod base_reservation_tests {
-    use super::BaseReservationState;
-
-    #[test]
-    fn gsi_04_05_zero_minimum_rebases_and_retains_prior_span() {
-        let mut state = BaseReservationState::default();
-        state.update_bounds(0, 0, 3, 4);
-        assert_eq!(state.bounds(), (0, 0, 3, 4));
-
-        state.update_bounds(10, 20, 3, 5);
-        assert_eq!(
-            state.bounds(),
-            (10, 20, 3, 5),
-            "a zero minimum is treated as uninitialized again"
-        );
-
-        let mut retained = BaseReservationState {
-            min_x: 0,
-            width: 20,
-            ..BaseReservationState::default()
-        };
-        retained.update_bounds(10, 1, 3, 1);
-        assert_eq!(
-            (retained.min_x, retained.width),
-            (10, 20),
-            "the sentinel assignment does not reset an already larger span"
-        );
-    }
-
-    #[test]
-    fn gsi_04_05_perimeter_vector_append_and_remove_are_stable() {
-        let mut state = BaseReservationState::default();
-        state.append_perimeter_cell_if_absent(30);
-        state.append_perimeter_cell_if_absent(10);
-        state.append_perimeter_cell_if_absent(20);
-        state.append_perimeter_cell_if_absent(10);
-        assert_eq!(state.perimeter_cells(), &[30, 10, 20]);
-
-        state.remove_perimeter_cell(10);
-        assert_eq!(state.perimeter_cells(), &[30, 20]);
     }
 }
 

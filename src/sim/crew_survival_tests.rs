@@ -617,7 +617,7 @@ fn load_absorbed(sim: &mut Simulation, rules: &RuleSet, building: u64, count: us
                 .passenger_role
                 .cargo_mut()
                 .unwrap();
-            cargo.board_forced(id, 1);
+            cargo.board_forced_chain(&[(id, 1)]);
             id
         })
         .collect()
@@ -1070,7 +1070,7 @@ fn load_passengers(
             .passenger_role
             .cargo_mut()
             .expect("a transport");
-        assert!(cargo.board(id, 1));
+        cargo.board_forced_chain(&[(id, 1)]);
     }
     passengers
 }
@@ -1243,10 +1243,9 @@ fn a_gunner_transport_on_its_suicide_weapon_explodes() {
 /// passengers whose IFVMode slot is a `Suicide=` weapon.
 #[test]
 fn retail_ifv_death_arm_follows_its_passengers_slot() {
-    let Some((rules_ini, _)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {
+    let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
         return;
     };
-    let rules = RuleSet::from_ini(&rules_ini).unwrap();
     let fv = rules.object("FV").unwrap();
     let mut exploding: Vec<&str> = rules
         .infantry_ids
@@ -1543,7 +1542,7 @@ fn retail_dustbowl_crews_scatter_off_their_wrecks() {
 
 /// Retail Dustbowl runtime: GIs board a full Battle Fortress (`OpenTopped=`,
 /// five), an IFV (`Gunner=`) and a Flak Track through the production
-/// boarding, the transports die through the production receiver, and every GI
+/// attach, the transports die through the production receiver, and every GI
 /// steps out onto its transport's cell, Scatters and walks off the wreck. The
 /// Battle Fortress's fourth and fifth GIs are admitted because the earlier
 /// ones already move: Scatter's Set_Destination reaches the Walk's MoveTo
@@ -1634,8 +1633,6 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
                             if i < 3 { ty + 1 } else { ty - 1 },
                         )
                     });
-                sim.substrate.entities.get_mut(id).unwrap().passenger_role =
-                    PassengerRole::boarding_for_test(transport);
                 id
             })
             .collect();
@@ -1643,12 +1640,21 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
     }
     let guard = keep_undefeated(sim, resources, loads[0].2);
     sim.resolve_type_handles(rules);
-    crate::sim::passenger::tick_passenger_system(
-        sim,
-        rules,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
+    // The Infantry transport arm's attach once CAN_LOAD said ROGER
+    // (`0x0051A3FC..0x0051A485`); the walk in has its own tests.
+    for (_, transport, _, gis) in &loads {
+        for &gi in gis {
+            assert!(crate::sim::passenger::board_passenger(
+                sim,
+                rules,
+                gi,
+                *transport,
+                crate::sim::passenger::BoardingArm::InfantryTransport,
+                Some(&resources.overlay_registry),
+                crate::sim::world::FrameEffects::default(),
+            ));
+        }
+    }
     for (kind, transport, _, gis) in &loads {
         assert_eq!(cargo_len(sim, *transport), gis.len(), "{kind} boarded");
     }
@@ -1747,4 +1753,53 @@ fn survivor_direction_matches_the_original() {
             "{input}"
         );
     }
+}
+
+/// Retail: the crewman of a selected MCV is selected through
+/// `TechnoClass::Select @ 0x006FBFA0`, which speaks his `VoiceSelect=`
+/// (`0x006FC018`, the latch set as every Logic pass leaves it).
+#[test]
+fn a_selected_mcvs_crewman_speaks_his_select_voice() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    let gi_select = &rules.object("E1").unwrap().voice_select;
+    assert!(!gi_select.is_empty(), "retail E1 VoiceSelect binds");
+    let mut crewmen = 0;
+    for seed in 1..=8 {
+        let mut sim = sim_on_arena(seed, &rules);
+        let owner = sim.interner.intern("AlliedHuman");
+        sim.session.current_house = Some(owner);
+        let mcv = spawn(&mut sim, &rules, "AMCV", "AlliedHuman", 20, 10);
+        sim.substrate
+            .entities
+            .get_mut(mcv)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
+        let before = sim.substrate.entities.keys_sorted();
+        sim.sound_events.clear();
+        kill_with(&mut sim, &rules, None, mcv, "Super", ORDINARY);
+        for crewman in new_ids(&sim, &before) {
+            if type_name(&sim, crewman) != "E1" {
+                continue;
+            }
+            crewmen += 1;
+            assert!(
+                sim.substrate
+                    .entities
+                    .get(crewman)
+                    .unwrap()
+                    .selection
+                    .is_selected()
+            );
+            assert!(sim.sound_events.iter().any(|event| matches!(
+                event,
+                crate::sim::world::SimSoundEvent::UnitVoiceRequested { owner, sound_id }
+                    if *owner == crewman && gi_select.contains(sound_id)
+            )));
+        }
+    }
+    assert!(crewmen > 0);
 }

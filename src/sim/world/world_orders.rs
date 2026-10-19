@@ -251,7 +251,7 @@ impl Simulation {
         if actor.category() != EntityCategory::Unit
             || !self.house_is_human_player(actor.owner())
             || !combat::combat_weapon::is_ally_by_object(
-                Some(&self.fog.alliances),
+                Some(&self.house_alliances),
                 &self.interner,
                 target.owner(),
                 actor.owner(),
@@ -566,7 +566,6 @@ impl Simulation {
         self.sound_events.push(SimSoundEvent::BridgeRepaired {
             rx: building_cell.0,
             ry: building_cell.1,
-            owner,
             radar,
         });
     }
@@ -654,14 +653,10 @@ impl Simulation {
         ) {
             return InfantryPerCellBuildingAdmission::MissionNotAdmitted;
         }
-        let nav_object = match infantry.navigation.nav_com() {
-            Some(
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id },
-            ) => Some(id),
-            _ => None,
-        };
+        let nav_object = infantry
+            .navigation
+            .nav_com()
+            .and_then(NavTargetRef::object_id);
         //519987 tests Techno RTTI bit1, not cell_marked. Building+80 is
         //457620 ->465D40;5199B8 also requires Building RTTI6 before the
         //separate5199A6 conversion/destination continuation can proceed,
@@ -1126,44 +1121,5 @@ mod repair_notification_tests {
             sim.sound_events.last(),
             Some(SimSoundEvent::BridgeRepaired { radar: Some(_), .. })
         ));
-    }
-}
-
-#[cfg(test)]
-mod click_order_receiver_tests {
-    use super::*;
-
-    /// ClickedAction refuses a berserk object (Infantry `0x0051F1D8`, Unit
-    /// `0x007388EB`): only the calm objects stay, in selection order.
-    #[test]
-    fn click_orders_go_only_to_calm_objects() {
-        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-            "[InfantryTypes]\n0=GI\n[VehicleTypes]\n0=MTNK\n[GI]\nStrength=125\n\
-             [MTNK]\nStrength=300\n",
-        ))
-        .unwrap();
-        let mut sim = Simulation::new();
-        let mut spawn = |kind: &str, rx: u16| {
-            sim.spawn_object(kind, "Americans", rx, 5, 0, &rules)
-                .unwrap()
-        };
-        let (first, gassed_man, tank, gassed_tank) = (
-            spawn("GI", 3),
-            spawn("GI", 4),
-            spawn("MTNK", 5),
-            spawn("MTNK", 6),
-        );
-        for id in [gassed_man, gassed_tank] {
-            sim.entities_mut()
-                .get_mut(id)
-                .unwrap()
-                .berserk
-                .set_active_for_test(true);
-        }
-        assert_eq!(
-            sim.click_order_receivers(&[gassed_tank, tank, gassed_man, first]),
-            [tank, first]
-        );
-        assert!(sim.click_order_receivers(&[gassed_man]).is_empty());
     }
 }

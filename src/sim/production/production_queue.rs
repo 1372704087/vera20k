@@ -51,18 +51,6 @@ pub fn power_balance_for_owner(sim: &Simulation, _rules: &RuleSet, owner: &str) 
         .unwrap_or((0, 0))
 }
 
-/// Sum of |Power=| from TypeClass for ALL owned buildings (including under
-/// construction). Used by the sidebar power bar fill curve.
-pub fn theoretical_power_for_owner(sim: &Simulation, owner: &str) -> i32 {
-    let Some(owner_id) = sim.interner.get(owner) else {
-        return 0;
-    };
-    sim.power_states
-        .get(&owner_id)
-        .map(|state| state.theoretical_total_power)
-        .unwrap_or(0)
-}
-
 /// The options the player's sidebar shows for `owner`, by category
 /// ([`BuildOption::visible_in_sidebar`]).
 pub fn build_options_for_owner(sim: &Simulation, rules: &RuleSet, owner: &str) -> Vec<BuildOption> {
@@ -314,18 +302,11 @@ pub(in crate::sim) fn exit_produced_object(
     }
 }
 
-/// ExitObject's naval arm (`0x00444175..0x00444492`): Unlimbo at
-/// [`naval_exit_cell`], then the producer's rally.
-///
-/// RESIDUAL: two of its steps are not ported. The yard, when it has no radio
-/// contact (In_Radio_Contact `0x0065AE30`), first queues its own Unload
-/// (`0x00444175..0x00444187`); and the success tail is Mark(0), SetLocation
-/// to the Cell's Get_Center_Coords (`0x00480A30`, which computes as
-/// GetCoords `0x00486840`) and Mark(1) (`0x0044443F..0x0044447A`), where
-/// VERA writes the in-cell centre offset alone. Trigger: every naval-yard
-/// product. Effect: the yard's Unload does not run, and the tail's Mark
-/// side effects (the object's place in the Cell list, Mark's own tail) do
-/// not repeat; the coordinate is the one Unlimbo set.
+/// ExitObject's naval arm (`0x00444175..0x00444492`): an uncontacted yard
+/// requests deferred Unload before finding an exit, then successful Unlimbo
+/// and rally assignment end with Mark(0), Cell center SetLocation, Mark(1).
+/// Original execution on stock GAYARD/DEST and its deferred animation cleanup:
+/// `tools/sidebar_oracle/factory_naval_output.md` (gamemd SHA256 1cdd).
 fn exit_naval(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -336,6 +317,22 @@ fn exit_naval(
     effects: FrameEffects<'_>,
 ) -> crate::sim::ai_base_building::BuildingExit {
     use crate::sim::ai_base_building::BuildingExit;
+    // 444175/65AE30 scans every actual radio slot. This request precedes
+    // FNPC and Unlimbo, so even a refused delivery leaves it queued.
+    if sim
+        .substrate
+        .entities
+        .get(producer_id)
+        .is_some_and(|producer| producer.radio_contacts.is_empty())
+    {
+        let _ = sim.mission_queue_exact(
+            producer_id,
+            crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Unload),
+            0,
+            sim.session.binary_frame,
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+        );
+    }
     let Some(cell) = naval_exit_cell(sim, producer_id, speed_type) else {
         return BuildingExit::Failed;
     };
@@ -370,14 +367,19 @@ fn exit_naval(
             &crate::sim::mission::authority::LiveReadyInputProvider { rules },
         );
     }
-    if let Some(entity) = sim.substrate.entities.get_mut(spawned) {
-        // Native +0x124/+0x1B4/+0x124 success tail writes the selected
-        // CellClass centre after rally/mission assignment.
-        entity.position.put_cell_offset(
-            crate::util::lepton::CELL_CENTER_LEPTON,
-            crate::util::lepton::CELL_CENTER_LEPTON,
-        );
-    }
+    // 44443F..44447A: the explicit outer marks repeat Cell list/raw
+    // occupation effects, even though Unlimbo already placed this ship.
+    sim.foot_mark_remove(spawned, Some(rules), overlay_registry, effects);
+    let coord = crate::sim::movement::target_cell_coord(
+        cell.0,
+        cell.1,
+        sim.resolved_terrain
+            .as_ref()
+            .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+            .as_ref(),
+    );
+    sim.foot_set_location_marked(spawned, coord, Some(rules), overlay_registry, effects);
+    sim.foot_mark_put(spawned, Some(rules), overlay_registry, effects);
     BuildingExit::Placed
 }
 
@@ -993,28 +995,22 @@ fn exit_aircraft(
 /// stamp)` where stamp is the factory's construction stamp for the head (older than
 /// every entry queued behind it) or a tail entry's `enqueue_order`.
 ///
-/// `state` is DERIVED: head -> Paused if held by the user (`manual`), else Done if
-/// complete-held (`progress >= PRODUCTION_STEPS`, the blocked-exit case that persists
-/// across ticks), else Building (a cash stall included); tail -> Queued. `progress` is
-/// the factory's step count; a queued tail item has not started.
+/// `state` shares the linked FactoryView's native rate/+70/IsComplete decision
+/// with sidebar drawing and input; a cash stall still has a running rate.
+/// A tail is Queued and has not started; head progress is the factory's stage.
 pub fn queue_view_for_owner(sim: &Simulation, rules: &RuleSet, owner: &str) -> Vec<QueueItemView> {
     let Some(owner_id) = sim.interner.get(owner) else {
         return Vec::new();
     };
-    // (category, stamp, type_id, state, progress)
+    // (category, stamp, type_id, state, progress); progress feeds only the
+    // test-support view field.
     let mut items: Vec<(ProductionCategory, u64, InternedId, BuildQueueState, u16)> = Vec::new();
     for f in sim.production.factories.iter_insertion_ordered() {
         if f.owner != owner_id {
             continue;
         }
         if let Some(obj) = f.object.as_ref() {
-            let state = if f.manual {
-                BuildQueueState::Paused
-            } else if f.progress >= PRODUCTION_STEPS {
-                BuildQueueState::Done
-            } else {
-                BuildQueueState::Building
-            };
+            let state = f.view().cameo_state();
             items.push((
                 f.category,
                 f.insertion_seq,
@@ -1036,7 +1032,7 @@ pub fn queue_view_for_owner(sim: &Simulation, rules: &RuleSet, owner: &str) -> V
     items.sort_by_key(|&(category, stamp, ..)| (category, stamp));
     items
         .into_iter()
-        .map(|(queue_category, _stamp, type_id, state, progress)| {
+        .map(|(queue_category, _stamp, type_id, state, _progress)| {
             let type_str = sim.interner.resolve(type_id);
             let display_name = rules
                 .object(type_str)
@@ -1047,7 +1043,8 @@ pub fn queue_view_for_owner(sim: &Simulation, rules: &RuleSet, owner: &str) -> V
                 display_name,
                 queue_category,
                 state,
-                progress,
+                #[cfg(any(test, feature = "test-support"))]
+                progress: _progress,
             }
         })
         .collect()

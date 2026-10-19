@@ -23,7 +23,8 @@
 //! Forced releases ported: Sonic hits, third-party damage suppression and
 //! heals (FootClass::ReceiveDamage `0x004D7330`), repair-depot steps (Radio
 //! 0x1C `0x006F4D70`), Iron Curtain (FootClass::IronCurtain `0x004DEAE0`) and
-//! the Teleport warp step (`0x007195BF`). Victim restrictions ported: transport
+//! the Teleport warp step (`0x007195BF`), and Grinder entry (`0x0073A13E`).
+//! Victim restrictions ported: transport
 //! loading, tank bunkers, DeploysInto, retaliation against the eater.
 //!
 //! Every release unlimbos the owner through the class Unlimbo
@@ -35,17 +36,18 @@
 //! (`0x0062A2F8..0x0062A311`, cleared at `0x0062A372..0x0062A379` and
 //! `0x0062A45C..0x0062A462`), which skips that query.
 //!
+//! A placed owner's sight: its Unlimbo reveals it (`0x006F6D27`), and the
+//! AttachTo refusal then takes it back (ReReveal `0x0062AA51`). The
+//! UpdateReveal that follows ExitUnit's (`0x0062A7A8`) and PointerExpired's
+//! (`0x0062A40B`) Unlimbo finds the latch that Unlimbo set and adds nothing.
+//!
 //! RESIDUALS (each needs a mechanism VERA does not have yet):
-//! - A placed owner's sight: native follows the Unlimbo with ReReveal
-//!   (AttachTo refusal, `0x0062AA51`) or UpdateReveal (ExitUnit `0x0062A7A8`,
-//!   PointerExpired `0x0062A40B`), and the fog border `0x00567DA0`
-//!   (presentation; `0x0062AA91`, `0x0062A44B`). VERA's vision frame pass
-//!   admits the placed owner in their place (the residual in `sim::vision`),
-//!   so after the AttachTo refusal it holds sight where native's ReReveal has
-//!   just released the reveal Unlimbo made (`0x006F6D27`), until its next
-//!   cell arrival. Trigger: a jump whose host is lost in flight. Effect: the
-//!   returned drone sees around its launch cell before it moves again.
-//!   Frequency: rare.
+//! - The fog borders that follow the AttachTo refusal (`0x0062AA91`: from
+//!   the cached radius - 3 out to + 2) and PointerExpired (`0x0062A44B`:
+//!   - 3 out to + 3) are not refreshed. Trigger: a jump whose host is lost
+//!   in flight; a drone's victim dying. Effect: the shroud-edge frames of
+//!   that ring around the drone wait for its next reveal event. Frequency:
+//!   each such release. Risk: edge frames only.
 //! - GetReleaseCoords' PlaceInfantryInCell finding no spot writes the zero
 //!   coordinate (`0x0089E778`), which a Unit owner turns into map cell
 //!   (0,0)'s GetCoords (`0x0062AE09..0x0062AE3E`); that is no longer the
@@ -65,8 +67,6 @@
 //!   Miner's warp: 180 frames). Effect: such a released owner can be given a
 //!   new destination at once. Frequency: rare. Risk: movement timing only.
 //!   Owner: those locomotors' ports.
-//! - Grinder (UnitClass::PerCellProcess `0x0073A13E..0x0073A181`): credits the
-//!   eater's refund, then suppression 50 + ExitUnit. VERA has no grinding.
 //! - Sonic weapons may target an allied infected Foot (What_Action_OnObject
 //!   `0x00700377`); the Sonic hit already ejects any eater (`0x004D7345`), but
 //!   the order needs the cursor/command legality VERA does not port yet.
@@ -79,7 +79,8 @@ use crate::sim::components::DriveCoord;
 use crate::sim::movement::{ground_pose, target_cell_coord};
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{FrameEffects, Simulation, UninitContext};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::{dir_from_facing16, round_facing16_to_8};
 
 #[path = "parasite_grapple.rs"]
 mod grapple;
@@ -213,6 +214,12 @@ impl FootParasite {
         self.eater
     }
 
+    /// Foot+694's infestation test in What_Action700370..70038B. Queries
+    /// never expose or mutate the retained parasite-owner identity.
+    pub fn is_infested(&self) -> bool {
+        self.eater.is_some()
+    }
+
     /// The frame before which parasite shots at this Foot are refused.
     pub(crate) fn launch_lock(&self) -> u32 {
         self.launch_lock
@@ -298,16 +305,6 @@ fn weapon_zero<'r>(
 ) -> Option<&'r crate::rules::weapon_type::WeaponType> {
     super::combat_weapon::weapon_for_index(object, veterancy, 0)
         .and_then(|(name, _)| rules.weapon(name))
-}
-
-/// `((raw >> 12) + 1) >> 1 & 7`: the eight-way direction of a facing word.
-fn dir8(raw: u16) -> usize {
-    (((u32::from(raw) >> 12) + 1) >> 1) as usize & 7
-}
-
-/// Unlimbo DirType argument `((raw >> 7) + 1) >> 1 & 0xFF`.
-fn dir_type(raw: u16) -> u8 {
-    ((((u32::from(raw) >> 7) + 1) >> 1) & 0xFF) as u8
 }
 
 impl Simulation {
@@ -425,13 +422,15 @@ impl Simulation {
                 .map(NativeCellQuery::canonical)
                 .as_ref(),
         );
+        let context = UninitContext::with_rules(rules).with_effects(effects);
         if !self.parasite_unlimbo_owner(owner, coords, 0, rules, effects) {
-            self.uninit_with_context(
-                owner,
-                UninitContext::with_rules(rules).with_effects(effects),
-            );
+            self.uninit_with_context(owner, context);
             return;
         }
+        // 0x0062AA51: ReReveal(0, 0, 0, 0) takes back the sight the Unlimbo
+        // just opened (`0x006F6D27`): the owner stays blind until its next
+        // reveal event.
+        self.release_object_sight_with_context(owner, context);
         self.parasite_released_owner_orders(owner, false, rules, effects);
     }
 
@@ -479,16 +478,24 @@ impl Simulation {
     }
 
     /// `+0x432` reselect memo, consumed only by successful releases
-    /// (`0x0062A71C`, `0x0062A37F`) for the local player's house.
-    fn parasite_reselect(&mut self, owner: u64) {
-        let current = self.session.current_house;
-        if let Some(entity) = self.substrate.entities.get_mut(owner)
-            && entity.parasite.limbo_reselect
-            && current.is_some_and(|house| house == entity.owner())
-        {
-            entity.parasite.limbo_reselect = false;
-            entity.selection.select();
+    /// (`0x0062A71C`, `0x0062A37F`) for a human player's house
+    /// (`HouseClass::IsHumanPlayer @ 0x0050B6F0`), then Select (vt+0x14C,
+    /// `0x0062A744`/`0x0062A3A7`) with the voice latch set.
+    fn parasite_reselect(&mut self, owner: u64, rules: &RuleSet, effects: FrameEffects<'_>) {
+        let Some(entity) = self.substrate.entities.get(owner) else {
+            return;
+        };
+        if !entity.parasite.limbo_reselect || !self.house_is_human_player(entity.owner()) {
+            return;
         }
+        if let Some(entity) = self.substrate.entities.get_mut(owner) {
+            entity.parasite.limbo_reselect = false;
+        }
+        self.techno_select(
+            owner,
+            true,
+            UninitContext::with_rules(rules).with_effects(effects),
+        );
     }
 
     /// ParasiteClass AI `0x00629FD0`, run at the tail of the victim's
@@ -576,7 +583,10 @@ impl Simulation {
                     rules,
                 );
             }
-            if let Some(name) = anims.get(dir8(raw)).filter(|_| !anims.is_empty()) {
+            if let Some(name) = anims
+                .get(usize::from(dir_from_facing16(raw)))
+                .filter(|_| !anims.is_empty())
+            {
                 let world = crate::sim::anim_class::AnimWorldCoord {
                     x: location.x,
                     y: location.y,
@@ -609,11 +619,11 @@ impl Simulation {
             } else {
                 -2
             };
-            let angle = X::load_f64(crate::sim::projectile::native_math::radians(
+            let angle = X::load_f64(crate::util::direction_tables::radians_from_facing16(
                 raw.wrapping_sub(0x3fff),
             ))
             .expect("finite parasite bite facing");
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let y = X::ftol_i32_low_masked(X::sub(
                 X::load_i32(location.y),
                 X::mul(trig.sin_from_table(angle), X::load_i32(lateral)),
@@ -689,7 +699,7 @@ impl Simulation {
             return;
         };
         let raw = victim_entity.body_facing_current(frame);
-        let released = if dir8(raw) <= 2 {
+        let released = if dir_from_facing16(raw) <= 2 {
             raw.wrapping_add(0x3FFF)
         } else {
             raw.wrapping_sub(0x3FFF)
@@ -714,7 +724,7 @@ impl Simulation {
             return;
         }
         let requested = if naval {
-            let (dx, dy) = CELL_DELTAS[dir8(released)];
+            let (dx, dy) = DIRECTION_DELTAS[usize::from(dir_from_facing16(released))];
             (
                 victim_cell.0.wrapping_add(dx as i16),
                 victim_cell.1.wrapping_add(dy as i16),
@@ -722,7 +732,7 @@ impl Simulation {
         } else {
             victim_cell
         };
-        let cell = if self.cell_clear_for(requested, speed_type, movement_zone, rules) {
+        let cell = if self.cell_clear_for(requested, speed_type, movement_zone) {
             Some(requested)
         } else {
             self.techno_nearby_location(victim, None, rules)
@@ -738,10 +748,16 @@ impl Simulation {
                     .as_ref(),
             );
             self.parasite_can_place_at_victim(owner, victim, rules)
-                && self.parasite_unlimbo_owner(owner, coords, dir_type(released), rules, effects)
+                && self.parasite_unlimbo_owner(
+                    owner,
+                    coords,
+                    round_facing16_to_8(released),
+                    rules,
+                    effects,
+                )
         });
         if placed {
-            self.parasite_reselect(owner);
+            self.parasite_reselect(owner, rules, effects);
             self.parasite_rejoin_team(owner, rules, effects);
             self.parasite_released_owner_orders(owner, true, rules, effects);
             if let Some(entity) = self.substrate.entities.get_mut(owner) {
@@ -842,11 +858,17 @@ impl Simulation {
         // 0x0062A2F8..0x0062A379: the 0xA8E7AC bracket around Unlimbo.
         let placed = coords.is_some_and(|coords| {
             self.with_object_placement_scope(|sim| {
-                sim.parasite_unlimbo_owner(owner, coords, dir_type(victim_raw), rules, effects)
+                sim.parasite_unlimbo_owner(
+                    owner,
+                    coords,
+                    round_facing16_to_8(victim_raw),
+                    rules,
+                    effects,
+                )
             })
         });
         if placed {
-            self.parasite_reselect(owner);
+            self.parasite_reselect(owner, rules, effects);
             self.parasite_rejoin_team(owner, rules, effects);
             self.parasite_released_owner_orders(owner, true, rules, effects);
         } else {
@@ -920,7 +942,7 @@ impl Simulation {
             victim_entity.position.rx() as i16,
             victim_entity.position.ry() as i16,
         );
-        let (dx, dy) = CELL_DELTAS[dir8(raw)];
+        let (dx, dy) = DIRECTION_DELTAS[usize::from(dir_from_facing16(raw))];
         let adjacent = (
             victim_cell.0.wrapping_add(dx as i16),
             victim_cell.1.wrapping_add(dy as i16),
@@ -1042,7 +1064,7 @@ impl Simulation {
             .resolved_terrain
             .as_ref()
             .and_then(|t| t.cell(cell.0 as u16, cell.1 as u16))
-            .map(|c| c.yr_cell_land_type);
+            .map(|c| c.land_type());
         let restricted = land.is_some_and(|land| {
             land == LandType::Water.as_index()
                 || land == LandType::Beach.as_index()
@@ -1069,18 +1091,16 @@ impl Simulation {
         })
     }
 
-    /// `CellClass::IsClearToMove @ 0x004834A0` with (SpeedType, 0, 0, zone,
-    /// MovementZone, -1, 1) after `GetZoneID(cell, MovementZone, 0)`.
+    /// [`check_cell_passability`](crate::sim::cell_rect::check_cell_passability)
+    /// (`0x0062A61F`) with (SpeedType, 0, 0, zone, MovementZone, -1, 1),
+    /// where zone is `GetZoneID(cell, MovementZone, 0)` (`0x0062A5CF..0x0062A61E`).
     fn cell_clear_for(
         &self,
         cell: (i16, i16),
         speed_type: crate::rules::locomotor_type::SpeedType,
         movement_zone: crate::rules::locomotor_type::MovementZone,
-        rules: &RuleSet,
     ) -> bool {
-        use crate::sim::cell_rect::{
-            IsClearToMoveResult, LiveCellPassabilityQuery, evaluate_live_cell_passability,
-        };
+        use crate::sim::cell_rect::{CellPassabilityArgs, CellRef, check_cell_passability};
         let (Some(terrain), Some(zones)) =
             (self.resolved_terrain.as_ref(), self.zone_grid.as_ref())
         else {
@@ -1090,33 +1110,20 @@ impl Simulation {
         let Some(terrain_cell) = terrain.cell(target.0, target.1) else {
             return false;
         };
-        let requested = zones.get_zone_id_native(terrain, target, movement_zone, false);
-        let actual =
-            zones.get_zone_id_native(terrain, target, movement_zone, self.cell_has_bridge(cell));
-        let land = rules
-            .terrain_rules
-            .semantics_for_land_type(terrain_cell.yr_cell_land_type)
-            .and_then(|row| row.cost_for_speed_type(speed_type))
-            .is_some_and(|cost| cost > 0);
-        let grid = self.path_grid_snapshot();
-        matches!(
-            evaluate_live_cell_passability(LiveCellPassabilityQuery {
-                target,
+        check_cell_passability(
+            &CellRef::Real(terrain_cell),
+            CellPassabilityArgs {
                 speed_type,
-                movement_zone,
-                // `0x004834A0` compares the full GetZoneID DWORDs.
-                requested_zone: requested,
-                actual_zone: actual.unwrap_or(u32::MAX),
-                requested_layer: None,
                 ignore_infantry: false,
                 ignore_vehicles: false,
-                land_passable: land,
-                path_grid: grid.as_deref(),
-                resolved_terrain: Some(terrain),
-                raw_occupation: Some(&self.substrate.raw_cell_occupation),
-            }),
-            IsClearToMoveResult::Clear { .. } | IsClearToMoveResult::ClearWinged
+                zone: zones.get_zone_id_native(terrain, target, movement_zone, false),
+                movement_zone,
+                level: None,
+                is_bridge: true,
+            },
+            &self.cell_passability_map(),
         )
+        .admits()
     }
 
     /// Unlimbo(coord, dir) (vt+0xD8) for a released or returning owner: the
@@ -1203,11 +1210,12 @@ impl Simulation {
         let target_entity = target_id.and_then(|id| self.substrate.entities.get(id));
         let target_infantry =
             target_entity.is_some_and(|target| target.category() == EntityCategory::Infantry);
-        // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected,
-        // locally controlled firer jumping an Infantry target.
+        // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected firer
+        // of a human player's house (IsHumanPlayer 0x0050B6F0, 0x006FF786)
+        // jumping an Infantry target.
         let reselect = object.reselect_if_limboed
             && entity.selection.is_selected()
-            && self.session.current_house == Some(entity.owner())
+            && self.house_is_human_player(entity.owner())
             && target_infantry;
         if reselect {
             self.substrate

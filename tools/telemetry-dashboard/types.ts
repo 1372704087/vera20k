@@ -1,8 +1,8 @@
 /**
- * Schema mirror of `src/sim/telemetry.rs` (v12); keep both in step.
+ * Schema mirror of `src/sim/telemetry.rs` (v22); keep both in step.
  */
 
-export const SCHEMA_VERSION = 21;
+export const SCHEMA_VERSION = 22;
 
 export type EntityCategory = "Unit" | "Infantry" | "Aircraft" | "Structure";
 
@@ -108,8 +108,9 @@ export interface TimingSample {
   tick_ms: number;
   p50_ms: number;
   p99_ms: number;
-  budget_ms: number;
-  budget_utilization: number;
+  /** No finite tick deadline at uncapped game speed. */
+  budget_ms: number | null;
+  budget_utilization: number | null;
   /** Presentation frames per second (0 when no sample has been taken). */
   fps: number;
   /** Committed simulation ticks per second (0 while paused or frozen). */
@@ -147,11 +148,6 @@ export interface MinerDebug {
   teleport_active: boolean;
 }
 
-export interface DebugEventEntry {
-  tick: number;
-  text: string;
-}
-
 export interface SelectedDebug {
   stable_id: number;
   type_name: string;
@@ -163,8 +159,6 @@ export interface SelectedDebug {
   goal: [number, number] | null;
   path_preview: PathStep[];
   miner: MinerDebug | null;
-  inspector_active: boolean;
-  events: DebugEventEntry[];
 }
 
 export interface DebugPanel {
@@ -181,13 +175,12 @@ export interface DebugPanel {
   overlays: OverlayFlags;
 }
 
-/** Debug-overlay switch states, mirrored from the engine's real state. */
+/** Read-only debug-overlay states, mirrored from the engine. */
 export interface OverlayFlags {
   terrain_costs: boolean;
   heightmap: boolean;
   cell_grid: boolean;
   fog: boolean;
-  unit_inspector: boolean;
   foot_path: boolean;
   paused: boolean;
 }
@@ -207,8 +200,9 @@ export interface ProcessStats {
   gpu_texture_mb: number;
 }
 
-/** Running frame-phase split, straight from the engine's phase stamps. */
+/** Measured simulation phases averaged per profiled tick, independent of renders. */
 export interface FrameProfileReport {
+  /** Profiled simulation ticks, including a terminal call. */
   frames: number;
   mean_frame_ms: number;
   peak_frame_ms: number;
@@ -232,26 +226,6 @@ export interface RenderTimingReport {
   sidebar_ms: number;
   upload_ms: number;
   other_ms: number;
-}
-
-/** The dashboard trainer's switches, as the engine reports them (schema v16). */
-export interface CheatReport {
-  infinite_money: boolean;
-  money_target: number;
-  infinite_power: boolean;
-  instant_build: boolean;
-  invincible: boolean;
-  damage_scale: number;
-  reveal_map: boolean;
-  tech_all: boolean;
-  tech_boost: boolean;
-  /** Buildings stand anywhere: no proximity ring, and the ground never
-   *  refuses them. The footprint still has to be empty (schema v20). */
-  build_anywhere: boolean;
-  /** The house the switches act on, resolved; null before they are used. */
-  owner: string | null;
-  /** True while the power switch is overriding a real deficit. */
-  power_forced: boolean;
 }
 
 /** One log record on the wire (schema v15). */
@@ -286,5 +260,4 @@ export interface TelemetrySnapshot {
   profile: FrameProfileReport | null;
   render: RenderTimingReport | null;
   logs: LogBatch | null;
-  cheats: CheatReport;
 }

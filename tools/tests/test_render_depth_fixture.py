@@ -3,8 +3,10 @@
 import base64
 import configparser
 import hashlib
+import json
 import struct
 import unittest
+from pathlib import Path
 
 from tools.render_depth_fixture import (
     build_fixture, decode_fixture_lcw, decode_literal_lzo,
@@ -72,6 +74,189 @@ def decode_iso_cells(section):
 
 
 class RenderDepthFixtureTests(unittest.TestCase):
+    def test_move_voice_controls_keep_stock_actors_and_use_executed_reader_inputs(self):
+        native = json.loads((Path(__file__).resolve().parents[1] /
+                             'spatial_oracle/move_order_voice.json').read_text())
+        native_inputs = {
+            row['input']['sections'].get('MTNK', {}).get('VoiceMove')
+            for row in native['readers']['retained_controls']
+        }
+        stock = parse_ini(build_fixture(move_order_voice='stock'))
+        for mode in ('stock', 'multiple', 'unknown-first', 'unknown-only'):
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(move_order_voice=mode))
+                self.assertEqual(len(ini['Units']), 1)
+                self.assertEqual(ini['Units']['0'].split(',')[:5],
+                                 ['<human player>', 'MTNK', '256', '48', '48'])
+                self.assertEqual(len(ini['Infantry']), 0)
+                self.assertEqual(ini['IsoMapPack5'], stock['IsoMapPack5'])
+                self.assertEqual(decode_iso_cells(ini['IsoMapPack5'])[48, 48], (0, 0, 0))
+                self.assertEqual(set(decode_overlay_section(ini['OverlayPack'])), {255})
+                for section in ('General', '105mm', 'AP', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+                if mode == 'stock':
+                    self.assertNotIn('MTNK', ini)
+                else:
+                    self.assertEqual(set(ini['MTNK']), {'VoiceMove'})
+                    self.assertIn(ini['MTNK']['VoiceMove'], native_inputs)
+        with self.assertRaises(ValueError):
+            build_fixture(move_order_voice='stock', damage_feedback='single')
+
+    def test_damage_feedback_keeps_full_health_stock_actors_on_clear_ground(self):
+        for mode, tanks in [('single', 1), ('removal', 5)]:
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(damage_feedback=mode))
+                gi = ini['Infantry']['0'].split(',')
+                self.assertEqual(gi[:5], ['<human player>', 'E1', '256', '52', '48'])
+                units = [entry.split(',') for entry in ini['Units'].values()]
+                self.assertEqual(len(units), tanks)
+                self.assertTrue(all(entry[:3] == ['<human player>', 'MTNK', '256']
+                                    for entry in units))
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                actors = units + [gi]
+                positions = [tuple(map(int, entry[3:5])) for entry in actors]
+                self.assertEqual(len(set(positions)), len(actors))
+                self.assertTrue(all(cells[cell] == (0, 0, 0) for cell in positions))
+                self.assertEqual(set(decode_overlay_section(ini['OverlayPack'])), {255})
+                for section in ('General', 'E1', 'MTNK', '105mm', 'AP', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(damage_feedback='single', house_self_heal='recovery')
+
+    def test_house_self_heal_uses_stock_grant_and_damage_actors(self):
+        for mode, fraction in [('recovery', '256'), ('removal', '32')]:
+            with self.subTest(mode=mode):
+                ini = parse_ini(build_fixture(house_self_heal=mode))
+                # A skirmish never creates the human's authored Structures;
+                # the local engineer captures the computer's shop instead.
+                shop = ini['Structures']['1'].split(',')
+                self.assertEqual(shop[:5], ['Computer', 'CAMACH', fraction, '44', '50'])
+                units = [entry.split(',') for entry in ini['Units'].values()]
+                self.assertEqual([entry[:3] for entry in units],
+                                 [['<human player>', 'MTNK', '256'],
+                                  ['<human player>', 'MTNK', '256']])
+                self.assertEqual([row.split(',')[:5] for row in ini['Infantry'].values()],
+                                 [['<human player>', 'ENGINEER', '256', '47', '50']])
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                # Retail CAMACH art has a 3x3 Foundation; the engineer waits
+                # on clear ground just east of it.
+                for x in (44, 45, 46, 47):
+                    for y in (50, 51, 52):
+                        self.assertEqual(cells[x, y], (0, 0, 0))
+                for section in ('General', 'MTNK', 'CAMACH', '105mm', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(house_self_heal='recovery', attack_order_voice='unit')
+
+    def test_attack_voice_has_clear_stock_targets_and_no_gameplay_overrides(self):
+        for target in ('unit', 'building'):
+            with self.subTest(target=target):
+                ini = parse_ini(build_fixture(attack_order_voice=target))
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                self.assertEqual(len(ini['Units']), 2)
+                self.assertEqual(len(ini['Structures']), 1)
+                self.assertEqual(ini['Units']['0'].split(',')[:5],
+                                 ['<human player>', 'MTNK', '256', '48', '48'])
+                unit = ini['Units']['1'].split(',')
+                plant = ini['Structures']['0'].split(',')
+                near = unit if target == 'unit' else plant
+                far = plant if target == 'unit' else unit
+                self.assertEqual(near[3:5], ['52' if target == 'unit' else '51', '48'])
+                self.assertEqual(far[3:5], ['60', '60'])
+                self.assertEqual((unit[0:3], plant[0:3]),
+                                 (['Computer', 'MTNK', '256'],
+                                  ['Computer', 'GAPOWR', '256']))
+                for entity in (unit, plant):
+                    self.assertEqual(cells[int(entity[3]), int(entity[4])], (0, 0, 0))
+                for section in ('General', 'MTNK', 'GAPOWR', '105mm', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+                self.assertTrue(all(value == 255 for value in decode_overlay_section(ini['OverlayPack'])))
+        with self.assertRaises(ValueError):
+            build_fixture(attack_order_voice='unit', building_repair=True)
+
+    def test_building_repair_has_clear_stock_damage_and_repair_actors(self):
+        ini = parse_ini(build_fixture(building_repair=True))
+        stock = parse_ini(build_fixture(building_brackets=True))
+        self.assertEqual(ini['Structures'], stock['Structures'])
+        self.assertEqual(ini['Units']['0'], stock['Units']['0'])
+        attacker = ini['Units']['1'].split(',')
+        self.assertEqual(attacker[:5], ['Americans', 'MTNK', '256', '48', '44'])
+        cells = decode_iso_cells(ini['IsoMapPack5'])
+        self.assertEqual(cells[48, 44], (0, 0, 0))
+        self.assertNotIn('General', ini)
+        self.assertNotIn('GAPOWR', ini)
+        self.assertNotIn('MTNK', ini)
+        self.assertTrue(all(value == 255 for value in decode_overlay_section(ini['OverlayPack'])))
+        with self.assertRaises(ValueError):
+            build_fixture(building_repair=True, walls_only=True)
+
+    def test_ifv_welding_keeps_stock_rows_and_health_control(self):
+        # The authored maps with native scenario owner names.
+        expected = (
+            ('repair', '64', 74046,
+             '22efefc82e53f4fda7ec1e132aad6a60bffc526879b07879e29cfa82b678b365'),
+            ('full-health', '256', 74047,
+             '78a1f9e7fff00c7ce40845fc0d8922ffb0dbfa33dcecec0885aa5cb355678db9'),
+        )
+        for mode, fraction, size, digest in expected:
+            with self.subTest(mode=mode):
+                authored = build_fixture(ifv_welding=mode).encode('ascii')
+                self.assertEqual((len(authored), hashlib.sha256(authored).hexdigest()),
+                                 (size, digest))
+                ini = parse_ini(authored.decode('ascii'))
+                self.assertEqual(ini['Units']['0'].split(',')[:5],
+                                 ['<human player>', 'FV', '256', '48', '48'])
+                self.assertEqual(ini['Units']['1'].split(',')[:5],
+                                 ['<human player>', 'MTNK', fraction, '49', '48'])
+                self.assertEqual(ini['Units']['2'].split(',')[:5],
+                                 ['<human player>', 'MTNK', '256', '49', '49'])
+                self.assertEqual([row.split(',')[:5] for row in ini['Infantry'].values()],
+                                 [['<human player>', 'ENGINEER', '256', '48', '47'],
+                                  ['<human player>', 'E1', '256', '47', '48']])
+                self.assertEqual(ini['Structures']['0'].split(',')[:5],
+                                 ['Computer', 'GAPOWR', '256', '60', '60'])
+                cells = decode_iso_cells(ini['IsoMapPack5'])
+                for section in ('Units', 'Infantry', 'Structures'):
+                    for row in ini[section].values():
+                        fields = row.split(',')
+                        self.assertEqual(cells[int(fields[3]), int(fields[4])], (0, 0, 0))
+                self.assertTrue(all(value == 255 for value in
+                                    decode_overlay_section(ini['OverlayPack'])))
+                for section in ('General', 'FV', 'MTNK', 'ENGINEER', 'E1',
+                                'RepairBullet', 'WeldingSys', 'WeldingSpark', 'AudioVisual'):
+                    self.assertNotIn(section, ini)
+        with self.assertRaises(ValueError):
+            build_fixture(ifv_welding='repair', attack_order_voice='unit')
+        with self.assertRaises(ValueError):
+            build_fixture(ifv_welding='unknown')
+
+    def test_temporal_gunner_uses_native_house_names_and_full_stock_actors(self):
+        ini = parse_ini(build_fixture(temporal_gunner=True))
+        self.assertEqual([row.split(',')[:5] for row in ini['Units'].values()],
+                         [['<human player>', 'FV', '256', '44', '48'],
+                          ['Computer', 'HTNK', '256', '54', '48']])
+        self.assertEqual([row.split(',')[:5] for row in ini['Infantry'].values()],
+                         [['<human player>', 'CLEG', '256', '44', '47']])
+        self.assertEqual([row.split(',')[:5] for row in ini['Structures'].values()],
+                         [['Computer', 'GAPOWR', '256', '60', '60']])
+        cells = decode_iso_cells(ini['IsoMapPack5'])
+        positions = []
+        for section in ('Units', 'Infantry', 'Structures'):
+            for row in ini[section].values():
+                fields = row.split(',')
+                position = int(fields[3]), int(fields[4])
+                positions.append(position)
+                self.assertEqual(cells[position], (0, 0, 0))
+        self.assertEqual(len(set(positions)), 4)
+        self.assertTrue(all(value == 255 for value in
+                            decode_overlay_section(ini['OverlayPack'])))
+        for section in ('General', 'FV', 'HTNK', 'CLEG', 'GAPOWR', 'AudioVisual',
+                        'CRNeutronRifle', 'NeutronRifle', 'ChronoBeam'):
+            self.assertNotIn(section, ini)
+        for other in ({'disk_laser': True}, {'ifv_welding': 'repair'}, {'bomb_clock': True}):
+            with self.subTest(other=other), self.assertRaises(ValueError):
+                build_fixture(temporal_gunner=True, **other)
+
     def test_existing_fixture_modes_keep_their_authored_bytes(self):
         # Captured from HEAD's generator before the separate --cliff-back mode.
         # Preserve both map payloads, including compression and entity order.

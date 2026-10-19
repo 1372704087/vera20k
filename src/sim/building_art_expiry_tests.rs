@@ -12,13 +12,11 @@ use crate::sim::mission::state::MissionTestFixture;
 use crate::sim::mission::{MissionDispatchTimer, MissionId};
 use crate::sim::rng::SimRng;
 use crate::sim::stage::StageClass;
+use crate::util::save_codec;
 use serde_json::{Value, json};
 
-fn corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_slot_replacement.expiry.json",
-    ))
-    .unwrap()
+fn corpus() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_slot_replacement.expiry.json")
 }
 
 fn integer(value: &Value) -> i32 {
@@ -206,7 +204,7 @@ fn scene(golden: &Value, row: &Value) -> (Simulation, RuleSet, u64, u64) {
     // this control supplies its empty predicate, without certifying malformed state.
     if case["garrison_count"].as_i64().unwrap_or(0) > 0 {
         let mut cargo = crate::sim::passenger::PassengerCargo::new(1, 0);
-        assert!(cargo.board(contact, 1));
+        cargo.board_forced_chain(&[(contact, 1)]);
         entity.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
     }
     sim.substrate.entities.insert(entity);
@@ -478,8 +476,8 @@ fn snapshot_restores_completed_retraction_and_independent_building_marker() {
             .find(|r| r["input"]["name"] == name)
             .unwrap();
         let (sim, rules, id, expired) = scene(&golden, row);
-        let bytes = bincode::serialize(&sim).unwrap();
-        let mut restored: Simulation = bincode::deserialize(&bytes).unwrap();
+        let bytes = save_codec::serialize(&sim).unwrap();
+        let mut restored: Simulation = save_codec::deserialize(&bytes).unwrap();
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(
             restored.anim(expired).unwrap().completed(),

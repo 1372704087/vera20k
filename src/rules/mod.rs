@@ -144,12 +144,17 @@ pub mod prerequisite;
 pub mod process_owner;
 pub mod projectile_type;
 pub mod radar_event_config;
+#[cfg(test)]
+mod radial_indicator_tests;
 pub mod recoil;
+pub mod secret_lab;
 pub mod retail_sources;
+pub(crate) mod rules_type_references;
 pub mod ruleset;
 pub mod shp_vehicle_sequence;
 pub mod smudge_type;
 pub mod sound_ini;
+pub mod superweapon_targeting;
 pub mod superweapon_type;
 pub mod team_ai_ini;
 pub mod terrain_asset_catalog;
@@ -166,6 +171,8 @@ pub mod weapon_type;
 pub mod area_guard_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod deploy_voice_tests;
+#[cfg(test)]
+mod disk_laser_tests;
 #[cfg(test)]
 mod ini_token_readers_tests;
 #[cfg(test)]

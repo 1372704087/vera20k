@@ -557,8 +557,9 @@ mod tests {
     #[test]
     fn render_counts_are_taken_from_the_production_output() {
         let output = GameRenderOutput {
+            #[cfg(feature = "telemetry-dashboard")]
+            phases: None,
             particle_draws: None,
-            phases: Default::default(),
             sidebar_view: None,
             times: crate::app::presentation::render::GameRenderTimes {
                 radar_ms: 0,

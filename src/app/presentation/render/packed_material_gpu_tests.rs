@@ -79,10 +79,9 @@ fn retained_mobile_translucency_matches_original_packed_words() {
                         let fog =
                             ShroudBuffer::fixture(&gpu.device, &gpu.queue, size, [0.0; 2], &a);
                         batch.bind_shroud(&gpu.device, Some(&fog));
-                        let palette = crate::assets::pal_file::Palette {
-                            colors: [crate::assets::pal_file::Color::rgb(rgb[0], rgb[1], rgb[2]);
-                                256],
-                        };
+                        let palette = crate::assets::pal_file::Palette::from_rgb(|_| {
+                            [rgb[0], rgb[1], rgb[2]]
+                        });
                         let (shp, source_palette) = if indexed {
                             SpriteAtlas::from_test_indexed_page(
                                 &gpu.device,
@@ -351,6 +350,8 @@ fn retained_mobile_translucency_matches_original_packed_words() {
                             Some(&shp),
                             Some(&palettes),
                             batch.default_zshape_bind_group(),
+                            None,
+                            None,
                         );
                         let reads = [
                             gpu.read(&mut encoder, &color),
@@ -379,6 +380,341 @@ fn retained_mobile_translucency_matches_original_packed_words() {
             }
         }
     }
+}
+
+/// Original Unit73BF7B material and Unit73B140 final blit with the physical
+/// Image-resolved GTNK hull and Computer1's stock DarkRed scheme. The native
+/// indexed cache is a supplied input here: this checks the production material,
+/// both atlas bindings and replay, not hull/turret/barrel assembly. Actual
+/// Ground-pose raster/cache/upload has separate native MTNK part coverage in
+/// naval_sinking_gpu_tests::drone_rocked_tank_pose_upload_and_replay_match_native_part_pixels.
+#[test]
+#[ignore = "requires GPU and retail assets; physical Grizzly cache through native berserk material and both voxel replay bindings"]
+fn retained_stock_grizzly_berserk_material_matches_original_pixels() {
+    use crate::app::presentation::lighting::{techno_effect_light, unit_voxel_effect_light};
+    use crate::render::native_z::{ZGradient, pack_voxel_z_gradient};
+    use crate::render::unit_atlas::{UnitAtlas, UnitAtlasPage};
+    use crate::render::unit_pose_cache::VxlPoseFrameCache;
+    use crate::rules::house_colors::HouseColorIndex;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
+    use crate::sim::timer::CdTimer;
+    use crate::sim::world::Simulation;
+
+    let native = &crate::test_fixture::json("tools/berserk_color.json")["mtnk"];
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    for asset in native["assets"].as_array().unwrap() {
+        let bytes = assets.get_ref(asset["file"].as_str().unwrap()).unwrap();
+        assert_eq!(bytes.len() as u64, asset["bytes"]);
+        assert_eq!(crate::util::sha256::sha256_hex(bytes), asset["sha256"]);
+    }
+    assert_eq!(
+        crate::rules::voxel_frame_catalog::voxel_image_id("MTNK", Some(&battle.rules)),
+        native["image"]["resolved"].as_str().unwrap()
+    );
+    let scheme = &native["colour_scheme"];
+    let scheme_entry = battle
+        .rules
+        .color_schemes
+        .iter()
+        .position(|entry| entry.name == scheme["name"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(scheme_entry, 5, "Computer1 priority1 resolves to DarkRed");
+    assert_eq!(
+        serde_json::json!(battle.rules.color_schemes[scheme_entry].hsv),
+        scheme["hsv"]
+    );
+    let house = HouseColorIndex(u8::try_from(scheme_entry).unwrap());
+    // The native fixture constructs only the selected scheme's 1/53 pair.
+    // Its local index1 is not the full startup array's index or GPU row.
+    let remap_row = u32::from(house.0) + 1;
+    assert_eq!(remap_row, 6);
+    let palette = crate::assets::pal_file::Palette::from_bytes(
+        assets
+            .get_ref(scheme["palette"]["name"].as_str().unwrap())
+            .unwrap(),
+    )
+    .unwrap();
+    let decode = |value: &Value| {
+        let hex = value.as_str().unwrap();
+        assert_eq!(hex.len() % 2, 0);
+        (0..hex.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let remapped = palette.with_house_colors(battle.rules.house_color_ramps.ramp(house));
+    let palette_rgb: Vec<_> = remapped
+        .colors()
+        .iter()
+        .flat_map(|color| [color.r, color.g, color.b])
+        .collect();
+    assert_eq!(palette_rgb, decode(&native["scheme_palette_rgb8_hex"]));
+
+    let rows = native["rows"].as_array().unwrap();
+    assert_eq!(rows.len(), 9);
+    let int = |value: &Value| i32::try_from(value.as_i64().unwrap()).unwrap();
+    let mut rules_by_selector = std::collections::BTreeMap::new();
+    for row in rows {
+        let key = (
+            int(&row["arm"]["iron_color"]),
+            int(&row["arm"]["berserk_color"]),
+        );
+        if let std::collections::btree_map::Entry::Vacant(entry) = rules_by_selector.entry(key) {
+            let patch = IniFile::from_str(&format!(
+                "[AudioVisual]\nIronCurtainColor={}\nBerserkColor={}\n",
+                key.0, key.1
+            ));
+            let Some(battle) =
+                crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch(
+                    "XMP03T4.MAP",
+                    &patch,
+                )
+            else {
+                return;
+            };
+            entry.insert(battle.rules);
+        }
+    }
+    let source = &native["source"];
+    let source_size: [u32; 2] = ["width", "height"].map(|key| source[key].as_u64().unwrap() as u32);
+    let mut indices = vec![0; (source_size[0] * source_size[1]) as usize];
+    for pixel in source["pixels"].as_array().unwrap() {
+        indices[pixel[0].as_u64().unwrap() as usize] = pixel[1].as_u64().unwrap() as u8;
+    }
+    let crop: [u32; 4] = std::array::from_fn(|i| source["source_rect"][i].as_u64().unwrap() as u32);
+    let size: [u32; 2] =
+        ["width", "height"].map(|key| native["surface"][key].as_u64().unwrap() as u32);
+    let pixels = (size[0] * size[1]) as usize;
+    let gpu = Gpu::new();
+    let mut sim = Simulation::new();
+    let mut compared = 0;
+    for format in [
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+    ] {
+        let mut batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, format);
+        let mut uniform = camera(size);
+        uniform.native_z_origin_y = int(&native["surface"]["depth_baseline"]) as f32 - 32768.;
+        batch.write_camera(&gpu.queue, uniform);
+        let palettes = PaletteSet::new_on_device(
+            &gpu.device,
+            &gpu.queue,
+            &palette,
+            &palette,
+            &battle.rules.house_color_ramps,
+            &[house],
+        );
+        let texture = || {
+            batch.create_unit_atlas_texture_on_device(
+                &gpu.device,
+                &gpu.queue,
+                source_size[0],
+                source_size[1],
+                &indices,
+            )
+        };
+        let units = UnitAtlas::from_test_pages(vec![UnitAtlasPage { texture: texture() }]);
+        let poses = VxlPoseFrameCache::from_test_textures(vec![texture()]);
+        for row in rows {
+            let name = row["name"].as_str().unwrap();
+            let arm = &row["arm"];
+            assert_eq!(arm["pixel_format"], 2);
+            assert_eq!(row["source_unchanged"], true);
+            assert_eq!(row["z_unchanged"], true);
+            assert_eq!(row["a_unchanged"], true);
+            let mut unit = GameEntity::test_default(1, "MTNK", "Computer1", 50, 48);
+            unit.berserk
+                .set_active_for_test(arm["berzerk"].as_bool().unwrap());
+            unit.deactivated
+                .set_for_test(arm["deactivated"].as_bool().unwrap());
+            unit.flashing.start(int(&arm["flash"]));
+            unit.invulnerability = Some(InvulnerabilityState::with_tint(
+                CdTimer::from_raw(int(&arm["curtain"][0]), int(&arm["curtain"][1])),
+                InvulnKind::IronCurtain,
+                arm["stage"].as_u64().unwrap() as u8,
+                CdTimer::from_raw(int(&arm["tint"][0]), int(&arm["tint"][1])),
+            ));
+            sim.session.binary_frame = arm["frame"].as_u64().unwrap() as u32;
+            let light = PaletteLight::color_scheme([1000; 3], int(&arm["intensity"]))
+                .with_colour_word(int(&arm["word"]) as u16);
+            let (tint, light) = techno_effect_light(&unit, [1.; 3], light, &sim);
+            let (tint, light) = unit_voxel_effect_light(
+                &unit,
+                tint,
+                light,
+                Some(&rules_by_selector[&(int(&arm["iron_color"]), int(&arm["berserk_color"]))]),
+                sim.session.binary_frame,
+            );
+            assert_eq!(light.brightness(), int(&arm["out_intensity"]), "{name}");
+            assert_eq!(
+                u64::from(light.colour_word()),
+                arm["out_word"].as_u64().unwrap() & 0xffff,
+                "{name}"
+            );
+            let a_value = row["surface"]["a_value"].as_u64().unwrap() as u8;
+            let fog = ShroudBuffer::fixture(
+                &gpu.device,
+                &gpu.queue,
+                size,
+                [0.; 2],
+                &vec![a_value; pixels],
+            );
+            batch.bind_shroud(&gpu.device, Some(&fog));
+            let expected = decode(&row["rgb565_le_hex"]);
+            assert_eq!(expected.len(), pixels * 2);
+            let old_z = row["surface"]["old_z"].as_u64().unwrap() as u16;
+            let background = row["surface"]["background"].as_u64().unwrap() as u16;
+            let initial: Vec<_> = encoded(background, format).repeat(pixels);
+            let position: [f32; 2] =
+                std::array::from_fn(|i| (int(&row["point"][i]) - crop[i + 2] as i32 / 2) as f32);
+            let selector = (row["picks"][0]["flags"].as_u64().unwrap() & 0xe) as u8;
+            let policy = if selector & 6 == 0 {
+                BlitPolicy::z_read(SpriteEncoding::Voxel)
+            } else {
+                BlitPolicy::translucent(SpriteEncoding::Voxel, RenderZPolicy::ReadOnly)
+            };
+            // The recorded original leaf coordinates establish the supplied
+            // final-blit rectangle. Projection and native raster assembly are
+            // separate owners; no image alignment/search is performed here.
+            assert_eq!(position[0], int(&row["leaves"][0]["x"]) as f32);
+            assert_eq!(position[1], int(&row["leaves"][0]["y"]) as f32);
+            for pose in [false, true] {
+                let layer = lower_object_instances(vec![PlannedObjectInstance::object(
+                    ObjectDraw {
+                        id: 1,
+                        layer: TacticalLayer(3),
+                        display_order: 0,
+                        policy,
+                    },
+                    vec![ObjectPieceInstance {
+                        target: if pose {
+                            ObjectTexture::UnitPosePage(0)
+                        } else {
+                            ObjectTexture::UnitAtlasPage(0)
+                        },
+                        render_z: RenderZPolicy::ReadOnly,
+                        instance: SpriteInstance {
+                            position,
+                            size: [crop[2] as f32, crop[3] as f32],
+                            uv_origin: [
+                                crop[0] as f32 / source_size[0] as f32,
+                                crop[1] as f32 / source_size[1] as f32,
+                            ],
+                            uv_size: [
+                                crop[2] as f32 / source_size[0] as f32,
+                                crop[3] as f32 / source_size[1] as f32,
+                            ],
+                            tint,
+                            palette_light: light,
+                            alpha: 1.,
+                            draw_state: DrawState::from_native_selector(remap_row, selector),
+                            z_adjust: int(&row["prepared_z_adjust"][0]) as f32,
+                            z_gradient: pack_voxel_z_gradient(ZGradient::Vertical, false),
+                            zshape_origin: [position[1], crop[3] as f32],
+                            ..Default::default()
+                        },
+                    }],
+                )]);
+                let layer = &layer[3];
+                let mut pool = InstanceBufferPool::new();
+                pool.upload_on_device(
+                    &gpu.device,
+                    &gpu.queue,
+                    "berserk-material",
+                    &layer.instances,
+                );
+                let color = gpu.target(size, format);
+                gpu.queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &color,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    &initial,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(size[0] * 4),
+                        rows_per_image: Some(size[1]),
+                    },
+                    color.size(),
+                );
+                let cv = color.create_view(&Default::default());
+                let depth = gpu.target(size, wgpu::TextureFormat::Depth32Float);
+                let dv = depth.create_view(&Default::default());
+                let mut terrain = crate::render::terrain_draw::TerrainDrawRenderer::new(
+                    &gpu.device,
+                    &gpu.queue,
+                    format,
+                    &batch,
+                );
+                terrain.prepare(&gpu.device, &color, &dv, batch.camera_uniform());
+                let mut encoder = gpu.device.create_command_encoder(&Default::default());
+                clear(&mut encoder, &cv, &dv, old_z, wgpu::LoadOp::Load);
+                let clip = std::array::from_fn(|i| row["clip"][i].as_u64().unwrap() as u32);
+                let stats = draw_native_object_pass(
+                    &mut encoder,
+                    &cv,
+                    &dv,
+                    &mut terrain,
+                    clip,
+                    &batch,
+                    pool.get("berserk-material"),
+                    layer,
+                    None,
+                    Some(&units),
+                    Some(&poses),
+                    None,
+                    Some(&palettes),
+                    batch.default_zshape_bind_group(),
+                    None,
+                    None,
+                );
+                assert_eq!(
+                    stats.passes > 0,
+                    selector & 6 != 0,
+                    "{name}: native packed admission"
+                );
+                let reads = [
+                    gpu.read(&mut encoder, &color),
+                    gpu.read(&mut encoder, &depth),
+                ];
+                let output = gpu.finish(encoder, &reads, size);
+                for (at, pixel) in output[0].as_chunks::<4>().0.iter().enumerate() {
+                    let word = u16::from_le_bytes(expected[at * 2..at * 2 + 2].try_into().unwrap());
+                    assert_eq!(
+                        *pixel,
+                        encoded(word, format),
+                        "{name} pose={pose} {format:?}: native pixel{at}"
+                    );
+                    assert_eq!(
+                        crate::render::native_z::stored_z(f32::from_le_bytes(
+                            output[1][at * 4..at * 4 + 4].try_into().unwrap()
+                        )),
+                        old_z,
+                        "{name} pose={pose} {format:?}: native Z{at}"
+                    );
+                }
+                for actual in gpu.read_float_texels(fog.gpu_source().0, [0, 0], size) {
+                    assert_eq!(
+                        (actual[0] * 255.).round() as u8,
+                        a_value,
+                        "{name}: native A unchanged"
+                    );
+                }
+                compared += 1;
+            }
+        }
+    }
+    assert_eq!(compared, rows.len() * 4);
 }
 
 #[test]
@@ -503,6 +839,8 @@ fn retained_packed_high_resolution_dispatch_preserves_native_pixels() {
             Some(&shp),
             None,
             batch.default_zshape_bind_group(),
+            None,
+            None,
         );
         let read = gpu.read(&mut encoder, &color);
         let output = gpu.finish(encoder, &[read], size);
@@ -616,6 +954,8 @@ fn retained_packed_workload_timing() {
             Some(&shp),
             None,
             batch.default_zshape_bind_group(),
+            None,
+            None,
         );
         let command = encoder.finish();
         let encode_ms = start.elapsed().as_secs_f64() * 1000.0;

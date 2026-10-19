@@ -471,12 +471,12 @@ pub(crate) enum NativeLoadingArt {
 pub(crate) struct NativeLoadingScreenState {
     pub variant: NativeLoadingArt,
     local_side_index: u8,
-    /// Local player's MP color scheme — source of the G3 solid backing fill and
-    /// bar remap. Derived from the launch session, not the country variant.
+    /// Local player's MP color scheme — source of the progress outline and bar
+    /// remap. Derived from the launch session, not the country variant.
     pub color_index: HouseColorIndex,
-    /// Empty-bar backing fill color (normalized RGB), resolved from the player's
-    /// `[Colors]` scheme HSV. Falls back to a static shade when `[Colors]` is
-    /// unavailable (e.g. assets missing).
+    /// Player `[Colors]` base color (normalized RGB) from that scheme's HSV, resolved
+    /// through native `HSV_To_RGB`. Draws the meter's `+0x71` outline and the row
+    /// label. Falls back to a static shade when `[Colors]` is unavailable.
     pub backing_rgb: [f32; 3],
     /// GAME.FNT loading-copy color from the named AlliedLoad/SovietLoad scheme.
     pub text_rgb: [f32; 3],
@@ -671,10 +671,7 @@ impl LoadingJob {
 }
 
 pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
-    let wall_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     // The shell writes GameMode before the loading screen (`0x0052E10F`
@@ -696,10 +693,7 @@ pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     if let (Some(native), Some(rules)) = (session.native.as_mut(), state.rules()) {
         native.resolve_player_colors(&rules.color_schemes, &rules.house_color_ramps);
     }
-    let now_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     reset_loading_presentation(state);
     // A finished match keeps its presentation at the shell, and its entity
     // atlases are its largest GPU allocations (SHP pages up to the texture
@@ -974,6 +968,19 @@ fn pump_loading_after_present(state: &mut AppState) -> LoadingPump {
             state.process_assets.native_rules_mut_with_tile_cache();
         let native_rules_owner =
             native_rules_owner.expect("native Rules availability checked before split borrow");
+        // The outgoing scene no longer advances. Return its live Type and
+        // ambient Rules writes before Full_Init's optional prefix Process.
+        // Type reset deletes Types but retains the ambient scalar defaults.
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            native_rules_owner.consume_outgoing_scenario_rules(
+                runtime.simulation.retire_object_type_tech_levels(),
+                runtime
+                    .simulation
+                    .session
+                    .lighting
+                    .retire_ambient_change_inputs(),
+            )?;
+        }
         let load_result = {
             let mut progress = LoadingPhaseProgress::select(
                 native.as_mut(),

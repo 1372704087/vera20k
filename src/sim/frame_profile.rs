@@ -17,11 +17,42 @@
 //!   multiplayer checksum: wall time is not a simulation fact.
 //! - **Nanosecond integers.** Accumulation stays in `u128` so a long soak does
 //!   not drift; conversion to milliseconds happens once, in [`FrameProfileReport`].
-//! - **Cheap.** One `Instant::now()` per stamp (27 per frame), roughly 400 ns
-//!   against a millisecond-scale tick.
+//! - **Opt-in.** New and deserialized simulations do no clock reads. Enabled
+//!   measurement stamps existing boundaries without moving gameplay work.
+//! - **Current boundaries.** Combat, passengers and wall crushing mostly run
+//!   inside the live object pass. Slots without a separate current phase stay
+//!   zero; they do not claim an independently measured subsystem.
 
 use std::ops::Range;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+/// A local, enabled-only observer; never held by or serialized with the world.
+pub(crate) struct FrameClock {
+    started: Instant,
+    previous: Instant,
+    phases: FramePhases,
+}
+
+impl FrameClock {
+    pub(crate) fn start() -> Self {
+        let now = Instant::now();
+        Self {
+            started: now,
+            previous: now,
+            phases: FramePhases::default(),
+        }
+    }
+
+    pub(crate) fn stamp(&mut self, phase: usize) {
+        let now = Instant::now();
+        self.phases.add(phase, now.duration_since(self.previous));
+        self.previous = now;
+    }
+
+    pub(crate) fn finish(self) -> (FramePhases, Duration) {
+        (self.phases, self.previous.duration_since(self.started))
+    }
+}
 
 /// Slots in the per-frame ledger, in the order `advance_master_frame` runs
 /// them. Names are stable keys: the dashboard's i18n table is indexed by them.
@@ -188,7 +219,7 @@ impl FrameProfile {
         *self = Self::default();
     }
 
-    /// Committed frames measured so far.
+    /// Completed frame calls measured so far, including a terminal frame.
     pub fn frames(&self) -> u64 {
         self.frames
     }

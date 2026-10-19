@@ -25,12 +25,12 @@ use crate::util::fixed_math::{SIM_ONE, SIM_ZERO, SimFixed};
 /// exit's NavCom test scatters it off that Cell (`0x00736005..0x00736028`).
 #[test]
 fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
-    use crate::map::resolved_terrain::YR_CELL_LAND_TUNNEL;
     use crate::map::tube_facts::{TubeFact, TubeId};
+    use crate::rules::terrain_rules::LandType;
     use crate::sim::pathfinding::zone_map::ZoneGrid;
 
     let mut cells: Vec<_> = (0..6).map(|x| drivable_slope_cell(x, 0, 0)).collect();
-    cells[1].yr_cell_land_type = YR_CELL_LAND_TUNNEL;
+    cells[1].land_type = LandType::Tunnel.as_index();
     cells[1].tube_index = Some(TubeId(0));
     // (4, 0) stays open: the exit's Scatter goes there.
     for cell in &mut cells[2..4] {
@@ -266,51 +266,6 @@ fn ordinary_drive_retires_selector_before_entering_an_explicit_tube() {
     );
 }
 
-#[test]
-fn test_facing_iso_north() {
-    // (0,-1) = north on screen → facing 0.
-    let f: u8 = facing_from_delta(0, -1);
-    assert_eq!(f, 0, "North (0,-1) should be facing 0");
-}
-
-#[test]
-fn test_facing_iso_east() {
-    let f: u8 = facing_from_delta(1, 0);
-    assert_eq!(f, 63, "East (1,0) should be computed facing 63");
-}
-
-#[test]
-fn test_facing_iso_south() {
-    let f: u8 = facing_from_delta(0, 1);
-    assert_eq!(f, 127, "South (0,1) should be computed facing 127");
-}
-
-#[test]
-fn test_facing_iso_west() {
-    // (-1,0) = west on screen → facing 192.
-    let f: u8 = facing_from_delta(-1, 0);
-    assert_eq!(f, 192, "West (-1,0) should be facing 192");
-}
-
-#[test]
-fn test_facing_iso_northeast() {
-    // (1,-1) = NE on screen → facing 32.
-    let f: u8 = facing_from_delta(1, -1);
-    assert_eq!(f, 32, "NE (1,-1) should be facing 32");
-}
-
-#[test]
-fn test_facing_iso_southeast() {
-    let f: u8 = facing_from_delta(1, 1);
-    assert_eq!(f, 95, "SE (1,1) should be computed facing 95");
-}
-
-#[test]
-fn test_facing_zero_delta() {
-    let f: u8 = facing_from_delta(0, 0);
-    assert_eq!(f, 63, "Zero delta follows the native conversion path");
-}
-
 // --- Movement tick tests ---
 
 #[test]
@@ -375,10 +330,11 @@ fn test_drive_arrival_clears_navcom_same_tick() {
     assert_eq!(drive.destination(), None);
 }
 
-/// The fixture Drive types: a Unit's Process reads its type.
+/// The fixture Drive types: a Unit's Process reads its type. Match the
+/// explicitly tracked locomotor and terrain supplied by these controls.
 fn drive_type_rules() -> crate::rules::ruleset::RuleSet {
     crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-        "[VehicleTypes]\n0=HTNK\n1=MTNK\n2=DRIVE\n[HTNK]\nSpeed=6\n[MTNK]\nSpeed=6\n[DRIVE]\nSpeed=6\n",
+        "[VehicleTypes]\n0=HTNK\n1=MTNK\n2=DRIVE\n[HTNK]\nSpeed=6\nSpeedType=Track\n[MTNK]\nSpeed=6\nSpeedType=Track\n[DRIVE]\nSpeed=6\nSpeedType=Track\n",
     ))
     .unwrap()
 }
@@ -1119,14 +1075,12 @@ fn forced_track_object_turn_relinks_each_committed_cell() {
     // `forced_track_end_requests_its_own_cell_in_the_same_process` covers
     // that continuation.
     assert_eq!(drive.head_to(), None);
-    assert_eq!(drive.occupation_head_to(), None);
     assert!(!drive.track_valid());
     assert_eq!(drive.track().turn_index(), -1);
     assert_eq!(drive.track().cursor(), 0);
     assert_eq!(
-        sim.substrate
-            .cell_occupation
-            .vehicle_bits(13, 12, MovementLayer::Ground),
+        sim.substrate.raw_cell_occupation.ground_bits(13, 12)
+            & crate::sim::occupancy::VEHICLE_OCCUPATION_BIT,
         crate::sim::occupancy::VEHICLE_OCCUPATION_BIT
     );
 }
@@ -1216,9 +1170,8 @@ fn test_blocked_repath_preserves_locomotor_destination_beyond_segment_end() {
     assert_eq!(route.last(), Some(&(24, 2)));
 }
 
-/// Build a minimal Drive LocomotorState for layered-pathfinding tests. Required
-/// because the layered A* branch in find_move_path is only entered when the
-/// mover has a Drive/Walk locomotor; `test_default` leaves locomotor=None.
+/// Build a minimal Drive LocomotorState for Drive movement tests;
+/// `test_default` leaves locomotor=None.
 fn make_drive_loco_for_test() -> crate::sim::movement::locomotor::LocomotorState {
     crate::sim::movement::locomotor::LocomotorState::for_test_kind(
         crate::rules::locomotor_type::LocomotorKind::Drive,

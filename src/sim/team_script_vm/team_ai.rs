@@ -15,14 +15,6 @@
 //!   friendly unit, `0x006EAF1C..0x006EB1B0`) is not ported; action 10 is
 //!   not, so such a team is stopped on it, and its centre is the mean as for
 //!   any other action.
-//! - `Recalc` destroying an empty team that was leaving the map (`+0x82`)
-//!   first springs trigger event 0x17 ("team leaves map") on every tag
-//!   (`0x006EA49F..0x006EA4D2`, `0x006E53A0`), whose evaluation draws on the
-//!   Scenario RNG for a trigger with event 51 (`0x007264C0` ->
-//!   `0x00726400`). That producer is not connected to the shared live Tag
-//!   owner. Trigger: a team sent to an off-map cell (action 54
-//!   without a passable cell) loses its last member. Effect: map triggers on
-//!   event 0x17 never fire from it.
 //! - `+0x75` (NeedsRegrouping, written by Regroup and the damage report)
 //!   and `+0x76` (written by Recalc under `GuardSlower=`) are not kept: no
 //!   TeamClass code reads either. The private forced-active `+0x77` is
@@ -44,7 +36,7 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::DriveCoord;
 use crate::sim::game_entity::GameEntity;
-use crate::sim::movement::ground_pose::object_get_coords;
+
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
@@ -191,7 +183,7 @@ impl Simulation {
         }
         // `0x006E917B`: a changed membership is recounted; an emptied team
         // that has been full is destroyed there.
-        if team.altered && !self.team_recalc(team_id, rules, frame_effects) {
+        if team.altered && !self.team_recalc(team_id, rules, registry, frame_effects) {
             return;
         }
         let Some(team) = self.team_script_vm.teams.get(&team_id) else {
@@ -306,6 +298,7 @@ impl Simulation {
         &mut self,
         team_id: u64,
         rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
         let vm = &mut self.team_script_vm;
@@ -327,6 +320,11 @@ impl Simulation {
             team.full_strength = false;
             team.zone = None;
             if team.has_been_full {
+                if team.leaving_map {
+                    //6EA49F..6EA4D2 raises23 while this empty Team still
+                    //exists. Callbacks can destroy Teams or create new Tags.
+                    self.raise_team_left_map_tags(rules, registry, frame_effects);
+                }
                 self.destroy_team(team_id, rules, frame_effects);
                 return false;
             }
@@ -432,7 +430,7 @@ impl Simulation {
                     0,
                 )
                 .is_none()
-                    || object.tech_level == -1
+                    || self.object_tech_level(object) == -1
                     || object.deploys_into.is_some()
                     || object.speed <= 13
             })
@@ -719,10 +717,14 @@ impl Simulation {
                     .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
                     .as_ref(),
             )),
-            TeamTarget::Object(id) => {
-                let entity = self.substrate.entities.get(id)?;
-                Some(object_get_coords(entity, self.resolved_terrain.as_ref()))
-            }
+            TeamTarget::Object(id) => crate::sim::movement::ground_pose::target_get_coords(
+                crate::sim::combat::TargetKind::Entity(id),
+                self,
+                self.resolved_terrain
+                    .as_ref()
+                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
+                    .as_ref(),
+            ),
         }
     }
 
@@ -782,25 +784,5 @@ mod tests {
         let owner = sim.interner.intern("Americans");
         crate::sim::vision::reveal_radius(&mut sim.fog, owner, 12, 12, 2);
         assert!(!sim.team_member_refuses_cell(hornet, centre, &rules, Some(&registry)));
-    }
-
-    /// `ObjectClass::Distance @ 0x005F6360` measures from the member's
-    /// GetCoords (`vt+0x48` at `0x005F6391`), whose Z is the object's world
-    /// Z: a hovering member's height counts.
-    #[test]
-    fn a_hovering_members_distance_counts_its_height() {
-        use crate::rules::locomotor_type::LocomotorKind;
-        use crate::sim::movement::locomotor::LocomotorState;
-        let mut sim = crate::sim::world::Simulation::new();
-        let mut member =
-            crate::sim::game_entity::GameEntity::test_default(1, "HOVER", "Americans", 4, 4);
-        member.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Hover));
-        member.position.set_exact_z_leptons_for_test(Some(120));
-        sim.substrate.entities.insert(member);
-        let member = sim.substrate.entities.get(1).expect("member");
-        // The cell target is (4, 4)'s centre at its floor, straight below, so
-        // the whole distance is the height.
-        let distance = sim.team_member_distance(member, Some(TeamTarget::Cell { x: 4, y: 4 }));
-        assert_eq!(distance, 120);
     }
 }

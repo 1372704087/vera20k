@@ -176,7 +176,7 @@ fn computer_crusher_charges_a_crushable_attacker() {
         let before = health(&sim);
         hit(&mut sim, &rules, rhino, source, damage);
         assert_eq!(damage == 0, health(&sim) == before);
-        nav_com(&sim, rhino) == Some(NavTargetRef::Entity { id: source })
+        nav_com(&sim, rhino) == Some(NavTargetRef::Object { id: source })
             && queued(&sim, rhino) == MOVE
     };
     let unchanged = |_: &mut Simulation, _: u64, gi: u64| gi;
@@ -291,7 +291,7 @@ fn gassed_computer_fortress_charges_the_chaos_drone() {
     );
     assert_eq!(
         nav_com(&sim, fortress),
-        Some(NavTargetRef::Entity { id: drone })
+        Some(NavTargetRef::Object { id: drone })
     );
     assert_eq!(queued(&sim, fortress), MOVE);
 }
@@ -347,6 +347,69 @@ fn damaged_computer_miner_heads_for_its_refinery() {
     assert_eq!(retreat(10, strength / 2, &nearer_garefn), (true, true));
 }
 
+///Unit ReceiveDamage737C90's virtual+2B8 gate consumes the shared708C30
+/// result, including masked divide-by-zero and signed Storage. The original
+/// ammo-pip corpus supplies these changed outcomes; the old Storage>0
+/// approximation refused a loaded zero-storage miner.
+#[test]
+fn damaged_miner_retreat_consumes_original_signed_storage_fill() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch;
+    let native = crate::test_fixture::json("tools/procedural_drawing_oracle/ammo_pips.json");
+    let mut checked = 0;
+    for storage in ["0", "-1"] {
+        let Some(fixture) = retail_battle_rules_for_map_with_patch(
+            "XMP03T4.MAP",
+            &IniFile::from_str(&format!("[HARV]\nStorage={storage}\n")),
+        ) else {
+            return;
+        };
+        let rules = &fixture.rules;
+        for row in native["fill_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| {
+                row["input"]["type_name"] == "HARV"
+                    && row["input"]["configuration"]["Storage"] == storage
+            })
+        {
+            let total = row["arithmetic"]["storage_total"].as_u64().unwrap();
+            let mut sim = arena(rules);
+            let refinery = spawn(&mut sim, rules, "NAREFN", "Russians", (14, 4));
+            let miner = spawn(&mut sim, rules, "HARV", "Russians", (12, 12));
+            let tank = spawn(&mut sim, rules, "MTNK", "Americans", (12, 14));
+            let entity = sim.substrate.entities.get_mut(miner).unwrap();
+            entity
+                .health
+                .set_for_test(rules.object("HARV").unwrap().strength / 2);
+            entity.miner.as_mut().unwrap().set_cargo_for_test(vec![
+                CargoBale {
+                    resource_type: ResourceType::Ore,
+                    value: 25
+                };
+                total as usize
+            ]);
+            hit(&mut sim, rules, miner, tank, 1);
+            let positive = row["result"].as_i64().unwrap() > 0;
+            assert_eq!(queued(&sim, miner) == ENTER, positive, "{row}");
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(miner)
+                    .unwrap()
+                    .radio_contacts
+                    .slot(0)
+                    == Some(refinery),
+                positive,
+                "{row}"
+            );
+            checked += 1;
+        }
+    }
+    assert_eq!(checked, 4);
+}
+
 /// A vehicle on a cell of the War Factory it is in radio contact with takes
 /// no hit unless the hit ignores defences.
 #[test]
@@ -378,4 +441,37 @@ fn vehicle_inside_its_war_factory_takes_no_hit() {
     };
     assert_eq!(health_after(false), 0);
     assert!(health_after(true) > 0);
+}
+
+/// ReceiveDamage starts the radar combat flash (`TechnoClass+0x174`) with
+/// retail `[General] RadarCombatFlashTime=49` for any Object result but 0
+/// (`0x00701E6D..0x00701FC8`): a damaging and a killing hit do, a hit that
+/// does no damage does not.
+#[test]
+fn damage_starts_the_radar_combat_flash() {
+    let Some(rules) = retail_unlayered_rules() else {
+        return;
+    };
+    assert_eq!(
+        (
+            rules.general.flash_frame_time,
+            rules.general.radar_combat_flash_time
+        ),
+        (7, 49)
+    );
+    let flash = |damage: i32| {
+        let mut sim = arena(&rules);
+        let rhino = spawn(&mut sim, &rules, "HTNK", "Russians", (10, 10));
+        let gi = spawn(&mut sim, &rules, "E1", "Americans", (11, 10));
+        let frame = sim.session.binary_frame as i32;
+        hit(&mut sim, &rules, rhino, gi, damage);
+        sim.substrate
+            .entities
+            .get(rhino)
+            .map(|rhino| rhino.radar_combat_flash.remaining(frame))
+    };
+    assert_eq!(flash(10), Some(49));
+    assert_eq!(flash(0), Some(0), "a hit that does no damage");
+    assert_eq!(flash(-10), Some(0), "a heal at full health");
+    assert_eq!(flash(10_000), Some(49), "a killing hit");
 }

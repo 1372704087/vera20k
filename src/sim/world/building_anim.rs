@@ -248,7 +248,7 @@ mod tests {
                 assert_eq!(system.target_coords, vector(&call["target"]));
                 assert_eq!(system.lifetime, call["lifetime"].as_i64().unwrap() as i32);
                 assert_eq!(system.owner_entity, Some(id));
-                assert_eq!(system.attached_entity, None);
+                assert_eq!(system.target_ref, None);
                 assert_eq!(system.owner_house, None);
             }
             represented += 1;
@@ -379,6 +379,8 @@ mod tests {
         let rules = refinery_rules_and_art();
         let mut app_sim = refinery_sim_with_bale();
         let mut headless_sim = refinery_sim_with_bale();
+        app_sim.hash_state_every(std::num::NonZeroU64::MIN);
+        headless_sim.hash_state_every(std::num::NonZeroU64::MIN);
         begin_refinery_unload_gate(&mut app_sim, &rules, 41);
         begin_refinery_unload_gate(&mut headless_sim, &rules, 41);
 
@@ -389,7 +391,6 @@ mod tests {
                 None,
                 67,
                 crate::sim::world::TickLane::Ordinary,
-                None,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");
@@ -407,6 +408,7 @@ mod tests {
     fn app_frame_hash_includes_synchronous_bale_slot_and_particle_state() {
         let rules = refinery_rules_and_art();
         let mut sim = Simulation::new();
+        sim.hash_state_every(std::num::NonZeroU64::MIN);
         insert_building(&mut sim, 41, "GAREFN", 7, 9);
         sim.bale_events.push(BaleDepositEvent {
             building_id: 41,
@@ -423,7 +425,6 @@ mod tests {
                 None,
                 67,
                 crate::sim::world::TickLane::Ordinary,
-                None,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");

@@ -87,13 +87,13 @@ impl SuspendedTarget {
 /// The write set matches native Restore: selector first, then archived Target,
 /// then mode-one destination. Callers must preserve the distinct expiry order
 /// (clear first, then conditionally Restore); live-object detach uses a separate
-/// wrapper and order. `saved_target_commits` is `assign_target_commits` for the
+/// wrapper and order. `saved_target_stored` is `assign_target_stored` for the
 /// archived target, read before the receiver was borrowed.
 /// `FootClass::Restore_Mission @ 0x004D8F80`, a Building's `TechnoClass::Restore_Mission`
 /// (`0x007013E0`): `+0xB0` to `+0xAC`, Assign_Target(`+0x2B8`), Assign_Destination(`+0x5A8`, 1).
 pub(crate) fn restore_entity_after_target_expiry(
     entity: &mut crate::sim::game_entity::GameEntity,
-    saved_target_commits: bool,
+    saved_target_stored: Option<TargetKind>,
 ) -> bool {
     if entity.mission.suspended() == MissionId::NONE {
         return false;
@@ -104,7 +104,7 @@ pub(crate) fn restore_entity_after_target_expiry(
     let category = entity.category();
     let restored = verb::restore_base(&mut entity.mission);
     debug_assert!(restored);
-    represented_assign_target_admitted(entity, saved_target, saved_target_commits);
+    represented_assign_target_admitted(entity, saved_target, saved_target_stored);
     if category != EntityCategory::Structure {
         represented_assign_destination(entity, saved_destination);
         if saved_destination.is_some() {
@@ -197,15 +197,6 @@ struct LiveUnitWorld<'a> {
     entity: &'a crate::sim::game_entity::GameEntity,
 }
 
-impl LiveUnitWorld<'_> {
-    fn weapons_factory(&self, entity: &crate::sim::game_entity::GameEntity) -> bool {
-        self.sim
-            .interner
-            .object_type(entity.type_ref(), self.rules)
-            .is_some_and(|obj| obj.weapons_factory)
-    }
-}
-
 impl UnitReadyWorld for LiveUnitWorld<'_> {
     /// `UnitClass::Is_Ready_To_Commence @ 0x00744270`'s contact read:
     /// `GetNthLink(0)` (`0x0065AD40` at `0x0074433C`) and a Building's WeaponsFactory.
@@ -223,7 +214,7 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
             return Ok(Some(UnitReadyContact::Other));
         }
         Ok(Some(UnitReadyContact::Building {
-            weapons_factory: self.weapons_factory(contact),
+            weapons_factory: self.sim.is_weapons_factory(contact_id, self.rules),
         }))
     }
 
@@ -234,38 +225,36 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
         _unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable> {
         let (rx, ry) = (self.entity.position.rx(), self.entity.position.ry());
-        let Some(cell) = self.sim.substrate.occupancy.get(rx, ry) else {
+        let Some(entity) = self
+            .sim
+            .substrate
+            .occupancy
+            .first_building_on_layer(
+                rx,
+                ry,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            )
+            .and_then(|sid| self.sim.substrate.entities.get(sid))
+        else {
             return Ok(None);
         };
-        // The per-cell occupant list already keeps the gamemd insertion order
-        // (non-buildings prepend, buildings append); take the first Building
-        // in that stored order — no sort, no rebuilt candidate list.
-        for occupant in cell.iter_layer(crate::sim::movement::locomotor::MovementLayer::Ground) {
-            let Some(entity) = self.sim.substrate.entities.get(occupant.entity_id) else {
-                continue;
-            };
-            if entity.category() != EntityCategory::Structure {
-                continue;
-            }
-            // Anchor: the Building's footprint-NW cell as a lepton point whose
-            // native lepton→cell conversion lands on that cell. UNCHECKED
-            // whether the native building coordinate is NW-cell-anchored for
-            // multi-cell foundations; the affected branch is the narrow
-            // no-contact factory-cell hold.
-            let anchor = ReadyLeptonPoint::new(
-                i32::from(entity.position.rx())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-                i32::from(entity.position.ry())
-                    .wrapping_mul(256)
-                    .wrapping_add(128),
-            );
-            return Ok(Some(UnitReadyBuilding::new(
-                self.weapons_factory(entity),
-                anchor,
-            )));
-        }
-        Ok(None)
+        // Anchor: the Building's footprint-NW cell as a lepton point whose
+        // native lepton→cell conversion lands on that cell. UNCHECKED
+        // whether the native building coordinate is NW-cell-anchored for
+        // multi-cell foundations; the affected branch is the narrow
+        // no-contact factory-cell hold.
+        let anchor = ReadyLeptonPoint::new(
+            i32::from(entity.position.rx())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+            i32::from(entity.position.ry())
+                .wrapping_mul(256)
+                .wrapping_add(128),
+        );
+        Ok(Some(UnitReadyBuilding::new(
+            self.sim.is_weapons_factory(entity.stable_id(), self.rules),
+            anchor,
+        )))
     }
 }
 
@@ -351,14 +340,8 @@ fn evaluate_ready(
                     .mission_leaf
                     .as_unit()
                     .ok_or(ReadyUnavailable::WorldLookup)?;
-                let position = ReadyLeptonPoint::new(
-                    i32::from(entity.position.rx())
-                        .wrapping_mul(256)
-                        .wrapping_add(entity.position.sub_x().to_num::<i32>()),
-                    i32::from(entity.position.ry())
-                        .wrapping_mul(256)
-                        .wrapping_add(entity.position.sub_y().to_num::<i32>()),
-                );
+                let [x, y] = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
+                let position = ReadyLeptonPoint::new(x, y);
                 let unload_active = entity
                     .miner
                     .as_ref()
@@ -1980,7 +1963,8 @@ mod tests {
         aircraft
             .navigation
             .set_nav_com_for_test(Some(NavTargetRef::cell(1, 2)));
-        let before = bincode::serialize(&aircraft).expect("serialize blocked Aircraft");
+        let before =
+            crate::util::save_codec::serialize(&aircraft).expect("serialize blocked Aircraft");
         let mut sim = sim_with(aircraft);
         let mut effects = RecordingConcreteMissionEffects::available();
 
@@ -1995,8 +1979,8 @@ mod tests {
         )
         .unwrap();
 
-        let after =
-            bincode::serialize(sim.substrate.entities.get(1).unwrap()).expect("serialize result");
+        let after = crate::util::save_codec::serialize(sim.substrate.entities.get(1).unwrap())
+            .expect("serialize result");
         assert_eq!(after, before);
         assert!(effects.events.is_empty());
     }

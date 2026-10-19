@@ -81,7 +81,7 @@ impl ResolvedTerrainGrid {
             self.native_tube_indices[index]
                 .validated_id(self.tube_facts.len())
                 .is_some()
-                && self.cells[index].yr_cell_land_type == YR_CELL_LAND_TUNNEL
+                && self.cells[index].land_type == LandType::Tunnel.as_index()
         };
         if is_tube(origin) {
             return true;
@@ -197,7 +197,7 @@ pub(super) fn build_auto_low_bridge_tubes(
     tubes: &mut Vec<TubeFact>,
 ) {
     for cell in cells.iter_mut() {
-        if cell.yr_cell_land_type != YR_CELL_LAND_TUNNEL || cell.tube_index.is_some() {
+        if cell.land_type != LandType::Tunnel.as_index() || cell.tube_index.is_some() {
             continue;
         }
         let Some(direction) = auto_tube_direction_for_tile(cell.final_tile_index, theater_data)
@@ -222,39 +222,6 @@ pub(super) fn build_auto_low_bridge_tubes(
         ));
         cell.tube_index = Some(tube_id);
     }
-}
-
-pub(super) fn seed_explicit_map_tubes(
-    cells: &mut [ResolvedTerrainCell],
-    width: u16,
-    height: u16,
-    explicit_tubes: &[TubeFact],
-) -> Vec<TubeFact> {
-    let mut tubes = Vec::with_capacity(explicit_tubes.len());
-    for tube in explicit_tubes {
-        let Ok(raw_id) = u16::try_from(tubes.len()) else {
-            log::warn!(
-                "ResolvedTerrain: explicit [Tubes] registry exceeded u16::MAX; skipping remaining tubes"
-            );
-            break;
-        };
-        let tube_id = TubeId(raw_id);
-        tubes.push(tube.clone());
-        let (rx, ry) = tube.entry;
-        if rx >= width || ry >= height {
-            log::warn!(
-                "ResolvedTerrain: explicit [Tubes] entry cell ({}, {}) outside resolved grid",
-                rx,
-                ry
-            );
-            continue;
-        }
-        let idx = ry as usize * width as usize + rx as usize;
-        if let Some(cell) = cells.get_mut(idx) {
-            cell.tube_index = Some(tube_id);
-        }
-    }
-    tubes
 }
 
 pub(super) fn auto_tube_direction_for_tile(

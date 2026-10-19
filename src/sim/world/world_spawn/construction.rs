@@ -93,13 +93,11 @@ impl Simulation {
         // current house is distinct from the notification/viewer binding.
         ge.discovery
             .classify_owner(self.session.current_house == Some(ge.owner()));
-        if self.debug_event_logging {
-            ge.set_debug_logging(true);
-        }
 
         stamp_scoring_flags(ge, obj, rules);
-        ge.sight
-            .stamp_zero(obj.is_some_and(|object| object.sight == 0));
+        if let Some(object) = obj {
+            ge.sight.stamp_type_sight(object.sight);
+        }
         // The class constructor's one `+0x388` rate write (`Set_ROT`): `ROT=`
         // for a unit (`0x00735579`), an aircraft (`0x00413FE7`) and a building
         // (`BuildingClass::Init`, `0x00442CA5`, without testing `Turret=`: a
@@ -205,12 +203,14 @@ impl Simulation {
                     .ensure_installed_track_state();
             }
         }
-        // Retain the signed native count even for Ammo=-1. Mission_Attack's
-        // pending-release consumer can decrement a negative count as well.
-        if category == EntityCategory::Aircraft {
-            ge.aircraft_ammo = Some(crate::sim::docking::aircraft_dock::AircraftAmmo::from_type(
-                obj,
-            ));
+        // The concrete Foot constructors all select InitialAmmo unless it is
+        // exactly -1; otherwise Ammo. Chrono reinforcement65EC30 also reads
+        // and decrements this count for ground Units (ammo module evidence).
+        if matches!(
+            category,
+            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+        ) {
+            ge.initialize_ammo_from_type(obj);
         }
         // InitManagers6F40FC..6F414E: a weapon-0 Parasite warhead owns its
         // ParasiteClass (Foot+69C) from construction, not from the first shot.
@@ -254,6 +254,25 @@ impl Simulation {
                 &mut self.interner,
                 self.session.binary_frame,
             );
+            // 0x006F41FE..0x006F4271: a CanDisguise=/PermaDisguise= type (stock
+            // SPY) starts disguised as its owner, wearing the Rules disguise
+            // of the owner's side (House+0x1E8: 0, 1, else Third). Native has
+            // no owner guard; a Techno without a represented house is a
+            // fixture case. Rust never re-runs this InitFromType tail (Unit
+            // slot +0x24 can); only retail [SPY], an Infantry, sets the keys.
+            if obj.can_disguise
+                && obj.perma_disguise
+                && let Some(side) = self.houses.get(&ge.owner()).map(|h| h.side_index)
+            {
+                let worn = rules.general.infantry_disguises[usize::from(side.min(2))]
+                    .as_deref()
+                    .map(|name| self.interner.intern(name));
+                let owner = ge.owner();
+                let frame = self.session.binary_frame;
+                ge.disguise
+                    .get_or_insert_with(|| crate::sim::cloak_disguise::DisguiseRuntime::new(frame))
+                    .wear_from_construction(worn, owner);
+            }
         }
         // After the managers, InitFromType makes the object veteran
         // (`SetVeteran(1)`, `0x00750090`) where its house's spies entered a
@@ -676,3 +695,7 @@ fn should_construct_locomotor(category: EntityCategory, object: &ObjectType) -> 
             EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
         ) && matches!(object.locomotor, LocomotorKind::Drive | LocomotorKind::Ship))
 }
+
+#[cfg(test)]
+#[path = "perma_disguise_tests.rs"]
+mod perma_disguise_tests;

@@ -1065,21 +1065,6 @@ fn chained_mover(sim: &mut Simulation, kind: LocomotorKind) -> (GameEntity, Driv
                 crate::sim::movement::track_process::TrackFamily::Drive,
                 Some(head)
             ));
-            assert!(
-                d.publish_track_occupation(
-                    crate::sim::movement::track_process::TrackFamily::Drive,
-                    Some(crate::sim::components::DriveOccupationFootprint {
-                        rx: (head.x / 256) as u16,
-                        ry: (head.y / 256) as u16,
-                        layer: MovementLayer::Ground,
-                    }),
-                    d.selected_drive_runtime()
-                        .unwrap()
-                        .retained()
-                        .unwrap()
-                        .occupation_handoff()
-                )
-            );
         }
         LocomotorKind::Ship => {
             let s = entity.locomotor.as_mut().unwrap();
@@ -1263,9 +1248,9 @@ fn a_building_on_a_ramp_is_targeted_at_its_floor() {
         crate::sim::world::RevealOutcome::Revealed { .. }
     ));
     let coord = super::navcom::nav_target_coordinate(
-        crate::sim::components::NavTargetRef::Building { id: 1 },
+        crate::sim::components::NavTargetRef::Object { id: 1 },
         None,
-        &sim.substrate.entities,
+        &sim,
         sim.resolved_terrain.as_ref(),
         Some((&rules, &sim.interner)),
     )
@@ -1402,7 +1387,7 @@ fn foot_set_location_always_writes_but_moves_riders_only_on_a_change() {
         .set_sub_y_for_test(SimFixed::from_num(128));
     transport.position.set_exact_z_leptons_for_test(Some(0));
     let mut cargo = PassengerCargo::new(5, 2);
-    assert!(cargo.board(2, 1));
+    cargo.board_forced_chain(&[(2, 1)]);
     transport.passenger_role = PassengerRole::transport(cargo);
     let mut rider = GameEntity::test_default(2, "E1", "Americans", 3, 0);
     rider.passenger_role = PassengerRole::inside_for_test(1, true);

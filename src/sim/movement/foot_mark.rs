@@ -39,9 +39,8 @@
 //!   Limbo pass none, as before this owner existed.
 //!
 //! Mark's list choice is `occupancy::cell_list_layer_for_entity`. Readers of
-//! list membership follow the lists themselves: list walks
-//! (`Simulation::cell_object_list_location`) and the vehicle plane
-//! (`CellOccupationGrid::reconcile_entity`). The blocker plane
+//! list membership follow the lists themselves, as list walks
+//! (`Simulation::cell_object_list_location`) do. The blocker plane
 //! (`bump_crush::blocker_plane_source`) derives it from the object through the
 //! same choice and `cell_marked`: for buildings, and for mobiles only in a
 //! world without an overlay grid. With one, mobiles reach the plane through
@@ -103,13 +102,18 @@ impl InfantrySpot {
     /// Hold the spot of the in-cell offset `(sub_x, sub_y)` that an
     /// infantryman was put at without a search: the offset's quadrant, as
     /// PlaceInfantryInCell's priority placement returns it
-    /// ([`priority_sub_cell`](super::bump_crush::priority_sub_cell)).
+    /// ([`crate::sim::cell_kernel::infantry_preferred_spot`]).
     pub(crate) fn hold_offset(
         &mut self,
         sub_x: crate::util::fixed_math::SimFixed,
         sub_y: crate::util::fixed_math::SimFixed,
     ) {
-        self.0 = Some(super::bump_crush::priority_sub_cell(sub_x, sub_y));
+        self.0 = Some(crate::sim::cell_kernel::infantry_preferred_spot(
+            crate::sim::cell_kernel::CellQueryPoint {
+                x: sub_x.to_num::<i32>(),
+                y: sub_y.to_num::<i32>(),
+            },
+        ));
     }
 
     /// Hold no spot: a non-infantry object, or an infantryman built in limbo
@@ -422,7 +426,7 @@ impl Simulation {
         };
         match entity.category() {
             EntityCategory::Unit => {
-                self.track_raw_mark_at(id, coord, put);
+                self.track_raw_mark_at(coord, put);
             }
             EntityCategory::Infantry => {
                 let owner = entity.owner();

@@ -74,19 +74,13 @@ fn world(input: &Value, facing: u16) -> (Simulation, RuleSet) {
     let mut actor = unit(ACTOR, "KIROV", (10, 10), (128, 128));
     let target = target(input);
     if input["target"] != false {
-        actor.attack_target.set_for_test(Some(match target {
-            TargetKind::Entity(id) => TargetKind::Entity(id),
-            TargetKind::Cell(rx, ry) => TargetKind::Cell(rx, ry),
-        }));
+        actor.attack_target.set_for_test(Some(target));
     }
     actor
         .navigation
         .set_nav_com_for_test(match input["nav"].as_str().unwrap_or("none") {
             "none" => None,
-            "target" => Some(match target {
-                TargetKind::Entity(id) => NavTargetRef::object(id),
-                TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-            }),
+            "target" => Some(NavTargetRef::from(target)),
             "other" => Some(NavTargetRef::object(OTHER)),
             _ => Some(NavTargetRef::cell(11, 10)),
         });
@@ -159,11 +153,7 @@ fn balloon_approach_arm_matches_the_original() {
         let answer = sim.balloon_hover_approach(ACTOR, &rules);
         assert_eq!(answer.is_some(), row["path"] == "returned", "{input}");
         if let Some(destination) = answer {
-            let expected = match target(input) {
-                TargetKind::Entity(id) => NavTargetRef::object(id),
-                TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-            };
-            assert_eq!(destination, expected, "{input}");
+            assert_eq!(destination, NavTargetRef::from(target(input)), "{input}");
             returned += 1;
         }
         // The missions pass no-move 0: then, and only then, the Target becomes
@@ -216,7 +206,7 @@ fn balloon_null_destination_arm_matches_the_original() {
         // Cell's its centre.
         let actor = sim.substrate.entities.get(ACTOR).unwrap();
         assert_eq!(
-            super::turret::facing_toward_target(actor, &target(input), &sim.substrate.entities),
+            super::turret::facing_toward_target(actor, &target(input), &sim),
             Some(row["direction"].as_u64().unwrap() as u16),
             "{input}"
         );
@@ -261,12 +251,8 @@ fn stop_clears_an_attacking_balloons_destination() {
         });
         let (mut sim, rules) = world(&input, 0);
         let actor = sim.substrate.entities.get(ACTOR).unwrap();
-        let direction = super::turret::facing_toward_target(
-            actor,
-            &TargetKind::Entity(TARGET),
-            &sim.substrate.entities,
-        )
-        .unwrap();
+        let direction =
+            super::turret::facing_toward_target(actor, &TargetKind::Entity(TARGET), &sim).unwrap();
         sim.substrate.entities.get_mut(ACTOR).unwrap().body_facing = FacingClass::new(direction, 0);
 
         assert!(sim.apply_command(

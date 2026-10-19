@@ -545,10 +545,7 @@ fn drive_across_high_bridge_with_order(
     };
     // The move-issue path reports every refusal reason through `log::warn!`; without
     // a logger a rejected order is indistinguishable from a height defect.
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let mut scenario = match headless_scenario::load(&retail, map_file, SEED) {
         Ok(scenario) => scenario,
@@ -650,12 +647,7 @@ fn drive_across_high_bridge_with_order(
     );
     scenario
         .runtime
-        .advance_frame(
-            &[order],
-            SIM_TICK_MS,
-            TickLane::Ordinary,
-            crate::sim::world::FrameEffects::default(),
-        )
+        .advance_frame(&[order], SIM_TICK_MS, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
         .expect("fixture frame must complete");
 
     let ordered_path = accepted_route(&scenario, entity_id);
@@ -969,7 +961,7 @@ fn drive_across_high_bridge_with_order(
 //   has_bridge_deck = true        bridge_deck_level == ground_level  (no +4)
 //   bridge_structural = false     bridge_walkable   = false
 //   transition        = false     ground_walkable   = true
-//   zone_type = 0 (Ground)        LandType  = 1 (Road)   is_water = false
+//   zone_type = 0 (Ground)        LandType  = 1 (Road)
 //   tube_index = None             low_bridge_tube_cell = false
 //
 // The first line is the whole geometry: `resolve_overlay`
@@ -983,7 +975,7 @@ fn drive_across_high_bridge_with_order(
 //
 // The last line is the surprise and it is recorded, not worked around: the
 // `TubeClass` marker is absent from the entire measured corpus. It is gated on
-// `yr_cell_land_type == YR_CELL_LAND_TUNNEL` (10), but a low-bridge overlay
+// `land_type == LandType::Tunnel` (10), but a low-bridge overlay
 // rewrites the cell's Land to Road (1), and `build_auto_low_bridge_tubes`
 // matches *iso-tile* ids, not overlays. So `tube_movement.rs` and
 // `PathCell::low_bridge_tube_cell` are not on the stock low-bridge crossing
@@ -1184,11 +1176,11 @@ fn print_low_inventory(terrain: &ResolvedTerrainGrid, grid: &PathGrid, span: &Lo
             rt.tube_index
                 .and_then(|t| terrain.tube(t))
                 .map(|t| t.source),
-            rt.yr_cell_land_type,
+            rt.land_type,
             rt.land_type,
             rt.base_land_type,
             rt.base_ground_walk_blocked,
-            rt.is_water,
+            rt.land_type == crate::rules::terrain_rules::LandType::Water.as_index(),
             rt.zone_type,
             pc.ground_walkable,
             pc.bridge_walkable,
@@ -1269,10 +1261,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
         eprintln!("SKIPPED: no retail root (set RA2_DIR or provide config.toml)");
         return;
     };
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let mut scenario = match headless_scenario::load(&retail, map_file, SEED) {
         Ok(scenario) => scenario,
@@ -1388,12 +1377,7 @@ fn drive_across_low_bridge(map_file: &str, unit_type: &str) {
     );
     scenario
         .runtime
-        .advance_frame(
-            &[order],
-            SIM_TICK_MS,
-            TickLane::Ordinary,
-            crate::sim::world::FrameEffects::default(),
-        )
+        .advance_frame(&[order], SIM_TICK_MS, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
         .expect("fixture frame must complete");
 
     match accepted_route(&scenario, entity_id) {
@@ -1790,10 +1774,11 @@ fn tank_crosses_hills_high_bridge_at_deck_height() {
     drive_across_high_bridge("Hills.mmx", "MTNK", true);
 }
 
-/// Matrix row T1-01. The Robot Tank is a **Hover** locomotor, and until
-/// `supports_layered_bridge_pathing` (`movement_path.rs`) admitted Hover it was
-/// excluded from the layered path builder, received the flat fallback path whose
-/// `path_layers` are `Ground` on every node including the deck cells, and was
+/// Matrix row T1-01. The Robot Tank is a **Hover** locomotor, and until a
+/// locomotor whitelist (since removed: every Find_Path runs one search) admitted
+/// Hover it was excluded from the layered path builder, received the flat
+/// fallback path whose `path_layers` are `Ground` on every node including the
+/// deck cells, and was
 /// then refused at the crossing loop's terrain test — which read the riverbed
 /// under the span. The order was never dropped, so it drove into the abutment
 /// and was snapped back to cell centre indefinitely.
@@ -1951,10 +1936,7 @@ fn tank_repathing_around_a_deck_blocker_stays_on_the_bridge_layer() {
         eprintln!("SKIPPED: no retail root (set RA2_DIR or provide config.toml)");
         return;
     };
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let map_file = "BayOPigs.mmx";
     let mut scenario = match headless_scenario::load(&retail, map_file, SEED) {
@@ -2325,7 +2307,9 @@ fn retail_damaged_bridge_inventory() {
                 cells.len(),
                 pc.map(|c| c.ground_walkable),
                 pc.map(|c| c.ground_level),
-                terrain.cell(sample.0, sample.1).map(|c| c.is_water),
+                terrain
+                    .cell(sample.0, sample.1)
+                    .map(|c| c.land_type == crate::rules::terrain_rules::LandType::Water.as_index()),
             );
         }
     }
@@ -2472,10 +2456,7 @@ fn tank_ordered_across_the_deadman_collapse_gap_never_drives_into_it() {
         eprintln!("SKIPPED: no retail root (set RA2_DIR or provide config.toml)");
         return;
     };
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let map_file = "Deadman.mmx";
     let mut scenario = match headless_scenario::load(&retail, map_file, SEED) {
@@ -2542,8 +2523,7 @@ fn tank_ordered_across_the_deadman_collapse_gap_never_drives_into_it() {
             )],
             SIM_TICK_MS,
             TickLane::Ordinary,
-            crate::sim::world::FrameEffects::default(),
-        )
+         crate::sim::world::FrameEffects::default(),)
         .expect("fixture frame must complete");
     let accepted = accepted_route(&scenario, entity_id).map(|path| (path.len(), path));
     println!(
@@ -2648,10 +2628,7 @@ fn tank_cannot_cross_a_destroyed_shrapnel_low_bridge() {
         eprintln!("SKIPPED: no retail root (set RA2_DIR or provide config.toml)");
         return;
     };
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     /// The terminal sinks of the wood low-bridge damage table.
     const DESTROYED_LOW_OVERLAYS: [u8; 2] = [0x64, 0x65];
@@ -2753,8 +2730,7 @@ fn tank_cannot_cross_a_destroyed_shrapnel_low_bridge() {
             )],
             SIM_TICK_MS,
             TickLane::Ordinary,
-            crate::sim::world::FrameEffects::default(),
-        )
+         crate::sim::world::FrameEffects::default(),)
         .expect("fixture frame must complete");
     let accepted = accepted_route(&scenario, entity_id).map(|path| path.len());
     println!("ordinary Command::Move across the destroyed strip: path={accepted:?}");
@@ -2989,13 +2965,13 @@ fn print_under_cell_row(
         pc.ground_level,
         pc.bridge_deck_level,
         pc.ground_walkable,
-        rt.is_water,
-        rt.is_cliff_like,
+        rt.land_type == crate::rules::terrain_rules::LandType::Water.as_index(),
+        rt.land_type == crate::rules::terrain_rules::LandType::Rock.as_index(),
         rt.ground_walk_blocked,
         rt.base_ground_walk_blocked,
         rt.land_type,
         rt.base_land_type,
-        rt.yr_cell_land_type,
+        rt.land_type,
         rt.zone_type,
         cost(SpeedType::Foot),
         cost(SpeedType::Track),
@@ -3272,10 +3248,7 @@ fn record_until(
 /// which is itself the answer for that locomotor on that fixture.
 fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun> {
     let retail = retail_dir()?;
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let mut scenario = match headless_scenario::load(&retail, map_file, SEED) {
         Ok(scenario) => scenario,
@@ -3382,8 +3355,7 @@ fn order_under_high_span(map_file: &str, unit_type: &str) -> Option<UnderSpanRun
             )],
             SIM_TICK_MS,
             TickLane::Ordinary,
-            crate::sim::world::FrameEffects::default(),
-        )
+         crate::sim::world::FrameEffects::default(),)
         .expect("fixture frame must complete");
     let path = accepted_route(&scenario, entity_id).map(|path| path.len());
     println!("ordinary Command::Move {start_cell:?} -> {under_b:?}: path={path:?}");
@@ -3614,6 +3586,46 @@ fn hover_tank_ordered_under_bay_of_pigs_high_bridge_crosses_all_four_ground_lane
     }
 }
 
+/// A Ship under the same `BayOPigs.mmx` span. `DEST` is `MovementZone=Water`,
+/// a row `AStar_pathfind_search` (`0x0042C900`) gates like any other: raw
+/// labels (`0x0042CB22`), then `Zone_precheck` (`0x0042C290`) and its
+/// corridor. The river is one Water zone beneath the deck, so the ordinary
+/// Move is admitted and the route crosses every lane at the riverbed's height.
+/// A Rust movement regression on retail data, not a native capture.
+#[test]
+#[ignore = "requires a retail RA2/YR install (RA2_DIR or config.toml)"]
+fn ship_ordered_under_bay_of_pigs_high_bridge_crosses_all_four_lanes() {
+    if retail_dir().is_none() {
+        return;
+    }
+    let run = order_under_high_span("BayOPigs.mmx", "DEST")
+        .expect("DEST must spawn on the riverbed beside the BayOPigs span");
+    judge_under_span_run(&run, "DEST", "BayOPigs.mmx");
+    assert_eq!(run.start_cell, (108, 143));
+    assert_eq!(run.cut.under_b, Some((115, 143)));
+    assert_eq!(
+        run.cut.band,
+        vec![(110, 143), (111, 143), (112, 143), (113, 143)]
+    );
+    assert!(
+        run.order_accepted,
+        "ordinary Move beneath the span must be accepted"
+    );
+    assert_eq!(run.rows.last().map(|row| row.cell), run.cut.under_b);
+    assert!(
+        run.deck_frames().is_empty(),
+        "the route must stay beneath the deck"
+    );
+    let under_cells: std::collections::BTreeSet<_> =
+        run.under_frames().iter().map(|row| row.cell).collect();
+    for cell in &run.cut.band {
+        assert!(
+            under_cells.contains(cell),
+            "under-span route skipped lane {cell:?}"
+        );
+    }
+}
+
 /// The T1-13 arm on `BayOPigs.mmx`: an `MTNK` cannot be placed on, or ordered
 /// along, the riverbed beside this span at all.
 ///
@@ -3653,8 +3665,9 @@ fn tank_cannot_reach_the_riverbed_beside_bay_of_pigs_high_bridge() {
         // (`0x0073FAB5`, `world::object_entry`).
         let track_row = rt.speed_costs.cost_for_speed_type(SpeedType::Track);
         println!(
-            "riverbed {cell:?}: Track row {track_row:?} is_water={} zone_type={}",
-            rt.is_water, rt.zone_type,
+            "riverbed {cell:?}: Track row {track_row:?} water={} zone_type={}",
+            rt.land_type == crate::rules::terrain_rules::LandType::Water.as_index(),
+            rt.zone_type,
         );
         assert_eq!(
             track_row,
@@ -3689,10 +3702,7 @@ fn deck_and_ground_under_one_high_bridge_cell_are_separate_occupancy_planes() {
         eprintln!("SKIPPED: no retail root (set RA2_DIR or provide config.toml)");
         return;
     };
-    let _ = env_logger::builder()
-        .is_test(false)
-        .filter_level(log::LevelFilter::Warn)
-        .try_init();
+    let _ = crate::util::logging::init_stderr_logger("warn");
 
     let mut scenario =
         headless_scenario::load(&retail, "Hills.mmx", SEED).expect("Hills.mmx loads");
@@ -3985,12 +3995,7 @@ fn scale_benchmark_many_movers_on_hills() {
         let started = std::time::Instant::now();
         scenario
             .runtime
-            .advance_frame(
-                batch,
-                SIM_TICK_MS,
-                TickLane::Ordinary,
-                crate::sim::world::FrameEffects::default(),
-            )
+            .advance_frame(batch, SIM_TICK_MS, TickLane::Ordinary, crate::sim::world::FrameEffects::default())
             .expect("frame completes");
         let elapsed = started.elapsed();
         total += elapsed;

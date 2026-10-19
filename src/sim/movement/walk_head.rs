@@ -16,7 +16,7 @@ pub(crate) fn selected_head(
     input_ground_z: i32,
     bridge: bool,
 ) -> DriveCoord {
-    let (x, y, _) = crate::sim::cell_kernel::infantry_subcell_offset(slot);
+    let (x, y) = crate::util::lepton::subcell_offset(slot);
     DriveCoord {
         x: (input.x & !255).wrapping_add(x),
         y: (input.y & !255).wrapping_add(y),
@@ -459,7 +459,6 @@ mod tests {
         let c = terrain.cell_mut(10, 10).unwrap();
         c.level = 2;
         c.slope_type = 1;
-        let mut ordinary_cell_rows = 0;
         for row in selections {
             let i = &row["input"];
             let out = &row["output"];
@@ -482,7 +481,7 @@ mod tests {
                 layer,
                 input,
                 i["priority"].as_bool().unwrap(),
-                i["gate"] == 2,
+                super::super::bump_crush::GroundGate::Recorded(i["gate"] == 2),
                 &mut rng,
             );
             let z = super::super::ground_pose::ground_surface_z_at(
@@ -506,39 +505,7 @@ mod tests {
                 out["random_indices"][1].as_i64().unwrap() as i32,
                 "{i}"
             );
-            if !i["priority"].as_bool().unwrap() && i["gate"] != 2 {
-                // Existing crew/slave/unload callers supply no priority or
-                // Gate exception. Compare their cell/subcell entry to these
-                // same original results, including the selected plane/draw.
-                let mut rng = crate::sim::rng::SimRng::new(i["seed"].as_u64().unwrap());
-                let slot = super::super::bump_crush::place_infantry_in_cell(
-                    &raw,
-                    10,
-                    10,
-                    layer,
-                    SimFixed::from_num(input.x & 255),
-                    SimFixed::from_num(input.y & 255),
-                    &mut rng,
-                );
-                assert_eq!(
-                    slot.map(|s| selected_head(input, s, z, bridge)),
-                    expected,
-                    "ordinary cell entry {i}"
-                );
-                assert_eq!(
-                    rng.logical_view().index_a,
-                    out["random_indices"][0].as_i64().unwrap() as i32,
-                    "ordinary cell entry {i}"
-                );
-                assert_eq!(
-                    rng.logical_view().index_b,
-                    out["random_indices"][1].as_i64().unwrap() as i32,
-                    "ordinary cell entry {i}"
-                );
-                ordinary_cell_rows += 1;
-            }
         }
-        assert_eq!(ordinary_cell_rows, 72);
         let rows = data["raw"].as_array().unwrap();
         assert_eq!(rows.len(), 160);
         for row in rows {
@@ -972,11 +939,7 @@ pub(super) fn select_step_head_at(
     let mut priority = false;
     if [7, 8, 9, 11, 25].contains(&entity.mission.current().raw()) {
         let target = match entity.navigation.nav_com() {
-            Some(
-                crate::sim::components::NavTargetRef::Entity { id }
-                | crate::sim::components::NavTargetRef::Object { id }
-                | crate::sim::components::NavTargetRef::Building { id },
-            ) => entities.get(id),
+            Some(crate::sim::components::NavTargetRef::Object { id }) => entities.get(id),
             _ => None,
         };
         if let Some(target) = target {
@@ -1014,10 +977,9 @@ pub(super) fn select_step_head_at(
         priority |= slave_priority;
     }
     //75C4C8 reloads input Cell after the complete priority corridor.
-    let (cell, structural, raw_key) = terrain.map_or_else(
+    let (structural, raw_key) = terrain.map_or_else(
         || {
             (
-                next,
                 grid.and_then(|g| g.cell(next.0, next.1))
                     .is_some_and(|c| c.bridge_structural),
                 RawCellKey::Real(next.0, next.1),
@@ -1025,9 +987,7 @@ pub(super) fn select_step_head_at(
         },
         |t| {
             let selected = t.native_cell_identity(((input.x / 256) as i16, (input.y / 256) as i16));
-            let c = t.native_cell_coord(selected);
             (
-                (c.0 as u16, c.1 as u16),
                 t.native_cell_flags(selected) & 0x100 != 0,
                 RawCellKey::from_native(t, selected),
             )
@@ -1038,27 +998,22 @@ pub(super) fn select_step_head_at(
             > super::ground_pose::ground_surface_z_at([input.x, input.y], false, terrain, grid)
                 .unwrap_or(current.z)
                 .wrapping_add(312);
-    let ground_raw = raw.bits_at(raw_key, MovementLayer::Ground);
-    let selected_raw = if bridge {
-        raw.bits_at(raw_key, MovementLayer::Bridge)
-    } else {
-        ground_raw
-    };
-    let gate_open = if !priority && selected_raw & 0x20 == 0 && ground_raw & 0x40 != 0 {
-        super::bump_crush::ground_gate_is_open(occupancy, entities, rules, interner, cell)
-    } else {
-        false
-    };
     let layer = if bridge {
         MovementLayer::Bridge
     } else {
         MovementLayer::Ground
     };
+    let gate = super::bump_crush::GroundGate::Live {
+        occupancy,
+        entities,
+        rules,
+        interner,
+    };
     //75C541..75C562 stores PlaceInfantryInCell's answer as the head; a
     //failed placement answers the empty coordinate, so the head is dropped
     //and 75C5C5 Marks current.
     let Some(slot) = super::bump_crush::place_infantry_in_native_cell(
-        raw, raw_key, layer, input, priority, gate_open, rng,
+        raw, raw_key, layer, input, priority, gate, rng,
     ) else {
         if let Some(loco) = entities.get_mut(id).and_then(|e| e.locomotor.as_mut()) {
             loco.set_step_head(None);

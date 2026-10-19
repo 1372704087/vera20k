@@ -434,6 +434,7 @@ fn apply_history_selection(
         std::mem::take(&mut input.selection_order),
         input.follow_target,
         step["before"]["placement"].as_bool().unwrap(),
+        false,
         mutation,
     );
     assert_eq!(
@@ -1182,6 +1183,7 @@ fn combatant_native_cleanup_boundaries_reconcile_without_resetting_map_scope() {
                 input.selection_order,
                 None,
                 false,
+                false,
                 &result.mutation,
             );
             assert_eq!(
@@ -1328,6 +1330,7 @@ fn combatant_histories_match_native_membership_scope_follow_and_voice_continuati
                         ordered,
                         follow,
                         false,
+                        false,
                         &SelectionMutation {
                             deselect: vec![step["id"].as_u64().unwrap()],
                             ..Default::default()
@@ -1405,6 +1408,7 @@ fn combatant_histories_match_native_membership_scope_follow_and_voice_continuati
                 ordered,
                 follow,
                 before["placement"].as_bool().unwrap(),
+                false,
                 &result.mutation,
             );
             assert_eq!(
@@ -1741,7 +1745,23 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
     ini.push_str(
         "[DOCKBUILDING]\nStrength=100\nFoundation=1x1\n[GUN]\nDamage=10\n[QUIETGUN]\nDamage=0\n",
     );
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(&ini)).expect("native control types");
+    // The production binder reads the ordinary lists against a catalog that
+    // registers every authored voice.
+    let sound_names: Vec<String> = inputs
+        .actors
+        .iter()
+        .flat_map(|actor| {
+            actor
+                .voice_list
+                .iter()
+                .chain(actor.enslaved_voice_list.iter().flatten())
+        })
+        .filter(|&&id| id >= 0)
+        .map(|id| format!("Sound{id}"))
+        .collect();
+    let sound_names: Vec<&str> = sound_names.iter().map(String::as_str).collect();
+    let mut rules = RuleSet::from_ini_with_sounds_for_test(&IniFile::from_str(&ini), &sound_names)
+        .expect("native control types");
     for actor in &inputs.actors {
         let unbound = |voices: &[i64]| voices.contains(&-1);
         if unbound(&actor.voice_list) || actor.enslaved_voice_list.as_deref().is_some_and(unbound) {
@@ -1829,7 +1849,9 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
             entity.mission_only.mark();
         }
         if actor.virtual_1d4 {
-            entity.temporal = crate::sim::temporal::TemporalState::warped_by_for_test(999);
+            entity.set_temporal_for_test(crate::sim::temporal::TemporalState::warped_by_for_test(
+                999,
+            ));
         }
         if actor.slave {
             entity.slave = crate::sim::slave_manager::SlaveLink::for_test(Some(999), Vec::new());
@@ -2004,6 +2026,7 @@ fn execute_histories_match_selection_follow_modes_placement_and_camera() {
                     current,
                     follow,
                     row.placement,
+                    false,
                     &SelectionMutation {
                         clear: true,
                         select: vec![id],
@@ -2206,6 +2229,7 @@ fn snapshot_restores_singleton_anchor_and_retained_layer_order_for_next_key() {
         current,
         row.follow,
         false,
+        false,
         &SelectionMutation {
             clear: true,
             select: vec![candidate],
@@ -2267,6 +2291,7 @@ fn snapshot_restores_singleton_anchor_and_retained_layer_order_for_next_key() {
         Some(&rules),
         current,
         first.follow_target,
+        false,
         false,
         &SelectionMutation {
             clear: true,

@@ -11,10 +11,7 @@ pub(crate) fn commit_prepared_load(
     prepared: crate::app::persistence::PreparedSavedGame,
     from_menu: bool,
 ) {
-    let wall_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::radar_movie::retire(state, wall_ms);
     crate::app::chrono_screen::retire(state, wall_ms);
     let native_tiberium_stats = prepared.native_tiberium_stats();
@@ -72,6 +69,21 @@ pub(crate) fn commit_prepared_load(
         .session
         .restore_from_save(game_mode_nonzero, committed.map.local_player_name());
     state.match_state.scenario_elapsed_clock = committed.elapsed_clock;
+    #[cfg(feature = "telemetry-dashboard")]
+    crate::app::telemetry_capture::reset_observation(state);
+    super::scenario_pause::load_clock(state, wall_ms);
+    let pause_effects = state
+        .match_state
+        .sim_runtime
+        .as_mut()
+        .map_or_else(Vec::new, |rt| {
+            crate::app::radar_movie::release_saved_scenario_hold(
+                &mut rt.simulation,
+                committed.map.radar_pause_credit(),
+            )
+        });
+    // Load rearms614; reapply physical audio without a new pause acquisition.
+    super::scenario_pause::resume(state, wall_ms);
     state.match_state.sandbox_full_visibility = false;
     let runtime = state
         .match_state
@@ -87,6 +99,7 @@ pub(crate) fn commit_prepared_load(
     let binary_frame = runtime.simulation.session.binary_frame;
     let map = crate::app::loading::transitions::MapPresentationInputs {
         basic: committed.map.basic().clone(),
+        ranking: committed.map.ranking().clone(),
         source: committed.map.source().clone(),
         map_hash: Some(committed.map.map_hash()),
         terrain_grid: committed.terrain_grid,
@@ -105,11 +118,16 @@ pub(crate) fn commit_prepared_load(
         committed.presentation,
     );
 
+    // MouseLoad5BE092 restores incoming Power; SidebarNoInit6A4F89/94
+    // rearms only slide. Sample after world adoption so diagnostic time uses
+    // the incoming tick too. Rejected preparation never reaches this commit.
+    let power_ms = state.radar_presentation_ms();
+    let mut power = committed.power_bar_anim;
+    power.reanchor_after_load(power_ms);
+    state.match_state.match_presentation.power_bar_anim = power;
+
     crate::app::audio_runtime::bind_match_theme_context(state);
-    let music_now_ms = crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(
-        state,
-        std::time::Instant::now(),
-    );
+    let music_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     if let Some(assets) = state.process_assets.manager() {
         state.audio.restore_saved_theme(
             committed.map.theme_slots(),
@@ -167,7 +185,22 @@ pub(crate) fn commit_prepared_load(
 
     // Reset pacing, not saved simulation input delay or elapsed score time.
     state.platform.frame_pacer.reset_for_immediate_frame();
-    state.persistence.last_loaded_save_path = Some(path.to_path_buf());
     crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+    // The incoming chrome owns the footer allowance; refresh its layout
+    // before initializing derived geometry, including on a cold/different-side
+    // load. No Power AI visit or retained-band clamp belongs in this phase.
+    let power_budget = crate::app::presentation::building_anim::power_bar_budget_px(state);
+    state
+        .match_state
+        .match_presentation
+        .power_bar_anim
+        .set_max_segments(power_budget);
+    log::debug!(
+        "Load: restored Power at {power_ms}ms: {:?}",
+        state.match_state.match_presentation.power_bar_anim,
+    );
+    // Apply after the incoming local view, so lock cleanup cannot be undone
+    // by the saved targeting/cursor projection.
+    super::sim_tick::apply_trigger_effects(state, &pause_effects);
     log::info!("Load: restored simulation from {}", path.display());
 }

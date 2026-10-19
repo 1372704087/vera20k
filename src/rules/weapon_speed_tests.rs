@@ -15,11 +15,8 @@ fn cached_ini(sections: &Value) -> IniFile {
     ini
 }
 
-fn scalar_corpus() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/rules_oracle/weapon_speed.json",
-    ))
-    .unwrap()
+fn scalar_corpus() -> &'static Value {
+    crate::test_fixture::json("tools/rules_oracle/weapon_speed.json")
 }
 
 #[test]
@@ -169,6 +166,7 @@ fn retail_ifv_speed_passes_production_cold_start_and_scenario_rules_owner() {
         None,
         art,
         std::sync::Arc::default(),
+        Default::default(),
     )
     .unwrap();
     let (rules, _, _, _) = owner

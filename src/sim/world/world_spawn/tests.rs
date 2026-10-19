@@ -74,11 +74,10 @@ fn infantry_unlimbo_placement_matches_original_coordinate_and_rng_controls() {
         );
         if let (Some(position), Some(foot)) = (result, foot) {
             assert_eq!(
-                serde_json::json!([
-                    i32::from(position.rx()) * 256 + position.sub_x().to_num::<i32>(),
-                    i32::from(position.ry()) * 256 + position.sub_y().to_num::<i32>(),
-                    raw_z,
-                ]),
+                {
+                    let [x, y] = crate::sim::movement::ground_pose::position_world_xy(&position);
+                    serde_json::json!([x, y, raw_z])
+                },
                 foot[2],
                 "{input}"
             );
@@ -400,6 +399,7 @@ fn map_entity(type_id: &str, category: EntityCategory, cell: (u16, u16)) -> MapE
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
+        structure_online: true,
         trigger_tag: None,
     }
 }
@@ -1098,8 +1098,8 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .unwrap();
         assert_eq!(
             entity.sight.range(),
-            0,
-            "all three inputs lose information in fog range"
+            sight,
+            "the native signed Type Sight survives construction"
         );
         assert_eq!(entity.sight.is_zero(), sight == 0);
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
@@ -1128,7 +1128,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
             .get_mut(id)
             .unwrap()
             .sight
-            .set_sight_is_zero_for_test(sight != 0);
+            .stamp_type_sight(if sight == 0 { 1 } else { 0 });
         assert_ne!(
             changed_type_predicate.state_hash(),
             hash,
@@ -1669,7 +1669,6 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
     ] {
         for route in 0..3 {
             let mut sim = Simulation::with_seed(0xC701_0021);
-            sim.debug_event_logging = true;
             install_american_house(&mut sim);
             if type_id == "CREW" && route != 0 {
                 sim.spawn_object_at_height(type_id, "Americans", 4, 4, 64, 0, &rules)
@@ -1695,7 +1694,6 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                     .unwrap(),
             };
             let entity = sim.substrate.entities.get(id).unwrap();
-            assert!(entity.debug_log().is_some(), "{type_id} route {route}");
             assert!(entity.tracking_facts.dont_score());
             assert_eq!(entity.health.current(), if route == 0 { 100 } else { 200 });
             assert_eq!(entity.veterancy.rank(), if route == 0 { 100 } else { 0 });
@@ -1765,10 +1763,7 @@ fn techno_constructor_routes_preserve_components_and_authored_overrides() {
                 }
                 "PLANE" => {
                     assert_eq!(
-                        entity
-                            .aircraft_ammo
-                            .as_ref()
-                            .map(|ammo| (ammo.current(), ammo.max())),
+                        entity.ammo().map(|ammo| (ammo.current(), ammo.max())),
                         Some((5, 5))
                     );
                 }
@@ -2652,7 +2647,7 @@ fn aircraft_ammo_initialization_matches_native_for_authored_and_runtime_objects(
         assert_eq!(sim.spawn_from_map(&[placement], Some(&rules)), 1);
         let authored = sim.substrate.entities.values().next().unwrap();
         for entity in [&runtime, authored] {
-            let ammo = entity.aircraft_ammo.as_ref().unwrap();
+            let ammo = entity.ammo().unwrap();
             assert_eq!(
                 ammo.current(),
                 row["ammo"].as_i64().unwrap() as i32,

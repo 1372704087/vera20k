@@ -19,11 +19,8 @@ use crate::sim::world::{LifecycleOutput, Simulation, TickLane};
 use crate::util::fixed_math::SimFixed;
 use serde_json::{Value, json};
 
-fn native() -> Value {
-    serde_json::from_str(crate::test_fixture::text(
-        "tools/spatial_oracle/building_prism.json",
-    ))
-    .unwrap()
+fn native() -> &'static Value {
+    crate::test_fixture::json("tools/spatial_oracle/building_prism.json")
 }
 
 fn xyz(value: &Value) -> [i32; 3] {
@@ -302,7 +299,7 @@ fn direct_laser_keeps_explicit_source_and_native_constructor_defaults() {
         &mut sim,
         &rules,
         1,
-        super::TargetKind::Entity(2).into(),
+        crate::sim::projectile::ProjectileTarget::Entity(2),
         0,
         rules.weapon("LaserProbe").unwrap(),
         Some(from),
@@ -325,7 +322,7 @@ fn direct_laser_keeps_explicit_source_and_native_constructor_defaults() {
             &mut sim,
             &rules,
             1,
-            super::TargetKind::Entity(2).into(),
+            crate::sim::projectile::ProjectileTarget::Entity(2),
             0,
             rules.weapon("LaserProbe").unwrap(),
             source,
@@ -381,7 +378,6 @@ fn production_frame_orders_laser_update_before_delayed_support_birth() {
             None,
             67,
             TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
@@ -490,7 +486,6 @@ fn retail_delayed_main_uses_preclear_count_and_failed_admission_emits_no_laser()
                 None,
                 67,
                 TickLane::Ordinary,
-                None,
                 crate::sim::world::FrameEffects::default(),
             )
             .unwrap();

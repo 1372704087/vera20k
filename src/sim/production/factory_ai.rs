@@ -58,7 +58,9 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
-use super::factory_lifecycle::{abandon_production, record_last_built, start_active_production};
+use super::factory_lifecycle::{
+    BuiltObject, abandon_production, record_last_built, start_active_production,
+};
 use super::production_queue::exit_produced_object;
 use super::production_tech::production_category_for_object;
 
@@ -145,7 +147,10 @@ fn exit_finished_object(
     }
     match exit {
         BuildingExit::Placed => {
-            record_last_built(sim, rules, owner, object.type_id);
+            //4501A4 reads after exit. A consumed wall is still retained at
+            //its constructor Location until the frame's shared725C70 drain.
+            let object = BuiltObject::capture(sim, product);
+            record_last_built(sim, rules, owner, object);
             // CompletedProduction lets the placed object go; the delete
             // finds none to abandon.
             sim.production.factories.remove_building_factory(building);
@@ -193,9 +198,7 @@ fn abandon_stopped_factory(
         .production
         .factories
         .building_factory(building)
-        .is_some_and(|factory| {
-            factory.step_rate_frames == 0 || factory.suspended || factory.manual
-        });
+        .is_some_and(|factory| !factory.view().is_running());
     if stopped {
         abandon_production(
             sim,
@@ -253,6 +256,7 @@ fn start_factory(
         FactoryHolder::Building(building),
         type_id,
         effects,
+        false,
     )
     .is_none()
     {
@@ -322,14 +326,22 @@ pub(crate) fn detach_all(
             effects,
         ),
         None => {
+            let holder = FactoryHolder::Building(building);
             let object = sim
                 .production
                 .factories
-                .abandon_factory(FactoryHolder::Building(building))
+                .pending_abandonment(holder)
                 .and_then(|abandoned| abandoned.entity_id);
-            if let Some(object) = object {
-                let _ = sim.discard_constructed_limbo(object, rules, effects);
-            }
+            sim.production
+                .factories
+                .reset_for_abandon(holder, sim.session.binary_frame);
+            sim.with_object_placement_scope(|sim| {
+                if let Some(object) = object {
+                    let _ = sim.discard_constructed_limbo(object, rules, effects);
+                }
+                sim.production.factories.finish_abandon(holder);
+            });
+            sim.production.factories.remove_factory(holder);
         }
     }
 }

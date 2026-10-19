@@ -2,29 +2,59 @@
 //!
 //! Assembles the whole wire payload from live app state: the simulation-side
 //! capture (`Simulation::telemetry_snapshot`) plus the app-only facts —
-//! frame timing from the timing ring, and the debug-panel port of the former
-//! egui Terrain Debug / Event History panels (cursor cell, walkability,
-//! entities at the cursor, selected movers' paths, miner state and per-entity
-//! event logs).
+//! frame timing, cursor cell, walkability, selected movers' paths and miner
+//! state. Removed per-entity event hooks are not reintroduced for this view.
 //!
-//! Dependency rules: part of the app layer; reads state, mutates nothing.
+//! The app owns diagnostic samples and log delivery; gameplay state is read-only.
 
 use crate::app::AppState;
-use crate::app::types::SIM_TICK_MS;
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::SpeedType;
-use crate::sim::debug_event_log::{DebugEvent, DebugEventKind};
 use crate::sim::movement::motion_query;
 use crate::sim::telemetry::{
-    DebugEventEntry, DebugPanel, EntityDesc, LandRow, MinerDebug, PathStep, ProcessStats,
-    SelectedDebug, TelemetrySnapshot,
+    DebugPanel, EntityDesc, LandRow, MinerDebug, PathStep, ProcessStats, SelectedDebug,
+    TELEMETRY_MAX_NAME_BYTES, TelemetrySnapshot,
 };
 use crate::sim::world::Simulation;
 
-/// Events retained per selected entity — the egui panel's cap.
-const MAX_EVENTS: usize = 30;
-/// Path preview steps — the egui panel's cap.
+// Per-snapshot work and payload limits for the app-only detail pane.
+const MAX_SELECTED: usize = 32;
+const MAX_AT_CURSOR: usize = 32;
 const MAX_PATH_PREVIEW: usize = 8;
+const MAX_DETAIL_BYTES: usize = 256;
+const PUBLISH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// World replacement starts a new observation window without touching the world.
+pub(crate) fn reset_observation(state: &mut AppState) {
+    state.match_state.telemetry_timing.clear();
+    state.match_state.telemetry_tick_rate.clear();
+    state.diag.render_timing = Default::default();
+    state.diag.telemetry_last_publish = None;
+}
+
+pub(crate) fn synchronize_observer(state: &mut AppState) {
+    let active = state.diag.telemetry_active();
+    let simulation = state
+        .match_state
+        .sim_runtime
+        .as_mut()
+        .map(|rt| &mut rt.simulation);
+    if state
+        .diag
+        .telemetry_observer
+        .synchronize(simulation, active)
+    {
+        reset_observation(state);
+    }
+}
+
+fn bounded_text(value: &str, maximum: usize) -> String {
+    let mut end = value.len().min(maximum);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value[..end].to_owned()
+}
 
 /// Capture one full dashboard snapshot, or `None` when no match is running.
 pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
@@ -44,12 +74,18 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
             .resources
             .rules
             .side_name(crate::rules::ruleset::SideIdx(house.side_index))
-            .map(str::to_string);
+            .map(|name| bounded_text(name, TELEMETRY_MAX_NAME_BYTES));
     }
+    let speed = runtime
+        .simulation
+        .session
+        .game_options
+        .game_speed
+        .clamp(0, 6) as u8;
     let mut timing = state
         .match_state
         .telemetry_timing
-        .summarize(SIM_TICK_MS as f32);
+        .summarize(state.platform.frame_pacer.budget_ms(speed));
     // Each rate keeps its own owner: FPS is the render loop's, tick_hz is the
     // committed-tick meter's.
     timing.fps = state.diag.frame_timer.fps();
@@ -60,22 +96,20 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
     snapshot.timing = Some(timing);
     snapshot.debug = Some(capture_debug(state, &runtime.simulation));
     snapshot.process = Some(capture_process(state));
-    // The running split, read from the same accumulator the end-of-match
-    // report freezes: mean per frame since this match started.
+    // Mean per observed frame, accumulated only while a client is watching.
     snapshot.profile = runtime.simulation.frame_profile().report();
     // Render phases are process wall time, so they come from the app's meter
     // rather than the simulation's profile.
     snapshot.render = state.diag.render_timing.report();
-    // Log records since the previous snapshot. A map load can emit thousands a
-    // second; the newest win, and the rest are counted as dropped so the view
-    // never silently claims to be complete.
+    // Log records since the previous snapshot. Pending entries stay in the
+    // bounded ring; actual evictions are reported as dropped.
     let subscribed = state
         .diag
         .telemetry_server
         .as_ref()
         .is_none_or(|server| server.has_clients());
     if subscribed && let Some(ring) = crate::util::logging::ring() {
-        const MAX_PER_SNAPSHOT: usize = 300;
+        const MAX_PER_SNAPSHOT: usize = 64;
         let (lines, evicted) = ring.take_since_last(MAX_PER_SNAPSHOT);
         snapshot.logs = Some(crate::sim::telemetry::LogBatch {
             dropped: evicted,
@@ -99,24 +133,14 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
 /// resident. Pure observation — nothing here touches simulation state.
 fn capture_process(state: &AppState) -> ProcessStats {
     let mut stats = state.diag.process_stats.sample();
-    stats.gpu_adapter = Some(
-        state
-            .renderer
-            .gpu
-            .capture_adapter_observation()
-            .name
-            .to_string(),
-    );
+    stats.gpu_adapter = Some(bounded_text(
+        &state.renderer.gpu.capture_adapter_observation().name,
+        MAX_DETAIL_BYTES,
+    ));
     stats.gpu_texture_mb = resident_texture_mib(state);
     stats
 }
 
-/// Resident palette-index texture bytes, in MiB.
-///
-/// Both atlases page palette-index (`R8Uint`, one byte per pixel) textures, so
-/// a page's footprint is exactly its pixel count. This is deliberately the
-/// renderer's own accounting and not a driver query: it is exact for what we
-/// allocate and needs no vendor API.
 /// Resident palette-index texture bytes, in MiB.
 ///
 /// Both atlases page palette-index (`R8Uint`, one byte per pixel) textures, so
@@ -161,19 +185,31 @@ fn unit_atlas_bytes(state: &AppState) -> u64 {
         .unwrap_or(0)
 }
 
-/// Capture and publish one snapshot outside the tick-driven cadence. Used for
-/// updates that must be visible immediately: browser command echoes and frame
-/// steps (which commit a tick the `tick % 4` publish gate would otherwise
-/// skip, and while paused no later tick would publish it).
-pub fn publish_now(state: &AppState) {
-    let Some(server) = state.diag.telemetry_server.as_ref() else {
+/// Render-loop cadence also publishes paused worlds. No snapshot work or
+/// process queries occur without an authenticated subscriber.
+pub fn publish_if_due(state: &mut AppState) {
+    synchronize_observer(state);
+    if !state.diag.telemetry_observer.active() {
         return;
-    };
+    }
+    let now = std::time::Instant::now();
+    if state
+        .diag
+        .telemetry_last_publish
+        .is_some_and(|last| now.duration_since(last) < PUBLISH_INTERVAL)
+    {
+        return;
+    }
+    state.diag.telemetry_last_publish = Some(now);
     let Some(snapshot) = capture_snapshot(state) else {
         return;
     };
     match serde_json::to_string(&snapshot) {
-        Ok(json) => server.publish(json),
+        Ok(json) => {
+            if let Some(server) = state.diag.telemetry_server.as_ref() {
+                server.publish(json);
+            }
+        }
         Err(error) => log::warn!("telemetry publish failed: {error}"),
     }
 }
@@ -223,10 +259,19 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
         if entity.position.rx() != cursor_rx || entity.position.ry() != cursor_ry {
             continue;
         }
+        if entities_at_cursor.len() == MAX_AT_CURSOR {
+            break;
+        }
         entities_at_cursor.push(EntityDesc {
-            type_name: sim.interner.resolve(entity.type_ref()).to_string(),
+            type_name: bounded_text(
+                sim.interner.resolve(entity.type_ref()),
+                TELEMETRY_MAX_NAME_BYTES,
+            ),
             category: category_label(entity.category()).to_string(),
-            owner: sim.interner.resolve(entity.owner()).to_string(),
+            owner: bounded_text(
+                sim.interner.resolve(entity.owner()),
+                TELEMETRY_MAX_NAME_BYTES,
+            ),
             hp: entity.health.current(),
             max_hp: entity_max_hp(state, sim, entity),
         });
@@ -243,26 +288,29 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
                 .unwrap_or_else(|| "1x1".to_string());
             let (fw, fh) = crate::rules::foundation::foundation_dimensions(&foundation);
             let (ex, ey) = (entity.position.rx(), entity.position.ry());
-            if cursor_rx >= ex && cursor_rx < ex + fw && cursor_ry >= ey && cursor_ry < ey + fh {
+            if cursor_rx >= ex
+                && u32::from(cursor_rx) < u32::from(ex) + u32::from(fw)
+                && cursor_ry >= ey
+                && u32::from(cursor_ry) < u32::from(ey) + u32::from(fh)
+            {
                 footprint = Some(format!(
                     "{} ({}) @ ({},{}) {}",
-                    sim.interner.resolve(entity.type_ref()),
-                    foundation,
+                    bounded_text(
+                        sim.interner.resolve(entity.type_ref()),
+                        TELEMETRY_MAX_NAME_BYTES
+                    ),
+                    bounded_text(&foundation, TELEMETRY_MAX_NAME_BYTES),
                     ex,
                     ey,
-                    sim.interner.resolve(entity.owner())
+                    bounded_text(
+                        sim.interner.resolve(entity.owner()),
+                        TELEMETRY_MAX_NAME_BYTES
+                    )
                 ));
                 break;
             }
         }
     }
-
-    let selected: Vec<SelectedDebug> = sim
-        .entities()
-        .values()
-        .filter(|entity| entity.selection.is_selected())
-        .map(|entity| capture_selected(sim, entity, path_grid))
-        .collect();
 
     DebugPanel {
         cursor_cell: Some((cursor_rx, cursor_ry)),
@@ -279,17 +327,25 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
             .map(|atlas| atlas.rendered as u32),
         entities_at_cursor,
         footprint,
-        selected,
+        selected: capture_selection(sim),
         overlays: crate::sim::telemetry::OverlayFlags {
             terrain_costs: state.diag.debug_show_pathgrid,
             heightmap: state.diag.debug_show_heightmap,
             cell_grid: state.diag.debug_show_cell_grid,
             fog: !state.match_state.sandbox_full_visibility,
-            unit_inspector: state.diag.debug_unit_inspector,
             foot_path: state.diag.debug_show_foot_path,
             paused: state.match_state.paused(),
         },
     }
+}
+
+fn capture_selection(sim: &Simulation) -> Vec<SelectedDebug> {
+    sim.entities()
+        .values()
+        .filter(|entity| entity.selection.is_selected())
+        .take(MAX_SELECTED)
+        .map(|entity| capture_selected(sim, entity, sim.path_grid()))
+        .collect()
 }
 
 /// The egui panel's short category labels.
@@ -299,6 +355,51 @@ fn category_label(category: EntityCategory) -> &'static str {
         EntityCategory::Infantry => "Inf",
         EntityCategory::Structure => "Bld",
         EntityCategory::Aircraft => "Air",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::combat::Health;
+
+    #[test]
+    fn selection_capture_is_bounded_and_does_not_change_the_world() {
+        let mut sim = Simulation::with_seed(44);
+        let owner = sim.interner.intern("Americans");
+        let kind = sim.interner.intern(&"é<&\"".repeat(300));
+        for _ in 0..MAX_SELECTED + 4 {
+            let id = sim.insert_synthetic_techno_for_diagnostics(
+                5,
+                6,
+                0,
+                0,
+                owner,
+                Health::new(100),
+                kind,
+                EntityCategory::Unit,
+                0,
+                1,
+                true,
+            );
+            sim.entities_mut()
+                .get_mut(id)
+                .unwrap()
+                .selection
+                .set_selected_for_test(true);
+        }
+        let before = crate::util::save_codec::serialize(&sim).unwrap();
+        let selected = capture_selection(&sim);
+        assert_eq!(selected.len(), MAX_SELECTED);
+        assert!(
+            selected
+                .iter()
+                .all(|row| row.type_name.len() <= TELEMETRY_MAX_NAME_BYTES)
+        );
+        assert_eq!(before, crate::util::save_codec::serialize(&sim).unwrap());
+        let json = serde_json::to_value(&selected).unwrap();
+        assert!(json[0].get("events").is_none());
+        assert!(json[0].get("inspector_active").is_none());
     }
 }
 
@@ -314,8 +415,7 @@ fn entity_max_hp(
         .map_or(0, |obj| obj.strength)
 }
 
-/// One selected entity: identity, position, remaining path, miner state and
-/// its event log — the egui panel's per-selection block.
+/// One selected entity's current identity, position, path and miner state.
 fn capture_selected(
     sim: &Simulation,
     entity: &crate::sim::game_entity::GameEntity,
@@ -323,20 +423,17 @@ fn capture_selected(
 ) -> SelectedDebug {
     let moving = motion_query::is_moving(entity) == Some(true);
     let (path_steps_left, path_blocked, goal, path_preview) = if moving {
-        let path: Vec<(u16, u16)> = entity
+        let path = entity
             .navigation
             .path_replay
-            .remaining_cells_from((entity.position.rx() as i16, entity.position.ry() as i16))
-            .into_iter()
-            .map(|(x, y)| (x as u16, y as u16))
-            .collect();
+            .remaining_cells_from((entity.position.rx() as i16, entity.position.ry() as i16));
         let preview = path
             .iter()
             .take(MAX_PATH_PREVIEW)
             .enumerate()
             .map(|(index, &(px, py))| PathStep {
-                cell: (px, py),
-                walkable: path_grid.is_none_or(|grid| grid.is_walkable(px, py)),
+                cell: (px as u16, py as u16),
+                walkable: path_grid.is_none_or(|grid| grid.is_walkable(px as u16, py as u16)),
                 first: index == 0,
             })
             .collect();
@@ -351,7 +448,7 @@ fn capture_selected(
     };
 
     let miner = entity.miner.as_ref().map(|miner| MinerDebug {
-        kind: format!("{miner:?}"),
+        kind: format!("{:?}", miner.kind()),
         state: format!(
             "{:?}",
             entity
@@ -370,21 +467,12 @@ fn capture_selected(
         teleport_active: entity.teleport_state().is_some(),
     });
 
-    let events = entity
-        .debug_log()
-        .map(|log| {
-            log.events()
-                .iter()
-                .rev()
-                .take(MAX_EVENTS)
-                .map(format_debug_event)
-                .collect()
-        })
-        .unwrap_or_default();
-
     SelectedDebug {
         stable_id: entity.stable_id(),
-        type_name: sim.interner.resolve(entity.type_ref()).to_string(),
+        type_name: bounded_text(
+            sim.interner.resolve(entity.type_ref()),
+            TELEMETRY_MAX_NAME_BYTES,
+        ),
         cell: (entity.position.rx(), entity.position.ry()),
         sub: (
             entity.position.sub_x().to_num::<f32>().clamp(0.0, 255.0) as u16,
@@ -396,54 +484,5 @@ fn capture_selected(
         goal,
         path_preview,
         miner,
-        inspector_active: entity.debug_log().is_some(),
-        events,
     }
-}
-
-/// Format a debug event as plain text — the egui Event History panel's
-/// strings without its light-theme colours.
-fn format_debug_event(event: &DebugEvent) -> DebugEventEntry {
-    let tick = event.tick;
-    let text = match &event.kind {
-        DebugEventKind::PhaseChange { from, to, reason } => {
-            format!("[{tick}] {from} \u{2192} {to} ({reason})")
-        }
-        DebugEventKind::Repath {
-            reason,
-            new_path_len,
-        } => format!("[{tick}] Repath: {reason} ({new_path_len} steps)"),
-        DebugEventKind::Blocked { by_entity, cell } => format!(
-            "[{tick}] Blocked at ({},{}){}",
-            cell.0,
-            cell.1,
-            by_entity.map(|id| format!(" by #{id}")).unwrap_or_default()
-        ),
-        DebugEventKind::StuckAbort { blocked_ticks } => {
-            format!("[{tick}] STUCK ABORT after {blocked_ticks} ticks")
-        }
-        DebugEventKind::PathSegmentComplete { final_goal } => format!(
-            "[{tick}] Path segment complete{}",
-            final_goal
-                .map(|(x, y)| format!(", repathing to ({x},{y})"))
-                .unwrap_or_default()
-        ),
-        DebugEventKind::MinerStateChange { from, to } => {
-            format!("[{tick}] Miner: {from} \u{2192} {to}")
-        }
-        DebugEventKind::SpecialMovementStart { kind } => {
-            format!("[{tick}] {kind} started")
-        }
-        DebugEventKind::SpecialMovementPhase { phase } => {
-            format!("[{tick}] \u{2192} {phase}")
-        }
-        DebugEventKind::SpecialMovementEnd => {
-            format!("[{tick}] Special movement ended")
-        }
-        DebugEventKind::LocomotorOverride { kind, active } => format!(
-            "[{tick}] Override {}: {kind}",
-            if *active { "ON" } else { "OFF" }
-        ),
-    };
-    DebugEventEntry { tick, text }
 }

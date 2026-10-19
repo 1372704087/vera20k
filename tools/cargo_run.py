@@ -150,12 +150,54 @@ def cargo_args(args: list[str], label: str | None) -> list[str]:
         raise ValueError('Repository tests must select --lib')
     if label and not (args[0] == 'build' or (args[0] == 'test' and '--no-run' in options)):
         raise ValueError('--label requires build or test --lib --no-run')
-    return [args[0], '--message-format=json-render-diagnostics', *args[1:]]
+    # Cargo options must precede --; leave libtest's arguments unchanged.
+    return [args[0], '--message-format=json-render-diagnostics', *options[1:],
+            *core_test_features(args[0], options), *args[len(options):]]
+
+
+# `cargo test --workspace` builds core's tests with the features the client
+# enables on core. A core-only test run gets the same ones, so both reuse one
+# core test executable and its incremental cache; src/Cargo.toml's
+# dev-dependencies align the dependency features the same way.
+WORKSPACE_CORE_FEATURES = ('dev-overlays', 'test-support')
+
+
+def core_test_features(command: str, options: list[str]) -> list[str]:
+    packages, feature_options = [], False
+    for i, option in enumerate(options):
+        name, _, value = option.partition('=')
+        if name in {'-p', '--package'}:
+            packages.append(value or (options[i + 1] if i + 1 < len(options) else ''))
+        elif option.startswith('-p') and len(option) > 2:
+            packages.append(option[2:])
+        feature_options |= name in {'-F', '--features', '--all-features', '--no-default-features'} or (
+            option.startswith('-F') and len(option) > 2)
+    if command != 'test' or packages != ['vera20k-core'] or feature_options:
+        return []
+    return ['--features', ','.join(WORKSPACE_CORE_FEATURES)]
+
+
+def common_git_dir(root: Path) -> Path:
+    return Path(git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir'))
 
 
 def build_store(root: Path) -> tuple[Path, str]:
-    common = Path(git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir'))
-    return common / 'owned-builds', hashlib.sha256(os.fsencode(root.resolve())).hexdigest()[:16]
+    return common_git_dir(root) / 'owned-builds', hashlib.sha256(os.fsencode(root.resolve())).hexdigest()[:16]
+
+
+def owned_target(root: Path, namespace: str) -> Path:
+    """The one compiler cache of a checkout, whichever session builds it.
+
+    The cache root is `CARGO_TARGET_DIR` when the caller sets it, otherwise the
+    `target/` of the repository's primary checkout (the parent of the common Git
+    directory, which also holds the store). It is never the worktree's own
+    `target/`: sessions whose environments differ would then give one checkout two
+    complete caches, as Codex worktrees built from Codex (unset) and Claude (set to
+    the primary's `target/`) sessions did. The namespace keeps checkouts apart.
+    """
+    configured = os.environ.get('CARGO_TARGET_DIR')
+    cache_root = Path(configured) if configured else common_git_dir(root).parent / 'target'
+    return cache_root.resolve() / 'owned-worktrees' / namespace
 
 
 # Cargo profiles whose host executables the runner records and resolves. `fast`
@@ -343,26 +385,38 @@ def test_runner_config(record: Path) -> str:
     return 'target."cfg(all())".runner=' + json.dumps(runner, ensure_ascii=False)
 
 
-def run_recorded_tests(record: Path, keep_going: bool) -> int:
-    """Start the recorded test executables in Cargo's order, as Cargo would have.
+def run_recorded_tests(record: Path) -> int:
+    """Start the recorded test executables together; report them in Cargo's order.
 
     Each gets the arguments, environment and working directory Cargo gave the
-    recorder. Like Cargo, stop at the first failure unless --no-fail-fast and
-    report any failure as status 101. No record means another configured runner
-    took precedence and Cargo already ran the tests.
+    recorder. They run at once: the core suite ends waiting on a few long tests
+    while other cores idle, and the client suite fills them. The first streams
+    its output; each later one's is held and printed once those before it end.
+    Every executable runs to its end, so a failure no longer skips the others,
+    and any failure reports status 101 as Cargo does. No record means another
+    configured runner took precedence and Cargo already ran the tests.
     """
     calls = [json.loads(line) for line in record.read_text(encoding='utf-8').splitlines()] if record.exists() else []
     record.unlink(missing_ok=True)  # It holds the environment; keep it no longer than needed.
     failed = 0
-    for call in calls:
-        executable = call['command'][0]
-        print(f'Running {executable} (build lock released)', file=sys.stderr, flush=True)
-        status = subprocess.run(call['command'], cwd=call['cwd'], env=call['env']).returncode
-        if status:
-            print(f'error: test failed: {executable} exited with status {status}', file=sys.stderr, flush=True)
-            failed = 101
-            if not keep_going:
-                break
+    with ExitStack() as outputs:
+        children = []
+        for i, call in enumerate(calls):
+            print(f'Running {call["command"][0]} (build lock released)', file=sys.stderr, flush=True)
+            output = outputs.enter_context(tempfile.TemporaryFile()) if i else None
+            children.append((call['command'][0], output, subprocess.Popen(
+                call['command'], cwd=call['cwd'], env=call['env'], stdout=output,
+                stderr=subprocess.STDOUT if output else None)))
+        for executable, output, child in children:
+            status = child.wait()
+            if output:
+                sys.stdout.flush()
+                output.seek(0)
+                shutil.copyfileobj(output, sys.stdout.buffer)
+                sys.stdout.buffer.flush()
+            if status:
+                print(f'error: test failed: {executable} exited with status {status}', file=sys.stderr, flush=True)
+                failed = 101
     return failed
 
 
@@ -374,8 +428,7 @@ def run(root: Path, args: list[str], label: str | None, timeout: float, *, polic
         validate_label(label)
     store, namespace = build_store(root)
     # A target root may be shared, but never its package fingerprints/artifacts.
-    cache_root = Path(os.environ.get('CARGO_TARGET_DIR', str(root / 'target'))).resolve()
-    target = cache_root / 'owned-worktrees' / namespace
+    target = owned_target(root, namespace)
     output = store / 'artifacts' / label if label else None
     deadline = time.monotonic() + timeout
     options = args[:args.index('--')] if '--' in args else args
@@ -391,7 +444,11 @@ def run(root: Path, args: list[str], label: str | None, timeout: float, *, polic
         shared.enter_context(build_lock(store / 'cargo.lock', deadline - time.monotonic()))
         if output and output.exists():
             raise ValueError(f'Label already exists; choose a new label: {output}')
-        register_locked(root, store, target)
+        if others := register_locked(root, store, target):
+            print('Note: this checkout also has caches at ' + ', '.join(map(str, others))
+                  + '; one cache per checkout is intended (CARGO_TARGET_DIR differs between '
+                  'sessions, or the other cache predates the primary-checkout default)',
+                  file=sys.stderr, flush=True)
         # Check both paths even if platform device identifiers are unavailable
         # or collide; an artifact copy may consume a different volume.
         volumes = [target, store] if output else [target]
@@ -483,7 +540,7 @@ def run(root: Path, args: list[str], label: str | None, timeout: float, *, polic
                 automatic_locked(root, store, policy)
         shared.close()
         if record:
-            if failed := run_recorded_tests(record, '--no-fail-fast' in options):
+            if failed := run_recorded_tests(record):
                 return failed
             if source_identity(root, hashes) != before:
                 raise ValueError('Source changed during the tests; result is not a validation')
@@ -503,7 +560,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--dry-run', action='store_true', help='Preview cache or saved/exported build retirement')
     parser.add_argument('--cache-gib', help='Total compiler cache budget (default/env: 32 GiB)')
     parser.add_argument('--incremental-gib', help='Incremental cache budget (default/env: 4 GiB)')
-    parser.add_argument('--min-free-gib', help='Minimum volume free-space target (default/env: 16 GiB)')
+    parser.add_argument('--min-free-gib', help='Minimum volume free-space target (default/env: 12 GiB)')
     parser.add_argument('--from-label', metavar='LABEL', help='Resolve from one preserved build label, not latest')
     parser.add_argument('--profile', choices=HOST_PROFILES, help='Required with --resolve; no fallback')
     parser.add_argument('--wait-seconds', type=float,

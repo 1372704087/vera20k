@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <!-- Suppress Chrome's built-in "translate this page?" bubble: it reaches for
      translate.googleapis.com (unreachable here) and floods the console with net
      errors. A developer dashboard does not need machine translation. -->
@@ -66,8 +67,6 @@
     <button data-locale="de">DE</button>
     <button data-locale="fr">FR</button>
   </span>
-  <button id="cheats-open" class="switch" data-i18n="cheat.open">trainer</button>
-  <button id="menu-open" class="switch" data-i18n="menu.open">menu</button>
 </header>
 
 <main id="wall">
@@ -143,11 +142,6 @@
     <div id="terrain"></div>
   </section>
 
-  <section class="panel" id="events-panel">
-    <h2 data-i18n="sec.events">event history</h2>
-    <div id="events"></div>
-  </section>
-
   <section class="panel" id="pop-panel">
     <h2 data-i18n="sec.pop">population</h2>
     <div id="population" class="scroll"></div>
@@ -159,25 +153,24 @@
     </div>
   </section>
 
-  <!-- Bottom row: the frame-occupancy panel keeps to itself (one pie per page),
-       and a second slot sits beside it for a panel still to be designed. -->
+  <!-- Independent measured-cost views share the full bottom row. -->
   <div class="bottom-row">
     <section class="panel" id="profile-panel" data-page="frame">
-      <h2 data-i18n="sec.report">frame occupancy</h2>
+      <h2 data-i18n="sec.report">measured costs</h2>
       <div class="pager">
-        <button class="pager-tab on" data-page="frame" data-i18n="rep.whole">whole frame</button>
-        <button class="pager-tab" data-page="sim" data-i18n="rep.simOnly">simulation only</button>
+        <button class="pager-tab on" data-page="frame" data-i18n="rep.renderSample">measured render / frame</button>
+        <button class="pager-tab" data-page="sim" data-i18n="rep.simTick">simulation / tick</button>
       </div>
       <div class="page" id="page-frame">
         <figure class="pie">
-          <figcaption><span data-i18n="rep.whole">whole frame</span> <b id="pie-frame-total">-</b></figcaption>
+          <figcaption><span data-i18n="rep.renderSample">measured render / frame</span> <b id="pie-frame-total">-</b></figcaption>
           <div class="pie-canvas" id="pie-frame"></div>
           <ul class="pie-legend" id="pie-frame-legend"></ul>
         </figure>
       </div>
       <div class="page" id="page-sim">
         <figure class="pie">
-          <figcaption><span data-i18n="rep.simOnly">simulation only</span> <b id="pie-sim-total">-</b></figcaption>
+          <figcaption><span data-i18n="rep.simTick">simulation / tick</span> <b id="pie-sim-total">-</b></figcaption>
           <div class="pie-canvas" id="pie-sim"></div>
           <ul class="pie-legend" id="pie-sim-legend"></ul>
         </figure>
@@ -185,12 +178,6 @@
       <div id="frame-summary" class="split-summary"></div>
     </section>
 
-    <section class="panel" id="extra-panel">
-      <h2 data-i18n="sec.extra">reserved</h2>
-      <div class="extra-body">
-        <p class="hint" data-i18n="extra.hint">reserved for a panel still to be designed</p>
-      </div>
-    </section>
   </div>
 </main>
 
@@ -203,7 +190,7 @@
   <div id="cards" class="cards"></div>
 </main>
 
-<!-- Current-match wall: the frame split of the match being played right now,
+<!-- Current-match wall: independent simulation and render measurements,
      drawn at report size in the wall's own palette. It reads the live snapshot
      stream, so it has numbers as soon as a match is running. -->
 <main id="report" class="report">
@@ -217,14 +204,14 @@
         <div class="pie-canvas" id="rep-pie-frame"></div>
         <ul class="pie-legend" id="rep-frame-legend"></ul>
         <figcaption class="pie-title">
-          <span data-i18n="rep.whole">整帧占用</span> <b id="rep-frame-total">-</b>
+          <span data-i18n="rep.renderSample">实测渲染 / 帧</span> <b id="rep-frame-total">-</b>
         </figcaption>
       </figure>
       <figure class="pie report-pie">
         <div class="pie-canvas" id="rep-pie-sim"></div>
         <ul class="pie-legend" id="rep-sim-legend"></ul>
         <figcaption class="pie-title">
-          <span data-i18n="rep.simOnly">模拟内部</span> <b id="rep-sim-total">-</b>
+          <span data-i18n="rep.simTick">模拟 / tick</span> <b id="rep-sim-total">-</b>
         </figcaption>
       </figure>
     </div>
@@ -236,7 +223,7 @@
     <h2><span data-i18n="rep.phases">耗时明细</span>
       <button id="export-phases" class="panel-btn" type="button" data-i18n="rep.export">导出 PNG</button>
     </h2>
-    <p class="hint" data-i18n="rep.phaseHint">每帧均值，按耗时降序</p>
+    <p class="hint" data-i18n="rep.phaseHint">模拟与渲染分别统计，按耗时降序</p>
     <div class="table-wrap">
       <table id="report-phases" class="phase-table"></table>
     </div>
@@ -325,147 +312,6 @@
   </div>
 </div>
 
-<div id="menu" class="menu" aria-hidden="true">
-  <div class="menu-panel" role="dialog" aria-label="debug menu">
-    <div class="menu-head">
-      <h2 data-i18n="menu.title">debug panel</h2>
-      <button id="menu-close" class="switch" data-i18n="menu.close">close</button>
-    </div>
-    <section>
-      <h2 data-i18n="sec.switches">debug switches</h2>
-      <div id="switches"></div>
-    </section>
-
-
-    <section>
-      <h2 data-i18n="sec.keys">hotkeys (F1)</h2>
-      <div class="keys">
-        <dl>
-          <dt>S</dt><dd data-i18n="hk.stop">Stop selected units</dd>
-          <dt>D</dt><dd data-i18n="hk.deploy">Deploy / Undeploy</dd>
-          <dt>G</dt><dd data-i18n="hk.guard">Guard mode</dd>
-          <dt>T</dt><dd data-i18n="hk.sametype">Select same type</dd>
-          <dt>0-9</dt><dd data-i18n="hk.group">Select control group</dd>
-          <dt>Ctrl+0-9</dt><dd data-i18n="hk.assign">Assign control group</dd>
-          <dt>H</dt><dd data-i18n="hk.base">Jump to base (MCV)</dd>
-          <dt>Space</dt><dd data-i18n="hk.radar">Jump to radar event</dd>
-          <dt>Esc</dt><dd data-i18n="hk.pause">Pause / Cancel</dd>
-        </dl>
-        <dl>
-          <dt>F1</dt><dd data-i18n="hk.help">This help panel</dd>
-          <dt>^+M</dt><dd data-i18n="hk.quicksave">Quicksave</dd>
-          <dt>^+N</dt><dd data-i18n="hk.quickload">Load most recent save</dd>
-          <dt>^+F5</dt><dd data-i18n="hk.saveload">Save/load panel</dd>
-          <dt>^+A</dt><dd data-i18n="hk.attackmove">Attack move mode (interim)</dd>
-          <dt>^+B</dt><dd data-i18n="hk.movemode">Move mode (interim)</dd>
-          <dt>^+P/F9</dt><dd data-i18n="hk.terraincosts">Terrain costs + debug panel</dd>
-          <dt>^+[ ]</dt><dd data-i18n="hk.speedtype">Cycle SpeedType (when active)</dd>
-          <dt>^+K</dt><dd data-i18n="hk.heightmap">Height map (blue=bridge)</dd>
-          <dt>^+L</dt><dd data-i18n="hk.cellgrid">Cell grid (cyan+yellow)</dd>
-          <dt>^+V/F10</dt><dd data-i18n="hk.fog">Toggle fog of war</dd>
-          <dt>^+X</dt><dd data-i18n="hk.inspector">Unit inspector (event log)</dd>
-          <dt>^+J</dt><dd data-i18n="hk.debugpause">Debug pause</dd>
-          <dt>^+.</dt><dd data-i18n="hk.framestep">Frame step (while paused)</dd>
-        </dl>
-      </div>
-      <div class="note" data-i18n="keys.note">^+ = Ctrl+Shift — dev chords keep bare keys free for stock game hotkeys.</div>
-    </section>
-  </div>
-</div>
-
-<div id="cheat-menu" class="menu" aria-hidden="true">
-  <div class="menu-panel cheat-panel" role="dialog" aria-label="trainer">
-    <div class="menu-head">
-      <h2 data-i18n="cheat.title">作弊菜单</h2>
-      <button id="cheats-close" class="switch" data-i18n="menu.close">close</button>
-    </div>
-    <div class="cheat-head">
-      <p class="note" id="cheat-owner"></p>
-      <button id="cheat-reset" class="switch" type="button" data-i18n="cheat.reset">全部关闭</button>
-    </div>
-    <div class="cheat-grid">
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.economy">经济</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.infiniteMoney">无限金钱</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="infinite_money">
-        </label>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.moneyTarget">金钱下限</span>
-          <input id="cheat-money" class="cheat-num" type="number" min="0" max="9999999" step="1000" value="999999">
-        </label>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.infinitePower">无限电力</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="infinite_power">
-        </label>
-        <p class="cheat-note" id="cheat-power"></p>
-      </section>
-
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.build">建造</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.instantBuild">瞬间建造</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="instant_build">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.instantBuildNote">进度直接拉满，仍按造价扣钱</p>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.buildAnywhere">随处建造</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="build_anywhere">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.buildAnywhereNote">无视建造距离和地形限制，哪儿都能放；仍然不能叠在已有建筑上</p>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.techAll">科技全开</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="tech_all">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.techAllNote">不需要任何前置建筑；0–10 全部等级直接可造</p>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.techBoost">科技加强</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="tech_boost">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.techBoostNote">同样不要前置建筑，并且连范围外的一起放开：没写 TechLevel（默认 255）与 -1</p>
-        <div class="cheat-actions">
-          <button id="cheat-supers" class="cheat-btn" type="button" data-i18n="cheat.supers">超级武器就绪</button>
-        </div>
-      </section>
-
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.combat">战斗</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.invincible">无敌</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="invincible">
-        </label>
-        <div class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.damageScale">伤害倍率</span>
-          <input id="cheat-damage" class="cheat-num" type="number" min="1" max="65535" step="1" value="1">
-        </div>
-        <div class="cheat-presets">
-          <button class="cheat-chip" type="button" data-scale="1">×1</button>
-          <button class="cheat-chip" type="button" data-scale="10">×10</button>
-          <button class="cheat-chip" type="button" data-scale="100">×100</button>
-          <button class="cheat-chip" type="button" data-scale="9999" data-i18n="cheat.oneHit">一击必杀</button>
-        </div>
-        <div class="cheat-actions">
-          <button id="cheat-heal" class="cheat-btn" type="button" data-i18n="cheat.heal">治疗全部</button>
-          <button id="cheat-veteran" class="cheat-btn" type="button" data-i18n="cheat.veteran">全体升级</button>
-        </div>
-      </section>
-
-      <section class="cheat-card">
-        <h3 data-i18n="cheat.map">地图</h3>
-        <label class="cheat-row">
-          <span class="cheat-label" data-i18n="cheat.reveal">全图视野</span>
-          <input type="checkbox" class="cheat-switch" data-cheat="reveal_map">
-        </label>
-        <p class="cheat-note" data-i18n="cheat.revealNote">关掉迷雾绘制，也能点选雾里的目标</p>
-      </section>
-    </div>
-    <div class="note" data-i18n="cheat.hint">只影响当前对局，不写入存档</div>
-  </div>
-</div>
-
-<script type="importmap">
-  { "imports": { "three": "./vendor/three.module.js" } }
-</script>
 <script type="module" src="./starfield.js"></script>
 <script type="module" src="./dashboard.js"></script>
 </body>

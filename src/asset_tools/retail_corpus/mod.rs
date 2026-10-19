@@ -29,22 +29,12 @@ use std::path::Path;
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::audio_bag::{AudioIndex, decode_bag_audio};
 use crate::assets::format_sniff::detect_format;
+use crate::util::fnv::{FNV1A64_OFFSET_BASIS, fnv1a64_fold_bytes};
 
 use manifest::Manifest;
 #[cfg(test)]
 use manifest::read_manifest;
 pub use manifest::{CandidateReport, export_candidate};
-
-const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
-
-fn fnv1a(bytes: &[u8], mut h: u64) -> u64 {
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(FNV_PRIME);
-    }
-    h
-}
 
 struct CorpusEntry {
     archive: String,
@@ -106,10 +96,10 @@ fn corpus_inventory(am: &AssetManager) -> Result<(ArchiveInventory, FormatCounts
     let mut archives = BTreeMap::new();
     let mut format_counts = BTreeMap::new();
     am.visit_archives(|name, archive| {
-        let mut h = FNV_OFFSET;
+        let mut h = FNV1A64_OFFSET_BASIS;
         for entry in archive.entries() {
-            h = fnv1a(&(entry.id as u32).to_le_bytes(), h);
-            h = fnv1a(&entry.size.to_le_bytes(), h);
+            h = fnv1a64_fold_bytes(h, &(entry.id as u32).to_le_bytes());
+            h = fnv1a64_fold_bytes(h, &entry.size.to_le_bytes());
         }
         archives.insert(name.to_string(), (archive.entry_count(), h));
     });

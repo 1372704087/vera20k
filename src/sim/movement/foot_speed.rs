@@ -143,7 +143,8 @@ mod tests {
         let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
             return;
         };
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("retail rules parse");
+        let rules =
+            crate::rules::retail_ini_fixture::retail_rulesmd_rules().expect("retail rulesmd.ini");
         let slow: Vec<&str> = rules
             .infantry_ids
             .iter()

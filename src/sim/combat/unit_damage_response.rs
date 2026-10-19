@@ -3,7 +3,8 @@
 //! tail, after the `Harvester=` ping (`combat::world_receiver`).
 //!
 //! - `0x00737CB6..0x00737D2E`: a unit still inside the war factory it is in
-//!   radio contact with takes no hit ([`Simulation::unit_inside_war_factory`]).
+//!   radio contact with takes no hit, unless the hit ignores defences
+//!   ([`Simulation::unit_in_contact_war_factory`]).
 //! - `0x00738535..0x0073866E`: a computer's vehicle charges an attacker it
 //!   can crush, or, as a damaged miner, heads for a dock
 //!   ([`Simulation::unit_damage_response`]).
@@ -17,7 +18,7 @@
 //! calls keep their own.
 
 use crate::map::entities::EntityCategory;
-use crate::rules::object_type::{Ability, ObjectType, PipScale};
+use crate::rules::object_type::Ability;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::components::NavTargetRef;
@@ -25,7 +26,6 @@ use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::bump_crush::{CrushTarget, object_is_crushable_by};
-use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
 use crate::sim::world::{FrameEffects, Simulation};
 use crate::util::native_x87::{MaskedX87Ordering, sqrt_approx_length};
@@ -89,63 +89,62 @@ pub(crate) fn crush_distance(unit: [i32; 3], source: [i32; 3]) -> i32 {
     ])
 }
 
-/// vt+0x2B8 above zero for a `Harvester=` or `Weeder=` unit (the Unit thunk
-/// `0x00740E50` to `TechnoClass 0x00708C30`): its pips under the type's
-/// `PipScale=` (`+0x3D4`). `None` has none (retail's unloading classes HORV,
-/// CMON and SMON). For `Tiberium` they are `ftol(total / Storage × pips +
-/// 0.5)`, or 1 when that rounds to 0 with a total above zero, over the
-/// storage total `0x006C9650` truncates as it sums. Harvesting stores whole
-/// levels (`Harvest_Ore_Tick`), so the total is VERA's bale count, and with a
-/// positive `Storage=` (`+0x800`) the pips are positive exactly when a bale
-/// is aboard; a zero `Storage=` divides into no pips natively too.
-///
-/// Not represented, none in retail (`retail_harvesters_carry_tiberium_pips`):
-/// a type whose `PipScale=` counts passengers or ammunition (cases 1 and 3)
-/// answers no pips here, and so does a negative `Storage=`, whose lone level
-/// natively can still round to one pip. A `Weeder=` unit carries no VERA
-/// cargo (its harvest arm is a dormant residual in `miner::miner_system`).
-fn pips_positive(entity: &GameEntity, object: &ObjectType) -> bool {
-    object.pip_scale == PipScale::Tiberium
-        && object.storage > 0
-        && entity
-            .miner
-            .as_ref()
-            .is_some_and(|miner| !miner.cargo().is_empty())
-}
-
 impl Simulation {
-    /// `0x00737CB6..0x00737D2E`, unless the hit ignores defences: a unit
-    /// whose radio contact 0 (`0x0065AD30(0)`) is a `WeaponsFactory=`
-    /// building (`BuildingType+0x16BD`) standing on the unit's cell
-    /// (`MapClass[Location]`, then the cell's first ground building,
-    /// `0x0047C520`) returns 0 before `FootClass::ReceiveDamage`: no damage,
-    /// team report or response. A vehicle still leaving its factory is the
-    /// case.
-    pub(crate) fn unit_inside_war_factory(&self, id: u64, rules: &RuleSet) -> bool {
+    /// Steam gamemd UnitReceiveDamage73838A..738457, after passenger/crew
+    /// escape and before Crash/UnInit. Trucks and trains have separate flags;
+    /// neither alone admits a type without CarriesCrate. The first FNPC has
+    /// literal Track/zone-1/Normal/1x1, no target/height/occupancy; PlaceCrate
+    /// then performs its own surface-based snap and one timer ranged call;
+    /// the existing crate owner retains any rejection draws within that call.
+    pub(crate) fn drop_unit_cargo_crate(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) {
+        use crate::rules::locomotor_type::{MovementZone, SpeedType};
+        use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
         let Some(unit) = self.substrate.entities.get(id) else {
-            return false;
+            return;
         };
-        if unit.category() != EntityCategory::Unit {
-            return false;
-        }
-        let Some(factory) = unit.radio_contacts.slot(0) else {
-            return false;
+        let Some(object) = self.object_type(unit.type_ref(), rules) else {
+            return;
         };
-        self.substrate
-            .entities
-            .get(factory)
-            .is_some_and(|building| {
-                building.category() == EntityCategory::Structure
-                    && self
-                        .interner
-                        .object_type(building.type_ref(), rules)
-                        .is_some_and(|object| object.weapons_factory)
+        if !object.carries_crate()
+            || !(if object.is_train {
+                self.session.train_crate()
+            } else {
+                self.session.truck_crate()
             })
-            && self.substrate.occupancy.first_building_on_layer(
-                unit.position.rx(),
-                unit.position.ry(),
-                MovementLayer::Ground,
-            ) == Some(factory)
+        {
+            return;
+        }
+        //73840A is vt1B8 GetMapCoords (signed coordinate /256), not a
+        // neighbouring entity, its former NavCom or a cached path cell.
+        let coord = crate::sim::movement::ground_pose::position_world_coord(&unit.position);
+        let cell = self.nearby_passable_cell(
+            (
+                i32::from(crate::util::lepton::lepton_to_cell_packed(coord.x)),
+                i32::from(crate::util::lepton::lepton_to_cell_packed(coord.y)),
+            ),
+            NearbyArgs::plain(
+                PassabilityArgs {
+                    speed_type: SpeedType::Track,
+                    required_zone_id: None,
+                    movement_zone: MovementZone::Normal,
+                    bridge_aware_zone: false,
+                },
+                NearbyFootprint::SINGLE,
+            ),
+        );
+        // A8B261 is the existing session Crates option. Native checks it
+        // AFTER FNPC, whose Dummy writes must survive even when disabled.
+        if let Some((x, y)) = cell.filter(|&cell| cell != (0, 0))
+            && self.session.game_options.crates
+            && let Some(registry) = registry
+        {
+            crate::sim::crates::place_crate(self, rules, registry, (x as i16, y as i16), Some(20));
+        }
     }
 
     /// `0x00738535..0x0073866E`, reached for results 0 to 3 of
@@ -157,7 +156,8 @@ impl Simulation {
     ///   `SetDestination(source, 1)` (vt+0x480, `0x00741970`) and
     ///   `Queue_Mission(Move, 0)` (vt+0x1E8);
     /// - otherwise, as a `Harvester=` (`+0xE0E`) or `Weeder=` (`+0xE0F`) with
-    ///   pips aboard ([`pips_positive`]) at or below `ConditionYellow`
+    ///   positive pips ([`GameEntity::techno_pip_fill_level`], Unit740E50's
+    ///   base708C30 thunk) at or below `ConditionYellow`
     ///   (`GetHealthRatio @ 0x005F5C60` against `Rules+0x1700`: below, equal
     ///   or unordered), asks each `Dock=` type in order for a narrow bay
     ///   (vt+0x530, [`find_docking_bay_of_type`]) and takes the first answer;
@@ -199,13 +199,7 @@ impl Simulation {
         }
         let now = self.session.binary_frame;
         if self.unit_should_crush(id, source, rules) {
-            self.set_unit_destination(
-                id,
-                NavTargetRef::Entity { id: source },
-                rules,
-                true,
-                effects,
-            );
+            self.set_unit_destination(id, NavTargetRef::object(source), rules, true, effects);
             let _ = self.mission_queue_exact(
                 id,
                 MissionId::from_known(MissionType::Move),
@@ -222,7 +216,7 @@ impl Simulation {
             return;
         };
         if !(object.harvester || object.weeder)
-            || !pips_positive(unit, object)
+            || unit.techno_pip_fill_level(object, rules) <= 0
             || unit
                 .health
                 .compare_ratio(object.strength, rules.general.condition_yellow)
@@ -285,17 +279,25 @@ impl Simulation {
         CrushCharge {
             crusher: object.crusher
                 || has_weapon_ability(unit.veterancy.rank_kind(), object, Ability::Crusher),
+            // `0x00743927`: Is_Crushable_By, its ally test included.
             crushable: object_is_crushable_by(
                 object.omni_crusher,
                 CrushTarget::from_entity(victim, self.session.binary_frame),
+                |owner| {
+                    crate::sim::combat::combat_weapon::is_ally_by_object(
+                        Some(&self.house_alliances),
+                        &self.interner,
+                        unit.owner(),
+                        owner,
+                    )
+                },
             ),
             distance: crush_distance(coords(unit), coords(victim)),
             reach: rules.combat_damage.crush,
             easy: house.difficulty == crate::sim::house_state::HouseDifficulty::Easy,
             iq: house.current_iq,
             iq_auto_crush: rules.general.iq_auto_crush,
-            disguised: crate::sim::cloak_disguise::object_disguised_to(
-                victim,
+            disguised: victim.is_disguised_to(
                 unit.owner(),
                 Some(&self.fog),
                 Some(&self.house_alliances),

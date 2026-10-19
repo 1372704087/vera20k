@@ -20,7 +20,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     let input = &row["input"];
     let integer = |name: &str, default: i32| input[name].as_i64().map_or(default, |v| v as i32);
     let flag = |name: &str| input[name].as_bool().unwrap_or(false);
-    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+    let text = format!(
         "[General]\nFlightLevel=1500\n[AircraftTypes]\n0=TEST\n\
          [TEST]\nStrength=100\nSpeed={}\nLandable={}\n\
          Locomotor={{4A582746-9839-11D1-B709-00A024DDAFD1}}\n\
@@ -37,8 +37,13 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         integer("flight_level", -1),
         if flag("dropship") { "yes" } else { "no" },
         if flag("carryall") { "yes" } else { "no" },
-    )))
-    .unwrap();
+    );
+    // The corpora's rows share a few type settings; each is parsed once.
+    let rules = crate::test_fixture::once_per_process(("fly height rules", text.clone()), || {
+        Some(RuleSet::from_ini(&IniFile::from_str(&text)).unwrap())
+    })
+    .unwrap()
+    .with_fresh_serial();
     let mut sim = Simulation::with_seed(0);
     install_common_raw_terrain(
         &mut sim,
@@ -89,7 +94,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         sim.substrate.entities.get_mut(2).unwrap().passenger_role =
             PassengerRole::inside_for_test(1, false);
         let mut cargo = PassengerCargo::new(1, 0);
-        cargo.board_forced(2, 1);
+        cargo.board_forced_chain(&[(2, 1)]);
         sim.substrate.entities.get_mut(1).unwrap().passenger_role = PassengerRole::transport(cargo);
     }
     let entity = sim.substrate.entities.get_mut(1).unwrap();
@@ -131,7 +136,8 @@ fn healthy_native_height_vectors_reach_production_coordinates() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let entity = sim.substrate.entities.get(1).unwrap();
         let expected_z = row["z"].as_i64().unwrap() as i32;
         let expected_height = row["height"].as_i64().unwrap() as i32;
@@ -211,12 +217,14 @@ fn fly_integer_target_flags_and_cargo_survive_save_and_continuation() {
             for instance in [&mut sim, &mut restored] {
                 instance.session.tick = frame;
                 instance.session.binary_frame = frame as u32;
-                instance.tick_air_movement_with_cell_lists_one(
-                    1,
-                    Some(&rules),
-                    None,
-                    crate::sim::world::FrameEffects::default(),
-                );
+                instance
+                    .tick_air_movement_with_cell_lists_one(
+                        1,
+                        Some(&rules),
+                        None,
+                        crate::sim::world::FrameEffects::default(),
+                    )
+                    .unwrap();
             }
             assert_eq!(
                 restored.state_hash(),
@@ -506,8 +514,8 @@ fn destination_vectors() -> Vec<serde_json::Value> {
 }
 
 fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
+    use crate::sim::ammo::TechnoAmmo;
     use crate::sim::combat::TargetKind;
-    use crate::sim::docking::aircraft_dock::AircraftAmmo;
     let input = &row["input"];
     let height_row = serde_json::json!({"input": {
         "z": input["z"].as_i64().unwrap_or(500),
@@ -529,7 +537,9 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.position.set_rx_for_test(40);
     entity.position.set_ry_for_test(64);
-    entity.aircraft_ammo = Some(AircraftAmmo::new(input["ammo"].as_i64().unwrap_or(2) as i32));
+    entity.install_ammo_for_test(Some(TechnoAmmo::new(
+        input["ammo"].as_i64().unwrap_or(2) as i32
+    )));
     entity.attack_target.set_for_test(
         input["target"]
             .as_bool()
@@ -673,12 +683,14 @@ fn fly_retained_destination_drives_subcell_arrival_after_save_and_restore() {
     restored.restore_after_snapshot_load().unwrap();
     assert_eq!(restored.state_hash(), sim.state_hash());
     for instance in [&mut sim, &mut restored] {
-        instance.tick_air_movement_with_cell_lists_one(
-            1,
-            Some(&rules),
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
+        instance
+            .tick_air_movement_with_cell_lists_one(
+                1,
+                Some(&rules),
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .unwrap();
         let entity = instance.substrate.entities.get(1).unwrap();
         // Arrival must not invent a native destination clear.
         assert_eq!(
@@ -1004,7 +1016,8 @@ fn fly_nonlandable_production_tick_replaces_landing_target_and_restores() {
         Some(&rules),
         None,
         crate::sim::world::FrameEffects::default(),
-    );
+    )
+    .unwrap();
     let entity = sim.substrate.entities.get(1).unwrap();
     assert_eq!(
         entity.position.exact_z_leptons(),
@@ -1024,12 +1037,14 @@ fn fly_nonlandable_production_tick_replaces_landing_target_and_restores() {
     for frame in 101..105 {
         for instance in [&mut sim, &mut restored] {
             instance.session.binary_frame = frame;
-            instance.tick_air_movement_with_cell_lists_one(
-                1,
-                Some(&rules),
-                None,
-                crate::sim::world::FrameEffects::default(),
-            );
+            instance
+                .tick_air_movement_with_cell_lists_one(
+                    1,
+                    Some(&rules),
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
             assert_eq!(
                 instance
                     .substrate
@@ -1206,7 +1221,8 @@ fn fly_production_process_resets_enter_mode_using_native_mission_precedence() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let mode = sim
             .substrate
             .entities
@@ -1248,12 +1264,14 @@ fn fly_production_tick_uses_primary_current_and_continues_after_restore() {
     for frame in 100..104 {
         for instance in [&mut sim, &mut restored] {
             instance.session.binary_frame = frame;
-            instance.tick_air_movement_with_cell_lists_one(
-                1,
-                Some(&rules),
-                None,
-                crate::sim::world::FrameEffects::default(),
-            );
+            instance
+                .tick_air_movement_with_cell_lists_one(
+                    1,
+                    Some(&rules),
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
             let entity = instance.substrate.entities.get(1).unwrap();
             assert_eq!(
                 entity.body_facing, primary,
@@ -1384,7 +1402,8 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
             Some(&rules),
             None,
             crate::sim::world::FrameEffects::default(),
-        );
+        )
+        .unwrap();
         let actual = position_world_coord(&sim.substrate.entities.get(1).unwrap().position);
         assert_eq!(
             serde_json::json!([actual.x, actual.y, actual.z]),
@@ -1393,22 +1412,26 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
         );
         assert_eq!(sim.scenario_rng.logical_state(), rng);
         if let Some(restored) = restored.as_mut() {
-            restored.tick_air_movement_with_cell_lists_one(
-                1,
-                Some(&rules),
-                None,
-                crate::sim::world::FrameEffects::default(),
-            );
+            restored
+                .tick_air_movement_with_cell_lists_one(
+                    1,
+                    Some(&rules),
+                    None,
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
             assert_eq!(restored.state_hash(), sim.state_hash());
             for next_frame in frame + 1..frame + 5 {
                 for instance in [&mut sim, &mut *restored] {
                     instance.session.binary_frame = next_frame;
-                    instance.tick_air_movement_with_cell_lists_one(
-                        1,
-                        Some(&rules),
-                        None,
-                        crate::sim::world::FrameEffects::default(),
-                    );
+                    instance
+                        .tick_air_movement_with_cell_lists_one(
+                            1,
+                            Some(&rules),
+                            None,
+                            crate::sim::world::FrameEffects::default(),
+                        )
+                        .unwrap();
                 }
                 assert_eq!(restored.state_hash(), sim.state_hash(), "frame{next_frame}");
             }

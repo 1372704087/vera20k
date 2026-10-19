@@ -9,7 +9,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use super::{App, AppState};
-use crate::app::frontend::credits_roll::{CreditsInput, CreditsRoll, CreditsRollSession};
+use crate::app::frontend::credits_roll::{
+    CreditsInput, CreditsReturn, CreditsRoll, CreditsRollSession,
+};
 use crate::app::frontend::fullscreen_movie::{FullscreenMovie, MovieReturn, movie_stem};
 use crate::app::shell_route::ShellRoute;
 use crate::ui::movies_credits_shell::{
@@ -52,7 +54,9 @@ impl App {
                 );
             }
             MoviesCreditsAction::PlayMovies => Self::open_movie_list(state),
-            MoviesCreditsAction::ViewCredits => Self::start_credits_roll(state),
+            MoviesCreditsAction::ViewCredits => {
+                Self::start_credits_roll(state, CreditsReturn::MoviesAndCredits)
+            }
             MoviesCreditsAction::MainMenu => {
                 Self::destroy_current_shell_dialog(state);
                 state.frontend.shell_route = ShellRoute::MainMenu;
@@ -278,8 +282,7 @@ impl App {
         //5BEDFB..5BEE38 enters the same ABF35C movie hold as radar5BF580:
         //Vox/streams pause, both VolumeInterp targets become0x2000.
         //The separate menu pause owner must not acquire another movie credit.
-        let wall_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state.audio.set_movie_audio_held(true, wall_ms);
         // The Bink soundtrack plays at VoiceVolume: BinkSetVolume(ftol(
         // VoiceVolume * 32768.0)) at `0x00432897` (32768 = unity gain).
@@ -309,8 +312,7 @@ impl App {
             return;
         };
         let return_to = movie.into_return();
-        let wall_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state.audio.retire_movie_audio(wall_ms);
         Self::return_from_fullscreen_movie(state, return_to);
     }
@@ -340,8 +342,7 @@ impl App {
 
     /// Per-frame Show_Credits service on the native 16 ms bucket schedule.
     pub(super) fn advance_credits_roll(state: &mut AppState) {
-        let now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         let Some(session) = state.frontend.credits_roll.as_mut() else {
             return;
         };
@@ -369,6 +370,9 @@ impl App {
                 state.frontend.screen = crate::ui::game_screen::GameScreen::InGame;
                 state.platform.window.request_redraw();
             }
+            MovieReturn::CampaignVictory(victory) => {
+                Self::advance_campaign_victory(state, *victory);
+            }
         }
     }
 
@@ -391,8 +395,9 @@ impl App {
         }
     }
 
-    /// State `0xF`: Show_Credits `0x004C3E30`.
-    pub(super) fn start_credits_roll(state: &mut AppState) {
+    /// State `0xF`, or a won campaign's EndOfGame (`0x006859EE`):
+    /// Show_Credits `0x004C3E30`.
+    pub(super) fn start_credits_roll(state: &mut AppState, return_to: CreditsReturn) {
         Self::destroy_current_shell_dialog(state);
         let bytes = state
             .process_assets
@@ -400,7 +405,7 @@ impl App {
             .and_then(|assets| assets.get_ref(CREDITS_FILE).map(<[u8]>::to_vec));
         let Some(bytes) = bytes else {
             log::info!("Show_Credits: {CREDITS_FILE} is not installed");
-            Self::finish_credits_roll_return(state);
+            Self::finish_credits_roll_return(state, return_to);
             return;
         };
         let lookup = |key: &str| Self::csf_label(state, key, &format!("MISSING:'{key}'"));
@@ -409,8 +414,7 @@ impl App {
             state.renderer.gpu.config.height as i32,
             &lookup,
         );
-        let now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         // ThemeClass::Stop(0), then a silent ScoreVolume is lifted to 0.4 for
         // the CREDITS theme; the saved value is restored afterwards.
         state.audio.stop_theme();
@@ -435,6 +439,7 @@ impl App {
             roll,
             saved_score_volume,
             last_drawn: Vec::new(),
+            return_to,
         });
         state.platform.window.request_redraw();
     }
@@ -448,7 +453,8 @@ impl App {
     }
 
     /// Show_Credits tail: Stop(0), restore ScoreVolume, then
-    /// `Main__PrepareSession` queues INTRO and recreates `0x101`.
+    /// `Main__PrepareSession` queues INTRO and recreates `0x101`, or the main
+    /// menu after a campaign's end.
     pub(super) fn finish_credits_roll(state: &mut AppState) {
         let Some(session) = state.frontend.credits_roll.take() else {
             return;
@@ -460,15 +466,20 @@ impl App {
             session.saved_score_volume,
             false,
         );
-        Self::finish_credits_roll_return(state);
+        Self::finish_credits_roll_return(state, session.return_to);
     }
 
-    fn finish_credits_roll_return(state: &mut AppState) {
-        let now_ms =
-            crate::app::match_runtime::sim_tick::monotonic_frame_pacer_ms(state, Instant::now());
+    fn finish_credits_roll_return(state: &mut AppState, return_to: CreditsReturn) {
+        let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         state
             .audio
             .queue_theme(&ThemeRequest::Name("INTRO".into()), now_ms);
-        Self::open_movies_credits_page(state);
+        match return_to {
+            CreditsReturn::MoviesAndCredits => Self::open_movies_credits_page(state),
+            CreditsReturn::MainMenu => {
+                Self::destroy_current_shell_dialog(state);
+                state.frontend.shell_route = ShellRoute::MainMenu;
+            }
+        }
     }
 }

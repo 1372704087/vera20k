@@ -6,7 +6,7 @@
 use super::*;
 use crate::rules::ini_parser::IniFile;
 use crate::sim::production::{ProductionCategory, construct_active_factory_fixture};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 fn rows(section: &str) -> Vec<Value> {
     let data: Value =
@@ -84,7 +84,29 @@ fn rules_for(row: &Value) -> RuleSet {
     ini += &list("InfantryTypes", &numbered("I", 2), class == "infantry");
     ini += &list("VehicleTypes", &numbered("U", 3), class == "unit");
     ini += &list("AircraftTypes", &numbered("A", 3), class == "aircraft");
-    ini += &list("BuildingTypes", &numbered("B", 8), class == "building");
+    let mut buildings = numbered("B", 8);
+    for (index, lab) in row["secret_labs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let name = format!("LAB{index}");
+        buildings.push(name.clone());
+        // These corpus rows supply already-owned lab pointers. Construct the
+        // same prerequisites through production type readers and Unlimbo.
+        ini += &format!("[{name}]\nStrength=100\nSecretLab=yes\n");
+        for (key, field) in [
+            ("SecretInfantry", "infantry"),
+            ("SecretUnit", "unit"),
+            ("SecretBuilding", "building"),
+        ] {
+            if let Some(value) = lab[field].as_str() {
+                ini += &format!("{key}={value}\n");
+            }
+        }
+    }
+    ini += &list("BuildingTypes", &buildings, class == "building");
     ini += &format!("[Q]\nTechLevel={}\n", spec["tech"].as_i64().unwrap_or(1));
     if let Some(limit) = spec["limit"].as_i64() {
         ini += &format!("BuildLimit={limit}\n");
@@ -199,6 +221,31 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
                 .test_enqueue_kernel(holder, kind, queued, 0, 0);
         }
     }
+    for (index, lab) in row["secret_labs"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .enumerate()
+    {
+        let id = sim
+            .spawn_object(
+                &format!("LAB{index}"),
+                "H0",
+                10 + index as u16,
+                10,
+                0,
+                rules,
+            )
+            .unwrap();
+        if let Some(name) = lab["fallback"].as_str() {
+            let type_id = sim.interner.intern(name);
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .assign_secret_lab_fallback((query(row, rules).category, type_id));
+        }
+    }
     // The row's counters are the house's whole count, its factories'
     // objects included.
     let mut tracking = HouseTracking::default();
@@ -262,6 +309,83 @@ fn check_build_limit_matches_the_original() {
     }
 }
 
+/// House4F78E4..4F7925 consults its captured labs before TechLevel,
+/// country and ordinary prerequisites, then still asks the build limit.
+/// The declared SecretInfantry override isolates this gate from the separate
+/// PostMap68C050 RNG assignment. Original whole CanBuild/getter controls:
+/// tools/can_build_secret_lab.json (admission).
+#[test]
+fn captured_secret_lab_grants_before_normal_tech_admission_and_retracts_on_loss() {
+    let rules = RuleSet::from_ini(
+        &IniFile::from_str(
+            "[Countries]\n0=C0\n[C0]\nSide=GDI\n\
+             [InfantryTypes]\n0=Q\n\
+             [BuildingTypes]\n0=LAB\n1=MISSING\n\
+             [Q]\nTechLevel=-1\nStrength=100\nCost=100\nPrerequisite=MISSING\n\
+             [LAB]\nStrength=100\nCapturable=yes\nNeedsEngineer=yes\nSecretLab=yes\nSecretInfantry=Q\n\
+             [MISSING]\nStrength=100\n",
+        ),
+    )
+    .unwrap();
+    let mut sim = Simulation::new();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let country = sim.interner.intern("C0");
+    let owner = sim.interner.intern("Self");
+    let other = sim.interner.intern("Other");
+    for (id, human) in [(owner, true), (other, false)] {
+        sim.houses
+            .insert(id, HouseState::new(id, 0, Some(country), human, 1000, 10));
+        sim.session.house_order.push(id);
+    }
+    let lab = sim.spawn_object("LAB", "Other", 12, 5, 0, &rules).unwrap();
+    let product = rules.object("Q").unwrap();
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, false, true),
+        CanBuild::No
+    );
+    sim.change_owner_with_rules(lab, owner, &rules, None, Default::default());
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, false, true),
+        CanBuild::Yes,
+        "captured lab grant bypasses TechLevel=-1 and the unmet ordinary prerequisite"
+    );
+    sim.change_owner_with_rules(lab, other, &rules, None, Default::default());
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, false, true),
+        CanBuild::No
+    );
+}
+
+#[test]
+fn can_build_after_runtime_tech_level_change_matches_original_current_value_controls() {
+    for row in rows("can_build") {
+        let native_tech_level = row["type"]["tech"].as_i64().unwrap_or(1) as i32;
+        let mut initial = row.clone();
+        // The original corpus's current value comes from the trigger owner,
+        // deliberately differing from this fixture's frozen reader output.
+        initial["type"]["tech"] = json!(if native_tech_level == -1 { 255 } else { -1 });
+        let rules = rules_for(&initial);
+        let (mut sim, owner) = sim_for(&row, &rules);
+        sim.set_object_type_tech_level("Q", native_tech_level, &rules);
+        let args = row["args"].as_array().unwrap();
+        let answer = can_build(
+            &sim,
+            &rules,
+            owner,
+            &query(&row, &rules),
+            args[0].as_bool().unwrap(),
+            args[1].as_bool().unwrap(),
+        );
+        let answer = match answer {
+            CanBuild::No => 0,
+            CanBuild::Yes => 1,
+            CanBuild::AtLimit => -1,
+        };
+        assert_eq!(answer, int(&row["answer"]), "{}", row["name"]);
+    }
+}
+
 /// Retail `[General] PrerequisiteProcAlternate=SMIN` through the production
 /// rules layers: a Yuri player's Slave Miner meets YAWEAP's `PROC` without a
 /// refinery. And `PadAircraft=ORCA,BEAG`: the AirportBound Harrier is
@@ -317,95 +441,27 @@ fn retail_slave_miner_meets_proc_and_docks_limit_harriers() {
     assert!(check_build_limit(&sim, rules, americans, orca));
 }
 
-/// The five types the band tests need: one in band, one above the house's
-/// level, one that also wants a prerequisite, one with no `TechLevel=` at all
-/// (the 255 default) and one on the -1 civilian sentinel.
-const BAND_INI: &str = "[InfantryTypes]\n0=E1\n1=GHOST\n2=SPY\n3=CIV\n4=CSHOP\n\n\
-                        [E1]\nTechLevel=1\n\n[GHOST]\nTechLevel=9\n\n\
-                        [SPY]\nTechLevel=9\nPrerequisite=RADAR\n\n[CIV]\n\n\
-                        [CSHOP]\nTechLevel=-1\n";
-
-/// A human house at tech level 1 with the band's types on the fixture
-/// interner, plus one foreign house to prove the switches are scoped.
-fn band_fixture() -> (Simulation, InternedId, InternedId, RuleSet) {
-    let rules = RuleSet::from_ini(&IniFile::from_str(BAND_INI)).expect("band rules");
-    let mut sim = Simulation::new();
-    sim.intern_rule_type_ids(&rules);
-    sim.resolve_type_handles(&rules);
-    let owner = sim.interner.intern("H0");
-    let other = sim.interner.intern("H1");
-    for id in [owner, other] {
-        let mut house = crate::sim::house_state::HouseState::new(id, 0, None, true, 0, 1);
-        house.player_control = true;
-        sim.houses.insert(id, house);
+#[test]
+fn secret_lab_can_build_matches_original_human_ai_limit_and_priority_controls() {
+    let native: Value =
+        serde_json::from_str(crate::test_fixture::text("tools/can_build_secret_lab.json")).unwrap();
+    for row in native["admission"].as_array().unwrap() {
+        let rules = rules_for(row);
+        let (sim, owner) = sim_for(row, &rules);
+        let args = row["args"].as_array().unwrap();
+        let answer = can_build(
+            &sim,
+            &rules,
+            owner,
+            &query(row, &rules),
+            args[0].as_bool().unwrap(),
+            args[1].as_bool().unwrap(),
+        );
+        let answer = match answer {
+            CanBuild::No => 0,
+            CanBuild::Yes => 1,
+            CanBuild::AtLimit => -1,
+        };
+        assert_eq!(answer, int(&row["answer"]), "{}", row["name"]);
     }
-    (sim, owner, other, rules)
-}
-
-fn band_answer(sim: &Simulation, rules: &RuleSet, owner: InternedId, type_id: &str) -> CanBuild {
-    can_build(sim, rules, owner, rules.object(type_id).expect("band type"), false, false)
-}
-
-#[test]
-fn all_tech_opens_the_band_without_prerequisites() {
-    let (mut sim, owner, other, rules) = band_fixture();
-    assert_eq!(band_answer(&sim, &rules, owner, "E1"), CanBuild::Yes);
-    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::No, "9 above a level-1 house");
-    assert_eq!(band_answer(&sim, &rules, owner, "SPY"), CanBuild::No, "no radar on the map");
-    assert_eq!(band_answer(&sim, &rules, owner, "CIV"), CanBuild::No, "no TechLevel means 255");
-    assert_eq!(band_answer(&sim, &rules, owner, "CSHOP"), CanBuild::No, "-1 is the sentinel");
-
-    sim.set_cheats(crate::sim::cheats::Cheats::switches(
-        &crate::sim::cheats::CheatFlags { tech_all: true, ..Default::default() },
-    ));
-    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::Yes, "the band is open");
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "SPY"),
-        CanBuild::Yes,
-        "and the prerequisite no longer stands"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "CIV"),
-        CanBuild::No,
-        "255 is outside the band, and all tech stops at its top"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "CSHOP"),
-        CanBuild::No,
-        "the civilian sentinel stays shut"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, other, "GHOST"),
-        CanBuild::No,
-        "another house is untouched"
-    );
-}
-
-#[test]
-fn tech_boost_opens_what_sits_outside_the_band() {
-    let (mut sim, owner, other, rules) = band_fixture();
-    sim.set_cheats(crate::sim::cheats::Cheats::switches(
-        &crate::sim::cheats::CheatFlags { tech_boost: true, ..Default::default() },
-    ));
-    assert_eq!(band_answer(&sim, &rules, owner, "GHOST"), CanBuild::Yes, "in band anyway");
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "SPY"),
-        CanBuild::Yes,
-        "no prerequisite either"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "CIV"),
-        CanBuild::Yes,
-        "the 255 default is reachable now"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, owner, "CSHOP"),
-        CanBuild::Yes,
-        "and so is the -1 sentinel"
-    );
-    assert_eq!(
-        band_answer(&sim, &rules, other, "CIV"),
-        CanBuild::No,
-        "another house is untouched"
-    );
 }

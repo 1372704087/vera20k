@@ -249,6 +249,7 @@ fn retail_hills_layered_bridge_landing_inputs_match_original_readers() {
         None,
         art,
         std::sync::Arc::clone(audio_definitions.sounds()),
+        Default::default(),
     )
     .unwrap();
     let (mut rules, _, art, _) = owner
@@ -283,8 +284,6 @@ fn flight_fixture(rules: &RuleSet, input: &Value) -> (Simulation, BTreeSet<(u16,
                 cell.final_tile_index = if bridge { 1020 } else { -1 };
                 cell.bridge_facts.raw_flags = if bridge { 0x100 } else { 0 };
                 cell.land_type = if water { 2 } else { 0 };
-                cell.yr_cell_land_type = cell.land_type;
-                cell.is_water = water;
                 cell
             })
         })

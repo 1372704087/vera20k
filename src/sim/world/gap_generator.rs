@@ -94,7 +94,7 @@ impl Simulation {
         }
         let object = self.interner.object_type(entity.type_ref(), rules)?;
         let facts = power_system::OperationalFacts {
-            // `0x004555DA`: an offline building (the warp's latch) is not
+            // `0x004555DA`: an offline building (independent latch) is not
             // operational unless two retained Tesla chargers bypass it.
             online: entity.building_online(),
             tesla_chargers: entity.tesla_charge.chargers().len() as i32,
@@ -243,12 +243,10 @@ impl Simulation {
             ry: entity.position.ry(),
             radius,
         };
-        self.fog.alliances = self.house_alliances.clone();
         // A normal scenario constructs its viewer Houses before Technos.
-        self.fog
-            .by_owner
-            .entry(viewer)
-            .or_insert_with(|| vision::OwnerVisibility::new(self.fog.width, self.fog.height));
+        self.fog.by_owner.get_or_insert_with(viewer, || {
+            vision::OwnerVisibility::new(self.fog.width, self.fog.height)
+        });
         let spy_sat_active = self
             .houses
             .iter()
@@ -256,6 +254,7 @@ impl Simulation {
             .collect();
         vision::publish_gap_generator_event(
             &mut self.fog,
+            &self.house_alliances,
             viewer,
             source,
             active,
@@ -264,9 +263,10 @@ impl Simulation {
         );
     }
 
-    /// Techno6F6AC0 calls ordinary release, then6FB470, before Object Conceal.
+    /// Techno6F6AC0 calls6FB470 before Object Conceal; DisableStuff4524E9
+    /// invokes the same removal immediately, independently of operational6C8.
     /// Removal has no operational check and leaves cached26C/Building6C8 alone.
-    pub(super) fn remove_building_gap_before_limbo(&mut self, id: u64) {
+    pub(crate) fn remove_building_gap(&mut self, id: u64) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -293,34 +293,6 @@ impl Simulation {
         }
     }
 
-    ///701875's ordinary reveal follows the owner swap and precedes Building
-    ///448260's gap re-add. Use the existing source geometry/admission owner.
-    pub(super) fn reveal_building_sight_after_owner_change(
-        &mut self,
-        id: u64,
-        rules: Option<&RuleSet>,
-    ) {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return;
-        };
-        if entity.category() != EntityCategory::Structure {
-            return;
-        }
-        self.fog.alliances = self.house_alliances.clone();
-        let config = self.sight_reveal_config(rules);
-        let heights = self.sight_height_grid(&config);
-        let ability = config.sight_ability(entity, &self.interner, rules);
-        vision::reveal_entity_vision(
-            &mut self.fog,
-            entity,
-            &config,
-            heights.levels(),
-            self.resolved_terrain.as_ref(),
-            ability,
-            &self.interner,
-        );
-    }
-
     /// The live4ADEE0/4ADCD0 bracket visits gap candidates even if they had no
     /// prior deposit. Only this viewer's269/26C changes;6C8 stays untouched.
     /// Returns hostile cell re-admissions and whether ANY (also friendly)
@@ -330,24 +302,20 @@ impl Simulation {
         viewer: InternedId,
         rules: &RuleSet,
     ) -> (Vec<vision::GapGeneratorSource>, bool) {
+        let config = self.sight_reveal_config(Some(rules));
         let candidates: Vec<_> = self
             .substrate
             .entities
             .iter_sorted()
             .filter_map(|(id, entity)| {
                 let (operational, radius) = self.gap_operational_state(id, rules)?;
-                let own = entity.owner() == viewer;
-                let allied = crate::map::houses::is_allied_with(
-                    &self.house_alliances,
-                    self.interner.resolve(entity.owner()),
-                    self.interner.resolve(viewer),
-                );
-                // Nonhuman allied Building branch is ordinary-sight ONLY. The
-                //known-own multiplayer discovery domain is shared with the caller.
-                // RESIDUAL: that arm needs AllyReveal= (`0x004ADDB2..0x004ADDD5`);
-                // with it off (retail yes) native takes an allied Building down
-                // the hostile path.
-                (own || !allied).then_some((id, operational, radius))
+                // The allied-Building arm is ordinary sight ONLY; every other
+                // object the brackets visit takes its gap callback
+                // (`0x004ADFC1..0x004ADFD9`, `0x004ADEA7..0x004ADEBF`). The
+                // known-own multiplayer discovery domain is shared with the caller.
+                (entity.owner() == viewer
+                    || !self.takes_allied_building_arm(entity, viewer, &config))
+                .then_some((id, operational, radius))
             })
             .collect();
         let mut reentry = Vec::new();

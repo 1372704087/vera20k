@@ -119,9 +119,6 @@ pub(crate) fn can_place_building_at(
 /// house (`None` is null; it matches an unowned wall).
 /// A supplied query must be the context that resolved `cell`, so retained
 /// Dummy coordinates/ground fields come from that identity without relookup.
-/// The trainer's build-anywhere switch is the one debug-only arm: after the
-/// object and playfield tests, the placing house's buildings are admitted on
-/// any ground (documented at the arm itself).
 pub(crate) fn is_clear_to_build(
     sim: &Simulation,
     rules: &RuleSet,
@@ -150,18 +147,6 @@ pub(crate) fn is_clear_to_build(
     }
     if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds, cells) {
         return false;
-    }
-    // The trainer's build-anywhere switch: the placing house's buildings
-    // stand on any ground — cliffs, water, bridges and overlays alike. The
-    // object and playfield tests above still hold, so a foundation never
-    // lands on another structure or off the map; the cursor's per-cell draw
-    // and the PLACE event's admission both come through here, so the preview
-    // and the placement agree.
-    if ty.is_some()
-        && sim.cheats.build_anywhere
-        && house.is_some_and(|house| sim.cheats.applies_to(house))
-    {
-        return true;
     }
     let flags = cells.flags(cell);
     let slope = cells.ground_fields(cell).1;

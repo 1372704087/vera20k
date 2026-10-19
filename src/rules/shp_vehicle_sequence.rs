@@ -14,7 +14,7 @@
 //! - Does NOT depend on sim/ game logic, render/, or any game module.
 
 use crate::rules::animation_sequence::{
-    FacingSlots, LoopMode, SequenceDef, SequenceKind, SequenceSet, ShpVehicleCadence,
+    FacingSlots, FootBodyCadence, LoopMode, SequenceDef, SequenceKind, SequenceSet,
 };
 use crate::rules::art_data::ArtEntry;
 use crate::rules::ini_parser::IniSection;
@@ -141,7 +141,7 @@ fn implicit_standing_frames(firing_frames: u16) -> u16 {
 /// actual UnitType layout also serves its observer-selected terrain image.
 pub(crate) fn build_shp_vehicle_sequences(
     art: &ArtEntry,
-    cadence: ShpVehicleCadence,
+    cadence: FootBodyCadence,
     retained: Option<&UnitShpReadState>,
 ) -> SequenceSet {
     let mut set = SequenceSet::new();
@@ -289,16 +289,13 @@ mod tests {
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
     use crate::rules::ruleset::RuleSet;
 
-    const TEST_CADENCE: ShpVehicleCadence = ShpVehicleCadence {
+    const TEST_CADENCE: FootBodyCadence = FootBodyCadence {
         walk_rate: 3,
         idle_rate: 1,
     };
 
-    fn native_corpus() -> serde_json::Value {
-        serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/mirage_disguise.json",
-        ))
-        .unwrap()
+    fn native_corpus() -> &'static serde_json::Value {
+        crate::test_fixture::json("tools/spatial_oracle/mirage_disguise.json")
     }
 
     #[test]
@@ -437,7 +434,6 @@ mod tests {
             building_body_ranges: [[0, 1, 0]; 4],
             buildup: None,
             foundation: None,
-            to_overlay: None,
             bib_shape: None,
             palette: None,
             sequence: None,

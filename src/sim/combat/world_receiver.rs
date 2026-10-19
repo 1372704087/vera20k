@@ -181,6 +181,7 @@ pub(crate) fn collect_area(
     let prelude: &mut dyn combat_aoe::AoECellPrelude = &mut prelude;
     combat_aoe::apply_aoe_damage_with_terrain_and_scenario(
         &mut world.substrate.entities,
+        &world.production.terrain_objects,
         cell.0,
         cell.1,
         damage,
@@ -510,7 +511,13 @@ fn area_isolation_dispatches(
             .substrate
             .entities
             .get(event.target_id)
-            .is_some_and(|target| has_active_area_invulnerability(target, current_tick))
+            // 0x00489A4F: vt+0x160 IsIronCurtained (0x0041BF40).
+            .is_some_and(|target| {
+                crate::sim::superweapon::invulnerability::is_invulnerable(
+                    target.invulnerability.as_ref(),
+                    current_tick as u32,
+                )
+            })
 }
 
 /// `Apply_area_damage @ 0x00489280`'s per-record dispatch gates
@@ -708,7 +715,8 @@ pub(crate) fn commit_entities(
         }
         // `UnitClass::ReceiveDamage 0x00737CB6..0x00737D2E`: a unit still
         // inside its war factory returns 0 before FootClass::ReceiveDamage.
-        if !event.receiver_flags.ignore_defenses && world.unit_inside_war_factory(target_id, rules)
+        if !event.receiver_flags.ignore_defenses
+            && world.unit_in_contact_war_factory(target_id, rules)
         {
             continue;
         }
@@ -746,7 +754,6 @@ pub(crate) fn commit_entities(
             scenario_no_damage,
             current_tick,
             world.resolved_terrain.as_ref(),
-            &world.cheats,
         );
         if let Some(effect) = receiver_outcome.and_then(|resolved| resolved.invulnerability_impact)
         {
@@ -1190,14 +1197,9 @@ pub(crate) fn commit_entities(
                 .then(|| world.substrate.entities.get(attacker_id))
                 .flatten()
                 .map(|attacker| {
-                    (
-                        i32::from(attacker.position.rx())
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_x().to_num::<i32>()),
-                        i32::from(attacker.position.ry())
-                            .wrapping_mul(256)
-                            .wrapping_add(attacker.position.sub_y().to_num::<i32>()),
-                    )
+                    let [x, y] =
+                        crate::sim::movement::ground_pose::position_world_xy(&attacker.position);
+                    (x, y)
                 });
             // FootClass (`0x004D746D..0x004D74C7`): a teamless Foot hit by a
             // source, whose current mission's MissionControl sets `NoThreat=`
@@ -1305,8 +1307,7 @@ pub(crate) fn commit_entities(
                         rx: target.position.rx(),
                         ry: target.position.ry(),
                         owner: target.owner(),
-                        miner: true,
-                        structure: false,
+                        victim_type: target.type_ref(),
                     });
                 }
             }
@@ -1382,7 +1383,12 @@ fn finish_building_art_receiver(
         return;
     };
     if state != damage::DamageState::Unaffected
-        || crate::sim::building_art::receiver_body_frame(target, object, rules) != entry_frame
+        || crate::sim::building_art::receiver_body_frame(
+            target,
+            object,
+            rules,
+            world.object_tech_level(object),
+        ) != entry_frame
     {
         world.refresh_building_damage_state(target_id, rules);
     }
@@ -1575,7 +1581,7 @@ pub(crate) fn handle_death(
     // retained entity's current state at that boundary.
     for &dead_id in dead_entities {
         // Building442425 returns from Techno701900 before dispatching
-        // NowDead4 to4424A2/442511. Its saved-contact RUN_AWAY loop follows
+        // NowDead4 to4424A2/442511. Its saved-contact RUN_AWAY/C4 loop follows
         // Destroy's BREAK/expiry and Techno's sounds, Stun, debris and nested
         // death weapon; Building DestructionEffects442665 follows it.
         // Techno702035 also forces result4 on an admitted Health0 re-entry. A
@@ -1592,7 +1598,10 @@ pub(crate) fn handle_death(
                         && building.lifecycle.object_alive()
                 })
         {
-            world.building_now_dead_contacts(dead_id, contacts, Some(rules), run.effects());
+            let (nested, pings) =
+                world.building_now_dead_contacts(dead_id, contacts, rules, overlay_registry, run);
+            effects.append(nested);
+            effects.under_attack_events.extend(pings);
         }
         finish_concrete_death(
             world,
@@ -1726,6 +1735,7 @@ fn finish_concrete_death(
             selected_by_player,
             frame_effects,
         );
+        world.drop_unit_cargo_crate(dead_id, rules, overlay_registry);
     }
 
     let inf_death = killing_warhead.as_ref().map_or(1, |(wh, _)| wh.inf_death);
@@ -1772,6 +1782,15 @@ fn finish_concrete_death(
                 anim.switch_to(sequence);
             }
         }
+        // VERA-only death sequence: native's UnInit would Limbo the object
+        // here, whose ReReveal (`0x006F6B16`) takes its sight off the maps.
+        // An aircraft's corpse defers that UnInit to the sequence's end (a
+        // Unit's receiver runs it next), so its sight leaves now.
+        world.release_object_sight_with_context(
+            dead_id,
+            crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
+                .with_effects(frame_effects),
+        );
         // The corpse stays in the store for its death animation; the death
         // arm's OVER_OUT to every contact (`techno_death_stun`) already
         // released its dock slots.
@@ -1974,7 +1993,12 @@ fn run_special_detonation_arm(
             // 0x00469A03..0x00469A2A: no bullet Owner (+0xB0) -> nothing;
             // otherwise Owner->DisguiseAs(Target) through vt+0x46C.
             if world.substrate.entities.contains(owner) {
-                world.disguise_as(owner, object, !matches!(target, SpecialArmTarget::None));
+                world.disguise_as(
+                    owner,
+                    object,
+                    !matches!(target, SpecialArmTarget::None),
+                    rules,
+                );
             }
         }
         SpecialDetonationAction::Locomotor => {
@@ -2086,6 +2110,7 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
     .with_installed_weapon(Some(world.interner.intern(&weapon.id)));
     if let Some(bullet) = super::FiredBullet::launched(
         world,
+        rules,
         native_unique_id,
         detonation.source_id,
         detonation.target,

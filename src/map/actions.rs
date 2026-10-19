@@ -136,11 +136,20 @@ impl ActionEntry {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// One `[Actions]` record.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MapAction {
-    pub id: String,
-    pub fields: Vec<String>,
-    pub entries: Vec<ActionEntry>,
+    id: String,
+    fields: Vec<String>,
+    entries: Vec<ActionEntry>,
+}
+
+impl MapAction {
+    /// The actions in authored order, as TActionClass::Read (`0x006DD5B0`)
+    /// consumed them.
+    pub fn entries(&self) -> &[ActionEntry] {
+        &self.entries
+    }
 }
 
 pub type ActionMap = HashMap<String, MapAction>;
@@ -184,13 +193,14 @@ fn ascii_waypoint_letter(byte: u8) -> Option<u32> {
         .map(u32::from)
 }
 
-/// Parse `[Actions]` into an id -> action record map.
+/// Parse `[Actions]` into exact-key action records.
 ///
-/// The TriggerType read (`0x00727516..0x007275A5`) ReadStrings the trigger's
-/// entry into 0x200 bytes and takes `atoi` of the first `strtok(",")` token
-/// as the action count; `TActionClass::Read @ 0x006DD5B0` then consumes eight
-/// tokens per action from the same cursor. Empty comma fields are skipped;
-/// whitespace-only fields still consume a token.
+/// The TriggerType read (`0x00727516..0x007275A5`) ReadStrings the entry of
+/// the Type's own ID, exact case, into 0x200 bytes and takes `atoi` of the
+/// first `strtok(",")` token as the action count; TActionClass::Read
+/// (`0x006DD5B0`) then consumes eight tokens per action from the same cursor.
+/// Empty comma fields are skipped; whitespace-only fields still consume a
+/// token.
 pub fn parse_actions(ini: &IniFile) -> ActionMap {
     let Some(section) = ini.section("Actions") else {
         return HashMap::new();
@@ -201,11 +211,7 @@ pub fn parse_actions(ini: &IniFile) -> ActionMap {
         let Some(value) = section.read_name(key, 0x200) else {
             continue;
         };
-        let id = key.trim();
-        if id.is_empty() {
-            continue;
-        }
-        let id = id.to_ascii_uppercase();
+        let id = key.to_string();
         let tokens: Vec<&str> = strtok(value, &[',']).collect();
         let entries = parse_action_entries(&tokens);
         actions.insert(
@@ -254,16 +260,35 @@ fn materialize_waypoint_index(param_type: Option<&str>, token_8: Option<&str>) -
     read_waypoint_token(token_8)
 }
 
-/// TAction41's numeric AnimType operands resolve through the same retained
-/// native registry as runtime construction (6E2357), after all rules passes.
-/// Bind through the existing scheduler closure before live triggers run.
+/// TAction8 binds the retained Rules.DropZoneAnim; TAction41 resolves its
+/// numeric AnimType through the same native registry as runtime construction
+/// (6E2357). TAction58 roots the two find-only meteor literals (6E2D11/1D).
+/// All use the existing scheduler closure at load and restoration.
 pub fn trigger_anim_class_roots(rules: &RuleSet, actions: &ActionMap) -> Vec<String> {
     actions
         .values()
         .flat_map(|action| &action.entries)
-        .filter(|action| action.kind == 41)
-        .filter_map(|action| action.literal_value())
-        .filter_map(|index| rules.anim_type_name_by_index(index))
+        .flat_map(|action| match action.kind {
+            58 => [
+                rules
+                    .anim_type_names
+                    .contains("METSMALL")
+                    .then_some("METSMALL"),
+                rules
+                    .anim_type_names
+                    .contains("METLARGE")
+                    .then_some("METLARGE"),
+            ],
+            8 => [rules.general.drop_zone_anim.as_deref(), None],
+            41 => [
+                action
+                    .literal_value()
+                    .and_then(|index| rules.anim_type_name_by_index(index)),
+                None,
+            ],
+            _ => [None, None],
+        })
+        .flatten()
         .map(str::to_owned)
         .collect::<BTreeSet<_>>()
         .into_iter()
@@ -434,6 +459,53 @@ mod tests {
                 .map(|entry| (entry.kind, entry.waypoint_index))
                 .collect::<Vec<_>>(),
             vec![(48, Some(0)), (112, Some(0)), (137, Some(0))]
+        );
+    }
+    #[test]
+    fn waypoint_cue_flare_asset_root_uses_rules_only_when_the_map_authors_action_eight() {
+        let flare = parse_actions(&IniFile::from_str("[Actions]\nCUE=1,8,0,99,0,0,0,0,B\n"));
+        let sound = parse_actions(&IniFile::from_str(
+            "[Actions]\nCUE=1,98,7,Sound,0,0,0,0,B\n",
+        ));
+        let rules =
+            RuleSet::from_ini(&IniFile::from_str("[General]\nDropZoneAnim=FLARE\n")).unwrap();
+        assert_eq!(trigger_anim_class_roots(&rules, &flare), ["FLARE"]);
+        assert!(trigger_anim_class_roots(&rules, &sound).is_empty());
+        let cleared =
+            RuleSet::from_ini(&IniFile::from_str("[General]\nDropZoneAnim=none\n")).unwrap();
+        assert!(trigger_anim_class_roots(&cleared, &flare).is_empty());
+    }
+    #[test]
+    fn waypoint_cue_retail_beacon_binds_and_constructs_through_the_shared_asset_root() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let mut rules = retail.rules;
+        let actions = parse_actions(&IniFile::from_str("[Actions]\nCUE=1,8,0,99,0,0,0,0,B\n"));
+        let roots = trigger_anim_class_roots(&rules, &actions);
+        assert_eq!(roots, ["BEACON"]);
+        // Same strict owner used by both app load roots and saved resources.
+        // Native BEACON controls read its physical ten-frame SHP and ART.
+        rules
+            .bind_scheduler_anim_assets(&roots, &assets, "TEM", "TEMPERATE")
+            .unwrap();
+        let mut sim = crate::sim::world::Simulation::with_seed(31);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        sim.session
+            .install_waypoints(&std::collections::HashMap::from([(
+                1,
+                crate::map::waypoints::Waypoint {
+                    index: 1,
+                    rx: 10,
+                    ry: 10,
+                },
+            )]));
+        assert!(
+            sim.trigger_drop_zone_flare(&rules, 1),
+            "the retail asset closure admits the production constructor"
         );
     }
 }

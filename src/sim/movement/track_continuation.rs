@@ -89,7 +89,7 @@ impl Simulation {
     }
 
     /// Drive 0x4B05D0..0x4B063B (no Ship twin): a Unit whose NavCom is an
-    /// Infantry object (What_Am_I 0xF at 0x4B05F3, whatever the Rust tag)
+    /// Infantry object (What_Am_I 0xF at 0x4B05F3)
     /// asks it for its coordinate (vt+0x4C with the Foot as requester) and
     /// calls the locomotor Move_To only when that differs from +34.
     fn reaim_drive_infantry_navcom(
@@ -105,9 +105,7 @@ impl Simulation {
             entity.category() == EntityCategory::Unit
                 && match *target {
                     NavTargetRef::Cell { .. } => false,
-                    NavTargetRef::Entity { id }
-                    | NavTargetRef::Object { id }
-                    | NavTargetRef::Building { id } => entities
+                    NavTargetRef::Object { id } => entities
                         .get(id)
                         .is_some_and(|object| object.category() == EntityCategory::Infantry),
                 }
@@ -118,7 +116,7 @@ impl Simulation {
         let coord = super::navcom::nav_target_coordinate(
             target,
             Some(id),
-            entities,
+            self,
             self.resolved_terrain.as_ref(),
             rules.map(|rules| (rules, &self.interner)),
         )?;

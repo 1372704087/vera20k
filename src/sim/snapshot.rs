@@ -1173,7 +1173,9 @@ use crate::util::save_codec;
 // those definitions.
 // 434 -> 435: retain Scenario34A7, ScenarioPause62C/630/prior lock,
 // and the credit of the unrestored physical Radar video queue.
-const SNAPSHOT_VERSION: u32 = 435;
+// 435 -> 436: process-resident Rules retain IRepairStep, URepairRate and
+// IRepairRate across layer reads, saved state and destructive Type resets.
+const SNAPSHOT_VERSION: u32 = 436;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4848,7 +4850,8 @@ mod tests {
         // 432 -> 433: one Object spelling for a NavCom-family pointer.
         // 433 -> 434: no trigger-record copies in saved scenario resources.
         // 434 -> 435: Scenario vein switch and shared Scenario pause.
-        assert_eq!(super::SNAPSHOT_VERSION, 435);
+        // 435 -> 436: retained repair service inputs.
+        assert_eq!(super::SNAPSHOT_VERSION, 436);
     }
 
     #[test]

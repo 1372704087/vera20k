@@ -1627,6 +1627,9 @@ pub struct GeneralRules {
     /// progress against this retained value times900, without truncating it
     /// to a timer first (`0x0044BD32`, `0x0044BD44`).
     pub unit_repair_rate: f64,
+    /// Hospital repair: Rules+16D8/16F0, ReadGeneral670DE9/670E57.
+    pub infantry_repair_step: i32,
+    pub infantry_repair_rate: f64,
     /// `[General] RepairStep=` — `RulesClass+0x16CC`, ReadInt over the
     /// constructor's 5 with no clamp (retail 8). TechnoTypeClass vt+0xB4
     /// (`0x00712120`) returns it: the health a repair tick adds, and the
@@ -2505,6 +2508,9 @@ impl Default for GeneralRules {
             guard_mode_stray: 0,
             // Rules constructor667530/53A retains the double, not frame ticks.
             unit_repair_rate: U_REPAIR_RATE_MINUTES,
+            // Constructor66751A and667540: 1 and double0.016.
+            infantry_repair_step: 1,
+            infantry_repair_rate: 0.016,
             repair_step: 5,
             repair_percent: 0.25,
             // RulesClass constructor 0x0066738F.
@@ -3646,10 +3652,13 @@ impl GeneralRules {
             stray: general.read_range("Stray", defaults.stray),
             relaxed_stray: general.read_range("RelaxedStray", defaults.relaxed_stray),
             guard_mode_stray: general.read_range("GuardModeStray", defaults.guard_mode_stray),
-            // Selected native reader order670DA3,670DCA,670E30.
+            // Repair service scalars below are projected from the ordered
+            // native reader; do not reread them from this flattened INI.
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
-            unit_repair_rate: general.read_double("URepairRate", defaults.unit_repair_rate),
+            unit_repair_rate: defaults.unit_repair_rate,
+            infantry_repair_step: defaults.infantry_repair_step,
+            infantry_repair_rate: defaults.infantry_repair_rate,
             reload_rate: general.read_double("ReloadRate", defaults.reload_rate),
             path_delay,
             blockage_path_delay_ticks,
@@ -4203,6 +4212,11 @@ impl RuleSet {
             rules.general.third_survivor_divisor,
         ] = processed.survivor_divisors();
         rules.general.maximum_cheer_rate = processed.maximum_cheer_rate();
+        (
+            rules.general.infantry_repair_step,
+            rules.general.unit_repair_rate,
+            rules.general.infantry_repair_rate,
+        ) = processed.repair_service_inputs();
         let mut weapon_name_counts = HashMap::<String, usize>::new();
         for weapon in processed.weapon_states() {
             *weapon_name_counts
@@ -5473,10 +5487,9 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // v25: the retained Type references, RulesClass Type pointers and
-        // lists, and the crate and rocket blocks (retained-type-references-v3
-        // below).
-        b"rules-simulation-config-v25".hash(&mut hasher);
+        // v26: include retained repair service inputs, which can differ
+        // after earlier Rules passes despite identical current source text.
+        b"rules-simulation-config-v26".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // UnitType747734 retains CarriesCrate across later absent/invalid
         // keys; equal current source text can still mean different cargo.
@@ -5508,6 +5521,12 @@ impl RuleSet {
         // Process-resident Gravity and Weapon postpass results can differ for
         // identical current source stacks because earlier passes retained them.
         self.general.gravity.hash(&mut hasher);
+        self.general.infantry_repair_step.hash(&mut hasher);
+        self.general.unit_repair_rate.to_bits().hash(&mut hasher);
+        self.general
+            .infantry_repair_rate
+            .to_bits()
+            .hash(&mut hasher);
         self.general.wind_direction.hash(&mut hasher);
         self.general.parachute_max_fall_rate.hash(&mut hasher);
         self.general.no_parachute_max_fall_rate.hash(&mut hasher);

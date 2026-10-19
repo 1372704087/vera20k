@@ -953,6 +953,17 @@ impl ProcessedRulesLayers {
             .rules_wind_direction
     }
 
+    /// ReadGeneral670DE9/670E30/670E57, current scalar defaults across
+    /// layers and Type resets (original gamemd SHA2561cdd1180..84298c).
+    pub(crate) fn repair_service_inputs(&self) -> (i32, f64, f64) {
+        let state = self.native_type_construction_trace.registry_state();
+        (
+            state.rules_infantry_repair_step,
+            f64::from_bits(state.rules_unit_repair_rate.bits()),
+            f64::from_bits(state.rules_infantry_repair_rate.bits()),
+        )
+    }
+
     pub(crate) fn gravity(&self) -> i32 {
         self.native_type_construction_trace
             .registry_state()
@@ -1422,6 +1433,9 @@ pub(crate) struct NativeRulesRegistryState {
     rules_parachute_max_fall_rate: i32,
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
+    rules_infantry_repair_step: i32,
+    rules_unit_repair_rate: NativeF64Bits,
+    rules_infantry_repair_rate: NativeF64Bits,
     rules_maximum_cheer_rate: i32,
     rules_talk_bubble_time: i32,
     rules_ion_cannon_damage: i32,
@@ -1480,6 +1494,11 @@ impl Default for NativeRulesRegistryState {
             rules_parachute_max_fall_rate: general.parachute_max_fall_rate,
             rules_no_parachute_max_fall_rate: general.no_parachute_max_fall_rate,
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
+            rules_infantry_repair_step: general.infantry_repair_step,
+            rules_unit_repair_rate: NativeF64Bits::from_bits(general.unit_repair_rate.to_bits()),
+            rules_infantry_repair_rate: NativeF64Bits::from_bits(
+                general.infantry_repair_rate.to_bits(),
+            ),
             rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_talk_bubble_time: general.talk_bubble_time,
             // Rules665CD4=700; pointer fields665A18/665A24/666BD5 start null.
@@ -1677,6 +1696,9 @@ impl NativeRulesRegistryState {
             rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
             rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: self.rules_survivor_divisors,
+            rules_infantry_repair_step: self.rules_infantry_repair_step,
+            rules_unit_repair_rate: self.rules_unit_repair_rate,
+            rules_infantry_repair_rate: self.rules_infantry_repair_rate,
             rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
             rules_talk_bubble_time: self.rules_talk_bubble_time,
             rules_ion_cannon_damage: self.rules_ion_cannon_damage,
@@ -2276,6 +2298,9 @@ struct RulesPassProcessor {
     rules_parachute_max_fall_rate: i32,
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
+    rules_infantry_repair_step: i32,
+    rules_unit_repair_rate: NativeF64Bits,
+    rules_infantry_repair_rate: NativeF64Bits,
     rules_maximum_cheer_rate: i32,
     rules_talk_bubble_time: i32,
     rules_ion_cannon_damage: i32,
@@ -2327,6 +2352,9 @@ impl RulesPassProcessor {
             rules_parachute_max_fall_rate: registry_state.rules_parachute_max_fall_rate,
             rules_no_parachute_max_fall_rate: registry_state.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: registry_state.rules_survivor_divisors,
+            rules_infantry_repair_step: registry_state.rules_infantry_repair_step,
+            rules_unit_repair_rate: registry_state.rules_unit_repair_rate,
+            rules_infantry_repair_rate: registry_state.rules_infantry_repair_rate,
             rules_maximum_cheer_rate: registry_state.rules_maximum_cheer_rate,
             rules_talk_bubble_time: registry_state.rules_talk_bubble_time,
             rules_ion_cannon_damage: registry_state.rules_ion_cannon_damage,
@@ -2838,6 +2866,15 @@ impl RulesPassProcessor {
         ]) {
             *value = section.read_int(key, *value);
         }
+        // ReadGeneral670DE9/670E30/670E57: ReadInt, then ReadDouble twice,
+        // current Rules+16D8/+16E8/+16F0 defaults, exact keys, no read clamps.
+        // Rules66751A/667540 constructor defaults come from GeneralRules.
+        self.rules_infantry_repair_step =
+            section.read_int("IRepairStep", self.rules_infantry_repair_step);
+        self.rules_unit_repair_rate =
+            section.read_double_bits("URepairRate", self.rules_unit_repair_rate);
+        self.rules_infantry_repair_rate =
+            section.read_double_bits("IRepairRate", self.rules_infantry_repair_rate);
         // ReadGeneral's Prism block (`0x0067114F..0x006711B8`), current values
         // as defaults; RulesClass keeps them across Full_Init's reset.
         self.rules_prism_support = self.rules_prism_support.read_pass(section);
@@ -4149,6 +4186,9 @@ impl RulesPassProcessor {
                     rules_parachute_max_fall_rate: self.rules_parachute_max_fall_rate,
                     rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
                     rules_survivor_divisors: self.rules_survivor_divisors,
+                    rules_infantry_repair_step: self.rules_infantry_repair_step,
+                    rules_unit_repair_rate: self.rules_unit_repair_rate,
+                    rules_infantry_repair_rate: self.rules_infantry_repair_rate,
                     rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
                     rules_talk_bubble_time: self.rules_talk_bubble_time,
                     rules_ion_cannon_damage: self.rules_ion_cannon_damage,

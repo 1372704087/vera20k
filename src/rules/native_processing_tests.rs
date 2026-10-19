@@ -3,6 +3,46 @@
 use super::*;
 use crate::util::save_codec;
 
+#[test]
+fn repair_inputs_retain_native_layer_defaults_through_reset_and_save() {
+    use crate::rules::ruleset::RuleSet;
+
+    // ReadGeneral670DE9/670E30/670E57 use current Rules scalars as defaults.
+    let mut layers = RulesLayerStack::new(IniFile::from_str(
+        "[General]\nIRepairStep=20\nURepairRate=.25\nIRepairRate=.001\n",
+    ));
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str("[General]\nIRepairStep=-3tail\nIRepairRate=.5\n"),
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[General]\nIRepairStep=\nURepairRate=\nIRepairRate=\n"),
+    );
+    let processed = layers.process().unwrap();
+    let assert_values = |rules: &RuleSet| {
+        assert_eq!(rules.general.infantry_repair_step, -3);
+        assert_eq!(rules.general.unit_repair_rate, 0.25);
+        assert_eq!(rules.general.infantry_repair_rate, 0.5);
+    };
+    assert_values(&RuleSet::from_processed_rules(&processed).unwrap());
+    let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+    let state = trace.into_registry_state_discarding_events();
+    let state: NativeRulesRegistryState =
+        save_codec::deserialize(&save_codec::serialize(&state).unwrap()).unwrap();
+    let next = RulesLayerStack::new(IniFile::from_str("[General]\nName=Next scene\n"))
+        .process_with_fixed_art_and_registry_state(&IniFile::empty(), state.destructive_reset())
+        .unwrap();
+    let retained = RuleSet::from_processed_rules(&next).unwrap();
+    assert_values(&retained);
+    let cold = RuleSet::from_ini(&IniFile::from_str("[General]\nName=Next scene\n")).unwrap();
+    assert_eq!(retained.source_ini_hash(), cold.source_ini_hash());
+    assert_ne!(
+        retained.simulation_config_hash(),
+        cold.simulation_config_hash()
+    );
+}
+
 /// Rules+580 is a signed retained ReadInt/current-default, not stock300.
 #[test]
 fn maximum_cheer_rate_preserves_native_defaults_layers_and_rules_lifetime() {

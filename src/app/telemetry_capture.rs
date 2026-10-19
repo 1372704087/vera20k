@@ -31,6 +31,7 @@ pub(crate) fn reset_observation(state: &mut AppState) {
     reset_live_window(state);
     state.match_state.telemetry_history.clear();
     state.match_state.report_history.clear();
+    state.diag.render_report_cache = None;
     state.diag.telemetry_history_generation = 0;
 }
 
@@ -130,6 +131,11 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
     let mut render = state.diag.render_timing.report();
     if render.as_ref().is_none_or(|report| report.frames == 0) {
         render = closed.as_ref().and_then(|point| point.render);
+    }
+    if render.is_none() {
+        // A hidden window renders nothing, so the live meter and the latest
+        // sample can both be empty; the last measured breakdown still stands.
+        render = state.diag.render_report_cache;
     }
     snapshot.render = render;
     // The newest report-grade sample rides every publish; the whole ring goes

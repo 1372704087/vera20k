@@ -67,6 +67,55 @@ use crate::sim::world::Simulation;
 /// full report. Spots, logs, debug and production detail stay out.
 pub const TELEMETRY_SCHEMA_VERSION: u32 = 26;
 
+/// One house row of a [`ReportPoint`]: just what the report's party table and
+/// pie captions read.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReportHouseRow {
+    pub name: String,
+    pub is_human: bool,
+    pub passive: bool,
+    pub structures: u32,
+    pub credits: i32,
+    pub score: i32,
+}
+
+/// A report-grade sample of a match at one tick.
+///
+/// It carries exactly the readings the dashboard's match report consumes, so
+/// the report renderer can be pointed at a past sample unchanged. `timing`
+/// and `render` are filled by the app (their owners are the render loop).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ReportPoint {
+    pub tick: u64,
+    pub entities_total: u32,
+    pub map_width: u16,
+    pub map_height: u16,
+    pub houses: Vec<ReportHouseRow>,
+    pub timing: Option<TimingSample>,
+    pub profile: Option<crate::sim::frame_profile::FrameProfileReport>,
+    pub render: Option<crate::sim::telemetry::RenderTimingReport>,
+    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+}
+
+/// One 1 Hz summary of a match, recorded by the app for the whole match.
+///
+/// The dashboard draws these as the match-long timeline; a client that
+/// attaches mid-match receives the ring once so the time before it is not a
+/// hole. Render and phase-ledger fields are deliberately absent: those are
+/// measured only while a client is attached.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct MatchHistorySample {
+    pub tick: u64,
+    /// Mean and slowest simulation-advance wall time over the sample's ticks.
+    pub tick_ms: f32,
+    pub peak_ms: f32,
+    pub entities: u32,
+    pub houses: u32,
+    /// The path batch's own counts at the sample's last tick; `None` while the
+    /// simulation searches serially.
+    pub path_batch: Option<crate::sim::movement::path_batch::PathBatchStats>,
+}
+
 /// Spot ceiling per snapshot: the project's headline unit scale. Beyond it
 /// the capture keeps the first N in store order (deterministic) and the
 /// dashboard renders a truncated world rather than an unbounded payload.

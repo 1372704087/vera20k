@@ -1136,6 +1136,9 @@ fn advance_one_simulation_frame(
                     let mut point = rt.simulation.report_point();
                     point.timing = Some(timing);
                     point.render = state.diag.render_timing.report();
+                    if let Some(report) = point.render {
+                        state.diag.render_report_cache = Some(report);
+                    }
                     state.match_state.report_history.push(point);
                     rt.simulation.reset_frame_profile();
                     state.diag.render_timing = Default::default();

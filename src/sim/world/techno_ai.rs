@@ -1819,8 +1819,123 @@ fn techno_after_acquisition(
             ctx.overlay_registry,
             ctx.effects,
         );
+        healer_target_drop_step(sim, id, rules);
     }
     true
+}
+
+/// `TechnoClass::AI_Update @ 0x006FA9D8..0x006FAAEF`, after the spawn manager
+/// (`0x006FA958`) and the dormant cloak-field arms: a healer (CombatDamage
+/// `0x006F3970(-1) < 0`) lets go of its target (vt+0x3C8(NULL)) in three
+/// arms, each re-reading the target:
+/// - GameMode 0 (`0x00A8B238`): a house that is not the player's
+///   (`0x0050B6F0`) drops a target it is not allied with
+///   (`0x004F9AF0`, `0x006FA9D8..0x006FAA1B`);
+/// - any other GameMode: a human house (`+0x1EC`, which IsControlledByHuman
+///   `0x0050B730` reads there) drops a target it is not allied with
+///   (`0x006FAA21..0x006FAA69`);
+/// - a Unit drops an Aircraft target that is airborne (GetHeight vt+0x1C8
+///   above 0) or stands on a building's Cell (`0x0047C520` at its Location,
+///   `0x006FAA6F..0x006FAAE9`).
+///
+/// IsAlliedWith on an object asks its owner; a Cell or an ownerless object is
+/// never allied. Both alliance arms ask the object's own house (+0x21C).
+fn healer_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    use crate::sim::combat::{TargetKind, combat_weapon};
+    let healer = |sim: &Simulation| {
+        sim.substrate.entities.get(id).is_some_and(|entity| {
+            sim.interner
+                .object_type(entity.type_ref(), rules)
+                .is_some_and(|kind| {
+                    combat_weapon::weapon_damage_value(
+                        entity,
+                        kind,
+                        &sim.substrate.entities,
+                        rules,
+                        &sim.interner,
+                    ) < 0
+                })
+        })
+    };
+    let target = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(id)
+            .and_then(|entity| entity.attack_target.target())
+    };
+    let allied = |sim: &Simulation, target: TargetKind| {
+        let (Some(entity), TargetKind::Entity(target_id)) =
+            (sim.substrate.entities.get(id), target)
+        else {
+            return false;
+        };
+        sim.substrate.entities.get(target_id).is_some_and(|object| {
+            combat_weapon::is_ally_by_object(
+                Some(&sim.house_alliances),
+                &sim.interner,
+                entity.owner(),
+                object.owner(),
+            )
+        })
+    };
+    let drop = |sim: &mut Simulation| {
+        sim.assign_target_represented(id, None, Some(rules), None, FrameEffects::default())
+            .expect("the queried healer receiver remains present");
+    };
+    let Some(owner) = sim.substrate.entities.get(id).map(|entity| entity.owner()) else {
+        return;
+    };
+    if !sim.session.game_mode_nonzero
+        && !sim.house_is_human_player(owner)
+        && let Some(current) = target(sim)
+        && !allied(sim, current)
+        && healer(sim)
+    {
+        drop(sim);
+    }
+    if let Some(current) = target(sim)
+        && sim.session.game_mode_nonzero
+        && sim.owner_is_human(owner)
+        && healer(sim)
+        && !allied(sim, current)
+    {
+        drop(sim);
+    }
+    let Some(TargetKind::Entity(target_id)) = target(sim) else {
+        return;
+    };
+    let Some(aircraft) = sim
+        .substrate
+        .entities
+        .get(target_id)
+        .filter(|object| object.category() == EntityCategory::Aircraft)
+    else {
+        return;
+    };
+    let unit = sim
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|entity| entity.category() == EntityCategory::Unit);
+    if !unit || !healer(sim) {
+        return;
+    }
+    let airborne = crate::sim::movement::air_movement::current_fly_height(
+        aircraft,
+        sim.resolved_terrain.as_ref(),
+    ) > 0;
+    let padded = sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(
+            aircraft.position.rx(),
+            aircraft.position.ry(),
+            crate::sim::movement::locomotor::MovementLayer::Ground,
+        )
+        .is_some();
+    if airborne || padded {
+        drop(sim);
+    }
 }
 
 /// The common Techno post-mission stage and the stock-dormant Cyborg Spark
@@ -1987,6 +2102,85 @@ mod tests {
     use crate::sim::movement::locomotor::LocomotorState;
     use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
     use crate::sim::snapshot::GameSnapshot;
+
+    /// TechnoClass::AI's healer drops (`0x006FA9D8..0x006FAAEF`) in
+    /// skirmish: a human house's medic lets go of an enemy (a target Yuri
+    /// took over) and keeps an ally; a healing Unit lets go of an airborne
+    /// aircraft and keeps a grounded one; an ordinary gun keeps any target.
+    #[test]
+    fn a_human_healer_drops_an_enemy_and_a_unit_healer_an_airborne_aircraft() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[InfantryTypes]\n0=MEDIC\n[VehicleTypes]\n0=IFV\n1=TANK\n\
+             [AircraftTypes]\n0=ORCA\n[BuildingTypes]\n\
+             [MEDIC]\nStrength=100\nPrimary=Heal\n\
+             [IFV]\nStrength=200\nPrimary=Fix\n\
+             [TANK]\nStrength=300\nPrimary=Gun\n\
+             [ORCA]\nStrength=150\n\
+             [WeaponTypes]\n0=Heal\n1=Fix\n2=Gun\n\
+             [Heal]\nDamage=-50\nRange=2\n[Fix]\nDamage=-30\nRange=2\n\
+             [Gun]\nDamage=60\nRange=5\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let ours = sim.interner.intern("Americans");
+        let theirs = sim.interner.intern("Russians");
+        sim.houses.insert(
+            ours,
+            crate::sim::house_state::HouseState::new(ours, 0, None, true, 0, 10),
+        );
+        sim.houses.insert(
+            theirs,
+            crate::sim::house_state::HouseState::new(theirs, 1, None, false, 0, 10),
+        );
+        sim.session.game_mode_nonzero = true;
+        sim.session.current_house = Some(ours);
+        sim.resolve_type_handles(&rules);
+        let spawn = |sim: &mut Simulation, name: &str, owner: &str, x: u16| {
+            sim.spawn_object(name, owner, x, 10, 0, &rules)
+                .unwrap_or_else(|| panic!("{name} spawns"))
+        };
+        let medic = spawn(&mut sim, "MEDIC", "Americans", 10);
+        let ifv = spawn(&mut sim, "IFV", "Americans", 12);
+        let gun = spawn(&mut sim, "TANK", "Americans", 14);
+        let enemy = spawn(&mut sim, "TANK", "Russians", 16);
+        let friend = spawn(&mut sim, "TANK", "Americans", 18);
+        let orca = spawn(&mut sim, "ORCA", "Americans", 20);
+        let run = |sim: &mut Simulation, id: u64, target: u64| {
+            sim.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .attack_target
+                .set_for_test(Some(TargetKind::Entity(target)));
+            healer_target_drop_step(sim, id, &rules);
+            sim.substrate
+                .entities
+                .get(id)
+                .unwrap()
+                .attack_target
+                .target()
+        };
+        assert_eq!(run(&mut sim, medic, enemy), None);
+        assert_eq!(
+            run(&mut sim, medic, friend),
+            Some(TargetKind::Entity(friend))
+        );
+        assert_eq!(run(&mut sim, gun, enemy), Some(TargetKind::Entity(enemy)));
+        sim.substrate
+            .entities
+            .get_mut(orca)
+            .unwrap()
+            .position
+            .set_exact_z_leptons_for_test(Some(0));
+        assert_eq!(run(&mut sim, ifv, orca), Some(TargetKind::Entity(orca)));
+        sim.substrate
+            .entities
+            .get_mut(orca)
+            .unwrap()
+            .position
+            .set_exact_z_leptons_for_test(Some(600));
+        assert_eq!(run(&mut sim, ifv, orca), None);
+    }
 
     #[test]
     fn wave_context_keeps_terrain_object_coordinates_until_pointer_expiry() {

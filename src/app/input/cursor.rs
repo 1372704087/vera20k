@@ -361,7 +361,8 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
 /// rungs, so it answers under every chord but Ctrl (the forced rung above)
 /// and Ctrl+Alt. Its tail is the forced shot's; an answer other than Attack
 /// falls through to the Move rungs. Foot's shroud wrapper turns it back into
-/// Move or NoMove over a shrouded Cell (`0x004DDE64..0x004DDEBE`).
+/// Move or NoMove over a shrouded Cell (`0x004DDE64..0x004DDEBE`); the
+/// Building wrapper (`0x00447540`) keeps a building's Attack there.
 ///
 /// [`Simulation::cell_attack_rung_admits`]: crate::sim::world::Simulation::cell_attack_rung_admits
 #[allow(clippy::too_many_arguments)]
@@ -377,10 +378,15 @@ fn unforced_cell_attack_feedback(
 ) -> Option<CursorFeedbackKind> {
     use crate::app::input::context_order::OrderModifier;
     let id = best_id?;
+    let foot = sim
+        .entities()
+        .get(id)
+        .is_some_and(|entity| entity.category() != crate::map::entities::EntityCategory::Structure);
     if matches!(
         modifier,
         OrderModifier::ForceFire | OrderModifier::GuardArea
-    ) || viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true))
+    ) || (foot
+        && viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true)))
         || !sim.cell_attack_rung_admits(id, cell, rules?, overlay_registry)
     {
         return None;
@@ -2114,6 +2120,7 @@ mod tests {
             "[InfantryTypes]
              [VehicleTypes]
              0=MTNK
+             1=LTNK
              [AircraftTypes]
              [BuildingTypes]
              [MTNK]
@@ -2123,20 +2130,43 @@ mod tests {
              SpeedType=Track
              MovementZone=Normal
              Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}
+             [LTNK]
+             Strength=300
+             Primary=Saw
+             Speed=6
+             SpeedType=Track
+             MovementZone=Normal
+             Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}
              [WeaponTypes]
              0=105mm
+             1=Saw
              [105mm]
              Damage=60
              Range=5
              Warhead=AP
+             [Saw]
+             Damage=60
+             Range=5
+             Warhead=Wd
              [Warheads]
              0=AP
+             1=Wd
              [AP]
              Wall=yes
+             [Wd]
+             Wood=yes
              [OverlayTypes]
              0=GAWALL
+             1=FENCE
+             2=BARRIER
              [GAWALL]
              Wall=yes
+             [FENCE]
+             Wall=yes
+             Armor=wood
+             [BARRIER]
+             Wall=yes
+             LegalTarget=no
 ",
         );
         let rules = RuleSet::from_ini(&ini).expect("wall rules");
@@ -2147,6 +2177,9 @@ mod tests {
         let tank = sim
             .spawn_object("MTNK", "Americans", 2, 2, 0, &rules)
             .expect("tank spawned");
+        let saw = sim
+            .spawn_object("LTNK", "Americans", 3, 3, 0, &rules)
+            .expect("saw tank spawned");
         let owner = sim.entities().get(tank).unwrap().owner();
         sim.session.game_mode_nonzero = true;
         sim.session.current_house = Some(owner);
@@ -2164,13 +2197,8 @@ mod tests {
         grid.place_owned_wall(4, 2, wall, 0, enemy);
         grid.place_owned_wall(2, 4, wall, 0, owner);
         sim.fog = crate::sim::vision::FogState::new(32, 32);
-        sim.fog.reveal_cells_for_owner(
-            owner,
-            (0..32)
-                .flat_map(|y| (0..32).map(move |x| (x, y)))
-                .filter(|&cell| cell != (6, 2)),
-        );
-        grid.place_owned_wall(6, 2, wall, 0, enemy);
+        sim.fog
+            .reveal_cells_for_owner(owner, (0..32).flat_map(|y| (0..32).map(move |x| (x, y))));
         sim.overlay_grid = Some(grid);
         let feedback = |cell, modifier| {
             super::unforced_cell_attack_feedback(
@@ -2191,11 +2219,16 @@ mod tests {
         assert_eq!(feedback((2, 4), OrderModifier::Normal), None);
         assert_eq!(feedback((4, 2), OrderModifier::GuardArea), None);
         assert_eq!(feedback((5, 5), OrderModifier::Normal), None);
-        assert_eq!(
-            feedback((6, 2), OrderModifier::Normal),
-            None,
-            "Foot's shroud wrapper takes a shrouded wall back to its Move rungs"
-        );
+        // Wood= reaches only an Armor=wood wall; LegalTarget=no bars the rung.
+        let fence = registry.id_for_name("FENCE").expect("FENCE registered");
+        let barrier = registry.id_for_name("BARRIER").expect("BARRIER registered");
+        let grid = sim.overlay_grid.as_mut().unwrap();
+        grid.place_owned_wall(8, 2, fence, 0, enemy);
+        grid.place_owned_wall(10, 2, barrier, 0, enemy);
+        let admits = |id, cell| sim.cell_attack_rung_admits(id, cell, &rules, Some(&registry));
+        assert!(admits(saw, (8, 2)));
+        assert!(!admits(saw, (4, 2)), "GAWALL is not Armor=wood");
+        assert!(!admits(tank, (10, 2)), "LegalTarget=no");
     }
 
     fn stationary_attack_fixture() -> (Simulation, RuleSet, u64) {

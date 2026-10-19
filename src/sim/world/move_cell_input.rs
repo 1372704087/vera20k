@@ -97,9 +97,9 @@ impl Simulation {
     ///
     /// Not modelled, each answering another action where native reaches it:
     /// the planning rung (Ctrl+Alt or +0x43A, `0x00700815..0x007008A3`); the
-    /// attack rungs (`0x007008A6..0x00700AB4`: Ctrl, an enemy wall, a
-    /// destroyable cliff, a veinhole, a fogged building, a TerrainFire weapon
-    /// over a tree); a Unit harvester over ore or weeds
+    /// attack rungs (`0x007008A6..0x00700AB4`), which callers ask first
+    /// (Ctrl's forced shot, and [`Self::cell_attack_rung_admits`]); a Unit
+    /// harvester over ore or weeds
     /// (`0x007405F5..0x007406C3`, app-side in the cursor and the click); a
     /// tube entrance (Unit `0x007406CF`, Infantry `0x0051F9AC`); a JumpJet
     /// soldier over a tube's neighbourhood, which answers 0
@@ -205,7 +205,10 @@ impl Simulation {
     ///   (`0x0070097E`), when the warhead has `Wall=`, or `Wood=` against an
     ///   `Armor=wood` overlay (`0x007009C8..0x007009F1`).
     ///
-    /// Residuals: the fogged-object scan behind the scenario's FogOfWar flag
+    /// Residuals: the planning rung before it answers for an object whose
+    /// +0x43A is set (`0x00700840`; FootClass::ActivatePlanningWaypoint sets
+    /// it at `0x004DC8D3`), which VERA does not model; the fogged-object scan
+    /// behind the scenario's FogOfWar flag
     /// (`0x00700761..0x0070080F`: a fogged overlay replaces the live one and
     /// a fogged enemy building admits the rung) and the veinhole monster
     /// (`0x00700990`, no VERA owner) are not modelled; the later TerrainFire

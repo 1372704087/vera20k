@@ -1,4 +1,5 @@
-//! BC/BD commands after the shared window/control input owner admits them.
+//! BC/BD and C2/C9 commands after the shared window/control input owner
+//! admits them.
 
 mod start;
 use super::*;
@@ -7,7 +8,9 @@ use crate::skirmish_launch::{AiDifficulty, LaunchCountry, LaunchStartPosition, L
 use crate::ui::multiplayer_setup::*;
 
 pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
+    let dialog = super::dialog(state);
     let result = match action {
+        SetupAction::Start if dialog.wol() => super::wol::request_start(state),
         SetupAction::Start => start::request_start(state),
         SetupAction::Accept => accept(state),
         SetupAction::Back => {
@@ -16,14 +19,17 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
                 .network_setup_protocol
                 .as_ref()
                 .is_some_and(|protocol| !protocol.locked)
+                && !super::wol::start_pending(state)
             {
                 queue(state, NetworkSetupRequest::Leave);
-                App::leave_shell_dialog(
-                    state,
-                    shell_transition::ShellExitThen::NetworkSetupBack {
-                        host: state.match_state.session.host(),
-                    },
-                );
+                // C9 Back (0x791E4A..5F) closes only when the leave call
+                // fails; otherwise the channel-left event closes it.
+                if !(dialog.wol() && !dialog.host) {
+                    App::leave_shell_dialog(
+                        state,
+                        shell_transition::ShellExitThen::NetworkSetupBack(dialog),
+                    );
+                }
             }
             Ok(())
         }
@@ -37,7 +43,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
             {
                 App::leave_shell_dialog(
                     state,
-                    shell_transition::ShellExitThen::NetworkSetupChooseMap { host: true },
+                    shell_transition::ShellExitThen::NetworkSetupChooseMap(dialog),
                 );
             }
             Ok(())
@@ -45,6 +51,20 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
         SetupAction::Toggle { control } => toggle(state, control),
         SetupAction::Trackbar { control, value } => trackbar(state, control, value),
         SetupAction::Select { control, value } => select(state, control, value),
+        SetupAction::Chat(text) if dialog.wol() => {
+            super::wol::chat(state, text);
+            Ok(())
+        }
+        SetupAction::Emote => {
+            super::wol::emote(state);
+            Ok(())
+        }
+        SetupAction::Page => {
+            // 0x5C2 runs the modal page dialog 0xCF (0078D120), a later
+            // WOL chain; nothing is invented in its place.
+            log::warn!("WOL page dialog 0xCF is not implemented");
+            Ok(())
+        }
         SetupAction::Chat(text) => {
             // Original BC/BD chat is admitted even during its GO input lock.
             let name = state
@@ -66,7 +86,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
         }
     };
     if let Err(error) = result {
-        log::warn!("LAN setup command refused: {error:#}");
+        log::warn!("network setup command refused: {error:#}");
     }
     state.platform.window.request_redraw();
 }
@@ -101,7 +121,17 @@ fn toggle(state: &mut AppState, control: u16) -> anyhow::Result<()> {
         _ => anyhow::bail!("unknown setup checkbox"),
     }
     state.match_state.session.set_network_options(options)?;
+    host_option_edited(state)?;
     queue(state, NetworkSetupRequest::PublishOptions);
+    Ok(())
+}
+
+/// C2 checkbox and slider handlers (`0x78F9C1`, `0x78FA97`) clear every
+/// remote acceptance at once (`005E9850`); BC leaves that to peers' A0.
+fn host_option_edited(state: &mut AppState) -> anyhow::Result<()> {
+    if super::dialog(state).wol() {
+        super::wol::clear_guest_acceptance(state)?;
+    }
     Ok(())
 }
 
@@ -139,6 +169,7 @@ fn trackbar(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()
         }
         state.match_state.session.set_network_options(options)?;
     }
+    host_option_edited(state)?;
     queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }
@@ -156,7 +187,8 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
     let (column, row) =
         SetupColumn::decode(control).ok_or_else(|| anyhow::anyhow!("unknown setup combo"))?;
     if column == SetupColumn::Player {
-        if value == 0 {
+        // C2 0x411..0x418 act only while no start is pending (00B77E28).
+        if value == 0 || super::wol::start_pending(state) {
             return Ok(());
         }
         let kind = match value {
@@ -335,6 +367,17 @@ pub(crate) fn commit_map_selection(
         .ok_or_else(|| anyhow::anyhow!("unknown chosen map"))?;
     let file = map.file_name.clone();
     let metadata = super::local_map_metadata(state, &file)?;
+    let changed = state
+        .match_state
+        .session
+        .network_setup()
+        .and_then(|launch| launch.selected_map_file.as_deref())
+        .is_none_or(|current| !current.eq_ignore_ascii_case(&file))
+        || state
+            .match_state
+            .session
+            .network_map_metadata()
+            .is_none_or(|current| current.display_name != metadata.display_name);
     let removed = state.match_state.session.select_network_map(
         crate::skirmish_launch::SkirmishLaunchMode::from_game_mode(mode),
         file.clone(),
@@ -353,6 +396,14 @@ pub(crate) fn commit_map_selection(
         .multiplayer_shell_runtime
         .set_preferred_game_mode(mode_id);
     state.frontend.skirmish_preview_texture = None;
+    if super::dialog(state).wol() {
+        // C2 ChooseMap 0x790F68: acceptance clears only for a new
+        // filename or title; the advertisement always follows (78F000).
+        if changed {
+            super::wol::clear_guest_acceptance(state)?;
+        }
+        queue(state, NetworkSetupRequest::Advertise);
+    }
     queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }

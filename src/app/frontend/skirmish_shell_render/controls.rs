@@ -1135,14 +1135,18 @@ mod tests {
             combo_face_39: Some(face(39)),
             ..Default::default()
         };
-        for host in [false, true] {
+        use crate::ui::multiplayer_setup::{SetupDialog, SetupFlavor};
+        for dialog in [SetupFlavor::Lan, SetupFlavor::Wol]
+            .into_iter()
+            .flat_map(|flavor| [false, true].map(|host| SetupDialog { host, flavor }))
+        {
             for (width, height, responsive) in [
                 (640, 480, false),
                 (800, 600, false),
                 (1024, 768, false),
                 (1280, 960, true),
             ] {
-                let layout = MultiplayerSetupLayout::new(host, width, height, responsive);
+                let layout = MultiplayerSetupLayout::new(dialog, width, height, responsive);
                 for rect in layout.combos.into_iter().flatten() {
                     let entry = combo_face_entry(&chrome, rect, layout.page.scale)
                         .expect("every BC/BD combo window must resolve an atlas face");

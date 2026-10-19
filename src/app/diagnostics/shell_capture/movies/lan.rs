@@ -2229,12 +2229,17 @@ fn lobby_settled(state: &AppState) -> bool {
         && state.frontend.shell_page_title.is_terminal()
 }
 fn setup_settled(state: &AppState, host: bool) -> bool {
-    MoviesCapture::slide_settled(state, ShellSlideKind::NetworkSetup { host })
-        && state
-            .frontend
-            .multiplayer_setup
-            .as_ref()
-            .is_some_and(|ui| ui.statics.is_terminal())
+    MoviesCapture::slide_settled(
+        state,
+        ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {
+            host,
+            flavor: crate::ui::multiplayer_setup::SetupFlavor::Lan,
+        }),
+    ) && state
+        .frontend
+        .multiplayer_setup
+        .as_ref()
+        .is_some_and(|ui| ui.statics.is_terminal())
 }
 fn lobby_click(state: &mut AppState, rect: RectPx) {
     set_window_pointer_to_rect_center(state, rect);

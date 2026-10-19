@@ -775,15 +775,7 @@ impl MatchSession {
             observer_row.is_none_or(|row| row < 8),
             "observer reservation is outside setup rows"
         );
-        let admitted_capacity = capacity
-            .min(
-                incoming
-                    .mode
-                    .class
-                    .setup_player_limit()
-                    .map_or(8, |limit| limit as i32),
-            )
-            .min(8);
+        let admitted_capacity = self.network_row_capacity(&incoming.mode, capacity);
         let Some(NetworkSession {
             phase:
                 NetworkPhase::Setup {
@@ -846,6 +838,20 @@ impl MatchSession {
         }
     }
 
+    /// 5EC3A0's admitted row capacity for a map of `capacity` players.
+    fn network_row_capacity(
+        &self,
+        mode: &crate::skirmish_launch::SkirmishLaunchMode,
+        capacity: i32,
+    ) -> i32 {
+        row_capacity(self.mode, mode, capacity)
+    }
+
+    /// 5EB060/5EC3A0 service row limit (LAN 8, WOL 6).
+    pub(crate) fn network_row_limit(&self) -> i32 {
+        row_limit(self.mode)
+    }
+
     pub(crate) fn network_observer_row(&self) -> Option<u8> {
         match &self.network.as_ref()?.phase {
             NetworkPhase::Setup { observer_row, .. } => *observer_row,
@@ -869,6 +875,7 @@ impl MatchSession {
             "map requires a valid participant capacity"
         );
         let mut candidate = self.clone();
+        let session_mode = self.mode;
         let (old_capacity, observer_row, host_extra, new_capacity) = {
             let Some(NetworkSession {
                 phase:
@@ -887,14 +894,10 @@ impl MatchSession {
             if changed && mode.class.uses_cooperative_setup() {
                 *observer_row = None;
             } //5C1A10
-            let limit = mode
-                .class
-                .setup_player_limit()
-                .map_or(8, |limit| limit as i32);
-            let new_capacity = capacity.min(limit).min(8);
+            let new_capacity = row_capacity(session_mode, &mode, capacity);
             let host_extra = i32::from(
                 *observer_row == launch.local_player().raw_slot_index
-                    && (mode.class.lists_in_skirmish() || new_capacity < 8),
+                    && (mode.class.lists_in_skirmish() || new_capacity < row_limit(session_mode)),
             );
             let old = *previous;
             *previous = new_capacity;
@@ -1088,6 +1091,32 @@ impl MatchSession {
         Ok(())
     }
 
+    /// WOL `005E9850` clears node+77 of every node but the host's (row 0),
+    /// on host option edits (C2 `0078F9C1`/`0078FA97`) and whenever a user
+    /// joins the game channel (`007A6625`). LAN never does this: its peers
+    /// retract acceptance through packet A0.
+    pub(crate) fn clear_wol_guest_readiness(&mut self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.mode == SessionMode::Wol,
+            "only WOL clears guest acceptance"
+        );
+        let Some(NetworkSession {
+            phase: NetworkPhase::Setup {
+                launch, admission, ..
+            },
+            ..
+        }) = self.network.as_mut()
+        else {
+            anyhow::bail!("network setup is not editable");
+        };
+        for (human, entry) in launch.humans.iter().zip(admission.iter_mut()) {
+            if human.raw_slot_index != Some(0) {
+                entry.ready = false;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn set_network_map_status(
         &mut self,
         index: usize,
@@ -1145,6 +1174,32 @@ impl MatchSession {
         ));
         Ok(())
     }
+    /// WOL Start Game Now timing block (`0x794F6F..0x7951F0`): MaxAhead
+    /// comes from the agreed game speed, identical for host and guest.
+    /// FrameSendRate, the PreCalc values and the IPX retry timing it also
+    /// writes belong to the transport, outside this change.
+    pub(crate) fn prepare_wol_timing(
+        &mut self,
+        pings: [i32; 8],
+        channel_owner: bool,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.mode == SessionMode::Wol,
+            "WOL timing needs a WOL visit"
+        );
+        let network = self
+            .network
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no network visit"))?;
+        let NetworkPhase::Setup { launch, .. } = &network.phase else {
+            anyhow::bail!("WOL timing follows an admitted setup");
+        };
+        let timing =
+            crate::net::lockstep::wol_start_timing(launch.options.game_speed, pings, channel_owner);
+        network.max_ahead_frames = Some(timing.max_ahead);
+        Ok(())
+    }
+
     pub(crate) fn network_max_ahead_frames(&self) -> Option<i32> {
         self.network.as_ref()?.max_ahead_frames
     }
@@ -1339,6 +1394,34 @@ impl MatchSession {
     pub(crate) fn host(&self) -> bool {
         self.host
     }
+}
+
+/// 5EC3A0 row limit: LAN 8, WOL 6 (`005EC457`). Tournament (`0077D940`)
+/// rooms limit WOL to 2 and clan rooms (`0077D970`) round the map capacity
+/// down to even; VERA's WOL lobby admits only ordinary custom games, so
+/// those room kinds are not reachable here.
+fn row_limit(session_mode: SessionMode) -> i32 {
+    if session_mode == SessionMode::Wol {
+        6
+    } else {
+        8
+    }
+}
+
+/// 5EC3A0: map capacity (5E6520), then the mode's vtable+98 limit, then the
+/// service row limit.
+fn row_capacity(
+    session_mode: SessionMode,
+    mode: &crate::skirmish_launch::SkirmishLaunchMode,
+    capacity: i32,
+) -> i32 {
+    capacity
+        .min(
+            mode.class
+                .setup_player_limit()
+                .map_or(8, |limit| limit as i32),
+        )
+        .min(row_limit(session_mode))
 }
 
 fn native_network_row_defaults(

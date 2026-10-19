@@ -69,9 +69,8 @@ pub(crate) enum ShellSlideKind {
     /// Dialog D7, Options' Network child.
     NetworkOptions,
     LanLobby,
-    NetworkSetup {
-        host: bool,
-    },
+    /// BC/BD (LAN) or C2/C9 (WOL) network setup.
+    NetworkSetup(crate::ui::multiplayer_setup::SetupDialog),
     /// Dialog 0x6B — Skirmish's Choose Map, a family page of its own.
     ChooseMap,
     /// Dialog 0x108 — the score screen after a skirmish game.
@@ -100,13 +99,7 @@ impl ShellSlideKind {
             ShellSlideKind::Keyboard => 0x00A3,
             ShellSlideKind::NetworkOptions => 0x00D7,
             ShellSlideKind::LanLobby => 0xBB,
-            ShellSlideKind::NetworkSetup { host } => {
-                if host {
-                    0xBC
-                } else {
-                    0xBD
-                }
-            }
+            ShellSlideKind::NetworkSetup(dialog) => dialog.page().dialog.0,
             ShellSlideKind::ChooseMap => 0x006B,
             ShellSlideKind::Score => 0x0108,
             ShellSlideKind::CampaignScore => 0x0103,
@@ -179,14 +172,10 @@ pub(crate) enum ShellExitThen {
         observe: bool,
     },
     LanJoinAccepted(crate::app::shell_lan::LanJoinAcceptance),
-    NetworkSetupBack {
-        host: bool,
-    },
-    NetworkSetupChooseMap {
-        host: bool,
-    },
+    NetworkSetupBack(crate::ui::multiplayer_setup::SetupDialog),
+    NetworkSetupChooseMap(crate::ui::multiplayer_setup::SetupDialog),
     NetworkStart {
-        host: bool,
+        dialog: crate::ui::multiplayer_setup::SetupDialog,
         agreed_seed: u32,
     },
     /// Skirmish Choose Map (`0x5AA`): `0x102` slides out and hides without
@@ -237,9 +226,9 @@ impl ShellExitThen {
             Self::LanBack | Self::LanCreate { .. } | Self::LanJoinAccepted(_) => {
                 ShellSlideKind::LanLobby
             }
-            Self::NetworkSetupBack { host }
-            | Self::NetworkSetupChooseMap { host }
-            | Self::NetworkStart { host, .. } => ShellSlideKind::NetworkSetup { host: *host },
+            Self::NetworkSetupBack(dialog)
+            | Self::NetworkSetupChooseMap(dialog)
+            | Self::NetworkStart { dialog, .. } => ShellSlideKind::NetworkSetup(*dialog),
             Self::SkirmishChooseMap => ShellSlideKind::Skirmish,
             Self::ChooseMapUse(_) | Self::ChooseMapCancel | Self::ChooseMapRandomMap => {
                 ShellSlideKind::ChooseMap
@@ -520,7 +509,7 @@ impl<'a> ShellLifecycleReducer<'a> {
             | ShellSlideKind::Keyboard
             | ShellSlideKind::NetworkOptions
             | ShellSlideKind::LanLobby => ShellWaveCompletion::MenuPage,
-            ShellSlideKind::NetworkSetup { .. } => ShellWaveCompletion::MultiplayerSetup,
+            ShellSlideKind::NetworkSetup(_) => ShellWaveCompletion::MultiplayerSetup,
             ShellSlideKind::Skirmish => ShellWaveCompletion::Skirmish,
             ShellSlideKind::ChooseMap => ShellWaveCompletion::ChooseMap,
             ShellSlideKind::RandomMap => ShellWaveCompletion::RandomMap,
@@ -722,9 +711,7 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
         {
             skirmish_slide_target(&state.frontend.skirmish_shell_state)?
         } else {
-            ShellSlideKind::NetworkSetup {
-                host: state.match_state.session.host(),
-            }
+            ShellSlideKind::NetworkSetup(crate::app::shell_network_setup::dialog(state))
         }
     } else if state.frontend.shell_route.single_player() {
         ShellSlideKind::SinglePlayer
@@ -961,7 +948,7 @@ pub(crate) fn render_shell_first_paint_slide(
             )?;
             true
         }
-        ShellSlideKind::NetworkSetup { .. } => {
+        ShellSlideKind::NetworkSetup(_) => {
             crate::app::frontend::skirmish_shell_render::render_multiplayer_setup(
                 state,
                 encoder,

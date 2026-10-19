@@ -70,11 +70,12 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     });
     let capacity = session.network_setup_capacity()?.clamp(0, 8) as usize;
     let observer_row = session.network_observer_row().map(usize::from);
-    let visible_limit = if observer_row == Some(0) && capacity < 8 {
-        capacity + 1
-    } else {
-        capacity
-    };
+    let visible_limit =
+        if observer_row == Some(0) && (capacity as i32) < session.network_row_limit() {
+            capacity + 1
+        } else {
+            capacity
+        };
     let cooperative = mode.class.uses_cooperative_setup();
     let coop = cooperative
         .then(|| {
@@ -347,7 +348,19 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             visible: cooperative,
         },
     ];
+    let dialog = super::dialog(state);
+    // 7A0E50 from 5EA3E0: rows without a node show no ping image.
+    let ping_icons = std::array::from_fn(|row| {
+        dialog.wol().then_some(())?;
+        let human = launch
+            .humans
+            .iter()
+            .find(|human| human.raw_slot_index == Some(row as u8))?;
+        ping_icon(protocol.ping(&human.name)?)
+    });
     Some(SetupView {
+        dialog,
+        ping_icons,
         host,
         locked: protocol.locked,
         accept_enabled: protocol.accept_eligible

@@ -155,6 +155,9 @@ pub(crate) struct FrontendState {
     /// Audio, Theme and RMG continue that cursor behind the shell; the setup
     /// seed before the first scenario comes from shell Scenario.
     pub(crate) frontend_main_rng: crate::sim::rng::MainRng,
+    /// The process start `g_RngSeed` (`0xA8ED94`) before any match reseeds
+    /// it; WOL hosts publish the resident seed (C2 draws none).
+    pub(crate) startup_rng_seed: u32,
     /// UI-thread CRT state shared by storage dialogs, preserved across routes.
     /// Native tactical sparkle/network consumption is still an integration gap;
     /// do not infer exact post-game filenames from this initial state.

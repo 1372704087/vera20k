@@ -171,7 +171,7 @@ impl App {
 
     pub(crate) fn commit_lan_create(state: &mut AppState, observe: bool) {
         state.frontend.lan = None;
-        Self::open_lan_setup(state, observe);
+        Self::open_host_setup(state, observe);
     }
 }
 

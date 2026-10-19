@@ -1,5 +1,5 @@
-//! BC/BD window input adapter. The dialog produces intents; MatchSession and
-//! the LAN lifecycle adapter decide their admission and effects.
+//! BC/BD/C2/C9 window input adapter. The dialog produces intents;
+//! MatchSession and the setup lifecycle adapter decide admission and effects.
 
 use crate::app::frontend::{shell_layout, shell_transition};
 use crate::app::{App, AppState};
@@ -14,7 +14,7 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 pub(crate) fn layout(state: &AppState) -> MultiplayerSetupLayout {
     let (w, h) = shell_layout::shell_screen_size(state);
     MultiplayerSetupLayout::new(
-        state.match_state.session.host(),
+        crate::app::shell_network_setup::dialog(state),
         w as i32,
         h as i32,
         shell_layout::fills_window(state),
@@ -154,7 +154,7 @@ pub(crate) fn cursor_moved(state: &mut AppState) {
     let (x, y) = state.match_state.input.cursor_px();
     let help = layout
         .control_at(&view, x, y)
-        .and_then(|id| tooltip_key(view.host, id))
+        .and_then(|id| tooltip_key(view.dialog, id))
         .and_then(|key| {
             state
                 .process_assets
@@ -324,6 +324,8 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
                 ACCEPT => Some(SetupAction::Accept),
                 BACK => Some(SetupAction::Back),
                 CHOOSE_MAP => Some(SetupAction::ChooseMap),
+                EMOTE => Some(SetupAction::Emote),
+                PAGE => Some(SetupAction::Page),
                 _ => None,
             };
         }

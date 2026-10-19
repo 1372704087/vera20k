@@ -177,6 +177,24 @@ pub(crate) const RENDERED_SHELL_SLIDES: &[SlideDialogSpec] = &[
         top_panel: true,
         campaign_score: false,
     },
+    // WOL setup C2 (Start, Choose Map, Page) and C9 (Accept, Page) keep
+    // BC/BD's top panel and map button.
+    SlideDialogSpec {
+        dialog_id: 0x00C2,
+        top_buttons: 3,
+        bottom_button: true,
+        map_button: true,
+        top_panel: true,
+        campaign_score: false,
+    },
+    SlideDialogSpec {
+        dialog_id: 0x00C9,
+        top_buttons: 2,
+        bottom_button: true,
+        map_button: true,
+        top_panel: true,
+        campaign_score: false,
+    },
     SlideDialogSpec {
         dialog_id: 0x00D7,
         top_buttons: 1,

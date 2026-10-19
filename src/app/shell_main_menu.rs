@@ -595,16 +595,15 @@ impl App {
     }
 
     /// PrepareSession re-enters the active mode's shell: LAN starts a new BB,
-    /// Skirmish a new0x102. The session keeps the admitted network return owner.
+    /// WOL its lobby 0x113, Skirmish a new0x102. The session keeps the
+    /// admitted network return owner.
     pub(super) fn resume_shell_after_match(state: &mut AppState) {
         if state.frontend.external_launch {
             Self::start_quit_cascade(state);
             return;
         }
-        if state.match_state.session.network_return_context()
-            == Some(crate::app::match_runtime::session::NetworkReturnContext::LanLobby)
-        {
-            crate::app::shell_network_setup::commit_back(state);
+        if state.match_state.session.network_return_context().is_some() {
+            crate::app::shell_network_setup::return_after_match(state);
             return;
         }
         if state.frontend.shell_route.skirmish() {
@@ -1262,10 +1261,10 @@ impl App {
             ShellExitThen::LanJoinAccepted(accepted) => {
                 Self::open_lan_joined_setup(state, accepted)
             }
-            ShellExitThen::NetworkSetupBack { .. } => {
+            ShellExitThen::NetworkSetupBack(_) => {
                 crate::app::shell_network_setup::commit_back(state)
             }
-            ShellExitThen::NetworkSetupChooseMap { .. } => {
+            ShellExitThen::NetworkSetupChooseMap(_) => {
                 crate::app::shell_network_setup::open_choose_map(state)
             }
             ShellExitThen::NetworkStart { agreed_seed, .. } => {

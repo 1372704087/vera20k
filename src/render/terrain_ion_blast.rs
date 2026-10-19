@@ -31,7 +31,7 @@
 //! production admission and this owner.
 
 use super::TerrainDrawRenderer;
-use crate::render::ion_blast_ripple::{
+use crate::sim::ion_blast_ripple::{
     FRAME_COUNT, FRAME_HEIGHT, FRAME_WIDTH, RippleFrames, displacement,
 };
 use crate::util::retail_trig::TrigTable;
@@ -239,7 +239,7 @@ impl TerrainDrawRenderer {
     /// `Show_Loading_Screen` (`0x00531758`) -> `0x0053D330`, gated by
     /// `0x00AA014C`.
     pub(crate) fn generate_ion_blast_frames(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) {
-        let frames = RippleFrames::generate(TrigTable::embedded());
+        let frames = RippleFrames::shared();
         self.ion_blasts.bind_frames(device, queue, frames.bytes());
     }
 

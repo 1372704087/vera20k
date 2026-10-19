@@ -330,6 +330,10 @@ pub struct GameEntity {
     /// and of the active/suspended locomotor. Deterministic fixed radians.
     #[serde(default)]
     pub(crate) flight_attitude: crate::sim::movement::fly_height::FlightAttitude,
+    /// Foot+6B4, ctor4D343E zero; IonBlast53CF7F writes a signed pixel
+    /// lift. FootAI4DAECA clears it; Foot save4DBD7C retains it.
+    #[serde(default)]
+    ion_blast_lift: i8,
     /// The Foot occupation enable (`Foot+0x6B6`), an [`OccupationEnable`]
     /// that `movement::foot_mark` owns. Unit's constructor (`0x007353CE`)
     /// runs the Foot one that sets it.
@@ -743,6 +747,9 @@ pub struct GameEntity {
     ///
     /// [`DeployAttachment`]: simple_deploy::DeployAttachment
     deploy_attachment: simple_deploy::DeployAttachment,
+    /// The Behind indicator Anim (`TechnoClass+0x12C`) that
+    /// `game_entity::behind_indicator` owns.
+    behind_anim: Option<crate::sim::anim_class::AnimId>,
     /// Unit+0x68C: runtime Deploy continuation, not the type's DeployToFire;
     /// a [`DeployContinuation`] that `mcv_deploy` owns.
     ///
@@ -818,12 +825,22 @@ pub struct GameEntity {
     pub(crate) cached_spatial_threat: crate::sim::house_threat::SpatialThreat,
 }
 
+mod behind_indicator;
 mod construction_stage;
 mod gunner;
 mod simple_deploy;
 mod voxel_recoil;
 
 impl GameEntity {
+    /// Infantry519524/51958A and Unit73CEF3 subtract Foot+6B4 in DrawIt.
+    pub fn ion_blast_lift_pixels(&self) -> i8 {
+        self.ion_blast_lift
+    }
+
+    pub(crate) fn set_ion_blast_lift(&mut self, pixels: i8) {
+        self.ion_blast_lift = pixels;
+    }
+
     /// The infantry house-total latches (`Techno+0x438/+0x439`). Only
     /// `sim::house_tracking` can change them; the mutable borrow exists so
     /// that owner can reach the latches stored on the object.
@@ -1457,6 +1474,7 @@ impl GameEntity {
             navigation: NavigationState::at_frame(construction_frame),
             foot_speed: crate::sim::components::FootSpeedState::default(),
             flight_attitude: Default::default(),
+            ion_blast_lift: 0,
             foot_occupation_enabled: crate::sim::movement::foot_mark::OccupationEnable::constructed(
             ),
             lift: Default::default(),
@@ -1545,6 +1563,7 @@ impl GameEntity {
             door: crate::sim::door::DoorClass::at_frame(construction_frame),
             bunker_runtime: None,
             deploy_attachment: Default::default(),
+            behind_anim: None,
             mcv_deploy_pending: Default::default(),
             infantry: if category == EntityCategory::Infantry {
                 Some(crate::sim::infantry::InfantryRuntime::new())

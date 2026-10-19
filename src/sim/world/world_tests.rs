@@ -2877,7 +2877,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
         } else {
             entity
                 .navigation
-                .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::building(2)));
+                .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::object(2)));
         }
         for _ in 0..41 {
             entity.mission.increment_ai_counter();
@@ -2972,7 +2972,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
                 ));
                 assert_eq!(
                     entity.navigation.nav_com(),
-                    Some(crate::sim::components::NavTargetRef::building(2)),
+                    Some(crate::sim::components::NavTargetRef::object(2)),
                     "Tube final retains the authoritative building destination"
                 );
                 assert!(

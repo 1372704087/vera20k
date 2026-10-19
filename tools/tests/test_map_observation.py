@@ -2373,7 +2373,8 @@ class MapObservationTests(unittest.TestCase):
                        {'suspended_target': {'Entity': 0}, 'suspended_nav': None},
                        {'suspended_target': {'Cell': {'rx': 1, 'ry': 2}}, 'suspended_nav': None},
                        {'suspended_target': None, 'suspended_nav': {'Cell': [1, 2]}},
-                       {'suspended_target': None, 'suspended_nav': {'Object': {'id': True}}}):
+                       {'suspended_target': None, 'suspended_nav': {'Object': {'id': True}}},
+                       {'suspended_target': None, 'suspended_nav': {'Building': {'id': 9}}}):
             with self.subTest(retask=retask), self.assertRaises(ValidationError):
                 observation._actor(dict(self.actor(), retask=retask), 'actor')
 

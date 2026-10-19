@@ -1158,14 +1158,7 @@ impl Simulation {
                     entity.set_archive_target(None);
                 }
             }
-            let destination = match target {
-                crate::sim::combat::TargetKind::Cell(rx, ry) => {
-                    crate::sim::components::NavTargetRef::cell(rx, ry)
-                }
-                crate::sim::combat::TargetKind::Entity(id) => {
-                    crate::sim::components::NavTargetRef::object(id)
-                }
-            };
+            let destination = crate::sim::components::NavTargetRef::from(target);
             if let Err(cause) =
                 self.assign_infantry_destination(id, destination, rules, registry, effects)
             {

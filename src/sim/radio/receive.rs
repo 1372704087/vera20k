@@ -573,7 +573,7 @@ fn building_docking(
                 from,
                 RadioMessage::MoveToCell,
                 RadioPayload {
-                    target: Some(NavTargetRef::Building { id: building_id }),
+                    target: Some(NavTargetRef::object(building_id)),
                     ..RadioPayload::default()
                 },
                 Some(rules),
@@ -1290,9 +1290,7 @@ fn aircraft_move_here(
         return RadioResponse::None;
     };
     let dock = payload.target.and_then(|target| match target {
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => sim
+        NavTargetRef::Object { id } => sim
             .substrate
             .entities
             .get(id)
@@ -1422,9 +1420,7 @@ fn foot_move_here(
     let terrain = sim.resolved_terrain.as_ref();
     let target_cell = payload.target.and_then(|target| match target {
         NavTargetRef::Cell { rx, ry } => Some((i32::from(rx), i32::from(ry))),
-        NavTargetRef::Entity { id }
-        | NavTargetRef::Object { id }
-        | NavTargetRef::Building { id } => {
+        NavTargetRef::Object { id } => {
             let coords = crate::sim::movement::ground_pose::object_get_coords(
                 sim.substrate.entities.get(id)?,
                 terrain,
@@ -1497,17 +1493,10 @@ fn foot_run_away(
         return;
     };
     // 0x004D902D..0x004D904F: In_Radio_Contact and NavCom == Contact(0).
-    let aimed_at_contact = match (entity.navigation.nav_com(), entity.radio_contacts.slot(0)) {
-        (
-            Some(
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id },
-            ),
-            Some(contact),
-        ) => id == contact,
-        _ => false,
-    };
+    let aimed_at_contact = entity
+        .radio_contacts
+        .slot(0)
+        .is_some_and(|contact| entity.navigation.nav_com() == Some(NavTargetRef::object(contact)));
     if aimed_at_contact {
         sim.assign_null_destination(foot, Some(rules), effects.overlay_registry(), effects);
     }

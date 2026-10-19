@@ -77,11 +77,7 @@ impl EnterHost for WorldEnter<'_> {
         match self.entity().navigation.nav_com() {
             None => EnterNav::None,
             Some(NavTargetRef::Cell { .. }) => EnterNav::Other,
-            Some(
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id },
-            ) => {
+            Some(NavTargetRef::Object { id }) => {
                 if self
                     .sim
                     .substrate

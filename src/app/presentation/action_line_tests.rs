@@ -776,7 +776,7 @@ fn physical_palette_matches_original_convert_middle_row() {
     );
     let convert = crate::render::palette_light::PaletteLight::plain(53, 1000);
     let actual: Vec<_> = palette
-        .colors
+        .colors()
         .iter()
         .enumerate()
         .flat_map(|(index, color)| {

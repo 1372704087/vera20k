@@ -319,7 +319,7 @@ fn raw(live: &EntryReadContext<'_>, cell: Cell, layer: MovementLayer) -> (u8, Op
 // Unit73F5EF/73F628/73F823 compare actual object pointers, never a Cell
 // sharing the blocker's coordinates. Infantry has a distinct Cell shortcut.
 fn object_target_is(mover: &GameEntity, blocker: u64) -> bool {
-    matches!(mover.navigation.nav_com(), Some(NavTargetRef::Entity{id}|NavTargetRef::Object{id}|NavTargetRef::Building{id}) if id==blocker)
+    mover.navigation.nav_com() == Some(NavTargetRef::object(blocker))
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InfantryTargetAdmission {
@@ -1988,7 +1988,7 @@ mod tests {
             .get_mut(infantry)
             .unwrap()
             .navigation
-            .set_nav_com_for_test(Some(NavTargetRef::Building { id: hut }));
+            .set_nav_com_for_test(Some(NavTargetRef::Object { id: hut }));
         assert!(probe(&mut sim));
         assert_eq!(
             sim.resolved_terrain

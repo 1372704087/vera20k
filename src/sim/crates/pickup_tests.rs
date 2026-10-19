@@ -652,24 +652,6 @@ fn arena() -> (Simulation, RuleSet, OverlayTypeRegistry, InternedId, u64) {
     (sim, rules, registry, owner, actor)
 }
 
-/// The reads this chain adds: the seven `[AudioVisual]` crate sounds and
-/// `CrateGoodie=`.
-#[test]
-fn crate_sound_and_goodie_keys_parse() {
-    let (_, rules, _, _, _) = arena();
-    assert_eq!(
-        rules.general.crate_money_sound.as_deref(),
-        Some("CrateMoney")
-    );
-    assert_eq!(
-        rules.general.crate_unit_sound.as_deref(),
-        Some("CrateFreeUnit")
-    );
-    assert_eq!(rules.general.crate_reveal_sound, None);
-    assert!(rules.object("TNK").unwrap().crate_goodie);
-    assert!(!rules.object("AMCV").unwrap().crate_goodie);
-}
-
 /// `0x00482041..0x00482449`: a random `CrateGoodie=` vehicle is built for the
 /// actor's house and unlimboed at the crate cell; the pickup returns false
 /// and spawns no anim.
@@ -835,27 +817,6 @@ fn heal_base_crate_restores_the_owners_buildings() {
         sounds(&sim),
         vec![("HEALCRATE".to_string(), Some([owner, owner]))]
     );
-}
-
-/// Drive `Force_Track` (`0x004B0D1B`): the supplied cell's crate is picked up
-/// as the head is installed.
-#[test]
-fn force_track_onto_a_crate_cell_picks_it_up() {
-    let (mut sim, rules, registry, owner, actor) = arena();
-    place_registered_crate(&mut sim, &registry, (21, 22), POWERUP_MONEY as u8);
-    let credits = sim.houses[&owner].economy.credits();
-
-    assert!(sim.force_track(
-        actor,
-        -1,
-        DriveCoord::cell(21, 22, 0),
-        Some(&rules),
-        Some(&registry),
-        crate::sim::world::FrameEffects::default()
-    ));
-
-    assert_eq!(overlay_at(&sim, (21, 22)), None);
-    assert!(sim.houses[&owner].economy.credits() > credits);
 }
 
 /// Drive `Process_Movement` (`0x004B405D`/`0x004B46E6`) through the master

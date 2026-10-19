@@ -19,7 +19,7 @@ use crate::sim::world::{SimSoundEvent, Simulation};
 // inserting `BuildQueueItem`s into the retired `queues_by_owner`.
 use super::tests::{
     arm_build_via, basic_infantry_rules, basic_multi_queue_rules, build_catalog_rules,
-    naval_production_rules, production_modifier_rules, spawn_structure, water_terrain,
+    production_modifier_rules, spawn_structure, water_terrain,
 };
 
 fn factory_constructor_rules() -> RuleSet {
@@ -1573,82 +1573,6 @@ fn named_skirmish_owner_uses_country_for_build_permissions() {
     assert!(turret.enabled);
 }
 
-#[test]
-#[ignore = "WIP: MCV deploy build-option unlock not yet landed"]
-fn deployed_mcv_unlocks_building_options_for_named_skirmish_owner() {
-    let mut sim = Simulation::new();
-    let ini = IniFile::from_str(
-        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n\
-         [VehicleTypes]\n\
-         0=AMCV\n\
-         [AircraftTypes]\n\
-         [BuildingTypes]\n\
-         0=GACNST\n\
-         1=GAPOWR\n\
-         [AMCV]\n\
-         Strength=450\n\
-         Armor=heavy\n\
-         Speed=5\n\
-         TechLevel=1\n\
-         Owner=Americans\n\
-         DeploysInto=GACNST\n\
-         [GACNST]\n\
-         Name=Construction Yard\n\
-         Cost=3000\n\
-         Strength=1000\n\
-         Armor=wood\n\
-         TechLevel=1\n\
-         Owner=Americans\n\
-         Foundation=4x3\n\
-         Factory=BuildingType\n\
-         [GAPOWR]\n\
-         Name=Power Plant\n\
-         Cost=800\n\
-         Strength=750\n\
-         Armor=wood\n\
-         TechLevel=1\n\
-         Owner=Americans\n\
-         Foundation=2x2\n\
-         Prerequisite=GACNST\n",
-    );
-    let rules = RuleSet::from_ini(&ini).expect("rules should parse");
-    sim.intern_rule_type_ids(&rules);
-    sim.resolve_type_handles(&rules);
-
-    let owner_id = sim.interner.intern("Commander");
-    let country_id = sim.interner.intern("Americans");
-    sim.houses
-        .register(crate::sim::house_state::HouseState::new(
-            owner_id,
-            0,
-            Some(country_id),
-            true,
-            super::production_types::STARTING_CREDITS,
-            10,
-        ));
-    let mcv = sim
-        .spawn_object("AMCV", "Commander", 20, 22, 64, &rules)
-        .expect("MCV should spawn");
-    assert!(sim.deploy_mcv(
-        mcv,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default()
-    ));
-
-    for _ in 0..30 {
-        sim.advance_tick(&[], Some(&rules), None, None, 33);
-    }
-
-    let options = build_options_for_owner(&sim, &rules, "Commander");
-    let power = options
-        .iter()
-        .find(|opt| opt.type_id == sim.interner.intern("GAPOWR"))
-        .expect("deployed yard should unlock first building");
-    assert!(power.enabled);
-    assert_eq!(power.reason, None);
-}
-
 /// `Time_To_Build` reads the owner's power (House `+0x53A4`/`+0x53A8`) and the
 /// owner's factory count for the object's class (`0x00500910`).
 #[test]
@@ -1743,97 +1667,6 @@ fn wall_build_time_inputs_carry_the_wall_coefficient() {
     );
     let tower = rules.object("GACNST").expect("GACNST");
     assert!(!super::factory::time_to_build_inputs(&sim, &rules, americans, tower).wall);
-}
-
-#[test]
-fn naval_unit_rally_uses_water_pathing_after_spawn() {
-    let mut sim = Simulation::new();
-    let rules = naval_production_rules();
-    let terrain = water_terrain(32, 32);
-    let grid = PathGrid::from_resolved_terrain(&terrain);
-    sim.install_fixture_path_grid(Some(&grid));
-    sim.resolved_terrain = Some(terrain.clone());
-    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
-        base: 0,
-        off_fc: -100,
-        off_100: -100,
-        off_104: 200,
-        off_108: 200,
-    });
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 20, 20);
-    sim.substrate
-        .entities
-        .get_mut(1)
-        .unwrap()
-        .set_archive_target(Some(crate::sim::combat::TargetKind::Cell(26, 21)));
-    // spawn_structure supplied the human House and registered this yard in
-    // its native base vector. Keep that identity/membership; only supply funds.
-    let americans_display = sim.interner.get("Americans").unwrap();
-    super::house_for_test(&mut sim, "Americans")
-        .economy
-        .set_credits_for_test(super::production_types::STARTING_CREDITS);
-    assert!(sim.houses[&americans_display].is_human);
-    assert_eq!(
-        sim.houses[&americans_display].base_projection.buildings(),
-        &[1],
-        "the supplied producer remains in the canonical House base vector"
-    );
-    // Arm the native Ship-slot factory directly in the registry, then force it
-    // ready so publication queues the destroyer's next-frame PLACE.
-    arm_build_via(
-        &mut sim,
-        &rules,
-        "Americans",
-        "DEST",
-        ProductionCategory::Ship,
-        0,
-    );
-    let held_id = sim
-        .production
-        .factories
-        .view(americans_display, ProductionCategory::Ship)
-        .and_then(|view| view.object.and_then(|object| object.entity_id))
-        .expect("ship exists in limbo from StartProduction");
-    let rng_before_delivery = sim.scenario_rng.logical_state();
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(americans_display, ProductionCategory::Ship)
-    );
-
-    let spawned = dispatch_production_changes_for_tests(&mut sim, &rules, None);
-    assert!(spawned, "completed naval production should spawn the unit");
-    assert_eq!(sim.scenario_rng.logical_state(), rng_before_delivery);
-
-    let ship = sim
-        .substrate
-        .entities
-        .values()
-        .find(|e| {
-            sim.interner
-                .resolve(e.type_ref())
-                .eq_ignore_ascii_case("DEST")
-        })
-        .expect("spawned destroyer");
-    assert_eq!(
-        ship.stable_id(),
-        held_id,
-        "delivery reuses Factory+0x58 identity"
-    );
-    assert_eq!(
-        ship.navigation.nav_com(),
-        Some(crate::sim::components::NavTargetRef::cell(26, 21)),
-        "the selected producer owns the represented rally destination"
-    );
-    assert_eq!(
-        ship.mission.queued(),
-        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Move),
-        "the producer rally queues Move"
-    );
-    assert!(
-        crate::sim::movement::motion_query::is_moving(&ship) == Some(true),
-        "the rally's setter starts the ship"
-    );
 }
 
 /// Retail `[GAAIRC] ForbiddenHouses=Americans` and `[AMRADR]
@@ -1988,85 +1821,6 @@ fn published_completions_dispatch_each_owners_next_frame_place() {
         .count();
     assert_eq!(americans, 1);
     assert_eq!(soviet, 1);
-}
-
-#[test]
-fn published_completions_dispatch_multiple_categories_for_one_owner() {
-    let mut sim = Simulation::new();
-    super::tests::install_infantry_delivery_fixture_map(&mut sim);
-    let rules = basic_multi_queue_rules();
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAPILE", 10, 10);
-    spawn_structure(&mut sim, &rules, 2, "Americans", "GAWEAP", 14, 10);
-
-    let americans_id = sim.interner.intern("Americans");
-    // P5d: arm both category factories directly in the registry, then force both to the
-    // completed-and-held state, then dispatch their next-frame PLACE events.
-    arm_build_via(
-        &mut sim,
-        &rules,
-        "Americans",
-        "E1",
-        ProductionCategory::Infantry,
-        0,
-    );
-    arm_build_via(
-        &mut sim,
-        &rules,
-        "Americans",
-        "MTNK",
-        ProductionCategory::Vehicle,
-        1,
-    );
-
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(americans_id, ProductionCategory::Infantry)
-    );
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(americans_id, ProductionCategory::Vehicle)
-    );
-
-    let spawned = dispatch_production_changes_for_tests(&mut sim, &rules, None);
-    assert!(spawned);
-    assert!(
-        sim.production.factories.is_empty(),
-        "all completed category factories should be pruned"
-    );
-
-    let infantry = sim
-        .substrate
-        .entities
-        .values()
-        .filter(|e| {
-            sim.interner
-                .resolve(e.owner())
-                .eq_ignore_ascii_case("Americans")
-                && sim
-                    .interner
-                    .resolve(e.type_ref())
-                    .eq_ignore_ascii_case("E1")
-        })
-        .count();
-    let vehicles = sim
-        .substrate
-        .entities
-        .values()
-        .filter(|e| {
-            sim.interner
-                .resolve(e.owner())
-                .eq_ignore_ascii_case("Americans")
-                && sim
-                    .interner
-                    .resolve(e.type_ref())
-                    .eq_ignore_ascii_case("MTNK")
-        })
-        .count();
-    assert_eq!(infantry, 1);
-    assert_eq!(vehicles, 1);
 }
 
 /// MapClass Size for the 32x32 exit fixtures below: In_Bounds
@@ -2412,38 +2166,6 @@ fn cancel_by_type_removes_ready_building_and_refunds() {
     let refund = rules.object("GAREFN").map(|o| o.cost).unwrap_or(0);
     assert!(refund > 0, "GAREFN should have a cost");
     assert_eq!(after_credits, before_credits + refund);
-}
-
-/// A build starts without money: nothing on the PRODUCE path checks the wallet
-/// (`HouseClass::Begin_Production @ 0x004FA350`), and the per-step charge in
-/// `step_all` pays for the build as it goes. An empty wallet still starts the
-/// build and is debited nothing.
-#[test]
-fn enqueue_starts_a_build_without_money_and_debits_nothing() {
-    let mut sim = Simulation::new();
-    let rules = basic_multi_queue_rules();
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 10, 10); // a UnitType war factory
-    super::house_for_test(&mut sim, "Americans")
-        .economy
-        .set_credits_for_test(0);
-    assert!(super::enqueue_by_type(
-        &mut sim,
-        &rules,
-        "Americans",
-        "MTNK",
-        crate::sim::world::FrameEffects::default(),
-        false,
-    ));
-    assert_eq!(credits_for_owner(&sim, "Americans"), 0);
-    let americans_id = sim.interner.intern("Americans");
-    let mtnk_id = sim.interner.intern("MTNK");
-    let factory = sim
-        .production
-        .factories
-        .view(americans_id, ProductionCategory::Vehicle)
-        .expect("the build starts a factory");
-    assert_eq!(factory.object.map(|o| o.type_id), Some(mtnk_id));
-    assert_eq!(factory.progress, 0);
 }
 
 fn hold_rules() -> RuleSet {

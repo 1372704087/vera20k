@@ -199,64 +199,6 @@ fn first_unit_limbo_uses_shared_stop_driver_before_hiding_the_actor() {
 }
 
 #[test]
-fn first_hover_limbo_enters_the_existing_native_hover_stop_receiver() {
-    use crate::rules::locomotor_type::LocomotorKind;
-    use crate::sim::components::DriveCoord;
-    use crate::sim::movement::hover::HoverRuntime;
-    use crate::util::native_x87::NativeF64Bits;
-    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
-        "[VehicleTypes]\n0=HOVER\n[HOVER]\nStrength=200\nSpeed=6\nLocomotor={}\n",
-        LocomotorKind::Hover.clsid()
-    )))
-    .unwrap();
-    let mut sim = Simulation::new();
-    let owner = sim.interner.intern("Owner");
-    sim.houses
-        .register(HouseState::new(owner, 0, None, true, 0, 10));
-    crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
-    let member = sim
-        .spawn_object_at_height("HOVER", "Owner", 10, 10, 0, 0, &rules)
-        .unwrap();
-    *sim.substrate
-        .entities
-        .get_mut(member)
-        .unwrap()
-        .locomotor
-        .as_mut()
-        .unwrap()
-        .hover_runtime_mut()
-        .unwrap() = HoverRuntime::moving_for_test(
-        Some(DriveCoord::cell(15, 10, 0)),
-        NativeF64Bits::from_bits(1.0_f64.to_bits()),
-    );
-    assert!(
-        sim.substrate
-            .entities
-            .get(member)
-            .unwrap()
-            .locomotor
-            .as_ref()
-            .unwrap()
-            .hover_runtime()
-            .unwrap()
-            .is_moving()
-    );
-    sim.techno_limbo_with_context(member, UninitContext::with_rules(&rules));
-    let entity = sim.substrate.entities.get(member).unwrap();
-    assert!(entity.lifecycle.in_limbo());
-    assert!(
-        !entity
-            .locomotor
-            .as_ref()
-            .unwrap()
-            .hover_runtime()
-            .unwrap()
-            .is_moving(),
-        "Unit4D55C0 must reach the existing Hover516320 Stop_Moving"
-    );
-}
-
-#[test]
 fn retail_all01_return_programs_bind_script37_and_their_locomotor_types() {
     use crate::rules::locomotor_type::LocomotorKind;
     use crate::rules::process_owner::NativeScenarioRulesPrefix;

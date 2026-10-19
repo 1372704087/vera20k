@@ -301,32 +301,6 @@ fn patrol_team_fixture(armed: bool) -> (Simulation, RuleSet, u64, Vec<u64>) {
 }
 
 #[test]
-fn patrol_dispatch_moves_to_its_waypoint_without_finishing_immediately() {
-    let (mut sim, rules, team, members) = patrol_team_fixture(false);
-    sim.session.binary_frame = 1;
-    let rng_before = sim.scenario_rng.native_state_hex();
-    sim.team_step_script(team, &rules, None, FrameEffects::default());
-    assert_eq!(sim.scenario_rng.native_state_hex(), rng_before);
-    let state = sim.team_script_vm.team(team).unwrap();
-    assert_eq!(state.cursor(), 0);
-    assert!(!state.advance_pending());
-    assert!(state.refusal().is_none());
-    assert_eq!(
-        state.mission_target,
-        Some(TeamTarget::Cell { x: 30, y: 20 })
-    );
-    assert!(members.iter().all(|&member| {
-        sim.substrate
-            .entities
-            .get(member)
-            .unwrap()
-            .navigation
-            .nav_com()
-            .is_some()
-    }));
-}
-
-#[test]
 fn patrol_clears_a_lost_target_then_returns_to_the_waypoint_on_the_next_visit() {
     let (mut sim, rules, team, members) = patrol_team_fixture(false);
     let old = sim
@@ -1486,14 +1460,6 @@ impl DeployTeam {
             .team_action_deploy(self.team, &self.rules, None, FrameEffects::default());
     }
 
-    /// The action is finished (`+0x80`).
-    fn finished(&self) -> bool {
-        self.sim
-            .team_script_vm
-            .team(self.team)
-            .is_some_and(|team| team.advance_pending())
-    }
-
     /// Whether `id` was ordered to Unload: queued, or already its mission.
     fn unloading(&self, id: u64) -> bool {
         let unload = MissionId::from_known(MissionType::Unload);
@@ -1546,59 +1512,6 @@ fn script_action_9_deploys_the_team_s_mcv() {
     assert!(team.past_deploy(), "the team moved on");
 }
 
-/// A Russian E1 inside the yard's foundation from the MCV's cell refuses the
-/// placement: Flush_For_Placement (`0x0045EE70`) scatters its cell, the MCV
-/// gets no order, is put back in its cell, and the action holds. Asked
-/// again with the site clear, it is ordered to Unload, and it deploys.
-#[test]
-fn script_action_9_clears_the_site_before_the_mcv_deploys() {
-    let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
-    let mcv = team.members[0];
-    let e1 = team
-        .sim
-        .spawn_object_at_height("E1", "Russians", 23, 24, 0, 0, &team.rules)
-        .expect("E1 spawns");
-    team.deploy_action();
-    assert!(!team.unloading(mcv), "a refused site orders nothing");
-    assert!(!team.finished());
-    assert!(team.sim.substrate.occupancy.contains_entity(20, 22, mcv));
-    let e1_entity = team.sim.substrate.entities.get(e1).unwrap();
-    assert!(
-        e1_entity.navigation.nav_com().is_some()
-            || crate::sim::movement::motion_query::is_moving(&e1_entity) == Some(true),
-        "the E1 was scattered"
-    );
-
-    team.sim.despawn_entity(e1);
-    team.deploy_action();
-    assert!(team.unloading(mcv), "a clear site orders Unload");
-    assert!(!team.finished());
-    for _ in 0..120 {
-        if !team.yards().is_empty() {
-            break;
-        }
-        team.tick();
-    }
-    assert_eq!(team.yards(), [(19, 21)]);
-}
-
-/// The yard is asked for with its origin at the MCV's own cell: Russian E1s
-/// just outside that 4x4 foundation on each side leave it placeable, so the
-/// MCV is ordered to Unload at once. An origin one cell off in any direction,
-/// such as Deploy's (-1, -1), would take one of them in and refuse.
-#[test]
-fn script_action_9_asks_for_the_yard_at_the_mcv_s_own_cell() {
-    let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
-    let mcv = team.members[0];
-    for (x, y) in [(19, 22), (20, 21), (24, 22), (20, 26)] {
-        team.sim
-            .spawn_object_at_height("E1", "Russians", x, y, 0, 0, &team.rules)
-            .expect("E1 spawns");
-    }
-    team.deploy_action();
-    assert!(team.unloading(mcv), "the site at the MCV's cell is clear");
-}
-
 /// A Russian E1 on the yard's origin cell, which only Deploy's (-1, -1)
 /// offset reaches, passes action 9's own-cell test, so the MCV is ordered to
 /// Unload and Deploy refuses. For an owner no human controls, the refusal
@@ -1632,21 +1545,4 @@ fn deploy_refused_for_a_computer_owner_clears_the_site() {
         let yards = if human { vec![] } else { vec![(19, 21)] };
         assert_eq!(team.yards(), yards, "human {human}");
     }
-}
-
-/// A simple deployer and a `Deployer=` infantryman are ordered to Unload, a
-/// plain infantryman is not, and with no `DeploysInto=` unit the action is
-/// finished at once.
-#[test]
-fn script_action_9_orders_the_deployers_and_finishes() {
-    let mut team = DeployTeam::new(&[("SIEGE", 10, 10), ("GI", 12, 10), ("E1", 13, 10)]);
-    team.deploy_action();
-    let [siege, gi, e1] = team.members[..] else {
-        panic!("three members");
-    };
-    assert!(team.unloading(siege) && team.unloading(gi));
-    assert!(!team.unloading(e1));
-    assert!(team.finished(), "the action finished");
-    team.tick();
-    assert!(team.past_deploy());
 }

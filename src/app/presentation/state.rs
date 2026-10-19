@@ -82,6 +82,7 @@ pub(crate) struct MatchPresentationState {
     pub(crate) radar_anim: Option<crate::render::radar::anim::RadarAnimState>,
     pub(crate) radar_movies: crate::app::radar_movie::RadarMovies,
     pub(crate) chrono_screen: crate::app::chrono_screen::ChronoScreenPresentation,
+    pub(crate) scenario_pause: crate::app::match_runtime::scenario_pause::ScenarioPauseClock,
     /// Requested-versus-resolved atlas identity used to construct `radar_anim`.
     ///
     /// Kept beside the animation so tactical evidence never reconstructs

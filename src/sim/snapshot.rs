@@ -1171,7 +1171,9 @@ use crate::util::save_codec;
 // [Triggers], [Events] and [Actions] records and the always-empty trigger
 // graph. The trigger runtime saved with the Simulation is the only owner of
 // those definitions.
-const SNAPSHOT_VERSION: u32 = 434;
+// 434 -> 435: retain Scenario34A7, ScenarioPause62C/630/prior lock,
+// and the credit of the unrestored physical Radar video queue.
+const SNAPSHOT_VERSION: u32 = 435;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4845,7 +4847,8 @@ mod tests {
         // 431 -> 432: the Boarding passenger relation is gone.
         // 432 -> 433: one Object spelling for a NavCom-family pointer.
         // 433 -> 434: no trigger-record copies in saved scenario resources.
-        assert_eq!(super::SNAPSHOT_VERSION, 434);
+        // 434 -> 435: Scenario vein switch and shared Scenario pause.
+        assert_eq!(super::SNAPSHOT_VERSION, 435);
     }
 
     #[test]

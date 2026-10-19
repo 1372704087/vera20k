@@ -546,6 +546,7 @@ impl App {
                     radar_anim: None,
                     radar_movies: Default::default(),
                     chrono_screen: Default::default(),
+                    scenario_pause: Default::default(),
                     radar_animation_source: None,
                     radar_content_insets: None,
                     has_radar: false,

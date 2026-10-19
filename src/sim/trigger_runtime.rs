@@ -103,6 +103,13 @@ pub enum TriggerEffect {
     ChronoScreen {
         command: crate::sim::superweapon::chrono_screen::ChronoScreenCommand,
     },
+    /// Execute110/6DF6FD forwards raw+90 to ScenarioPause684060.
+    /// Its clock is the app system clock, not the deterministic world clock.
+    ScenarioPause {
+        duration: i32,
+        outermost: bool,
+    },
+    ScenarioResume,
     /// Execute20 queues the song; the shared Theme owner controls admission,
     /// fade, subsequent playback and the process Main RNG.
     MusicTheme {
@@ -3825,6 +3832,13 @@ impl Simulation {
                 };
                 return self.trigger_reduce_tiberium_at_waypoint(waypoint, rules, registry);
             }
+            85 => {
+                // Execute6DDB94/6E0250 stores the literal low byte in34A7.
+                self.session.set_vein_growth(value.unwrap_or(0));
+            }
+            110 => {
+                effects.extend(self.pause_scenario(value.unwrap_or(0)));
+            }
             87 => {
                 // Steam3e81a617..08600, Execute6DDBD5..6DDBF3.
                 // This is the retained ice flag; never run the ore grower.
@@ -4705,3 +4719,7 @@ mod cargo_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_restore_tests.rs"]
 mod restore_tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_scenario_pause_tests.rs"]
+mod scenario_pause_tests;

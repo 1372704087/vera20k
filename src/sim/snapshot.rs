@@ -1147,9 +1147,11 @@ use crate::util::save_codec;
 // occupy weapons, SuperWeapon WeaponType and ShrapnelWeapon, and process
 // Rules state its [CombatDamage] DeathWeapon.
 // 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
-// 425 -> 426: retain Scenario34A7, ScenarioPause62C/630/prior lock,
+// 425 -> 426: retain the Techno+0x12C Behind indicator Anim.
+// 426 -> 427: retained IonBlast rules inputs, pending damaging blasts and Foot draw lift.
+// 427 -> 428: retain Scenario34A7, ScenarioPause62C/630/prior lock,
 // and the credit of the unrestored physical Radar video queue.
-const SNAPSHOT_VERSION: u32 = 426;
+const SNAPSHOT_VERSION: u32 = 428;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4875,8 +4877,10 @@ mod tests {
         // 422 -> 423: retained weapon blocks and HoldsWhat bindings.
         // 423 -> 424: retained Type references and Rules DeathWeapon.
         // 424 -> 425: Scenario cargo flags and the ice-growth byte.
-        // 425 -> 426: Scenario vein switch and shared Scenario pause.
-        assert_eq!(super::SNAPSHOT_VERSION, 426);
+        // 425 -> 426: the Techno+0x12C Behind indicator Anim.
+        // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
+        // 427 -> 428: Scenario vein switch and shared Scenario pause.
+        assert_eq!(super::SNAPSHOT_VERSION, 428);
     }
 
     #[test]

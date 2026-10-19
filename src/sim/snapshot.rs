@@ -1154,6 +1154,11 @@ use crate::util::save_codec;
 // IsAlive object at Health 0.
 // 428 -> 429: saved dynamic terrain cells keep one CellClass+0xEC LandType
 // (and its pre-overlay base) instead of two copies of it.
+// 429 -> 430: processed Types retain their remaining Type references
+// (TechnoType pointers and lists, Weapon anims and particle system,
+// SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
+// references, Warhead DebrisTypes), and process Rules state keeps its
+// RulesClass Type pointers and lists, the crate and rocket ones included.
 // 430 -> 431: the VERA-only Boarding passenger relation is gone, which
 // renumbers the later PassengerRole and carrier-relation variants.
 const SNAPSHOT_VERSION: u32 = 431;
@@ -4862,6 +4867,8 @@ mod tests {
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
         // 427 -> 428: TerminalLifetime keeps only the dying mark.
         // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
+        // 429 -> 430: the remaining Type references and RulesClass Type
+        // pointers and lists.
         // 430 -> 431: the Boarding passenger relation is gone.
         assert_eq!(super::SNAPSHOT_VERSION, 431);
     }

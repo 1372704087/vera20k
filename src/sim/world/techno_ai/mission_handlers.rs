@@ -35,6 +35,10 @@ mod infantry_fire_oracle_tests;
 #[path = "hover_attack_tests.rs"]
 mod hover_attack_tests;
 
+#[cfg(test)]
+#[path = "guard_sabotage_tests.rs"]
+mod guard_sabotage_tests;
+
 /// Whether [`dispatch_foot_mission`] runs `id`'s handler at `now`: a Unit or
 /// Infantry that passes `MissionClass::AI`'s gate
 /// ([`GameEntity::mission_handler_due`]; harvest_attack_return.json
@@ -1466,12 +1470,7 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let c4 = object.c4
-        || crate::sim::combat::veterancy::has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            object,
-            crate::rules::object_type::Ability::C4,
-        );
+    let c4 = crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object);
     let Some(target) = entity.attack_target.target() else {
         return;
     };
@@ -1548,13 +1547,7 @@ fn infantry_attack_c4(
 fn c4_sabotage_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Option<u64> {
     let entity = sim.substrate.entities.get(id)?;
     let object = sim.object_type(entity.type_ref(), rules)?;
-    if !(object.c4
-        || crate::sim::combat::veterancy::has_weapon_ability(
-            entity.veterancy.rank_kind(),
-            object,
-            crate::rules::object_type::Ability::C4,
-        ))
-    {
+    if !crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object) {
         return None;
     }
     let crate::sim::combat::TargetKind::Entity(building) = entity.attack_target.target()? else {
@@ -2120,17 +2113,9 @@ fn foot_building_entry_head(
 /// it can fire again. Otherwise it is `[Rate] + RandomRanged(0, 2)`
 /// (0x004D532F).
 ///
-/// Deliberately NOT represented, recorded:
-/// - **the AI-only Sabotage queue** (0x004D523A-0x004D52A9): for an
-///   `InfantryClass` (`What_Am_I()` 0xF) whose house is not human-controlled
-///   (0x0050B730 on `[this+0x21C]`), that either carries type byte `+0xEC2` or
-///   passes `TechnoClass::HasWeaponAbility(0xE)` 0x0070D0D0, whose current
-///   mission is not already Sabotage, and whose target is a `BuildingClass`,
-///   `Queue_Mission(0x11, 0)`. Trigger: an AI demolition infantryman standing
-///   guard that picks up an enemy building. Player effect: retail's walks in and
-///   plants; VERA's shoots it instead. Frequency: every Guard dispatch of such
-///   a computer-owned infantryman with a building target.
-///   `+0xEC2` is UNCHECKED.
+/// **Arms.** A held Target takes the HoverAttack re-anchor
+/// ([`hover_attack_reanchor`]); a computer demolition infantryman's building
+/// Target queues Sabotage ([`guard_queues_sabotage`]) with every return.
 pub(super) fn evaluate_foot_guard_cadence(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -2157,13 +2142,17 @@ pub(super) fn evaluate_foot_guard_cadence(
         //decides actual admission.
         let _ = sim.infantry_idle_action(id, rules, effects);
     }
+    let queue = guard_queues_sabotage(sim, id, rules).then_some(MissionType::Sabotage);
     let rearm = sim.substrate.entities.get(id).map_or(0, |entity| {
         entity
             .rearm_timer
             .remaining(sim.session.binary_frame as i32)
     });
     if rearm != 0 {
-        return MissionHandlerEvaluation::cadence(rearm);
+        return MissionHandlerEvaluation {
+            delay: rearm,
+            queue,
+        };
     }
     // FootGuard4D530B..4D5338: after the rearm early return, a retained
     // DistributedFire candidate count skips the mission jitter and returns0.
@@ -2175,9 +2164,49 @@ pub(super) fn evaluate_foot_guard_cadence(
                 .object_type(entity.type_ref(), rules)
                 .is_some_and(|kind| kind.distributed_fire)
     }) {
-        return MissionHandlerEvaluation::cadence(0);
+        return MissionHandlerEvaluation { delay: 0, queue };
     }
-    MissionHandlerEvaluation::cadence(jittered_mission_cadence(sim, rules, mission))
+    MissionHandlerEvaluation {
+        delay: jittered_mission_cadence(sim, rules, mission),
+        queue,
+    }
+}
+
+/// `FootClass::Mission_Guard`'s computer demolition arm (`0x004D523A..
+/// 0x004D52A9`), after the held-Target branch and before the rearm return:
+/// an Infantry whose house is not human-controlled (`0x0050B730`), whose
+/// type is `C4=` (`+0xEC2`) or whose rank holds weapon ability 14
+/// (`0x0070D0D0`), not already on Sabotage (vt+0x184), holding a building
+/// Target queues Sabotage, vt+0x1E8(17, 0). Unlike Mission_Attack's arm it
+/// asks no `CanC4=` and writes no destination: Sabotage's Mission_Capture
+/// heads for the Target. A computer's Tanya or Navy SEAL guarding near an
+/// enemy base thus walks in to plant. No draw.
+fn guard_queues_sabotage(sim: &Simulation, id: u64, rules: &RuleSet) -> bool {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return false;
+    };
+    if entity.category() != EntityCategory::Infantry
+        || sim.owner_is_human(entity.owner())
+        || entity.mission.current().known() == Some(MissionType::Sabotage)
+        || !sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| {
+                crate::sim::combat::veterancy::holds_c4(entity.veterancy.rank_kind(), object)
+            })
+    {
+        return false;
+    }
+    // A dying building is the null Target native's detach leaves.
+    matches!(
+        entity.attack_target.target(),
+        Some(crate::sim::combat::TargetKind::Entity(target)) if sim
+            .substrate
+            .entities
+            .get(target)
+            .is_some_and(|target| target.category() == EntityCategory::Structure
+                && !target.death.is_dying()
+                && target.is_alive())
+    )
 }
 
 /// The HoverAttack re-anchor `FootClass::Mission_Attack` opens with

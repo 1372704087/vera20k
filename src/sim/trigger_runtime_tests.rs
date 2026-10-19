@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::map::actions::{ActionMap, MapAction};
 use crate::map::entities::EntityCategory;
-use crate::map::triggers::{MapTrigger, TriggerDifficulty};
+use crate::map::triggers::MapTrigger;
 use crate::map::waypoints::Waypoint;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::projectile::{
@@ -1042,11 +1042,8 @@ fn retail_sov01_script_context() -> Option<(
             let mut cell = crate::map::resolved_terrain::test_flat_cell(x, y);
             cell.land_type = 2;
             cell.base_land_type = 2;
-            cell.terrain_class = water.terrain_class;
-            cell.base_terrain_class = water.terrain_class;
             cell.speed_costs = water.speed_costs;
             cell.base_speed_costs = water.speed_costs;
-            cell.is_water = true;
             cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
             cell
         },
@@ -1828,7 +1825,7 @@ fn advance_trigger_frame(
     if sim.resolved_terrain.is_none()
         && actions.values().any(|record| {
             record
-                .entries
+                .entries()
                 .iter()
                 .any(|action| matches!(action.kind, 48 | 112))
         })
@@ -1865,28 +1862,7 @@ fn make_trigger(
     name: &str,
     enabled: bool,
 ) -> MapTrigger {
-    MapTrigger {
-        id: id.to_string(),
-        fields: vec![
-            "Neutral".to_string(),
-            linked_trigger_id.unwrap_or("<none>").to_string(),
-            name.to_string(),
-            if enabled { "0" } else { "1" }.to_string(),
-            "1".to_string(),
-            "1".to_string(),
-            "1".to_string(),
-            "0".to_string(),
-        ],
-        owner: Some("Neutral".to_string()),
-        linked_trigger_id: linked_trigger_id.map(|value| value.to_ascii_uppercase()),
-        name: Some(name.to_string()),
-        enabled,
-        difficulty: TriggerDifficulty {
-            easy: true,
-            medium: true,
-            hard: true,
-        },
-    }
+    MapTrigger::for_test(id, Some("Neutral"), linked_trigger_id, name, enabled)
 }
 
 /// The production `[Triggers]`, `[Events]` and `[Actions]` readers over one
@@ -1989,8 +1965,8 @@ fn create_building_type10_reaches_placement_and_house_publication() {
     let entry = crate::map::actions::parse_actions(&ini)
         .remove("RESTORE")
         .unwrap()
-        .entries
-        .remove(0);
+        .entries()[0]
+        .clone();
     let action = sim
         .trigger_runtime
         .definitions
@@ -2186,8 +2162,8 @@ fn damage_at_waypoint_reaches_the_shared_building_receiver() {
     let entry = crate::map::actions::parse_actions(&ini)
         .remove("DAMAGE")
         .unwrap()
-        .entries
-        .remove(0);
+        .entries()[0]
+        .clone();
     let action = definitions.resolve_action(entry, None, None);
     sim.trigger_runtime.definitions = definitions;
     assert!(sim.apply_live_trigger_action(
@@ -2226,7 +2202,7 @@ fn parsed_event_records_match_native_list_and_production_predicates() {
              [Events]\nEVENT={}\n[Actions]\nEVENT=1,112,0,0,0,0,0,0,A\n",
             row.raw
         ));
-        let conditions = &events["EVENT"].conditions;
+        let conditions = events["EVENT"].conditions();
         assert_eq!(conditions.len(), row.conditions.len(), "{}", row.raw);
         for (rust, native) in conditions.iter().zip(&row.conditions) {
             assert_eq!(
@@ -2314,7 +2290,7 @@ fn parsed_variable_actions_match_native_reader_dispatch_and_restore() {
              [Events]\nVARIABLE=1,47,0,0\n[Actions]\nVARIABLE=1,{}\n",
             row.raw
         ));
-        let entry = &actions["VARIABLE"].entries[0];
+        let entry = &actions["VARIABLE"].entries()[0];
         assert_eq!(entry.kind, row.kind, "{}", row.raw);
         assert_eq!(entry.literal_value(), Some(row.value), "{}", row.raw);
         assert_eq!(
@@ -2909,7 +2885,7 @@ fn dispatch_typed_trigger_reference(kind: i32, target_enabled: bool) -> Simulati
             .clone();
         let entries = actions
             .get(&id)
-            .map_or_else(Vec::new, |r| r.entries.clone());
+            .map_or_else(Vec::new, |r| r.entries().to_vec());
         sim.trigger_runtime.definitions.trigger_types[index].actions = entries
             .into_iter()
             .map(|a| {
@@ -3152,10 +3128,16 @@ fn run_waypoint_action(
     waypoints: &HashMap<u32, Waypoint>,
     rules: Option<&crate::rules::ruleset::RuleSet>,
 ) -> Vec<TriggerEffect> {
-    let mut trigger = make_trigger("WAYPOINT_ACTION", None, "Waypoint action", true);
-    trigger.owner = trigger_country.map(str::to_string);
-    trigger.fields[0] = trigger_country.unwrap_or("").to_string();
-    let triggers: TriggerMap = [(trigger.id.clone(), trigger)].into_iter().collect();
+    let trigger = MapTrigger::for_test(
+        "WAYPOINT_ACTION",
+        trigger_country,
+        None,
+        "Waypoint action",
+        true,
+    );
+    let triggers: TriggerMap = [("WAYPOINT_ACTION".to_string(), trigger)]
+        .into_iter()
+        .collect();
     let (_, events, _) = parse_trigger_records("[Events]\nWAYPOINT_ACTION=1,47,0,0\n");
     // The token stays hand-built: an empty token never survives the reader.
     let mut params = vec!["0".to_string(); 6];
@@ -3164,15 +3146,14 @@ fn run_waypoint_action(
     }
     let actions: ActionMap = [(
         "WAYPOINT_ACTION".to_string(),
-        MapAction {
-            id: "WAYPOINT_ACTION".to_string(),
-            fields: Vec::new(),
-            entries: vec![ActionEntry {
+        MapAction::for_test(
+            "WAYPOINT_ACTION",
+            vec![ActionEntry {
                 kind,
                 params,
                 waypoint_index: crate::map::actions::read_waypoint_token(token),
             }],
-        },
+        ),
     )]
     .into_iter()
     .collect();
@@ -3506,5 +3487,103 @@ fn house_tag_raise_matches_original_cadence_and_order() {
             })
             .collect();
         assert_eq!(sim.trigger_runtime.dispatch_trace, expected, "{case}");
+    }
+}
+
+const READER_MAP_PREFIX: &str = "[Map]\nTheater=TEMPERATE\nSize=0,0,2,1\nLocalSize=0,0,2,1\n\
+    [IsoMapPack5]\n1=DwALABwBAAIA/////wAAABEAAA==\n";
+
+/// Full_Init reads `[Triggers]` (`0x006879C4` -> LoadFromINIList
+/// `0x007275D0`) before `[Tags]` (`0x006879CB` -> `0x006E5ED0`). Each
+/// physical entry finds or allocates the Type of its name, ignoring case;
+/// ReadINI (`0x00727240`, `0x006E6080`) then reads `[Triggers]`, `[Events]`,
+/// `[Actions]` and `[Tags]` by that Type's own ID, exact case. A case variant
+/// revisits the first Type and reads the first spelling's records again: the
+/// header and Tag fields are rewritten, the events are prepended once more and
+/// the actions are rebuilt. Tag repeat is `atoi` of the whole ReadString copy
+/// (`0x006E60D5`), so a leading comma reads 0.
+#[test]
+fn physical_readers_take_each_record_by_the_type_id() {
+    let map = crate::map::map_file::MapFile::from_bytes(
+        format!(
+            "{READER_MAP_PREFIX}\
+             [Triggers]\nt1=House0,<none>,First,0,1,1,1,0\nT1=House1,<none>,Second,1,0,0,0,1\n\
+             [Events]\nt1=1,13,0,7\nT1=1,13,0,9\n\
+             [Actions]\nt1=1,28,0,3,0,0,0,0,A\nT1=1,28,0,4,0,0,0,0,A\n\
+             [Tags]\ng1=,2,Lead,t1\nG1=1,Other,T1\n"
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+    let definitions = RuntimeDefinitions::read_map(&map, &Default::default(), None, None);
+    let [trigger] = definitions.trigger_types.as_slice() else {
+        panic!("one TriggerType: {:?}", definitions.trigger_types);
+    };
+    assert_eq!(trigger.id, "t1");
+    assert_eq!(trigger.owner.as_deref(), Some("House0"));
+    assert!(trigger.enabled);
+    assert_eq!(trigger.difficulty, [true; 3]);
+    assert!(!trigger.transfer_on_capture);
+    assert_eq!(
+        trigger
+            .events
+            .iter()
+            .map(|event| event.value)
+            .collect::<Vec<_>>(),
+        [7, 7]
+    );
+    assert_eq!(
+        trigger
+            .actions
+            .iter()
+            .map(|action| action.value)
+            .collect::<Vec<_>>(),
+        [Some(3)]
+    );
+    let [tag] = definitions.tag_types.as_slice() else {
+        panic!("one TagType: {:?}", definitions.tag_types);
+    };
+    assert_eq!(
+        (tag.id.as_str(), tag.repeat, tag.name.as_str(), tag.trigger),
+        ("g1", 0, "Lead", Some(0))
+    );
+}
+
+/// Read_Map_Section `0x004AD1B3..0x004AD332` walks `[CellTags]` in physical
+/// order. Each entry allocates its TagType (`0x004AD20C`) before admission;
+/// the cell is `atoi` of the name, split by 128 under NewINIFormat below 4
+/// and by 1000 from 4 on, and a cell whose Tag is already attached keeps it.
+#[test]
+fn cell_tags_split_by_ini_format_and_keep_the_first_tag_per_cell() {
+    for (format, stride) in [(3, 128), (4, 1000)] {
+        let cell = 6 * stride + 5;
+        let map = crate::map::map_file::MapFile::from_bytes(
+            format!(
+                "{READER_MAP_PREFIX}[Basic]\nNewINIFormat={format}\n\
+                 [Triggers]\nTR=House0,<none>,Tr,0,1,1,1,0\n\
+                 [Tags]\nA=0,A,TR\n\
+                 [CellTags]\n{cell}=A\n0{cell}=B\n"
+            )
+            .as_bytes(),
+        )
+        .unwrap();
+        let mut sim = Simulation::new();
+        sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(
+            16,
+            16,
+            crate::map::resolved_terrain::test_clear_cell,
+        ));
+        sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+        sim.install_authored_cell_trigger_tags(&map);
+        let identity = sim.trigger_cell_identity((5, 6));
+        let tag = sim.trigger_runtime.cell_tags[&identity];
+        let type_index = sim.trigger_runtime.tag(tag).unwrap().type_index;
+        let definitions = &sim.trigger_runtime.definitions;
+        assert_eq!(definitions.tag_types[type_index].id, "A", "format {format}");
+        assert_eq!(sim.trigger_runtime.cell_tags.len(), 1, "format {format}");
+        assert!(
+            definitions.tag_types.iter().any(|typ| typ.id == "B"),
+            "format {format}: the losing entry still allocates its TagType"
+        );
     }
 }

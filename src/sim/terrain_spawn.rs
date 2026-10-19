@@ -672,7 +672,6 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::rules::ruleset::RuleSet;
-    use crate::rules::terrain_rules::TerrainClass;
     use crate::sim::entity_store::EntityStore;
 
     use crate::sim::intern::StringInterner;
@@ -737,7 +736,6 @@ mod tests {
     fn resolved_cell() -> ResolvedTerrainCell {
         ResolvedTerrainCell {
             allows_tiberium: true,
-            base_terrain_class: TerrainClass::Clear,
             ..crate::map::resolved_terrain::test_flat_cell(0, 0)
         }
     }

@@ -394,7 +394,6 @@ pub(crate) fn supplied_fixture(row: &Value) -> SuppliedFixture {
             "land" => {
                 let c = terrain.cell_mut(cell.0, cell.1).unwrap();
                 c.land_type = 1;
-                c.base_terrain_class = crate::rules::terrain_rules::TerrainClass::Road;
                 c.base_build_blocked = true;
             }
             "slope" => terrain.cell_mut(cell.0, cell.1).unwrap().slope_type = 1,

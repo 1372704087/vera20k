@@ -273,7 +273,6 @@ fn authored_placement_matches_eight_original_controls_and_all_rng_streams() {
                     let c = terrain.cell_mut(x, y).unwrap();
                     c.land_type = 2;
                     c.base_land_type = 2;
-                    c.is_water = true;
                     c.speed_costs = costs;
                     c.base_speed_costs = costs;
                 }
@@ -383,7 +382,7 @@ fn authored_placement_matches_eight_original_controls_and_all_rng_streams() {
             case["output"]["scenario_id_cursor"],
             "{name}: constructor identity continuation"
         );
-        assert_eq!(map.actions["CREATE"].entries[0].kind, 108);
+        assert_eq!(map.actions["CREATE"].entries()[0].kind, 108);
         if let Some(lifetime) = case.get("lifecycle") {
             // Native AllAbstract already contains the supplied Action, whereas
             // this owner records only Overlay objects. Compare registry deltas

@@ -71,7 +71,6 @@ pub fn empty_map_file(options: &RmgOptions, gen_w: u32, gen_h: u32) -> MapFile {
         smudges: Vec::new(),
         terrain_objects: Vec::new(),
         waypoints: HashMap::new(),
-        cell_tags: Default::default(),
         tags: Default::default(),
         triggers: Default::default(),
         events: Default::default(),

@@ -787,8 +787,20 @@ mod tests {
     fn native_tiberium_fixture_with_riparius_growth(
         riparius_growth: &str,
     ) -> (OverlayTypeRegistry, TiberiumTypeRegistry) {
+        // Retail's [Tiberium] row, the Land every ore overlay here copies. An
+        // unauthored one is the zero row, whose Wheel 0 makes ore impassable.
         let mut ini_text = format!(
             "\
+[Tiberium]
+Foot=90%
+Track=70%
+Wheel=50%
+Float=0%
+FloatBeach=0%
+Hover=50%
+Amphibious=50%
+Buildable=no
+
 [Tiberiums]
 0=Riparius
 1=Cruentus

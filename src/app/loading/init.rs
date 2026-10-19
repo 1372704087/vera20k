@@ -20,7 +20,7 @@ use crate::app::loading::fresh_scenario::{
 #[cfg(test)]
 use crate::app::loading::init_helpers::load_rules_with_merged_ini;
 use crate::app::loading::init_helpers::{
-    build_tile_atlas, log_trigger_graph_diagnostics, parse_debug_spawn_units_env, theater_ext_for,
+    build_tile_atlas, parse_debug_spawn_units_env, theater_ext_for,
 };
 use crate::app::match_bootstrap::LoadingStartup;
 use crate::sim::scenario_bootstrap::{
@@ -47,9 +47,8 @@ use crate::map::resolved_terrain::{ResolvedTerrainGrid, scheduler_anim_roots};
 use crate::map::source::{
     LoadedMap, LoadedMapSource, load_map_by_name_or_path_with_assets, try_load_mmx,
 };
-use crate::map::terrain::{self, LocalBounds, TerrainGrid};
+use crate::map::terrain::{self, TerrainGrid};
 use crate::map::theater;
-use crate::map::trigger_graph::TriggerGraph;
 use crate::map::triggers::TriggerMap;
 use crate::map::waypoints;
 use crate::render::batch::BatchRenderer;
@@ -133,7 +132,7 @@ fn refresh_generated_tiberium_presentation_frames(
 mod map_wall_owner_candidate_tests {
     use super::*;
     use crate::map::entities::EntityCategory;
-    use crate::rules::terrain_rules::TerrainClass;
+    use crate::rules::terrain_rules::LandType;
     use crate::sim::combat::Health;
     use crate::sim::components::BuildingUp;
     use crate::sim::game_entity::GameEntity;
@@ -318,7 +317,14 @@ mod map_wall_owner_candidate_tests {
                     let cell = terrain
                         .cell((origin.0 as i16 + dx) as u16, (origin.1 as i16 + dy) as u16)
                         .unwrap();
-                    assert_eq!((cell.level, cell.slope_type, cell.is_water), (2, 0, false));
+                    assert_eq!(
+                        (
+                            cell.level,
+                            cell.slope_type,
+                            cell.land_type == LandType::Water.as_index()
+                        ),
+                        (2, 0, false)
+                    );
                 }
             }
         }
@@ -513,16 +519,16 @@ mod map_wall_owner_candidate_tests {
             );
         }
         assert_eq!(
-            terrain.cell(1, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium
+            terrain.cell(1, 1).unwrap().land_type,
+            LandType::Tiberium.as_index()
         );
         assert_eq!(
-            terrain.cell(2, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium
+            terrain.cell(2, 1).unwrap().land_type,
+            LandType::Tiberium.as_index()
         );
         assert_eq!(
-            terrain.cell(4, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium,
+            terrain.cell(4, 1).unwrap().land_type,
+            LandType::Tiberium.as_index(),
             "the unknown Terrain fixture starts with the same projected ore state"
         );
         overlays.take_dirty_cells();
@@ -567,16 +573,16 @@ mod map_wall_owner_candidate_tests {
         assert_eq!(overlays.cell(4, 1).overlay_id, Some(0));
         assert_eq!(overlays.cell(4, 1).overlay_data, 10);
         assert_eq!(
-            terrain.cell(1, 1).unwrap().terrain_class,
-            TerrainClass::Clear
+            terrain.cell(1, 1).unwrap().land_type,
+            LandType::Clear.as_index()
         );
         assert_eq!(
-            terrain.cell(2, 1).unwrap().terrain_class,
-            TerrainClass::Clear
+            terrain.cell(2, 1).unwrap().land_type,
+            LandType::Clear.as_index()
         );
         assert_eq!(
-            terrain.cell(4, 1).unwrap().terrain_class,
-            TerrainClass::Tiberium,
+            terrain.cell(4, 1).unwrap().land_type,
+            LandType::Tiberium.as_index(),
             "an unknown TerrainType leaves the resolved ore projection intact"
         );
         assert!(
@@ -1279,8 +1285,8 @@ mod map_wall_owner_candidate_tests {
             level_delay: 90,
             light_delay: 90,
             level_factor: 0.2,
-            light_factor: crate::util::fixed_math::sim_from_f32(0.1),
-            tint_factor: crate::util::fixed_math::sim_from_f32(1.0),
+            light_factor: crate::util::fixed_math::SimFixed::from_num(0.1_f32),
+            tint_factor: crate::util::fixed_math::SimFixed::from_num(1.0_f32),
             color: (0, 255, 0),
             site_warhead: "RadSite".to_string(),
         };
@@ -1520,7 +1526,6 @@ pub struct ScenarioLoadInputs {
     pub triggers: TriggerMap,
     pub events: EventMap,
     pub actions: ActionMap,
-    pub trigger_graph: TriggerGraph,
     /// Overlay type registry — kept so wall placement can look up overlay_id by name.
     pub overlay_registry: OverlayTypeRegistry,
     pub house_roster: HouseRoster,
@@ -2477,7 +2482,6 @@ pub(crate) fn load_map_initial_with_assets(
         map_data.cells.len(),
         map_data.entities.len()
     );
-    log_trigger_graph_diagnostics(&map_data);
 
     // First post-render-handoff milestone: the selected map has been opened and
     // parsed. (gamemd emits 8 at theater-init entry; in our pipeline the map is
@@ -2676,11 +2680,6 @@ pub(crate) fn load_map_from_initial(
     // The same roster later supplies presentation and post-load consumers.
     let house_roster =
         houses::parse_house_roster(&map_data.ini, rules.color_schemes.as_slice(), Some(&rules));
-
-    // Compute playable area bounds from LocalSize (border filler hidden by shroud).
-    let local_bounds: Option<LocalBounds> = Some(LocalBounds::from_playfield(
-        crate::sim::cell_rect::PlayfieldBounds::from_map_header(&map_data.header),
-    ));
 
     let cliff_back = rules.general.cliff_back_impassability;
 
@@ -3073,11 +3072,8 @@ pub(crate) fn load_map_from_initial(
     let bridge_middle_tiles = theater_result
         .as_ref()
         .and_then(crate::map::theater::BridgeMiddleTiles::from_theater);
-    let grid: TerrainGrid = terrain::build_terrain_grid_from_resolved(
-        &resolved_terrain,
-        local_bounds,
-        bridge_middle_tiles,
-    );
+    let grid: TerrainGrid =
+        terrain::build_terrain_grid_from_resolved(&resolved_terrain, bridge_middle_tiles);
     progress.milestone(50);
     progress.milestone(55);
     progress.milestone(58);
@@ -3367,15 +3363,10 @@ pub(crate) fn load_map_from_initial(
                 .unwrap_or(0);
             crate::app::input::camera::cell_centre_world_point(start_wp.rx, start_wp.ry, wp_z)
         } else {
-            let (area_x, area_y, area_w, area_h) = match local_bounds {
-                Some(b) => (b.pixel_x, b.pixel_y, b.pixel_w, b.pixel_h),
-                None => (
-                    grid.origin_x,
-                    grid.origin_y,
-                    grid.world_width,
-                    grid.world_height,
-                ),
-            };
+            // VERA-only fallback: the centre of the native scroll rectangle.
+            let (area_x, area_y, area_w, area_h) = crate::app::input::camera::tactical_scroll_rect(
+                crate::map::playfield::PlayfieldBounds::from_map_header(&map_data.header),
+            );
             (area_x + area_w / 2.0, area_y + area_h / 2.0)
         };
     let presentation = crate::app::loading::init_helpers::finish_presentation_assets(
@@ -3420,7 +3411,6 @@ pub(crate) fn load_map_from_initial(
             triggers: map_data.triggers,
             events: map_data.events,
             actions: map_data.actions,
-            trigger_graph: map_data.trigger_graph,
             overlay_registry,
             house_roster,
             height_map,

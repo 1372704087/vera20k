@@ -1516,6 +1516,6 @@ fn cell_land_type_is(
     sim.resolved_terrain.as_ref().is_some_and(|terrain| {
         terrain
             .cell(rx, ry)
-            .is_some_and(|cell| cell.land_type == wanted.as_index())
+            .is_some_and(|cell| cell.land_type() == wanted.as_index())
     })
 }

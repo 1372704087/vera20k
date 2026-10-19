@@ -1159,9 +1159,11 @@ use crate::util::save_codec;
 // SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
 // references, Warhead DebrisTypes), and process Rules state keeps its
 // RulesClass Type pointers and lists, the crate and rocket ones included.
-// 430 -> 431: the VERA-only Boarding passenger relation is gone, which
+// 430 -> 431: saved dynamic terrain cells drop the terrain-class, water,
+// cliff, rough and road copies of that LandType.
+// 431 -> 432: the VERA-only Boarding passenger relation is gone, which
 // renumbers the later PassengerRole and carrier-relation variants.
-const SNAPSHOT_VERSION: u32 = 431;
+const SNAPSHOT_VERSION: u32 = 432;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4869,8 +4871,9 @@ mod tests {
         // 428 -> 429: one CellClass+0xEC LandType per saved terrain cell.
         // 429 -> 430: the remaining Type references and RulesClass Type
         // pointers and lists.
-        // 430 -> 431: the Boarding passenger relation is gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 431);
+        // 430 -> 431: no derived land caches beside that LandType.
+        // 431 -> 432: the Boarding passenger relation is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 432);
     }
 
     #[test]

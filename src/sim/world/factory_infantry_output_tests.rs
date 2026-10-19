@@ -1747,8 +1747,6 @@ pub(super) fn install_ground(
         .flat_map(|y| {
             (0..side).map(move |x| {
                 let mut cell = super::lifecycle_tests::common_raw_terrain_cell(x, y, 0, false);
-                cell.terrain_class = clear.terrain_class;
-                cell.base_terrain_class = clear.terrain_class;
                 cell.speed_costs = clear.speed_costs;
                 cell.base_speed_costs = clear.speed_costs;
                 // Existing GI/factory controls retain their supplied border.

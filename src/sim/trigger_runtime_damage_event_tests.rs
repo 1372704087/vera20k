@@ -358,8 +358,6 @@ fn retail_damage_scene(route: &Value) -> Option<RetailDamageScene> {
     let clear = terrain_rules.semantics_for_land_type(0).unwrap();
     let terrain = crate::map::resolved_terrain::test_grid(64, 64, |x, y| {
         let mut cell = crate::map::resolved_terrain::test_clear_cell(x, y);
-        cell.terrain_class = clear.terrain_class;
-        cell.base_terrain_class = clear.terrain_class;
         cell.speed_costs = clear.speed_costs;
         cell.base_speed_costs = clear.speed_costs;
         cell
@@ -777,7 +775,7 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
             .map(|row| row.0)
             .collect::<Vec<_>>(),
         map.actions["048BB6BC"]
-            .entries
+            .entries()
             .iter()
             .map(|action| action.kind)
             .collect::<Vec<_>>()

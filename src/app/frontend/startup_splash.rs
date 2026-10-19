@@ -2,6 +2,8 @@
 //!
 //! This is intentionally separate from `app::loading`: the native GLS splash is
 //! process initialization chrome, not selected-scenario loading presentation.
+//! Any window other than the two sizes gamemd's shell runs at shows it fitted
+//! like the menus, so it lines up with the menu that follows it.
 
 use std::time::{Duration, Instant};
 
@@ -15,6 +17,9 @@ use crate::assets::shp_file::ShpFile;
 use crate::render::batch::{BatchRenderer, BatchTexture, SpriteInstance};
 use crate::render::gpu::GpuContext;
 use crate::render::shell_surface_present::ShellSurfacePresenter;
+use crate::ui::shell::geom::{RectPx, SHELL_BASE_H, SHELL_BASE_W, ShellScale};
+
+use super::shell_layout::window_takes_fitted_shell;
 
 /// One game's startup splash art: its palette, the shape drawn at exactly 640
 /// pixels wide, and the shape drawn at every other width.
@@ -124,18 +129,19 @@ impl StartupSplashPresentation {
             "startup splash requires a non-zero client size"
         );
 
+        let ([width, height], placement) = splash_placement(client_width, client_height);
         let rgba = compose_startup_splash(
             assets,
             csf,
             font,
-            client_width as usize,
-            client_height as usize,
+            width as usize,
+            height as usize,
             splash_art(ra2_look),
         )?;
-        let texture = batch.create_texture(gpu, &rgba, client_width, client_height);
+        let texture = batch.create_texture(gpu, &rgba, width, height);
         let instance = SpriteInstance {
-            position: [0.0, 0.0],
-            size: [client_width as f32, client_height as f32],
+            position: [placement.x as f32, placement.y as f32],
+            size: [placement.w as f32, placement.h as f32],
             uv_origin: [0.0, 0.0],
             uv_size: [1.0, 1.0],
             depth: 0.0,
@@ -229,6 +235,26 @@ pub(crate) fn render_and_present(
     Ok(())
 }
 
+/// The size the splash is composed at and where it sits in the window. The two
+/// windows gamemd's shell runs at keep its 1:1 composition at the window size.
+/// Any other window gets the 800x600 composition scaled the way the menus scale
+/// their page: the largest uniform fit, centred, with the spare width or height
+/// left to the black clear. gamemd itself draws 1:1, centred, at every size.
+fn splash_placement(client_width: u32, client_height: u32) -> ([u32; 2], RectPx) {
+    if window_takes_fitted_shell((client_width, client_height)) {
+        let scale = ShellScale::from_screen(client_width as i32, client_height as i32);
+        (
+            [SHELL_BASE_W as u32, SHELL_BASE_H as u32],
+            scale.dialog_rect(),
+        )
+    } else {
+        let window = RectPx::new(0, 0, client_width as i32, client_height as i32);
+        ([client_width, client_height], window)
+    }
+}
+
+/// gamemd's splash for a `client_width` x `client_height` client: the art
+/// centred 1:1 and the text anchored to the client's corners.
 fn compose_startup_splash(
     assets: &AssetManager,
     csf: Option<&CsfFile>,
@@ -510,6 +536,39 @@ mod tests {
     }
 
     #[test]
+    fn fitted_windows_scale_the_800x600_splash_onto_the_menu_page() {
+        // The two windows gamemd's shell runs at keep its 1:1 composition.
+        for (width, height) in [(800, 600), (640, 480)] {
+            assert_eq!(
+                splash_placement(width, height),
+                (
+                    [width, height],
+                    RectPx::new(0, 0, width as i32, height as i32)
+                )
+            );
+        }
+        // Any other window scales the 800x600 composition to the largest
+        // centred fit, with black bars on the spare sides.
+        assert_eq!(
+            splash_placement(1920, 1080),
+            ([800, 600], RectPx::new(240, 0, 1440, 1080))
+        );
+        assert_eq!(
+            splash_placement(1280, 1024),
+            ([800, 600], RectPx::new(0, 32, 1280, 960))
+        );
+        // That is where the fitted main menu puts its page, so the menu that
+        // follows the splash lines up with it.
+        for (width, height) in [(1920, 1080), (1024, 768), (3024, 1964), (640, 400)] {
+            let menu = crate::ui::main_menu_shell::compute_responsive_layout(width, height);
+            assert_eq!(
+                splash_placement(width, height),
+                ([800, 600], menu.scale.dialog_rect())
+            );
+        }
+    }
+
+    #[test]
     fn centered_offset_uses_signed_truncation_toward_zero() {
         assert_eq!(centered_offset(800, 800), 0);
         assert_eq!(centered_offset(801, 800), 0);
@@ -556,7 +615,6 @@ mod tests {
             .expect("parse retail GAME.FNT");
 
         compare_composed_splash_to_retail_shape(&assets, &font, YR_SPLASH, 800, 600);
-        compare_composed_splash_to_retail_shape(&assets, &font, YR_SPLASH, 1920, 1080);
         // The RA2 Loading & Menu Movie option draws its unsuffixed originals the same way.
         compare_composed_splash_to_retail_shape(&assets, &font, RA2_SPLASH, 800, 600);
 

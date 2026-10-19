@@ -941,24 +941,30 @@ fn bridge_animation_lists_match_original_retained_vectors() {
     }
 }
 
+/// MetallicDebris and BridgeExplosions are RulesClass vectors, which ReadGeneral
+/// replaces only on a nonempty read: a Process call that continues the live
+/// state and omits them keeps them, and their AnimTypes stay registered.
 #[test]
-fn bridge_animation_vectors_belong_to_rules_stack_not_type_registry() {
+fn bridge_animation_vectors_survive_a_continued_process_with_their_types() {
     use crate::rules::ruleset::RuleSet;
     let processed = RulesLayerStack::new(IniFile::from_str(
         "[General]\nMetallicDebris=ONE,ONE\nBridgeExplosions=TWO\n",
     ))
     .process()
     .unwrap();
+    let debris = processed.metallic_debris().to_vec();
+    let explosions = processed.bridge_explosions().to_vec();
+    assert!(!debris.is_empty() && !explosions.is_empty());
     let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
-    let fresh_rules = RulesLayerStack::new(IniFile::empty())
+    let continued = RulesLayerStack::new(IniFile::empty())
         .process_with_fixed_art_and_registry_state(
             &IniFile::empty(),
             receipt.into_registry_state_discarding_events(),
         )
         .unwrap();
-    let rules = RuleSet::from_processed_rules(&fresh_rules).unwrap();
-    assert!(rules.general.metallic_debris.is_empty());
-    assert!(rules.bridge_rules.explosions.is_empty());
+    let rules = RuleSet::from_processed_rules(&continued).unwrap();
+    assert_eq!(rules.general.metallic_debris, debris);
+    assert_eq!(rules.bridge_rules.explosions, explosions);
     assert!(rules.anim_type_names.iter().any(|name| name == "ONE"));
     assert!(rules.anim_type_names.iter().any(|name| name == "TWO"));
 }
@@ -2435,7 +2441,7 @@ fn crate_rule_images_allocate_and_alias_by_overlay_identity() {
 }
 
 #[test]
-fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
+fn crate_rule_images_retain_the_stored_id_of_the_type_they_allocate() {
     let exact = "A".repeat(127);
     let over = "B".repeat(128);
     let processed = RulesLayerStack::new(IniFile::from_str(&format!(
@@ -2444,27 +2450,24 @@ fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
     .process()
     .expect("crate rules process");
 
-    assert_eq!(
-        processed.crate_rules().wood_crate_img.as_deref(),
-        Some(exact.as_str())
-    );
-    let truncated = "B".repeat(127);
-    assert_eq!(
-        processed.crate_rules().crate_img.as_deref(),
-        Some(truncated.as_str())
-    );
-    assert_eq!(
-        processed.crate_rules().water_crate_img.as_deref(),
-        Some(truncated.as_str()),
-        "capacity includes the forced NUL, so only 127 ASCII bytes survive"
-    );
-    // The semantic CrateRules strings keep the 127-byte ReadString capacity,
-    // but every Type constructor stores only the native 24-byte ID and Find
-    // compares the full input against that stored prefix. A 127-byte name
-    // therefore misses every lookup and constructs a duplicate stored ID per
-    // reference (see `native_type_registry_compares_full_input_but_stores_and_emits_24_bytes`).
+    // ReadString128 bounds each read, but every Type constructor stores only
+    // the native 24-byte ID and Find compares the full input against that
+    // stored prefix. A 127-byte name therefore misses every lookup and
+    // constructs a duplicate stored ID per reference (see
+    // `native_type_registry_compares_full_input_but_stores_and_emits_24_bytes`),
+    // and each field keeps the Type the factory returned.
     let stored_a = "A".repeat(0x18);
     let stored_b = "B".repeat(0x18);
+    let crate_rules = processed.crate_rules();
+    assert_eq!(
+        crate_rules.wood_crate_img.as_deref(),
+        Some(stored_a.as_str())
+    );
+    assert_eq!(crate_rules.crate_img.as_deref(), Some(stored_b.as_str()));
+    assert_eq!(
+        crate_rules.water_crate_img.as_deref(),
+        Some(stored_b.as_str())
+    );
     assert_eq!(
         processed
             .ini()
@@ -2472,7 +2475,6 @@ fn crate_rule_image_readstring_capacity_owns_retention_and_allocation() {
             .expect("truncated references allocate")
             .registry_ids(),
         vec![stored_a.as_str(), stored_b.as_str(), stored_b.as_str()],
-        "late allocation stores 24-byte IDs while semantic crate strings keep 127 bytes"
     );
 }
 

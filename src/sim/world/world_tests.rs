@@ -581,7 +581,8 @@ fn a_jumpjet_cruising_over_water_leaves_no_wake() {
 #[test]
 fn a_ship_wakes_every_eighth_frame_unless_it_is_underwater() {
     let ini = IniFile::from_str(
-        "[InfantryTypes]\n[VehicleTypes]\n0=DEST\n1=SUB\n[AircraftTypes]\n[BuildingTypes]\n\
+        "[General]\nWake=WAKE1\n\
+         [InfantryTypes]\n[VehicleTypes]\n0=DEST\n1=SUB\n[AircraftTypes]\n[BuildingTypes]\n\
          [DEST]\nStrength=600\nArmor=heavy\nSpeed=6\nMovementZone=Water\nSpeedType=Float\n\
          Naval=yes\nLocomotor={2BEA74E1-7CCA-11d3-BE14-00104B62A16C}\n\
          [SUB]\nStrength=600\nArmor=heavy\nSpeed=6\nMovementZone=Water\nSpeedType=Float\n\
@@ -645,7 +646,10 @@ fn moving_water_unit_spawns_rules_bound_wake_without_preinterned_effect_name() {
     // A drive-family boat: the native wake gate is the drive locomotor's
     // `Is_Moving_Now` slot, so the fixture names the Drive locomotor.
     let ini: IniFile = IniFile::from_str(
-        "[InfantryTypes]
+        "[General]
+Wake=WAKE1
+
+         [InfantryTypes]
 
          [VehicleTypes]
 0=BOAT
@@ -4098,6 +4102,7 @@ fn short_game_defeat_test_rules() -> RuleSet {
          [SMCV]\nStrength=450\nArmor=heavy\nSpeed=5\nDeploysInto=GACNST\n\n\
          [PCV]\nStrength=450\nArmor=heavy\nSpeed=5\nDeploysInto=GACNST\n\n\
          [GACNST]\nStrength=1000\nArmor=wood\nConstructionYard=yes\nUndeploysInto=AMCV\n\n\
+         [CombatDamage]\nC4Warhead=Super\n\n\
          [Warheads]\n0=Super\n\n\
          [Super]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     );
@@ -5079,6 +5084,7 @@ fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
 fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n\
+         [CombatDamage]\nC4Warhead=Super\n\
          [Warheads]\n0=Super\n[Super]\nInfDeath=2\nPenetratesBunker=yes\n\
          Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     ))
@@ -10203,7 +10209,8 @@ fn group_move_never_draws_two_hulls_on_one_spot() {
 
 #[test]
 fn rule_handles_resolve_at_init_and_stay_none_for_unresolved_fixtures() {
-    let rules = RuleSet::from_ini(&IniFile::from_str("")).expect("empty rules fixture parses");
+    let rules = RuleSet::from_ini(&IniFile::from_str("[CombatDamage]\nCrushWarhead=Crush\n"))
+        .expect("crush rules fixture parses");
 
     // Init-path resolution pins the canonical warhead names.
     let mut init_sim = Simulation::new();

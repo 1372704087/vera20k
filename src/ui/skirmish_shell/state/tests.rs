@@ -1710,7 +1710,6 @@ fn dropdown_scrollbar_arrows_step_and_drag_clamp_top_index() {
         shell.dropdown_scroll_drag,
         Some(DropdownScrollDragState {
             id: SkirmishComboId::Side(0),
-            grab_offset_y: 1,
         })
     );
     assert_eq!(
@@ -1721,6 +1720,11 @@ fn dropdown_scrollbar_arrows_step_and_drag_clamp_top_index() {
         })
     );
     assert!(shell.drain_pending_ui_sounds().is_empty());
+    // Native61D4AD captures without moving. The next mouse move uses
+    //61C8B3's pointer-centered projection, even at the original grab point.
+    assert_eq!(shell.open_combo_dropdown.unwrap().top_index, 1);
+    handle_option_mouse_move(&mut shell, &layout, &maps, thumb.x + 1, thumb.y + 1);
+    assert_eq!(shell.open_combo_dropdown.unwrap().top_index, 0);
     handle_option_mouse_move(
         &mut shell,
         &layout,

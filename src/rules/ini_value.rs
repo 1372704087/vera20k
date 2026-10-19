@@ -943,9 +943,9 @@ fn read_comma_hex_utf16(
     units
 }
 
-/// CRT `sscanf("%x")` for one comma token: optional whitespace and sign, an
+/// CRT `sscanf("%x")` for one token: optional whitespace and sign, an
 /// optional `0x` prefix only when digits follow, then hex digits.
-fn scan_hex_u32(token: &[u8]) -> Option<u32> {
+pub fn scan_hex_u32(token: &[u8]) -> Option<u32> {
     let start = token.iter().position(|b| !is_crt_space(*b))?;
     let mut bytes = &token[start..];
     let negative = bytes.first() == Some(&b'-');
@@ -1087,7 +1087,7 @@ pub(crate) fn strtrim_ascii(s: &str) -> &str {
 /// runs of non-delimiter characters, so leading, repeated and trailing
 /// delimiters produce no empty token, and no token is trimmed. Every native
 /// comma list passes `","`; the sound registry passes `" \t\n"`.
-pub(crate) fn strtok<'a>(value: &'a str, delimiters: &'a [char]) -> impl Iterator<Item = &'a str> {
+pub fn strtok<'a>(value: &'a str, delimiters: &'a [char]) -> impl Iterator<Item = &'a str> {
     value.split(delimiters).filter(|token| !token.is_empty())
 }
 

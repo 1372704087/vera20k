@@ -89,6 +89,9 @@ impl LocalMultiplayerPreferences {
 /// App-owned state whose lifetime matches the front-end process, not one map.
 pub(crate) struct OfflineSkirmishRuntime {
     snapshot: SkirmishPersistedSnapshot,
+    // These preferences mirror the process INI8870C0. Native6980C0 does not
+    // reopen RA2MD.INI on a child-dialog visit; keep accepted in-memory values
+    // rather than replacing them with an unsolicited disk refresh.
     local_preferences: LocalMultiplayerPreferences,
     scenario_rng: SimRng,
     /// Process-persistent native MapSeed options. The setup dialog edits a
@@ -144,35 +147,6 @@ impl OfflineSkirmishRuntime {
             cooperative_country_roster,
             gameplay_rng_return_pending: false,
         }
-    }
-
-    /// Re-read only the six process-cached `[MultiPlayer]` preferences before
-    /// the launcher Options Network child route.
-    ///
-    /// gamemd-derived: `OptionsClass__ShowLauncherDialog @ 0x0055FC80` calls
-    /// `SessionClass__ReadMultiPlayerSettings @ 0x006980C0` after destroying
-    /// the `0xD5` primary and before constructing Network dialog `0xD7`.
-    /// The existing parser establishes constructor defaults first, so a
-    /// missing, unreadable, or malformed snapshot atomically replaces only
-    /// this cache with defaults and cannot perturb shell/RNG/RMG/co-op state.
-    pub(crate) fn refresh_local_multiplayer_preferences(&mut self) {
-        let refreshed = match self.ini_path.as_deref() {
-            Some(path) => match std::fs::read(path) {
-                Ok(bytes) => read_local_multiplayer_preferences(&bytes),
-                Err(error) if error.kind() == io::ErrorKind::NotFound => {
-                    LocalMultiplayerPreferences::default()
-                }
-                Err(error) => {
-                    log::warn!(
-                        "Could not refresh Multiplayer settings from {}: {error}",
-                        path.display()
-                    );
-                    LocalMultiplayerPreferences::default()
-                }
-            },
-            None => LocalMultiplayerPreferences::default(),
-        };
-        self.local_preferences = refreshed;
     }
 
     #[cfg(test)]
@@ -904,79 +878,6 @@ mod tests {
             cooperative_country_roster: stock_cooperative_country_roster(),
             gameplay_rng_return_pending: false,
         }
-    }
-
-    #[test]
-    fn launcher_network_refresh_replaces_only_six_cached_multiplayer_fields() {
-        let unique = format!(
-            "vera20k-launcher-network-refresh-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        );
-        let directory = std::env::temp_dir().join(unique);
-        std::fs::create_dir_all(&directory).expect("create refresh fixture directory");
-        let path = directory.join(RA2MD_INI);
-        let bytes = b"; preserve me\r\n\
-[MultiPlayer]\r\n\
-Handle=52,65,66,72,65,73,68,65,64,\r\n\
-Color=4\r\n\
-ColorEx=-2\r\n\
-Side=Arabs\r\n\
-SideEx=7\r\n\
-GameMode=9\r\n\
-[Skirmish]\r\n\
-Credits=12345\r\n";
-        std::fs::write(&path, bytes).expect("write refresh fixture");
-
-        let mut runtime = runtime(
-            SkirmishPersistedSnapshot {
-                credits: 22222,
-                ..SkirmishPersistedSnapshot::from_global_defaults(defaults())
-            },
-            0x1234_5678,
-        );
-        runtime.ini_path = Some(path.clone());
-        runtime.random_map_options.seed = 4242;
-        runtime.gameplay_rng_return_pending = true;
-        runtime.local_preferences = LocalMultiplayerPreferences {
-            handle_bytes: b"Old".to_vec(),
-            country: LaunchCountry::America,
-            side_ex: 1,
-            color_index: 0,
-            color_ex: 0,
-            game_mode: 1,
-        };
-
-        let snapshot_before = runtime.snapshot.clone();
-        let rng_before = runtime.scenario_rng_state();
-        let rmg_before = runtime.random_map_options.clone();
-        let registry_before = runtime.cooperative_registry.clone();
-        let progress_before = runtime.cooperative_progress.clone();
-        let roster_before = runtime.cooperative_country_roster.clone();
-        let pending_before = runtime.gameplay_rng_return_pending;
-
-        runtime.refresh_local_multiplayer_preferences();
-
-        assert_eq!(runtime.local_preferences.handle_bytes, b"Refreshed");
-        assert_eq!(runtime.local_preferences.country, LaunchCountry::Iraq);
-        assert_eq!(runtime.local_preferences.side_ex, 7);
-        assert_eq!(runtime.local_preferences.color_index, 4);
-        assert_eq!(runtime.local_preferences.color_ex, -2);
-        assert_eq!(runtime.local_preferences.game_mode, 9);
-        assert_eq!(runtime.snapshot, snapshot_before);
-        assert_eq!(runtime.scenario_rng_state(), rng_before);
-        assert_eq!(runtime.random_map_options, rmg_before);
-        assert_eq!(runtime.cooperative_registry, registry_before);
-        assert_eq!(runtime.cooperative_progress, progress_before);
-        assert_eq!(runtime.cooperative_country_roster, roster_before);
-        assert_eq!(runtime.gameplay_rng_return_pending, pending_before);
-        assert_eq!(
-            std::fs::read(&path).expect("reread refresh fixture"),
-            bytes,
-            "Network preparation is read-only"
-        );
-
-        std::fs::remove_dir_all(directory).expect("remove refresh fixture directory");
     }
 
     fn defaults() -> SkirmishGlobalDefaults {

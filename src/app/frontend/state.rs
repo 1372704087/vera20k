@@ -108,6 +108,8 @@ pub(crate) struct FrontendState {
     pub(crate) campaign_art: Option<crate::render::main_menu_shell_chrome::CampaignShellArt>,
     /// Westwood Online welcome `0x10E` (and its box) while its route shows.
     pub(crate) wol_welcome: Option<crate::ui::wol_shell::WolWelcomeState>,
+    /// Options' Network child D7, retained until its teardown completes.
+    pub(crate) network_options: Option<crate::ui::network_options::NetworkOptionsState>,
     /// Its background and icon art (`0x0072C7E0`).
     pub(crate) wol_welcome_art: Option<crate::render::main_menu_shell_chrome::WolWelcomeArt>,
     /// Single Player's Load Saved Game `0xB7` while its route shows.

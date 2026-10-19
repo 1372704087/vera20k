@@ -228,9 +228,7 @@ pub fn handle_option_mouse_move(
     y: i32,
 ) -> SkirmishShellAction {
     if let Some(drag) = state.dropdown_scroll_drag {
-        if let Some(top_index) =
-            top_index_from_thumb_y(state, layout, maps, drag.id, y, drag.grab_offset_y)
-        {
+        if let Some(top_index) = top_index_from_thumb_y(state, layout, maps, drag.id, y) {
             set_open_combo_top_index(state, maps, drag.id, top_index);
         }
         return SkirmishShellAction::None;

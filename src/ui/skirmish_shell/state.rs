@@ -46,8 +46,8 @@ pub use random_map_setup::{
     SetupCombo, SetupComboItem, setup_combo_items,
 };
 pub use saved_seed_browser::{
-    SAVED_SEED_DESCRIPTION_MAX_UNITS, SavedSeedBrowserRow, SavedSeedBrowserState, SavedSeedOutcome,
-    SavedSeedPrompt, SavedSeedPromptPurpose,
+    SAVED_SEED_DESCRIPTION_MAX_UNITS, SavedSeedBrowserRow, SavedSeedBrowserState,
+    SavedSeedDescriptionEdit, SavedSeedOutcome, SavedSeedPrompt, SavedSeedPromptPurpose,
 };
 pub use trackbars::{
     SkirmishTrackbarBounds, game_speed_from_visual_position, game_speed_visual_position,
@@ -152,7 +152,6 @@ pub struct OpenComboDropdown {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DropdownScrollDragState {
     pub id: SkirmishComboId,
-    pub grab_offset_y: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

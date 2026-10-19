@@ -222,14 +222,6 @@ impl MainRng {
     pub(crate) fn index_b(&self) -> i32 {
         self.logical_state().index_b
     }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn next_range_u32_inclusive(&self, low: u32, high: u32) -> u32 {
-        self.state
-            .lock()
-            .expect("Main RNG poisoned")
-            .next_range_u32_inclusive(low, high)
-    }
 }
 
 impl From<SimRng> for MainRng {

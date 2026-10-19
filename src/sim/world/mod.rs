@@ -103,11 +103,11 @@ pub use world_orders::BuildingClickAction;
 pub(crate) use world_orders::CapturedInfantryType;
 pub use world_orders::EngineerBuildingAction;
 pub use world_orders::UnitRepairAction;
-mod shroud_refresh;
-mod track_cell_recalc;
 mod projectile_collision;
+mod shroud_refresh;
 mod substrate;
 mod techno_ai;
+mod track_cell_recalc;
 mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;

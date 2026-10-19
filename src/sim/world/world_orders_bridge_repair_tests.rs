@@ -318,14 +318,15 @@ fn ordinary_friendly_repair_uses_capture_event_without_hut_exception() {
         let (mut sim, rules, registry) = super::entry_test_fixture::fixture_with_rules(&ini);
         for (side, name) in ["Americans", "Soviets"].into_iter().enumerate() {
             let owner = sim.interner.intern(name);
-            sim.houses.register(crate::sim::house_state::HouseState::new(
-                owner,
-                side as i32,
-                None,
-                side == 0,
-                0,
-                10,
-            ));
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner,
+                    side as i32,
+                    None,
+                    side == 0,
+                    0,
+                    10,
+                ));
         }
         let target = sim
             .spawn_object_at_height("CABHUT", target_owner, 9, 10, 0, 0, &rules)
@@ -646,17 +647,22 @@ fn c4_on_cabhut_without_a_collapsible_bridge_changes_nothing() {
         ("no bridge", 10, &|sim: &mut Simulation| {
             sim.bridge_state = Some(BridgeRuntimeState::default());
         }),
-        ("anchor or direction flags alone", 9, &|sim: &mut Simulation| {
-            seed_hut_fallback_bridgehead_layout(sim);
-            let starter = sim
-                .resolved_terrain
-                .as_mut()
-                .unwrap()
-                .cell_mut(12, 10)
-                .unwrap();
-            starter.bridge_facts.raw_flags = BRIDGE_FLAG_ANCHOR_SELF | BRIDGE_FLAG_DIRECTION_ZERO;
-            starter.bridge_facts.anchor = None;
-        }),
+        (
+            "anchor or direction flags alone",
+            9,
+            &|sim: &mut Simulation| {
+                seed_hut_fallback_bridgehead_layout(sim);
+                let starter = sim
+                    .resolved_terrain
+                    .as_mut()
+                    .unwrap()
+                    .cell_mut(12, 10)
+                    .unwrap();
+                starter.bridge_facts.raw_flags =
+                    BRIDGE_FLAG_ANCHOR_SELF | BRIDGE_FLAG_DIRECTION_ZERO;
+                starter.bridge_facts.anchor = None;
+            },
+        ),
         ("no fallback starter", 9, &seed_hut_fallback_without_starter),
         ("terminal overlay 0x65", 10, &|sim: &mut Simulation| {
             seed_terminal_overlay_with_fallback_trap(sim, 0x65);
@@ -722,11 +728,18 @@ fn c4_on_cabhut_collapses_concrete_and_wooden_strips_even_when_invulnerable() {
         let hut = sim.substrate.entities.get(cabhut).unwrap();
         assert_eq!(hut.health.current(), hut_hp, "overlay {overlay:#x}");
         assert!(!hut.death.is_dying(), "overlay {overlay:#x}");
-        assert!(hut.pending_c4_detonation.pending().is_none(), "overlay {overlay:#x}");
+        assert!(
+            hut.pending_c4_detonation.pending().is_none(),
+            "overlay {overlay:#x}"
+        );
         assert!(changed, "overlay {overlay:#x}");
         for y in [14, 15, 16] {
             let cell = sim.resolved_terrain.as_ref().unwrap().cell(17, y).unwrap();
-            assert_eq!(cell.bridge_facts.overlay_id, Some(collapsed), "overlay {overlay:#x}");
+            assert_eq!(
+                cell.bridge_facts.overlay_id,
+                Some(collapsed),
+                "overlay {overlay:#x}"
+            );
             if overlay == 0x4A {
                 assert!(!cell.bridge_facts.has_structural_bridge());
                 assert_eq!(

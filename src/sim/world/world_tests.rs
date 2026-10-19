@@ -31,7 +31,7 @@ use crate::sim::movement::tube_movement::LowBridgeTubeMovementState;
 use crate::sim::particles::{Particle, ParticleSystem};
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::world::bridge_orchestrator::blow_up_bridge_cell_fallout;
-use crate::util::fixed_math::{SIM_HALF, SIM_ONE, SIM_ZERO, SimFixed};
+use crate::util::fixed_math::{SIM_HALF, SIM_ONE, SimFixed};
 use glam::IVec3;
 
 fn make_test_entity(type_id: &str, category: EntityCategory) -> MapEntity {

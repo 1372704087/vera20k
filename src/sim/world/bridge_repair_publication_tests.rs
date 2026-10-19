@@ -41,7 +41,9 @@ fn player_house(sim: &mut Simulation) {
     // The hut's computer owner.
     let soviets = sim.interner.intern("Soviets");
     sim.houses
-        .register(crate::sim::house_state::HouseState::new(soviets, 1, None, false, 0, 0));
+        .register(crate::sim::house_state::HouseState::new(
+            soviets, 1, None, false, 0, 0,
+        ));
 }
 
 fn command_repair_fixture(with_aircraft: bool, with_team: bool) {

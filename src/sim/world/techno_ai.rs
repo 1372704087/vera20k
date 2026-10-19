@@ -5160,7 +5160,14 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
                 &[][..],
                 false,
             ),
-            ("Cyborg vehicle", vehicle_cyborg, "VEHCYB", 20, &[][..], false),
+            (
+                "Cyborg vehicle",
+                vehicle_cyborg,
+                "VEHCYB",
+                20,
+                &[][..],
+                false,
+            ),
         ];
         for (case, rules, type_id, health, draws, sparks) in cases {
             let mut sim = Simulation::new();

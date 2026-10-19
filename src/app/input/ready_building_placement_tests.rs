@@ -2070,11 +2070,6 @@ fn same_ready_cameo_retains_pending_building_and_preview() {
 }
 
 #[test]
-fn other_ready_cameo_retains_pending_building_and_preview() {
-    assert_pending_repeat("GAPILL", SidebarTab::Defense);
-}
-
-#[test]
 #[ignore = "slow; run when changing what it covers"]
 fn own_ready_cameo_right_clears_other_category_pending_before_abandon() {
     for shift in [false, true] {

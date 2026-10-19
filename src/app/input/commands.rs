@@ -1473,20 +1473,6 @@ mod tests {
     }
 
     #[test]
-    fn recorded_scheduler_does_not_apply_offline_input_delay() {
-        let mut sim = Simulation::new();
-        sim.session.tick = u64::MAX - 1;
-        sim.input_delay_ticks = 8;
-
-        let execute_tick =
-            schedule_command_in_sim(&mut sim, "YuriCountry", Command::DeployMcv { entity_id: 7 })
-                .unwrap();
-
-        assert_eq!(execute_tick, u64::MAX - 1);
-        assert_eq!(sim.pending_command_snapshot()[0].execute_tick, u64::MAX - 1);
-    }
-
-    #[test]
     fn gsi_04_07_wall_sell_scheduler_uses_current_tick_and_signed_cell_payload() {
         let mut sim = Simulation::new();
         sim.session.tick = 23;

@@ -2395,7 +2395,9 @@ mod item83_selection_order_tests {
         .expect("item83 voice rules");
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
-        sim.session.game_mode_nonzero = true;
+        sim.session.set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
         sim.session.current_house = Some(owner);
         for (id, type_name) in [(1, "E1"), (2, "E2")] {
             let type_ref = sim.interner.intern(type_name);
@@ -3345,7 +3347,9 @@ mod deploy_key_tests {
     /// and activity tests can admit the fixture's objects.
     fn player_sim() -> Simulation {
         let mut sim = Simulation::new();
-        sim.session.game_mode_nonzero = true;
+        sim.session.set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
         sim.session.current_house = Some(sim.interner.intern("Americans"));
         sim
     }
@@ -3891,7 +3895,9 @@ mod control_group_tests {
             group_entity(&mut sim, 1, local);
             group_entity(&mut sim, 2, ai);
             group_entity(&mut sim, 3, human_only);
-            sim.session.game_mode_nonzero = multiplayer;
+            sim.session.set_game_mode(
+                crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(multiplayer),
+            );
             sim.session.current_house = Some(local);
             let mut groups = vec![Vec::new(); 10];
             groups[1] = vec![1, 2, 3, 99];
@@ -3936,7 +3942,11 @@ mod control_group_tests {
                 house(&mut sim, "CurrentHouse", false, false),
                 house(&mut sim, "OtherHouse", false, false),
             ];
-            sim.session.game_mode_nonzero = input["mode"].as_u64().unwrap() != 0;
+            sim.session.set_game_mode(
+                crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(
+                    input["mode"].as_u64().unwrap() != 0,
+                ),
+            );
             sim.session.current_house = Some(owners[0]);
             let actors = input["actors"].as_array().unwrap();
             let mut groups = vec![Vec::new(); 10];
@@ -4033,7 +4043,9 @@ mod control_group_tests {
         let other_human = house(&mut sim, "OtherHuman", true, true);
         group_entity(&mut sim, 10, local);
         group_entity(&mut sim, 11, other_human);
-        sim.session.game_mode_nonzero = true;
+        sim.session.set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
         sim.session.current_house = Some(local);
 
         assert_eq!(

@@ -2912,7 +2912,7 @@ impl Simulation {
         events: &[crate::sim::combat::UnderAttackEvent],
         rules: &RuleSet,
     ) {
-        let game_mode_nonzero = self.session.game_mode_nonzero;
+        let game_mode_nonzero = self.session.game_mode_nonzero();
         for event in events {
             let Some(object) = self.object_type(event.victim_type, rules) else {
                 continue;
@@ -4731,7 +4731,7 @@ impl Simulation {
     pub fn owner_is_human(&self, owner: InternedId) -> bool {
         self.houses
             .get(&owner)
-            .is_some_and(|house| house.is_controlled_by_human(self.session.game_mode_nonzero))
+            .is_some_and(|house| house.is_controlled_by_human(self.session.game_mode_nonzero()))
     }
 
     /// Apply `house_tracking`'s Add_Tracking or Remove_Tracking for an object
@@ -6345,7 +6345,7 @@ impl Simulation {
     /// AI-activation block `0x004F8564..0x004F85B7`.
     fn update_house_anger_and_activation(&mut self, owner: InternedId, rules: Option<&RuleSet>) {
         let current_frame = self.session.binary_frame as i32;
-        let game_mode_nonzero = self.session.game_mode_nonzero;
+        let game_mode_nonzero = self.session.game_mode_nonzero();
         let iq_production = rules.map(|rules| rules.general.iq_production);
         let represented = self.houses.contains_key(&owner);
         if let Some(house) = self.houses.get_mut(&owner) {
@@ -7249,7 +7249,7 @@ impl Simulation {
         // ScoreDialog__FillEntries `0x5C9700` and `ScoreDialog__Run `0x5C9720`.
         // Keep their survivor bonus and Scenario RNG draws out of campaigns;
         // Campaign's standalone result dialog reads its own House statistics.
-        let terminal_score_finalized = self.session.game_mode_nonzero
+        let terminal_score_finalized = self.session.game_mode_nonzero()
             && self.natural_outcome_exit_ready()
             && self.finalize_terminal_score_snapshot();
         profile_phase!(SCORE);

@@ -118,7 +118,7 @@ pub struct HousePopulation {
     /// Rules-owned side index: the position in the loaded `[Sides]` section.
     /// Not a fixed enum — retail order differs from test fixtures, so the app
     /// also sends `side_name`, the authoritative spelling.
-    pub side_index: u8,
+    pub side_index: i32,
     /// The `[Sides]` key this house belongs to ("Allied", "ThirdSide",
     /// "Civilian", "Mutant", …), resolved from the loaded rules. `None` when
     /// no rule set is available.

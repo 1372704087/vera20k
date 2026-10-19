@@ -28,7 +28,8 @@ fn rules() -> RuleSet {
 /// Houses `(name, country, human)` in that array order, in a skirmish.
 fn sim_with(rules: &RuleSet, houses: &[(&str, &str, bool)]) -> (Simulation, Vec<InternedId>) {
     let mut sim = Simulation::with_seed(9);
-    sim.session.game_mode_nonzero = true;
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     let ids = houses
         .iter()
         .map(|&(name, country, human)| {
@@ -154,6 +155,8 @@ fn computer_paranoid_needs_allies_allowed_and_no_computer_team() {
         start_position: LaunchStartPosition::Auto,
         team,
         is_human: human,
+        observer: false,
+        source_human_index: None,
         difficulty: crate::sim::house_state::HouseDifficulty::Normal,
     };
     for (human_team, computer_team, paranoid_runs) in [
@@ -161,7 +164,9 @@ fn computer_paranoid_needs_allies_allowed_and_no_computer_team() {
         (LaunchTeam::None, LaunchTeam::Team(1), false),
     ] {
         let mut sim = Simulation::with_seed(9);
-        sim.session.game_mode_nonzero = true;
+        sim.session.set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
         populate_launch_houses(
             &mut sim,
             &[

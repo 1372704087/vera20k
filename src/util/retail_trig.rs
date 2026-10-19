@@ -43,7 +43,8 @@ const COS_CEILING: i32 = PERIOD + QUARTER - 1;
 /// The index derivation halves the caller's value before using it as a table
 /// index, so one caller unit is half a table step and a full turn is twice the
 /// table period.
-pub const UNITS_PER_TURN: f64 = (2 * PERIOD) as f64;
+#[cfg(test)]
+const UNITS_PER_TURN: f64 = (2 * PERIOD) as f64;
 
 /// FNV-1a (64-bit) over the table's raw little-endian bytes in the retail
 /// image, machine-derived by reading all 40964 bytes out of the binary. This is

@@ -1167,11 +1167,11 @@ use crate::util::save_codec;
 // reference (NavCom, its auxiliary, SuspendedNavCom, NavQueue and navigation
 // list) is a Cell or an Object. The Entity and Building spellings of an
 // Object pointer are gone, which renumbers the reference's variants.
-// 433 -> 436 (434 and 435 belong to concurrent changes): saved scenario
-// resources drop their copies of the map's [Triggers], [Events] and [Actions]
-// records and the always-empty trigger graph. The trigger runtime saved with
-// the Simulation is the only owner of those definitions.
-const SNAPSHOT_VERSION: u32 = 436;
+// 433 -> 434: saved scenario resources drop their copies of the map's
+// [Triggers], [Events] and [Actions] records and the always-empty trigger
+// graph. The trigger runtime saved with the Simulation is the only owner of
+// those definitions.
+const SNAPSHOT_VERSION: u32 = 434;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4844,8 +4844,8 @@ mod tests {
         // 430 -> 431: no derived land caches beside that LandType.
         // 431 -> 432: the Boarding passenger relation is gone.
         // 432 -> 433: one Object spelling for a NavCom-family pointer.
-        // 433 -> 436: no trigger-record copies in saved scenario resources.
-        assert_eq!(super::SNAPSHOT_VERSION, 436);
+        // 433 -> 434: no trigger-record copies in saved scenario resources.
+        assert_eq!(super::SNAPSHOT_VERSION, 434);
     }
 
     #[test]

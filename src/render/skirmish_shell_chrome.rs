@@ -154,6 +154,7 @@ pub struct SkirmishShellChromeAtlas {
     pub combo_face_118: Option<SkirmishShellChromeEntry>,
     pub combo_face_42: Option<SkirmishShellChromeEntry>,
     pub combo_face_39: Option<SkirmishShellChromeEntry>,
+    pub combo_face_213: Option<SkirmishShellChromeEntry>,
     pub combo_face_117: Option<SkirmishShellChromeEntry>,
     pub combo_face_44: Option<SkirmishShellChromeEntry>,
     pub combo_face_38: Option<SkirmishShellChromeEntry>,
@@ -189,6 +190,7 @@ pub struct ControlChrome {
     pub combo_face_118: Option<SkirmishShellChromeEntry>,
     pub combo_face_42: Option<SkirmishShellChromeEntry>,
     pub combo_face_39: Option<SkirmishShellChromeEntry>,
+    pub combo_face_213: Option<SkirmishShellChromeEntry>,
     pub combo_face_117: Option<SkirmishShellChromeEntry>,
     pub combo_face_44: Option<SkirmishShellChromeEntry>,
     pub combo_face_38: Option<SkirmishShellChromeEntry>,
@@ -300,6 +302,7 @@ impl SkirmishShellChromeAtlas {
             combo_face_118: self.combo_face_118,
             combo_face_42: self.combo_face_42,
             combo_face_39: self.combo_face_39,
+            combo_face_213: self.combo_face_213,
             combo_face_117: self.combo_face_117,
             combo_face_44: self.combo_face_44,
             combo_face_38: self.combo_face_38,
@@ -631,6 +634,8 @@ pub fn build_skirmish_shell_chrome_atlas(
         ("lan_combo_face_118", 118),
         ("lan_combo_face_42", 42),
         ("lan_combo_face_39", 39),
+        // WOL login 0x10F's nickname combo 0x628 (executed width 213).
+        ("wol_combo_face_213", 213),
     ] {
         rendered.push(render_primitive_bevel_entry(
             label,
@@ -756,6 +761,7 @@ pub fn build_skirmish_shell_chrome_atlas(
         combo_face_118: by_label.get("lan_combo_face_118").copied(),
         combo_face_42: by_label.get("lan_combo_face_42").copied(),
         combo_face_39: by_label.get("lan_combo_face_39").copied(),
+        combo_face_213: by_label.get("wol_combo_face_213").copied(),
         combo_face_117: by_label.get("skirmish_combo_face_117").copied(),
         combo_face_44: by_label.get("skirmish_combo_face_44").copied(),
         combo_face_38: by_label.get("skirmish_combo_face_38").copied(),

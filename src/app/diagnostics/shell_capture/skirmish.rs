@@ -21,6 +21,8 @@ pub(crate) enum PresentedShell {
     LanLobby,
     NetworkSetup,
     WolWelcome,
+    WolLogin,
+    WolLobby,
     Score,
 }
 

@@ -440,13 +440,13 @@ impl App {
                         crate::app::frontend::skirmish_shell_render::render_multiplayer_setup(state, &mut encoder, &output.texture)?;
                     }
                     presented_shell = PresentedShell::NetworkSetup;
-                } else if Self::wol_welcome_active(state) {
-                    if crate::app::frontend::wol_welcome_render::render_wol_welcome_page(
+                } else if Self::wol_active(state) {
+                    if crate::app::frontend::wol_welcome_render::render_wol_page(
                         state,
                         &mut encoder,
                         &output.texture,
                     )? {
-                        presented_shell = PresentedShell::WolWelcome;
+                        presented_shell = crate::app::frontend::wol_welcome_render::presented_wol_page(state);
                     } else {
                         Self::render_shell_error(state, &mut encoder, &view)?;
                     }

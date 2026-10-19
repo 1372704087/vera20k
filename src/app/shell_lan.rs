@@ -371,10 +371,7 @@ pub(crate) fn dispatch(state: &mut AppState, action: LanLobbyAction) {
             .multiplayer_shell_runtime
             .set_lan_observer(value),
         LanLobbyAction::NameChanged(value) => {
-            state
-                .frontend
-                .multiplayer_shell_runtime
-                .set_lan_name(&value);
+            state.frontend.multiplayer_shell_runtime.set_handle(&value);
             let runtime = state.frontend.lan.as_mut().unwrap();
             runtime
                 .requests

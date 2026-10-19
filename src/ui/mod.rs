@@ -22,6 +22,7 @@ pub mod sidebar;
 pub mod single_player_shell;
 pub mod skirmish_shell;
 pub mod tooltips;
+pub mod wol_login;
 pub mod wol_shell;
 pub(crate) mod wol_chat;
 pub mod network_options;

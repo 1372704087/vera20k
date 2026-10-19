@@ -1819,6 +1819,30 @@ fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
     assert_eq!(occupants(&sim, absorber), [tank]);
 }
 
+/// An order into an absorber is admitted by the CAN_LOAD the click sends
+/// (`InfantryClass::What_Action_OnObject`, `0x0051EE1A`): the building
+/// (`0x0043C2D0`) refuses a class it does not absorb (`0x0043C43B..
+/// 0x0043C4F2`) and asks alliance, not ownership.
+#[test]
+fn an_order_into_an_absorber_is_admitted_by_its_can_load() {
+    let rules = rules();
+    let (mut sim, _) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
+    let tank = spawn(&mut sim, &rules, "LTNK", "YuriCountry", 10, 12);
+    let guest = spawn(&mut sim, &rules, "INIT", "Americans", 10, 10);
+    let admits =
+        |sim: &Simulation, id| crate::sim::passenger::can_enter_transport(sim, &rules, id, reactor);
+    assert!(!admits(&sim, tank), "a vehicle into an infantry absorber");
+    assert!(!admits(&sim, guest), "an enemy house's infantryman");
+    for (house, ally) in [("YURICOUNTRY", "AMERICANS"), ("AMERICANS", "YURICOUNTRY")] {
+        sim.house_alliances
+            .entry(house.to_string())
+            .or_default()
+            .insert(ally.to_string());
+    }
+    assert!(admits(&sim, guest), "an allied house's infantryman");
+}
+
 /// Retail rules (every layer, gamemd-exact): the Bio Reactor takes a Yuri
 /// Initiate (`Size=1` within `SizeLimit=15`) and refuses a Lasher (no
 /// `UnitAbsorb=`).

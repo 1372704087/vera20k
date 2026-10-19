@@ -363,9 +363,10 @@ fn building_can_load(
 }
 
 /// CAN_LOAD as a click asks it (`UnitClass::What_Action_OnObject`'s
-/// `vt+0x278(0x0F)`), sending nothing: the building's answer, a `Bunker=`
-/// building's from VERA's bunker adapter, with the IsOccupied question
-/// answered by its receiver ([`foot_is_occupied`]).
+/// `vt+0x278(0x0F)`, `InfantryClass`'s at `0x0051EE1A`), sending nothing:
+/// the building's answer, a `Bunker=` building's from VERA's bunker adapter,
+/// with the IsOccupied question answered by its receiver
+/// ([`foot_is_occupied`]).
 pub(crate) fn can_load_query(
     sim: &Simulation,
     building_id: u64,

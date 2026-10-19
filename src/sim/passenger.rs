@@ -487,9 +487,12 @@ impl PassengerRole {
     }
 }
 
-/// The shared order/UI admission adapter. Mobile Unit radio admission is owned
-/// by `radio::receive::unit_can_enter_radio` (original737430 message0F).
-/// Building garrison admission keeps its existing CanBeOccupiedBy owner.
+/// The shared order/UI admission adapter: CAN_LOAD, which the click asks an
+/// allied Techno with `Passengers=` (`InfantryClass::What_Action_OnObject`
+/// `0x0051ED10..0x0051EE3B`), its ROGER being ENTER. A Unit answers through
+/// `radio::receive::unit_can_enter_radio` (original737430 message0F), a
+/// building (an absorber) through `radio::receive::can_load_query`. Building
+/// garrison admission keeps its existing CanBeOccupiedBy owner.
 pub fn can_enter_transport(
     sim: &Simulation,
     rules: &RuleSet,
@@ -536,11 +539,12 @@ pub fn can_enter_transport(
             rules,
         ) == crate::sim::radio::RadioResponse::Roger;
     }
-    // The building absorber and nonretail aircraft adapters retain their
-    // existing admission; their separate receiver mechanisms are outside this
-    // mobile Unit chain.
+    if transport.category() == EntityCategory::Structure {
+        return crate::sim::radio::receive::can_load_query(sim, transport_id, passenger_id, rules)
+            == crate::sim::radio::RadioResponse::Roger;
+    }
+    // Other carriers (aircraft) keep the existing nonretail adapter.
     if passenger.owner() != transport.owner()
-        || (transport.category() == EntityCategory::Structure && !transport.building_online())
         || passenger.parasite.eater().is_some()
         || (transport.category() != EntityCategory::Aircraft
             && passenger

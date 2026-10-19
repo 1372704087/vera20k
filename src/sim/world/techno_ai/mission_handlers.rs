@@ -1406,7 +1406,7 @@ fn evaluate_foot_hunt(
     // a campaign computer house reaches the march on the player (RESIDUAL
     // above).
     if no_target_arm
-        && (sim.session.game_mode_nonzero
+        && (sim.session.game_mode_nonzero()
             || sim
                 .substrate
                 .entities

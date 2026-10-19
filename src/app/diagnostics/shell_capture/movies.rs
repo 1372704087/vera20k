@@ -16,6 +16,16 @@ mod opening;
 pub(crate) use network_options::NetworkOptionsTarget;
 pub(super) use opening::OpeningTarget;
 
+/// Native control corpus read from this checkout's `tools/` at capture time.
+/// Diagnostics run from a development checkout, so the release binary does
+/// not embed the corpus (`architecture_guards` keeps fixtures out of builds).
+fn native_corpus(path: &str) -> Result<Value> {
+    let full = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(path);
+    let text = std::fs::read_to_string(&full)
+        .with_context(|| format!("cannot read native corpus {}", full.display()))?;
+    Ok(serde_json::from_str(&text)?)
+}
+
 /// Row-0 press point for the selected-list checkpoint (inside `0x744`).
 const LIST_ROW0_POINT: (f32, f32) = (150.0, 137.0);
 /// Down-arrow press point of the 17-row list's scrollbar.

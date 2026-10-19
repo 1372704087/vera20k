@@ -780,7 +780,9 @@ mod tests {
 
     fn load_fixture_rules() -> RuleSet {
         let ini = IniFile::from_str(
-            "[InfantryTypes]\n\
+            "[Countries]\n0=Americans\n1=Alliance\n2=French\n3=Germans\n\
+             4=British\n5=Africans\n6=Arabs\n7=Confederation\n8=Russians\n\
+             [InfantryTypes]\n\
              [VehicleTypes]\n\
              [AircraftTypes]\n\
              [BuildingTypes]\n\

@@ -257,11 +257,8 @@ impl LanCapture {
             delivery: None,
             join_requested_at: None,
             loading_wait_reported_at: None,
-            inputs: serde_json::from_str(include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/tools/storage_oracle/lan_shell_controls.json"
-            )))
-            .expect("native LAN corpus"),
+            inputs: super::native_corpus("tools/storage_oracle/lan_shell_controls.json")
+                .expect("native LAN corpus"),
         }
     }
     pub(super) fn timeout(&self) -> Duration {
@@ -427,10 +424,7 @@ impl LanCapture {
         Ok(())
     }
     fn apply_timing(&mut self, state: &mut AppState, host: bool) -> Result<()> {
-        let corpus: Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tools/storage_oracle/lan_lobby.json"
-        )))?;
+        let corpus: Value = super::native_corpus("tools/storage_oracle/lan_lobby.json")?;
         let row = corpus["timing"]
             .as_array()
             .context("native timing corpus")?
@@ -1237,10 +1231,8 @@ impl LanCapture {
                     "real second Start did not request GO"
                 );
                 if self.target == LanTarget::HostObserverGo {
-                    let corpus: Value = serde_json::from_str(include_str!(concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/tools/storage_oracle/lan_lobby.json"
-                    )))?;
+                    let corpus: Value =
+                        super::native_corpus("tools/storage_oracle/lan_lobby.json")?;
                     let control = corpus["assignments"]
                         .as_array()
                         .context("native assignment controls")?

@@ -2024,11 +2024,8 @@ fn absent_and_lost_loading_managers_preserve_media_policy() {
 
 #[test]
 fn network_loading_progress_and_completion_match_original_controls() {
-    let corpus: serde_json::Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/tools/storage_oracle/lan_lobby.json"
-    )))
-    .unwrap();
+    let corpus: serde_json::Value =
+        crate::test_fixture::json("tools/storage_oracle/lan_lobby.json").clone();
     for row in corpus["loading_wait_progress"].as_array().unwrap() {
         let mut launch = test_launch_session(LaunchCountry::America);
         let template = launch.humans[0].clone();

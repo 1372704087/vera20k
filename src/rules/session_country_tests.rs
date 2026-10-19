@@ -30,11 +30,8 @@ fn snapshot(owner: &NativeRulesProcessOwner) -> Value {
 
 #[test]
 fn session_country_read_and_deferred_bodies_match_original_execution() {
-    let corpus: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../tools/rules_oracle/session_country.json"
-    )))
-    .unwrap();
+    let corpus: Value =
+        crate::test_fixture::json("tools/rules_oracle/session_country.json").clone();
     for row in corpus["rows"].as_array().unwrap() {
         let mut owner = fixture(corpus["root"].as_str().unwrap());
         let settings = IniFile::from_str(&format!(
@@ -116,11 +113,8 @@ fn retail_session_master_uses_complete_original_country_array() {
     let Some(root) = crate::rules::retail_ini_fixture::retail_ini("rulesmd.ini") else {
         return;
     };
-    let corpus: Value = serde_json::from_str(include_str!(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../tools/rules_oracle/session_country.json"
-    )))
-    .unwrap();
+    let corpus: Value =
+        crate::test_fixture::json("tools/rules_oracle/session_country.json").clone();
     let mut owner = fixture("");
     // Select the physical retail source with its native parser through the
     // existing test fixture loader; no compatibility projection allocates it.

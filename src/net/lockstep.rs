@@ -798,9 +798,7 @@ mod tests {
 
     #[test]
     fn initial_network_timing_matches_original_host_and_guest_blocks() {
-        let corpus: serde_json::Value =
-            serde_json::from_str(include_str!("../../tools/storage_oracle/lan_lobby.json"))
-                .unwrap();
+        let corpus = crate::test_fixture::json("tools/storage_oracle/lan_lobby.json");
         let cases = corpus["timing"].as_array().unwrap();
         assert!(!cases.is_empty());
         for case in cases {

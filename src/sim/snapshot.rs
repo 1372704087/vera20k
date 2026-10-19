@@ -2841,8 +2841,10 @@ impl Simulation {
                     reason: "Flag_To_Die conflicts with a terminal result",
                 });
             }
+            // MPlayer_Defeated flags only PlayerPtr (4FC5AA..6B7); every other
+            // defeated House, and a local one still watching, has no result.
             let Some(outcome) = house.outcome() else {
-                if house.is_defeated || house.has_won() || house.has_lost() {
+                if house.has_won() || house.has_lost() {
                     return Err(SnapshotRestoreError::InvalidHouseOutcomeState {
                         owner,
                         reason: "terminal flags require serialized outcome authority",
@@ -6712,12 +6714,11 @@ mod tests {
     fn gsi_01_04_malformed_current_snapshot_naked_terminal_flags_are_rejected() {
         use crate::sim::house_state::HouseState;
 
-        for terminal_flag in ["is_defeated", "has_won", "has_lost"] {
+        for terminal_flag in ["has_won", "has_lost"] {
             let mut malformed = Simulation::new();
             let owner = malformed.interner.intern("Americans");
             let mut house = HouseState::new(owner, 0, None, true, 10_000, 10);
             match terminal_flag {
-                "is_defeated" => house.is_defeated = true,
                 "has_won" => house.supply_outcome_state_for_test(
                     true,
                     false,
@@ -6745,6 +6746,22 @@ mod tests {
                 "naked {terminal_flag} must not enter a world whose app bridge can only consume outcome_state"
             );
         }
+    }
+
+    #[test]
+    fn defeated_house_without_a_result_restores() {
+        use crate::sim::house_state::HouseState;
+
+        let mut sim = Simulation::new();
+        let owner = sim.interner.intern("Americans");
+        let mut house = HouseState::new(owner, 0, None, false, 10_000, 10);
+        house.is_defeated = true;
+        sim.houses.insert(owner, house);
+        let bytes = GameSnapshot::save(&sim, 11, 22, "", 33);
+        let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
+        assert_eq!(restored.restore_after_snapshot_load(), Ok(()));
+        assert!(restored.houses[&owner].is_defeated);
+        assert!(restored.houses[&owner].outcome().is_none());
     }
 
     #[test]

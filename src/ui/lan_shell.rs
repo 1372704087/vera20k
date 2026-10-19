@@ -650,11 +650,7 @@ mod tests {
     use super::*;
 
     fn native() -> serde_json::Value {
-        serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tools/storage_oracle/lan_lobby.json"
-        )))
-        .unwrap()
+        crate::test_fixture::json("tools/storage_oracle/lan_lobby.json").clone()
     }
 
     #[test]

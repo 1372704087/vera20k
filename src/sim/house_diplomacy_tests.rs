@@ -146,11 +146,8 @@ fn computer_paranoid_needs_allies_allowed_and_no_computer_team() {
     let rules = self::rules();
     let slot = |name: &str, human, team| NormalizedSkirmishSlot {
         owner_name: name.to_string(),
-        country: if human {
-            LaunchCountry::America
-        } else {
-            LaunchCountry::Russia
-        },
+        // Indices in this fixture's [Countries]: Americans 0, Russians 1.
+        country: LaunchCountry::from_country_index(if human { 0 } else { 1 }),
         color_index: 0,
         start_position: LaunchStartPosition::Auto,
         team,

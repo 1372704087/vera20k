@@ -779,6 +779,8 @@ fn native_blowup_all_corpus() {
 fn losing_the_last_building_blows_up_the_army_next_frame() {
     let rules = rules(3);
     let (mut sim, houses) = sim_with_houses(&[0, 1]);
+    // MPlayer_Defeated flags only PlayerPtr (4FC5AA..6B7): the survivor is local.
+    sim.session.current_house = Some(houses[1]);
     sim.session.game_options.short_game = true;
     let refinery = sim
         .spawn_object_at_height("GAREFN", "house0", 10, 10, 0, 0, &rules)

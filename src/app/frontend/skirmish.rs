@@ -2670,11 +2670,8 @@ mod tests {
 
     #[test]
     fn missing_owner_compatible_baseunit_skips_constructor_rng_like_native() {
-        let corpus: serde_json::Value = serde_json::from_str(include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/tools/storage_oracle/lan_lobby.json"
-        )))
-        .unwrap();
+        let corpus: serde_json::Value =
+            crate::test_fixture::json("tools/storage_oracle/lan_lobby.json").clone();
         for row in corpus["starting_mcv_no_match"].as_array().unwrap() {
             let mut ini = String::from("[General]\nBaseUnit=");
             let masks = row["owner_masks"].as_array().unwrap();

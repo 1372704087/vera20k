@@ -48,7 +48,7 @@ impl Simulation {
     }
 
     /// `0x0043B150`, Tactical's gate for an enemy Foot's psychic detection
-    /// line (`0x006D4766`): does the local player (`0x00A83D4C`) sense what
+    /// line (`0x006D4766`): does `viewer`, the local player (`0x00A83D4C`), sense what
     /// Techno `id` means to do? Not when the player is allied with its owner
     /// (`HouseClass::IsAlliedWith @ 0x004F9A50`). Otherwise, for each
     /// operational detection building, the Techno's Target (`+0x2B4`) — a
@@ -59,31 +59,34 @@ impl Simulation {
     /// (`0x0043B3F4`, `0x0043B487`). Any other Target or destination, such
     /// as Terrain, is skipped. Distances are `CoordStruct::Distance3D`
     /// (`0x0041C380`; the cell destination inlines it at `0x0043B395..
-    /// 0x0043B3DE`). Evidence: instruction reading only.
-    pub fn techno_intent_psychically_detected(&self, id: u64, rules: &RuleSet) -> bool {
-        let (Some(viewer), Some(entity)) =
-            (self.session.current_house, self.substrate.entities.get(id))
-        else {
+    /// 0x0043B3DE`). `sites` are `viewer`'s
+    /// [`Simulation::psychic_detection_sites`], collected once for a frame's
+    /// Techno walk; `cells` an isolated query. Evidence: instruction reading
+    /// only; no native run compares the distance at the radius edge.
+    pub fn techno_intent_psychically_detected(
+        &self,
+        id: u64,
+        viewer: InternedId,
+        sites: &[(DriveCoord, i32)],
+        cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
+    ) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
-        if crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&self.house_alliances),
-            &self.interner,
-            viewer,
-            entity.owner(),
-        ) {
+        if sites.is_empty()
+            || crate::sim::combat::combat_weapon::is_ally_by_object(
+                Some(&self.house_alliances),
+                &self.interner,
+                viewer,
+                entity.owner(),
+            )
+        {
             return false;
         }
-        let cells = self
-            .resolved_terrain
-            .as_ref()
-            .map(crate::map::resolved_terrain::NativeCellQuery::isolated);
         // A Techno or a cell; Terrain and other objects are skipped.
         let coords = |target: TargetKind| match target {
             TargetKind::Entity(id) if !self.substrate.entities.contains(id) => None,
-            target => {
-                crate::sim::movement::ground_pose::target_get_coords(target, self, cells.as_ref())
-            }
+            target => crate::sim::movement::ground_pose::target_get_coords(target, self, cells),
         };
         let target = entity.attack_target.target().and_then(coords);
         let destination = entity
@@ -100,19 +103,14 @@ impl Simulation {
             .flatten()
             .map(TargetKind::from)
             .and_then(coords);
-        let within = |site: DriveCoord, radius: i32, at: DriveCoord| {
-            crate::util::native_x87::distance_3d_leptons(
-                [site.x, site.y, site.z],
-                [at.x, at.y, at.z],
-            ) <= radius
-        };
-        self.psychic_detection_sites(viewer, rules)
-            .any(|(site, radius)| {
-                [target, destination]
-                    .into_iter()
-                    .flatten()
-                    .any(|at| within(site, radius, at))
+        sites.iter().any(|&(site, radius)| {
+            [target, destination].into_iter().flatten().any(|at| {
+                crate::util::native_x87::distance_3d_leptons(
+                    [site.x, site.y, site.z],
+                    [at.x, at.y, at.z],
+                ) <= radius
             })
+        })
     }
 }
 

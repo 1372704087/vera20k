@@ -96,15 +96,9 @@ fn emit(
         ]
     };
     let base = RGB565.pack_rgb8(rgb);
-    for point in [project(from), project(to)] {
-        draw(
-            crate::util::rect::clip_rect(
-                [point[0].wrapping_sub(2), point[1].wrapping_sub(2), 3, 3],
-                view.clip,
-            ),
-            base,
-        );
-    }
+    super::target_lines::endpoint_boxes([project(from), project(to)], view.clip, |rect| {
+        draw(rect, base)
+    });
     let mut previous = from;
     let phase = (wall_ms >> 4).wrapping_mul(8);
     for i in 1i32..=32 {

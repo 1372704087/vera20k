@@ -135,10 +135,11 @@ pub(crate) fn build_target_line_instances(
     // Tactical6D4764..6D478E: a Techno the local player does not control
     // draws its psychic detection line before the planning gate. Skip the
     // per-Techno 43B150 walk when the player has no operational detector.
-    let psychic = rules.filter(|rules| {
-        sim.session
-            .current_house
-            .is_some_and(|viewer| sim.psychic_detection_sites(viewer, rules).next().is_some())
+    // Collect the player's detectors once for the frame's Techno walk.
+    let psychic = rules.and_then(|rules| {
+        let viewer = sim.session.current_house?;
+        let sites: Vec<_> = sim.psychic_detection_sites(viewer, rules).collect();
+        (!sites.is_empty()).then_some((rules, viewer, sites))
     });
     let cells = sim.resolved_terrain.as_ref().map(NativeCellQuery::isolated);
     let project = |p: ScreenPoint| {
@@ -148,7 +149,7 @@ pub(crate) fn build_target_line_instances(
         ]
     };
     let mut psychic_line_for = |entity: &GameEntity, instances: &mut Vec<SpriteInstance>| {
-        let Some(rules) = psychic else {
+        let Some((rules, viewer, sites)) = psychic.as_ref() else {
             return;
         };
         if sim.house_is_human_player(entity.owner())
@@ -157,11 +158,16 @@ pub(crate) fn build_target_line_instances(
                 EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
             )
             || entity.lifecycle.in_limbo()
-            || !sim.techno_intent_psychically_detected(entity.stable_id(), rules)
+            || !sim.techno_intent_psychically_detected(
+                entity.stable_id(),
+                *viewer,
+                sites,
+                cells.as_ref(),
+            )
         {
             return;
         }
-        let Some(line) = action_line_endpoints(entity, sim, Some(rules), cells.as_ref()) else {
+        let Some(line) = action_line_endpoints(entity, sim, Some(*rules), cells.as_ref()) else {
             return;
         };
         let owner = sim.interner.resolve(entity.owner());
@@ -273,15 +279,7 @@ fn emit_psychic_detection_line(
     use crate::render::native_surface_format::{RGB565, interpolate_rgb8};
     use crate::render::surface_line::{clip_line, patterned_line};
     let base = RGB565.pack_rgb8(rgb);
-    for point in [start, end] {
-        draw(
-            crate::util::rect::clip_rect(
-                [point[0].wrapping_sub(2), point[1].wrapping_sub(2), 3, 3],
-                clip,
-            ),
-            base,
-        );
-    }
+    endpoint_boxes([start, end], clip, |rect| draw(rect, base));
     let (mut start, mut end) = (start, end);
     if !clip_line(&mut start, &mut end, clip) {
         return;
@@ -641,19 +639,30 @@ fn emit_selected_action_line(
     mut emit: impl FnMut([i32; 4]),
 ) {
     use crate::render::surface_line::{clip_line, solid_line};
-    for point in [start, end] {
-        let rect = crate::util::rect::clip_rect(
-            [point[0].wrapping_sub(2), point[1].wrapping_sub(2), 3, 3],
-            clip,
-        );
-        emit(rect);
-    }
+    endpoint_boxes([start, end], clip, &mut emit);
     if clip_line(&mut start, &mut end, clip) {
         solid_line(start, end, emit);
     }
 }
 
-/// Original static pattern842930. The producer phase has period15 even though
+/// The clipped 3x3 box 7049C0, 4DC340 and 704E40 fill at each endpoint before
+/// their line: origin point-2 on both axes, so its bottom-right pixel is the
+/// endpoint.
+pub(crate) fn endpoint_boxes(
+    points: [[i32; 2]; 2],
+    clip: [i32; 4],
+    mut emit: impl FnMut([i32; 4]),
+) {
+    for point in points {
+        emit(crate::util::rect::clip_rect(
+            [point[0].wrapping_sub(2), point[1].wrapping_sub(2), 3, 3],
+            clip,
+        ));
+    }
+}
+
+/// Original static pattern842930; Foot4DC340's 822540 holds the same
+/// bytes. The rally producer phase has period15 even though
 /// the leaf repeats16 entries; signed subtraction/remainder survive frame wrap.
 const RALLY_PATTERN: [u8; 16] = [1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0];
 

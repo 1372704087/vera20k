@@ -1846,25 +1846,37 @@ fn techno_after_acquisition(
 ///
 /// RESIDUAL: with no `Behind=` type (retail sets BEHIND), native draws a
 /// blinking bracket at the caller's screen point instead
-/// (`0x0070F290..0x0070F659`); VERA draws nothing. No RNG draws or timer
-/// writes.
+/// (`0x0070F290..0x0070F659`); VERA draws nothing.
+///
+/// RESIDUAL: GetVisualState(0, NULL) depends on the current house only for
+/// an `Invisible=`/`InvisibleInGame=` object (about ten retail buildings) on
+/// a hiding Cell: it is 0 for its owner and 5 for anyone else, so whether
+/// the anim exists, and the IDs after it, differ between peers, as natively.
+///
+/// RESIDUAL: when BEHIND's art never bound, the spawn takes a native unique
+/// ID and fails each frame; native instead constructs a default-type Anim
+/// that expires and is rebuilt. Neither draws. No RNG draws or timer writes.
 fn behind_indicator_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     use crate::sim::components::AnimClassSpawnDescriptor;
-    let Some(coord) = sim.anim_owner_coords(id) else {
-        return;
-    };
     let Some(entity) = sim.substrate.entities.get(id) else {
         return;
     };
     let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let cell = u16::try_from(coord.x / 256)
-        .ok()
-        .zip(u16::try_from(coord.y / 256).ok());
-    let hidden = object.can_be_hidden
-        && cell.is_some_and(|(rx, ry)| sim.substrate.cell_hides_objects(rx, ry))
-        && entity.category() != EntityCategory::Aircraft;
+    // With no hidden-occupation entry no Cell hides anything; skip the
+    // per-object coordinate and Cell lookups (VERA-only, result unchanged).
+    let coord = (object.can_be_hidden
+        && entity.category() != EntityCategory::Aircraft
+        && sim.substrate.hidden_occupation.entry_count() != 0)
+        .then(|| sim.anim_owner_coords(id))
+        .flatten();
+    let hidden = coord.is_some_and(|coord| {
+        u16::try_from(coord.x / 256)
+            .ok()
+            .zip(u16::try_from(coord.y / 256).ok())
+            .is_some_and(|(rx, ry)| sim.substrate.cell_hides_objects(rx, ry))
+    });
     if !hidden {
         if let Some(anim) = sim
             .substrate
@@ -1879,7 +1891,7 @@ fn behind_indicator_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     if screen_visual_character(sim, entity, rules) != 0 || entity.behind_anim().is_some() {
         return;
     }
-    let Some(name) = rules.general.behind.as_deref() else {
+    let (Some(name), Some(coord)) = (rules.general.behind.as_deref(), coord) else {
         return;
     };
     let type_name = sim.interner.intern(name);
@@ -2221,8 +2233,9 @@ mod tests {
 
     /// TechnoClass::AI's Behind indicator (`0x006FA24A..0x006FA30C`) on
     /// retail rules: a tank on a hiding Cell takes one attached BEHIND anim
-    /// and keeps it, and UnInits it once the Cell stops hiding it; a Cell
-    /// holding a building hides only from a second contribution on.
+    /// and keeps it, and UnInits it once the Cell stops hiding it; an
+    /// Aircraft never takes one; a Cell holding a building hides only from a
+    /// second contribution on.
     #[test]
     fn a_tank_behind_a_building_takes_the_behind_anim_until_it_leaves() {
         use crate::rules::object_type::BuildingHiddenOccupancyProfile;
@@ -2279,17 +2292,27 @@ mod tests {
         assert_eq!(behind(&sim), None);
         assert!(sim.substrate.pending_delete.contains_object(&anim));
 
+        // An Aircraft never takes it.
+        let orca = sim
+            .spawn_object("ORCA", "Americans", 14, 10, 0, &rules)
+            .expect("retail ORCA spawns");
+        hide(&mut sim, true, (14, 10));
+        behind_indicator_step(&mut sim, orca, &rules);
+        assert_eq!(
+            sim.substrate.entities.get(orca).unwrap().behind_anim(),
+            None
+        );
+
         let power = sim
             .spawn_object("GAPOWR", "Americans", 20, 10, 0, &rules)
             .expect("retail GAPOWR spawns");
         assert!(sim.substrate.occupancy.contains_entity(20, 10, power));
-        while sim.substrate.hidden_occupation.count(20, 10) < 1 {
-            hide(&mut sim, true, (20, 10));
+        while sim.substrate.hidden_occupation.count(20, 10) != 0 {
+            hide(&mut sim, false, (20, 10));
         }
-        if sim.substrate.hidden_occupation.count(20, 10) == 1 {
-            assert!(!sim.substrate.cell_hides_objects(20, 10), "its own count");
-            hide(&mut sim, true, (20, 10));
-        }
+        hide(&mut sim, true, (20, 10));
+        assert!(!sim.substrate.cell_hides_objects(20, 10), "its own count");
+        hide(&mut sim, true, (20, 10));
         assert!(sim.substrate.cell_hides_objects(20, 10));
     }
 

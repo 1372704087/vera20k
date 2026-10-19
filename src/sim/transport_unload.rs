@@ -222,15 +222,6 @@ fn pick_exit_octant(sim: &Simulation, entity: &GameEntity) -> Option<((u16, u16)
     Some((cell, opposite_octant(best_octant)))
 }
 
-/// State 1's wait, VERA-side: the hull turn has finished. Native state 1
-/// instead tests the `+0x6AF` turret rotation latch (`0x0073D892`), which
-/// Facing_Update sets only from a `Turret=` unit's `+0x3A0`
-/// (`0x00736ADC..0x00736B16`), so a turretless transport moves on while its
-/// hull still turns. Not yet ported.
-fn hull_turn_finished(entity: &GameEntity, now: u32) -> bool {
-    !entity.body_facing.is_rotating(now)
-}
-
 /// The passenger's own `Can_Enter_Cell` (vtable `+0x1AC`,
 /// [`Simulation::foot_can_enter`]) at one exit-scan cell, called with no
 /// previous cell and mode 1; zero is "may enter". Mode 1 changes no answer
@@ -864,7 +855,12 @@ pub(crate) fn unit_mission_unload(
             unload_epilogue(sim, rules, id)
         }
         STATE_TURNING => {
-            if hull_turn_finished(entity, now) {
+            // Unit Mission_Unload73D892 reads Unit+6AF, produced by
+            // Facing_Update736990. A turretless carrier advances while its
+            // hull still turns; state 3 uses that current hull heading.
+            // The clear-latch return precedes the epilogue RNG draw.
+            // Executed controls: tools/spatial_oracle/transport_unload.py.
+            if !entity.turret_rotation_latch.is_set() {
                 if let Some(entity) = sim.substrate.entities.get_mut(id) {
                     entity.mission.set_handler_state(STATE_EJECT);
                 }

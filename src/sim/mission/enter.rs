@@ -56,16 +56,14 @@ pub(crate) fn mission_enter(
                 .get(id)
                 .and_then(|entity| entity.navigation.nav_com());
             let nav_is_mover = match nav {
-                Some(
-                    NavTargetRef::Entity { id: nav }
-                    | NavTargetRef::Object { id: nav }
-                    | NavTargetRef::Building { id: nav },
-                ) => sim.substrate.entities.get(nav).is_some_and(|other| {
-                    matches!(
-                        other.category(),
-                        EntityCategory::Unit | EntityCategory::Aircraft
-                    )
-                }),
+                Some(NavTargetRef::Object { id: nav }) => {
+                    sim.substrate.entities.get(nav).is_some_and(|other| {
+                        matches!(
+                            other.category(),
+                            EntityCategory::Unit | EntityCategory::Aircraft
+                        )
+                    })
+                }
                 _ => false,
             };
             if !parked && !nav_is_mover {

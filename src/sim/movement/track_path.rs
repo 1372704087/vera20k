@@ -829,9 +829,7 @@ impl Simulation {
         {
             return false;
         }
-        if super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
-            && !actor.setter_force_reassign.raised
-        {
+        if actor.navigation.nav_com() == Some(requested) && !actor.setter_force_reassign.raised {
             return true;
         }
         let actor = self
@@ -853,9 +851,7 @@ impl Simulation {
             .and_then(|actor| self.object_type(actor.type_ref(), rules))
             .is_some_and(|object| object.harvester);
         let requested_techno = match requested {
-            NavTargetRef::Building { id }
-            | NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id } => crate::sim::radio::as_techno(self, id),
+            NavTargetRef::Object { id } => crate::sim::radio::as_techno(self, id),
             NavTargetRef::Cell { .. } => None,
         };
         // 741AD1..741B22: a transport (`Passengers=` above 0) whose first
@@ -912,9 +908,7 @@ impl Simulation {
         // the input nor team action 14 orders one. Effect: no radio contact
         // is made, and the unit drives to the target.
         let requested_object = match requested {
-            NavTargetRef::Building { id }
-            | NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id } => self
+            NavTargetRef::Object { id } => self
                 .substrate
                 .entities
                 .get(id)
@@ -1314,9 +1308,7 @@ impl Simulation {
             return UnitDockArm::Null;
         }
         let current_building = match current {
-            NavTargetRef::Building { id: target }
-            | NavTargetRef::Entity { id: target }
-            | NavTargetRef::Object { id: target } => self
+            NavTargetRef::Object { id: target } => self
                 .substrate
                 .entities
                 .get(target)
@@ -1705,10 +1697,7 @@ impl Simulation {
                     == Some(target)
             }
             (_, crate::sim::combat::TargetKind::Entity(target)) => {
-                super::navcom::nav_targets_same_receiver(
-                    Some(nav_com),
-                    NavTargetRef::object(target),
-                )
+                nav_com == NavTargetRef::object(target)
             }
         };
         let keeps = leads_to_target

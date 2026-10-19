@@ -1959,7 +1959,7 @@ fn the_nearest_own_bunker_with_room_takes_an_occupier() {
     );
     assert!(matches!(
         foot.navigation.nav_com(),
-        Some(NavTargetRef::Object { id } | NavTargetRef::Building { id }) if id == near
+        Some(NavTargetRef::Object { id }) if id == near
     ));
     assert!(!entity(&sim, tank).building_entry.seeking());
 

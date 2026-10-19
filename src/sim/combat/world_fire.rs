@@ -460,13 +460,7 @@ fn admit_attacker_fire<'r>(
         let actor = world.substrate.entities.get_mut(snap.stable_id)?;
         actor.mission_leaf.set_foot_firing_sequence(1);
         actor.body_facing.snap(direction, binary_frame);
-        let target_is_navcom = crate::sim::movement::nav_targets_same_receiver(
-            actor.navigation.nav_com(),
-            match snap.target {
-                TargetKind::Entity(id) => crate::sim::components::NavTargetRef::object(id),
-                TargetKind::Cell(rx, ry) => crate::sim::components::NavTargetRef::cell(rx, ry),
-            },
-        );
+        let target_is_navcom = actor.navigation.nav_com() == Some(snap.target.into());
         if target_is_navcom {
             //52093C/520946: shared FootStop4DF0D0 then the concrete+500
             // receiver. That receiver owns any DoAction/Walk Stop callback.

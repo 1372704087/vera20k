@@ -26,7 +26,7 @@ use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation, UninitConte
 
 /// NavCom (`+0x5A4`) compared by pointer with `object`.
 fn nav_com_is(entity: &crate::sim::game_entity::GameEntity, object: u64) -> bool {
-    super::nav_targets_same_receiver(entity.navigation.nav_com(), NavTargetRef::object(object))
+    entity.navigation.nav_com() == Some(NavTargetRef::object(object))
 }
 
 /// The reason a `Per_Cell_Process` call passes.
@@ -101,19 +101,15 @@ impl Simulation {
                 // (4A582741 at7E9A30). Native ctor/GetClassID controls pin it.
                 && unit.locomotor.as_ref().is_some_and(|locomotor| locomotor.active_kind() == crate::rules::locomotor_type::LocomotorKind::Hover)
                 && unit.navigation.nav_com().is_none();
-            let aimed = matches!(unit.navigation.nav_com(),
-                Some(crate::sim::components::NavTargetRef::Entity { id: nav }
-                    | crate::sim::components::NavTargetRef::Object { id: nav }
-                    | crate::sim::components::NavTargetRef::Building { id: nav }) if nav == contact);
+            let aimed = unit.navigation.nav_com() == Some(NavTargetRef::object(contact));
             (restore || aimed).then_some((contact, restore))
         });
         if let Some((contact, restore)) = object_dock {
             if restore && let Some(unit) = self.substrate.entities.get_mut(id) {
                 // Unit73A4E9 restores only the raw NavCom; unlike the Foot
                 // setter this does not clear NavComAux or change movement.
-                unit.navigation.store_nav_com(Some(
-                    crate::sim::components::NavTargetRef::Building { id: contact },
-                ));
+                unit.navigation
+                    .store_nav_com(Some(crate::sim::components::NavTargetRef::object(contact)));
             }
             self.foot_per_cell_process(id, PerCellReason::Arrival, Some(rules), registry, effects);
             crate::sim::radio::transmit_to_contact(
@@ -439,11 +435,7 @@ impl Simulation {
         }
         let nav_com = unit.navigation.nav_com();
         let nav_techno = match nav_com {
-            Some(
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id },
-            ) => crate::sim::radio::as_techno(self, id),
+            Some(NavTargetRef::Object { id }) => crate::sim::radio::as_techno(self, id),
             _ => None,
         };
         let mission = unit.mission.effective().known();
@@ -462,11 +454,8 @@ impl Simulation {
             (position.x / 256) as i16 as u16,
             (position.y / 256) as i16 as u16,
         );
-        let at_destination = nav_com.is_none()
-            || super::navcom::nav_targets_same_receiver(
-                nav_com,
-                NavTargetRef::cell(cell.0, cell.1),
-            );
+        let at_destination =
+            nav_com.is_none() || nav_com == Some(NavTargetRef::cell(cell.0, cell.1));
         //Map565730 -> Cell47C520 walks only the first ground Building.
         // RESIDUAL: ScenarioActiveA8E9A0=false loading/termination and shared
         // Dummy Cell identities have no full active-map boundary here. This
@@ -520,12 +509,7 @@ impl Simulation {
             return;
         };
         let nav_com = unit.navigation.nav_com();
-        if nav_com.is_some()
-            && !super::navcom::nav_targets_same_receiver(
-                nav_com,
-                NavTargetRef::cell(cell.0, cell.1),
-            )
-        {
+        if nav_com.is_some() && nav_com != Some(NavTargetRef::cell(cell.0, cell.1)) {
             // RESIDUAL:73A96F tests Abstract+14 bit1 before directed opcode
             //0xE at73A981. This distinct non-current-object receiver requires
             // that validity state; it is not the null/current-Cell human arm.
@@ -1150,20 +1134,17 @@ impl Simulation {
         {
             return Ok(false);
         }
-        let Some(building) = (match infantry.navigation.nav_com() {
-            Some(
-                NavTargetRef::Entity { id }
-                | NavTargetRef::Object { id }
-                | NavTargetRef::Building { id },
-            ) => Some(id),
-            _ => None,
-        })
-        .filter(|&building| {
-            self.substrate
-                .entities
-                .get(building)
-                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
-        }) else {
+        let Some(building) = infantry
+            .navigation
+            .nav_com()
+            .and_then(NavTargetRef::object_id)
+            .filter(|&building| {
+                self.substrate
+                    .entities
+                    .get(building)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Structure)
+            })
+        else {
             return Ok(false);
         };
         let (rx, ry) = (infantry.position.rx(), infantry.position.ry());

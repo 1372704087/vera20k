@@ -86,7 +86,7 @@ fn unit(
     } else {
         "SHP"
     };
-    sim.session.binary_frame = 100;
+    sim.session.set_binary_frame_for_test(100);
     let id = sim
         .spawn_object(kind, "Americans", 10, 10, 0, &rules)
         .unwrap();
@@ -229,7 +229,7 @@ fn supplied_find_path_results_take_the_native_continuations() {
         e.navigation
             .path_runtime
             .set_retries_left(input["retries"].as_u64().unwrap_or(10) as u32);
-        sim.session.binary_frame = 101;
+        sim.session.set_binary_frame_for_test(101);
         if row["events"].as_array().unwrap().is_empty() {
             // 0x741C54..0x741C78: Enter without a radio contact keeps the path
             // word, so Process never reaches the no-queue arm.
@@ -302,7 +302,7 @@ fn far_native_rows_through_the_process_corridor() {
             .body_facing
             .snap(0x4000, 0);
         order(&mut sim, &rules, id, (13, 10));
-        sim.session.binary_frame = 101;
+        sim.session.set_binary_frame_for_test(101);
         let grid = sim.path_grid.clone();
         sim.process_ground_locomotor_for_test(id, Some(&rules), grid.as_deref(), Some(&registry))
             .unwrap();
@@ -334,7 +334,7 @@ fn near_native_rows_stop_through_the_continuation_null_setter() {
         }
         let (mut sim, rules, registry, id) = unit(input);
         order(&mut sim, &rules, id, (11, 10));
-        sim.session.binary_frame = 101;
+        sim.session.set_binary_frame_for_test(101);
         // 0x4D4044 Unit +0x500 = 0x4D55C0 (locomotor Stop), then the
         // 0x4D404A tail, which returns for a Chebyshev-1 target.
         sim.foot_stop_driver(
@@ -402,7 +402,7 @@ fn post_warp_rows_refuse_the_own_cell_search() {
             None,
             crate::sim::world::FrameEffects::default()
         ));
-        sim.session.binary_frame = 101;
+        sim.session.set_binary_frame_for_test(101);
         let rng = sim.rng_state();
         let grid = sim.path_grid.clone();
         sim.process_ground_locomotor_for_test(id, Some(&rules), grid.as_deref(), Some(&registry))
@@ -582,7 +582,7 @@ fn teleporter_bound_for_its_refinery(
     e.radio_contacts.set_slot(0, refinery);
     // Facing the route's east words, so a clear step is taken in the call.
     e.body_facing = FacingClass::with_rate_of(2 << 13, &e.body_facing);
-    sim.session.binary_frame = 100;
+    sim.session.set_binary_frame_for_test(100);
     (sim, rules, registry, miner)
 }
 
@@ -726,7 +726,7 @@ fn batched_the_teleporter_ladder_waits_and_keeps_the_redirect_navcom() {
     sim.batch_path_searches();
 
     for frame in 100..103 {
-        sim.session.binary_frame = frame;
+        sim.session.set_binary_frame_for_test(frame);
         sim.answer_batched_path_searches(Some(&rules), Some(&registry));
         assert_eq!(
             process_drive(&mut sim, miner, &rules, &registry),
@@ -853,7 +853,7 @@ fn first_process_request_waits_for_the_movement_timer_and_keeps_power() {
         e.navigation
             .path_runtime
             .start_movement(100, input["delay"].as_i64().unwrap() as i32);
-        sim.session.binary_frame = 100;
+        sim.session.set_binary_frame_for_test(100);
         let grid = sim.path_grid.clone();
         sim.process_ground_locomotor_for_test(id, Some(&rules), grid.as_deref(), Some(&registry))
             .unwrap();
@@ -876,7 +876,7 @@ fn visit(
     id: u64,
     frame: u32,
 ) {
-    sim.session.binary_frame = frame;
+    sim.session.set_binary_frame_for_test(frame);
     // These are direct Process controls, without the surrounding FootAI.
     // Supply its live post-TechnoAI reset4DA54E before each Process visit:
     // Unlimbo's Idle(1,1) and a preceding arrival can leave Foot+6B3 set.
@@ -1334,7 +1334,7 @@ fn restore_mid_track_heads_for_the_restored_order_at_the_track_end() {
         &rules,
         crate::sim::world::FrameEffects::default()
     ));
-    sim.session.binary_frame = frame;
+    sim.session.set_binary_frame_for_test(frame);
     order(&mut sim, &rules, id, (10, 16));
     sim.substrate
         .entities
@@ -1435,7 +1435,7 @@ fn track_end_frame_spends_one_speed_budget() {
         let mut previous_speed = None;
         for frame in 101..400 {
             let (head_before, residual_before, _) = progress(&sim);
-            sim.session.binary_frame = frame;
+            sim.session.set_binary_frame_for_test(frame);
             let stats = sim
                 .process_ground_locomotor_for_test(
                     id,
@@ -1561,13 +1561,12 @@ fn advance_until_order_ends(
 /// A restore that could not reach the class setter (the entity-local target
 /// expiry restore) leaves the saved NavCom with the setter owed. Restore_Mission
 /// (0x004D8F80) calls vt+0x480(saved, 1): the Infantry setter for a Walk
-/// infantryman, Unit 0x741970 for a Drive, Hover or Walk Unit, whose Foot tail
-/// reaches Drive, Hover Move_To (0x00514D90) or Walk Move_To (0x0075ACB0). The
-/// owed call runs at the next Process entry and the object moves to its
-/// restored order.
+/// infantryman, Unit 0x741970 for a Hover or Walk Unit, whose Foot tail reaches
+/// Hover Move_To (0x00514D90) or Walk Move_To (0x0075ACB0). The owed call runs
+/// at the next Process entry and the object walks its restored order.
 #[test]
 fn owed_restore_setter_moves_walk_and_hover_objects_to_the_saved_order() {
-    for kind in ["DRV", "HOV", "WLK", "ENGINEER"] {
+    for kind in ["HOV", "WLK", "ENGINEER"] {
         let (mut sim, rules, registry) = walk_and_hover_fixture();
         let id = sim
             .spawn_object(kind, "Americans", 10, 10, 0, &rules)

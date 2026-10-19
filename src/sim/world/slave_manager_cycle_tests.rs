@@ -298,7 +298,7 @@ fn a_destroyed_refinery_frees_its_slaves_to_the_killer() {
     // default arm, forces Ready on a standing slave or Walk on a moving one;
     // the queued Move then commences.
     let ordered = s.slaves[&1];
-    let tick = s.scene.sim.session.tick;
+    let tick = s.scene.sim.session.tick();
     s.scene.sim.queue_command(CommandEnvelope::new(
         russians,
         tick + 1,
@@ -704,7 +704,7 @@ fn an_attacker_of_a_packing_refinery_takes_the_slave_miner() {
     let tank = sim
         .spawn_object_at_height("TANK", "Americans", 16, 10, 0, 0, &rules)
         .expect("TANK");
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     let attacker = sim.substrate.entities.get_mut(tank).unwrap();
     attacker
         .attack_target
@@ -799,7 +799,7 @@ fn a_player_cell_order_relocates_a_refinery_with_its_existing_slave_manager() {
             .unwrap()
             .unwrap();
         assert_eq!(goal, (24, 13));
-        let execute = s.scene.sim.session.tick + 1;
+        let execute = s.scene.sim.session.tick() + 1;
         for command in [
             Command::SetRally {
                 rx: goal.0,

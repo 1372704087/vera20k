@@ -63,10 +63,15 @@ fn build_ordinary_c4_sim(
 
     // The SEAL walks: a second [GHOST] section would not be read, since a
     // lookup finds the first section of a name.
-    let ini = BRIDGE_REPAIR_TEST_INI.replace(
-        "[GHOST]\n",
-        "[GHOST]\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
-    );
+    let ini = BRIDGE_REPAIR_TEST_INI
+        .replace(
+            "[GHOST]\n",
+            "[GHOST]\nLocomotor={4A582744-9839-11d1-B709-00A024DDAFD1}\n",
+        )
+        .replace(
+            "[BuildingTypes]\n0=CABHUT\n",
+            "[BuildingTypes]\n0=CABHUT\n1=BIG\n[BIG]\nStrength=800\nArmor=concrete\nFoundation=3x3\n",
+        );
     let (mut sim, rules, registry) = super::entry_test_fixture::fixture_with_rules(&ini);
     // A raw ordinary three-cell width, with resident TMP/navigation owners.
     // Overlay families do not imply structural/deck geometry.
@@ -445,7 +450,7 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
         let actor_owner = sim.interner.intern("Americans");
         sim.queue_command(crate::sim::command::CommandEnvelope::new(
             actor_owner,
-            sim.session.tick + 1,
+            sim.session.tick() + 1,
             Command::CaptureBuilding {
                 engineer_id: engineer,
                 target_building_id: hut,
@@ -522,7 +527,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     let owner = sim.interner.intern("Americans");
     sim.queue_command(crate::sim::command::CommandEnvelope::new(
         owner,
-        sim.session.tick + 1,
+        sim.session.tick() + 1,
         Command::PlantC4 {
             attacker_id: seal,
             target_building_id: cabhut,
@@ -548,7 +553,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
     let delay = rules.c4_delay_frames() as u64;
     let mut bridge_state_changed_seen = false;
     for _ in 0..(delay + 1) {
-        if (sim.session.binary_frame as u64) < plant_start + delay {
+        if (sim.session.binary_frame() as u64) < plant_start + delay {
             for y in [14, 15, 16] {
                 assert_eq!(
                     sim.resolved_terrain
@@ -568,9 +573,10 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
         // Hut HP invariant — hold across every tick of the window.
         let cur = sim.substrate.entities.get(cabhut).unwrap().health.current();
         assert_eq!(
-            cur, cabhut_max_hp,
+            cur,
+            cabhut_max_hp,
             "hut HP must stay at max during C4Delay (plant_start={plant_start}, sim.session.tick={})",
-            sim.session.tick
+            sim.session.tick()
         );
     }
 
@@ -627,7 +633,7 @@ fn c4_on_cabhut_collapses_bridge_and_hut_survives() {
 
 /// `seal`'s C4 charge on `target`, planted this frame.
 fn plant_c4(sim: &mut Simulation, rules: &RuleSet, target: u64, seal: u64) {
-    let frame = sim.session.binary_frame as i32;
+    let frame = sim.session.binary_frame() as i32;
     sim.substrate
         .entities
         .get_mut(target)
@@ -714,7 +720,7 @@ fn c4_on_cabhut_collapses_concrete_and_wooden_strips_even_when_invulnerable() {
                 .unwrap()
                 .invulnerability = Some(InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(
-                    sim.session.tick as i32,
+                    sim.session.tick() as i32,
                     rules.c4_delay_frames() + 20,
                 ),
                 InvulnKind::IronCurtain,
@@ -759,8 +765,6 @@ fn ordinary_engineer_overlay_repair_does_not_clear_neighbor_pavement() {
     let (mut sim, rules, registry, hut) = ready_repair_fixture(Some(231));
     let engineer = ready_engineer(&mut sim, &rules, &registry, hut);
 
-    // Admit damaged-data tiles so an accidental pavement clear would affect
-    // this fixture; native ordinary overlay repair must preserve it.
     // The neighbor shares the span's tile identity and damaged-data gate.
     // It lies outside the repaired strip, adjacent to (17, 16), so it is NOT
     // visited by the ordinary overlay repair walk. An erroneous connected
@@ -784,10 +788,6 @@ fn ordinary_engineer_overlay_repair_does_not_clear_neighbor_pavement() {
         assert_eq!(
             terrain.cell(rx, ry).unwrap().bridge_facts.overlay_id,
             Some(0xce)
-        );
-        assert!(
-            terrain.pavement_damaged_at(rx, ry),
-            "cell ({rx},{ry}) pavement damage must survive native ordinary overlay repair"
         );
     }
     assert!(

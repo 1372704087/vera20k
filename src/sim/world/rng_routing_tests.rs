@@ -295,7 +295,7 @@ fn production_in_scenario_load_retains_live_seed_main_and_mapgen() {
         saved.scenario_rng.next_u32();
     }
 
-    let saved_seed = saved.session.seed;
+    let saved_seed = saved.session.seed();
     let saved_scenario = saved.scenario_rng.state();
     let reset_scenario = SimRng::new(0).state();
     assert_ne!(saved_scenario, reset_scenario);
@@ -313,7 +313,7 @@ fn production_in_scenario_load_retains_live_seed_main_and_mapgen() {
         live.mapgen_rng.next_u32();
     }
 
-    let live_seed = live.session.seed;
+    let live_seed = live.session.seed();
     assert_ne!(live_seed, saved_seed);
     let live_scenario = live.scenario_rng.state();
     let live_main = live.main_rng.state();
@@ -329,7 +329,8 @@ fn production_in_scenario_load_retains_live_seed_main_and_mapgen() {
     assert_ne!(restored.scenario_rng.state(), saved_scenario);
     assert_ne!(restored.scenario_rng.state(), live_scenario);
     assert_eq!(
-        restored.session.seed, live_seed,
+        restored.session.seed(),
+        live_seed,
         "in-scenario load must retain the live process-global seed"
     );
     assert_eq!(
@@ -376,7 +377,7 @@ fn saved_load_then_menu_reseed_matches_native_complete_rng_states() {
         restored.restore_after_snapshot_load().unwrap();
 
         assert_eq!(
-            restored.session.seed,
+            restored.session.seed(),
             load["global_seed_after"].as_u64().unwrap(),
             "{label}"
         );
@@ -390,7 +391,7 @@ fn saved_load_then_menu_reseed_matches_native_complete_rng_states() {
         let seed = u32::try_from(row["resolved_seed"].as_u64().unwrap()).unwrap();
         restored.initialize_random_number_system(seed);
 
-        assert_eq!(restored.session.seed, u64::from(seed), "{label}");
+        assert_eq!(restored.session.seed(), u64::from(seed), "{label}");
         assert_native_rng_streams(
             &restored,
             &row["menu_after"],
@@ -459,7 +460,7 @@ fn cold_saved_load_retains_frontend_main_until_native_menu_reseed() {
         let seed = u32::try_from(row["resolved_seed"].as_u64().unwrap()).unwrap();
         restored.initialize_random_number_system(seed);
 
-        assert_eq!(restored.session.seed, u64::from(seed), "{label}");
+        assert_eq!(restored.session.seed(), u64::from(seed), "{label}");
         assert_native_rng_state(
             &restored.scenario_rng,
             row["menu_after"]["scenario"].as_str().unwrap(),

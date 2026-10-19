@@ -25,7 +25,7 @@ fn engineer_at(sim: &mut Simulation, rules: &RuleSet, cell: (u16, u16)) -> u64 {
     sim.mission_assign_exact(
         id,
         MissionId::from_known(MissionType::Move),
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
     )
     .unwrap();
     id
@@ -266,7 +266,7 @@ fn jumpjet_infantry_damage_scatter_takes_the_infantry_setter() {
     sim.mission_assign_exact(
         victim,
         MissionId::from_known(MissionType::Guard),
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
     )
     .unwrap();
     sim.substrate
@@ -326,7 +326,7 @@ fn infantry_damage_scatter_reaches_the_ordinary_walk_process() {
     sim.mission_assign_exact(
         victim,
         MissionId::from_known(MissionType::Guard),
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
     )
     .unwrap();
     let e = sim.substrate.entities.get_mut(victim).unwrap();

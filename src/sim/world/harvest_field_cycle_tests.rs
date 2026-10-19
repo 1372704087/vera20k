@@ -193,7 +193,7 @@ fn retail_war_miner_area_guard_returns_to_harvesting() {
         );
         s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
         let owner = s.sim.entities().get(s.miner).unwrap().owner();
-        s.sim.session.current_house = Some(owner);
+        s.sim.session.set_current_house_for_test(Some(owner));
         s.sim.houses.reorder_for_test(&[owner]);
         let ore_cell = if on_ore { (15, 15) } else { (16, 15) };
         let ore = registry.id_for_name("TIB01").unwrap();
@@ -341,7 +341,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             .mission_assign_exact(
                 victim,
                 MissionId::from_known(MissionType::Sleep),
-                s.sim.session.binary_frame,
+                s.sim.session.binary_frame(),
             )
             .unwrap();
         let initial_health = s

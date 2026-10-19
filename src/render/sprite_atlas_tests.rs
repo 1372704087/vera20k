@@ -67,47 +67,6 @@ impl Drop for StoredFrameTestDirectory {
     }
 }
 
-/// ANIM.PAL and PALETTE.PAL reach the atlas rows through the one decoder.
-/// BlitTransXlat (`0x004912B0`) and RLEBlitTransXlat (`0x004960A0`) skip only
-/// index 0, and ConvertClass (`0x0048E740` -> `0x004BBB00`) builds every other
-/// entry from the palette's colour, so a raw 63,0,63 entry draws opaque.
-#[test]
-fn atlas_palette_rows_draw_a_raw_magenta_entry_opaque() {
-    let directory = StoredFrameTestDirectory::new();
-    directory.write_raw_and_rle_frames("KEYPROBE.SHP", [8, 8], [0, 0, 8, 8]);
-    let assets = AssetManager::from_loose_root_for_test(&directory.0);
-    let mut palette_bytes = [0; 768];
-    palette_bytes[3..6].copy_from_slice(&[63, 0, 63]);
-    let palette = Palette::from_bytes(&palette_bytes).expect("fixture palette");
-
-    for frame in 0..2 {
-        let key = ShpSpriteKey {
-            palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
-            type_id: "KEYPROBE".to_string(),
-            facing: 0,
-            frame,
-            house_color: crate::rules::house_colors::NO_REMAP,
-        };
-        let (sprite, rgba) = render_shp_sprite(
-            &assets,
-            &palette,
-            false,
-            &key,
-            "tem",
-            "TEMPERATE",
-            None,
-            None,
-        )
-        .expect("probe renders");
-        let marker = sprite
-            .indices()
-            .iter()
-            .position(|&index| index == 1)
-            .expect("index-1 marker");
-        assert_eq!(&rgba[marker * 4..marker * 4 + 4], &[252, 0, 252, 255]);
-    }
-}
-
 #[test]
 fn loader_uses_stored_shp_rect_for_depth_but_retains_logical_canvas_for_picking() {
     // Retail-shaped headers: GI canvas 78x66, stored frame (32,7,13,29);
@@ -1123,8 +1082,19 @@ pub(crate) struct NativePaletteProbe {
     pub size: [u32; 2],
 }
 
-/// Real loose SHP decoding and palette registration, laid out on an atlas page.
+/// The synthetic palette `tools/palette_oracle` built its native LightConvert
+/// fixtures from: RGB(index, index * 73 mod 256, 255 - index).
+pub(crate) fn native_probe_rgb(index: u8) -> [u8; 3] {
+    [index, index.wrapping_mul(73), 255 - index]
+}
+
+/// The probe page in the native fixtures' palette.
 pub(crate) fn native_palette_probe_page() -> NativePaletteProbe {
+    palette_probe_page(&Palette::from_rgb(native_probe_rgb))
+}
+
+/// Real loose SHP decoding and palette registration, laid out on an atlas page.
+pub(crate) fn palette_probe_page(palette: &Palette) -> NativePaletteProbe {
     let directory = StoredFrameTestDirectory::new();
     let mut bytes = Vec::new();
     for value in [0u16, 256, 1, 1] {
@@ -1139,7 +1109,6 @@ pub(crate) fn native_palette_probe_page() -> NativePaletteProbe {
     bytes.extend(0..=255u8);
     std::fs::write(directory.0.join("PALPROBE.SHP"), bytes).unwrap();
     let assets = AssetManager::from_loose_root_for_test(&directory.0);
-    let palette = Palette::from_rgb(|i| [i, i.wrapping_mul(73), 255 - i]);
     let key = ShpSpriteKey {
         palette_context: ShpPaletteContext::SelectedScheme,
         type_id: "PALPROBE".into(),
@@ -1150,7 +1119,7 @@ pub(crate) fn native_palette_probe_page() -> NativePaletteProbe {
     let source = load_shp_source(&assets, "PALPROBE", None, "tem", "TEMPERATE", None, None)
         .expect("probe SHP decodes");
     let mut palettes = ShpPalettes::default();
-    let sprite = render_shp_frame(&source, &palette, true, &key, None, &mut palettes).unwrap();
+    let sprite = render_shp_frame(&source, palette, true, &key, None, &mut palettes).unwrap();
     assert_eq!(sprite.indices(), (0..=255u8).collect::<Vec<_>>());
     let size = [262, 3];
     let mut indices = vec![0; size[0] * size[1]];
@@ -1159,7 +1128,7 @@ pub(crate) fn native_palette_probe_page() -> NativePaletteProbe {
     let start = size[0] + 3;
     indices[start..start + 256].copy_from_slice(&sprite.indices());
     rgba[start * 4..(start + 256) * 4]
-        .copy_from_slice(&source.shp.frame_to_rgba(0, &palette).unwrap());
+        .copy_from_slice(&source.shp.frame_to_rgba(0, palette).unwrap());
     assert_eq!(&indices[265..521], (0..=255u8).collect::<Vec<_>>());
     NativePaletteProbe {
         palette_row: palettes.colors[sprite.palette as usize].clone(),

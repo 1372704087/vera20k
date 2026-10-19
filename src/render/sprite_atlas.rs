@@ -2250,7 +2250,7 @@ fn render_harvest_overlay_frames<'a>(
 }
 
 #[cfg(test)]
-pub(crate) use tests::native_palette_probe_page;
+pub(crate) use tests::{native_palette_probe_page, native_probe_rgb, palette_probe_page};
 
 /// Index bytes of rows at which a map-load upload band closes. A band holds
 /// whole shelves, so it exceeds this by less than its last shelf.

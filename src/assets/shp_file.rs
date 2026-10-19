@@ -255,13 +255,18 @@ impl ShpFile {
 
     /// Convert a frame's palette-indexed pixels to RGBA using the given palette.
     ///
-    /// Returns a Vec of width * height * 4 bytes (RGBA). This is the
-    /// transparent blit of every SHP draw, in-game and UI alike:
+    /// Returns a Vec of width * height * 4 bytes (RGBA): the draw of
     /// BlitTransXlat<unsigned short>::BlitForward `0x004912B0` and
-    /// RLEBlitTransXlat<unsigned short>::Blit `0x004960A0` skip source index 0
-    /// and write the converter entry of every other index. Index 0 is
-    /// therefore transparent by index; every other pixel is opaque, whatever
-    /// colour its palette entry holds.
+    /// RLEBlitTransXlat<unsigned short>::Blit `0x004960A0`, which skip source
+    /// index 0 and write the converter entry of every other index, whatever
+    /// colour it holds. CC_Draw_Shape `0x004AED70` gets them from
+    /// ConvertClass::Select_Blitter `0x00490B90` (uncompressed frames) and
+    /// Select_RLE_Blitter `0x00490E50` (compressed frames) when the flags set
+    /// no darken (1), lucent (6), remap (0x10), Z (0x3000, 0x4000), alpha
+    /// (0x800) or write-alpha (0x40, 0x100, 0x8000) bit, as flags 0 and 0x400
+    /// do. Other draws differ: flag 0x20 on an uncompressed frame picks
+    /// BlitPlainXlat `0x004924C0`, which draws index 0 as well, and the
+    /// darken, lucent and remap blitters draw differently.
     pub fn frame_to_rgba(
         &self,
         frame_index: usize,
@@ -293,16 +298,15 @@ impl ShpFile {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::assets::pal_file::Color;
 
     /// PIN — index 0 is transparent by BLITTER contract, not palette content.
     ///
     /// Retail palettes carry no alpha; the loaders preserve that (index 0
-    /// opaque in the `Palette`). gamemd's SHP blitters skip index-0 pixels
-    /// unconditionally, so frame conversion must key on the INDEX. When this
-    /// keyed on `color.a` instead, every sprite in the game grew an opaque
-    /// palette-0 (blue) box the moment palette loading went byte-faithful —
-    /// invisible to the whole suite until a live run.
+    /// opaque in the `Palette`). gamemd's transparent SHP blitters skip
+    /// index-0 pixels unconditionally, so frame conversion must key on the
+    /// INDEX. When this keyed on `color.a` instead, every sprite in the game
+    /// grew an opaque palette-0 (blue) box the moment palette loading went
+    /// byte-faithful — invisible to the whole suite until a live run.
     #[test]
     fn frame_to_rgba_bakes_index_zero_transparent_even_when_palette_has_no_alpha() {
         let shp = ShpFile::from_bytes(&make_test_shp_raw()).expect("parse");
@@ -525,12 +529,13 @@ mod tests {
         let data: Vec<u8> = make_test_shp_raw();
         let shp: ShpFile = ShpFile::from_bytes(&data).expect("Should parse");
 
-        let mut colors = [Color::rgb(0, 0, 0); 256];
-        colors[0] = Color::rgb(12, 34, 56);
-        colors[1] = Color::rgb(252, 0, 0);
-        colors[2] = Color::rgb(0, 252, 0);
-        colors[3] = Color::rgb(0, 0, 252);
-        let palette = Palette::from_colors(colors);
+        let palette = Palette::from_rgb(|index| match index {
+            0 => [12, 34, 56],
+            1 => [252, 0, 0],
+            2 => [0, 252, 0],
+            3 => [0, 0, 252],
+            _ => [0, 0, 0],
+        });
 
         let rgba: Vec<u8> = shp.frame_to_rgba(0, &palette).expect("Should convert");
 

@@ -787,10 +787,11 @@ mod tests {
 
     #[test]
     fn progress_palette_replaces_only_the_house_color_band() {
-        let mut colors = [Color::rgb(3, 4, 5); 256];
-        colors[16] = Color::rgb(7, 8, 9);
-        colors[31] = Color::rgb(10, 11, 12);
-        let palette = Palette::from_colors(colors);
+        let palette = Palette::from_rgb(|index| match index {
+            16 => [7, 8, 9],
+            31 => [10, 11, 12],
+            _ => [3, 4, 5],
+        });
         let ramp = std::array::from_fn(|index| {
             Color::rgb(index as u8, (index as u8) + 32, (index as u8) + 64)
         });

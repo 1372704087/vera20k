@@ -292,21 +292,13 @@ mod tests {
     use crate::assets::pal_file::Color;
 
     fn dummy_palette() -> Palette {
-        let mut colors: [Color; 256] = [Color {
-            r: 0,
-            g: 0,
-            b: 0,
-            a: 255,
-        }; 256];
-        for (i, color) in colors.iter_mut().enumerate().take(32).skip(16) {
-            *color = Color {
-                r: i as u8,
-                g: 100,
-                b: 200,
-                a: 255,
-            };
-        }
-        Palette::from_colors(colors)
+        Palette::from_rgb(|i| {
+            if (16..32).contains(&i) {
+                [i, 100, 200]
+            } else {
+                [0, 0, 0]
+            }
+        })
     }
 
     /// 16 distinct schemes (one per entry index) so each ramp differs and a

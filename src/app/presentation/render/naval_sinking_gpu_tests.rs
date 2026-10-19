@@ -26,9 +26,7 @@ fn native_sinking_clip_survives_camera_scissor_and_ground_upload() {
     let units = UnitAtlas::from_test_pages(vec![crate::render::unit_atlas::UnitAtlasPage {
         texture: batch.create_unit_atlas_texture_on_device(&gpu.device, &gpu.queue, 1, 1, &[33]),
     }]);
-    let palette = crate::assets::pal_file::Palette::from_colors(
-        [crate::assets::pal_file::Color::rgb(0, 252, 0); 256],
-    );
+    let palette = crate::assets::pal_file::Palette::from_rgb(|_| [0, 252, 0]);
     let ramps = crate::rules::house_colors::HouseColorRamps::from_schemes(&[]);
     let palettes =
         PaletteSet::new_on_device(&gpu.device, &gpu.queue, &palette, &palette, &ramps, &[]);

@@ -25,10 +25,13 @@
 //! player's color scheme. This is how RA2 distinguishes player units visually.
 //!
 //! ## Index 0
-//! Palettes carry no transparency: every entry is opaque. Index 0 is transparent
-//! because the SHP blitters skip it (BlitTransXlat `0x004912B0`, RLEBlitTransXlat
-//! `0x004960A0`), so the frame converters key it by index, never by palette
-//! content.
+//! Palettes carry no transparency: every entry is opaque. The ordinary SHP
+//! draw skips index 0 by index, never by palette content: BlitTransXlat
+//! `0x004912B0` and RLEBlitTransXlat `0x004960A0`, which
+//! ConvertClass::Select_Blitter `0x00490B90` and Select_RLE_Blitter
+//! `0x00490E50` pick for flags such as 0 and 0x400 (`ShpFile::frame_to_rgba`).
+//! Other blitters differ: BlitPlainXlat `0x004924C0`, picked by flag 0x20 for
+//! an uncompressed frame, draws index 0.
 //!
 //! ## Dependency rules
 //! - Part of assets/ — no dependencies on game modules.
@@ -102,16 +105,6 @@ impl Palette {
                 Color::rgb(r, g, b)
             }),
         }
-    }
-
-    /// Fixture palette from explicit colours. Their alpha is ignored: palette
-    /// entries are always opaque.
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn from_colors(colors: [Color; PALETTE_COLOR_COUNT]) -> Self {
-        Self::from_rgb(|index| {
-            let color = colors[usize::from(index)];
-            [color.r, color.g, color.b]
-        })
     }
 
     /// The color of palette entry `index`.

@@ -79,9 +79,9 @@ fn retained_mobile_translucency_matches_original_packed_words() {
                         let fog =
                             ShroudBuffer::fixture(&gpu.device, &gpu.queue, size, [0.0; 2], &a);
                         batch.bind_shroud(&gpu.device, Some(&fog));
-                        let palette = crate::assets::pal_file::Palette::from_colors(
-                            [crate::assets::pal_file::Color::rgb(rgb[0], rgb[1], rgb[2]); 256],
-                        );
+                        let palette = crate::assets::pal_file::Palette::from_rgb(|_| {
+                            [rgb[0], rgb[1], rgb[2]]
+                        });
                         let (shp, source_palette) = if indexed {
                             SpriteAtlas::from_test_indexed_page(
                                 &gpu.device,

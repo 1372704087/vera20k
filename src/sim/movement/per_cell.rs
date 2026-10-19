@@ -965,11 +965,14 @@ impl Simulation {
     /// Agent Infantry54 follows1/59 at4D8A14..4D8A6B;53 is explicitly
     /// deferred. RESIDUAL: Map zone24 (`0x004D8B66..0x004D8D99`), the
     /// `+0x83` / `0x00586360` step (`0x004D8DA7..0x004D8DF5`), the
-    /// planning-waypoint upkeep (`0x004D8DFF..0x004D8F1D`) and the Techno
-    /// tail's `+0x198` call and cell
-    /// `0x00486920` are not ported. Trigger: every arrival. Effect: zone
-    /// triggers and planning waypoints do not fire from movement. Risk: maps
-    /// with those trigger families.
+    /// planning-waypoint upkeep (`0x004D8DFF..0x004D8F1D`) are not ported.
+    /// Trigger: every arrival. Effect: zone triggers and planning waypoints
+    /// do not fire from movement. Risk: maps with those trigger families.
+    ///
+    /// The Techno tail ends with the open-ground discovery
+    /// ([`Self::discover_on_open_ground_after_cell_entry`]) and the Cell's
+    /// ActivateVeins (`0x00486920`), which acts only on the veins overlay
+    /// (index 0x7E) that retail maps never place: dormant, not run.
     pub(super) fn foot_per_cell_process(
         &mut self,
         id: u64,
@@ -1036,6 +1039,33 @@ impl Simulation {
             UninitContext::new(rules, registry).with_effects(effects),
         );
         self.promote_entity_playfield_membership_after_move(id);
+        self.discover_on_open_ground_after_cell_entry(
+            id,
+            UninitContext::new(rules, registry).with_effects(effects),
+        );
+    }
+
+    /// The Techno tail's discovery (`0x006F5140..0x006F516C`): an object the
+    /// current house (`0x00A83D4C`) has not discovered (`+0x41B`) that enters
+    /// a Cell whose ground it has open (`CellClass+0x12C` bit `0x10`, the Cell
+    /// of its GetCoords) is DiscoveredBy that house (vt+0x198). VERA's
+    /// shroud-refresh discovery covers Cells being revealed; this covers an
+    /// object walking into ground already open.
+    fn discover_on_open_ground_after_cell_entry(&mut self, id: u64, context: UninitContext<'_>) {
+        let Some(viewer) = self.session.current_house else {
+            return;
+        };
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.discovery.discovered_by_current_house()
+            || !self
+                .fog
+                .is_ground_open(viewer, entity.position.rx(), entity.position.ry())
+        {
+            return;
+        }
+        self.discover_techno(id, viewer, context);
     }
 
     /// The range stop (`0x004D882F..0x004D896E`): the class
@@ -1079,5 +1109,67 @@ impl Simulation {
             // Keep the backing suffix/cursor/reference; this is one DWORD.
             entity.navigation.path_replay.clear_live_head();
         }
+    }
+}
+
+#[cfg(test)]
+mod discovery_tests {
+    use super::*;
+    use crate::sim::combat::Health;
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::house_state::HouseState;
+
+    /// The Techno per-cell tail's discovery (`0x006F5140..0x006F516C`): an
+    /// enemy arriving on ground the current house has open is discovered;
+    /// over shrouded ground, or with no current house, it is not.
+    #[test]
+    fn an_enemy_arriving_on_open_ground_is_discovered_by_the_current_house() {
+        let mut sim = Simulation::new();
+        let player = sim.interner.intern("Americans");
+        let enemy = sim.interner.intern("Russians");
+        sim.houses
+            .insert(player, HouseState::new(player, 0, None, true, 0, 10));
+        sim.houses
+            .insert(enemy, HouseState::new(enemy, 1, None, false, 0, 10));
+        sim.fog = crate::sim::vision::FogState::new(32, 32);
+        let type_ref = sim.interner.intern("TEST");
+        sim.substrate
+            .entities
+            .insert(GameEntity::new_at_frame_zero_for_test(
+                1,
+                5,
+                5,
+                0,
+                0,
+                enemy,
+                Health::new(100),
+                type_ref,
+                EntityCategory::Unit,
+                0,
+                5,
+                true,
+            ));
+        let arrive = |sim: &mut Simulation| {
+            sim.foot_per_cell_process(
+                1,
+                PerCellReason::Arrival,
+                None,
+                None,
+                FrameEffects::default(),
+            );
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .discovery
+                .discovered_by_current_house()
+        };
+        sim.fog.set_ground_bits_for_test(player, 5, 5, 0x18);
+        assert!(!arrive(&mut sim), "no current house");
+        sim.session.current_house = Some(player);
+        sim.fog.set_ground_bits_for_test(player, 5, 5, 0x08);
+        assert!(!arrive(&mut sim), "visible but not open");
+        sim.fog.set_ground_bits_for_test(player, 5, 5, 0x18);
+        assert!(arrive(&mut sim));
     }
 }

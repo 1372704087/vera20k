@@ -692,6 +692,8 @@ impl App {
                 network_setup_protocol: None,
                 wol_welcome_art: None,
                 wol_login_art: None,
+                wol_lobby_art: None,
+                wol_lobby_globals: Default::default(),
                 score_page: None,
                 campaign_score_page: None,
                 score_art: None,

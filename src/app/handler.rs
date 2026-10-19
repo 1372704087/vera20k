@@ -498,6 +498,14 @@ impl ApplicationHandler for App {
                     {
                         login.cancel_pointer();
                     }
+                    if let Some(lobby) = state
+                        .frontend
+                        .wol
+                        .as_mut()
+                        .and_then(|visit| visit.lobby_mut())
+                    {
+                        lobby.ui.cancel_pointer();
+                    }
                     if let Some(setup) = state.frontend.multiplayer_setup.as_mut() {
                         setup.cancel_pointer();
                     }

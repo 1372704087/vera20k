@@ -6,11 +6,17 @@
 //! use an isolated RA2_DIR.
 
 use super::*;
+use crate::app::shell_wol::lobby::WolJoined;
 use crate::app::shell_wol::{
     WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList, WolServiceEvent,
     WolServiceRequest, service_event,
 };
 use crate::ui::shell::geom::RectPx;
+use crate::ui::wol_chat::WolChatLine;
+use crate::ui::wol_lobby::{
+    self as lobby_ui, CHANNEL_KEYED, GAME_CHANNEL, GAME_LIMIT_800, LOBBY_KEY, MEMBER_OPERATOR,
+    MEMBER_VOICE, WolChannel, WolMember,
+};
 use crate::ui::wol_login::{BACK, LOGIN};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,8 +37,43 @@ pub enum WolTarget {
     LoginRejected,
     /// OK on that box: a fresh `0x10E` settled.
     LoginRejectedReturn,
-    /// Login accepted: the custom lobby route settled.
+    /// Login accepted: the custom lobby `0x113` settled with its lists.
     LoginAccepted,
+    /// The ping sort header pressed: the game list re-sorted.
+    LobbySort,
+    /// A typed chat line and a received page in the transcript.
+    LobbyChat,
+    /// A version-mismatched and a full game selected: their refusals.
+    JoinAdmission,
+    /// Join on a keyed game: the password popup `0xE1`.
+    JoinPassword,
+    /// Join on an open game: leave, join, the slide, then C9 settled.
+    JoinAccepted,
+    /// Create Game: the popup `0xC3`.
+    CreatePopup,
+    /// `0xC3` OK: leave, create, the slide, then C2 settled.
+    CreateAccepted,
+    /// C2 Back: the chat lobby rejoined and `0x113` settled again.
+    SetupBack,
+    /// `0x113` Back: the channel left and a fresh `0x10E` settled.
+    LobbyBack,
+}
+
+impl WolTarget {
+    /// The login is accepted and the custom lobby runs.
+    fn lobby(self) -> bool {
+        !matches!(
+            self,
+            Self::LoginSteady
+                | Self::LoginTyped
+                | Self::LoginBack
+                | Self::ServerListWait
+                | Self::ServerListDisconnect
+                | Self::ServerListFailure
+                | Self::LoginRejected
+                | Self::LoginRejectedReturn
+        )
+    }
 }
 
 pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
@@ -45,6 +86,15 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0xd0-login-rejected", WolTarget::LoginRejected),
     ("wol-login-rejected-return", WolTarget::LoginRejectedReturn),
     ("wol-0x113-login-accepted", WolTarget::LoginAccepted),
+    ("wol-0x113-sort", WolTarget::LobbySort),
+    ("wol-0x113-chat", WolTarget::LobbyChat),
+    ("wol-0x113-join-admission", WolTarget::JoinAdmission),
+    ("wol-0xe1-password", WolTarget::JoinPassword),
+    ("wol-c9-join-accepted", WolTarget::JoinAccepted),
+    ("wol-0xc3-create", WolTarget::CreatePopup),
+    ("wol-c2-create-accepted", WolTarget::CreateAccepted),
+    ("wol-c2-back", WolTarget::SetupBack),
+    ("wol-0x113-back", WolTarget::LobbyBack),
 ];
 
 const NICKNAME: &str = "Tester";
@@ -67,7 +117,20 @@ enum WolPhase {
     WelcomeAgain,
     /// WOL left: a new `0xE2`.
     MainReturn,
+    /// The runner's chat-lobby list and first join behind the wait box.
     Lobby,
+    /// `0x113` shown: its entry slide runs.
+    LobbyShown,
+    /// Join or Create asked to leave the chat lobby first.
+    Leaving,
+    /// The game join was requested and `0x113` slides out.
+    Joining,
+    /// The create was requested.
+    Creating,
+    /// C2/C9 opening.
+    Setup,
+    /// C2 Back: the lobby rejoins.
+    Rejoin,
     Settle(u32),
 }
 
@@ -75,6 +138,8 @@ pub(super) struct WolCapture {
     target: WolTarget,
     phase: WolPhase,
     route: Vec<Value>,
+    /// C2 Back rejoined the chat lobby.
+    rejoined: bool,
 }
 
 impl WolCapture {
@@ -83,6 +148,7 @@ impl WolCapture {
             target,
             phase: WolPhase::Main,
             route: Vec::new(),
+            rejoined: false,
         }
     }
 
@@ -309,7 +375,7 @@ impl WolCapture {
                         }],
                     "Login did not connect to the selected record"
                 );
-                if self.target == WolTarget::LoginAccepted {
+                if self.target.lobby() {
                     service_event(
                         state,
                         WolServiceEvent::Login(Ok(WolLoginAccepted {
@@ -378,28 +444,145 @@ impl WolCapture {
                 self.event(frame, "new 0xE2 settled");
                 self.settle();
             }
-            WolPhase::Lobby
+            WolPhase::Lobby => self.lobby_entry(state, frame)?,
+            WolPhase::Leaving => {
+                let requests = self.requests(state, frame)?;
+                if requests.is_empty() {
+                    return Ok(());
+                }
+                // 0x00789B60 calls API+0x24 once unconditionally and once
+                // more while joined; 0x00788800 only while joined.
+                let leaves = if self.target == WolTarget::JoinAccepted {
+                    1
+                } else {
+                    2
+                };
+                ensure!(
+                    requests == vec![WolServiceRequest::LeaveChannel; leaves],
+                    "Join/Create did not leave the chat lobby first: {requests:?}"
+                );
+                service_event(state, WolServiceEvent::ChannelLeft);
+                self.event(frame, "controlled channel left");
+                let requests = self.requests(state, frame)?;
+                if self.target == WolTarget::JoinAccepted {
+                    ensure!(
+                        requests
+                            == [WolServiceRequest::JoinChannel {
+                                channel: games()[0].clone(),
+                                key: String::new(),
+                            }],
+                        "the open game was not joined"
+                    );
+                    ensure!(
+                        state.frontend.shell_exit.is_some(),
+                        "the join did not slide 0x113 out"
+                    );
+                    self.phase = WolPhase::Joining;
+                } else {
+                    let [WolServiceRequest::CreateChannel { channel, key }] = requests.as_slice()
+                    else {
+                        bail!("the game channel was not created: {requests:?}");
+                    };
+                    ensure!(
+                        channel.name == format!("{NICKNAME}'s_game")
+                            && channel.kind == GAME_CHANNEL
+                            && channel.max_users == 7
+                            && key.is_empty(),
+                        "unexpected created channel {channel:?}"
+                    );
+                    self.phase = WolPhase::Creating;
+                }
+            }
+            WolPhase::Joining if state.frontend.shell_exit.is_none() => {
+                // The result arrives once 0x113 is hidden.
+                let mut channel = games()[0].clone();
+                channel.users += 1;
+                service_event(
+                    state,
+                    WolServiceEvent::Joined(Ok(WolJoined {
+                        channel,
+                        members: vec![
+                            member("Alpha", MEMBER_OPERATOR, ""),
+                            member(NICKNAME, 0, ""),
+                        ],
+                    })),
+                );
+                self.event(frame, "controlled game join accepted");
+                self.phase = WolPhase::Setup;
+            }
+            WolPhase::Creating => {
+                service_event(
+                    state,
+                    WolServiceEvent::Created(Ok(vec![member(NICKNAME, MEMBER_OPERATOR, "")])),
+                );
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "the create did not slide 0x113 out"
+                );
+                self.event(frame, "controlled create accepted");
+                self.phase = WolPhase::Setup;
+            }
+            WolPhase::Setup => {
+                let host = self.target != WolTarget::JoinAccepted;
+                if !(rendered == PresentedShell::NetworkSetup && wol_setup_settled(state, host)) {
+                    return Ok(());
+                }
+                self.event(frame, if host { "C2 settled" } else { "C9 settled" });
+                if self.target == WolTarget::SetupBack {
+                    let rect = crate::app::input::multiplayer_setup::layout(state)
+                        .page
+                        .buttons
+                        .into_iter()
+                        .find(|button| button.id == crate::ui::multiplayer_setup::BACK)
+                        .context("C2 Back")?
+                        .rect;
+                    set_window_pointer_to_rect_center(state, rect);
+                    crate::app::input::multiplayer_setup::cursor_moved(state);
+                    crate::app::input::multiplayer_setup::mouse(
+                        state,
+                        winit::event::MouseButton::Left,
+                        true,
+                    );
+                    crate::app::input::multiplayer_setup::mouse(
+                        state,
+                        winit::event::MouseButton::Left,
+                        false,
+                    );
+                    MoviesCapture::restore_neutral_pointer(state);
+                    self.event(frame, "C2 Back");
+                    self.phase = WolPhase::Rejoin;
+                    return Ok(());
+                }
+                MoviesCapture::restore_neutral_pointer(state);
+                crate::app::input::multiplayer_setup::cursor_moved(state);
+                self.settle();
+            }
+            WolPhase::Rejoin
+                if state.frontend.shell_exit.is_none()
+                    && state.frontend.shell_route.wol_lobby() =>
+            {
+                let requests = self.requests(state, frame)?;
+                if requests.is_empty() {
+                    return Ok(());
+                }
+                ensure!(
+                    requests
+                        == [WolServiceRequest::JoinChannel {
+                            channel: lobbies()[0].clone(),
+                            key: LOBBY_KEY.into(),
+                        }],
+                    "setup Back did not rejoin the chat lobby: {requests:?}"
+                );
+                join_lobby(state);
+                self.rejoined = true;
+                self.event(frame, "controlled chat lobby rejoined");
+                self.phase = WolPhase::LobbyShown;
+            }
+            WolPhase::LobbyShown
                 if rendered == PresentedShell::WolLobby
                     && Self::page_settled(state, ShellSlideKind::WolLobby) =>
             {
-                let visit = state.frontend.wol.as_ref().context("WOL visit")?;
-                ensure!(
-                    visit.authenticated()
-                        && visit.motd() == Some("Controlled message of the day")
-                        && state.frontend.shell_route.wol_lobby(),
-                    "the accepted login did not enter the custom lobby"
-                );
-                ensure!(
-                    state
-                        .frontend
-                        .multiplayer_shell_runtime
-                        .local_participant()
-                        .name
-                        == NICKNAME,
-                    "the nickname did not become the MultiPlayer handle"
-                );
-                self.event(frame, "0x113 settled");
-                self.settle();
+                self.lobby_settled(state, frame)?;
             }
             WolPhase::Settle(remaining) if remaining > 0 => {
                 self.phase = WolPhase::Settle(remaining - 1);
@@ -409,15 +592,285 @@ impl WolCapture {
         Ok(())
     }
 
+    /// The runner behind its wait box: the chat-lobby list, the picked
+    /// lobby's join, then both lists for the shown dialog.
+    fn lobby_entry(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests == [WolServiceRequest::ListChannels { kind: 0, flags: 0 }],
+            "the runner did not request the chat lobbies: {requests:?}"
+        );
+        let visit = state.frontend.wol.as_ref().context("WOL visit")?;
+        ensure!(
+            visit.motd().is_none()
+                && visit
+                    .lobby()
+                    .is_some_and(|lobby| !lobby.shown && lobby.wait.is_some()),
+            "0x113 must start hidden behind the wait box with the MOTD consumed"
+        );
+        service_event(
+            state,
+            WolServiceEvent::Channels {
+                kind: 0,
+                channels: lobbies(),
+            },
+        );
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests
+                == [WolServiceRequest::JoinChannel {
+                    channel: lobbies()[0].clone(),
+                    key: LOBBY_KEY.into(),
+                }],
+            "the picker did not join Lob_41_0: {requests:?}"
+        );
+        join_lobby(state);
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests
+                == [
+                    WolServiceRequest::ListChannels { kind: 0, flags: 0 },
+                    WolServiceRequest::ListChannels {
+                        kind: GAME_CHANNEL,
+                        flags: 1
+                    },
+                ],
+            "the shown lobby did not request both lists: {requests:?}"
+        );
+        service_event(
+            state,
+            WolServiceEvent::Channels {
+                kind: 0,
+                channels: lobbies(),
+            },
+        );
+        service_event(
+            state,
+            WolServiceEvent::Channels {
+                kind: GAME_CHANNEL,
+                channels: games(),
+            },
+        );
+        self.event(frame, "controlled lobbies, join and games");
+        self.phase = WolPhase::LobbyShown;
+        Ok(())
+    }
+
+    fn lobby(state: &AppState) -> Result<&crate::app::shell_wol::lobby::WolLobby> {
+        state
+            .frontend
+            .wol
+            .as_ref()
+            .and_then(|visit| visit.lobby())
+            .context("the lobby runner")
+    }
+
+    fn chat_has(state: &AppState, text: &str) -> Result<bool> {
+        Ok(Self::lobby(state)?
+            .ui
+            .chat
+            .lines
+            .iter()
+            .any(|line| String::from_utf16_lossy(&line.text) == text))
+    }
+
+    /// `0x113` shown and settled: drive the target's interaction.
+    fn lobby_settled(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let layout = crate::app::shell_wol::lobby::layout(state);
+        let (width, height) = (
+            state.renderer.gpu.config.width as i32,
+            state.renderer.gpu.config.height as i32,
+        );
+        let joined = App::csf_label(state, "TXT_JOINED_S", "TXT_JOINED_S");
+        let base = App::csf_label(state, "TXT_LOB_1", "TXT_LOB_1");
+        ensure!(
+            Self::chat_has(
+                state,
+                &crate::assets::csf_file::format_csf(
+                    &joined,
+                    &[crate::assets::csf_file::CsfArg::Str(&base)]
+                )
+            )?,
+            "TXT_JOINED_S was not printed"
+        );
+        let lobby = Self::lobby(state)?;
+        ensure!(
+            lobby.ui.game_rows.len() == 4
+                && lobby.ui.player_rows.len() == 4
+                && lobby.ui.lobby_rows.len() == 3
+                && lobby.ui.lobby_list.selected == Some(0),
+            "the lists were not filled"
+        );
+        let visit = state.frontend.wol.as_ref().context("WOL visit")?;
+        ensure!(
+            visit.authenticated() && state.frontend.shell_route.wol_lobby(),
+            "the accepted login did not enter the custom lobby"
+        );
+        ensure!(
+            state
+                .frontend
+                .multiplayer_shell_runtime
+                .local_participant()
+                .name
+                == NICKNAME,
+            "the nickname did not become the MultiPlayer handle"
+        );
+        if self.rejoined {
+            self.event(frame, "0x113 settled again");
+            self.hover_settle(state);
+            return Ok(());
+        }
+        self.event(frame, "0x113 settled");
+        match self.target {
+            WolTarget::LoginAccepted => {
+                ensure!(
+                    Self::chat_has(state, "Controlled message of the day")?,
+                    "the MOTD was not printed"
+                );
+            }
+            WolTarget::LobbySort => {
+                let rect = layout
+                    .control_rect(lobby_ui::SORT_PING)
+                    .context("ping sort")?;
+                welcome_click(state, rect);
+                ensure!(
+                    state.frontend.wol_lobby_globals.game_sort != 0
+                        && Self::lobby(state)?.ui.game_rows[0].name == "Alpha's_game",
+                    "the ping sort did not re-sort"
+                );
+                self.event(frame, "ping sort");
+            }
+            WolTarget::LobbyChat => {
+                App::handle_wol_key(state, None, true, Some("hello"));
+                App::handle_wol_key(state, Some(winit::keyboard::KeyCode::Enter), true, None);
+                let requests = self.requests(state, frame)?;
+                ensure!(
+                    requests
+                        == [WolServiceRequest::Chat {
+                            line: WolChatLine::Say("hello".encode_utf16().collect()),
+                            to: Vec::new(),
+                        }],
+                    "the chat line was not sent: {requests:?}"
+                );
+                service_event(
+                    state,
+                    WolServiceEvent::Page {
+                        from: "Golf".into(),
+                        text: "are you there?".encode_utf16().collect(),
+                    },
+                );
+                ensure!(
+                    Self::chat_has(state, &format!("[{NICKNAME}] hello"))?
+                        && Self::chat_has(state, "(Golf) are you there?")?
+                        && crate::app::shell_wol::last_pager(state) == Some("Golf"),
+                    "the echo or the page did not show"
+                );
+                service_event(state, WolServiceEvent::UserJoined(member("India", 0, "")));
+                service_event(state, WolServiceEvent::UserLeft("Foxtrot".into()));
+                let names: Vec<String> = Self::lobby(state)?
+                    .ui
+                    .player_rows
+                    .iter()
+                    .map(|row| row.name.clone())
+                    .collect();
+                ensure!(
+                    names == ["Hotel", "Echo", "India", NICKNAME],
+                    "the membership did not follow join and part: {names:?}"
+                );
+                self.event(frame, "chat line and received page");
+            }
+            WolTarget::JoinAdmission => {
+                // Rows: Alpha, Charlie (version 24), Delta, Bravo (full).
+                game_row_click(state, 1)?;
+                game_row_click(state, 3)?;
+                let mismatch = App::csf_label(state, "TXT_MISMATCH", "TXT_MISMATCH");
+                let full = App::csf_label(state, "WOL:GameFull", "WOL:GameFull");
+                ensure!(
+                    Self::chat_has(state, &mismatch)? && Self::chat_has(state, &full)?,
+                    "the admission refusals were not printed"
+                );
+                ensure!(
+                    !Self::lobby(state)?.ui.enabled(lobby_ui::JOIN),
+                    "a refused game enabled Join"
+                );
+                self.event(frame, "mismatched and full games refused");
+            }
+            WolTarget::JoinPassword => {
+                game_row_click(state, 2)?;
+                lobby_button(state, &layout, lobby_ui::JOIN)?;
+                ensure!(
+                    Self::lobby(state)?
+                        .ui
+                        .popup
+                        .as_ref()
+                        .map(|popup| popup.dialog())
+                        == Some(lobby_ui::PASSWORD_DIALOG),
+                    "Join on a keyed game did not open 0xE1"
+                );
+                self.event(frame, "0xE1 opened");
+            }
+            WolTarget::JoinAccepted => {
+                game_row_click(state, 0)?;
+                lobby_button(state, &layout, lobby_ui::JOIN)?;
+                self.event(frame, "Join on Alpha's_game");
+                self.phase = WolPhase::Leaving;
+                return Ok(());
+            }
+            WolTarget::CreatePopup | WolTarget::CreateAccepted | WolTarget::SetupBack => {
+                lobby_button(state, &layout, lobby_ui::CREATE)?;
+                ensure!(
+                    Self::lobby(state)?
+                        .ui
+                        .popup
+                        .as_ref()
+                        .map(|popup| popup.dialog())
+                        == Some(lobby_ui::CREATE_DIALOG),
+                    "Create did not open 0xC3"
+                );
+                self.event(frame, "0xC3 opened");
+                if self.target != WolTarget::CreatePopup {
+                    let ok = crate::ui::shell::modal::wol_create_game_layout(width, height).ok;
+                    welcome_click(state, ok);
+                    self.event(frame, "0xC3 OK");
+                    self.phase = WolPhase::Leaving;
+                    return Ok(());
+                }
+            }
+            WolTarget::LobbyBack => {
+                lobby_button(state, &layout, lobby_ui::BACK)?;
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "Back did not slide 0x113 out"
+                );
+                self.event(frame, "0x113 Back");
+                self.phase = WolPhase::WelcomeAgain;
+                return Ok(());
+            }
+            _ => {}
+        }
+        self.hover_settle(state);
+        Ok(())
+    }
+
+    fn hover_settle(&mut self, state: &mut AppState) {
+        MoviesCapture::restore_neutral_pointer(state);
+        App::handle_wol_mouse_move(state);
+        self.settle();
+    }
+
     pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
-        // Behind a box `0x10E`/`0x10F` is gone, and with it the status line.
+        // Behind a box `0x10E`/`0x10F` is gone, and with it the status line;
+        // a hidden or covered `0x113` paints none either, nor does C2/C9's
+        // family line belong to this check.
         let backdrop = state.frontend.wol.as_ref().is_some_and(|visit| {
             matches!(
                 visit.page,
                 crate::app::shell_wol::WolPage::Backdrop { .. }
                     | crate::app::shell_wol::WolPage::Message { .. }
-            )
-        });
+            ) || visit
+                .lobby()
+                .is_some_and(|lobby| !lobby.shown || lobby.covered || lobby.ui.popup.is_some())
+        }) || state.frontend.shell_route.network_setup();
         Ok(self.phase == WolPhase::Settle(0)
             && state.frontend.shell_exit.is_none()
             && (backdrop || state.frontend.shell_status_line.is_terminal())
@@ -444,6 +897,110 @@ impl WolCapture {
             })),
         })
     }
+}
+
+fn member(name: &str, flags: u32, tag: &str) -> WolMember {
+    WolMember {
+        flags,
+        name: name.into(),
+        clan_name: if tag.is_empty() {
+            String::new()
+        } else {
+            "Westwood Warriors".into()
+        },
+        clan_tag: tag.into(),
+    }
+}
+
+fn lobbies() -> Vec<WolChannel> {
+    [(0, 3), (1, 12), (9, 0)]
+        .into_iter()
+        .map(|(number, users)| WolChannel {
+            kind: 0,
+            max_users: 100,
+            users,
+            name: format!("Lob_41_{number}"),
+            ping: -1,
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// An open game with a free observer slot, a full one, one of another
+/// exInfo version and a keyed one limited to 800x600.
+fn games() -> Vec<WolChannel> {
+    let game = |name: &str, users, max_users, ex_info: &str, ping| WolChannel {
+        kind: GAME_CHANNEL,
+        max_users,
+        users,
+        ping,
+        name: name.into(),
+        ex_info: ex_info.into(),
+        ..Default::default()
+    };
+    let mut keyed = game("Delta's_game", 2, 6, "25,0,0,0,0,d.map", 80);
+    keyed.flags = CHANNEL_KEYED;
+    keyed.game_flags = GAME_LIMIT_800;
+    vec![
+        game("Alpha's_game", 2, 8, "25,0,1,0,1,a.map", 45),
+        game("Bravo's_game", 3, 4, "25,0,1,0,0,b.map", 120),
+        game("Charlie's_game", 1, 8, "24,0,0,0,0,c.map", -1),
+        keyed,
+    ]
+}
+
+/// The chat sink's OnJoin for `Lob_41_0` with its users.
+fn join_lobby(state: &mut AppState) {
+    service_event(
+        state,
+        WolServiceEvent::Joined(Ok(WolJoined {
+            channel: lobbies()[0].clone(),
+            members: vec![
+                member("Hotel", MEMBER_OPERATOR, ""),
+                member(NICKNAME, 0, ""),
+                member("Echo", 0, "WW"),
+                member("Foxtrot", MEMBER_VOICE, ""),
+            ],
+        })),
+    );
+}
+
+fn wol_setup_settled(state: &AppState, host: bool) -> bool {
+    MoviesCapture::slide_settled(
+        state,
+        ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {
+            host,
+            flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
+        }),
+    ) && state
+        .frontend
+        .multiplayer_setup
+        .as_ref()
+        .is_some_and(|ui| ui.statics.is_terminal())
+}
+
+fn lobby_button(state: &mut AppState, layout: &lobby_ui::WolLobbyLayout, id: u16) -> Result<()> {
+    welcome_click(state, layout.page.button_rect(id).context("0x113 button")?);
+    Ok(())
+}
+
+/// A click on one visible game row.
+fn game_row_click(state: &mut AppState, row: usize) -> Result<()> {
+    let layout = crate::app::shell_wol::lobby::layout(state);
+    let lobby = state
+        .frontend
+        .wol
+        .as_ref()
+        .and_then(|visit| visit.lobby())
+        .context("the lobby runner")?;
+    let geometry =
+        lobby
+            .ui
+            .game_list
+            .geometry(layout.games, lobby.ui.game_rows.len(), layout.page.scale);
+    let rect = geometry.row(row - lobby.ui.game_list.top_index);
+    welcome_click(state, rect);
+    Ok(())
 }
 
 /// Three IRC records; the preferred-server draw left record 1 selected.

@@ -1285,6 +1285,11 @@ impl App {
             ShellExitThen::CampaignScoreContinue => Self::leave_mission_result_screen(state),
             ShellExitThen::WolAction(mode) => Self::commit_wol_action(state, mode),
             ShellExitThen::WolLoginClose(result) => Self::commit_wol_login_close(state, result),
+            ShellExitThen::WolLobbyBack => crate::app::shell_wol::lobby::commit_back(state),
+            ShellExitThen::WolLobbyHide => crate::app::shell_wol::lobby::commit_hide(state),
+            ShellExitThen::WolCreateAccepted { observe } => {
+                crate::app::shell_wol::lobby::commit_create(state, observe)
+            }
         }
     }
 

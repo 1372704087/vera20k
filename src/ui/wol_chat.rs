@@ -1,4 +1,5 @@
-//! Westwood Online chat-line commands, shared by every WOL chat edit.
+//! Westwood Online chat-line commands, shared by every WOL chat edit: the
+//! custom lobby `0x113` ([`parse_lobby`]) and the setup dialogs C2/C9.
 //!
 //! Source: the C2 setup Enter handler (`0078F7F0`, control 0x540 notify
 //! 0x501) runs `0078A6B0` (page), `0078A8F0` (reply) and `0078A470`
@@ -76,6 +77,66 @@ fn take_word(rest: &[u16], limit: usize) -> (&[u16], &[u16]) {
     rest.split_at(length)
 }
 
+/// The lobby `0x113`'s two filter words (`0x0078AC10`'s 0x540 Enter runs
+/// them after page/reply and before locate). Retail `ra2md.csf` carries
+/// neither label, so both hold the string table's missing-label text.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct WolChatFilterCommands {
+    /// `TXT_BUDDY_FILTER`, a case-insensitive prefix (`007DDE80`).
+    pub(crate) buddy: Vec<u16>,
+    /// `TXT_CLAN_FILTER`, a case-insensitive prefix.
+    pub(crate) clan: Vec<u16>,
+}
+
+/// One lobby filter toggle: `[0xB76AF0]` (buddy) or `[0xB73AD0]` (clan).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WolChatFilter {
+    Buddy,
+    Clan,
+}
+
+impl WolChatFilter {
+    /// The `L"%s"` line the toggle echoes in [`EMOTE_COLOR`]; the buddy
+    /// "off" label is misspelt in the executable.
+    pub(crate) fn notice(self, on: bool) -> &'static str {
+        match (self, on) {
+            (Self::Buddy, true) => "TXT_BUDDY_FILTER_ON",
+            (Self::Buddy, false) => "TXT_BUDDY_FITER_OFF",
+            (Self::Clan, true) => "TXT_CLAN_FILTER_ON",
+            (Self::Clan, false) => "TXT_CLAN_FILTER_OFF",
+        }
+    }
+}
+
+/// What a lobby `0x113` chat line asks for: a shared command or a filter.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WolLobbyChatLine {
+    Line(WolChatLine),
+    Filter(WolChatFilter),
+}
+
+/// The lobby's order: page (`0078A6B0`), reply (`0078A8F0`), the two filter
+/// words, then locate (`0078A470`) and the plain send.
+pub(crate) fn parse_lobby(
+    line: &[u16],
+    commands: &WolChatCommands,
+    filters: &WolChatFilterCommands,
+    last_pager_known: bool,
+) -> WolLobbyChatLine {
+    if let Some(parsed) = parse_page_or_reply(line, commands, last_pager_known) {
+        return WolLobbyChatLine::Line(parsed);
+    }
+    for (word, filter) in [
+        (&filters.buddy, WolChatFilter::Buddy),
+        (&filters.clan, WolChatFilter::Clan),
+    ] {
+        if !word.is_empty() && starts_with_ignore_case(line, word) {
+            return WolLobbyChatLine::Filter(filter);
+        }
+    }
+    WolLobbyChatLine::Line(parse_locate_or_say(line, commands))
+}
+
 /// Classify one submitted line. `last_pager_known` is whether `00B77E30`
 /// holds a name; an empty line never reaches this parser.
 pub(crate) fn parse(
@@ -83,13 +144,22 @@ pub(crate) fn parse(
     commands: &WolChatCommands,
     last_pager_known: bool,
 ) -> WolChatLine {
+    parse_page_or_reply(line, commands, last_pager_known)
+        .unwrap_or_else(|| parse_locate_or_say(line, commands))
+}
+
+fn parse_page_or_reply(
+    line: &[u16],
+    commands: &WolChatCommands,
+    last_pager_known: bool,
+) -> Option<WolChatLine> {
     if !commands.page.is_empty() && starts_with_ignore_case(line, &commands.page) {
         let rest = skip_spaces(&line[commands.page.len()..]);
         // 0078A78C..A7B6: at most 11 name units are copied; 0078A7E0 then
         // accepts at most 10 (`cmp ebp, 0xa; jle`).
         let (name, rest) = take_word(rest, 11);
         let text = skip_spaces(rest);
-        return if name.is_empty() {
+        return Some(if name.is_empty() {
             WolChatLine::Notice("TXT_NO_NAME_SPECIFIED")
         } else if name.len() > 10 {
             WolChatLine::Notice("TXT_NAME_TOO_LONG")
@@ -100,7 +170,7 @@ pub(crate) fn parse(
                 name: name.to_vec(),
                 text: text.to_vec(),
             }
-        };
+        });
     }
     let reply_long = !commands.reply.is_empty() && starts_with_ignore_case(line, &commands.reply);
     let reply_short = !commands.reply_short.is_empty() && line.starts_with(&commands.reply_short);
@@ -113,7 +183,7 @@ pub(crate) fn parse(
             commands.reply_short.len()
         };
         let text = skip_spaces(line.get(prefix..).unwrap_or_default());
-        return if !last_pager_known {
+        return Some(if !last_pager_known {
             WolChatLine::Notice("TXT_NO_ONE_WHOM_TO_REPLY")
         } else if text.is_empty() {
             WolChatLine::Notice("TXT_CANT_SEND_BLANK_PAGE")
@@ -121,8 +191,12 @@ pub(crate) fn parse(
             WolChatLine::Reply {
                 text: text.to_vec(),
             }
-        };
+        });
     }
+    None
+}
+
+fn parse_locate_or_say(line: &[u16], commands: &WolChatCommands) -> WolChatLine {
     if !commands.online.is_empty() && line.starts_with(&commands.online) {
         let rest = skip_spaces(&line[commands.online.len()..]);
         // 0078A517: `cmp ebx, 0xa; jge` stops after ten units, silently.
@@ -267,6 +341,37 @@ mod tests {
             parse(&w("/LOCATE bob"), &c, false),
             WolChatLine::Say(w("/LOCATE bob"))
         );
+    }
+
+    #[test]
+    fn lobby_lines_check_the_filters_between_reply_and_locate() {
+        let c = commands();
+        let filters = WolChatFilterCommands {
+            buddy: w("/buddy"),
+            clan: w("/clan"),
+        };
+        assert_eq!(
+            parse_lobby(&w("/BUDDY now"), &c, &filters, false),
+            WolLobbyChatLine::Filter(WolChatFilter::Buddy)
+        );
+        assert_eq!(
+            parse_lobby(&w("/clan"), &c, &filters, false),
+            WolLobbyChatLine::Filter(WolChatFilter::Clan)
+        );
+        // Page and reply come first, locate and the plain line after.
+        assert_eq!(
+            parse_lobby(&w("/reply x"), &c, &filters, false),
+            WolLobbyChatLine::Line(WolChatLine::Notice("TXT_NO_ONE_WHOM_TO_REPLY"))
+        );
+        assert_eq!(
+            parse_lobby(&w("/locate bob"), &c, &filters, false),
+            WolLobbyChatLine::Line(WolChatLine::Locate { name: w("bob") })
+        );
+        assert_eq!(
+            parse_lobby(&w("hello"), &c, &filters, false),
+            WolLobbyChatLine::Line(WolChatLine::Say(w("hello")))
+        );
+        assert_eq!(WolChatFilter::Buddy.notice(false), "TXT_BUDDY_FITER_OFF");
     }
 
     #[test]

@@ -11,6 +11,8 @@ use std::time::Instant;
 
 use super::{WolBoxThen, WolPage, WolVisit};
 use crate::app::{App, AppState};
+use crate::ui::wol_chat::WolChatLine;
+use crate::ui::wol_lobby::{WolChannel, WolMember};
 use crate::ui::wol_login::WolCredential;
 use crate::ui::wol_shell::{
     BOX_NO, BOX_OK, BOX_YES, WAIT_CHECK_STATUS, WAIT_DISCONNECT, WolBoxButtons, WolMessageBox,
@@ -84,6 +86,22 @@ pub(crate) enum WolServiceRequest {
         password: String,
         changed: bool,
     },
+    /// `0x0077F120`: API+0x18 for channel type `kind` (0 chat lobbies,
+    /// `0x29` games) with `flags`.
+    ListChannels { kind: u32, flags: u32 },
+    /// `0x00788800`: API+0x20 with the record and its key at `+0xD7`.
+    JoinChannel { channel: WolChannel, key: String },
+    /// API+0x24: leave the current channel.
+    LeaveChannel,
+    /// `0x00789B60`: API+0x1C with the new game channel's record and its
+    /// key at `+0xD7`.
+    CreateChannel { channel: WolChannel, key: String },
+    /// `0x0077E1D0`, the pager `0x0078A6B0`/`0x0078A8F0` or the locate
+    /// `0x0078A470` from the lobby; `to` are the selected users of a
+    /// private line.
+    Chat { line: WolChatLine, to: Vec<String> },
+    /// `0x0077E300`: an action line, private to `to` when any.
+    Emote { text: Vec<u16>, to: Vec<String> },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +120,27 @@ pub(crate) enum WolServiceEvent {
     Interrupted,
     /// The login sink `0x007A5290`: 0 with the MOTD, or the result code.
     Login(Result<WolLoginAccepted, u32>),
+    /// The channel-list sink: every record of one requested type.
+    Channels {
+        kind: u32,
+        channels: Vec<WolChannel>,
+    },
+    /// The chat sink's OnJoin `0x007A5E40` for this user: the joined
+    /// channel with its users, or the result code.
+    Joined(Result<super::lobby::WolJoined, u32>),
+    /// OnJoin for another user of the current channel.
+    UserJoined(WolMember),
+    /// OnPart of another user (by name).
+    UserLeft(String),
+    /// OnPart for this user: `[0xB77DD0]` cleared.
+    ChannelLeft,
+    /// The create result and the channel's users.
+    Created(Result<Vec<WolMember>, u32>),
+    /// The page sink `0x007A9220`: sender and text.
+    Page {
+        from: String,
+        text: Vec<u16>,
+    },
 }
 
 /// The server status that completes the list wait with event 1.
@@ -305,7 +344,7 @@ impl WolVisit {
     }
 }
 
-fn resolve(state: &AppState, key: &str) -> String {
+pub(super) fn resolve(state: &AppState, key: &str) -> String {
     App::csf_label(state, key, key)
 }
 
@@ -370,22 +409,56 @@ pub(super) fn begin_connect(state: &mut AppState) {
 /// Deliver one service event to the visit. Only declared events move the
 /// flow; a stale one changes nothing.
 pub(crate) fn service_event(state: &mut AppState, event: WolServiceEvent) {
-    let Some(visit) = state.frontend.wol.as_mut() else {
+    if state.frontend.wol.is_none() {
         return;
+    }
+    let event = match event {
+        WolServiceEvent::Page { from, text } => {
+            super::lobby::page_received(state, from, text);
+            return;
+        }
+        event @ (WolServiceEvent::Channels { .. }
+        | WolServiceEvent::Joined(_)
+        | WolServiceEvent::UserJoined(_)
+        | WolServiceEvent::UserLeft(_)
+        | WolServiceEvent::ChannelLeft
+        | WolServiceEvent::Created(_)) => {
+            super::lobby::service_event(state, event);
+            answer_unavailable(state);
+            return;
+        }
+        event => event,
     };
+    let visit = state.frontend.wol.as_mut().expect("checked");
     let step = visit.reduce(event);
     apply(state, step);
     answer_unavailable(state);
     state.platform.window.request_redraw();
 }
 
-fn wait_box(state: &AppState, key: &str) -> WolWaitBox {
+pub(super) fn wait_box(state: &AppState, key: &str) -> WolWaitBox {
     WolWaitBox {
         text: resolve(state, key),
         disconnect: resolve(state, "GUI:Disconnect"),
         check_status: resolve(state, "GUI:WOLCheckStatus"),
         opened_at: Instant::now(),
         shown: false,
+    }
+}
+
+/// `0x005E2CD0`'s box over the shell: `0xD0` (OK) or `0x126` (Yes/No).
+pub(super) fn message_box(state: &AppState, key: &str, yes_no: bool) -> WolMessageBox {
+    let buttons = if yes_no {
+        WolBoxButtons::YesNo {
+            yes: resolve(state, "GUI:Yes"),
+            no: resolve(state, "GUI:No"),
+        }
+    } else {
+        WolBoxButtons::Ok(resolve(state, "GUI:OK"))
+    };
+    WolMessageBox {
+        body: resolve(state, key),
+        buttons,
     }
 }
 
@@ -406,16 +479,7 @@ fn apply(state: &mut AppState, step: WolStep) {
                 .reset_to(crate::ui::wol_shell::WAIT_DIALOG, false);
         }
         WolStep::Message { key, yes_no, then } => {
-            let body = resolve(state, key);
-            let buttons = if yes_no {
-                WolBoxButtons::YesNo {
-                    yes: resolve(state, "GUI:Yes"),
-                    no: resolve(state, "GUI:No"),
-                }
-            } else {
-                WolBoxButtons::Ok(resolve(state, "GUI:OK"))
-            };
-            let message = WolMessageBox { body, buttons };
+            let message = message_box(state, key, yes_no);
             let dialog = message.dialog();
             let visit = state.frontend.wol.as_mut().expect("WOL visit");
             visit.status_help = None;
@@ -473,6 +537,12 @@ pub(super) fn box_command(state: &mut AppState, control: u16) {
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;
     };
+    if matches!(visit.page, WolPage::Lobby) {
+        super::lobby::box_command(state, control);
+        answer_unavailable(state);
+        state.platform.window.request_redraw();
+        return;
+    }
     let then = match &visit.page {
         WolPage::Message { then, .. } => Some(*then),
         _ => None,

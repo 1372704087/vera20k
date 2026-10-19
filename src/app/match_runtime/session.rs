@@ -35,17 +35,8 @@ pub(crate) use crate::sim::scenario_session::ScenarioGameMode as SessionMode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NetworkReturnContext {
     LanLobby,
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the WOL shell, a later mechanism of this goal, enters it"
-        )
-    )]
-    Wol {
-        mode: i32,
-        return_mode: i32,
-    },
+    /// The WOL custom lobby `0x113` (Custom Match, mode 4).
+    Wol,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1494,13 +1485,7 @@ mod tests {
         use super::NetworkReturnContext;
         for (mode, context) in [
             (SessionMode::Lan, NetworkReturnContext::LanLobby),
-            (
-                SessionMode::Wol,
-                NetworkReturnContext::Wol {
-                    mode: 1,
-                    return_mode: 3,
-                },
-            ),
+            (SessionMode::Wol, NetworkReturnContext::Wol),
         ] {
             let mut session = MatchSession::default();
             session.enter_network(mode, context);

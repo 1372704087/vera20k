@@ -616,7 +616,7 @@ pub(super) fn build_debug_instances(state: &AppState, sw: f32, sh: f32) -> Debug
 /// Update minimap unit dots for the current frame.
 pub(super) fn update_minimap(state: &mut AppState, local_owner: &Option<String>) {
     let (playfield_bounds, playfield_revision) =
-        crate::app::input::camera::sync_playfield_presentation_bounds(state);
+        crate::app::input::camera::playfield_presentation_authority(state);
     let needs_playfield_reconcile = state
         .match_state
         .match_presentation

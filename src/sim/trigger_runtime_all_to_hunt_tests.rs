@@ -281,11 +281,10 @@ fn all_to_hunt_retail_all06_elapsed_enable_chain_releases_existing_gattling_team
         body.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             if (section == "Tags"
-                && map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|id| chain.contains(&id.as_str()))
-                }))
+                && map
+                    .tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|id| chain.contains(&id))))
                 || (section != "Tags" && chain.contains(&key))
             {
                 body.push_str(&format!("{key}={value}\n"));

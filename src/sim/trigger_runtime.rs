@@ -371,6 +371,10 @@ impl RuntimeDefinitions {
                 definitions.team_tags[index] = resolved;
             }
         }
+        // LoadFromINIList7275D0/6E5ED0 find or allocate each key's Type,
+        // ignoring case, and ReadINI727240/6E6080 read every record by that
+        // Type's own ID, exact case. A key differing from an earlier one only
+        // in case revisits that Type and reads the earlier key's records.
         if let Some(section) = map.ini.section("Triggers") {
             for key in section.keys() {
                 if section.read_name(key, 24).is_none() {
@@ -379,14 +383,13 @@ impl RuntimeDefinitions {
                 let Some(index) = definitions.trigger_type(key) else {
                     continue;
                 };
-                let id = definitions.trigger_types[index].id.to_ascii_uppercase();
+                let id = definitions.trigger_types[index].id.clone();
                 let Some(record) = map.triggers.get(&id) else {
                     continue;
                 };
                 //7272D6 resolves the linked Type before events and actions.
                 let linked = record
-                    .linked_trigger_id
-                    .as_deref()
+                    .linked_trigger_id()
                     .and_then(|name| definitions.trigger_type(name));
                 let mut events = map
                     .events
@@ -401,32 +404,31 @@ impl RuntimeDefinitions {
                             .map(|index| definitions.team_types[index].clone());
                     }
                 }
-                let actions = map
-                    .actions
-                    .get(&id)
-                    .map_or_else(Vec::new, |record| record.entries.clone());
-                let actions = actions
+                //727530..7275A3: a present entry rebuilds the action list.
+                let actions = map.actions.get(&id).map(|record| {
+                    record
+                        .entries
+                        .iter()
+                        .cloned()
+                        .map(|entry| definitions.resolve_action(entry, eva, sounds))
+                        .collect::<Vec<_>>()
+                });
+                let typ = &mut definitions.trigger_types[index];
+                typ.owner = record.owner().map(str::to_string);
+                typ.linked = linked;
+                typ.enabled = record.enabled();
+                typ.difficulty = record.difficulty();
+                typ.transfer_on_capture |= record.transfer_on_capture();
+                //7274E2..727514 prepends to the list a revisit retains.
+                let retained = std::mem::take(&mut typ.events);
+                typ.events = events
                     .into_iter()
-                    .map(|entry| definitions.resolve_action(entry, eva, sounds))
+                    .map(RuntimeEvent::from)
+                    .chain(retained)
                     .collect();
-                definitions.trigger_types[index] = TriggerType {
-                    id: definitions.trigger_types[index].id.clone(),
-                    owner: record.owner.clone(),
-                    linked,
-                    enabled: record.enabled,
-                    difficulty: [
-                        record.difficulty.easy,
-                        record.difficulty.medium,
-                        record.difficulty.hard,
-                    ],
-                    events: events.into_iter().map(RuntimeEvent::from).collect(),
-                    transfer_on_capture: definitions.trigger_types[index].transfer_on_capture
-                        || record
-                            .fields
-                            .get(7)
-                            .is_some_and(|value| crt_atoi(value) != 0),
-                    actions,
-                };
+                if let Some(actions) = actions {
+                    typ.actions = actions;
+                }
             }
         }
         if let Some(section) = map.ini.section("Tags") {
@@ -437,21 +439,16 @@ impl RuntimeDefinitions {
                 let Some(index) = definitions.tag_type(key) else {
                     continue;
                 };
-                let id = definitions.tag_types[index].id.to_ascii_uppercase();
-                let Some(record) = map.tags.get(&id) else {
+                let Some(record) = map.tags.get(&definitions.tag_types[index].id) else {
                     continue;
                 };
-                let repeat = record.fields.first().map_or(0, |value| crt_atoi(value));
                 let trigger = record
-                    .fields
-                    .get(2)
+                    .trigger()
                     .and_then(|name| definitions.trigger_type(name));
-                definitions.tag_types[index].repeat = repeat;
-                definitions.tag_types[index].name =
-                    record.fields.get(1).map_or_else(String::new, |name| {
-                        truncate_native_bytes(name, 48).to_string()
-                    });
-                definitions.tag_types[index].trigger = trigger;
+                let typ = &mut definitions.tag_types[index];
+                typ.repeat = record.repeat();
+                typ.name = record.name().to_string();
+                typ.trigger = trigger;
             }
         }
         definitions
@@ -1050,22 +1047,14 @@ impl Simulation {
             let index = definitions.trigger_type(id).unwrap();
             let record = &triggers[id];
             let linked = record
-                .linked_trigger_id
-                .as_deref()
+                .linked_trigger_id()
                 .and_then(|id| definitions.trigger_type(id));
             let typ = &mut definitions.trigger_types[index];
-            typ.owner = record.owner.clone();
+            typ.owner = record.owner().map(str::to_string);
             typ.linked = linked;
-            typ.enabled = record.enabled;
-            typ.transfer_on_capture |= record
-                .fields
-                .get(7)
-                .is_some_and(|value| crt_atoi(value) != 0);
-            typ.difficulty = [
-                record.difficulty.easy,
-                record.difficulty.medium,
-                record.difficulty.hard,
-            ];
+            typ.enabled = record.enabled();
+            typ.transfer_on_capture |= record.transfer_on_capture();
+            typ.difficulty = record.difficulty();
             definitions.tag_types.push(TagType {
                 id: id.clone(),
                 name: id.clone(),
@@ -1095,7 +1084,7 @@ impl Simulation {
         for index in 0..count {
             let id = self.trigger_runtime.definitions.trigger_types[index]
                 .id
-                .to_ascii_uppercase();
+                .clone();
             let events = inputs
                 .events
                 .get(&id)

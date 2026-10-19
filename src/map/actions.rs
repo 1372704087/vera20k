@@ -184,13 +184,14 @@ fn ascii_waypoint_letter(byte: u8) -> Option<u32> {
         .map(u32::from)
 }
 
-/// Parse `[Actions]` into an id -> action record map.
+/// Parse `[Actions]` into exact-key action records.
 ///
-/// The TriggerType read (`0x00727516..0x007275A5`) ReadStrings the trigger's
-/// entry into 0x200 bytes and takes `atoi` of the first `strtok(",")` token
-/// as the action count; `TActionClass::Read @ 0x006DD5B0` then consumes eight
-/// tokens per action from the same cursor. Empty comma fields are skipped;
-/// whitespace-only fields still consume a token.
+/// The TriggerType read (`0x00727516..0x007275A5`) ReadStrings the entry of
+/// the Type's own ID, exact case, into 0x200 bytes and takes `atoi` of the
+/// first `strtok(",")` token as the action count; TActionClass::Read
+/// (`0x006DD5B0`) then consumes eight tokens per action from the same cursor.
+/// Empty comma fields are skipped; whitespace-only fields still consume a
+/// token.
 pub fn parse_actions(ini: &IniFile) -> ActionMap {
     let Some(section) = ini.section("Actions") else {
         return HashMap::new();
@@ -201,11 +202,7 @@ pub fn parse_actions(ini: &IniFile) -> ActionMap {
         let Some(value) = section.read_name(key, 0x200) else {
             continue;
         };
-        let id = key.trim();
-        if id.is_empty() {
-            continue;
-        }
-        let id = id.to_ascii_uppercase();
+        let id = key.to_string();
         let tokens: Vec<&str> = strtok(value, &[',']).collect();
         let entries = parse_action_entries(&tokens);
         actions.insert(

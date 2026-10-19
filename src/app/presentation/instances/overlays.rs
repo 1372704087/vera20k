@@ -581,7 +581,7 @@ pub(super) fn anim_world_render_coords(
     let (rx, ry, sub_x, sub_y, z) = world.to_cell_sub_z();
     let (screen_x, screen_y) =
         crate::util::lepton::lepton_to_screen_exact_z(rx, ry, sub_x, sub_y, world.z);
-    let lift_px = crate::util::flh_transform::adjust_for_z_leptons(world.z);
+    let lift_px = crate::util::native_x87::adjust_for_z_standard(world.z);
     (screen_x, screen_y, rx, ry, z, lift_px)
 }
 

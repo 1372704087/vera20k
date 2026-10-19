@@ -441,11 +441,10 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
         records.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             if (section == "Tags"
-                && map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|target| chain.contains(&target.as_str()))
-                }))
+                && map
+                    .tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|target| chain.contains(&target))))
                 || (section != "Tags" && chain.contains(&key))
             {
                 records.push_str(&format!("{key}={value}\n"));

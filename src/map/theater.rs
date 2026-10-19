@@ -1097,6 +1097,21 @@ fn read_general_u16(general: Option<&IniSection>, key: &str) -> Option<u16> {
     u16::try_from(general?.read_int(key, -1)).ok()
 }
 
+/// The unit and iso palettes [`load_theater`] publishes, read from the same
+/// exact names through the same decoder. Entity atlases built during a match
+/// key their rows on these RGBA values, so pages grown later must match the
+/// load-time pages; retail UNITTEM.PAL holds raw 63,0,63 at indices 204..239
+/// and ISOTEM.PAL at 10, which another decoder would make transparent.
+pub fn load_theater_unit_and_iso_palettes(
+    asset_manager: &AssetManager,
+    theater_name: &str,
+) -> Option<(Palette, Palette)> {
+    let def = theater_def(theater_name)?;
+    let unit = load_exact_palette(asset_manager, def.unit_palette_name, theater_name, "unit")?;
+    let iso = load_exact_palette(asset_manager, def.iso_palette_name, theater_name, "iso")?;
+    Some((unit, iso))
+}
+
 fn load_exact_palette(
     asset_manager: &AssetManager,
     name: &str,

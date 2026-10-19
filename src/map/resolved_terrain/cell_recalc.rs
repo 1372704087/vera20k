@@ -23,7 +23,7 @@ pub(crate) struct LoadCellRecalcState<'a> {
     resident_bridge: Option<&'a BridgeRecalcCatalog>,
     terrain_rules: Option<&'a TerrainRules>,
     overlay_types: &'a OverlayTypeRegistry,
-    playfield: Option<Playfield>,
+    playfield: Option<PlayfieldBounds>,
     pub(super) lat_config: Option<lat::LatConfig>,
     pub(super) slope_config: Option<lat::SlopeFixupConfig>,
     pub(super) cliff_back_impassability: u8,
@@ -54,7 +54,7 @@ impl<'a> LoadCellRecalcState<'a> {
             resident_bridge: None,
             terrain_rules: Some(terrain_rules),
             overlay_types,
-            playfield: Some(Playfield::from_header(&map.header)),
+            playfield: Some(PlayfieldBounds::from_map_header(&map.header)),
             lat_config,
             slope_config,
             cliff_back_impassability,
@@ -175,15 +175,7 @@ impl<'a> LoadCellRecalcState<'a> {
             resident_bridge: Some(catalog),
             terrain_rules: Some(&catalog.terrain_rules),
             overlay_types,
-            playfield: bounds.map(|bounds| {
-                Playfield::from_local_size(
-                    bounds.base,
-                    bounds.off_fc,
-                    bounds.off_100,
-                    bounds.off_104,
-                    bounds.off_108,
-                )
-            }),
+            playfield: bounds,
             lat_config: catalog.lat_config.clone(),
             slope_config: catalog.slope_config,
             cliff_back_impassability: catalog.cliff_back_impassability,
@@ -805,7 +797,12 @@ impl ResolvedTerrainGrid {
         cell.ground_walk_blocked =
             land_ground_blocked || cell.terrain_object_blocks || cell.overlay_blocks;
         cell.outside_playfield = state.playfield.is_some_and(|playfield| {
-            !playfield.contains_raised(cell.rx, cell.ry, cell.level as i8, cell.slope_type)
+            !playfield.contains_height_aware_packed(
+                i32::from(cell.rx),
+                i32::from(cell.ry),
+                cell.level as i8,
+                cell.slope_type,
+            )
         });
         cell.zone_type = recalc_zone_type(
             cell.outside_playfield,

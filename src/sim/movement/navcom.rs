@@ -740,16 +740,8 @@ fn drive_stop_moving(entity: &mut GameEntity) {
         loco.store_track_target_fraction(TrackFamily::Drive, TRACK_STOP_TARGET_FRACTION);
     }
     loco.store_track_destination(TrackFamily::Drive, None);
-    // OPEN Process-host timing: native Stop4AFE00 clamps only class target
-    // and clears destination. The owner zero belongs to the admitted Process
-    // rest tail4B0828, which also tests queue emptiness. Several ordinary
-    // arrival returns skip that tail. Zero it here, as before, until that
-    // tail is ported; this is not Stop parity.
-    if loco.track_head(TrackFamily::Drive).is_none()
-        && entity.foot_speed.applied_fraction() > SIM_ZERO
-    {
-        entity.foot_speed.set_speed_fraction(SIM_ZERO);
-    }
+    // Foot+578 is retained here. The common Process tail4B0828 owns its
+    // eventual zero, after the destination/head/path gates (track_turn).
 }
 
 fn ship_set_destination(

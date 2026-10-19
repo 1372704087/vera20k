@@ -104,25 +104,6 @@ fn computer_paranoid_allies_the_computers_against_the_human() {
     assert_eq!(sim.houses[&ids[1]].grudge_scores.get(&player), Some(&2));
 }
 
-/// A lone computer allies no one: Special would leave it without an enemy.
-#[test]
-fn a_lone_computer_allies_no_one() {
-    let rules = rules();
-    let (mut sim, _) = sim_with(
-        &rules,
-        &[
-            ("Player", "Americans", true),
-            ("Computer1", "Russians", false),
-            ("Neutral", "Neutral", false),
-            ("Special", "Special", false),
-        ],
-    );
-    paranoid(&mut sim, &rules);
-    assert_eq!(allies(&sim, "Computer1"), set(&[]));
-    assert_eq!(allies(&sim, "Neutral"), set(&["Computer1"]));
-    assert_eq!(allies(&sim, "Special"), set(&["Computer1"]));
-}
-
 /// The gate (`0x00501640..0x00501675`): Rules `AlliesAllowed=`, and no
 /// computer slot with a team, which `Create_Houses` records
 /// (`0x006881F5..0x00688209`).

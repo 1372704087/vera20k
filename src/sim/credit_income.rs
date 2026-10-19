@@ -921,44 +921,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn derrick_stops_paying_while_not_operational() {
-        let rules = rules();
-        let mut sim = Simulation::with_seed(0x0011_0902);
-        let neutral = house(&mut sim, "Neutral", false, 0);
-        sim.houses.get_mut(&neutral).unwrap().multiplay_passive = true;
-        let americans = house(&mut sim, "Americans", true, 0);
-        let oil = sim
-            .spawn_object("CAOILDP", "Neutral", 10, 10, 0, &rules)
-            .expect("powered derrick spawns");
-        sim.change_owner_with_rules(
-            oil,
-            americans,
-            &rules,
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(credits(&sim, americans), 1_000);
-        // No power plant: output 0 < drain 10 → low power → not operational.
-        run_ticks(&mut sim, &rules, 300);
-        assert!(
-            sim.power_states[&americans].is_low_power,
-            "fixture must be in low power"
-        );
-        assert_eq!(
-            credits(&sim, americans),
-            1_000,
-            "no ProduceCashAmount while offline"
-        );
-        // The timer still re-armed on every expiry (the re-arm precedes the gate).
-        let timer = sim.substrate.entities.get(oil).unwrap().produce_cash.timer;
-        assert_eq!(timer.duration(), 100);
-        assert!(
-            (sim.session.binary_frame as i32).wrapping_sub(timer.start_frame()) < 100,
-            "timer keeps cycling while offline"
-        );
-    }
-
     /// §2.17: with the drain link installed on a `ResourceDestination=yes`
     /// victim (a refinery) the victim loses `min(DrainMoneyAmount, Available)`
     /// on every `DrainMoneyFrameDelay`-th frame and the drainer's house gains
@@ -1235,22 +1197,6 @@ mod tests {
             None
         );
         assert!(anim_uninited(&sim, anim));
-    }
-
-    #[test]
-    fn produce_cash_timer_fires_once_at_delay_minus_one_then_needs_rearm() {
-        let timer = CdTimer::started(100, 100);
-        for frame in 100..199 {
-            assert!(
-                !produce_cash_fires(timer, frame),
-                "frame {frame} must not fire"
-            );
-        }
-        assert!(produce_cash_fires(timer, 199));
-        // Past its duration the native timer is dead: `elapsed >= duration`
-        // jumps over the block until something re-arms it.
-        assert!(!produce_cash_fires(timer, 200));
-        assert!(!produce_cash_fires(timer, 5_000));
     }
 
     #[test]

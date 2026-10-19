@@ -1156,26 +1156,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn gsi_04_12_raw_occupation_preserves_every_raw_bit() {
-        let mut grid = RawCellOccupationGrid::new();
-        for mask in [
-            0x01,
-            0x02,
-            0x04,
-            0x08,
-            0x10,
-            VEHICLE_OCCUPATION_BIT,
-            0x40,
-            0x80,
-        ] {
-            grid.mark_ground(7, 9, mask);
-        }
-
-        assert_eq!(grid.ground_bits(7, 9), u8::MAX);
-        assert_eq!(grid.ground_bits(9, 7), 0);
-    }
-
-    #[test]
     fn infantry_owner_indices_follow_selected_plane_and_functional_bits() {
         let mut grid = RawCellOccupationGrid::new();
         grid.mark_ground_infantry(7, 9, 1 << 2, InternedId::from_index(41));

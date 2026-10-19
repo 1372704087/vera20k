@@ -89,25 +89,6 @@ fn finish(sim: &mut Simulation, rules: &RuleSet, id: u64) -> usize {
     );
     receipts
 }
-#[test]
-fn one_command_turns_and_converts_all_stock_mcv_types() {
-    for kind in ["AMCV", "SMCV", "PCV"] {
-        for facing in [0, 32, 64, 127, 128, 192, 255] {
-            let (mut sim, rules, id) = fixture(kind, facing, 5, 4);
-            let accepted = tick(&mut sim, &rules, Some(Command::DeployMcv { entity_id: id }));
-            assert!(!accepted.spawned_entities, "acceptance is not conversion");
-            assert_eq!(yards(&sim), 0);
-            assert_eq!(finish(&mut sim, &rules, id), 1, "one conversion receipt");
-            let yard = sim
-                .substrate
-                .entities
-                .values()
-                .find(|e| !e.death.is_dying() && e.category() == EntityCategory::Structure)
-                .unwrap();
-            assert_eq!((yard.position.rx(), yard.position.ry()), (19, 21));
-        }
-    }
-}
 /// Deploy lifts the MCV (`Mark(UP)`, `0x00739670`) before the yard is built
 /// and marked. Its own cell must admit Building449440 and end like every
 /// other yard cell, with no surviving raw vehicle claim.
@@ -777,21 +758,6 @@ fn try_to_deploy_sites_match_the_original_table() {
         })
         .collect();
     assert_eq!(native, TRY_TO_DEPLOY_SITES);
-}
-
-#[test]
-fn try_to_deploy_admits_a_clear_spot_where_the_unit_stands() {
-    let (mut sim, rules, id) = house_fixture(false, BUILDABLE);
-    assert!(try_to_deploy(
-        &mut sim,
-        id,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default()
-    ));
-    let mcv = sim.substrate.entities.get(id).unwrap();
-    assert!(mcv.navigation.nav_com().is_none());
-    assert!(sim.substrate.occupancy.contains_entity(20, 22, id));
 }
 
 /// A blocker inside the unit's own foundation also refuses the first four

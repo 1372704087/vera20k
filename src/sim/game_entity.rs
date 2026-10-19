@@ -1295,7 +1295,7 @@ impl GameEntity {
     /// comparison's), wrapping 0xFF80.. to 0.
     /// `+0x388` (PrimaryFacing) through `FacingClass::Current @ 0x004C93D0`.
     pub(crate) fn body_facing_dir(&self, frame: u32) -> u8 {
-        (((u32::from(self.body_facing.current(frame)) >> 7) + 1) >> 1) as u8
+        crate::util::direction_tables::round_facing16_to_8(self.body_facing.current(frame))
     }
 
     /// The barrel elevation (`+0x370`); its readers sample `current(frame)`

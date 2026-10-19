@@ -943,14 +943,7 @@ impl Simulation {
     ) -> Option<i32> {
         use crate::sim::movement::ground_pose::ground_surface_z_at;
 
-        let xy = [
-            i32::from(position.rx())
-                .wrapping_mul(256)
-                .wrapping_add(position.sub_x().to_num::<i32>()),
-            i32::from(position.ry())
-                .wrapping_mul(256)
-                .wrapping_add(position.sub_y().to_num::<i32>()),
-        ];
+        let xy = crate::sim::movement::ground_pose::position_world_xy(&position);
         let entity = self.substrate.entities.get(stable_id)?;
         if entity.is_falling_down() {
             // Paradrop's Unlimbo coordinate is the drop coordinate, which

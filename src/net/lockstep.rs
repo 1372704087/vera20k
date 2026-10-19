@@ -21,7 +21,6 @@ use serde::{Deserialize, Serialize};
 use crate::sim::command::{CommandRecord, CommandRecordError};
 use crate::sim::intern::InternedId;
 
-pub const MEGAMISSION_EVENT_OPCODE: u8 = 0x04;
 pub const FRAMEINFO_EVENT_OPCODE: u8 = 0x1c;
 pub const CHECKSUM_HISTORY_LEN: usize = 0x100;
 pub const OUT_LIST_CAPACITY: usize = 0x80;
@@ -314,7 +313,7 @@ impl SynchronizedCommand {
 
     #[cfg(any(test, feature = "test-support"))]
     fn stages_as_megamission(&self) -> bool {
-        self.record.opcode() == MEGAMISSION_EVENT_OPCODE
+        self.record.opcode() == crate::sim::command::MEGAMISSION_OPCODE
     }
 
     #[cfg(any(test, feature = "test-support"))]

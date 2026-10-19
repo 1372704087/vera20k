@@ -1146,7 +1146,12 @@ use crate::util::save_codec;
 // 423 -> 424: processed Types retain their Image, DeathWeapon, DeploysInto,
 // occupy weapons, SuperWeapon WeaponType and ShrapnelWeapon, and process
 // Rules state its [CombatDamage] DeathWeapon.
-const SNAPSHOT_VERSION: u32 = 424;
+// 424 -> 425: processed Types retain their remaining Type references
+// (TechnoType pointers and lists, Weapon anims and particle system,
+// SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
+// references, Warhead DebrisTypes), and process Rules state its RulesClass
+// Type pointers.
+const SNAPSHOT_VERSION: u32 = 425;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4871,7 +4876,8 @@ mod tests {
         // 421 -> 422: the drain link retains the drainer's DrainAnim.
         // 422 -> 423: retained weapon blocks and HoldsWhat bindings.
         // 423 -> 424: retained Type references and Rules DeathWeapon.
-        assert_eq!(super::SNAPSHOT_VERSION, 424);
+        // 424 -> 425: the remaining Type references and Rules Type pointers.
+        assert_eq!(super::SNAPSHOT_VERSION, 425);
     }
 
     #[test]

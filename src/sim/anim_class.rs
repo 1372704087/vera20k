@@ -3864,16 +3864,30 @@ mod tests {
         }
     }
 
+    /// Each `art_text` section is an AnimType, so the ordered Rules processor
+    /// reads its fixed-ART Type references (`Next=`, `TrailerAnim=`, ...) as
+    /// in production.
     fn runtime_rules(art_text: &str, frame_counts: &[(&str, i32)]) -> RuleSet {
-        let mut rules = RuleSet::from_ini(&IniFile::from_str(
-            "[General]\nDamageFireTypes=\n\n[AudioVisual]\nConditionYellow=50%\nConditionRed=25%\n",
-        ))
+        let art_ini = IniFile::from_str(art_text);
+        let animations: String = art_ini
+            .section_names()
+            .iter()
+            .enumerate()
+            .map(|(index, name)| format!("{index}={name}\n"))
+            .collect();
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(&format!(
+                "[General]\nDamageFireTypes=\n\n[AudioVisual]\nConditionYellow=50%\nConditionRed=25%\n\n\
+                 [Animations]\n{animations}"
+            )),
+            &art_ini,
+        )
         .unwrap();
-        let mut art = ArtRegistry::from_ini(&IniFile::from_str(art_text));
+        let mut art = ArtRegistry::from_ini(&art_ini);
         for &(name, frames) in frame_counts {
             art.bind_anim_frame_count_for_test(name, frames);
         }
-        rules.replace_art_registry_for_test(art);
+        rules.install_art_fixture(art);
         rules
     }
 
@@ -5224,25 +5238,32 @@ mod tests {
     /// destroyed. Its Location follows the body every tick.
     #[test]
     fn a_debris_chunk_lands_and_blasts_what_is_under_it() {
-        let mut rules = RuleSet::from_ini(&IniFile::from_str(
-            "[General]\nDamageFireTypes=\n\
-             [AudioVisual]\nConditionYellow=50%\nConditionRed=25%\n\
-             [InfantryTypes]\n[VehicleTypes]\n0=TANK\n[AircraftTypes]\n[BuildingTypes]\n\
-             [TANK]\nStrength=300\nArmor=heavy\nSpeed=4\n\
-             [Warheads]\n0=HE\n\
-             [HE]\nCellSpread=.5\nPercentAtMax=.5\n\
-             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-        ))
-        .unwrap();
-        let mut art = ArtRegistry::from_ini(&IniFile::from_str(
+        let art_ini = IniFile::from_str(
             "[CHUNK]\nBouncer=yes\nElasticity=0.0\nMaxXYVel=0.5\nMinZVel=25.0\n\
              ExpireAnim=BOOM\nDamage=20\nDamageRadius=80\nWarhead=HE\n\
              LoopEnd=15\nLoopCount=-1\nRandomRate=220,600\n\
              [BOOM]\nRate=900\n",
-        ));
+        );
+        // The ordered Rules processor reads CHUNK's `ExpireAnim=` and
+        // `Warhead=` with its ART body.
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(
+                "[General]\nDamageFireTypes=\n\
+                 [AudioVisual]\nConditionYellow=50%\nConditionRed=25%\n\
+                 [InfantryTypes]\n[VehicleTypes]\n0=TANK\n[AircraftTypes]\n[BuildingTypes]\n\
+                 [Animations]\n0=CHUNK\n1=BOOM\n\
+                 [TANK]\nStrength=300\nArmor=heavy\nSpeed=4\n\
+                 [Warheads]\n0=HE\n\
+                 [HE]\nCellSpread=.5\nPercentAtMax=.5\n\
+                 Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+            ),
+            &art_ini,
+        )
+        .unwrap();
+        let mut art = ArtRegistry::from_ini(&art_ini);
         art.bind_anim_frame_count_for_test("CHUNK", 30);
         art.bind_anim_frame_count_for_test("BOOM", 17);
-        rules.replace_art_registry_for_test(art);
+        rules.install_art_fixture(art);
         let mut sim = Simulation::with_seed(3);
         let americans = sim.interner.intern("Americans");
         sim.houses.insert(

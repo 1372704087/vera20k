@@ -4124,6 +4124,7 @@ fn short_game_defeat_test_rules() -> RuleSet {
          [SMCV]\nStrength=450\nArmor=heavy\nSpeed=5\nDeploysInto=GACNST\n\n\
          [PCV]\nStrength=450\nArmor=heavy\nSpeed=5\nDeploysInto=GACNST\n\n\
          [GACNST]\nStrength=1000\nArmor=wood\nConstructionYard=yes\nUndeploysInto=AMCV\n\n\
+         [CombatDamage]\nC4Warhead=Super\n\n\
          [Warheads]\n0=Super\n\n\
          [Super]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     );
@@ -5105,6 +5106,7 @@ fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
 fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n\
+         [CombatDamage]\nC4Warhead=Super\n\
          [Warheads]\n0=Super\n[Super]\nInfDeath=2\nPenetratesBunker=yes\n\
          Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     ))
@@ -10236,7 +10238,8 @@ fn group_move_never_draws_two_hulls_on_one_spot() {
 
 #[test]
 fn rule_handles_resolve_at_init_and_stay_none_for_unresolved_fixtures() {
-    let rules = RuleSet::from_ini(&IniFile::from_str("")).expect("empty rules fixture parses");
+    let rules = RuleSet::from_ini(&IniFile::from_str("[CombatDamage]\nCrushWarhead=Crush\n"))
+        .expect("crush rules fixture parses");
 
     // Init-path resolution pins the canonical warhead names.
     let mut init_sim = Simulation::new();

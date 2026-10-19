@@ -1840,8 +1840,9 @@ pub struct GeneralRules {
     // --- GeneticConverter ([SpecialWeapons] + [General]) ---
     /// `[SpecialWeapons] MutateWarhead=` (`+0xF98`, read at `0x006690BB`
     /// through WarheadTypeClass::FindOrAllocate `0x0075E3B0`): the warhead
-    /// Launch case 9's walk hands each infantryman. The constructor's null
-    /// (`0x00666B3A`): empty.
+    /// Launch case 9's walk hands each infantryman, as the ordered Rules
+    /// processor resolved it. The constructor's null (`0x00666B3A`) and the
+    /// factory's null for `none`: empty.
     pub mutate_warhead: String,
     /// `[SpecialWeapons] MutateExplosionWarhead=` (`+0xF9C`, `0x006690FA`):
     /// the warhead of case 9's area damage. The constructor's null
@@ -2793,7 +2794,10 @@ pub struct RadiationRules {
     pub tint_factor: SimFixed,
     /// Glow color (`RadColor=R,G,B`). Render-only.
     pub color: (u8, u8, u8),
-    /// Warhead used for radiation damage (`RadSiteWarhead`), uppercased.
+    /// Warhead used for radiation damage (`RadSiteWarhead=`, Rules+1834), as
+    /// the ordered Rules processor resolved it: empty for the constructor's
+    /// null (`0x00667801`) or the factory's null for `none`. An empty read
+    /// keeps it (`0x0066D0EA` reloads the field, `0x0066D127` stores it back).
     pub site_warhead: String,
 }
 
@@ -2811,7 +2815,7 @@ impl Default for RadiationRules {
             // Rules665663 zeroes EBX;6677EF/F5/FB seed RGB from BL.
             //66CF70 retains these bytes when RadColor is absent.
             color: (0, 0, 0),
-            site_warhead: "RadSite".to_string(),
+            site_warhead: String::new(),
         }
     }
 }
@@ -2843,10 +2847,8 @@ impl RadiationRules {
                 section.read_double("RadTintFactor", d.tint_factor.to_num()) as f32
             ),
             color: (red, green, blue),
-            site_warhead: section
-                .read_name("RadSiteWarhead", 0x80)
-                .map(str::to_owned)
-                .unwrap_or(d.site_warhead),
+            // Only the ordered Process owner reads it (`RulesTypeReferences`).
+            site_warhead: d.site_warhead,
         }
     }
 }
@@ -3099,8 +3101,6 @@ impl GeneralRules {
         // Combat-only globals are read in the late [CombatDamage] pass.
         let combat_damage = ini.section_or_empty("CombatDamage");
         // Base-planning/credit controls live in the independent [AI] read.
-        // Genetic Mutator warhead references are read by [SpecialWeapons].
-        let special_weapons = ini.section_or_empty("SpecialWeapons");
         // INI parser already strips everything after `;` (Westwood comment
         // marker), so values like `WarpOut=WARPOUT;WAKE2` are read as
         // `WARPOUT` — matching gamemd's behaviour.
@@ -3752,12 +3752,10 @@ impl GeneralRules {
             force_shield_fade_sound_time: general.read_int("ForceShieldPlayFadeSoundTime", 50),
             force_shield_invoke_anim: general.read_string("ForceShieldInvokeAnim", "", 0x80),
             psychic_reveal_radius,
-            mutate_warhead: special_weapons.read_string("MutateWarhead", "", 0x80),
-            mutate_explosion_warhead: special_weapons.read_string(
-                "MutateExplosionWarhead",
-                "",
-                0x80,
-            ),
+            // The constructor's nulls; only the ordered Process owner reads
+            // them (`RulesTypeReferences`).
+            mutate_warhead: String::new(),
+            mutate_explosion_warhead: String::new(),
             mutate_explosion: general.read_bool("MutateExplosion", false),
             // The processed RulesClass vector is authoritative; a merged INI
             // cannot reproduce successful-read replacement or factory identity.
@@ -4064,6 +4062,9 @@ pub struct RuleSet {
     /// Ordered native registry receipt: whether this type actually reached a
     /// successful fixed-ART ReadINI before the final rules pass completed.
     anim_type_art_read_states: Vec<(String, bool)>,
+    /// Each AnimType's fixed-ART Type references after the last pass, in the
+    /// same registry order; installing ART data hands them to the registry.
+    anim_type_references: Vec<(String, crate::rules::native_processing::AnimTypeReferences)>,
     /// GPU-independent SHP frame counts used by particle timing. Bound once
     /// from the active assets and ART data.
     effect_assets: crate::rules::effect_asset_catalog::EffectAssetCatalog,
@@ -4200,7 +4201,9 @@ impl RuleSet {
         rules.combat_damage.splash_list = splash.to_vec();
         rules.combat_damage.death_weapon =
             processed.combat_damage_death_weapon().map(str::to_owned);
-        for (name, conventional, em_effect, anim_list) in processed.warhead_anim_states() {
+        for (name, conventional, em_effect, anim_list, debris_types) in
+            processed.warhead_anim_states()
+        {
             if let Some(warhead) = rules
                 .warheads
                 .values_mut()
@@ -4209,6 +4212,7 @@ impl RuleSet {
                 warhead.conventional = conventional;
                 warhead.em_effect = em_effect;
                 warhead.anim_list = anim_list.to_vec();
+                warhead.debris_types = debris_types.to_vec();
             }
         }
         (
@@ -4322,11 +4326,7 @@ impl RuleSet {
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
-                object.image = references.image().to_owned();
-                object.death_weapon = references.death_weapon().map(str::to_owned);
-                object.deploys_into = references.deploys_into().map(str::to_owned);
-                object.occupy_weapon = references.occupy_weapon().map(str::to_owned);
-                object.elite_occupy_weapon = references.elite_occupy_weapon().map(str::to_owned);
+                references.apply_to(object);
             }
         }
         for (name, pips) in processed.infantry_pip_states() {
@@ -4350,6 +4350,10 @@ impl RuleSet {
         rules.anim_type_art_read_states = processed
             .anim_type_art_read_states()
             .map(|(name, read)| (name.to_owned(), read))
+            .collect();
+        rules.anim_type_references = processed
+            .anim_type_reference_states()
+            .map(|(name, references)| (name.to_owned(), references.clone()))
             .collect();
         rules.unit_shp_read_states = processed
             .unit_shp_read_states()
@@ -4411,16 +4415,73 @@ impl RuleSet {
                 projectile.shrapnel_weapon = weapon.map(str::to_owned);
             }
         }
-        for (name, weapon) in processed.super_weapon_weapon_states() {
+        for (name, (weapon, aux_building)) in processed.super_weapon_reference_states() {
             if let Some(super_weapon) = rules
                 .super_weapons
                 .values_mut()
                 .find(|super_weapon| super_weapon.id.eq_ignore_ascii_case(name))
             {
                 super_weapon.weapon_type = weapon.map(str::to_owned);
+                super_weapon.aux_building = aux_building.map(str::to_owned);
             }
         }
+        // Equal truncated stored IDs share one projected type, which the last
+        // such member's state is written to last.
+        for (name, warhead) in processed.particle_warhead_states() {
+            if let Some(particle) = rules
+                .particle_types
+                .iter_mut()
+                .find(|particle| particle.name.eq_ignore_ascii_case(name))
+            {
+                particle.warhead = warhead.map(str::to_owned);
+            }
+        }
+        for (name, references) in processed.voxel_anim_reference_states() {
+            if let Some(voxel_anim) = rules
+                .voxel_anim_types
+                .iter_mut()
+                .find(|voxel_anim| voxel_anim.name.eq_ignore_ascii_case(name))
+            {
+                references.apply_to(voxel_anim);
+            }
+        }
+        rules.publish_rules_type_references(processed.rules_type_references());
         Ok(rules)
+    }
+
+    /// Publish the RulesClass Type pointers the ordered Rules processor
+    /// retained; a null warhead is an empty name.
+    fn publish_rules_type_references(
+        &mut self,
+        references: &crate::rules::native_processing::RulesTypeReferences,
+    ) {
+        let name = |reference: &Option<String>| reference.clone().unwrap_or_default();
+        self.bridge_warheads.c4_name = name(&references.c4_warhead);
+        self.bridge_warheads.crush_name = name(&references.crush_warhead);
+        self.bridge_warheads.ion_cannon_name = name(&references.ion_cannon_warhead);
+        self.combat_damage
+            .ivan_warhead
+            .clone_from(&references.ivan_warhead);
+        self.combat_damage
+            .drain_animation_type
+            .clone_from(&references.drain_animation_type);
+        for (field, system) in self
+            .combat_damage
+            .default_particle_systems_mut()
+            .into_iter()
+            .zip(&references.default_particle_systems)
+        {
+            field.clone_from(system);
+        }
+        self.mind_control
+            .controlled_anim
+            .clone_from(&references.controlled_animation_type);
+        self.mind_control
+            .perma_controlled_anim
+            .clone_from(&references.perma_controlled_animation_type);
+        self.radiation.site_warhead = name(&references.rad_site_warhead);
+        self.general.mutate_warhead = name(&references.mutate_warhead);
+        self.general.mutate_explosion_warhead = name(&references.mutate_explosion_warhead);
     }
 
     /// Resolve type sound readers against the startup-selected
@@ -4868,7 +4929,8 @@ impl RuleSet {
         // Projectile AirburstWeapon/ShrapnelWeapon, ...) and keeps each one
         // even when nothing current references it: Action42 indexes this
         // family directly (6E2390). Its retained Damage, Speed, Range,
-        // Projectile and Warhead are the only reads of those keys.
+        // Projectile, Warhead, Anim, OccupantAnim, OpenToppedAnim and
+        // AttachedParticleSystem are the only reads of those keys.
         let mut weapons: LookupMap<String, WeaponType> = LookupMap::default();
         for state in processed.weapon_states() {
             let Some(section) = ini.section(state.id) else {
@@ -4881,18 +4943,18 @@ impl RuleSet {
             weapon.projectile = state.projectile.map(str::to_owned);
             weapon.damage = state.damage;
             weapon.warhead = state.warhead.map(str::to_owned);
+            weapon.anim = state.anim.to_vec();
+            weapon.occupant_anim = state.occupant_anim.map(str::to_owned);
+            weapon.open_topped_anim = state.open_topped_anim.map(str::to_owned);
+            weapon.attached_particle_system = state.attached_particle_system.map(str::to_owned);
             weapons.insert(section.name.clone(), weapon);
         }
 
         // Step 3: Parse warhead sections. The projected [Warheads] registry is
         // the processor's whole Warhead family: the [Warheads] values and
-        // every reference-driven allocation, weapons' warheads included. The
-        // radiation-field warhead is referenced by [Radiation], not by any
-        // weapon — pull it into the referenced set explicitly so the periodic
-        // radiation damage can resolve it.
-        let mut warhead_ids: HashSet<String> =
-            parse_registry(ini, "Warheads").into_iter().collect();
-        warhead_ids.insert(radiation.site_warhead.clone());
+        // every reference-driven allocation, weapons' warheads and the
+        // [Radiation] RadSiteWarhead included.
+        let warhead_ids: HashSet<String> = parse_registry(ini, "Warheads").into_iter().collect();
         let mut warheads: LookupMap<String, WarheadType> = LookupMap::default();
         for warhead_id in &warhead_ids {
             if let Some(section) = ini.section(warhead_id) {
@@ -4967,11 +5029,9 @@ impl RuleSet {
             .map(CombatDamageDefaults::from_ini_section)
             .unwrap_or_default();
 
-        // Parse [CombatDamage] bridge-warhead names (IonCannonWarhead, C4Warhead).
-        let bridge_warheads = ini
-            .section("CombatDamage")
-            .map(crate::rules::bridge_warheads::BridgeWarheads::from_ini_section)
-            .unwrap_or_default();
+        // [CombatDamage] IonCannonWarhead, C4Warhead and CrushWarhead: the
+        // ordered Process owner's, published by from_processed_rules.
+        let bridge_warheads = crate::rules::bridge_warheads::BridgeWarheads::default();
 
         let mind_control = crate::rules::mind_control_rules::MindControlRules::from_ini(
             ini,
@@ -5143,6 +5203,7 @@ impl RuleSet {
             smudge_types: SmudgeTypeRegistry::from_rules_ini(ini),
             art_registry: crate::rules::art_data::ArtRegistry::empty(),
             anim_type_art_read_states: Vec::new(),
+            anim_type_references: Vec::new(),
             anim_type_names: ini
                 .section("Animations")
                 .into_iter()
@@ -5524,7 +5585,7 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v22".hash(&mut hasher);
+        b"rules-simulation-config-v23".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
@@ -5615,21 +5676,48 @@ impl RuleSet {
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
         // The ordered Rules processor retains these references through
-        // missing keys and later passes (Image +1F8, DeathWeapon +D18,
-        // DeploysInto +404, OccupyWeapon +E04, EliteOccupyWeapon +E20,
-        // ShrapnelWeapon +2B4, SuperWeapon WeaponType +9C).
-        b"retained-type-references-v1".hash(&mut hasher);
+        // missing keys and later passes: each TechnoType's
+        // (`TechnoTypeReferences`), ShrapnelWeapon +2B4, SuperWeapon
+        // WeaponType +9C and AuxBuilding +C8, the WeaponType anims and
+        // AttachedParticleSystem, ParticleType and VoxelAnimType references,
+        // Warhead DebrisTypes, the AnimTypes' fixed-ART references and the
+        // RulesClass Type pointers.
+        b"retained-type-references-v2".hash(&mut hasher);
         self.object_list
             .iter()
             .map(|object| {
                 (
                     (object.category, object.id.to_ascii_uppercase()),
                     (
-                        &object.image,
-                        &object.death_weapon,
-                        &object.deploys_into,
-                        &object.occupy_weapon,
-                        &object.elite_occupy_weapon,
+                        (
+                            &object.image,
+                            &object.death_weapon,
+                            &object.deploys_into,
+                            &object.occupy_weapon,
+                            &object.elite_occupy_weapon,
+                            &object.undeploys_into,
+                            &object.powers_unit,
+                            &object.free_unit,
+                            &object.to_overlay,
+                        ),
+                        (
+                            &object.dock,
+                            &object.unloading_class,
+                            &object.deploying_anim,
+                            &object.enslaves,
+                            &object.spawns,
+                            &object.explosion_anims,
+                            &object.destroy_anims,
+                            &object.dead_bodies,
+                        ),
+                        (
+                            &object.natural_particle_system,
+                            &object.refinery_smoke_particle_system,
+                            &object.damage_particle_systems,
+                            &object.destroy_particle_systems,
+                            &object.debris_types,
+                            &object.debris_anims,
+                        ),
                     ),
                 )
             })
@@ -5642,8 +5730,75 @@ impl RuleSet {
             .hash(&mut hasher);
         self.super_weapons
             .iter()
-            .map(|(id, super_weapon)| (id.to_ascii_uppercase(), &super_weapon.weapon_type))
+            .map(|(id, super_weapon)| {
+                (
+                    id.to_ascii_uppercase(),
+                    (&super_weapon.weapon_type, &super_weapon.aux_building),
+                )
+            })
             .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        self.weapons
+            .iter()
+            .map(|(id, weapon)| {
+                (
+                    id.to_ascii_uppercase(),
+                    (
+                        &weapon.anim,
+                        &weapon.occupant_anim,
+                        &weapon.open_topped_anim,
+                        &weapon.attached_particle_system,
+                    ),
+                )
+            })
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        self.warheads
+            .iter()
+            .map(|(id, warhead)| (id.to_ascii_uppercase(), &warhead.debris_types))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
+        for particle in &self.particle_types {
+            (&particle.name, &particle.warhead).hash(&mut hasher);
+        }
+        for voxel_anim in &self.voxel_anim_types {
+            (
+                &voxel_anim.name,
+                &voxel_anim.spawns,
+                &voxel_anim.bounce_anim,
+                &voxel_anim.expire_anim,
+                &voxel_anim.trailer_anim,
+                &voxel_anim.warhead,
+                &voxel_anim.attached_system,
+            )
+                .hash(&mut hasher);
+        }
+        self.anim_type_references.hash(&mut hasher);
+        (
+            &self.bridge_warheads.c4_name,
+            &self.bridge_warheads.crush_name,
+            &self.bridge_warheads.ion_cannon_name,
+            &self.combat_damage.ivan_warhead,
+            &self.combat_damage.drain_animation_type,
+            &self.mind_control.controlled_anim,
+            &self.mind_control.perma_controlled_anim,
+            &self.radiation.site_warhead,
+            &self.general.mutate_warhead,
+            &self.general.mutate_explosion_warhead,
+        )
+            .hash(&mut hasher);
+        let damage = &self.combat_damage;
+        (
+            &damage.default_large_grey_smoke_system,
+            &damage.default_small_grey_smoke_system,
+            &damage.default_spark_system,
+            &damage.default_large_red_smoke_system,
+            &damage.default_small_red_smoke_system,
+            &damage.default_debris_smoke_system,
+            &damage.default_fire_stream_system,
+            &damage.default_test_particle_system,
+            &damage.default_repair_particle_system,
+        )
             .hash(&mut hasher);
         self.general.missile_rot_var.to_bits().hash(&mut hasher);
         self.general.safety_altitude.hash(&mut hasher);
@@ -6326,6 +6481,8 @@ impl RuleSet {
         self.art_registry = art;
         self.art_registry
             .apply_anim_type_read_states(&self.anim_type_art_read_states);
+        self.art_registry
+            .apply_anim_type_references(&self.anim_type_references);
         self.project_art_data();
     }
 
@@ -6365,11 +6522,11 @@ impl RuleSet {
             }
             buildings_checked += 1;
             obj.hidden_occupancy = art.building_hidden_occupancy_profile(&obj.id, art_key);
-            // +EF0 is supplied by the sole pass owner in from_processed_rules.
-            // Repeating461225 here changes late constructor-only types and
-            // loses retained state when installation ART differs from the pass.
+            // +EF0 and ToOverlay are supplied by the sole pass owner in
+            // from_processed_rules. Repeating461225 here changes late
+            // constructor-only types and loses retained state when
+            // installation ART differs from the pass.
             if let Some(entry) = entry {
-                obj.to_overlay = entry.to_overlay.clone();
                 // Merge QueueingCell from art.ini (TibSun legacy dock system).
                 if entry.queueing_cell != [0, 0] {
                     obj.queueing_cell = entry.queueing_cell;
@@ -6512,9 +6669,13 @@ impl RuleSet {
     /// Synthetic fixtures that previously projected ART then restored the raw
     /// registry deliberately bypass native read admission. Move that fixture
     /// once while sharing the production projection, without clone publication.
+    /// The AnimTypes' Type references still come from the ordered Rules
+    /// processor, as in [`Self::install_art_data`].
     #[cfg(any(test, feature = "test-support"))]
     pub fn install_art_fixture(&mut self, art: crate::rules::art_data::ArtRegistry) {
         self.art_registry = art;
+        self.art_registry
+            .apply_anim_type_references(&self.anim_type_references);
         self.project_art_data();
     }
 
@@ -7235,7 +7396,10 @@ SpawnCount=3
 ",
         );
         let rules = RuleSet::from_ini(&ini).expect("voxel anim rules parse");
-        assert_eq!(rules.voxel_anim_type_count(), 3);
+        // METEOR01's `Spawns=PEBBLE` goes through `VoxelAnimTypeClass::
+        // FindOrCreate @ 0x0074BB20`, which appends the unlisted PEBBLE.
+        assert_eq!(rules.voxel_anim_type_count(), 4);
+        assert_eq!(rules.voxel_anim_type_id_by_name("PEBBLE").unwrap().0, 3);
         let piece = rules
             .voxel_anim_type_id_by_name("piece")
             .expect("case-insensitive lookup");
@@ -8258,7 +8422,7 @@ TreeTargeting=yes\n\
 MutateWarhead=MyMutate\n\
 ";
         let ini = IniFile::from_str(ini_text);
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert_eq!(general.iron_curtain_duration, 900);
         assert_eq!(general.force_shield_radius, 5);
         assert_eq!(general.force_shield_duration, 600);
@@ -10047,20 +10211,20 @@ Projectile=Invisible
     }
 
     #[test]
-    fn resolved_rule_handles_use_bridge_warhead_defaults() {
+    fn resolved_rule_handles_stay_null_without_combat_damage_keys() {
         use crate::sim::intern::StringInterner;
         use crate::sim::type_handle_table::ResolvedRuleHandles;
         let ini: IniFile = IniFile::from_str(&make_test_rules());
         let rules: RuleSet = RuleSet::from_ini(&ini).expect("rules parse");
         let mut interner = StringInterner::default();
         let handles = ResolvedRuleHandles::resolve(&rules, &mut interner);
-        // Defaults match retail rulesmd.ini ("IonCannonWH" + "Super") because
-        // the test rules.ini has no `[CombatDamage]` overrides.
-        assert_eq!(interner.resolve(handles.ion_cannon), "IonCannonWH");
-        assert_eq!(interner.resolve(handles.c4), "Super");
-        assert_eq!(interner.resolve(handles.crush), "Crush");
-        assert!(handles.is_crush(handles.crush));
-        assert!(!handles.is_crush(handles.c4));
+        // The RulesClass constructor leaves the three warheads null
+        // (`0x00666B52`, `0x00666B58`, `0x00666BD5`) and the test rules.ini
+        // has no `[CombatDamage]` keys, so no named warhead matches them.
+        assert_eq!(interner.resolve(handles.ion_cannon), "");
+        assert_eq!(interner.resolve(handles.c4), "");
+        assert_eq!(interner.resolve(handles.crush), "");
+        assert!(!handles.is_crush(interner.intern("Crush")));
     }
 
     #[test]
@@ -10805,12 +10969,15 @@ Projectile=Invisible
         }
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=GUN\n\
-             [GUN]\nRange=5\nProjectile=SHOT\n[SHOT]\n\
-             [SuperWeaponTypes]\n0=NUKE\n[NUKE]\nType=MultiMissile\n",
+             [GUN]\nRange=5\nProjectile=SHOT\nWarhead=WH\n[SHOT]\n[WH]\n\
+             [SuperWeaponTypes]\n0=NUKE\n[NUKE]\nType=MultiMissile\n\
+             [Particles]\n0=GAS\n[GAS]\n[VoxelAnims]\n0=PIECE\n[PIECE]\n",
         ))
         .unwrap();
         let base = rules.simulation_config_hash();
-        let edits: [(&str, fn(&mut RuleSet)); 8] = [
+        let name = || Some("NAME".to_owned());
+        let names = || vec!["NAME".to_owned()];
+        let edits: Vec<(&str, fn(&mut RuleSet))> = vec![
             ("Image", |rules| unit(rules).image = "OTHER".into()),
             ("DeathWeapon", |rules| {
                 unit(rules).death_weapon = Some("GUN".into());
@@ -10838,6 +11005,207 @@ Projectile=Invisible
             let mut changed = rules.clone();
             edit(&mut changed);
             assert_ne!(changed.simulation_config_hash(), base, "{key}");
+        }
+
+        // The references the ordered processor alone reads since part 3.
+        type Edit = Box<dyn Fn(&mut RuleSet)>;
+        let unit_edit =
+            |set: fn(&mut ObjectType)| -> Edit { Box::new(move |rules| set(unit(rules))) };
+        let edits: Vec<(&str, Edit)> = vec![
+            (
+                "UndeploysInto",
+                unit_edit(|unit| unit.undeploys_into = Some("NAME".into())),
+            ),
+            (
+                "PowersUnit",
+                unit_edit(|unit| unit.powers_unit = Some("NAME".into())),
+            ),
+            (
+                "FreeUnit",
+                unit_edit(|unit| unit.free_unit = Some("NAME".into())),
+            ),
+            (
+                "ToOverlay",
+                unit_edit(|unit| unit.to_overlay = Some("NAME".into())),
+            ),
+            ("Dock", unit_edit(|unit| unit.dock = vec!["NAME".into()])),
+            (
+                "UnloadingClass",
+                unit_edit(|unit| unit.unloading_class = Some("NAME".into())),
+            ),
+            (
+                "DeployingAnim",
+                unit_edit(|unit| unit.deploying_anim = Some("NAME".into())),
+            ),
+            (
+                "Enslaves",
+                unit_edit(|unit| unit.enslaves = Some("NAME".into())),
+            ),
+            (
+                "Spawns",
+                unit_edit(|unit| unit.spawns = Some("NAME".into())),
+            ),
+            (
+                "Explosion",
+                unit_edit(|unit| unit.explosion_anims = vec!["NAME".into()]),
+            ),
+            (
+                "DestroyAnim",
+                unit_edit(|unit| unit.destroy_anims = vec!["NAME".into()]),
+            ),
+            (
+                "DeadBodies",
+                unit_edit(|unit| unit.dead_bodies = vec!["NAME".into()]),
+            ),
+            (
+                "NaturalParticleSystem",
+                unit_edit(|unit| unit.natural_particle_system = Some("NAME".into())),
+            ),
+            (
+                "RefinerySmokeParticleSystem",
+                unit_edit(|unit| unit.refinery_smoke_particle_system = Some("NAME".into())),
+            ),
+            (
+                "DamageParticleSystems",
+                unit_edit(|unit| unit.damage_particle_systems = vec!["NAME".into()]),
+            ),
+            (
+                "DestroyParticleSystems",
+                unit_edit(|unit| unit.destroy_particle_systems = vec!["NAME".into()]),
+            ),
+            (
+                "DebrisTypes",
+                unit_edit(|unit| unit.debris_types = vec!["NAME".into()]),
+            ),
+            (
+                "DebrisAnims",
+                unit_edit(|unit| unit.debris_anims = vec!["NAME".into()]),
+            ),
+            (
+                "AuxBuilding",
+                Box::new(move |rules| {
+                    rules.super_weapons.get_mut("NUKE").unwrap().aux_building = name()
+                }),
+            ),
+            (
+                "Anim",
+                Box::new(move |rules| rules.weapons.get_mut("GUN").unwrap().anim = names()),
+            ),
+            (
+                "OccupantAnim",
+                Box::new(move |rules| rules.weapons.get_mut("GUN").unwrap().occupant_anim = name()),
+            ),
+            (
+                "OpenToppedAnim",
+                Box::new(move |rules| {
+                    rules.weapons.get_mut("GUN").unwrap().open_topped_anim = name()
+                }),
+            ),
+            (
+                "AttachedParticleSystem",
+                Box::new(move |rules| {
+                    rules
+                        .weapons
+                        .get_mut("GUN")
+                        .unwrap()
+                        .attached_particle_system = name();
+                }),
+            ),
+            (
+                "Warhead DebrisTypes",
+                Box::new(move |rules| rules.warheads.get_mut("WH").unwrap().debris_types = names()),
+            ),
+            (
+                "Particle Warhead",
+                Box::new(move |rules| rules.particle_types[0].warhead = name()),
+            ),
+            (
+                "VoxelAnim Spawns",
+                Box::new(move |rules| rules.voxel_anim_types[0].spawns = name()),
+            ),
+            (
+                "VoxelAnim BounceAnim",
+                Box::new(move |rules| rules.voxel_anim_types[0].bounce_anim = name()),
+            ),
+            (
+                "VoxelAnim ExpireAnim",
+                Box::new(move |rules| rules.voxel_anim_types[0].expire_anim = name()),
+            ),
+            (
+                "VoxelAnim TrailerAnim",
+                Box::new(move |rules| rules.voxel_anim_types[0].trailer_anim = name()),
+            ),
+            (
+                "VoxelAnim Warhead",
+                Box::new(move |rules| rules.voxel_anim_types[0].warhead = name()),
+            ),
+            (
+                "VoxelAnim AttachedSystem",
+                Box::new(move |rules| rules.voxel_anim_types[0].attached_system = name()),
+            ),
+            (
+                "AnimType references",
+                Box::new(|rules| {
+                    rules.anim_type_references.push((
+                        "ANIM".into(),
+                        crate::rules::native_processing::AnimTypeReferences::default(),
+                    ));
+                }),
+            ),
+            (
+                "C4Warhead",
+                Box::new(|rules| rules.bridge_warheads.c4_name = "NAME".into()),
+            ),
+            (
+                "CrushWarhead",
+                Box::new(|rules| rules.bridge_warheads.crush_name = "NAME".into()),
+            ),
+            (
+                "IonCannonWarhead",
+                Box::new(|rules| rules.bridge_warheads.ion_cannon_name = "NAME".into()),
+            ),
+            (
+                "IvanWarhead",
+                Box::new(move |rules| rules.combat_damage.ivan_warhead = name()),
+            ),
+            (
+                "DrainAnimationType",
+                Box::new(move |rules| rules.combat_damage.drain_animation_type = name()),
+            ),
+            (
+                "ControlledAnimationType",
+                Box::new(move |rules| rules.mind_control.controlled_anim = name()),
+            ),
+            (
+                "PermaControlledAnimationType",
+                Box::new(move |rules| rules.mind_control.perma_controlled_anim = name()),
+            ),
+            (
+                "RadSiteWarhead",
+                Box::new(|rules| rules.radiation.site_warhead = "NAME".into()),
+            ),
+            (
+                "MutateWarhead",
+                Box::new(|rules| rules.general.mutate_warhead = "NAME".into()),
+            ),
+            (
+                "MutateExplosionWarhead",
+                Box::new(|rules| rules.general.mutate_explosion_warhead = "NAME".into()),
+            ),
+        ];
+        for (key, edit) in edits {
+            let mut changed = rules.clone();
+            edit(&mut changed);
+            assert_ne!(changed.simulation_config_hash(), base, "{key}");
+        }
+        for slot in 0..9 {
+            let mut changed = rules.clone();
+            *changed.combat_damage.default_particle_systems_mut()[slot] = name();
+            assert_ne!(
+                changed.simulation_config_hash(),
+                base,
+                "Default system {slot}"
+            );
         }
     }
 

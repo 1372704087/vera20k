@@ -6961,9 +6961,9 @@ fn wall_damage_deterministic_across_replays() {
     );
 }
 
-/// The range of the weapon SelectWeapon picks against `target`, as Approach
-/// reads it ([`combat_weapon::select_weapon_against`]); None for an empty
-/// slot.
+/// The range in leptons of the weapon SelectWeapon picks against `target`, as
+/// Approach reads it ([`combat_weapon::select_weapon_against`]); None for an
+/// empty slot.
 fn selected_weapon_range(
     attacker: &GameEntity,
     target: &TargetKind,
@@ -6971,7 +6971,7 @@ fn selected_weapon_range(
     rules: &RuleSet,
     interner: &StringInterner,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-) -> Option<crate::util::fixed_math::SimFixed> {
+) -> Option<i32> {
     let obj = interner.object_type(attacker.type_ref(), rules)?;
     combat_weapon::select_weapon_against(
         rules,
@@ -6985,7 +6985,7 @@ fn selected_weapon_range(
         None,
     )
     .and_then(|(_, selected)| selected)
-    .map(|selected| selected.weapon.range)
+    .map(|selected| selected.weapon.range_leptons)
 }
 
 /// An Entity and a Cell target take different arms of the selection's target
@@ -7007,11 +7007,7 @@ fn selected_weapon_range_for_entity_and_cell_targets() {
     for target in [TargetKind::Entity(2), TargetKind::Cell(50, 50)] {
         let range = selected_weapon_range(attacker, &target, &sim, &rules, &sim.interner, None);
         // 105mm Range=6; a Cell target's ladder returns slot 0.
-        assert_eq!(
-            range,
-            Some(crate::util::fixed_math::SimFixed::from_num(6)),
-            "{target:?}"
-        );
+        assert_eq!(range, Some(6 * 256), "{target:?}");
     }
 }
 
@@ -7083,7 +7079,7 @@ fn an_illegal_shot_is_still_in_range() {
         &sim.interner,
         sim.resolved_terrain.as_ref(),
     );
-    assert_eq!(range, Some(crate::util::fixed_math::SimFixed::from_num(6)));
+    assert_eq!(range, Some(6 * 256));
 }
 
 #[test]

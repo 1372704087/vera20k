@@ -211,7 +211,6 @@ fn make_map(
         events: HashMap::new(),
         actions: HashMap::new(),
         local_variables: HashMap::new(),
-        trigger_graph: crate::map::trigger_graph::TriggerGraph::default(),
         special_flags: crate::map::basic::SpecialFlagsSection::default(),
         ini: IniFile::from_str(""),
     }

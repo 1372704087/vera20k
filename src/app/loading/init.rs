@@ -36,9 +36,7 @@ use crate::app::presentation::lighting::{build_lighting_grid_from_view, derive_l
 use crate::assets::asset_manager::AssetManager;
 #[cfg(test)]
 use crate::assets::asset_manager::MediaArchiveMode;
-use crate::map::actions::ActionMap;
 use crate::map::basic::{BasicSection, BridgeDestroyabilityMode};
-use crate::map::events::EventMap;
 use crate::map::houses::{self, HouseColorMap, HouseRoster};
 use crate::map::lighting::{self, CellLightGrid, LightingConfig};
 use crate::map::map_file::MapFile;
@@ -49,7 +47,6 @@ use crate::map::source::{
 };
 use crate::map::terrain::{self, TerrainGrid};
 use crate::map::theater;
-use crate::map::triggers::TriggerMap;
 use crate::map::waypoints;
 use crate::render::batch::BatchRenderer;
 use crate::render::bridge_atlas::BridgeAtlas;
@@ -1508,7 +1505,8 @@ mod map_wall_owner_candidate_tests {
 }
 
 /// Scenario/runtime inputs produced by loading a map (F11): everything the
-/// sim runtime, trigger machinery, and match view facts consume.
+/// sim runtime and match view facts consume. The constructed Simulation
+/// already holds the trigger runtime's definitions.
 pub struct ScenarioLoadInputs {
     pub(crate) startup: LoadingStartup,
     pub(crate) map_source: LoadedMapSource,
@@ -1523,9 +1521,6 @@ pub struct ScenarioLoadInputs {
     pub overlays: Vec<OverlayEntry>,
     /// Terrain objects for per-frame instance generation.
     pub terrain_objects: Vec<TerrainObject>,
-    pub triggers: TriggerMap,
-    pub events: EventMap,
-    pub actions: ActionMap,
     /// Overlay type registry — kept so wall placement can look up overlay_id by name.
     pub overlay_registry: OverlayTypeRegistry,
     pub house_roster: HouseRoster,
@@ -3408,9 +3403,6 @@ pub(crate) fn load_map_from_initial(
             simulation,
             overlays: overlays_connected,
             terrain_objects: map_data.terrain_objects,
-            triggers: map_data.triggers,
-            events: map_data.events,
-            actions: map_data.actions,
             overlay_registry,
             house_roster,
             height_map,

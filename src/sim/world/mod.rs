@@ -209,11 +209,7 @@ pub use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::actions::ActionMap;
 use crate::map::entities::EntityCategory;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::events::EventMap;
 use crate::map::houses::HouseAllianceMap;
 use crate::map::overlay::OverlayEntry;
 use crate::map::playfield::PlayfieldBounds;
@@ -379,21 +375,6 @@ pub enum TickLane {
     Ordinary,
     /// LAN/WOL modal pump: service PerTickUpdate and the late tail only.
     NetworkModal,
-}
-
-/// Existing rule owner borrowed for one authoritative trigger frame.
-/// Live definitions and mutable Trigger/Tag state belong to `Simulation`.
-#[derive(Clone, Copy)]
-pub struct TriggerInputs<'a> {
-    // Legacy focused fixtures finish their test-only definition installation
-    // on first dispatch. Production uses the installed live registry only.
-    #[cfg(any(test, feature = "test-support"))]
-    pub events: &'a EventMap,
-    #[cfg(any(test, feature = "test-support"))]
-    pub actions: &'a ActionMap,
-    /// Bound match rules used by action callbacks that share ordinary Techno
-    /// runtime calculations (not reparsed or substituted by trigger data).
-    pub rules: Option<&'a RuleSet>,
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -4106,12 +4087,12 @@ impl Simulation {
 
     fn poll_triggers_for_master_frame(
         &mut self,
-        inputs: TriggerInputs<'_>,
+        rules: Option<&RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
         // YR LogicClass::Update polls scenario triggers before the live-object walk.
-        let effects = self.advance_triggers(inputs, overlay_registry, frame_effects);
+        let effects = self.advance_triggers(rules, overlay_registry, frame_effects);
         self.publish_trigger_effects(effects);
     }
 
@@ -6719,9 +6700,10 @@ impl Simulation {
     }
 
     /// Fixture-only frame adapter (F09): unit tests drive one Main_Tick-shaped
-    /// frame with explicitly supplied rules/heights/navigation. Production and
-    /// tooling advance exclusively through `SimRuntime::advance_frame`, whose
-    /// resources are bound at construction and cannot be substituted per call.
+    /// frame with explicitly supplied rules/heights/navigation, without the
+    /// trigger poll. Production and tooling advance exclusively through
+    /// `SimRuntime::advance_frame`, whose resources are bound at construction
+    /// and cannot be substituted per call.
     #[cfg(any(test, feature = "test-support"))]
     pub fn advance_tick(
         &mut self,
@@ -6738,7 +6720,7 @@ impl Simulation {
             overlay_registry,
             tick_ms,
             TickLane::Ordinary,
-            None,
+            false,
             FrameEffects::default(),
         )
         .expect("fixture frame must complete")
@@ -6751,6 +6733,7 @@ impl Simulation {
     /// the returned facts instead of reaching back into Simulation-owned
     /// transient queues. `SimRuntime::advance_frame` is the sole production
     /// caller (F09); headless and replay execution go through the runtime.
+    /// Every frame polls the installed scenario triggers.
     pub fn advance_app_frame(
         &mut self,
         commands: &[CommandEnvelope],
@@ -6758,7 +6741,6 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
         lane: TickLane,
-        trigger_inputs: Option<TriggerInputs<'_>>,
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
         let frame = self.advance_master_frame(
@@ -6767,7 +6749,7 @@ impl Simulation {
             overlay_registry,
             tick_ms,
             lane,
-            trigger_inputs,
+            true,
             effects,
         );
         // A failed frame must not carry a previous caller's derived interest
@@ -6850,9 +6832,12 @@ impl Simulation {
     /// Advance exactly one authoritative simulation frame.
     ///
     /// This is the sole Main_Tick-shaped entry point, reached in production
-    /// only through `advance_app_frame` (F09). The fixture-only `advance_tick`
-    /// adapter and the replay fixture runners are `#[cfg(test)]`; gameplay
-    /// supplies its map definitions through `trigger_inputs`.
+    /// only through `advance_app_frame` (F09), which always polls the trigger
+    /// definitions installed at scenario init, with the frame's `rules`. The
+    /// fixture-only `advance_tick` adapter and the replay fixture runners are
+    /// `#[cfg(test)]`; they and focused frame tests may pass `poll_triggers`
+    /// false to leave the poll out, also with map triggers installed, as when
+    /// a test isolates the House rung's Tag raise.
     pub(crate) fn advance_master_frame(
         &mut self,
         commands: &[CommandEnvelope],
@@ -6860,7 +6845,7 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
         lane: TickLane,
-        trigger_inputs: Option<TriggerInputs<'_>>,
+        poll_triggers: bool,
         effects: FrameEffects<'_>,
     ) -> Result<MasterFrameOutput, FrameAdvanceError> {
         let effects = effects
@@ -6910,8 +6895,8 @@ impl Simulation {
         // live LogicVector, so object work in this frame observes its actions.
         #[cfg(any(test, feature = "test-support"))]
         self.trace_master_frame_rung(MasterFrameTestRung::Triggers);
-        if let Some(inputs) = trigger_inputs {
-            self.poll_triggers_for_master_frame(inputs, overlay_registry, effects);
+        if poll_triggers {
+            self.poll_triggers_for_master_frame(rules, overlay_registry, effects);
         }
 
         // Logic55B29A/55B2AD: consume prior pending conceal at the signed

@@ -1035,7 +1035,6 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             None,
             67,
             crate::sim::world::TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();
@@ -1095,7 +1094,6 @@ fn completion_prefix_records_one_place_and_playback_consumes_its_copy() {
             None,
             67,
             crate::sim::world::TickLane::Ordinary,
-            None,
             crate::sim::world::FrameEffects::default(),
         )
         .unwrap();

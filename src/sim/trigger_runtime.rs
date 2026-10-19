@@ -12,17 +12,11 @@ use std::hash::{Hash, Hasher};
 use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSelector};
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::events::EventCondition;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::events::EventMap;
 use crate::map::resolved_terrain::NativeCellQuery;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::triggers::TriggerMap;
-#[cfg(any(test, feature = "test-support"))]
-use crate::map::variable_names::LocalVariableMap;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::timer::CdTimer;
-use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation, TriggerInputs};
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 const ACTION_PLAY_SOUND: i32 = 19;
 const ACTION_FORCE_TRIGGER: i32 = 22;
@@ -635,8 +629,6 @@ pub struct TriggerRuntime {
     definitions_prepared: bool,
     classified: bool,
     #[cfg(any(test, feature = "test-support"))]
-    fixture_awaiting_records: bool,
-    #[cfg(any(test, feature = "test-support"))]
     fixture_difficulty: Option<i32>,
     #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
@@ -1038,83 +1030,6 @@ impl Simulation {
         self.session
             .campaign_house_difficulties()
             .map_or(1, |(player, _)| player.table_index() as i32)
-    }
-
-    /// Legacy unit fixtures declare one synthetic Tag per Trigger. This seam
-    /// supplies fixture definitions only; construction, polling and actions use
-    /// the same production owner. Map loading always uses the physical reader.
-    #[cfg(any(test, feature = "test-support"))]
-    fn initialize_map_triggers(&mut self, triggers: &TriggerMap, locals: &LocalVariableMap) {
-        let mut ids: Vec<_> = triggers.keys().collect();
-        ids.sort();
-        let mut definitions = RuntimeDefinitions::default();
-        for id in &ids {
-            definitions.trigger_type(id);
-        }
-        for id in ids {
-            let index = definitions.trigger_type(id).unwrap();
-            let record = &triggers[id];
-            let linked = record
-                .linked_trigger_id()
-                .and_then(|id| definitions.trigger_type(id));
-            let typ = &mut definitions.trigger_types[index];
-            typ.owner = record.owner().map(str::to_string);
-            typ.linked = linked;
-            typ.enabled = record.enabled();
-            typ.transfer_on_capture |= record.transfer_on_capture();
-            typ.difficulty = record.difficulty();
-            definitions.tag_types.push(TagType {
-                id: id.clone(),
-                name: id.clone(),
-                repeat: 0,
-                trigger: Some(index),
-            });
-        }
-        self.trigger_runtime = TriggerRuntime {
-            definitions,
-            definitions_prepared: true,
-            locals_set: locals
-                .values()
-                .filter(|v| v.initially_set)
-                .map(|v| v.index)
-                .collect(),
-            fixture_awaiting_records: true,
-            ..TriggerRuntime::default()
-        };
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    fn install_pending_trigger_fixture(&mut self, inputs: TriggerInputs<'_>) {
-        if !self.trigger_runtime.fixture_awaiting_records {
-            return;
-        }
-        let count = self.trigger_runtime.definitions.trigger_types.len();
-        for index in 0..count {
-            let id = self.trigger_runtime.definitions.trigger_types[index]
-                .id
-                .clone();
-            let events = inputs
-                .events
-                .get(&id)
-                .map_or_else(Vec::new, |r| r.conditions().to_vec());
-            let entries = inputs
-                .actions
-                .get(&id)
-                .map_or_else(Vec::new, |r| r.entries().to_vec());
-            let actions = entries
-                .into_iter()
-                .map(|entry| {
-                    self.trigger_runtime
-                        .definitions
-                        .resolve_action(entry, None, None)
-                })
-                .collect();
-            let typ = &mut self.trigger_runtime.definitions.trigger_types[index];
-            typ.events = events.into_iter().map(RuntimeEvent::from).collect();
-            typ.actions = actions;
-        }
-        self.trigger_runtime.fixture_awaiting_records = false;
-        self.classify_map_triggers(inputs.rules);
     }
 
     /// Original Tag6E52A0 includes pending-but-not-yet-destroyed instances.
@@ -2693,14 +2608,14 @@ impl Simulation {
     /// Logic55AFB0 reads the mutable list length and dirty bytes afresh for
     /// every Tag. A removed current Tag shifts the next entry, which is skipped
     /// until the next visit; an enabled later Tag can fire during this pass.
+    /// `rules` are the frame's bound match rules, which action callbacks share
+    /// with ordinary Techno runtime calculations.
     pub fn advance_triggers(
         &mut self,
-        inputs: TriggerInputs<'_>,
+        rules: Option<&crate::rules::ruleset::RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> Vec<TriggerEffect> {
-        #[cfg(any(test, feature = "test-support"))]
-        self.install_pending_trigger_fixture(inputs);
         let mut effects = Vec::new();
         self.trigger_runtime.logic_cursor = 0;
         while let Some(&tag) = self
@@ -2720,7 +2635,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );
@@ -2737,7 +2652,7 @@ impl Simulation {
                             force: false,
                         },
                         &mut effects,
-                        inputs.rules,
+                        rules,
                         overlay_registry,
                         frame_effects,
                     ) {
@@ -2758,7 +2673,7 @@ impl Simulation {
                             force: false,
                         },
                         &mut effects,
-                        inputs.rules,
+                        rules,
                         overlay_registry,
                         frame_effects,
                     ) {
@@ -2778,7 +2693,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );
@@ -2794,7 +2709,7 @@ impl Simulation {
                         force: false,
                     },
                     &mut effects,
-                    inputs.rules,
+                    rules,
                     overlay_registry,
                     frame_effects,
                 );

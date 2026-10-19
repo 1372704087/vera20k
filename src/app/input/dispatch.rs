@@ -914,7 +914,8 @@ pub(crate) fn push_local_eva(state: &mut AppState, event: &str) {
 /// (`sidebar_eva::cameo_click`) against the local player's queue, then its
 /// `GUIBuildSound`, EVA line and event.
 ///
-/// `shift` also feeds VERA's own Shift repeat, which is not a native input:
+/// `shift` also feeds VERA's own Shift repeat, off unless the player ticks
+/// Shift-Click Batch Queue in Options. It is not a native input:
 /// gamemd reads the modifier for the right button only (`0x006AAD66`), so an
 /// unshifted or right-button press is byte-for-byte the ported decision. The
 /// sound and the EVA line are spoken once per click regardless of the repeat.
@@ -1008,10 +1009,16 @@ fn sidebar_cameo_press(
         None => {}
         Some(sidebar_eva::CameoOrder::Produce) => {
             // The copies carry the current tick, so they execute in one frame in
-            // issue order; the sound and EVA above were spoken once. The count
-            // is the player's `[VERA] ShiftQueueCount=`.
-            let count = state.persistence.options_profile.shift_queue_count;
-            let repeat = sidebar_eva::shift_queue_repeat(category, own_for_repeat, shift, count);
+            // issue order; the sound and EVA above were spoken once. Shift
+            // repeats only while the Options page's Shift-Click Batch Queue
+            // (`[VERA] ShiftQueue=`) is ticked, `[VERA] ShiftQueueCount=` times.
+            let profile = &state.persistence.options_profile;
+            let repeat = sidebar_eva::shift_queue_repeat(
+                category,
+                own_for_repeat,
+                shift && profile.shift_queue,
+                profile.shift_queue_count,
+            );
             queue_build_by_type(state, type_id, repeat);
         }
         Some(sidebar_eva::CameoOrder::Suspend) => suspend_build(state, category),

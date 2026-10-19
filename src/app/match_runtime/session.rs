@@ -1595,6 +1595,58 @@ mod tests {
     }
 
     #[test]
+    fn wol_caps_rows_at_six_clears_guest_acceptance_and_times_from_game_speed() {
+        let wol_host = || {
+            let mut session = MatchSession::default();
+            session.enter_network(
+                SessionMode::Wol,
+                super::NetworkReturnContext::Wol {
+                    mode: 4,
+                    return_mode: 0,
+                },
+            );
+            let mut launch = network_fixture();
+            launch.local_player_index = 0;
+            session.accept_network_setup(launch, true, Some(7)).unwrap();
+            session
+        };
+        let mut session = wol_host();
+        let launch = session.network_setup().unwrap().clone();
+        let file = launch.selected_map_file.clone().unwrap();
+        session
+            .select_network_map(launch.mode.clone(), file.clone(), 8)
+            .unwrap();
+        // 5EC3A0 `0x5EC457`: WOL rows stop at six where LAN keeps eight.
+        assert_eq!(session.network_setup_capacity(), Some(6));
+        assert_eq!(session.network_row_limit(), 6);
+        // 5E9850 clears every node but the host's (row 0), local or not.
+        session.set_network_player_ready(0, true).unwrap();
+        session.set_network_player_ready(1, true).unwrap();
+        session.clear_wol_guest_readiness().unwrap();
+        assert!(session.network_player_ready(0));
+        assert!(!session.network_player_ready(1));
+        // Start Game Now: MaxAhead follows the agreed speed only.
+        session.prepare_wol_timing([0; 8], true).unwrap();
+        let speed = session.network_setup().unwrap().options.game_speed;
+        assert_eq!(
+            session.network_max_ahead_frames(),
+            Some(crate::net::lockstep::wol_start_timing(speed, [0; 8], false).max_ahead)
+        );
+
+        let mut lan = MatchSession::default();
+        lan.enter_network(SessionMode::Lan, super::NetworkReturnContext::LanLobby);
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        lan.accept_network_setup(launch.clone(), true, Some(7))
+            .unwrap();
+        lan.select_network_map(launch.mode.clone(), file, 8)
+            .unwrap();
+        assert_eq!(lan.network_setup_capacity(), Some(8));
+        assert!(lan.clear_wol_guest_readiness().is_err());
+        assert!(lan.prepare_wol_timing([0; 8], true).is_err());
+    }
+
+    #[test]
     fn kick_unbinds_row_but_departure_owns_source_roster_compaction() {
         let mut session = MatchSession::default();
         session.enter_network(SessionMode::Lan, super::NetworkReturnContext::LanLobby);

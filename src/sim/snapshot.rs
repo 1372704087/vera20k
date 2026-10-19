@@ -1146,7 +1146,8 @@ use crate::util::save_codec;
 // 423 -> 424: processed Types retain their Image, DeathWeapon, DeploysInto,
 // occupy weapons, SuperWeapon WeaponType and ShrapnelWeapon, and process
 // Rules state its [CombatDamage] DeathWeapon.
-const SNAPSHOT_VERSION: u32 = 424;
+// 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
+const SNAPSHOT_VERSION: u32 = 425;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4871,7 +4872,8 @@ mod tests {
         // 421 -> 422: the drain link retains the drainer's DrainAnim.
         // 422 -> 423: retained weapon blocks and HoldsWhat bindings.
         // 423 -> 424: retained Type references and Rules DeathWeapon.
-        assert_eq!(super::SNAPSHOT_VERSION, 424);
+        // 424 -> 425: Scenario cargo flags and the ice-growth byte.
+        assert_eq!(super::SNAPSHOT_VERSION, 425);
     }
 
     #[test]

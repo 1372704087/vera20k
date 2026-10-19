@@ -688,6 +688,17 @@ struct ScanContext<'a> {
     probe_firer: std::cell::OnceCell<super::fire_error_world::FirerPart>,
     /// The scanner's selection-ladder facts (`attacker_facts`), read once.
     scanner_facts: AttackerFacts,
+    /// Scenario+0 bit `0x800` while the scan runs: campaign's retained map
+    /// `[SpecialFlags] HarvesterImmune=`, or a nonzero game mode's Harvester
+    /// Truce session bit (`0x00687C16..0x00687C29`). World-less fixtures
+    /// (walk and score unit tests) leave it off.
+    harvester_immune: bool,
+    /// VERA-only: the [`crate::rules::ruleset::RuleSet::harvester_unit_types`]
+    /// names resolved through the interner once per scan, so the
+    /// HarvesterImmune gate (`0x006F8009..0x006F8047`) compares ids instead
+    /// of re-uppercasing each name per candidate. Empty while the bit is
+    /// clear, the ordinary skirmish path.
+    harvester_unit_ids: Vec<InternedId>,
 }
 
 impl ScanContext<'_> {
@@ -1243,6 +1254,9 @@ pub(crate) fn greatest_threat(
         None
     };
 
+    // Scenario+0 bit `0x800`, read once per scan; the HarvesterImmune gate's
+    // Rules list resolves with it so the ordinary bit-off scan builds nothing.
+    let harvester_immune = fire_world.is_some_and(|world| world.session.harvester_immune);
     let ctx = ScanContext {
         entities,
         scanner,
@@ -1279,6 +1293,16 @@ pub(crate) fn greatest_threat(
         allies_of_scanner: Default::default(),
         probe_firer: Default::default(),
         scanner_facts: facts,
+        harvester_immune,
+        harvester_unit_ids: if harvester_immune {
+            rules
+                .harvester_unit_types
+                .iter()
+                .filter_map(|type_id| interner.get(type_id))
+                .collect()
+        } else {
+            Vec::new()
+        },
     };
 
     if flat {
@@ -1936,16 +1960,22 @@ fn evaluate_candidate(
     // The current mission's `NoThreat=` (`0x006F7DFF..0x006F7E0B`). Retail
     // sets it on `[Selling]` and `[Harmless]`, so a building being sold is
     // no candidate.
-    //
-    // RESIDUAL — the next gate (`0x006F7E11..0x006F7E1E`) is not ported: it
-    // refuses a candidate more than 20 leptons below the ground under it
-    // (GetHeight, vt+0x1C8). Trigger: an object underground, such as one on
-    // the Tunnel locomotor, which VERA does not port and no retail type uses.
-    // Effect: none while VERA puts nothing underground; porting that
-    // locomotor needs this gate.
     if crate::sim::mission::control::current_control(ctx.rules, &candidate.mission)
         .is_some_and(|entry| entry.no_threat)
     {
+        return None;
+    }
+
+    // The underground gate (`0x006F7E11..0x006F7E1E`), in its native slot
+    // between NoThreat and the in-transport reject: GetHeight (vt+0x1C8,
+    // `ObjectClass::GetHeight @ 0x005F5F40` — the Location's Z less the
+    // ground under it and any bridge deck; VERA's
+    // `air_movement::current_fly_height`, the one port of that virtual every
+    // class shares) below -20 leptons refuses the candidate. That is an
+    // object more than 20 leptons under the ground under it — one riding the
+    // Tunnel locomotor, which VERA does not port and no retail type uses, so
+    // the gate is dormant until that locomotor exists.
+    if crate::sim::movement::air_movement::current_fly_height(candidate, ctx.terrain) < -20 {
         return None;
     }
 
@@ -2007,6 +2037,21 @@ fn evaluate_candidate(
     if ctx.ally_arm_refuses(candidate, candidate_obj)
         || candidate.stable_id() == ctx.attacker.stable_id
     {
+        return None;
+    }
+
+    // The HarvesterImmune gate (`0x006F8009..0x006F8047`), in its native
+    // slot between the self test (`0x006F8001`) and the distance cutoff
+    // (`0x006F8049`). While Scenario+0 bit `0x800` is set, a candidate whose
+    // TechnoType is in Rules' `HarvesterUnit=` list (`+0xB3C`, filled at
+    // `0x0066F973`) is refused — native compares the type pointers, which
+    // the interner-id comparison mirrors, so only the listed Vehicle types
+    // ever match. Campaign sets the bit from the map's `[SpecialFlags]
+    // HarvesterImmune=` (`0x006B8EBF..0x006B8ED7`); a nonzero game mode
+    // replaces it with the session's Harvester Truce (`0x005E7495..0x005E74D4`
+    // staging, `0x00687C16..0x00687C29` copy), which skirmish always leaves
+    // off (`0x006AD89D` clears the byte).
+    if ctx.harvester_immune && ctx.harvester_unit_ids.contains(&candidate.type_ref()) {
         return None;
     }
 
@@ -2627,3 +2672,7 @@ mod bridge_tests;
 #[cfg(test)]
 #[path = "greatest_threat_mask_oracle_tests.rs"]
 mod mask_oracle_tests;
+
+#[cfg(test)]
+#[path = "greatest_threat_scenario_gate_tests.rs"]
+mod scenario_gate_tests;

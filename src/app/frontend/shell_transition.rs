@@ -215,6 +215,14 @@ pub(crate) enum ShellExitThen {
     WolAction(crate::ui::wol_shell::WolMode),
     /// `0x10F` closed with Login (`0x539`) or Back (2).
     WolLoginClose(u16),
+    /// `0x113` Back (`0x686`): the runner leaves its channel and returns 0.
+    WolLobbyBack,
+    /// A game join was requested (`0x0078C281`): `0x113` slides out and hides.
+    WolLobbyHide,
+    /// The create succeeded: `0x113` slides out and hides, then C2 opens.
+    WolCreateAccepted {
+        observe: bool,
+    },
 }
 
 impl ShellExitThen {
@@ -244,6 +252,9 @@ impl ShellExitThen {
             Self::RandomMapUse | Self::RandomMapCancel => ShellSlideKind::RandomMap,
             Self::WolBack | Self::WolAction(_) => ShellSlideKind::WolWelcome,
             Self::WolLoginClose(_) => ShellSlideKind::WolLogin,
+            Self::WolLobbyBack | Self::WolLobbyHide | Self::WolCreateAccepted { .. } => {
+                ShellSlideKind::WolLobby
+            }
             Self::ScoreContinue => ShellSlideKind::Score,
             Self::CampaignScoreContinue => ShellSlideKind::CampaignScore,
         }
@@ -743,6 +754,16 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
             _ => return None,
         }
     } else if state.frontend.shell_route.wol_lobby() {
+        // 0x113 is created hidden and hidden again for a game join.
+        if !state
+            .frontend
+            .wol
+            .as_ref()
+            .and_then(|visit| visit.lobby())
+            .is_some_and(|lobby| lobby.shown)
+        {
+            return None;
+        }
         ShellSlideKind::WolLobby
     } else if state.frontend.main_menu_shell_error.is_none() {
         ShellSlideKind::MainMenu

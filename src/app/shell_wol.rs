@@ -11,6 +11,7 @@
 //! `0xE2` (`0x0052E28E`), as on a retail install without the online
 //! components.
 
+pub(crate) mod lobby;
 mod login;
 mod service;
 
@@ -23,10 +24,14 @@ pub(crate) use service::{
 /// The wait box's reveal timer and the login drop list's scroll repeats;
 /// the caller schedules the earliest deadline with the other shell timers.
 pub(crate) fn poll(state: &mut AppState) -> Option<std::time::Instant> {
-    [service::poll_wait(state), login::poll_scroll_repeat(state)]
-        .into_iter()
-        .flatten()
-        .min()
+    [
+        service::poll_wait(state),
+        login::poll_scroll_repeat(state),
+        lobby::poll(state),
+    ]
+    .into_iter()
+    .flatten()
+    .min()
 }
 
 use super::{App, AppState};
@@ -102,6 +107,11 @@ pub(crate) struct WolVisit {
     motd: Option<String>,
     /// `[0xB77E30]`: the last user who paged us, the `/reply` target.
     last_pager: Option<String>,
+    /// The custom lobby runner; kept hidden while C2/C9 run over it.
+    lobby: Option<Box<lobby::WolLobby>>,
+    /// A chat lobby was joined earlier in this visit: the picker passes
+    /// over crowded lobbies (`0x00788180`).
+    lobby_joined_before: bool,
 }
 
 impl WolVisit {
@@ -122,6 +132,8 @@ impl WolVisit {
             last_login_result: None,
             motd: None,
             last_pager: None,
+            lobby: None,
+            lobby_joined_before: false,
         }
     }
 
@@ -150,6 +162,7 @@ impl WolVisit {
     pub(crate) fn wait_box(&self) -> Option<&WolWaitBox> {
         match &self.page {
             WolPage::Backdrop { wait } => wait.as_ref(),
+            WolPage::Lobby => self.lobby.as_ref()?.wait.as_ref(),
             _ => None,
         }
     }
@@ -157,7 +170,27 @@ impl WolVisit {
     pub(crate) fn message(&self) -> Option<&WolMessageBox> {
         match &self.page {
             WolPage::Message { message, .. } => Some(message),
+            WolPage::Lobby => self.lobby.as_ref()?.message(),
             _ => None,
+        }
+    }
+
+    /// The custom lobby runner while the visit has one.
+    pub(crate) fn lobby(&self) -> Option<&lobby::WolLobby> {
+        self.lobby.as_deref()
+    }
+
+    pub(crate) fn lobby_mut(&mut self) -> Option<&mut lobby::WolLobby> {
+        self.lobby.as_deref_mut()
+    }
+
+    /// A wait box owns input (shown or still hidden): the pages under it
+    /// take none.
+    fn waiting(&self) -> bool {
+        match &self.page {
+            WolPage::Backdrop { .. } => true,
+            WolPage::Lobby => self.wait_box().is_some(),
+            _ => false,
         }
     }
 
@@ -169,27 +202,16 @@ impl WolVisit {
     }
 }
 
-/// The custom lobby runner `0x00787770` entered after a successful login
-/// (`postmatch` false) or after a match (`postmatch` true, the state 0x11
-/// flag `WOL_Main` passes on). The lobby chain owns everything it shows.
 /// `[0xB77E30]`, the `/reply` target of every WOL chat edit.
 pub(crate) fn last_pager(state: &AppState) -> Option<&str> {
     state.frontend.wol.as_ref()?.last_pager.as_deref()
 }
 
+/// The custom lobby runner `0x00787770` entered after a successful login or
+/// setup Back (`postmatch` false) or after a match (`postmatch` true, the
+/// state 0x11 flag `WOL_Main` passes on).
 pub(crate) fn open_lobby(state: &mut AppState, postmatch: bool) {
-    let _ = postmatch;
-    let Some(visit) = state.frontend.wol.as_mut() else {
-        return;
-    };
-    visit.page = WolPage::Lobby;
-    state.frontend.wol_login_art = None;
-    state.frontend.shell_route = ShellRoute::WolLobby;
-    state
-        .frontend
-        .shell_controller
-        .reset_to(WOL_LOBBY_DIALOG, false);
-    state.platform.window.request_redraw();
+    lobby::open(state, postmatch);
 }
 
 impl App {
@@ -287,9 +309,9 @@ impl App {
                 }
             });
         }
-        if let WolPage::Backdrop { wait } = &visit.page {
+        if visit.waiting() {
             // A hidden wait box takes no pointer.
-            return Some(match wait.as_ref().filter(|wait| wait.shown) {
+            return Some(match visit.wait_box().filter(|wait| wait.shown) {
                 Some(_) => {
                     let layout = crate::ui::shell::modal::wait_box_layout(width, height);
                     vec![
@@ -326,7 +348,8 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_move(state: &mut AppState) {
-        if Self::wol_page_is_lobby(state) {
+        if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
+            lobby::cursor_moved(state);
             return;
         }
         if Self::wol_page_is_login(state) {
@@ -356,7 +379,8 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_down(state: &mut AppState) {
-        if Self::wol_page_is_lobby(state) {
+        if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
+            lobby::mouse(state, true);
             return;
         }
         if Self::wol_page_is_login(state) {
@@ -383,7 +407,8 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_up(state: &mut AppState) {
-        if Self::wol_page_is_lobby(state) {
+        if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
+            lobby::mouse(state, false);
             return;
         }
         if Self::wol_page_is_login(state) {
@@ -428,9 +453,9 @@ impl App {
         }
     }
 
-    /// Keys while a pre-lobby WOL page shows. `0x10E` ignores IDOK/IDCANCEL
+    /// Keys while a WOL page shows. `0x10E` ignores IDOK/IDCANCEL
     /// (`0x007988C0`); the boxes' loop (`0x007759E0`) and the hidden or shown
-    /// `0xC4` take none. Only `0x10F`'s NewEdits read keys.
+    /// `0xC4` take none. `0x10F`'s and `0x113`'s NewEdits read keys.
     pub(super) fn handle_wol_key(
         state: &mut AppState,
         code: Option<winit::keyboard::KeyCode>,
@@ -439,6 +464,8 @@ impl App {
     ) {
         if pressed && Self::wol_page_is_login(state) {
             login::key_press(state, code, text);
+        } else if pressed && Self::wol_page_is_lobby(state) {
+            lobby::key_press(state, code, text);
         }
     }
 
@@ -484,6 +511,7 @@ impl App {
         }
         state.frontend.wol_welcome_art = None;
         state.frontend.wol_login_art = None;
+        state.frontend.wol_lobby_art = None;
         state.frontend.shell_route = ShellRoute::MainMenu;
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);

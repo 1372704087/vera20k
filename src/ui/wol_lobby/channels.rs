@@ -155,7 +155,7 @@ impl WolChannel {
 /// One channel user (`0x6C` bytes in `0xB77908`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct WolMember {
-    /// `+0x00`: [`MEMBER_OPERATOR`], [`MEMBER_VOICE`], [`MEMBER_LOCAL`].
+    /// `+0x00`: [`MEMBER_OPERATOR`], [`MEMBER_VOICE`]; `0x8000` marks the local user.
     pub(crate) flags: u32,
     /// `+0x24`.
     pub(crate) name: String,
@@ -167,7 +167,6 @@ pub(crate) struct WolMember {
 
 pub(crate) const MEMBER_OPERATOR: u32 = 1;
 pub(crate) const MEMBER_VOICE: u32 = 2;
-pub(crate) const MEMBER_LOCAL: u32 = 0x8000;
 
 impl WolMember {
     fn operator(&self) -> bool {
@@ -251,14 +250,6 @@ impl GameTypeIcon {
             Self::Plain => "gt18.pcx",
             Self::Clan => "wolclan.pcx",
             Self::Tournament => "woltrny.pcx",
-        }
-    }
-
-    pub(crate) fn tooltip(self) -> Option<&'static str> {
-        match self {
-            Self::Plain => None,
-            Self::Clan => Some("TXT_BATTLECLAN_GAME"),
-            Self::Tournament => Some("TXT_TOURNAMENT_GAME"),
         }
     }
 }

@@ -128,6 +128,10 @@ pub(crate) struct FrontendState {
     /// `0x10F`'s background art (`0x0072C600`), freed with the dialog
     /// (`0x0072C650`).
     pub(crate) wol_login_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
+    /// `0x113`'s background and list art (`0x0072CD60`).
+    pub(crate) wol_lobby_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
+    /// The custom lobby's process globals (sorts, lobby number, filters).
+    pub(crate) wol_lobby_globals: crate::app::shell_wol::lobby::WolLobbyGlobals,
     /// Single Player's Load Saved Game `0xB7` while its route shows.
     pub(crate) load_saved_game:
         Option<crate::ui::skirmish_shell::SavedSeedBrowserState<std::path::PathBuf>>,

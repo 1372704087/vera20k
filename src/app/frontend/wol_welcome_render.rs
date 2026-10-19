@@ -63,7 +63,7 @@ pub(crate) fn presented_wol_page(state: &AppState) -> PresentedShell {
 enum Painted {
     Welcome(crate::ui::wol_shell::WolWelcomeLayout),
     Login(crate::ui::wol_login::WolLoginLayout),
-    Lobby,
+    Lobby(crate::ui::wol_lobby::WolLobbyLayout),
     /// A dialog has closed: the empty backdrop, under a box or the wait box.
     Backdrop,
 }
@@ -73,7 +73,7 @@ impl Painted {
         match self {
             Self::Welcome(_) => Some(ShellSlideKind::WolWelcome),
             Self::Login(_) => Some(ShellSlideKind::WolLogin),
-            Self::Lobby => Some(ShellSlideKind::WolLobby),
+            Self::Lobby(_) => Some(ShellSlideKind::WolLobby),
             Self::Backdrop => None,
         }
     }
@@ -82,7 +82,7 @@ impl Painted {
         match self {
             Self::Welcome(_) => Some(WOL_WELCOME_PAGE.title_key),
             Self::Login(_) => Some(crate::ui::wol_login::PAGE.title_key),
-            Self::Lobby => Some(WOL_LOBBY_TITLE_KEY),
+            Self::Lobby(_) => Some(WOL_LOBBY_TITLE_KEY),
             Self::Backdrop => None,
         }
     }
@@ -107,13 +107,28 @@ pub(crate) fn render_wol_page(
             crate::app::shell_wol::open_login_art(state);
             Painted::Login(crate::app::shell_wol::login_layout(state))
         }
-        WolPage::Lobby => Painted::Lobby,
+        WolPage::Lobby => {
+            crate::app::shell_wol::lobby::open_art(state);
+            // Hidden (created hidden, or slid out for a join) or covered by
+            // the empty backdrop for a popup: only the backdrop shows.
+            let visible = state
+                .frontend
+                .wol
+                .as_ref()
+                .and_then(|visit| visit.lobby())
+                .is_some_and(|lobby| lobby.shown && !lobby.covered);
+            if visible {
+                Painted::Lobby(crate::app::shell_wol::lobby::layout(state))
+            } else {
+                Painted::Backdrop
+            }
+        }
         WolPage::Backdrop { .. } | WolPage::Message { .. } => Painted::Backdrop,
     };
-    // The right panel's geometry is the family's on every WOL page; the
-    // lobby's own layout belongs to the lobby chain.
+    // The right panel's geometry is the family's on every WOL page.
     let page: &MenuPageLayout = match &painted {
         Painted::Login(layout) => &layout.page,
+        Painted::Lobby(layout) => &layout.page,
         _ => &welcome.page,
     };
     let page = page.clone();
@@ -150,6 +165,7 @@ pub(crate) fn render_wol_page(
             Painted::Welcome(layout) => {
                 (crate::app::App::wol_status_key(state), layout.status_help)
             }
+            Painted::Lobby(layout) => (None, layout.page.status_help),
             Painted::Login(layout) => (
                 state
                     .frontend
@@ -162,9 +178,12 @@ pub(crate) fn render_wol_page(
             ),
             _ => (None, page.status_help),
         };
-        let status_text = status_key
-            .map(|key| resolve_csf(state, key).into_owned())
-            .unwrap_or_default();
+        let status_text = match &painted {
+            Painted::Lobby(_) => crate::app::shell_wol::lobby::status_help(state),
+            _ => status_key
+                .map(|key| resolve_csf(state, key).into_owned())
+                .unwrap_or_default(),
+        };
         let status_label = crate::app::frontend::menu_page_render::paint_shell_status_line(
             state,
             status_text,
@@ -183,7 +202,8 @@ pub(crate) fn render_wol_page(
     let art = match &painted {
         Painted::Welcome(_) => state.frontend.wol_welcome_art.as_ref(),
         Painted::Login(_) => state.frontend.wol_login_art.as_ref(),
-        Painted::Lobby | Painted::Backdrop => None,
+        Painted::Lobby(_) => state.frontend.wol_lobby_art.as_ref(),
+        Painted::Backdrop => None,
     };
     let mut sprites = Vec::new();
     // The dialog's own background exists only at 800 wide; elsewhere, and
@@ -262,6 +282,42 @@ pub(crate) fn render_wol_page(
             }),
         _ => None,
     };
+    let lobby = state.frontend.wol.as_ref().and_then(|visit| visit.lobby());
+    let lobby_children = match (&painted, children, lobby) {
+        (Painted::Lobby(layout), true, Some(lobby)) => {
+            let base_names: [String; 8] = std::array::from_fn(|index| {
+                resolve_csf(state, &format!("TXT_LOB_{}", index + 1)).into_owned()
+            });
+            Some(
+                crate::app::frontend::skirmish_shell_render::paint_wol_lobby_children(
+                    state,
+                    &lobby.ui,
+                    layout,
+                    art,
+                    &base_names,
+                ),
+            )
+        }
+        _ => None,
+    };
+    let lobby_popup = lobby.and_then(|lobby| {
+        let popup = lobby.ui.popup.as_ref()?;
+        let status = if page_statics || matches!(painted, Painted::Backdrop) {
+            crate::app::shell_wol::lobby::status_help(state)
+        } else {
+            String::new()
+        };
+        Some(
+            crate::app::frontend::skirmish_shell_render::paint_wol_lobby_popup(
+                state,
+                popup,
+                screen_w,
+                screen_h,
+                &status,
+                lobby.ui.caret_visible(std::time::Instant::now()),
+            ),
+        )
+    });
 
     // The column: the slide engine draws it while a slide runs, the empty
     // backdrop draws it shut, otherwise the page's buttons paint.
@@ -300,7 +356,24 @@ pub(crate) fn render_wol_page(
             }
             None
         }
-        (Painted::Lobby, None) => None,
+        (Painted::Lobby(layout), None) => {
+            spec = Some(&crate::ui::wol_lobby::PAGE);
+            if let Some(lobby) = lobby {
+                painted_buttons = layout
+                    .page
+                    .buttons
+                    .iter()
+                    .map(|button| {
+                        (
+                            *button,
+                            lobby.ui.buttons.is_pressed(button.id),
+                            lobby.ui.enabled(button.id),
+                        )
+                    })
+                    .collect();
+            }
+            None
+        }
     };
     if let Some(draws) = column {
         sprites.extend(shell_paint::paint_slide_column(
@@ -352,6 +425,7 @@ pub(crate) fn render_wol_page(
 
     // The boxes over the backdrop: PUDLGBGN with MNBTTN buttons.
     let mut box_sprites = Vec::new();
+    let mut box_dialog = None;
     let box_atlas = state
         .frontend
         .skirmish_shell_chrome
@@ -435,6 +509,7 @@ pub(crate) fn render_wol_page(
                 ],
             )
         };
+        box_dialog = Some(dialog);
         let modal_buttons: Vec<shell_paint::ModalButton> = buttons
             .iter()
             .map(|(rect, pressed)| shell_paint::ModalButton {
@@ -492,6 +567,40 @@ pub(crate) fn render_wol_page(
         });
         text.extend(login.texts);
         text.extend(login.popup_texts);
+    }
+    if let (Some(atlas), Some(mut lobby)) = (controls_atlas, lobby_children) {
+        draws.push(TexturedDraw {
+            texture: &atlas.texture,
+            instances: lobby.controls,
+        });
+        if let Some(art) = art {
+            draws.push(TexturedDraw {
+                texture: &art.texture,
+                instances: lobby.icons,
+            });
+        }
+        // Text draws after every sprite: a box over the shown lobby hides
+        // the glyphs under it here.
+        if let Some(dialog) = box_dialog {
+            for draw in &mut lobby.texts {
+                draw.instances.retain(|glyph| {
+                    let [x, y] = glyph.position;
+                    let [w, h] = glyph.size;
+                    x + w <= dialog.x as f32
+                        || y + h <= dialog.y as f32
+                        || x >= (dialog.x + dialog.w) as f32
+                        || y >= (dialog.y + dialog.h) as f32
+                });
+            }
+        }
+        text.extend(lobby.texts);
+    }
+    if let (Some(atlas), Some(popup)) = (controls_atlas, lobby_popup) {
+        draws.push(TexturedDraw {
+            texture: &atlas.texture,
+            instances: popup.controls,
+        });
+        text.extend(popup.texts);
     }
     if let Some(atlas) = box_atlas {
         draws.push(TexturedDraw {

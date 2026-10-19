@@ -45,7 +45,6 @@ pub mod terrain;
 pub mod theater;
 pub(crate) mod tiberium_cell;
 pub mod tile_variant_selector;
-pub mod trigger_graph;
 pub mod triggers;
 pub mod tube_facts;
 pub mod tubes;

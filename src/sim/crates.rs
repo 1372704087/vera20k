@@ -1972,7 +1972,6 @@ pub(crate) mod tests {
                 Some(&registry),
                 67,
                 TickLane::Ordinary,
-                None,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");
@@ -1997,7 +1996,6 @@ pub(crate) mod tests {
                 Some(&registry),
                 67,
                 TickLane::Ordinary,
-                None,
                 crate::sim::world::FrameEffects::default(),
             )
             .expect("fixture frame must complete");

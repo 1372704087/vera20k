@@ -14,7 +14,6 @@ use crate::render::batch::SpriteInstance;
 use crate::rules::house_colors::{HouseColorRamps, NO_REMAP};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
-use crate::sim::components::NavTargetRef;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
@@ -744,6 +743,7 @@ mod tests {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
     use crate::sim::combat::TargetKind;
+    use crate::sim::components::NavTargetRef;
     use crate::sim::game_entity::GameEntity;
 
     #[test]

@@ -86,7 +86,7 @@ impl ResolvedTerrainGrid {
     /// Selector-free generated-map load seam for focused construction tests.
     /// Production generated maps use `build_with_variant_selector_and_shared_dummy`.
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn build_generated_materialized_for_test(map: &MapFile) -> Self {
+    pub fn build_generated_materialized_for_test(map: &MapFile) -> Self {
         Self::build_inner(
             map,
             None,

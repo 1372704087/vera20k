@@ -2421,61 +2421,53 @@ mod tests {
         OverlayTypeRegistry::from_ini(&ini, None)
     }
 
-    /// The random-map launch path end to end: the generator's grid, its
-    /// `MapFile` projection, the generated terrain build and the overlay grid
-    /// both launch callers build from them. Native writes these cells itself
-    /// (see [`OverlayGrid::from_generated_overlays`]), so no
-    /// `OverlayClass::Mark` effect appears: a rock on a steep cell stays (the
-    /// slope gate at `0x005FC5CD` would refuse it), a crate keeps its byte
-    /// (Mark writes 0xFF at `0x005FD0FB`) and a wall moves no neighbour count
+    /// The generator's overlays land as written (see
+    /// [`OverlayGrid::from_generated_overlays`]), with no `OverlayClass::Mark`
+    /// effect: a rock on a steep cell stays (the slope gate at `0x005FC5CD`
+    /// would refuse it), a crate keeps its byte (Mark writes 0xFF at
+    /// `0x005FD0FB`) and a wall moves no neighbour count
     /// (`0x005FC758..0x005FC775`). The later `RecalcAttributes` still drops a
-    /// sloped resource together with its data.
+    /// sloped resource together with its data, and an unallocated cell takes
+    /// neither identity nor data.
     #[test]
-    fn generated_overlays_keep_the_generator_writes_without_mark() {
-        use crate::map::rmg::{RmgGrid, RmgOptions, emit};
-
+    fn generated_overlays_are_written_without_mark() {
         let registry = gsi_04_07_placement_registry();
         let id = |name| registry.id_for_name(name).expect(name);
         let (rock, crate_overlay, wall, ore) =
             (id("NEWROCK"), id("CRATEOVL"), id("WALL"), id("TIBERIUM"));
-        let (map_w, map_h) = (20, 24);
-        let mut generated = RmgGrid::new((map_w + map_h + 1) as usize, map_w, map_w + 2 * map_h);
-        for ((x, y), overlay, density) in [
-            ((22, 22), rock, 3),
-            ((24, 22), crate_overlay, 41),
-            ((26, 22), wall, 0),
-            ((22, 24), ore, 7),
-            ((24, 24), ore, 7),
-        ] {
-            let cell = generated.get_mut(x, y).expect("in-band generated cell");
-            cell.tile = 0;
-            cell.overlay = i32::from(overlay);
-            cell.density = density;
-        }
-        let mut map = emit::empty_map_file(&RmgOptions::default(), 16, 12);
-        emit::populate(&mut map, &generated, &[], &[], &[]);
-        let mut terrain = ResolvedTerrainGrid::build_generated_materialized_for_test(&map);
-        terrain.cell_mut(22, 22).expect("rock cell").slope_type = 5;
-        terrain
-            .cell_mut(22, 24)
-            .expect("sloped ore cell")
-            .slope_type = 1;
-
-        let grid = OverlayGrid::from_generated_overlays(
-            &map.overlays,
-            map.overlay_data_pack()
-                .expect("a generated map retains its overlay data"),
-            &mut terrain,
-            &registry,
+        let mut terrain = clear_terrain_grid(6, 3);
+        terrain.test_set_native_allocated_cells(
+            &(0..2)
+                .flat_map(|y| (0..6).map(move |x| (x, y)))
+                .collect::<Vec<_>>(),
         );
+        terrain.cell_mut(0, 0).expect("rock cell").slope_type = 5;
+        terrain.cell_mut(3, 0).expect("sloped ore cell").slope_type = 1;
+        let placed = [
+            ((0, 0), rock, 3),
+            ((1, 0), crate_overlay, 41),
+            ((2, 1), wall, 0),
+            ((3, 0), ore, 7),
+            ((4, 0), ore, 7),
+            ((5, 2), ore, 7),
+        ];
+        let entries = placed.map(|((rx, ry), overlay_id, frame)| OverlayEntry {
+            rx,
+            ry,
+            overlay_id,
+            frame,
+        });
+        let data = OverlayDataPack::from_cells(placed.map(|((rx, ry), _, frame)| (rx, ry, frame)));
+
+        let grid = OverlayGrid::from_generated_overlays(&entries, &data, &mut terrain, &registry);
 
         let cell = |rx, ry| {
             let overlay = grid.cell(rx, ry);
             (overlay.overlay_id, overlay.overlay_data)
         };
-        assert_eq!(cell(22, 22), (Some(rock), 3), "the steep rock stays");
-        assert_eq!(cell(24, 22), (Some(crate_overlay), 41), "no crate sentinel");
-        assert_eq!(cell(26, 22), (Some(wall), 0));
+        assert_eq!(cell(0, 0), (Some(rock), 3), "the steep rock stays");
+        assert_eq!(cell(1, 0), (Some(crate_overlay), 41), "no crate sentinel");
+        assert_eq!(cell(2, 1), (Some(wall), 0));
         assert!(
             grid.retained_neighbor_counts()
                 .iter()
@@ -2483,11 +2475,12 @@ mod tests {
             "the wall counts no neighbours"
         );
         assert_eq!(
-            cell(22, 24),
+            cell(3, 0),
             (None, 0),
             "Recalc drops the sloped ore and its data"
         );
-        assert_eq!(cell(24, 24), (Some(ore), 7));
+        assert_eq!(cell(4, 0), (Some(ore), 7));
+        assert_eq!(cell(5, 2), (None, 0), "an unallocated cell takes neither");
     }
 
     #[test]

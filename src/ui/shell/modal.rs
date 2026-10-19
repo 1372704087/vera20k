@@ -373,6 +373,69 @@ pub fn wait_box_layout(screen_w: i32, screen_h: i32) -> WaitBoxLayout {
     }
 }
 
+/// The Westwood Online Create Game popup `0xC3` (`0x0078DB70`), the same
+/// 451x326 centred box: executed client rects (tools/storage_oracle/
+/// wol_shell.json) of its controls from their templates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WolCreateGameLayout {
+    pub dialog: RectPx,
+    /// Static `GUI:Password`, right aligned.
+    pub password_label: RectPx,
+    /// Edit `0x72C` after its NewEdit inset.
+    pub password: RectPx,
+    pub clan: RectPx,
+    pub limit: RectPx,
+    pub observe: RectPx,
+    pub ok: RectPx,
+    pub cancel: RectPx,
+    /// Its own status line `0x695`.
+    pub status: RectPx,
+}
+
+/// A NewEdit's window after `0x00614CCF`'s +1/-2 inset.
+fn new_edit_window(rect: RectPx) -> RectPx {
+    RectPx::new(rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2)
+}
+
+pub fn wol_create_game_layout(screen_w: i32, screen_h: i32) -> WolCreateGameLayout {
+    let dialog = centered_modal_dialog(screen_w, screen_h, MESSAGE_BOX_W, MESSAGE_BOX_H);
+    let child = |x, y, w, h| modal_child(dialog, geom::child_window(x, y, w, h));
+    WolCreateGameLayout {
+        dialog,
+        password_label: child(11, 48, 113, 12),
+        password: new_edit_window(child(133, 47, 140, 12)),
+        clan: child(34, 76, 234, 14),
+        limit: child(34, 93, 234, 14),
+        observe: child(34, 110, 234, 14),
+        ok: child(33, 128, 83, 15),
+        cancel: child(184, 128, 83, 15),
+        status: child(0, 186, 291, 12),
+    }
+}
+
+/// The channel password popup `0xE1` (`0x0078E030`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WolChannelPasswordLayout {
+    pub dialog: RectPx,
+    /// Static `GUI:ChannelPassword`, centred.
+    pub label: RectPx,
+    pub password: RectPx,
+    pub ok: RectPx,
+    pub cancel: RectPx,
+}
+
+pub fn wol_channel_password_layout(screen_w: i32, screen_h: i32) -> WolChannelPasswordLayout {
+    let dialog = centered_modal_dialog(screen_w, screen_h, MESSAGE_BOX_W, MESSAGE_BOX_H);
+    let child = |x, y, w, h| modal_child(dialog, geom::child_window(x, y, w, h));
+    WolChannelPasswordLayout {
+        dialog,
+        label: child(49, 76, 200, 12),
+        password: new_edit_window(child(48, 94, 202, 12)),
+        ok: child(49, 163, 83, 15),
+        cancel: child(157, 163, 83, 15),
+    }
+}
+
 /// Center a modal panel of `(w, h)` on the live screen. Byte-identical to the
 /// skirmish validation-modal centering (`((screen - size) + 1) / 2`, clamped >= 0).
 fn centered_modal_dialog(screen_w: i32, screen_h: i32, w: i32, h: i32) -> RectPx {
@@ -639,5 +702,51 @@ mod tests {
         let yes_no = yes_no_layout(800, 600);
         let quit = quit_confirm_layout(800, 600);
         assert_eq!((yes_no.yes, yes_no.no), (quit.ok, quit.cancel));
+    }
+
+    #[test]
+    fn wol_lobby_popups_follow_the_executed_0xc3_0xe1_tables() {
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/storage_oracle/wol_shell.json",
+        ))
+        .unwrap();
+        let rect = |value: &serde_json::Value| {
+            let a: Vec<i32> = serde_json::from_value(value.clone()).unwrap();
+            RectPx::new(a[0], a[1], a[2], a[3])
+        };
+        let mut checked = 0;
+        for key in ["0xC3", "0xE1"] {
+            for (size, case) in corpus["layouts"][key]["sizes"].as_object().unwrap() {
+                let (w, h) = size.split_once('x').unwrap();
+                let (w, h): (i32, i32) = (w.parse().unwrap(), h.parse().unwrap());
+                let create = wol_create_game_layout(w, h);
+                let password = wol_channel_password_layout(w, h);
+                assert_eq!(create.dialog, rect(&case["dialog"]), "{key} {size}");
+                for (id, child) in case["controls"].as_object().unwrap() {
+                    let mut native = rect(&child["screen_rect"]);
+                    let actual = match (key, id.as_str()) {
+                        ("0xC3", "0xFFFF") => create.password_label,
+                        ("0xC3", "0x72C") => create.password,
+                        ("0xC3", "0x66C") => create.clan,
+                        ("0xC3", "0x71E") => create.limit,
+                        ("0xC3", "0x71F") => create.observe,
+                        ("0xC3", "0x1") => create.ok,
+                        ("0xC3", "0x2") => create.cancel,
+                        ("0xC3", "0x695") => create.status,
+                        (_, "0xFFFF") => password.label,
+                        (_, "0x72C") => password.password,
+                        (_, "0x1") => password.ok,
+                        (_, "0x2") => password.cancel,
+                        other => panic!("{other:?}"),
+                    };
+                    if id == "0x72C" {
+                        native = new_edit_window(native);
+                    }
+                    assert_eq!(actual, native, "{key} {size} {id}");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 36);
     }
 }

@@ -2,11 +2,11 @@
 //! This is part of the Parasite owner, not another relationship or damage store.
 
 use super::*;
-use crate::map::retail_trig::TrigTable;
 use crate::sim::anim_class::AnimWorldCoord;
 use crate::sim::components::AnimClassSpawnDescriptor;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53 as X, X87Value};
+use crate::util::retail_trig::TrigTable;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(super) struct GrappleState {

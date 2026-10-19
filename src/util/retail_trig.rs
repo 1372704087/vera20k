@@ -269,7 +269,8 @@ fn cos_index(angle_units: i32) -> i32 {
 }
 
 /// `0x008223B0`: binary32 16384/2pi, the radians-to-units scale of
-/// `Math::SinFromTable` and `Math::CosFromTable`.
+/// `Math::SinFromTable`. `Math::CosFromTable` reads its copy at `0x008223B4`,
+/// which holds the same bits.
 const UNITS_PER_RADIAN_F32: u32 = 0x4522_F983;
 
 fn from_table_units(radians: impl Into<MaskedX87Value>) -> i32 {

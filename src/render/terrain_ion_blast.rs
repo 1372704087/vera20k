@@ -31,10 +31,10 @@
 //! production admission and this owner.
 
 use super::TerrainDrawRenderer;
-use crate::map::retail_trig::TrigTable;
 use crate::render::ion_blast_ripple::{
     FRAME_COUNT, FRAME_HEIGHT, FRAME_WIDTH, RippleFrames, displacement,
 };
+use crate::util::retail_trig::TrigTable;
 
 /// One blast DrawAll draws, in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

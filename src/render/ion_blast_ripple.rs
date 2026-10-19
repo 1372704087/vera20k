@@ -20,8 +20,8 @@
 //! Native execution: `tools/superweapon_oracle.py` section `ion_blast_ripple`
 //! (the generator and both initializers, under the control words below).
 
-use crate::map::retail_trig::TrigTable;
 use crate::util::native_x87::{NativeF64Bits, X87Chop53, X87Ordering, X87Value, sqrt_approx_f32};
+use crate::util::retail_trig::TrigTable;
 
 /// Width of a ripple frame (`BSurface` width `0x200`, `0x0053D39E`).
 pub(crate) const FRAME_WIDTH: usize = 512;

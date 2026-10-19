@@ -15,7 +15,6 @@
 //! file load or object COM Load sequence.
 
 use crate::map::playfield::PlayfieldBounds;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::retail_ini_fixture::retail_battle_rules_for_map;
@@ -35,6 +34,7 @@ use crate::sim::rng::SimRng;
 use crate::sim::snapshot::GameSnapshot;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
+use crate::util::retail_trig::TrigTable;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::sync::OnceLock;

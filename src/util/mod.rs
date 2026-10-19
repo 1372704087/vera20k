@@ -33,6 +33,7 @@ pub(crate) mod native_quaternion;
 pub mod pixel_conversion;
 pub mod read_helpers;
 pub mod retail_pointer_sort;
+pub mod retail_trig;
 pub mod sha256;
 pub mod single_instance;
 pub mod version;

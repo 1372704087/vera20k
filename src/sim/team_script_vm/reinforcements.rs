@@ -875,7 +875,7 @@ impl Simulation {
                         }
                         return (true, None);
                     }
-                    let next = crate::util::direction_tables::CELL_DELTAS
+                    let next = crate::util::direction::DIRECTION_DELTAS
                         .iter()
                         .enumerate()
                         .find_map(|(direction, &(dx, dy))| {

@@ -13,7 +13,6 @@ use super::track_process::TrackFamily;
 use super::{MovementTickStats, PerCellReason, walk_head};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
-use crate::map::retail_trig::TrigTable;
 use crate::map::tube_facts::{TubeFact, TubeId, TubeSource};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -29,6 +28,7 @@ use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::world::{FrameAdvanceError, FrameEffects, Simulation};
 use crate::util::fixed_math::{SIM_ONE, SIM_ZERO};
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, distance_3d_leptons};
+use crate::util::retail_trig::TrigTable;
 
 /// FootClass-owned active TubeMovement payload.
 ///

@@ -122,7 +122,7 @@ impl ElectricBoltDraw {
                 });
                 if first_split {
                     first_split = false;
-                    let trig = crate::map::retail_trig::TrigTable::embedded();
+                    let trig = crate::util::retail_trig::TrigTable::embedded();
                     // PI at7E44D0. Native4C2151 multiplies the returned table
                     // sine by initial displacement before Math__ftol; the
                     // decompile omits that x87 value's dependency.

@@ -14,17 +14,6 @@ pub const LEPTONS_PER_CELL: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
 pub const CELL_CENTER_LEPTONS: i32 = crate::util::lepton::CELL_CENTER_LEPTON_I32;
 pub const INFANTRY_OCCUPATION_VEHICLE_BIT: u8 = 0x20;
 pub const INFANTRY_OCCUPATION_OBJECT_BIT: u8 = 0x40;
-/// Native-ordered (x, y, z) sub-cell lepton offsets, slots 0..4. Same values
-/// as `util::lepton::SUBCELL_*` (the SimFixed pairs); kept as a separate
-/// integer table because this is the native ordering + Z shape the kernel
-/// indexes by slot. Change both or neither.
-pub const INFANTRY_SUBCELL_OFFSETS: [(i32, i32, i32); 5] = [
-    (128, 128, 0),
-    (64, 64, 0),
-    (192, 64, 0),
-    (64, 192, 0),
-    (192, 192, 0),
-];
 
 const INFANTRY_SEQUENCE: [[u8; 4]; 5] = [
     [1, 2, 3, 4],
@@ -435,13 +424,6 @@ pub fn select_infantry_subcell(
         .find(|spot| *spot >= 2 && occupied_mask & (1 << spot) == 0)
 }
 
-pub fn infantry_subcell_offset(spot: u8) -> (i32, i32, i32) {
-    INFANTRY_SUBCELL_OFFSETS
-        .get(usize::from(spot))
-        .copied()
-        .unwrap_or(INFANTRY_SUBCELL_OFFSETS[0])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -589,6 +571,5 @@ mod tests {
             false,
             false,
         ));
-        assert_eq!(infantry_subcell_offset(3), (64, 192, 0));
     }
 }

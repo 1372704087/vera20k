@@ -9,7 +9,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MISSION_STUB_FRAMES, MissionId, MissionType};
 use crate::sim::world::FrameEffects;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 #[cfg(test)]
 #[path = "foot_mission_oracle_tests.rs"]
@@ -2262,7 +2262,7 @@ fn harvester_guard_override_requeues_harvest(sim: &Simulation, id: u64, rules: &
         i32::from(entity.position.rx()),
         i32::from(entity.position.ry()),
     );
-    for (dx, dy) in CELL_DELTAS {
+    for (dx, dy) in DIRECTION_DELTAS {
         let (Ok(cx), Ok(cy)) = (u16::try_from(rx + dx), u16::try_from(ry + dy)) else {
             continue;
         };

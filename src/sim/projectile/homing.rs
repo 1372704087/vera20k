@@ -8,8 +8,8 @@ use super::{
     ProjectileCollisionPolicy, ProjectileCoord as Coord, ProjectileGuidance,
     ProjectileVelocity as Velocity,
 };
-use crate::map::retail_trig::TrigTable;
 use crate::util::native_x87::{NativeF64Bits as D, X87Chop53 as X, X87Ordering};
+use crate::util::retail_trig::TrigTable;
 
 fn advance(p: Coord, v: Velocity, scale: i32) -> Coord {
     let step = v.integer_projection();

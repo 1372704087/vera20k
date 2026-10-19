@@ -1014,7 +1014,7 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
             "one per [Unload] dispatch: gap {gap} ({out:?})"
         );
     }
-    let neighbours: Vec<(u16, u16)> = super::CELL_DELTAS
+    let neighbours: Vec<(u16, u16)> = super::DIRECTION_DELTAS
         .iter()
         .map(|(dx, dy)| ((20 + dx) as u16, (20 + dy) as u16))
         .collect();
@@ -1053,7 +1053,7 @@ fn ifv_keeps_gunner_weapon_when_every_exit_is_refused() {
     let mut fx = Fixture::new(|_, _| false);
     {
         let terrain = fx.sim.resolved_terrain.as_mut().expect("terrain");
-        for (dx, dy) in super::CELL_DELTAS {
+        for (dx, dy) in super::DIRECTION_DELTAS {
             let cell = terrain
                 .cell_mut((20 + dx) as u16, (20 + dy) as u16)
                 .expect("neighbour cell");

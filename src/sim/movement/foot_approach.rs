@@ -25,7 +25,8 @@ use crate::sim::mission::MissionType;
 use crate::sim::movement::bump_crush::{CrushTarget, object_is_crushable_by};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{cell_delta_unchecked, facing16_between};
+use crate::util::direction::cell_delta_unchecked;
+use crate::util::direction_tables::facing16_between;
 use crate::util::native_trig::facing_step_world_xy;
 use crate::util::native_x87::{X87Chop53, distance_3d_leptons, sqrt_approx_f32};
 

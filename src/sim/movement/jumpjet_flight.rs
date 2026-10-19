@@ -56,16 +56,17 @@
 //! distance uses `Sqrt_Approx`; `Math::ftol @ 0x007C5F00` keeps the low dword.
 //!
 //! ## Dependency rules
-//! - Part of sim/ — depends on map/retail_trig, rules/jumpjet_params, util and
+//! - Part of sim/ — depends on util/retail_trig, rules/jumpjet_params, util and
 //!   sim/movement only.
 
 use super::JumpjetRuntime;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::jumpjet_params::JumpjetParams;
 use crate::sim::movement::facing_class::FacingClass;
-use crate::util::direction_tables::{CELL_DELTAS, LEPTON_DELTAS};
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::LEPTON_DELTAS;
 use crate::util::lepton::{BRIDGE_DECK_HEIGHT_LEPTONS, GROUND_LEVEL_HEIGHT_LEPTONS};
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, X87Value};
+use crate::util::retail_trig::TrigTable;
 
 /// Arrival radius in leptons (`CMP EBX,0x14` at `0x0054C163`).
 const ARRIVAL_RADIUS: i32 = 20;
@@ -983,7 +984,7 @@ fn desired_facing(destination: [i32; 3], location: [i32; 3]) -> u16 {
 /// `MapCoord_StepByDir_GetCell @ 0x00481810` adds the signed-word entries
 /// at `0x0089F688`; keep its word wrapping when reading the shared cell table.
 fn step_cell(cell: (i16, i16), direction: u32) -> (i16, i16) {
-    let (dx, dy) = CELL_DELTAS[(direction & 7) as usize];
+    let (dx, dy) = DIRECTION_DELTAS[(direction & 7) as usize];
     (
         cell.0.wrapping_add(dx as i16),
         cell.1.wrapping_add(dy as i16),

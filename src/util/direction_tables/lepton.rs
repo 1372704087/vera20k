@@ -4,19 +4,19 @@
 //! Consumers own speed scaling and signed-coordinate arithmetic; these
 //! initialized values do not establish their complete movement behavior.
 
-use super::cell::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 const LEPTONS_PER_CELL: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
 
-/// 8-direction lepton-delta table = `CELL_DELTAS[i] * 256`, compass order.
+/// 8-direction lepton-delta table = `DIRECTION_DELTAS[i] * 256`, compass order.
 /// Const-derived from the cell owner; both initializers have original controls.
 pub const LEPTON_DELTAS: [(i32, i32); 8] = {
     let mut out = [(0i32, 0i32); 8];
     let mut i = 0;
     while i < 8 {
         out[i] = (
-            CELL_DELTAS[i].0 * LEPTONS_PER_CELL,
-            CELL_DELTAS[i].1 * LEPTONS_PER_CELL,
+            DIRECTION_DELTAS[i].0 * LEPTONS_PER_CELL,
+            DIRECTION_DELTAS[i].1 * LEPTONS_PER_CELL,
         );
         i += 1;
     }
@@ -61,7 +61,7 @@ mod tests {
         for i in 0..8 {
             assert_eq!(
                 LEPTON_DELTAS[i],
-                (CELL_DELTAS[i].0 * 256, CELL_DELTAS[i].1 * 256)
+                (DIRECTION_DELTAS[i].0 * 256, DIRECTION_DELTAS[i].1 * 256)
             );
         }
     }

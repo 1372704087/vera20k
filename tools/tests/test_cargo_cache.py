@@ -370,7 +370,7 @@ class CacheTests(unittest.TestCase):
         outputs = [self.put(gone, relative) for relative in (
             'debug/deps/libcrate-0123456789abcdef.rlib', 'debug/.fingerprint/crate-0123/lib-crate',
             'debug/incremental/crate-123/s-new/object.o', 'debug/build/crate-123/out/generated.rs',
-            'debug/vera20k', 'fast/deps/orphan.rcgu.o', 'CACHEDIR.TAG')]
+            'debug/vera20k', 'fast/deps/orphan.rcgu.o', 'CACHEDIR.TAG', '.future-incompat-report.json')]
         cargo_run.publish_binaries(self.store, gone.name, gone, {outputs[4]})
         live = self.write('debug/deps/live.rcgu.o')
         result = self.trim(cache.CachePolicy(1 << 40, 1 << 40, 0))
@@ -411,6 +411,28 @@ class CacheTests(unittest.TestCase):
         self.assertEqual(result['abandoned_roots'], [], result)
         for path in (recent, running_object, live_object, misnamed):
             self.assertTrue(path.exists(), path)
+
+    def test_checkout_reappearing_during_inspection_blocks_but_a_newly_abandoned_cache_does_not(self):
+        gone = self.abandoned()
+        orphan = self.put(gone, 'debug/deps/orphan.rcgu.o')
+        binary, _ = self.label()
+        later = self.put(self.abandoned('later', idle=60), 'debug/deps/later.rcgu.o')
+        crossing = patch.object(cache, 'ABANDONED_SECONDS', 30)
+        def idle_threshold_passes(executable):
+            crossing.start()  # The second cache becomes abandoned mid-pass.
+            return set()
+        try:
+            result = self.trim(cache.CachePolicy(1 << 40, 1 << 40, 0), dependencies=idle_threshold_passes)
+        finally:
+            crossing.stop()
+        self.assertEqual(result['removed_files'], [str(orphan)], result)
+        self.assertTrue(later.exists())
+        kept = self.put(self.abandoned('back'), 'debug/deps/kept.rcgu.o')
+        self.label(name='uninspected')  # Its inspection runs the hook below.
+        def recreate(executable):
+            (self.root / 'back').mkdir()
+            return set()
+        self.assert_blocked(self.trim(cache.CachePolicy(1 << 40, 1 << 40, 0), dependencies=recreate), kept)
 
     def test_a_pass_removes_receipts_older_than_a_week(self):
         receipts = self.store / 'retention'

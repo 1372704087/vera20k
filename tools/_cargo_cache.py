@@ -322,7 +322,7 @@ def _abandoned_output(cache: Path, path: Path) -> bool:
     from tools.cargo_run import HOST_PROFILES
     parts = path.relative_to(cache).parts
     return (len(parts) > 1 and parts[0] in HOST_PROFILES) or parts in (
-        ('.rustc_info.json',), ('CACHEDIR.TAG',))
+        ('.rustc_info.json',), ('.future-incompat-report.json',), ('CACHEDIR.TAG',))
 
 
 def _inputs(root: Path, store: Path, *, preserved_checks=None, profiles=None, notes=None):
@@ -806,7 +806,8 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
             # cooperating tasks; stat checks also detect external mutation.
             if build_processes():
                 raise ValueError('Unwrapped Cargo/rustc became active; no deletion')
-            if _abandoned_roots(root, store) != abandoned:
+            # A cache abandoned since inventory waits for the next pass.
+            if not abandoned <= _abandoned_roots(root, store):
                 raise ValueError('Abandoned cache ownership changed during inspection')
             for path, identity in watched.items():
                 if _dependency_identity(path) != identity:
@@ -842,7 +843,7 @@ def trim_locked(root: Path, store: Path, policy: CachePolicy, *, dry_run=False) 
                     if time.monotonic() - checked_at >= 1:
                         if build_processes():
                             raise ValueError('Unwrapped Cargo/rustc became active; stopping deletion')
-                        if abandoned and _abandoned_roots(root, store) != abandoned:
+                        if abandoned and not abandoned <= _abandoned_roots(root, store):
                             raise ValueError('Abandoned cache ownership changed before deletion')
                         for path, identity in watched.items():
                             if _dependency_identity(path) != identity:

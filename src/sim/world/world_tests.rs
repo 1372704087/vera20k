@@ -806,7 +806,7 @@ fn advance_tick_finishes_dying_infantry_from_rules_catalog() {
         .set_for_test(0);
     sim.begin_infantry_death_sequence(
         id,
-        super::infantry_terminal::InfantryDeathSequence::Die1,
+        crate::sim::world::InfantryDeathSequence::Die1,
         &rules,
         crate::sim::world::FrameEffects::default(),
     );
@@ -3756,8 +3756,9 @@ fn guard_infantry_acquire_return_fire_and_finish_a_duel() {
                 .iter()
                 .filter(|event| event.attacker_id == id)
                 .count();
+            // A killed guard stays stored as a corpse at Health 0.
             if let Some(target) = sim.substrate.entities.get(id)
-                && !target.death.is_dying()
+                && target.is_ai_alive()
             {
                 health_history[index].push(target.health.current());
                 alive.push(index);
@@ -7330,9 +7331,12 @@ fn test_attack_move_auto_acquires_enemy() {
     );
 }
 
+/// The victim plays a Die1 sequence: a zero-count death request is refused
+/// (`0x0051D70F`) and the next visit's Health reset (`0x0051BC57`) would
+/// revive it at Health 1 for the attack-move to acquire again.
 #[test]
 fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
-    let rules = driving_combat_test_rules();
+    let rules = walking_combat_test_rules();
     let mut sim = attack_move_fight(&rules);
     if let Some(e) = sim.substrate.entities.get_mut(2) {
         e.health.set_for_test(50);
@@ -7365,7 +7369,7 @@ fn test_attack_move_lethal_hit_expires_the_target_at_the_kill() {
         .get(2)
         .expect("animated victim remains stored through its death sequence");
     assert_eq!(victim.health.current(), 0);
-    assert!(victim.death.is_dying());
+    assert!(!victim.death.is_dying());
     assert!(victim.lifecycle.object_alive());
 
     let attacker = sim.substrate.entities.get(1).expect("attacker exists");

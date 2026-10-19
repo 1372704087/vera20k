@@ -1861,7 +1861,7 @@ fn lifecycle_authority_combat_leaves_transport_cargo_for_carrier_uninit() {
 }
 
 #[test]
-fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence() {
+fn lifecycle_authority_animated_combat_handoff_changes_only_health_and_sequence() {
     let rules = infantry_fire_frame_rules();
     let mut store = EntityStore::new();
 
@@ -1889,7 +1889,8 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_dying_and_sequence()
     assert_eq!(result.despawned_ids, vec![1]);
     let dead = store.get(1).unwrap();
     assert_eq!(dead.health.current(), 0);
-    assert!(dead.death.is_dying());
+    // The Die1 corpse carries no mark of its own.
+    assert!(!dead.death.is_dying());
     assert_eq!(dead.mission_leaf.as_infantry().unwrap().doing(), 11);
     assert_eq!(dead.native_stage().value(), 0);
     assert_eq!(dead.infantry_sprite_pose(), Some((11, 0)));

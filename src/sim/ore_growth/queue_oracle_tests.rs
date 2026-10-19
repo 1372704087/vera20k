@@ -293,7 +293,8 @@ pub(crate) fn supplied_fixture(row: &Value) -> SuppliedFixture {
     // The shared native fixture's Ground table (0x89EA40, written by
     // tools/spatial_oracle/unit_source_scatter.py make_source_fixture) gives
     // Clear 1.0 for all nine SpeedTypes; the new Overlay's Mark admission
-    // (0x004834A0 at 0x005FD04F) reads its Track entry.
+    // (0x004834A0, called at 0x005FD00C, or 0x005FD04F for TIB01) reads its
+    // Track entry.
     let mut terrain = crate::map::resolved_terrain::test_grid(33, 33, |x, y| {
         crate::map::resolved_terrain::ResolvedTerrainCell {
             speed_costs: crate::map::resolved_terrain::TEST_OPEN_SPEED_COSTS,

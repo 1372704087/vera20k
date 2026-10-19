@@ -2114,23 +2114,13 @@ impl MapLoadInitial {
             .collect();
         let scenario_after_trace = simulation.rng_state().scenario;
 
-        let overlay_shp_ids = resolved_overlay_shp_ids(
-            &overlay_registry,
-            &rules_ini,
-            rules.art(),
-            asset_manager,
-            theater_ext,
-            &map_data.header.theater,
-        );
-        let mut overlay_grid = crate::sim::overlay_grid::OverlayGrid::from_native_overlay_packs(
+        let mut overlay_grid = crate::sim::overlay_grid::OverlayGrid::from_generated_overlays(
             &map_data.overlays,
             map_data
                 .overlay_data_pack()
                 .expect("random-map snapshot precedes authored pack consumption"),
             &mut resolved_terrain,
             &overlay_registry,
-            &overlay_shp_ids,
-            true,
         );
         let _ = crate::sim::terrain_spawn::clear_tiberium_source_cells_for_terrain(
             &mut overlay_grid,
@@ -2907,14 +2897,6 @@ pub(crate) fn load_map_from_initial(
         },
         variant_table_draws,
     );
-    let overlay_shp_ids = resolved_overlay_shp_ids(
-        &overlay_registry,
-        &rules_ini,
-        rules.art(),
-        asset_manager,
-        theater_ext,
-        &map_data.header.theater,
-    );
     // Parse house color assignments from map INI ([Houses] + per-house Color=).
     // Color=<name> resolves against the rules `[Colors]` list (entry index).
     let house_color_map: HouseColorMap = skirmish_launch_session
@@ -2933,6 +2915,14 @@ pub(crate) fn load_map_from_initial(
             let fill = authored_terrain_fill
                 .take()
                 .expect("authored materialization retained its pending Fill owner");
+            let overlay_shp_ids = resolved_overlay_shp_ids(
+                &overlay_registry,
+                &rules_ini,
+                rules.art(),
+                asset_manager,
+                theater_ext,
+                &map_data.header.theater,
+            );
             let output = crate::sim::runtime::finalize_and_populate_staged_authored_scenario(
                 &mut staged_simulation,
                 &mut map_data,
@@ -2962,15 +2952,13 @@ pub(crate) fn load_map_from_initial(
             let resolved_terrain = resolved_terrain
                 .as_mut()
                 .expect("generated materialization retained its eager terrain");
-            let mut overlay_grid = crate::sim::overlay_grid::OverlayGrid::from_native_overlay_packs(
+            let mut overlay_grid = crate::sim::overlay_grid::OverlayGrid::from_generated_overlays(
                 &map_data.overlays,
                 map_data.overlay_data_pack().map_err(|_| {
                     anyhow::anyhow!("generated overlay packs were already consumed")
                 })?,
                 resolved_terrain,
                 &overlay_registry,
-                &overlay_shp_ids,
-                true,
             );
             let cleared_terrain_overlay_cells =
                 crate::sim::terrain_spawn::clear_tiberium_source_cells_for_terrain(

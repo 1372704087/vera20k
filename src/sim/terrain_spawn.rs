@@ -866,8 +866,9 @@ mod tests {
 
     /// `CellClass::PlaceTiberium @ 0x0048728C` reveals a tree's new ore into
     /// `OverlayClass::Mark`, whose ordinary admission
-    /// (`CellClass::CheckCellPassability @ 0x004834A0` at `0x005FD04F`, Track
-    /// with both ignores) still refuses a landed aircraft's bit 0x40.
+    /// (`CellClass::CheckCellPassability @ 0x004834A0`, called at `0x005FD00C`
+    /// or for TIB01 at `0x005FD04F`, Track with both ignores) still refuses a
+    /// landed aircraft's bit 0x40.
     #[test]
     fn tree_grows_no_ore_under_a_landed_aircraft() {
         let run = |landed: bool| {

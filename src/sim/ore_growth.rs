@@ -1676,7 +1676,7 @@ mod tests {
 
     /// Loader-filled Clear cells that allow tiberium, with the retail
     /// `[Clear]` row whose Track entry the new ore's Mark admission reads
-    /// (`0x004834A0` at `0x005FD04F`).
+    /// (`0x004834A0`, called at `0x005FD00C`; `0x005FD04F` for TIB01).
     fn flat_clear_resolved_grid(width: u16, height: u16) -> ResolvedTerrainGrid {
         use crate::map::resolved_terrain::TEST_RETAIL_CLEAR_SPEED_COSTS;
         crate::map::resolved_terrain::test_grid(width, height, |rx, ry| ResolvedTerrainCell {
@@ -2986,8 +2986,9 @@ SpreadPercentage=.06
     }
 
     /// The new Overlay's `OverlayClass::Mark` asks
-    /// `CellClass::CheckCellPassability @ 0x004834A0` (`0x005FD04F`, Track,
-    /// both ignores), which still refuses a landed aircraft's bit 0x40.
+    /// `CellClass::CheckCellPassability @ 0x004834A0` (called at `0x005FD00C`,
+    /// or `0x005FD04F` for TIB01; Track, both ignores), which still refuses a
+    /// landed aircraft's bit 0x40.
     /// `CellClass::PlaceTiberium @ 0x00487190` then queues growth and stores
     /// the amount on the cell without an identity, spending the same draws.
     #[test]

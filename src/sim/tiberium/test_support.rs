@@ -26,7 +26,8 @@ pub(crate) const TEST_GRID_SIZE: u16 = 64;
 
 /// Flat Clear cells that allow tiberium and carry the retail `[Clear]` row,
 /// whose Track entry a new ore Overlay's Mark admission reads
-/// (`CellClass::CheckCellPassability @ 0x004834A0` at `0x005FD04F`).
+/// (`CellClass::CheckCellPassability @ 0x004834A0`, called at `0x005FD00C`;
+/// `0x005FD04F` for TIB01).
 pub(crate) fn flat_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
     crate::map::resolved_terrain::test_grid(width, height, |rx, ry| ResolvedTerrainCell {
         speed_costs: TEST_RETAIL_CLEAR_SPEED_COSTS,

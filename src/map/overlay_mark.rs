@@ -35,7 +35,7 @@ pub(crate) const NO_OVERLAY: i32 = -1;
 const MARK_MAX_SLOPE: u8 = 4;
 /// `0x005FC5DD`: the one identity the slope gate admits on any slope
 /// (retail `VEINHOLEDUMMY`).
-pub(crate) const MARK_STEEP_SLOPE_EXCEPTION_ID: u8 = 0xB2;
+const MARK_STEEP_SLOPE_EXCEPTION_ID: u8 = 0xB2;
 /// `0x005FC65D`: the TS veinhole identity (retail `USELESS`).
 const VEINHOLE_ID: u8 = 0xA7;
 /// `0x005FC6C5`: the TS veins identity (retail `DUMMYOLD`).
@@ -50,7 +50,7 @@ const CELL_ANIM_OFFSET_LEPTONS: i32 = 0x180;
 /// `OverlayClass::Mark @ 0x005FC5CD..0x005FC5E3`: the common unsigned slope
 /// gate on `CellClass+0x11C`, before every derived arm. Literal `0xB2` is
 /// exempt.
-pub(crate) const fn overlay_mark_accepts_slope(overlay_id: u8, slope: u8) -> bool {
+const fn overlay_mark_accepts_slope(overlay_id: u8, slope: u8) -> bool {
     slope <= MARK_MAX_SLOPE || overlay_id == MARK_STEEP_SLOPE_EXCEPTION_ID
 }
 
@@ -217,8 +217,15 @@ pub(crate) fn mark_overlay<H: OverlayMarkHost>(
         host.set_bridge_direction(anchor, family, direction)?;
     } else if id == VEINHOLE_ID || (id == VEINS_ID && !host.scenario_init()) {
         // 0x005FC65D..0x005FC6E1: the TS veinhole and GrowVeins
-        // (`0x00485AF0`) arms. Their world mutation is not ported (GSI-18.01):
-        // Mark goes straight to its common tail.
+        // (`0x00485AF0`) arms, not ported (GSI-18.01): Mark goes straight to
+        // its common tail. On a cell `0x0074D670` admits (any cell during
+        // ScenarioInit) native writes 0xA7 on the anchor and 0xB2 on its eight
+        // neighbours and constructs a VeinholeMonster. Dormant in retail: no
+        // runtime constructor places 0xA7, and the map reader
+        // (`ReadMapOverlayPacks @ 0x005FD2E0`) constructs only identities with
+        // an SHP or a CellAnim, which `USELESS` has in no theater (no rules or
+        // art section, and neither `USELESS.SHP` nor `UGELESS.SHP` is in a
+        // retail archive). No retail map places 0xA7 either.
         return finish(host, anchor);
     }
 

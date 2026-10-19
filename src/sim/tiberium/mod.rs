@@ -106,7 +106,8 @@ pub struct TiberiumPlacementObjectContext<'a> {
     occupancy: &'a OccupancyGrid,
     /// Live `CellClass+0x124`/`+0x128` occupation planes, read by
     /// `CellClass::CheckCellPassability @ 0x004834A0` when
-    /// `OverlayClass::Mark` admits the new Overlay (`0x005FD04F`).
+    /// `OverlayClass::Mark` admits the new Overlay (called at `0x005FD00C`;
+    /// `0x005FD04F` for TIB01).
     raw_occupation: &'a RawCellOccupationGrid,
     rules: &'a RuleSet,
     interner: &'a StringInterner,
@@ -1317,14 +1318,6 @@ SpreadPercentage=.06
                 overlay_id: tib13,
                 frame: 99,
             },
-            // Registered but unavailable art: pass one rejects identity while
-            // pass two must retain the raw byte.
-            OverlayEntry {
-                rx: 4,
-                ry: 0,
-                overlay_id: 0,
-                frame: 99,
-            },
             // Bytes exist in both packs but the native cell slot is absent.
             OverlayEntry {
                 rx: 5,
@@ -1341,17 +1334,9 @@ SpreadPercentage=.06
                 (1, 0, 11),
                 (2, 0, 7),
                 (3, 0, empty_raw),
-                (4, 0, 0x5A),
                 (5, 0, 0xEE),
             ]);
-            OverlayGrid::from_native_overlay_packs(
-                &entries,
-                &data,
-                &mut terrain,
-                &overlay_registry,
-                &BTreeSet::from([tib01, gem12, tib13]),
-                false,
-            )
+            OverlayGrid::from_generated_overlays(&entries, &data, &mut terrain, &overlay_registry)
         };
 
         let mut grid = build_grid(0xA5);
@@ -1375,11 +1360,6 @@ SpreadPercentage=.06
         assert_eq!(
             (grid.cell(3, 0).overlay_id, grid.cell(3, 0).overlay_data),
             (None, 0xA5)
-        );
-        assert_eq!(
-            (grid.cell(4, 0).overlay_id, grid.cell(4, 0).overlay_data),
-            (None, 0x5A),
-            "rejected pass-one identity does not suppress pass-two data"
         );
         assert_eq!(
             (grid.cell(5, 0).overlay_id, grid.cell(5, 0).overlay_data),

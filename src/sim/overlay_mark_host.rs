@@ -368,8 +368,11 @@ pub(crate) fn mark_cell_passable(
 }
 
 /// `OverlayClass::Mark`'s arguments to `CellClass::CheckCellPassability @
-/// 0x004834A0` (`0x005FD001..0x005FD00C`, `0x005FD03D..0x005FD04F`,
-/// `0x005FD065..0x005FD070`): `(speed, ignore, ignore, -1, 0, -1, 1)`.
+/// 0x004834A0`: `(speed, ignore, ignore, -1, 0, -1, 1)`. The water crate pushes
+/// them at `0x005FD001..0x005FD008` and ordinary admission at
+/// `0x005FD03D..0x005FD049`; both share the `CALL` at `0x005FD00C` (`JNZ` at
+/// `0x005FD04D`), except TIB01, whose own `CALL` at `0x005FD04F` precedes the
+/// slope recheck. The other crate images call at `0x005FD070`.
 pub(crate) fn mark_passability_args(
     speed: SpeedType,
     ignore_occupants: bool,

@@ -31,7 +31,6 @@ use crate::map::lat;
 use crate::map::map_file::{MapCell, MapFile};
 use crate::map::overlay::OverlayEntry;
 use crate::map::playfield::PlayfieldBounds;
-use crate::map::rmg::preview::Playfield;
 use crate::map::theater::{self, TheaterData, TileKey, TilesetLookup};
 use crate::map::tile_variant_selector::TileVariantSelectionContext;
 use crate::map::tube_facts::{NativeTubeCellIndex, TubeFact, TubeId};

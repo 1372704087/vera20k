@@ -924,7 +924,6 @@ fn stock_cliff_decoder_and_terrain_instances_occlude_shp_and_indexed_voxels() {
         world_height: 256.0,
         origin_x: 0.0,
         origin_y: -100.0,
-        local_bounds: None,
         bridge_middle_tiles: None,
     };
     let lookup = |id, sub, variant| {

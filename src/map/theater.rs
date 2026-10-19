@@ -838,9 +838,8 @@ pub fn load_theater(asset_manager: &mut AssetManager, theater_name: &str) -> Opt
         lookup.bounds().len()
     );
 
-    let iso_palette = load_exact_palette(asset_manager, def.iso_palette_name, theater_name, "iso")?;
-    let unit_palette =
-        load_exact_palette(asset_manager, def.unit_palette_name, theater_name, "unit")?;
+    let (unit_palette, iso_palette) =
+        load_theater_unit_and_iso_palettes(asset_manager, theater_name)?;
     let tiberium_palette = load_exact_palette(
         asset_manager,
         def.theater_palette_name,
@@ -1095,6 +1094,27 @@ fn apply_lunar_global_zeroing(
 /// owned by HighBridgeRimTiles and must not be reconstructed from this view.
 fn read_general_u16(general: Option<&IniSection>, key: &str) -> Option<u16> {
     u16::try_from(general?.read_int(key, -1)).ok()
+}
+
+/// The theater's unit and iso palettes, by their exact names: the one choice
+/// [`load_theater`] publishes and mid-match atlas growth re-reads, so pages
+/// grown later key on the load-time RGBA rows.
+///
+/// The decoder keeps every entry's colour. gamemd builds its colour tables
+/// with no colour key: ConvertClass (`0x0048E740`, 16-bit rows from
+/// `0x004BBB00`) and LightConvertClass::UpdateColors (`0x00556090`, through
+/// its RGB565 row builder `0x007DE200` or its generic loop) convert each
+/// entry by its RGB, and only index 0 is special (UpdateColors writes it as
+/// 0). Retail UNITTEM.PAL holds raw 63,0,63 at 204..239 and ISOTEM.PAL at
+/// 10; they draw as that colour.
+pub fn load_theater_unit_and_iso_palettes(
+    asset_manager: &AssetManager,
+    theater_name: &str,
+) -> Option<(Palette, Palette)> {
+    let def = theater_def(theater_name)?;
+    let iso = load_exact_palette(asset_manager, def.iso_palette_name, theater_name, "iso")?;
+    let unit = load_exact_palette(asset_manager, def.unit_palette_name, theater_name, "unit")?;
+    Some((unit, iso))
 }
 
 fn load_exact_palette(

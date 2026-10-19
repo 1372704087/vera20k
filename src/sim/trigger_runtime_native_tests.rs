@@ -424,11 +424,11 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
         native["actions"].as_str()
     );
     assert_eq!(
-        map.events[source].conditions[0].kind,
+        map.events[source].conditions()[0].kind,
         integer(&native["native_read"]["kind"])
     );
     assert_eq!(
-        map.events[source].conditions[0].value,
+        map.events[source].conditions()[0].value,
         integer(&native["native_read"]["value"])
     );
 
@@ -441,11 +441,10 @@ fn naval_event_retail_all05_removal_enables_black_eagle_support_once() {
         records.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             if (section == "Tags"
-                && map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|target| chain.contains(&target.as_str()))
-                }))
+                && map
+                    .tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|target| chain.contains(&target))))
                 || (section != "Tags" && chain.contains(&key))
             {
                 records.push_str(&format!("{key}={value}\n"));
@@ -1945,7 +1944,7 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
     let authored = map
         .actions
         .values()
-        .flat_map(|action| &action.entries)
+        .flat_map(|action| action.entries())
         .find(|entry| entry.kind == ACTION_SET_SUPER_CHARGE_PERCENTAGE)
         .unwrap();
     assert_eq!(
@@ -2004,8 +2003,8 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("CHARGE")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         assert_eq!(json!(entry.auxiliary_value()), row["read"]["auxiliary"]);
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(json!(action.value), row["read"]["value"]);
@@ -2115,8 +2114,8 @@ fn native_damage_at_waypoint_dispatch_matches_original_controls() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("DAMAGE")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(json!(action.value), row["read"]["value"], "{name}: +90");
         sim.trigger_runtime.definitions = definitions;
@@ -2324,7 +2323,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     let mut definitions = RuntimeDefinitions::default();
     let typ = definitions.trigger_type("DAMAGE").unwrap();
     let entry = map.actions["087857CC"]
-        .entries
+        .entries()
         .iter()
         .find(|entry| entry.kind == ACTION_DAMAGE_AT_WAYPOINT)
         .unwrap()
@@ -2541,8 +2540,8 @@ fn native_trigger_reveal_action_matches_original_controls() {
         let entry = crate::map::actions::parse_actions(&ini)
             .remove("REVEAL")
             .unwrap()
-            .entries
-            .remove(0);
+            .entries()[0]
+            .clone();
         let action = definitions.resolve_action(entry, None, None);
         assert_eq!(
             json!(action.value),
@@ -2838,12 +2837,12 @@ fn native_trigger_reveal_retail_definitions_use_retained_radius_and_literal_wayp
         let id = trigger["id"].as_str().unwrap();
         let authored = &map.actions[id];
         assert_eq!(
-            authored.entries.len(),
+            authored.entries().len(),
             trigger["actions"].as_array().unwrap().len(),
             "{id}"
         );
         for (entry, expected) in authored
-            .entries
+            .entries()
             .iter()
             .zip(trigger["actions"].as_array().unwrap())
         {
@@ -2864,7 +2863,7 @@ fn native_trigger_reveal_retail_definitions_use_retained_radius_and_literal_wayp
         json!(
             map.actions
                 .values()
-                .flat_map(|actions| &actions.entries)
+                .flat_map(|actions| actions.entries())
                 .filter(|entry| entry.kind == 16)
                 .count()
         ),
@@ -2898,8 +2897,8 @@ fn action_11_inline_labels_and_ordered_effects_match_original_controls() {
             crate::map::actions::parse_actions(&ini)
                 .remove("LABEL")
                 .unwrap()
-                .entries
-                .remove(0)
+                .entries()[0]
+                .clone()
         } else {
             // Original constructor-only control retains an empty inline label.
             ActionEntry {
@@ -3360,7 +3359,7 @@ fn definition_factories_match_all_original_action_reference_controls() {
         let record = crate::map::actions::parse_actions(&ini)
             .remove("REFERENCE")
             .unwrap();
-        let resolved = definitions.resolve_action(record.entries[0].clone(), None, None);
+        let resolved = definitions.resolve_action(record.entries()[0].clone(), None, None);
         let names: Vec<_> = match parameter_type {
             1 | 5 => definitions.team_types.iter().map(String::as_str).collect(),
             2 => definitions

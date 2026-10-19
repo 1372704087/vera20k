@@ -533,7 +533,6 @@ mod tests {
             smudges: Vec::new(),
             terrain_objects: Vec::new(),
             waypoints,
-            cell_tags: std::collections::HashMap::new(),
             tags: std::collections::HashMap::new(),
             triggers: std::collections::HashMap::new(),
             events: std::collections::HashMap::new(),

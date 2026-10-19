@@ -49,8 +49,6 @@ use crate::sim::pathfinding::terrain_speed::TerrainSpeedConfig;
 use crate::sim::pathfinding::zone_map::ZoneGrid;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::rng::SimRng;
-#[cfg(any(test, feature = "test-support"))]
-use crate::util::fixed_math::facing_from_delta_int;
 
 // --- Internal submodules ---
 pub(crate) mod at_coord;
@@ -210,15 +208,6 @@ impl MovementTickStats {
 // ---------------------------------------------------------------------------
 // Public utilities
 // ---------------------------------------------------------------------------
-
-/// Compute the active-retail screen-relative facing byte from a coordinate delta.
-///
-/// Computed directions use the high byte of the native 65,534-scale word;
-/// authored quarter-turn values remain distinct.
-#[cfg(any(test, feature = "test-support"))]
-pub fn facing_from_delta(dx: i32, dy: i32) -> u8 {
-    facing_from_delta_int(dx, dy)
-}
 
 // ---------------------------------------------------------------------------
 // Tick entry points (thin wrappers)

@@ -40,7 +40,7 @@ fn run(sim: &mut Simulation, rules: &RuleSet, kind: i32) -> bool {
         "[Actions]\nCASE=1,{kind},0,999,0,0,0,0,B\n"
     )));
     let action = RuntimeDefinitions::default().resolve_action(
-        entries["CASE"].entries[0].clone(),
+        entries["CASE"].entries()[0].clone(),
         None,
         None,
     );

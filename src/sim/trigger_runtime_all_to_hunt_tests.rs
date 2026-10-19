@@ -281,11 +281,10 @@ fn all_to_hunt_retail_all06_elapsed_enable_chain_releases_existing_gattling_team
         body.push_str(&format!("[{section}]\n"));
         for (key, value) in map.ini.section(section).unwrap().raw_entries() {
             if (section == "Tags"
-                && map.tags.get(key).is_some_and(|tag| {
-                    tag.fields
-                        .get(2)
-                        .is_some_and(|id| chain.contains(&id.as_str()))
-                }))
+                && map
+                    .tags
+                    .get(key)
+                    .is_some_and(|tag| tag.trigger().is_some_and(|id| chain.contains(&id))))
                 || (section != "Tags" && chain.contains(&key))
             {
                 body.push_str(&format!("{key}={value}\n"));
@@ -378,7 +377,7 @@ fn all_to_hunt_retail_all06_elapsed_enable_chain_releases_existing_gattling_team
     assert!(!enabled(&sim, chain[0]) && !enabled(&sim, chain[1]));
     // Execute the actual Wave4 predecessor's final Enable action, supplying
     // only that already-arrived-wave precondition, excluding its other arms.
-    let entry = map.actions["095EB2AC"].entries.last().unwrap().clone();
+    let entry = map.actions["095EB2AC"].entries().last().unwrap().clone();
     let action = sim
         .trigger_runtime
         .definitions

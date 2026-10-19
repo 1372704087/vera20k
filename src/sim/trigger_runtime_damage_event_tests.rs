@@ -777,7 +777,7 @@ fn retail_all06_red_damage_runs_parliament_destroy_attached_synchronously() {
             .map(|row| row.0)
             .collect::<Vec<_>>(),
         map.actions["048BB6BC"]
-            .entries
+            .entries()
             .iter()
             .map(|action| action.kind)
             .collect::<Vec<_>>()

@@ -42,7 +42,7 @@ use crate::rules::tiberium_type::TiberiumTypeRegistry;
 use crate::rules::voxel_anim_type::{VoxelAnimType, VoxelAnimTypeId};
 use crate::rules::warhead_type::WarheadType;
 use crate::rules::weapon_type::WeaponType;
-use crate::util::fixed_math::{SIM_ONE, SimFixed, sim_from_f32};
+use crate::util::fixed_math::{SIM_ONE, SimFixed};
 use crate::util::lookup_hash::LookupMap;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
@@ -2243,7 +2243,7 @@ impl Default for GeneralRules {
             ally_reveal: true,
             allies_allowed: false,
             paranoid: true,
-            tunnel_speed: sim_from_f32(6.0),
+            tunnel_speed: SimFixed::from_num(6.0_f32),
             missile_rot_var: 0.25,
             safety_altitude: 500,
             line_trail_color_override: [0; 3],
@@ -2820,8 +2820,8 @@ impl Default for RadiationRules {
             level_delay: 90,
             light_delay: 90,
             level_factor: 0.2,
-            light_factor: sim_from_f32(0.1),
-            tint_factor: sim_from_f32(1.0),
+            light_factor: SimFixed::from_num(0.1_f32),
+            tint_factor: SimFixed::from_num(1.0_f32),
             // Rules665663 zeroes EBX;6677EF/F5/FB seed RGB from BL.
             //66CF70 retains these bytes when RadColor is absent.
             color: (0, 0, 0),
@@ -2850,11 +2850,11 @@ impl RadiationRules {
             light_delay: section.read_int("RadLightDelay", d.light_delay).max(1),
             // Double fields (`0x0066D057..0x0066D0A5`).
             level_factor: section.read_double("RadLevelFactor", d.level_factor),
-            light_factor: sim_from_f32(
+            light_factor: SimFixed::from_num(
                 section.read_double("RadLightFactor", d.light_factor.to_num()) as f32,
             ),
-            tint_factor: sim_from_f32(
-                section.read_double("RadTintFactor", d.tint_factor.to_num()) as f32
+            tint_factor: SimFixed::from_num(
+                section.read_double("RadTintFactor", d.tint_factor.to_num()) as f32,
             ),
             color: (red, green, blue),
             // Only the ordered Process owner reads it (`RulesTypeReferences`).
@@ -3292,7 +3292,7 @@ impl GeneralRules {
             ally_reveal,
             allies_allowed,
             paranoid,
-            tunnel_speed: sim_from_f32(general.read_double("TunnelSpeed", 6.0) as f32),
+            tunnel_speed: SimFixed::from_num(general.read_double("TunnelSpeed", 6.0) as f32),
             flight_level: general.read_int("FlightLevel", 500),
             attacking_aircraft_sight_range: general.read_int(
                 "AttackingAircraftSightRange",
@@ -3516,10 +3516,12 @@ impl GeneralRules {
             gui_open_sound: None,
             gui_close_sound: None,
             // Float fields (`FSTP dword` at `0x0066B8B1`/`0x0066B8DB`).
-            direct_rocking_coefficient: sim_from_f32(
+            direct_rocking_coefficient: SimFixed::from_num(
                 audio_visual.read_float("DirectRockingCoefficient", 1.5),
             ),
-            fallback_coefficient: sim_from_f32(audio_visual.read_float("FallBackCoefficient", 0.1)),
+            fallback_coefficient: SimFixed::from_num(
+                audio_visual.read_float("FallBackCoefficient", 0.1),
+            ),
             // ChronoInSound/ChronoOutSound live in [AudioVisual], not [General].
             // No hardcoded fallback: a genuinely-absent key means no fallback
             // sound (silence), matching gamemd. Stock ships these keys present
@@ -3621,7 +3623,7 @@ impl GeneralRules {
                     )
                     .to_bits(),
             ),
-            ship_sinking_weight: sim_from_f32(
+            ship_sinking_weight: SimFixed::from_num(
                 general.read_double("ShipSinkingWeight", defaults.ship_sinking_weight.to_num())
                     as f32,
             ),

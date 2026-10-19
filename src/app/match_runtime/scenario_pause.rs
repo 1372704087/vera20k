@@ -2,8 +2,8 @@
 //! Simulation's ScenarioSession owns62C/630 and the input-lock transitions.
 //! This leaf supplies no gameplay clock, RNG or competing pause counter.
 use crate::app::AppState;
+use crate::sim::replay::ScenarioServiceInput;
 use crate::sim::timer::CdTimer;
-use crate::sim::trigger_runtime::TriggerEffect;
 
 #[derive(Debug, Default)]
 pub(crate) struct ScenarioPauseClock {
@@ -55,7 +55,9 @@ pub(crate) fn enter(state: &mut AppState, duration: i32, outermost: bool, wall_m
 }
 
 pub(crate) fn resume(state: &mut AppState, wall_ms: u64) {
-    let paused = state.match_state.presentation_paused();
+    let paused = state
+        .match_state
+        .presentation_paused(&state.frontend.screen);
     if !paused {
         state.match_state.scenario_elapsed_clock.resume(wall_ms);
     }
@@ -67,7 +69,7 @@ pub(crate) fn resume(state: &mut AppState, wall_ms: u64) {
 /// Main_Tick55D7C2..55D82E: only modes0/5 inspect620. Restored timers
 /// begin at zero (PostRead683571..68358E); a saved timed hold releases on
 /// the first live poll, while untimed holds remain with their existing owner.
-pub(crate) fn poll(state: &mut AppState, wall_ms: u64) -> Vec<TriggerEffect> {
+pub(crate) fn poll(state: &mut AppState, wall_ms: u64) {
     if matches!(
         state.match_state.session.mode(),
         super::session::SessionMode::Campaign | super::session::SessionMode::Skirmish
@@ -76,12 +78,22 @@ pub(crate) fn poll(state: &mut AppState, wall_ms: u64) -> Vec<TriggerEffect> {
         .match_presentation
         .scenario_pause
         .elapsed(wall_ms)
-        && let Some(rt) = state.match_state.sim_runtime.as_mut()
+        && let Some(rt) = state.match_state.sim_runtime.as_ref()
         && rt.simulation.session.scenario_pause_timed()
     {
-        return rt.simulation.expire_scenario_pause();
+        apply_service(state, ScenarioServiceInput::ExpireTimedPause);
     }
-    Vec::new()
+}
+
+/// Ordered external service ingress shared by timers, Chrono and Radar.
+/// Record the transition itself, never a wall clock or a second state owner.
+pub(crate) fn apply_service(state: &mut AppState, input: ScenarioServiceInput) {
+    let Some(rt) = state.match_state.sim_runtime.as_mut() else {
+        return;
+    };
+    let log = state.match_state.match_diagnostics.get_or_begin_replay(rt);
+    let effects = log.apply_scenario_service(&mut rt.simulation, input);
+    super::sim_tick::apply_trigger_effects(state, &effects);
 }
 
 /// Retire only this world's physical clock. Saved62C/630 remain simulation

@@ -13,13 +13,12 @@ use crate::app::AppState;
 use crate::app::input::commands::{preferred_local_owner, preferred_local_owner_name};
 use crate::app::match_runtime::session::SessionMode;
 
-use crate::app::types::SIM_TICK_HZ;
 use crate::app::types::SIM_TICK_MS;
 use crate::map::terrain;
 use crate::render::sprite_atlas;
 use crate::render::unit_atlas;
 use crate::sim::production;
-use crate::sim::replay::{ReplayHeader, ReplayLog};
+use crate::sim::replay::ScenarioServiceInput;
 use crate::sim::trigger_runtime::TriggerEffect;
 use crate::sim::world::{FrameEffects, LifecycleOutput, SimFireEvent, SimFrameOutput, TickLane};
 use crate::ui::game_screen::GameScreen;
@@ -555,7 +554,9 @@ pub(crate) fn pump_audio_service(state: &mut AppState, now_ms: u64) {
     // only the process before its first scenario uses the frontend cursor.
     //Full-screen5BED40 acquires its own shared movie hold synchronously.
     //It does not also call the scenario/menu pause path684140.
-    let paused = state.match_state.presentation_paused();
+    let paused = state
+        .match_state
+        .presentation_paused(&state.frontend.screen);
     let assets = crate::app::loading::pump::audio_service_asset_manager(
         &state.process_assets,
         state.frontend.loading_session.as_ref(),
@@ -839,8 +840,7 @@ fn advance_in_game_runtime_mode(
         && !state.match_state.debug_pause
         && !state.platform.focus_freeze_active();
     if service_live {
-        let effects = super::scenario_pause::poll(state, wall_ms);
-        apply_trigger_effects(state, &effects);
+        super::scenario_pause::poll(state, wall_ms);
     }
     let scenario_paused = state
         .match_state
@@ -857,12 +857,7 @@ fn advance_in_game_runtime_mode(
     {
         // Main_Tick55D830..55D859 services53B560 and returns without Logic.
         // A Finish here admits the world only on the following pass.
-        let effects = state
-            .match_state
-            .sim_runtime
-            .as_mut()
-            .map_or_else(Vec::new, |rt| rt.simulation.process_chrono_screen_effect());
-        apply_trigger_effects(state, &effects);
+        super::scenario_pause::apply_service(state, ScenarioServiceInput::StepChronoScreen);
         state.platform.frame_pacer.record_admitted_frame(wall_ms);
     }
     let decision = decide_runtime_pass(RuntimePassInputs {
@@ -1011,21 +1006,7 @@ fn advance_one_simulation_frame(
     let mut frame_committed = state.match_state.sim_runtime.is_none();
 
     if let Some(rt) = state.match_state.sim_runtime.as_ref() {
-        // F10: the segment opens lazily on the first frame of a timeline and
-        // lives on the app-owned diagnostics owner, never on the simulation.
-        if state.match_state.match_diagnostics.replay_log.is_none() {
-            let sim = &rt.simulation;
-            state.match_state.match_diagnostics.replay_log = Some(ReplayLog::new(ReplayHeader {
-                pixel_conversion_bounds: sim.session.pixel_conversion_bounds,
-                version: 1,
-                tick_hz: SIM_TICK_HZ,
-                seed: sim.session.seed,
-                // Scenario identity is session state — the header derives
-                // from the sim, not from app-resident view fields.
-                map_name: sim.session.map_name.clone(),
-                rules_hash: rules_hash(&rt.resources.rules),
-            }));
-        }
+        state.match_state.match_diagnostics.get_or_begin_replay(rt);
     }
 
     for _ in 0..1 {
@@ -1955,15 +1936,6 @@ pub(crate) fn clamp_cell_to_grid(
     let max_x = grid.width().saturating_sub(1);
     let max_y = grid.height().saturating_sub(1);
     (cell.0.min(max_x), cell.1.min(max_y))
-}
-
-pub(crate) fn rules_hash(rules: &crate::rules::ruleset::RuleSet) -> u64 {
-    // Compatibility covers the processed rules layers plus resolved entity
-    // animation, effect/particle timing, terrain-spawner raw frame timing, and
-    // smudge-selection frame dimensions.
-    // Compatibility must distinguish static inputs that can advance the same
-    // entity differently.
-    rules.simulation_config_hash()
 }
 
 #[cfg(test)]

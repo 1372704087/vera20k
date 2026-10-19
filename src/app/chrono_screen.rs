@@ -179,7 +179,10 @@ pub(crate) fn apply(state: &mut AppState, command: ChronoScreenCommand) {
                 }
                 sfx.set_chrono_screen_active(false);
             }
-            if !state.match_state.presentation_paused() {
+            if !state
+                .match_state
+                .presentation_paused(&state.frontend.screen)
+            {
                 state.match_state.scenario_elapsed_clock.resume(wall_ms);
             }
             state.match_state.match_presentation.chrono_screen.draw =
@@ -200,7 +203,10 @@ pub(crate) fn retire(state: &mut AppState, wall_ms: u64) {
             sfx.resume_eva();
         }
     }
-    if !state.match_state.presentation_paused() {
+    if !state
+        .match_state
+        .presentation_paused(&state.frontend.screen)
+    {
         state.match_state.scenario_elapsed_clock.resume(wall_ms);
     }
 }

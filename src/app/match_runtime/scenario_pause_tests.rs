@@ -1,6 +1,7 @@
 use super::*;
 use crate::app::match_runtime::session::SessionMode;
 use crate::app::match_runtime::sim_tick::{RuntimePassInputs, decide_runtime_pass};
+use crate::sim::trigger_runtime::TriggerEffect;
 
 #[test]
 fn original_pause_histories_pin_overflow_rearm_nesting_and_world_branch() {

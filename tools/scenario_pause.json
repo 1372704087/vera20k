@@ -384,5 +384,151 @@
         }
       ]
     }
+  ],
+  "radar_controls": [
+    {
+      "clips": [
+        true,
+        true
+      ],
+      "initial_hold": false,
+      "steps": [
+        {
+          "depth": 1,
+          "events": [
+            "enter_audio"
+          ],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 1,
+          "events": [],
+          "held": true,
+          "operation": "finish"
+        },
+        {
+          "depth": 1,
+          "events": [],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 0,
+          "events": [
+            "exit_audio"
+          ],
+          "held": false,
+          "operation": "finish"
+        }
+      ]
+    },
+    {
+      "clips": [
+        true,
+        false
+      ],
+      "initial_hold": false,
+      "steps": [
+        {
+          "depth": 1,
+          "events": [
+            "enter_audio"
+          ],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 1,
+          "events": [],
+          "held": true,
+          "operation": "finish"
+        },
+        {
+          "depth": 0,
+          "events": [
+            "exit_audio"
+          ],
+          "held": false,
+          "operation": "draw"
+        },
+        {
+          "depth": 0,
+          "events": [],
+          "held": false,
+          "operation": "finish"
+        }
+      ]
+    },
+    {
+      "clips": [
+        false,
+        true
+      ],
+      "initial_hold": false,
+      "steps": [
+        {
+          "depth": 0,
+          "events": [],
+          "held": false,
+          "operation": "draw"
+        },
+        {
+          "depth": 0,
+          "events": [],
+          "held": false,
+          "operation": "finish"
+        },
+        {
+          "depth": 1,
+          "events": [
+            "enter_audio"
+          ],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 0,
+          "events": [
+            "exit_audio"
+          ],
+          "held": false,
+          "operation": "finish"
+        }
+      ]
+    },
+    {
+      "clips": [
+        true,
+        true
+      ],
+      "initial_hold": true,
+      "steps": [
+        {
+          "depth": 2,
+          "events": [],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 2,
+          "events": [],
+          "held": true,
+          "operation": "finish"
+        },
+        {
+          "depth": 2,
+          "events": [],
+          "held": true,
+          "operation": "draw"
+        },
+        {
+          "depth": 1,
+          "events": [],
+          "held": false,
+          "operation": "finish"
+        }
+      ]
+    }
   ]
 }

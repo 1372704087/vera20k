@@ -8579,20 +8579,72 @@ def scenario_pause_controls():
                                 timer_duration=emu.read_i32(SCENARIO + 0x628),
                                 events=list(emu.events)))
         rows.append(dict(mode=mode, steps=records))
-    return dict(controls=rows)
+    return dict(controls=rows, radar_controls=scenario_radar_pause_controls())
+
+
+def scenario_radar_pause_controls():
+    """Original657BFA FIFO tail and657C7D pause reconciliation, not Bink playback."""
+    rows = []
+    for initial_hold, clips in [(False, [True, True]), (False, [True, False]),
+                                (False, [False, True]), (True, [True, True])]:
+        emu = Emu()
+        radar = FAKE + 0x600000
+        write8(emu, SCENARIO + 0x35a2, 1)
+        emu.write32(SCENARIO + 0x614, -1)
+        emu.write32(SCENARIO + 0x620, -1)
+        # Audio, housing animation and detail-level work do not decide the
+        # retained pause. Stop at either original epilogue, before its pops.
+        for address, pops in [(0x4068e0, 0), (0x656cb0, 8), (0x5bf530, 0),
+                              (0x406060, 0), (0x750920, 12), (0x4060f0, 0),
+                              (0x55af40, 0), (0x657cac, 0), (0x657cd4, 0),
+                              (0x6c8c40, 0)]:
+            emu.hook(address, lambda e: 0, pops)
+
+        def sink(e, name):
+            e.events.append(name)
+            return 0
+
+        emu.hook(0x406f00, lambda e: sink(e, 'enter_audio'), 0)
+        emu.hook(0x406f40, lambda e: sink(e, 'exit_audio'), 0)
+        if initial_hold:
+            emu.invoke(0x684060, ecx=0)
+        steps = []
+        for index, pause in enumerate(clips):
+            for operation in ('draw', 'finish'):
+                #657B31 writes the current clip's flag to stack+13;
+                #657BFA receives BL=whether another FIFO entry remains.
+                sp = STACK_BASE + STACK_SIZE - 0x1004
+                write8(emu, sp + 0x13, int(pause))
+                write8(emu, sp + 0x12, 1)
+                emu.uc.reg_write(UC_X86_REG_ESI, radar)
+                emu.uc.reg_write(UC_X86_REG_EBX, int(index + 1 < len(clips)))
+                emu.events.clear()
+                emu.invoke(0x657bfa if operation == 'finish' else 0x657c7d)
+                steps.append(dict(operation=operation,
+                                  held=bool(read8(emu, radar + 0x14bc)),
+                                  depth=emu.read32(SCENARIO + 0x62c),
+                                  events=list(emu.events)))
+        rows.append(dict(initial_hold=initial_hold, clips=clips, steps=steps))
+    return rows
 
 
 def scenario_pause_metadata():
     return provenance(
         scope='Original ScenarioPause enter/exit and Main_Tick timer/admission '
-              'slice; signed duration multiplication, rearm, nesting and modes.',
+              'slice; signed duration multiplication, rearm, nesting and modes; '
+              'Radar FIFO tail and pause reconciliation across queued clips.',
         assumptions=['Fresh Scenario62C/630=0 and620=-1; supplied16ms bucket '
                      'clock; preexisting35A2=1 keeps sidebar/media outside scope.',
-                     'No full Main_Tick, game, audio or save/load execution is claimed.'],
+                     'Radar clip pause flags and whether another FIFO entry remains '
+                     'are supplied at the original657BFA/657C7D slice inputs.',
+                     'No full Main_Tick, game, Bink playback, audio or save/load execution is claimed.'],
         substitutions=['6C8C40 returns each declared clock;406F00/406F40 '
                        'record audio boundaries;55D830/55D878 terminate the '
-                       'unchanged55D7C2 timer/branch slice.'],
-        entry_points={'enter':0x684060,'exit':0x684180,'timer_branch':0x55d7c2})
+                       'unchanged55D7C2 timer/branch slice.',
+                       'Radar housing/audio/detail calls4068E0,656CB0,5BF530,406060,'
+                       '750920,4060F0,55AF40 are sinks;657CAC/657CD4 stop before epilogues.'],
+        entry_points={'enter':0x684060,'exit':0x684180,'timer_branch':0x55d7c2,
+                      'radar_fifo_tail':0x657bfa,'radar_pause':0x657c7d})
 
 def generate():
     return {'source': 'unicorn/gamemd.exe', 'click_fire': click_fire(),

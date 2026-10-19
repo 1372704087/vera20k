@@ -1,10 +1,12 @@
 //! Tactical communications FIFO (5BF390/5BF450) and the shared Bink adapter.
-//! RadarPresentation owns mode/prelude/pause; Vox owns selected EVA completion;
-//! AppAudioRuntime owns the separate movie stream hold. No simulation state,
-//! second audio scheduler, global voices-active predicate, or fallback timeout.
+//! RadarPresentation owns mode/prelude and the requested pause; RadarMovies
+//! retains its acquired ScenarioPause credit. Vox owns selected EVA completion;
+//! AppAudioRuntime owns the separate movie stream hold.
 //!
 //! Native evidence: Steam3e81a617..08600,653963/6578F0/6579E0 and the executed
 //! prerequisite/lifecycle controls in the ALL01 native evidence packet.
+//! Queued pause transitions: original657BFA/657C7D controls in
+//! tools/scenario_pause.json; the sidecar records the executable identity.
 //! GPU/rodio, failed media decode and missing device are Rust substitutes;
 //! full native copy/final-paint and saved raw Radar fields remain unproven.
 
@@ -16,6 +18,7 @@ use crate::app::movie_playback::MoviePlayback;
 use crate::render::bink_movie::BinkMovieSurface;
 use crate::render::radar::anim::RadarMovieCommand;
 use crate::rules::sound_ini::{EvaPriority, EvaType};
+use crate::sim::replay::ScenarioServiceInput;
 
 const INCOMING: &str = "EVA_IncomingTransmission"; //652D6E literal8392C0
 
@@ -39,6 +42,33 @@ pub(crate) struct RadarMovies {
 impl RadarMovies {
     pub(crate) const fn scenario_hold(&self) -> bool {
         self.scenario_hold
+    }
+
+    fn set_scenario_pause(&mut self, paused: bool) -> Option<ScenarioServiceInput> {
+        //657C85..657CD4 compares the requested flag with the retained credit.
+        if paused == self.scenario_hold {
+            return None;
+        }
+        self.scenario_hold = paused;
+        Some(if paused {
+            ScenarioServiceInput::Pause
+        } else {
+            ScenarioServiceInput::Resume
+        })
+    }
+
+    fn finish_playing(&mut self) -> (bool, Option<ScenarioServiceInput>) {
+        self.playing = None;
+        self.queue.pop_front();
+        let has_next = !self.queue.is_empty();
+        //657BFA..657C37 keeps the finishing clip's pause through a queued
+        //transition. The next head draw decides whether that credit changes.
+        let service = if has_next {
+            None
+        } else {
+            self.set_scenario_pause(false)
+        };
+        (has_next, service)
     }
     pub(crate) fn set_active(&mut self, active: bool) {
         if let Some(player) = self.playing.as_mut() {
@@ -118,7 +148,10 @@ pub(crate) fn enqueue(state: &mut AppState, index: i32, pause_simulation: bool) 
 /// Reconcile117's pause with an open modal. The existing clock is idempotent;
 /// movie removal never rearms time while another offline pause still exists.
 fn reconcile_pause_clock(state: &mut AppState, wall_ms: u64) {
-    if state.match_state.presentation_paused() {
+    if state
+        .match_state
+        .presentation_paused(&state.frontend.screen)
+    {
         state.match_state.scenario_elapsed_clock.pause(wall_ms);
     } else {
         state.match_state.scenario_elapsed_clock.resume(wall_ms);
@@ -221,24 +254,13 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
         .as_mut()
         .expect("radar admission")
         .set_movie_pause(pause);
-    if pause
-        && !state
-            .match_state
-            .match_presentation
-            .radar_movies
-            .scenario_hold
+    if let Some(input) = state
+        .match_state
+        .match_presentation
+        .radar_movies
+        .set_scenario_pause(pause)
     {
-        state
-            .match_state
-            .match_presentation
-            .radar_movies
-            .scenario_hold = true;
-        let effects = state
-            .match_state
-            .sim_runtime
-            .as_mut()
-            .map_or_else(Vec::new, |rt| rt.simulation.pause_scenario(0));
-        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
+        crate::app::match_runtime::scenario_pause::apply_service(state, input);
     }
     reconcile_pause_clock(state, wall_ms);
     if state
@@ -296,10 +318,11 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
             [surface.width(), surface.height()],
         );
     if completed {
-        let movies = &mut state.match_state.match_presentation.radar_movies;
-        movies.playing = None;
-        movies.queue.pop_front();
-        let has_next = !movies.queue.is_empty();
+        let (has_next, service) = state
+            .match_state
+            .match_presentation
+            .radar_movies
+            .finish_playing();
         state
             .match_state
             .match_presentation
@@ -307,7 +330,9 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
             .as_mut()
             .expect("radar retirement")
             .finish_movie(has_next);
-        release_scenario_hold(state);
+        if let Some(input) = service {
+            crate::app::match_runtime::scenario_pause::apply_service(state, input);
+        }
         if !has_next {
             state.audio.retire_movie_audio(wall_ms);
             reconcile_pause_clock(state, wall_ms);
@@ -334,34 +359,14 @@ pub(crate) fn retire(state: &mut AppState, wall_ms: u64) {
         radar.retire_movies();
     }
     if held {
-        let effects = state
-            .match_state
-            .sim_runtime
-            .as_mut()
-            .map_or_else(Vec::new, |rt| rt.simulation.resume_scenario());
-        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
+        crate::app::match_runtime::scenario_pause::apply_service(
+            state,
+            ScenarioServiceInput::Resume,
+        );
     }
     state.audio.retire_movie_audio(wall_ms);
     if state.frontend.screen == crate::ui::game_screen::GameScreen::InGame {
         reconcile_pause_clock(state, wall_ms);
-    }
-}
-
-// Native657CC8 and the5BF450 retirement route release only this clip's hold.
-fn release_scenario_hold(state: &mut AppState) {
-    if std::mem::take(
-        &mut state
-            .match_state
-            .match_presentation
-            .radar_movies
-            .scenario_hold,
-    ) {
-        let effects = state
-            .match_state
-            .sim_runtime
-            .as_mut()
-            .map_or_else(Vec::new, |rt| rt.simulation.resume_scenario());
-        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
     }
 }
 
@@ -376,5 +381,81 @@ pub(crate) fn release_saved_scenario_hold(
         sim.resume_scenario()
     } else {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sim::replay::{ReplayHeader, ReplayLog};
+    use crate::sim::trigger_runtime::TriggerEffect;
+    use crate::sim::world::Simulation;
+
+    #[test]
+    fn pause_holds_follow_native_queued_movie_transitions() {
+        let controls = crate::test_fixture::json("tools/scenario_pause.json");
+        for row in controls["radar_controls"].as_array().unwrap() {
+            let mut sim = Simulation::with_seed(0);
+            sim.session.set_input_locked(true);
+            if row["initial_hold"].as_bool().unwrap() {
+                sim.pause_scenario(0);
+            }
+            let mut log = ReplayLog::new(ReplayHeader {
+                pixel_conversion_bounds: Default::default(),
+                version: 2,
+                tick_hz: 15,
+                seed: 0,
+                map_name: String::new(),
+                rules_hash: 0,
+            });
+            let mut movies = RadarMovies::default();
+            movies.queue.extend(
+                row["clips"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|pause| QueuedMovie {
+                        surface: None,
+                        pause_simulation: pause.as_bool().unwrap(),
+                    }),
+            );
+            for step in row["steps"].as_array().unwrap() {
+                let input = match step["operation"].as_str().unwrap() {
+                    "draw" => {
+                        movies.set_scenario_pause(movies.queue.front().unwrap().pause_simulation)
+                    }
+                    "finish" => movies.finish_playing().1,
+                    _ => unreachable!(),
+                };
+                let effects = input.map_or_else(Vec::new, |input| {
+                    log.apply_scenario_service(&mut sim, input)
+                });
+                let events: Vec<_> = effects
+                    .iter()
+                    .filter_map(|effect| match effect {
+                        TriggerEffect::ScenarioPause {
+                            outermost: true, ..
+                        } => Some("enter_audio"),
+                        TriggerEffect::ScenarioResume => Some("exit_audio"),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(
+                    movies.scenario_hold(),
+                    step["held"].as_bool().unwrap(),
+                    "{step}"
+                );
+                assert_eq!(
+                    serde_json::to_value(&sim.session).unwrap()["scenario_pause"]["depth"],
+                    step["depth"],
+                    "{step}"
+                );
+                assert_eq!(serde_json::json!(events), step["events"], "{step}");
+            }
+            assert_eq!(
+                sim.session.scenario_paused(),
+                row["initial_hold"].as_bool().unwrap()
+            );
+        }
     }
 }

@@ -1,6 +1,7 @@
 //! ScenarioPause684060/684180. Scenario62C/630 and B054CC's retained prior
 //! input lock have one owner. The app owns only620's system-clock timer;
 //! it reports expiry without passing wall time into the simulation.
+//! Executed controls: tools/scenario_pause.json, identity in its sidecar.
 use crate::sim::trigger_runtime::TriggerEffect;
 use crate::sim::world::Simulation;
 

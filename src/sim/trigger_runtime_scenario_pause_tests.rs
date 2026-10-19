@@ -4,7 +4,7 @@ use crate::sim::scenario_session::ScenarioDescriptor;
 
 fn action(sim: &mut Simulation, kind: i32, value: i32) -> Vec<TriggerEffect> {
     let ini = IniFile::from_str(&format!("[Actions]\nA=1,{kind},0,{value},0,0,0,0,Z\n"));
-    let entry = crate::map::actions::parse_actions(&ini)["A"].entries[0].clone();
+    let entry = crate::map::actions::parse_actions(&ini)["A"].entries()[0].clone();
     let action = RuntimeDefinitions::default().resolve_action(entry, None, None);
     let mut effects = Vec::new();
     assert!(sim.apply_live_trigger_action(
@@ -144,15 +144,7 @@ fn counted_logic_tag_emits_pause_requests_in_authored_order() {
     );
     sim.classify_map_triggers(None);
     sim.session.set_started(true);
-    let effects = sim.advance_triggers(
-        TriggerInputs {
-            events: &map.events,
-            actions: &map.actions,
-            rules: None,
-        },
-        None,
-        FrameEffects::default(),
-    );
+    let effects = sim.advance_triggers(None, None, FrameEffects::default());
     assert_eq!(
         effects,
         [
@@ -220,4 +212,101 @@ fn chrono_and_timed_trigger_share_one_counter_and_preserve_the_outer_lock() {
     );
     assert!(!sim.session.scenario_paused());
     assert!(!sim.session.input_locked());
+}
+
+#[test]
+fn scenario_services_replay_between_production_frames() {
+    use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner, ScenarioServiceInput};
+    use crate::sim::runtime::SimRuntime;
+    use crate::sim::world::TickLane;
+
+    for kind in [110, 127] {
+        let text = format!(
+            "[Map]\nTheater=TEMPERATE\nSize=0,0,2,1\nLocalSize=0,0,2,1\n[IsoMapPack5]\n1=DwALABwBAAIA/////wAAABEAAA==\n[Basic]\nNewINIFormat=4\n[Triggers]\nP=Neutral,<none>,P,0,1,1,1,0\n[Events]\nP=1,13,0,0\n[Actions]\nP=1,{kind},0,1,0,0,0,0,Z\n[Tags]\nPTAG=0,P,P\n"
+        );
+        let map = crate::map::map_file::MapFile::from_bytes(text.as_bytes()).unwrap();
+        let runtime = || {
+            let mut sim = Simulation::with_seed(0);
+            sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+            sim.classify_map_triggers(None);
+            sim.session.set_started(true);
+            sim.hash_state_every(std::num::NonZeroU64::MIN);
+            SimRuntime::from_simulation(sim)
+        };
+        let mut live = runtime();
+        let mut replay = ReplayLog::new(ReplayHeader {
+            pixel_conversion_bounds: live.simulation.session.pixel_conversion_bounds,
+            version: 2,
+            tick_hz: 15,
+            seed: 0,
+            map_name: String::new(),
+            rules_hash: 0,
+        });
+        // Movie service may precede the first world frame. Its ordering survives JSON.
+        replay.apply_scenario_service(&mut live.simulation, ScenarioServiceInput::Pause);
+        replay.apply_scenario_service(&mut live.simulation, ScenarioServiceInput::Resume);
+        for _ in 0..64 {
+            let frame = live
+                .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+                .unwrap();
+            replay.record_tick(frame.tick.tick, Vec::new(), frame.tick.state_hash);
+            if live.simulation.session.scenario_paused() {
+                break;
+            }
+        }
+        assert!(live.simulation.session.scenario_paused(), "action {kind}");
+        let paused_tick = live.simulation.session.tick;
+        if kind == 110 {
+            replay.apply_scenario_service(
+                &mut live.simulation,
+                ScenarioServiceInput::ExpireTimedPause,
+            );
+        } else {
+            for _ in 0..8 {
+                replay.apply_scenario_service(
+                    &mut live.simulation,
+                    ScenarioServiceInput::StepChronoScreen,
+                );
+                if !live.simulation.session.scenario_paused() {
+                    break;
+                }
+            }
+        }
+        assert!(!live.simulation.session.scenario_paused());
+        assert_eq!(live.simulation.session.tick, paused_tick);
+        let resumed = live
+            .advance_frame(&[], 67, TickLane::Ordinary, FrameEffects::default())
+            .unwrap();
+        replay.record_tick(resumed.tick.tick, Vec::new(), resumed.tick.state_hash);
+        // Also retain a service input after the last frame without inventing a tick.
+        replay.apply_scenario_service(&mut live.simulation, ScenarioServiceInput::Pause);
+        let replay: ReplayLog =
+            serde_json::from_str(&serde_json::to_string(&replay).unwrap()).unwrap();
+        let expected: Vec<_> = replay.ticks.iter().map(|tick| tick.state_hash).collect();
+        let mut playback = runtime();
+        let hashes = ReplayRunner::run_runtime(&mut playback, &replay, 67).unwrap();
+        assert_eq!(hashes, expected, "production replay of action {kind}");
+        assert_eq!(
+            playback.simulation.state_hash(),
+            live.simulation.state_hash()
+        );
+        let mut fixture = runtime();
+        assert_eq!(
+            ReplayRunner::run_fixture_master_frame(
+                &mut fixture.simulation,
+                &replay,
+                Some(&fixture.resources.rules),
+                None,
+                Some(&fixture.resources.overlay_registry),
+                67,
+                true,
+            ),
+            expected,
+            "fixture replay of action {kind}"
+        );
+        assert_eq!(
+            fixture.simulation.state_hash(),
+            live.simulation.state_hash()
+        );
+    }
 }

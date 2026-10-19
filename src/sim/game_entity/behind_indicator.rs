@@ -30,7 +30,11 @@ impl GameEntity {
         self.behind_anim.take()
     }
 
+    /// Folded only while held, so objects without one keep their hash.
     pub(crate) fn hash_behind_anim(&self, hasher: &mut impl Hasher) {
-        self.behind_anim.hash(hasher);
+        if let Some(anim) = self.behind_anim {
+            b"behind-anim".hash(hasher);
+            anim.hash(hasher);
+        }
     }
 }

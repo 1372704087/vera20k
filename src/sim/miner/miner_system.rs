@@ -24,7 +24,7 @@ use crate::sim::pathfinding::zone_map::{ZONE_INVALID, ZoneGrid};
 use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 use crate::sim::intern::InternedId;
 
@@ -1128,7 +1128,7 @@ fn effective_zone_cell(
     if zone_map.zone_at(rx, ry, MovementLayer::Ground) != ZONE_INVALID {
         return Some((rx, ry));
     }
-    for &(dx, dy) in &CELL_DELTAS {
+    for &(dx, dy) in &DIRECTION_DELTAS {
         let nx = (rx as i32) + dx;
         let ny = (ry as i32) + dy;
         if nx < 0 || ny < 0 || nx > u16::MAX as i32 || ny > u16::MAX as i32 {
@@ -1152,7 +1152,7 @@ fn neighbour_reachable(
     harvester_zone_cell: (u16, u16),
     cell: (u16, u16),
 ) -> bool {
-    for &(dx, dy) in &CELL_DELTAS {
+    for &(dx, dy) in &DIRECTION_DELTAS {
         let nx = (cell.0 as i32) + dx;
         let ny = (cell.1 as i32) + dy;
         if nx < 0 || ny < 0 || nx > u16::MAX as i32 || ny > u16::MAX as i32 {

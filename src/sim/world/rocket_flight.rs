@@ -11,7 +11,6 @@
 use super::Simulation;
 use super::lifecycle::UninitContext;
 use crate::map::resolved_terrain::NativeCellQuery;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::anim_class::AnimWorldCoord;
@@ -21,6 +20,7 @@ use crate::sim::movement::ground_pose::position_world_coord;
 use crate::sim::movement::rocket_movement::{self, RocketHost};
 use crate::sim::projectile::ProjectileCoord;
 use crate::sim::world::FrameEffects;
+use crate::util::retail_trig::TrigTable;
 
 struct RocketProcessHost<'a> {
     sim: &'a mut Simulation,

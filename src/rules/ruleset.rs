@@ -776,6 +776,12 @@ pub struct GeneralRules {
     pub wake: AnimRef,
     /// Multiplayer move-command feedback animation (MoveFlash= in [General]).
     pub move_flash: AnimRef,
+    /// `[General] Behind=` (`Rules+0xB8`): the indicator Anim a Techno
+    /// behind a building takes (`TechnoClass::AI_Update @ 0x006FA2D3`).
+    /// The ordered processor's General read (`0x0066E4F5..0x0066E513`,
+    /// AnimType factory `0x00428B80`) publishes it; the constructor leaves it
+    /// null (`0x00665765`).
+    pub behind: Option<String>,
     /// Fatal infantry animation bindings indexed by Warhead `InfDeath`.
     /// Slots 3/4/6..10 come from `[General]`; slot 5 is the second declared
     /// `[Animations]` entry. Slots 0..2 intentionally have no external anim.
@@ -1814,6 +1820,11 @@ pub struct GeneralRules {
     /// Mutator launch constructs (`SuperClass::Launch 0x006CD8A5`). Retail
     /// `RING1`. The constructor default is a null type: no key, no animation.
     pub ion_blast_anim: String,
+    /// General IonBeam, Rules+29C: ctor665A24=null, reader66DCDD..66DD0D.
+    pub ion_beam_anim: String,
+    /// CombatDamage IonCannonDamage, Rules+490: ctor665CD4=700;
+    /// ReadInt5276D0/current default at66BBF8..66BC12, unclamped.
+    pub ion_cannon_damage: i32,
     // --- ForceShield ([General], RulesClass::ReadGeneral) ---
     /// `ForceShieldRadius=` (`Rules+0x17B8`, `0x0067109F`), in cells; the
     /// constructor's 10 (`0x006676C8`).
@@ -2293,6 +2304,7 @@ impl Default for GeneralRules {
             move_flash: AnimRef {
                 name: "RING".to_string(),
             },
+            behind: None,
             infantry_death_anims: [
                 None,
                 None,
@@ -2549,6 +2561,8 @@ impl Default for GeneralRules {
             dominator_capture_range: 2,
             dominator_damage: 50,
             ion_blast_anim: String::new(),
+            ion_beam_anim: String::new(),
+            ion_cannon_damage: 700,
             force_shield_radius: 10,
             force_shield_duration: 400,
             force_shield_blackout_duration: 800,
@@ -3579,6 +3593,7 @@ impl GeneralRules {
             move_flash: AnimRef {
                 name: parse_anim_name("MoveFlash", "RING"),
             },
+            behind: defaults.behind,
             infantry_death_anims,
             damage_delay_minutes: general.read_double("DamageDelay", 1.0) as f32,
             spy_power_blackout: general.read_int("SpyPowerBlackout", defaults.spy_power_blackout),
@@ -3745,7 +3760,10 @@ impl GeneralRules {
             dominator_fire_at_percentage: general.read_int("DominatorFireAtPercentage", 50),
             dominator_capture_range: general.read_int("DominatorCaptureRange", 2),
             dominator_damage: general.read_int("DominatorDamage", 50),
-            ion_blast_anim: general.read_string("IonBlast", "", 0x80),
+            // The native Process state supplies all four IonBlast inputs.
+            ion_blast_anim: defaults.ion_blast_anim.clone(),
+            ion_beam_anim: defaults.ion_beam_anim.clone(),
+            ion_cannon_damage: defaults.ion_cannon_damage,
             force_shield_radius: general.read_int("ForceShieldRadius", 10),
             force_shield_duration: general.read_int("ForceShieldDuration", 400),
             force_shield_blackout_duration: general.read_int("ForceShieldBlackoutDuration", 800),
@@ -4175,6 +4193,11 @@ impl RuleSet {
         rules.general.difficulty_rows = *processed.difficulty_rows();
         rules.general.detail = processed.detail();
         rules.general.talk_bubble_time = processed.talk_bubble_time();
+        let (damage, blast, beam, ion_cannon) = processed.ion_blast_inputs();
+        rules.bridge_warheads.ion_cannon_name = ion_cannon.to_owned();
+        rules.general.ion_cannon_damage = damage;
+        rules.general.ion_blast_anim = blast.to_string();
+        rules.general.ion_beam_anim = beam.to_string();
         let (ambient_rate, ambient_step) = processed.ambient_change_inputs();
         (
             rules.general.ambient_change_rate_nonzero,
@@ -4190,6 +4213,7 @@ impl RuleSet {
         let (drop_zone_anim, drop_zone_radius) = processed.drop_zone_controls();
         rules.general.drop_zone_anim = drop_zone_anim.map(str::to_owned);
         rules.general.drop_zone_radius = drop_zone_radius;
+        rules.general.behind = processed.behind().map(str::to_owned);
         rules.general.prerequisite_proc_alternate =
             processed.prerequisite_proc_alternate().map(str::to_owned);
         rules.prerequisite_lists = processed.prerequisite_lists().clone();
@@ -4458,7 +4482,6 @@ impl RuleSet {
         let name = |reference: &Option<String>| reference.clone().unwrap_or_default();
         self.bridge_warheads.c4_name = name(&references.c4_warhead);
         self.bridge_warheads.crush_name = name(&references.crush_warhead);
-        self.bridge_warheads.ion_cannon_name = name(&references.ion_cannon_warhead);
         self.combat_damage
             .ivan_warhead
             .clone_from(&references.ivan_warhead);
@@ -5585,8 +5608,18 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        b"rules-simulation-config-v23".hash(&mut hasher);
+        // v25: the retained Type references and RulesClass Type pointers
+        // (retained-type-references-v2 below).
+        b"rules-simulation-config-v25".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
+        // UnitType747734 retains CarriesCrate across later absent/invalid
+        // keys; equal current source text can still mean different cargo.
+        self.object_list
+            .iter()
+            .filter(|object| object.category == ObjectCategory::Vehicle)
+            .map(|object| (object.id.to_ascii_uppercase(), object.carries_crate()))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
         // Global construction order changes which category106 mutates when
         // IDs coincide. Current TechLevels can also differ after retained
         // default reads even when the compatibility INI is identical.
@@ -5619,6 +5652,11 @@ impl RuleSet {
             .hash(&mut hasher);
         self.general.ambient_change_step.hash(&mut hasher);
         self.general.prism_support.hash(&mut hasher);
+        // These current-default inputs survive a process registry handoff.
+        self.general.ion_cannon_damage.hash(&mut hasher);
+        self.general.ion_blast_anim.hash(&mut hasher);
+        self.general.ion_beam_anim.hash(&mut hasher);
+        self.bridge_warheads.ion_cannon_name.hash(&mut hasher);
         // Earlier Rules passes retain these signed divisors even when the
         // current source stack omits them; sale crew and its RNG consumers
         // must not be presented as the same effective configuration.
@@ -5632,6 +5670,11 @@ impl RuleSet {
             b"drop-zone-controls-v1".hash(&mut hasher);
             self.general.drop_zone_anim.hash(&mut hasher);
             self.general.drop_zone_radius.hash(&mut hasher);
+        }
+        // An earlier Process pass can retain Behind past an absent key.
+        if self.general.behind.is_some() {
+            b"behind-anim-v1".hash(&mut hasher);
+            self.general.behind.hash(&mut hasher);
         }
         self.general.default_mirage_disguises.hash(&mut hasher);
         self.general.infantry_disguises.hash(&mut hasher);

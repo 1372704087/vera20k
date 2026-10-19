@@ -967,7 +967,7 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
         entity(&sim, reactor).position.rx(),
         entity(&sim, reactor).position.ry(),
     );
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let neighbor = |from: (u16, u16), direction: (i32, i32)| {
         (
             (i32::from(from.0) + direction.0) as u16,
@@ -1220,7 +1220,7 @@ fn a_bio_reactor_scan_uses_location_cell_on_a_multi_cell_foundation() {
         center, base,
         "the 2x2 foundation has a distinct center cell"
     );
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let set_foot = |sim: &mut Simulation, cell: (u16, u16), cost| {
         let terrain = sim
             .resolved_terrain
@@ -1347,7 +1347,7 @@ fn a_bio_reactor_relaxed_scan_wraps_from_octant_seven() {
         .unwrap()
         .passengers()[0];
     let base = (16u16, 10u16);
-    let directions = crate::util::direction_tables::CELL_DELTAS;
+    let directions = crate::util::direction::DIRECTION_DELTAS;
     let step = |delta: (i32, i32), scale: i32| {
         (
             (i32::from(base.0) + delta.0 * scale) as u16,

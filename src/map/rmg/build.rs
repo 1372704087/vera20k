@@ -24,7 +24,7 @@ use super::scratch::RmgScratch;
 use super::tiles::TileIds;
 use super::x87::{Gaussian, TruncF64};
 use super::{GeneratedMap, MapGeometry, RmgOptions, RmgSettings, Stage, emit, grid};
-use crate::map::retail_trig::TrigTable;
+use crate::util::retail_trig::TrigTable;
 
 /// Land type → rules section, the RA2 `LandType` enum order (verified against
 /// the zone classifier's `LAND_WATER == 2` / `LAND_BEACH == 6`).

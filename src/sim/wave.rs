@@ -9,7 +9,6 @@ use std::hash::Hash;
 
 use crate::map::cell_index::CELL_ROW_STRIDE;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::map::retail_trig::{AcosTable, TrigTable};
 use crate::sim::cell_rect::{CellRef, get_cellclass_fallback};
 use crate::sim::combat::TargetKind;
 use crate::sim::projectile::ProjectileCoord;
@@ -19,6 +18,7 @@ use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, X87Value, adjust_for_z_standard,
     distance_3d_leptons, sqrt_approx_f32,
 };
+use crate::util::retail_trig::{AcosTable, TrigTable};
 
 const STEP_F32: NativeF32Bits = NativeF32Bits::from_bits(0x3d4c_cccd);
 const SNAP_FADE_F64: NativeF64Bits = NativeF64Bits::from_bits(0x3fef_5c28_f5c2_8f5c);

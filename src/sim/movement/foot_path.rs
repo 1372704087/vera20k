@@ -32,7 +32,8 @@ use crate::sim::pathfinding::CODE2_CHAIN_MAX_HOPS;
 use crate::sim::pathfinding::zone_map::{ZoneGrid, ZoneQueryCell};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{CELL_DELTAS, dir_from_facing16};
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::dir_from_facing16;
 use crate::util::fixed_math::SIM_ZERO;
 
 /// AStar429F54's live Foot +1AC receiver: Infantry 0x0051BF90 or Unit
@@ -218,7 +219,7 @@ impl Simulation {
             } else {
                 dir_from_facing16(foot.body_facing_current(frame))
             };
-            let (dx, dy) = CELL_DELTAS[usize::from(direction)];
+            let (dx, dy) = DIRECTION_DELTAS[usize::from(direction)];
             let own = (foot.position.rx() as i16, foot.position.ry() as i16);
             let next = terrain.native_cell_identity((
                 own.0.wrapping_add(dx as i16),

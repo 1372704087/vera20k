@@ -285,7 +285,7 @@ impl HoverRuntime {
             period,
         )
         .expect("HoverBob gives a nonzero bob period");
-        let sine = crate::map::retail_trig::TrigTable::embedded().sin_from_table(phase);
+        let sine = crate::util::retail_trig::TrigTable::embedded().sin_from_table(phase);
         let mut visible = X87Chop53::ftol_i32_low_masked(X87Chop53::add(
             X87Chop53::add(sine, sine),
             X87Chop53::load_i32(resting),

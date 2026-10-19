@@ -21,7 +21,7 @@ use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::world::{FrameEffects, Simulation};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF64Bits};
 use serde::{Deserialize, Serialize};
 
@@ -207,7 +207,7 @@ impl Simulation {
             return false;
         }
         let owner = entity.owner();
-        for (dx, dy) in CELL_DELTAS {
+        for (dx, dy) in DIRECTION_DELTAS {
             // 41BEA0 packs signed, truncating Location / 256, then the
             // direction offsets wrap as words before Map5657A0.
             let location = ground_pose::object_location(

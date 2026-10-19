@@ -5,8 +5,8 @@
 //! placement (46874E..4688A5) and SpawnShrapnel's child velocity
 //! (46A5D2..46A86D). This module does not resolve world receivers.
 
-use crate::map::retail_trig::{AcosTable, TrigTable};
 use crate::util::native_x87::{NativeF64Bits, X87Chop53 as X, X87Ordering, X87Value};
+use crate::util::retail_trig::{AcosTable, TrigTable};
 
 use super::native_math::{
     PI_HALF, angle_word, apply_pitch, atan, cos, d, f, int, less, radians, round, sin, sqrt,

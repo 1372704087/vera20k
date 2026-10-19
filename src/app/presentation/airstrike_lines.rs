@@ -9,8 +9,8 @@ use crate::sim::rng::MainRngDraws;
 
 ///6D482D..6D48C0 uses the shared original sine/cosine lookup, not host libm.
 fn wobble(mut target: DriveCoord, wall_ms: u32) -> DriveCoord {
-    use crate::map::retail_trig::TrigTable;
     use crate::util::native_x87::{NativeF64Bits, X87Chop53 as X};
+    use crate::util::retail_trig::TrigTable;
     let t = X::load_i32((wall_ms >> 7) as i32);
     let scale = X::load_i32(15);
     let rate = X::load_f64(NativeF64Bits::from_bits(0x3fd7ae147ae147ae)).unwrap();

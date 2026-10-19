@@ -53,7 +53,8 @@ use crate::sim::cell_rect::{
 };
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{CELL_DELTAS, dir_from_facing16, facing16_from_delta};
+use crate::util::direction::DIRECTION_DELTAS;
+use crate::util::direction_tables::{dir_from_facing16, facing16_from_delta};
 
 /// `0x00A8EF78`, built on first use (`0x0050670E..0x00506807`): per direction
 /// away from the base, the step from the offset corner onto the first site.
@@ -218,7 +219,7 @@ pub(crate) fn ordinary_site(world: &mut impl SiteWorld, search: &SiteSearch) -> 
     for &(_, cell) in &cells {
         // `0x0050656C..0x005065E0`.
         let mut into_base = (0_i16, 0_i16);
-        for (dx, dy) in CELL_DELTAS {
+        for (dx, dy) in DIRECTION_DELTAS {
             let (dx, dy) = (dx as i16, dy as i16);
             if world.reserved((cell.0.wrapping_add(dx), cell.1.wrapping_add(dy))) {
                 into_base = (into_base.0.wrapping_add(dx), into_base.1.wrapping_add(dy));
@@ -251,7 +252,7 @@ pub(crate) fn ordinary_site(world: &mut impl SiteWorld, search: &SiteSearch) -> 
                     .wrapping_add(FIRST_STEP[away].1),
             );
             if phase == 1 {
-                let (dx, dy) = CELL_DELTAS[(away + 4) & 7];
+                let (dx, dy) = DIRECTION_DELTAS[(away + 4) & 7];
                 site = (
                     site.0.wrapping_add(dx as i16),
                     site.1.wrapping_add(dy as i16),

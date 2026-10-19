@@ -918,7 +918,7 @@ impl crate::sim::world::Simulation {
                 } else {
                     MovementLayer::Ground
                 };
-                for (dx, dy) in crate::util::direction_tables::CELL_DELTAS {
+                for (dx, dy) in crate::util::direction::DIRECTION_DELTAS {
                     let cell = query.lookup((
                         origin.0.wrapping_add(dx as i16),
                         origin.1.wrapping_add(dy as i16),

@@ -932,6 +932,10 @@ pub struct ObjectType {
     /// clears it (`0x007470D0`). `CellClass::PickupCrate @ 0x00481A00` rejects
     /// every drawn type without it (`0x004821BD`).
     pub crate_goodie: bool,
+    /// UnitType+E1A, CarriesCrate (845DE0): ctor74715B clears it;
+    /// ReadINI74771F..74773F uses ReadBool5295F0 with the current value.
+    /// UnitReceiveDamage73838A also requires the appropriate Scenario flag.
+    carries_crate: bool,
     /// `Spawned=` (`TechnoTypeClass+0xD54`): this type is a carrier/launcher
     /// child (Hornet, V3/Dreadnought missile). `TechnoTypeClass::ReadINI`
     /// reads key `"Spawned"` (`0x008437D8`) at `0x00714E7D..0x00714E91`.
@@ -1851,6 +1855,12 @@ pub struct ObjectType {
     /// tools/input_oracle/selection_navigation.{json,meta.json,md}.
     pub is_selectable_combatant: bool,
 
+    /// `CanBeHidden=` (TechnoType `+0x724`): constructor `0x00711229` writes
+    /// true; ReadINI (`0x007121EB..0x00712202`) reads it with ReadBool, the
+    /// current byte as default. Gates the Behind indicator
+    /// (`TechnoClass::AI_Update @ 0x006FA2A2`).
+    pub can_be_hidden: bool,
+
     /// `RevealToAll=` (TechnoType `+0x5EE`): constructor `0x00710FFC` writes
     /// false; ReadINI (`0x00714382..0x00714396`) reads it with ReadBool
     /// (`0x005295F0`), the current byte as its default across reached rules
@@ -2056,6 +2066,10 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub(crate) const fn carries_crate(&self) -> bool {
+        self.carries_crate
+    }
+
     pub const fn has_radial_indicator(&self) -> bool {
         self.has_radial_indicator
     }
@@ -2820,6 +2834,8 @@ impl ObjectType {
             to_protect: section.read_bool("ToProtect", false),
             harvester: section.read_bool("Harvester", false),
             crate_goodie: section.read_bool("CrateGoodie", false),
+            carries_crate: category == ObjectCategory::Vehicle
+                && section.read_bool("CarriesCrate", false),
             spawned: section.read_bool("Spawned", false),
             refinery: section.read_bool("Refinery", false),
             weeder: section.read_bool("Weeder", false),
@@ -3198,6 +3214,7 @@ impl ObjectType {
             // `Selectable=no` turn it off.
             selectable: section.read_bool("Selectable", true),
             is_selectable_combatant: section.read_bool("IsSelectableCombatant", false),
+            can_be_hidden: section.read_bool("CanBeHidden", true),
             reveal_to_all: section.read_bool("RevealToAll", false),
 
             // Naval flags

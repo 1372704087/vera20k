@@ -1146,12 +1146,15 @@ use crate::util::save_codec;
 // 423 -> 424: processed Types retain their Image, DeathWeapon, DeploysInto,
 // occupy weapons, SuperWeapon WeaponType and ShrapnelWeapon, and process
 // Rules state its [CombatDamage] DeathWeapon.
-// 424 -> 425: processed Types retain their remaining Type references
-// (TechnoType pointers and lists, Weapon anims and particle system,
-// SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and AnimType
-// references, Warhead DebrisTypes), and process Rules state its RulesClass
-// Type pointers.
-const SNAPSHOT_VERSION: u32 = 425;
+// 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
+// 425 -> 426: retain the Techno+0x12C Behind indicator Anim.
+// 426 -> 427: retained IonBlast rules inputs, pending damaging blasts and Foot draw lift.
+// 427 -> 429 (428 is the infantry-death change's): processed Types retain their
+// remaining Type references (TechnoType pointers and lists, Weapon anims and
+// particle system, SuperWeapon AuxBuilding, ParticleType, VoxelAnimType and
+// AnimType references, Warhead DebrisTypes), and process Rules state keeps
+// its RulesClass Type pointers and lists, the crate and rocket ones included.
+const SNAPSHOT_VERSION: u32 = 429;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4876,8 +4879,12 @@ mod tests {
         // 421 -> 422: the drain link retains the drainer's DrainAnim.
         // 422 -> 423: retained weapon blocks and HoldsWhat bindings.
         // 423 -> 424: retained Type references and Rules DeathWeapon.
-        // 424 -> 425: the remaining Type references and Rules Type pointers.
-        assert_eq!(super::SNAPSHOT_VERSION, 425);
+        // 424 -> 425: Scenario cargo flags and the ice-growth byte.
+        // 425 -> 426: the Techno+0x12C Behind indicator Anim.
+        // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
+        // 427 -> 429: the remaining Type references and RulesClass Type
+        // pointers (428 is the infantry-death change's).
+        assert_eq!(super::SNAPSHOT_VERSION, 429);
     }
 
     #[test]

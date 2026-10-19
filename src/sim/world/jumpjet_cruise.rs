@@ -19,7 +19,6 @@ use super::Simulation;
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::map::retail_trig::TrigTable;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -37,6 +36,7 @@ use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::RawCellKey;
 use crate::sim::world::FrameEffects;
 use crate::util::lepton::{ground_height_leptons, lepton_to_cell_packed};
+use crate::util::retail_trig::TrigTable;
 
 struct CruiseHost<'a> {
     sim: &'a mut Simulation,

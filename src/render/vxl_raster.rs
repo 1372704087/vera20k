@@ -210,7 +210,7 @@ fn voxel_rocket_locomotor_matrix(step: u8, pitch: f32) -> Mat4 {
     if pitch == 0.0 {
         return facing;
     }
-    let trig = crate::map::retail_trig::TrigTable::embedded();
+    let trig = crate::util::retail_trig::TrigTable::embedded();
     let angle = Fpu::load_f32(NativeF32Bits::from_bits((-pitch).to_bits()))
         .expect("CurrentPitch is finite");
     // The table entries are binary32, so the stores are exact.

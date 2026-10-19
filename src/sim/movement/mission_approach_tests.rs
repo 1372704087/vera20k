@@ -96,9 +96,7 @@ impl Frame {
     /// a step.
     fn at_spot(&self) -> bool {
         let at = (self.at.0.rem_euclid(256), self.at.1.rem_euclid(256));
-        crate::sim::cell_kernel::INFANTRY_SUBCELL_OFFSETS
-            .iter()
-            .any(|&(x, y, _)| (x, y) == at)
+        crate::util::lepton::SUBCELL_OFFSETS.contains(&at)
     }
 
     fn cell(&self) -> (u16, u16) {

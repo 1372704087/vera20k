@@ -18,6 +18,7 @@
 use crate::map::rmg::rng::RANGE_K_BITS;
 use crate::map::rmg::scratch::RmgScratch;
 use crate::map::rmg::x87::{self, TruncF64};
+use crate::util::native_x87::X87Chop53;
 
 use super::blob::{BlobCtx, MinHeap, seed_draw};
 use super::shore::{self, ShoreCtx};
@@ -59,7 +60,7 @@ const MAX_SEED_ATTEMPTS: i32 = 200;
 const BAND_RINGS: i32 = 2;
 const BAND_TAG: i32 = -2;
 
-/// The four cardinal directions, as `CELL_DELTAS` indices (N, E, S, W).
+/// The four cardinal directions, as `DIRECTION_DELTAS` indices (N, E, S, W).
 const CARDINALS: [usize; 4] = [0, 2, 4, 6];
 
 /// The seeder's cross-attempt accumulators.
@@ -113,7 +114,7 @@ fn water_target(args: &WaterArgs) -> i32 {
         return 0;
     }
     // Operand order is the original's: height, then width, then the amount.
-    x87::ftol(
+    X87Chop53::ftol_f64_low_masked(
         TruncF64::from_f64(f64::from(args.playable.h))
             .mul(TruncF64::from_f64(f64::from(args.playable.w)))
             .mul(TruncF64::from_f64(f64::from(args.water_percent)))
@@ -275,7 +276,7 @@ fn size_draw(ctx: &mut BlobCtx<'_>, remaining: i32) -> i32 {
             }
         };
         if value <= upper_f {
-            return x87::ftol(value);
+            return X87Chop53::ftol_f64_low_masked(value);
         }
     }
 }
@@ -540,7 +541,7 @@ mod tests {
             },
         };
         {
-            let trig = crate::map::retail_trig::TrigTable::embedded();
+            let trig = crate::util::retail_trig::TrigTable::embedded();
             let mut ctx = BlobCtx {
                 grid: &mut grid,
                 scratch: &mut scratch,

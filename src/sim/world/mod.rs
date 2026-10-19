@@ -1394,8 +1394,12 @@ pub struct Simulation {
     /// The Psychic Dominator's globals (one at a time).
     pub psychic_dominator: crate::sim::superweapon::psychic_dominator::PsychicDominatorState,
     /// IonBlastClass's vector (`0x00AA0118`), owned by `ion_blast`. Native
-    /// saves no blast.
-    #[serde(skip)]
+    /// saves no blast; Rust retains pending damaging effects for match restore.
+    #[serde(
+        default,
+        serialize_with = "ion_blast::save",
+        deserialize_with = "ion_blast::load"
+    )]
     ion_blasts: Vec<ion_blast::IonBlast>,
     /// Per-cell terrain speed modifier config (slope climb/descend).
     /// Built from [General] rules at map load.
@@ -1790,6 +1794,7 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
                 self.target_terrain_objects,
                 rx,
                 ry,
+                None,
                 #[cfg(any(test, feature = "test-support"))]
                 self.detach_trace,
             );
@@ -2614,6 +2619,7 @@ impl Simulation {
                                 &self.production.terrain_objects,
                                 coord.0,
                                 coord.1,
+                                Some((rules, &self.interner)),
                                 #[cfg(any(test, feature = "test-support"))]
                                 &mut effects.cell_target_detaches,
                             );
@@ -6983,7 +6989,7 @@ impl Simulation {
             passenger::tick_passenger_system(self, rules, overlay_registry, effects);
             // `IonBlastClass::UpdateAll @ 0x0053D310` follows the object loop
             // (`0x0055B64B`).
-            self.update_ion_blasts();
+            bridge_state_changed |= self.update_ion_blasts(rules, overlay_registry, effects);
             // `LogicClass__PerTickUpdate @ 0x0055AFB0` calls
             // `MapClass__UpdateCrateRegenTimers @ 0x0056BBE0` at `0x0055B65A`,
             // between `AlphaShapeClass::PurgeDisabled` and the Tactical,

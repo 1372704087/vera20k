@@ -4,7 +4,7 @@
 //!
 //! ## Coordinate frames
 //! Three frames meet in this file and mixing them is the classic bug here:
-//! * **World pixels** — what `terrain::iso_to_screen` / `terrain::lepton_to_screen`
+//! * **World pixels** — what `terrain::iso_to_screen` / `absolute_leptons_to_screen`
 //!   produce. `camera_x`/`camera_y` live in this frame and name the world point
 //!   drawn at window pixel `(0, 0)`. Within world pixels there are two anchors
 //!   that differ by half a tile: `iso_to_screen` gives a cell's *tile* corner,
@@ -511,7 +511,7 @@ fn edge_scroll_octant(x: i32, y: i32, view_w: i32, view_h: i32) -> usize {
     // 16-bit direction word to direction byte, then byte to octant. Both are the
     // native "add half a step, then shift" rounding, and both wrap to north.
     let dir8 = (((dir16 >> 7) + 1) >> 1) as u8;
-    usize::from(crate::util::direction_tables::dir_from_facing8(dir8))
+    usize::from(crate::util::direction::direction_from_facing(dir8))
 }
 
 fn scroll_dir_from_octant(octant: usize) -> ScrollDir {

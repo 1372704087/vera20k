@@ -1060,6 +1060,16 @@ impl ProcessedRulesLayers {
         )
     }
 
+    /// `[General] Behind=` (Rules `+0xB8`) after the ordered General reads
+    /// (`0x0066E4F5..0x0066E513`): the constructor's null (`0x00665765`),
+    /// empty retention and the AnimType factory's identity.
+    pub(crate) fn behind(&self) -> Option<&str> {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_behind
+            .as_deref()
+    }
+
     /// `[General] PrismType=` (Rules `+0x498`), the stored ID of its type.
     pub(crate) fn prism_type(&self) -> Option<&str> {
         self.native_type_construction_trace
@@ -1178,6 +1188,17 @@ impl ProcessedRulesLayers {
         self.native_type_construction_trace
             .registry_state()
             .rules_talk_bubble_time
+    }
+
+    /// Rules+490, +298, +29C, +FF0, retained across ordered Process calls.
+    pub(crate) fn ion_blast_inputs(&self) -> (i32, &str, &str, &str) {
+        let state = self.native_type_construction_trace.registry_state();
+        (
+            state.rules_ion_cannon_damage,
+            &state.rules_ion_blast_anim,
+            &state.rules_ion_beam_anim,
+            &state.rules_ion_cannon_warhead,
+        )
     }
 
     /// Consume only the typed-reader compatibility projection and deliberately
@@ -1396,6 +1417,10 @@ pub(crate) struct NativeRulesRegistryState {
     rules_survivor_divisors: [i32; 3],
     rules_maximum_cheer_rate: i32,
     rules_talk_bubble_time: i32,
+    rules_ion_cannon_damage: i32,
+    rules_ion_blast_anim: String,
+    rules_ion_beam_anim: String,
+    rules_ion_cannon_warhead: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -1404,6 +1429,7 @@ pub(crate) struct NativeRulesRegistryState {
     rules_prism_type: Option<String>,
     rules_drop_zone_anim: Option<String>,
     rules_drop_zone_radius: i32,
+    rules_behind: Option<String>,
     rules_prerequisite_proc_alternate: Option<String>,
     /// The six `[General] Prerequisite*` lists (Rules `+0x358..+0x3E4`), in
     /// [`PrerequisiteGroup::ALL`] order.
@@ -1443,6 +1469,11 @@ impl Default for NativeRulesRegistryState {
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
             rules_maximum_cheer_rate: crate::rules::ruleset::DEFAULT_MAXIMUM_CHEER_RATE,
             rules_talk_bubble_time: general.talk_bubble_time,
+            // Rules665CD4=700; pointer fields665A18/665A24/666BD5 start null.
+            rules_ion_cannon_damage: 700,
+            rules_ion_blast_anim: String::new(),
+            rules_ion_beam_anim: String::new(),
+            rules_ion_cannon_warhead: String::new(),
             // MindControlAttackLineFrames, Rules+310: constructor 0x00665ABE.
             rules_mind_control_attack_line_frames: 15,
             rules_line_trail_override: general.line_trail_color_override,
@@ -1452,6 +1483,7 @@ impl Default for NativeRulesRegistryState {
             rules_prism_type: None,
             rules_drop_zone_anim: None,
             rules_drop_zone_radius: general.drop_zone_radius,
+            rules_behind: None,
             rules_prerequisite_proc_alternate: None,
             rules_prerequisite_lists: Default::default(),
             rules_building_types: GeneralBuildingTypes::default(),
@@ -1628,6 +1660,7 @@ impl NativeRulesRegistryState {
             rules_survivor_divisors: self.rules_survivor_divisors,
             rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
             rules_talk_bubble_time: self.rules_talk_bubble_time,
+            rules_ion_cannon_damage: self.rules_ion_cannon_damage,
             rules_mind_control_attack_line_frames: self.rules_mind_control_attack_line_frames,
             rules_line_trail_override: self.rules_line_trail_override,
             rules_chrono_beam_color: self.rules_chrono_beam_color,
@@ -2076,8 +2109,6 @@ pub(crate) struct RulesTypeReferences {
     pub(crate) drain_animation_type: Option<String>,
     pub(crate) controlled_animation_type: Option<String>,
     pub(crate) perma_controlled_animation_type: Option<String>,
-    /// `IonCannonWarhead=` (+FF0, `0x0066CA8E`), a WarheadType.
-    pub(crate) ion_cannon_warhead: Option<String>,
     /// The nine `Default*System=` ParticleSystemTypes (+1018..+1038,
     /// `0x0066CACD..0x0066CCE0`), in [`DEFAULT_PARTICLE_SYSTEM_KEYS`] order.
     pub(crate) default_particle_systems: [Option<String>; 9],
@@ -2272,6 +2303,10 @@ struct RulesPassProcessor {
     rules_survivor_divisors: [i32; 3],
     rules_maximum_cheer_rate: i32,
     rules_talk_bubble_time: i32,
+    rules_ion_cannon_damage: i32,
+    rules_ion_blast_anim: String,
+    rules_ion_beam_anim: String,
+    rules_ion_cannon_warhead: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -2280,6 +2315,7 @@ struct RulesPassProcessor {
     rules_prism_type: Option<String>,
     rules_drop_zone_anim: Option<String>,
     rules_drop_zone_radius: i32,
+    rules_behind: Option<String>,
     rules_prerequisite_proc_alternate: Option<String>,
     rules_prerequisite_lists: [Vec<Prerequisite>; 6],
     rules_building_types: GeneralBuildingTypes,
@@ -2318,6 +2354,10 @@ impl RulesPassProcessor {
             rules_survivor_divisors: registry_state.rules_survivor_divisors,
             rules_maximum_cheer_rate: registry_state.rules_maximum_cheer_rate,
             rules_talk_bubble_time: registry_state.rules_talk_bubble_time,
+            rules_ion_cannon_damage: registry_state.rules_ion_cannon_damage,
+            rules_ion_blast_anim: registry_state.rules_ion_blast_anim,
+            rules_ion_beam_anim: registry_state.rules_ion_beam_anim,
+            rules_ion_cannon_warhead: registry_state.rules_ion_cannon_warhead,
             rules_mind_control_attack_line_frames: registry_state
                 .rules_mind_control_attack_line_frames,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -2327,6 +2367,7 @@ impl RulesPassProcessor {
             rules_prism_type: registry_state.rules_prism_type,
             rules_drop_zone_anim: registry_state.rules_drop_zone_anim,
             rules_drop_zone_radius: registry_state.rules_drop_zone_radius,
+            rules_behind: registry_state.rules_behind,
             rules_prerequisite_proc_alternate: registry_state.rules_prerequisite_proc_alternate,
             rules_prerequisite_lists: registry_state.rules_prerequisite_lists,
             rules_building_types: registry_state.rules_building_types,
@@ -2876,10 +2917,13 @@ impl RulesPassProcessor {
             } else if matches!(
                 key,
                 "LightningWarhead"
+                    | "IonBlast"
+                    | "IonBeam"
                     | "WeatherConBoltExplosion"
                     | "WeaponNullifyAnim"
                     | "PrismType"
                     | "DropZoneAnim"
+                    | "Behind"
                     | "PrerequisiteProcAlternate"
                     | "GDIGateOne"
                     | "GDIGateTwo"
@@ -2903,12 +2947,19 @@ impl RulesPassProcessor {
                     let resolved = resolved.unwrap_or_default();
                     match key {
                         "LightningWarhead" => self.select_anim.lightning_warhead = resolved,
+                        //66DCC7..66DD0D: ReadString128/Anim428B80, current
+                        //pointer retained for missing/empty; native none clears.
+                        "IonBlast" => self.rules_ion_blast_anim = resolved,
+                        "IonBeam" => self.rules_ion_beam_anim = resolved,
                         "WeatherConBoltExplosion" => {
                             self.select_anim.weather_con_bolt_explosion = resolved;
                         }
                         "WeaponNullifyAnim" => self.select_anim.weapon_nullify_anim = resolved,
                         "DropZoneAnim" => {
                             self.rules_drop_zone_anim = Some(resolved).filter(|id| !id.is_empty());
+                        }
+                        "Behind" => {
+                            self.rules_behind = Some(resolved).filter(|id| !id.is_empty());
                         }
                         "PrismType" => {
                             self.rules_prism_type = Some(resolved).filter(|id| !id.is_empty());
@@ -3859,6 +3910,10 @@ impl RulesPassProcessor {
         let Some(section) = pass.section("CombatDamage") else {
             return;
         };
+        // CombatDamage66BBF8..66BC12: exact-case signed ReadInt5276D0,
+        // current Rules+490 default, constructor665CD4=700, no clamp.
+        self.rules_ion_cannon_damage =
+            section.read_int("IonCannonDamage", self.rules_ion_cannon_damage);
         for key in [
             "Scorches",
             "Scorches1",
@@ -3935,10 +3990,12 @@ impl RulesPassProcessor {
         ) {
             self.rules_type_references.perma_controlled_animation_type = anim;
         }
-        if let Some(warhead) =
+        //66CA96..66CACB retains the current Rules+FF0 pointer on an
+        //empty read; the existing allocating scalar reader handles none.
+        if let Some(resolved) =
             self.resolve_scalar_from(section, "IonCannonWarhead", RulesTypeFamily::Warhead, 0x80)
         {
-            self.rules_type_references.ion_cannon_warhead = warhead;
+            self.rules_ion_cannon_warhead = resolved.unwrap_or_default();
         }
         for (slot, key) in DEFAULT_PARTICLE_SYSTEM_KEYS.into_iter().enumerate() {
             if let Some(system) =
@@ -4159,6 +4216,10 @@ impl RulesPassProcessor {
                     rules_survivor_divisors: self.rules_survivor_divisors,
                     rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
                     rules_talk_bubble_time: self.rules_talk_bubble_time,
+                    rules_ion_cannon_damage: self.rules_ion_cannon_damage,
+                    rules_ion_blast_anim: self.rules_ion_blast_anim,
+                    rules_ion_beam_anim: self.rules_ion_beam_anim,
+                    rules_ion_cannon_warhead: self.rules_ion_cannon_warhead,
                     rules_mind_control_attack_line_frames: self
                         .rules_mind_control_attack_line_frames,
                     rules_line_trail_override: self.rules_line_trail_override,
@@ -4168,6 +4229,7 @@ impl RulesPassProcessor {
                     rules_prism_type: self.rules_prism_type,
                     rules_drop_zone_anim: self.rules_drop_zone_anim,
                     rules_drop_zone_radius: self.rules_drop_zone_radius,
+                    rules_behind: self.rules_behind,
                     rules_prerequisite_proc_alternate: self.rules_prerequisite_proc_alternate,
                     rules_prerequisite_lists: self.rules_prerequisite_lists,
                     rules_building_types: self.rules_building_types,

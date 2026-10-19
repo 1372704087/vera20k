@@ -50,7 +50,7 @@ use crate::sim::world::{PlacementEvidence, Simulation};
 use crate::skirmish_launch::{
     LaunchCountry, LaunchStartPosition, LaunchTeam, PreFillHouseRoster, SkirmishLaunchSession,
 };
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 use crate::util::native_x87::{NativeF64Bits, X87Chop53, sqrt_approx_f32};
 
 #[derive(Debug, Clone, Copy)]
@@ -1867,7 +1867,7 @@ fn place_starting_object_near_base(
         for jitter_pass in 0..2 {
             for offset in 0..8 {
                 let direction = (start_direction + offset) & 7;
-                let (dx, dy) = CELL_DELTAS[direction];
+                let (dx, dy) = DIRECTION_DELTAS[direction];
                 let (mut rx, mut ry) = bounds.clamp(
                     i32::from(base_rx) + dx * radius,
                     i32::from(base_ry) + dy * radius,
@@ -2959,7 +2959,6 @@ mod tests {
             local_variables: Default::default(),
             trigger_graph: Default::default(),
             special_flags: Default::default(),
-            explicit_tubes: Vec::new(),
             ini: IniFile::from_str(""),
         }
     }

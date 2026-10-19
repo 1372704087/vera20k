@@ -312,12 +312,12 @@ fn production_world_a_sampling_matches_cpu_source_at_fractional_scroll_and_zoom(
     let palette = super::palette_textures::PaletteSet::new_on_device(
         &gpu.device,
         &gpu.queue,
-        &crate::assets::pal_file::Palette {
-            colors: [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
-        },
-        &crate::assets::pal_file::Palette {
-            colors: [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
-        },
+        &crate::assets::pal_file::Palette::from_colors(
+            [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
+        ),
+        &crate::assets::pal_file::Palette::from_colors(
+            [crate::assets::pal_file::Color::rgb(200, 100, 50); 256],
+        ),
         &crate::rules::house_colors::HouseColorRamps::from_schemes(&[]),
         &[],
     );

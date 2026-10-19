@@ -67,6 +67,47 @@ impl Drop for StoredFrameTestDirectory {
     }
 }
 
+/// ANIM.PAL and PALETTE.PAL reach the atlas rows through the one decoder.
+/// BlitTransXlat (`0x004912B0`) and RLEBlitTransXlat (`0x004960A0`) skip only
+/// index 0, and ConvertClass (`0x0048E740` -> `0x004BBB00`) builds every other
+/// entry from the palette's colour, so a raw 63,0,63 entry draws opaque.
+#[test]
+fn atlas_palette_rows_draw_a_raw_magenta_entry_opaque() {
+    let directory = StoredFrameTestDirectory::new();
+    directory.write_raw_and_rle_frames("KEYPROBE.SHP", [8, 8], [0, 0, 8, 8]);
+    let assets = AssetManager::from_loose_root_for_test(&directory.0);
+    let mut palette_bytes = [0; 768];
+    palette_bytes[3..6].copy_from_slice(&[63, 0, 63]);
+    let palette = Palette::from_bytes(&palette_bytes).expect("fixture palette");
+
+    for frame in 0..2 {
+        let key = ShpSpriteKey {
+            palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
+            type_id: "KEYPROBE".to_string(),
+            facing: 0,
+            frame,
+            house_color: crate::rules::house_colors::NO_REMAP,
+        };
+        let (sprite, rgba) = render_shp_sprite(
+            &assets,
+            &palette,
+            false,
+            &key,
+            "tem",
+            "TEMPERATE",
+            None,
+            None,
+        )
+        .expect("probe renders");
+        let marker = sprite
+            .indices()
+            .iter()
+            .position(|&index| index == 1)
+            .expect("index-1 marker");
+        assert_eq!(&rgba[marker * 4..marker * 4 + 4], &[252, 0, 252, 255]);
+    }
+}
+
 #[test]
 fn loader_uses_stored_shp_rect_for_depth_but_retains_logical_canvas_for_picking() {
     // Retail-shaped headers: GI canvas 78x66, stored frame (32,7,13,29);
@@ -1098,17 +1139,7 @@ pub(crate) fn native_palette_probe_page() -> NativePaletteProbe {
     bytes.extend(0..=255u8);
     std::fs::write(directory.0.join("PALPROBE.SHP"), bytes).unwrap();
     let assets = AssetManager::from_loose_root_for_test(&directory.0);
-    let palette = Palette {
-        colors: std::array::from_fn(|i| {
-            let i = i as u8;
-            crate::assets::pal_file::Color {
-                r: i,
-                g: i.wrapping_mul(73),
-                b: 255 - i,
-                a: if i == 0 { 0 } else { 255 },
-            }
-        }),
-    };
+    let palette = Palette::from_rgb(|i| [i, i.wrapping_mul(73), 255 - i]);
     let key = ShpSpriteKey {
         palette_context: ShpPaletteContext::SelectedScheme,
         type_id: "PALPROBE".into(),
@@ -1370,11 +1401,8 @@ fn refreshed_sprites_upload_to_a_growth_page_and_leave_resident_ones_in_place() 
         ],
         extended: false,
     };
-    let palette = |color: fn(u8) -> crate::assets::pal_file::Color| Palette {
-        colors: std::array::from_fn(|index| color(index as u8)),
-    };
-    let resident_palette = palette(|i| crate::assets::pal_file::Color::rgb(i, 255 - i, 7));
-    let new_palette = palette(|i| crate::assets::pal_file::Color::rgb(3, i, i / 2));
+    let resident_palette = Palette::from_rgb(|i| [i, 255 - i, 7]);
+    let new_palette = Palette::from_rgb(|i| [3, i, i / 2]);
     let mut palettes = ShpPalettes::default();
     let resident_row = palettes.row(&resident_palette).unwrap();
     let mut atlas = pack_sprites(

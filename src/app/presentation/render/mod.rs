@@ -165,7 +165,7 @@ pub(crate) fn render_game(
     });
     let bracket_palette = surface_palette.as_ref().map(|palette| {
         [15_u8, 12].map(|index| {
-            let color = palette.colors[usize::from(index)];
+            let color = palette.color(index);
             crate::render::palette_light::PaletteLight::plain(53, 1000).rgb565(
                 [color.r, color.g, color.b],
                 index,

@@ -154,7 +154,7 @@ impl CenteredShapeStrip {
                     if index == 0 {
                         continue;
                     }
-                    let color = palette.colors[index as usize];
+                    let color = palette.color(index);
                     let dst = ((py * atlas_w + x + px) * 4) as usize;
                     rgba[dst..dst + 4].copy_from_slice(&[color.r, color.g, color.b, 255]);
                 }

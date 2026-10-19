@@ -615,9 +615,7 @@ mod tests {
             crate::util::sha256::sha256_hex(&source.bytes),
             "c4455fb08203e0089af30dab37553854a892ba73eb3e00bb0fdf049576cf4e8a"
         );
-        let palette = Palette {
-            colors: [Color::rgb(255, 37, 91); 256],
-        };
+        let palette = Palette::from_colors([Color::rgb(255, 37, 91); 256]);
         let batch = BatchRenderer::new_with_device(&gpu.device, &gpu.queue, FORMAT);
         let retail =
             SidebarDarkenMask::from_bytes(&gpu.device, &gpu.queue, &batch, &source.bytes, &palette)

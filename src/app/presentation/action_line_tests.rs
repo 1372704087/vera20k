@@ -2,7 +2,7 @@
 //! The JSON contains native execution, never expected pixels made by Rust.
 
 use super::*;
-use crate::sim::components::DriveCoord;
+use crate::sim::components::{DriveCoord, NavTargetRef};
 use serde_json::Value;
 
 fn native() -> &'static Value {

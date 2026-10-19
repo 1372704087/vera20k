@@ -4,8 +4,7 @@ use crate::app::match_runtime::sim_tick::{RuntimePassInputs, decide_runtime_pass
 
 #[test]
 fn original_pause_histories_pin_overflow_rearm_nesting_and_world_branch() {
-    let controls: serde_json::Value =
-        serde_json::from_str(include_str!("../../../tools/scenario_pause.json")).unwrap();
+    let controls = crate::test_fixture::json("tools/scenario_pause.json");
     assert_eq!(controls["controls"].as_array().unwrap().len(), 13);
     for row in controls["controls"].as_array().unwrap() {
         let mode = SessionMode::from_game_mode(row["mode"].as_i64().unwrap() as i32);

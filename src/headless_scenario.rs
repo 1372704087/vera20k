@@ -243,6 +243,10 @@ pub fn load_with_launch(
         theater: map.header.theater.clone(),
         game_mode_nonzero: true,
         no_damage: false,
+        // Non-campaign: the session staging word's Harvester Truce byte
+        // (`0x005E7495..0x005E74D4`) replaces the map's bit at
+        // `0x00687C16..0x00687C29`.
+        harvester_immune: launch.session().options.harvester_truce,
         free_radar: map.basic.free_radar.unwrap_or(false),
         ignore_global_ai_triggers: map.basic.ignore_global_ai_triggers.unwrap_or(false),
         train_crate: map.basic.train_crate.unwrap_or(false),
@@ -2956,5 +2960,57 @@ mod retail_construction_tests {
         assert!(chosen.is_some(), "the house never chose a refinery");
         assert!(rebuilt.is_some(), "no refinery was rebuilt");
         assert!(mined.is_some(), "no War Miner came back");
+    }
+}
+
+#[cfg(test)]
+mod launch_special_flags_tests {
+    use super::*;
+
+    /// The nonzero game mode's session-flags replacement (`0x00687C16..
+    /// 0x00687C29`) for Scenario bit `0x800`: `PregameSetup` stores the
+    /// session's Harvester Truce byte (`0x00A8B31D`) in the staging word
+    /// (`0x005E7495..0x005E74D4`), and the launch copies it over the map's
+    /// flags. A launched session with the truce on carries the bit; the
+    /// default skirmish session — whose dialog clears the byte
+    /// (`0x006AD89D`) — leaves it clear.
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn headless_launch_harvester_truce_sets_the_scenario_bit() {
+        let root = std::path::PathBuf::from(
+            std::env::var("RA2_DIR").expect("set RA2_DIR to the retail RA2/YR install directory"),
+        );
+        let mut truce = battle_session(
+            "XMP03T4.MAP",
+            &[(
+                crate::skirmish_launch::LaunchCountry::America,
+                crate::skirmish_launch::AiDifficulty::Easy,
+            )],
+        );
+        truce.options.harvester_truce = true;
+        let scene = load_session(&root, "XMP03T4.MAP", 0x1234_5678, truce)
+            .expect("launch with Harvester Truce on");
+        assert!(
+            scene.sim().session.harvester_immune,
+            "the session's truce byte replaces the map's bit"
+        );
+
+        let plain = load_session(
+            &root,
+            "XMP03T4.MAP",
+            0x1234_5678,
+            battle_session(
+                "XMP03T4.MAP",
+                &[(
+                    crate::skirmish_launch::LaunchCountry::America,
+                    crate::skirmish_launch::AiDifficulty::Easy,
+                )],
+            ),
+        )
+        .expect("launch with the default options");
+        assert!(
+            !plain.sim().session.harvester_immune,
+            "the default skirmish session leaves the bit clear"
+        );
     }
 }

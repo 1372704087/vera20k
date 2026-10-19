@@ -340,6 +340,8 @@ fn original_dead_missing_cell_candidate_runs_fire_probe_before_health_rejection(
         allies_of_scanner: Default::default(),
         probe_firer: Default::default(),
         scanner_facts: attacker_facts(firer, obj),
+        harvester_immune: false,
+        harvester_unit_ids: Vec::new(),
     };
     let walk = WalkArgs {
         flags: 0x8042,

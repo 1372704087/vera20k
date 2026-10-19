@@ -1994,6 +1994,9 @@ impl MapLoadInitial {
             theater: map_data.header.theater.clone(),
             game_mode_nonzero: true,
             no_damage: false,
+            // Same nonzero-mode replacement as the match load: the launch
+            // session's Harvester Truce byte, not the map's key.
+            harvester_immune: match_launch_descriptor.session().options.harvester_truce,
             free_radar: map_data.basic.free_radar.unwrap_or(false),
             ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
             train_crate: map_data.basic.train_crate.unwrap_or(false),
@@ -2794,6 +2797,18 @@ pub(crate) fn load_map_from_initial(
         // Campaign/editor reads `[SpecialFlags] Inert=`. Nonzero game modes
         // replace active SpecialFlags from session staging.
         no_damage: !game_mode_nonzero && map_data.special_flags.inert.unwrap_or(false),
+        // Scenario bit 0x800: campaign reads the map's `[SpecialFlags]
+        // HarvesterImmune=`; a nonzero game mode replaces the map's flags
+        // with the session staging word (`0x00687C16..0x00687C29`), whose
+        // PregameSetup arm stores the session's Harvester Truce byte
+        // (`0x00A8B31D`) in the bit (`0x005E7495..0x005E74D4`). The skirmish
+        // lobby never sets the truce (`0x006AD89D` clears it), so every
+        // skirmish leaves the bit off.
+        harvester_immune: if game_mode_nonzero {
+            skirmish_launch_session.is_some_and(|launch| launch.options.harvester_truce)
+        } else {
+            map_data.special_flags.harvester_immune.unwrap_or(false)
+        },
         free_radar: map_data.basic.free_radar.unwrap_or(false),
         ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
         train_crate: map_data.basic.train_crate.unwrap_or(false),

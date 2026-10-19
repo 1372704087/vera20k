@@ -611,7 +611,7 @@ fn rally_tint_for_owner(
 /// surface color; the action line does not sample A or use cell lighting.
 fn action_line_color(palette: &crate::assets::pal_file::Palette, index: u8) -> [f32; 3] {
     use crate::render::native_surface_format::{ACTIVE_RETAIL_RGB565_PRESENTATION, RGB565};
-    let color = palette.colors[usize::from(index)];
+    let color = palette.color(index);
     let word = crate::render::palette_light::PaletteLight::plain(53, 1000).rgb565(
         [color.r, color.g, color.b],
         index,

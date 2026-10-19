@@ -101,7 +101,7 @@ Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1
 All donations received are distributed
 to contributors according to the [TIBTRE contribution ledger](https://github.com/YuriPlanet/tibtre-ledger).
 
-Payouts to contributors go via PayPal, UnionPay (China), Alipay, Vipps, SEPA bank transfer,
+Payouts to contributors go via PayPal, China UnionPay, Alipay, Vipps, SEPA bank transfer,
 or Bitcoin.
 
 ## Credits and legal

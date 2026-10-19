@@ -4,7 +4,7 @@
 
 mod actions;
 mod service;
-pub(crate) use service::{LanSetupEvent, poll, service_event};
+pub(crate) use service::{NetworkSetupEvent, poll, service_event};
 mod view;
 pub(crate) use actions::{apply_action, commit_map_selection, commit_start, open_choose_map};
 pub(crate) use view::view;
@@ -20,7 +20,7 @@ use std::time::Instant;
 /// Requests are service-boundary observations. They never create a peer,
 /// acknowledge readiness or complete GO without an admitted response.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LanSetupRequest {
+pub(crate) enum NetworkSetupRequest {
     PublishOptions,
     PublishRoster,
     PublishCooperativeAssignments(Vec<[[i32; 2]; 8]>),
@@ -46,7 +46,7 @@ pub(crate) enum LanSetupRequest {
     },
 }
 
-pub(crate) struct LanSetupProtocol {
+pub(crate) struct NetworkSetupProtocol {
     locked: bool,
     start_requested: bool,
     accept_eligible: bool,
@@ -54,10 +54,10 @@ pub(crate) struct LanSetupProtocol {
     map_transfer_pending: bool,
     transfer_progress: Option<(u32, u32)>,
     return_after_notice: bool,
-    requests: Vec<LanSetupRequest>,
+    requests: Vec<NetworkSetupRequest>,
 }
 
-impl LanSetupProtocol {
+impl NetworkSetupProtocol {
     fn new(host: bool) -> Self {
         Self {
             locked: false,
@@ -68,14 +68,14 @@ impl LanSetupProtocol {
             transfer_progress: None,
             return_after_notice: false,
             requests: if host {
-                vec![LanSetupRequest::PublishOptions]
+                vec![NetworkSetupRequest::PublishOptions]
             } else {
                 Vec::new()
             },
         }
     }
 
-    pub(crate) fn take_service_requests(&mut self) -> Vec<LanSetupRequest> {
+    pub(crate) fn take_service_requests(&mut self) -> Vec<NetworkSetupRequest> {
         std::mem::take(&mut self.requests)
     }
 
@@ -261,8 +261,8 @@ fn install_setup(
     }
     state.frontend.lan = None;
     state.frontend.multiplayer_setup = Some(MultiplayerSetupState::default());
-    state.frontend.lan_setup_protocol = Some(LanSetupProtocol::new(host));
-    state.frontend.shell_route = crate::app::shell_route::ShellRoute::LanSetup;
+    state.frontend.network_setup_protocol = Some(NetworkSetupProtocol::new(host));
+    state.frontend.shell_route = crate::app::shell_route::ShellRoute::NetworkSetup;
     state.frontend.shell_controller.reset_to(
         if host {
             HOST_PAGE.dialog
@@ -362,7 +362,7 @@ fn local_map_metadata(
 pub(crate) fn commit_back(state: &mut AppState) {
     if state
         .frontend
-        .lan_setup_protocol
+        .network_setup_protocol
         .as_ref()
         .is_some_and(|p| !p.locked)
     {
@@ -373,7 +373,7 @@ pub(crate) fn commit_back(state: &mut AppState) {
         persist_setup_preferences(state);
     }
     state.frontend.multiplayer_setup = None;
-    state.frontend.lan_setup_protocol = None;
+    state.frontend.network_setup_protocol = None;
     state.frontend.skirmish_shell_state.choose_map_modal = None;
     state.frontend.skirmish_preview_texture = None;
     state.frontend.loading_screen_atlas = None;
@@ -389,13 +389,13 @@ pub(crate) fn acknowledge_notice(state: &mut AppState) {
     state.frontend.shell_controller.pop();
     if state
         .frontend
-        .lan_setup_protocol
+        .network_setup_protocol
         .as_ref()
         .is_some_and(|protocol| protocol.return_after_notice)
     {
         App::leave_shell_dialog(
             state,
-            shell_transition::ShellExitThen::LanSetupBack {
+            shell_transition::ShellExitThen::NetworkSetupBack {
                 host: state.match_state.session.host(),
             },
         );

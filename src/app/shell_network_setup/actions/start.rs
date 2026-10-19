@@ -26,7 +26,7 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
     anyhow::ensure!(
         state
             .frontend
-            .lan_setup_protocol
+            .network_setup_protocol
             .as_ref()
             .is_some_and(|protocol| !protocol.locked),
         "setup is locked"
@@ -172,7 +172,7 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
     }
     if (0..launch.humans.len()).any(|index| !state.match_state.session.network_player_ready(index))
     {
-        queue(state, LanSetupRequest::RequestAcceptance);
+        queue(state, NetworkSetupRequest::RequestAcceptance);
         message(state, "GUI:HostGameStartHost", &[]);
         return Ok(());
     }
@@ -229,8 +229,8 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .session
         .network_start_seed()
         .ok_or_else(|| anyhow::anyhow!("host setup has no proposed seed"))?;
-    queue(state, LanSetupRequest::PublishOptions);
-    queue(state, LanSetupRequest::PublishRoster);
+    queue(state, NetworkSetupRequest::PublishOptions);
+    queue(state, NetworkSetupRequest::PublishRoster);
     // Native mode+64 follows the resolved options/name publication, before
     // preview disposal and GO. Only Cooperative consumes Scenario RNG here.
     let launch = state
@@ -250,17 +250,17 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
             .to_vec();
         queue(
             state,
-            LanSetupRequest::PublishCooperativeAssignments(rounds),
+            NetworkSetupRequest::PublishCooperativeAssignments(rounds),
         );
     }
     queue(
         state,
-        LanSetupRequest::Go {
+        NetworkSetupRequest::Go {
             agreed_seed,
             max_ahead_frames,
         },
     );
-    if let Some(protocol) = state.frontend.lan_setup_protocol.as_mut() {
+    if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
         protocol.locked = true;
         // Native host completes even after its600-bucket GO reply wait times
         // out. Real queue/transfer service completion is supplied separately.

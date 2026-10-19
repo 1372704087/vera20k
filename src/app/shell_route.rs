@@ -30,7 +30,7 @@ pub(crate) enum ShellRoute {
     /// LAN discovery BB.
     LanLobby,
     /// LAN host BC or guest BD; MatchSession owns the host role.
-    LanSetup,
+    NetworkSetup,
     /// The native skirmish shell `0x102`. It is entered only from the
     /// single-player shell (directly, or on resume after a match), so Back
     /// returns there.
@@ -70,8 +70,8 @@ impl ShellRoute {
     pub(crate) fn lan_lobby(self) -> bool {
         matches!(self, Self::LanLobby)
     }
-    pub(crate) fn lan_setup(self) -> bool {
-        matches!(self, Self::LanSetup)
+    pub(crate) fn network_setup(self) -> bool {
+        matches!(self, Self::NetworkSetup)
     }
 
     pub(crate) fn skirmish(self) -> bool {

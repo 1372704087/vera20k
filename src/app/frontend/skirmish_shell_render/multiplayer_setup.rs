@@ -36,7 +36,7 @@ pub(crate) fn render_multiplayer_setup(
 ) -> anyhow::Result<()> {
     if let Some((completed, total)) = state
         .frontend
-        .lan_setup_protocol
+        .network_setup_protocol
         .as_ref()
         .and_then(|protocol| protocol.transfer_progress())
     {
@@ -77,7 +77,7 @@ pub(crate) fn render_multiplayer_setup(
             ShellFrameCursor::Hidden,
         );
     }
-    let Some(view) = crate::app::shell_lan_setup::view(state) else {
+    let Some(view) = crate::app::shell_network_setup::view(state) else {
         return Ok(());
     };
     crate::app::input::multiplayer_setup::update_geometry(state);
@@ -87,7 +87,7 @@ pub(crate) fn render_multiplayer_setup(
     let now = Instant::now();
     let exit = crate::app::frontend::shell_transition::shell_exit_wave(
         state,
-        ShellSlideKind::LanSetup { host: view.host },
+        ShellSlideKind::NetworkSetup { host: view.host },
     )
     .cloned();
     let leaving = exit.is_some();

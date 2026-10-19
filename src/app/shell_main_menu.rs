@@ -604,7 +604,7 @@ impl App {
         if state.match_state.session.network_return_context()
             == Some(crate::app::match_runtime::session::NetworkReturnContext::LanLobby)
         {
-            crate::app::shell_lan_setup::commit_back(state);
+            crate::app::shell_network_setup::commit_back(state);
             return;
         }
         if state.frontend.shell_route.skirmish() {
@@ -1262,12 +1262,14 @@ impl App {
             ShellExitThen::LanJoinAccepted(accepted) => {
                 Self::open_lan_joined_setup(state, accepted)
             }
-            ShellExitThen::LanSetupBack { .. } => crate::app::shell_lan_setup::commit_back(state),
-            ShellExitThen::LanSetupChooseMap { .. } => {
-                crate::app::shell_lan_setup::open_choose_map(state)
+            ShellExitThen::NetworkSetupBack { .. } => {
+                crate::app::shell_network_setup::commit_back(state)
             }
-            ShellExitThen::LanStart { agreed_seed, .. } => {
-                crate::app::shell_lan_setup::commit_start(state, agreed_seed)
+            ShellExitThen::NetworkSetupChooseMap { .. } => {
+                crate::app::shell_network_setup::open_choose_map(state)
+            }
+            ShellExitThen::NetworkStart { agreed_seed, .. } => {
+                crate::app::shell_network_setup::commit_start(state, agreed_seed)
             }
             ShellExitThen::SkirmishChooseMap => {
                 let mode_id = state.frontend.skirmish_shell_state.selected_mode_id;

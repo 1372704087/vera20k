@@ -56,7 +56,7 @@ fn team_value(team: LaunchTeam) -> i32 {
 pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let session = &state.match_state.session;
     let launch = session.network_setup()?;
-    let protocol = state.frontend.lan_setup_protocol.as_ref()?;
+    let protocol = state.frontend.network_setup_protocol.as_ref()?;
     let mode = mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)?;
     let host = session.host();
     let local = launch.humans.get(launch.local_player_index)?;

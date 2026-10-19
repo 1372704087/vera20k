@@ -221,7 +221,7 @@ pub(crate) fn active_page_title_text(
         ShellSlideKind::Keyboard => crate::ui::shell::keyboard::KEYBOARD_PAGE.title_key,
         ShellSlideKind::NetworkOptions => crate::ui::network_options::PAGE.title_key,
         ShellSlideKind::LanLobby => crate::ui::lan_shell::PAGE.title_key,
-        ShellSlideKind::LanSetup { host } => {
+        ShellSlideKind::NetworkSetup { host } => {
             if host {
                 crate::ui::multiplayer_setup::HOST_PAGE.title_key
             } else {

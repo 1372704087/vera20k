@@ -569,7 +569,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_setup()
+                    && state.frontend.shell_route.network_setup()
                 {
                     if state
                         .frontend
@@ -853,7 +853,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_setup()
+                    && state.frontend.shell_route.network_setup()
                 {
                     if state
                         .frontend
@@ -1000,7 +1000,7 @@ impl ApplicationHandler for App {
                     return;
                 }
                 if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_setup()
+                    && state.frontend.shell_route.network_setup()
                 {
                     if state
                         .frontend
@@ -1142,7 +1142,7 @@ impl ApplicationHandler for App {
                 crate::app::input::keyboard::poll_scroll_repeat(state),
                 crate::app::input::network_options::poll_scroll_repeat(state),
                 crate::app::shell_lan::poll(state),
-                crate::app::shell_lan_setup::poll(state),
+                crate::app::shell_network_setup::poll(state),
                 crate::app::input::multiplayer_setup::poll(state),
                 crate::app::input::sound::poll_scroll_repeat(state),
                 Self::poll_movie_list_scroll(state),

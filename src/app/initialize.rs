@@ -687,7 +687,7 @@ impl App {
                 network_options: None,
                 lan: None,
                 multiplayer_setup: None,
-                lan_setup_protocol: None,
+                network_setup_protocol: None,
                 wol_welcome_art: None,
                 score_page: None,
                 campaign_score_page: None,

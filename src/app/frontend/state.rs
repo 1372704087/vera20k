@@ -113,7 +113,8 @@ pub(crate) struct FrontendState {
     pub(crate) wol_welcome: Option<crate::ui::wol_shell::WolWelcomeState>,
     /// LAN lobby interaction/discovery; admitted participants belong to MatchSession.
     pub(crate) lan: Option<crate::app::shell_lan::LanShellRuntime>,
-    pub(crate) lan_setup_protocol: Option<crate::app::shell_lan_setup::LanSetupProtocol>,
+    pub(crate) network_setup_protocol:
+        Option<crate::app::shell_network_setup::NetworkSetupProtocol>,
     /// BC/BD control interaction; values are projected from MatchSession.
     pub(crate) multiplayer_setup: Option<crate::ui::multiplayer_setup::MultiplayerSetupState>,
     /// Options' Network child D7, retained until its teardown completes.

@@ -262,7 +262,7 @@ fn show_modal(state: &mut AppState, key: &'static str) {
 /// Select the active LAN dialog's transcript; the shared chat owner retains
 /// all wrapping, row retention and scroll behavior for BB, BC and BD.
 pub(crate) fn append_chat(state: &mut AppState, line: LanChatLine) {
-    let setup = state.frontend.shell_route == crate::app::shell_route::ShellRoute::LanSetup;
+    let setup = state.frontend.shell_route == crate::app::shell_route::ShellRoute::NetworkSetup;
     let (rect, scale) = if setup {
         let layout = crate::app::input::multiplayer_setup::layout(state);
         (layout.chat_log, layout.page.scale)

@@ -13,14 +13,14 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
         SetupAction::Back => {
             if state
                 .frontend
-                .lan_setup_protocol
+                .network_setup_protocol
                 .as_ref()
                 .is_some_and(|protocol| !protocol.locked)
             {
-                queue(state, LanSetupRequest::Leave);
+                queue(state, NetworkSetupRequest::Leave);
                 App::leave_shell_dialog(
                     state,
-                    shell_transition::ShellExitThen::LanSetupBack {
+                    shell_transition::ShellExitThen::NetworkSetupBack {
                         host: state.match_state.session.host(),
                     },
                 );
@@ -31,13 +31,13 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
             if state.match_state.session.host()
                 && state
                     .frontend
-                    .lan_setup_protocol
+                    .network_setup_protocol
                     .as_ref()
                     .is_some_and(|protocol| !protocol.locked)
             {
                 App::leave_shell_dialog(
                     state,
-                    shell_transition::ShellExitThen::LanSetupChooseMap { host: true },
+                    shell_transition::ShellExitThen::NetworkSetupChooseMap { host: true },
                 );
             }
             Ok(())
@@ -61,7 +61,7 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
                     color: 0x40ffff,
                 },
             );
-            queue(state, LanSetupRequest::Chat(text));
+            queue(state, NetworkSetupRequest::Chat(text));
             Ok(())
         }
     };
@@ -71,8 +71,8 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
     state.platform.window.request_redraw();
 }
 
-fn queue(state: &mut AppState, request: LanSetupRequest) {
-    if let Some(protocol) = state.frontend.lan_setup_protocol.as_mut() {
+fn queue(state: &mut AppState, request: NetworkSetupRequest) {
+    if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
         protocol.requests.push(request);
     }
 }
@@ -101,7 +101,7 @@ fn toggle(state: &mut AppState, control: u16) -> anyhow::Result<()> {
         _ => anyhow::bail!("unknown setup checkbox"),
     }
     state.match_state.session.set_network_options(options)?;
-    queue(state, LanSetupRequest::PublishOptions);
+    queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }
 
@@ -139,7 +139,7 @@ fn trackbar(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()
         }
         state.match_state.session.set_network_options(options)?;
     }
-    queue(state, LanSetupRequest::PublishOptions);
+    queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }
 
@@ -173,7 +173,7 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
             .session
             .set_network_row_kind(row as u8, kind)?
         {
-            queue(state, LanSetupRequest::Kick { name: peer.name });
+            queue(state, NetworkSetupRequest::Kick { name: peer.name });
         }
     } else {
         let mut slot = state
@@ -227,7 +227,7 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
                 .expect("choices retain setup");
             queue(
                 state,
-                LanSetupRequest::PlayerChoices {
+                NetworkSetupRequest::PlayerChoices {
                     row: row as u8,
                     slot,
                     observer: launch.local_player().is_observer(),
@@ -236,7 +236,7 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
             return Ok(());
         }
     }
-    queue(state, LanSetupRequest::PublishOptions);
+    queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }
 
@@ -253,10 +253,10 @@ fn accept(state: &mut AppState) -> anyhow::Result<()> {
         .match_state
         .session
         .set_network_player_ready(index, true)?;
-    if let Some(protocol) = state.frontend.lan_setup_protocol.as_mut() {
+    if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
         protocol.start_requested = false;
     }
-    queue(state, LanSetupRequest::Ready(true));
+    queue(state, NetworkSetupRequest::Ready(true));
     Ok(())
 }
 
@@ -277,7 +277,7 @@ pub(crate) fn commit_start(state: &mut AppState, agreed_seed: u32) {
     match state.match_state.session.freeze_network_start(agreed_seed) {
         Ok(startup) => {
             state.frontend.multiplayer_setup = None;
-            state.frontend.lan_setup_protocol = None;
+            state.frontend.network_setup_protocol = None;
             state.frontend.skirmish_preview_texture = None;
             crate::app::loading::pump::begin_loading(
                 state,
@@ -320,7 +320,7 @@ pub(crate) fn commit_map_selection(
     anyhow::ensure!(
         state
             .frontend
-            .lan_setup_protocol
+            .network_setup_protocol
             .as_ref()
             .is_some_and(|p| !p.locked),
         "setup is locked"
@@ -345,7 +345,7 @@ pub(crate) fn commit_map_selection(
         .session
         .accept_network_map_metadata(metadata, None, true)?;
     for human in removed {
-        queue(state, LanSetupRequest::Kick { name: human.name });
+        queue(state, NetworkSetupRequest::Kick { name: human.name });
     }
     state.frontend.random_map_retention.select_map(&file);
     state
@@ -353,6 +353,6 @@ pub(crate) fn commit_map_selection(
         .multiplayer_shell_runtime
         .set_preferred_game_mode(mode_id);
     state.frontend.skirmish_preview_texture = None;
-    queue(state, LanSetupRequest::PublishOptions);
+    queue(state, NetworkSetupRequest::PublishOptions);
     Ok(())
 }

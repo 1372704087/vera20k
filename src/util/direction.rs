@@ -7,12 +7,11 @@
 //!
 //! ## Ownership split (three direction-math owners in util/, F14)
 //! - **This module** is the single authority for the 8-way vocabulary:
-//!   `DIRECTION_DELTAS`, the `Ra2Direction` ids, and the 8-bit
-//!   facing→direction quantization (`direction_from_facing`).
-//! - **`direction_tables/`** is the sim-facing gamemd table-family entry
-//!   point. It re-exports/delegates the 8-way primitives from here (see
-//!   `CELL_DELTAS`, `dir_from_facing8`) and ADDS what this module does not
-//!   own: 16-bit facings, lepton deltas, DRAGON frames, muzzle rotation.
+//!   `DIRECTION_DELTAS` (with its unchecked step `cell_delta_unchecked`), the
+//!   `Ra2Direction` ids, and the 8-bit facing→direction quantization
+//!   (`direction_from_facing`).
+//! - **`direction_tables/`** adds what this module does not own: 16-bit
+//!   facings, lepton deltas, DRAGON frames, muzzle rotation.
 //! - **`native_trig.rs`** owns facing→movement *vectors* and FLH rotations
 //!   read from the retail sine table; it owns no direction quantization.
 //!
@@ -27,8 +26,8 @@ pub const FACING_UNITS_PER_DIRECTION: u8 = 32;
 /// Cell compass values initialized at `0x0049F2F0` into `0x0089F688`.
 /// Original initializer execution through RET `0x0049F39B` is preserved in
 /// `tools/spatial_oracle/locomotor_head_coordinates.json::initializer_controls`.
-/// `direction_tables::cell` exposes this owner to simulation consumers; the
-/// lepton table derives the same order in its own coordinate units.
+/// Compass order 0=N..7=NW, +X=east, +Y=south. The lepton table derives the
+/// same order in its own coordinate units.
 pub const DIRECTION_DELTAS: [(i32, i32); DIRECTION_COUNT] = [
     (0, -1),  // 0 = N
     (1, -1),  // 1 = NE
@@ -93,6 +92,17 @@ impl Ra2Direction {
 
 pub fn direction_delta(direction: u8) -> Option<(i32, i32)> {
     Ra2Direction::from_index(direction).map(Ra2Direction::delta)
+}
+
+/// Faithful mirror of gamemd's unchecked `MapCoord_Step_By_Direction` indexing
+/// (no mask/bounds; callers sanitize upstream). Debug-asserts `dir <= 7` and
+/// masks `&7` to stay memory-safe; use only when mirroring that contract.
+pub fn cell_delta_unchecked(dir: u8) -> (i32, i32) {
+    debug_assert!(
+        dir <= 7,
+        "cell_delta_unchecked: dir {dir} > 7 (gamemd OOB read)"
+    );
+    DIRECTION_DELTAS[(dir & 7) as usize]
 }
 
 /// Direction whose one-cell step is exactly `(dx, dy)`; `None` for a null or
@@ -161,6 +171,47 @@ mod tests {
         }
     }
 
+    /// Original initializer execution through RET `0x0049F39B`, under the
+    /// inherited `0000` and the supplied `0E7F` control words.
+    #[test]
+    fn cell_delta_table_equals_gamemd_dump() {
+        let original: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/spatial_oracle/locomotor_head_coordinates.json",
+        ))
+        .unwrap();
+        let controls: Vec<_> = original["initializer_controls"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["kind"] == "cell")
+            .collect();
+        assert_eq!(controls.len(), 2);
+        for row in controls {
+            let expected: Vec<_> = row["values"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|pair| {
+                    (
+                        pair[0].as_i64().unwrap() as i32,
+                        pair[1].as_i64().unwrap() as i32,
+                    )
+                })
+                .collect();
+            assert_eq!(DIRECTION_DELTAS.as_slice(), expected.as_slice());
+        }
+    }
+
+    /// gamemd's 8-bit form is `((f>>4)+1)>>1 & 7`; it rounds up at `16+32n`
+    /// and `240..=255` wrap to North.
+    #[test]
+    fn facing_quantization_matches_gamemd_for_every_byte() {
+        for f in 0u8..=255 {
+            let gamemd = ((((f as u16) >> 4) + 1) >> 1) as u8 & 7;
+            assert_eq!(direction_from_facing(f), gamemd, "f={f}");
+        }
+    }
+
     #[test]
     fn facing_quantization_matches_drive_locomotor_formula() {
         let samples = [
@@ -186,6 +237,20 @@ mod tests {
                 delta_from_facing(facing),
                 DIRECTION_DELTAS[direction as usize]
             );
+        }
+    }
+
+    /// A compass facing's cell step converts back through the native angle
+    /// path to within a few facing units of where it started.
+    #[test]
+    fn delta_from_facing_round_trips_through_the_native_facing() {
+        for facing in (0u8..=224).step_by(32) {
+            let (dx, dy) = delta_from_facing(facing);
+            let recovered = crate::util::direction_tables::facing8_from_delta(dx, dy);
+            let distance = recovered
+                .wrapping_sub(facing)
+                .min(facing.wrapping_sub(recovered));
+            assert!(distance <= 4, "{facing} -> ({dx},{dy}) -> {recovered}");
         }
     }
 }

@@ -3,12 +3,12 @@
 //! Original numeric/geometry controls: procedural_drawing_oracle/rad_beam.
 
 use super::surface_line::{SurfaceLine, SurfaceLineBlend, SurfaceLineViewport};
-use crate::map::retail_trig::TrigTable;
 use crate::sim::combat::radiation_beam::RadiationBeamBirth;
 use crate::sim::projectile::ProjectileCoord;
 use crate::util::native_x87::{
     MaskedX87Chop53 as M, MaskedX87Value, NativeF64Bits, X87Chop53 as X,
 };
+use crate::util::retail_trig::TrigTable;
 
 /// Derived once on the first draw. Copied mode0/1 endpoints never change, so
 /// this cache needs no invalidation before its owning registry entry retires.

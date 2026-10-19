@@ -7,7 +7,9 @@
 //! original scheduler rungs.
 //!
 //! [`ReplayLog`] remains the richer Rust-only command/hash diagnostic used by
-//! parity tests. It is deliberately separate from [`NativeReplay`].
+//! parity tests. It is deliberately separate from [`NativeReplay`]. Production
+//! does not record or play native streams yet; only tests build
+//! [`NativeReplay`], which is kept for native recording playback.
 
 use std::num::NonZeroI32;
 use std::path::Path;
@@ -22,7 +24,7 @@ use crate::sim::command::{COMMAND_RECORD_LEN, CommandEnvelope, CommandRecord};
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::pathfinding::PathGrid;
 #[cfg(any(test, feature = "test-support"))]
-use crate::sim::world::{Simulation, TickLane, TriggerInputs};
+use crate::sim::world::{Simulation, TickLane};
 
 /// Value written by the compiled legacy recorder at the start of a stream.
 ///
@@ -828,14 +830,14 @@ impl ReplayRunner {
             path_grid,
             overlay_registry,
             tick_ms,
-            None,
+            false,
         )
     }
 
     /// Fixture-only replay through the same master-frame admission gameplay
-    /// uses, with caller-owned static map trigger definitions. Diagnostic
-    /// logs own commands and hashes. Production replay execution is
-    /// `run_runtime`.
+    /// uses; `poll_triggers` polls the simulation's installed triggers.
+    /// Diagnostic logs own commands and hashes. Production replay execution
+    /// is `run_runtime`.
     pub(crate) fn run_fixture_master_frame(
         sim: &mut Simulation,
         replay: &ReplayLog,
@@ -843,7 +845,7 @@ impl ReplayRunner {
         path_grid: Option<&PathGrid>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         tick_ms: u32,
-        trigger_inputs: Option<TriggerInputs<'_>>,
+        poll_triggers: bool,
     ) -> Vec<Option<u64>> {
         // The diagnostic playback must be constructed from the recorded seed.
         assert_eq!(
@@ -886,7 +888,7 @@ impl ReplayRunner {
                     overlay_registry,
                     tick_ms,
                     TickLane::Ordinary,
-                    trigger_inputs,
+                    poll_triggers,
                  crate::sim::world::FrameEffects::default(),)
                 .expect("fixture frame must complete")
                 .into_tick();

@@ -15,7 +15,8 @@
 use crate::rules::ruleset::RuleSet;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
-use crate::util::fixed_math::{SimFixed, facing_from_delta_int_u16};
+use crate::util::direction_tables::facing16_from_delta;
+use crate::util::fixed_math::SimFixed;
 
 /// Compute the signed shortest-path rotation from `current` to `target` in
 /// 8-bit facing space. No production caller; the live shortest-arc logic is the
@@ -52,7 +53,7 @@ pub fn facing_toward_lepton(
     let to_lep_y: i32 = to_ry as i32 * 256 + to_sub_y.to_num::<i32>();
     let dx: i32 = to_lep_x - from_lep_x;
     let dy: i32 = to_lep_y - from_lep_y;
-    facing_from_delta_int_u16(dx, dy)
+    facing16_from_delta(dx, dy)
 }
 
 /// Convert an 8-bit facing to a 16-bit one (shifts into the upper byte).
@@ -289,7 +290,9 @@ pub(crate) fn facing_update(
 /// mask to one byte, add 8, then shift into the high byte before calling the
 /// shared `FacingClass::Set @ 0x004C9220` at `0x00736BDD`.
 pub(crate) fn turret_spin_destination(current: u16) -> u16 {
-    (((((current >> 7) + 1) >> 1) & 0x00FF).wrapping_add(8)).wrapping_shl(8)
+    u16::from(crate::util::direction_tables::round_facing16_to_8(current))
+        .wrapping_add(8)
+        .wrapping_shl(8)
 }
 
 /// `[General] GuardAreaTargetingDelay=` fallback for rules-less fixtures. Stock

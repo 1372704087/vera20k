@@ -3,8 +3,8 @@
 //! Numeric controls: tools/ion_blast_forces.json, original53CBE0 execution.
 
 use super::{RockingState, absolute, double, load, store};
-use crate::map::retail_trig::TrigTable;
-use crate::util::native_x87::{NativeF32Bits, X87Chop53 as X, X87Ordering, sqrt_approx_f32};
+use crate::util::native_x87::{X87Chop53 as X, X87Ordering, sqrt_approx_f32};
+use crate::util::retail_trig::TrigTable;
 
 ///53CEDA..53CF33: screen translation cancels; neither camera nor viewport
 ///admission enters the force. Sampling is at ftol(Sqrt_Approx(dx²+dy²))+8.
@@ -52,7 +52,7 @@ pub(crate) fn apply(
     if X::compare(absolute(load(distance)), double(0x3ef4_f8b5_88e3_68f1)) != X87Ordering::Greater {
         return false;
     }
-    let angle = X::load_f64(crate::sim::projectile::native_math::radians(facing)).unwrap();
+    let angle = X::load_f64(crate::util::direction_tables::radians_from_facing16(facing)).unwrap();
     let trig = TrigTable::embedded();
     let sin = store(trig.sin_from_table(angle));
     let cos = store(trig.cos_from_table(angle));

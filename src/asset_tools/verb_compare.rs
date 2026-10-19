@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use crate::asset_tools::canvas::{self, Rgba, SheetCell};
 use crate::asset_tools::identify;
 use crate::asset_tools::names::NameDict;
-use crate::asset_tools::palette::{self, AlphaPolicy};
+use crate::asset_tools::palette;
 use crate::asset_tools::report::{CompareReport, CompareVariant, ErrorReport, RenderOutputs};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::aud_file;
@@ -94,10 +94,6 @@ const MAX_SCALE: u32 = 16;
 /// Per-image pixel budget (~256 MB of RGBA), mirroring `verb_render`. A corrupt
 /// header claiming a huge canvas must degrade to a report, not an OOM abort.
 const MAX_OUTPUT_PIXELS: u64 = 64_000_000;
-
-/// FNV-1a constants for the per-variant content checksum.
-const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
-const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
 /// Options for one `asset compare` invocation.
 #[derive(Debug, Clone)]
@@ -399,12 +395,8 @@ fn unique_palette_colors(data: &[u8]) -> usize {
 
 /// FNV-1a over the whole entry. See [`variant_fields`] for why it exists.
 fn content_checksum(data: &[u8]) -> u64 {
-    let mut hash = FNV_OFFSET_BASIS;
-    for byte in data {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(FNV_PRIME);
-    }
-    hash
+    use crate::util::fnv::{FNV1A64_OFFSET_BASIS, fnv1a64_fold_bytes};
+    fnv1a64_fold_bytes(FNV1A64_OFFSET_BASIS, data)
 }
 
 /// Every field whose value is not identical across all variants.
@@ -655,12 +647,7 @@ fn render_variants(
             continue;
         }
 
-        // Alpha policy decides the converter. Getting this backwards is the
-        // single most likely way this ships wrong-looking art.
-        let converted = match load.alpha_policy {
-            AlphaPolicy::Standard => shp.frame_to_rgba(opts.frame, &load.palette),
-            AlphaPolicy::GamemdUi => shp.frame_to_rgba_ui(opts.frame, &load.palette),
-        };
+        let converted = shp.frame_to_rgba(opts.frame, &load.palette);
         let frame = &shp.frames[opts.frame];
         let frame_image = match converted {
             Ok(rgba) if frame.frame_width > 0 && frame.frame_height > 0 => {

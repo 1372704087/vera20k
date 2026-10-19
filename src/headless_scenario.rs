@@ -420,10 +420,6 @@ pub fn load_with_launch(
                 overlay_registry,
                 terrain_template: None,
                 rules,
-                trigger_graph: map.trigger_graph.clone(),
-                triggers: map.triggers.clone(),
-                events: map.events.clone(),
-                actions: map.actions.clone(),
             },
         },
         map,
@@ -1359,8 +1355,6 @@ mod retail_construction_tests {
                                 entity.navigation.nav_com(),
                                 if entity.passenger_role.is_inside_transport() {
                                     " aboard"
-                                } else if entity.passenger_role.boarding_transport_id().is_some() {
-                                    " boarding"
                                 } else {
                                     ""
                                 },
@@ -2262,7 +2256,7 @@ mod retail_construction_tests {
                 hit = Some(frame);
             }
             if charged.is_none()
-                && entity.navigation.nav_com() == Some(NavTargetRef::Entity { id: gi })
+                && entity.navigation.nav_com() == Some(NavTargetRef::object(gi))
                 && (entity.mission.queued() == move_mission
                     || entity.mission.current() == move_mission)
             {
@@ -2718,7 +2712,7 @@ mod retail_construction_tests {
                 .sim()
                 .entities()
                 .get(tanya)
-                .is_some_and(|tanya| !tanya.death.is_dying()),
+                .is_some_and(|tanya| !tanya.death.is_dying() && tanya.health.current() > 0),
             "Tanya died"
         );
     }

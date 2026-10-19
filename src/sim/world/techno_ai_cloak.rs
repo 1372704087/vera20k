@@ -7,7 +7,7 @@ use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 use super::{FrameEffects, Simulation};
 
@@ -448,7 +448,7 @@ pub(crate) fn uncloak_on_sensor_neighbour_after_cell_entry(
     );
 
     let mut triggered = false;
-    for (dx, dy) in CELL_DELTAS {
+    for (dx, dy) in DIRECTION_DELTAS {
         let (nx, ny) = (rx + dx, ry + dy);
         if nx < 0 || ny < 0 {
             continue;

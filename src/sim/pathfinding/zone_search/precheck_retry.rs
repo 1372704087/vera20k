@@ -21,7 +21,7 @@ use super::native_path_entry::live_mode_one;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::locomotor_type::MovementZone;
 use crate::sim::cell_rect::PlayfieldBounds;
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 /// What one retry reads, all fixed for the path search.
 pub(super) struct RetryInputs<'a> {
@@ -122,7 +122,7 @@ fn flood_fill_reachable_zones(
     // 0x005842C2..0x005842D2: a run of one zone is looked up once.
     let mut last_reached = ZONE_INVALID;
     while let Some(cell) = stack.pop() {
-        for (direction, &(dx, dy)) in CELL_DELTAS.iter().enumerate() {
+        for (direction, &(dx, dy)) in DIRECTION_DELTAS.iter().enumerate() {
             let (x, y) = terrain.native_cell_coord(cell);
             let neighbor = terrain
                 .native_cell_identity((x.wrapping_add(dx as i16), y.wrapping_add(dy as i16)));

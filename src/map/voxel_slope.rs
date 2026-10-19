@@ -179,11 +179,11 @@ fn quaternion_slerp(
     let epsilon = X87Chop53::load_f64(NativeF64Bits::from_bits(0x3ee4_f8b5_88e3_68f1))?; //7E3810
     let t = X87Chop53::load_f32(phase)?;
     let inv_t = sub(one, t);
-    let trig = super::retail_trig::TrigTable::embedded();
+    let trig = crate::util::retail_trig::TrigTable::embedded();
     let (weight_a, weight_b) = if X87Chop53::compare(add(dot, one), epsilon) == X87Ordering::Greater
     {
         if X87Chop53::compare(sub(one, dot), epsilon) == X87Ordering::Greater {
-            let (_, theta) = super::retail_trig::AcosTable::retail().acos_lookup(dot);
+            let (_, theta) = crate::util::retail_trig::AcosTable::retail().acos_lookup(dot);
             let theta = double_store(theta)?;
             let sin_theta = double_store(trig.sin_from_table(theta))?;
             let weight_a = double_store(X87Chop53::div(

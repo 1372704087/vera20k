@@ -260,7 +260,7 @@ fn wave_sine_table<const N: usize>(frequency: NativeF64Bits) -> [i16; N] {
     std::array::from_fn(|i| {
         let frequency = X::load_f64(frequency).unwrap();
         let angle = X::store_f64(X::mul(X::load_i32(i as i32), frequency)).unwrap();
-        let sine = crate::map::retail_trig::TrigTable::embedded()
+        let sine = crate::util::retail_trig::TrigTable::embedded()
             .sin_from_table(X::load_f64(angle).unwrap());
         let amplitude = X::load_f64(NativeF64Bits::from_bits(0x4028_0000_0000_0000)).unwrap();
         let bias = X::load_f64(NativeF64Bits::from_bits(0x3fdf_5c28_f5c2_8f5c)).unwrap();

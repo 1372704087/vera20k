@@ -73,7 +73,7 @@ use crate::sim::intern::InternedId;
 use crate::sim::mission::MissionType;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::{Simulation, UninitContext};
-use crate::util::direction_tables::CELL_DELTAS;
+use crate::util::direction::DIRECTION_DELTAS;
 
 #[cfg(test)]
 #[path = "spawn_manager_oracle_tests.rs"]
@@ -1528,7 +1528,7 @@ impl SpawnHost for WorldSpawn<'_, '_> {
 
 /// The eight-direction cell step native uses for the owner-relative hold cell.
 fn adjacent_cell(rx: u16, ry: u16, direction: u8) -> (u16, u16) {
-    let (dx, dy) = CELL_DELTAS[(direction & 7) as usize];
+    let (dx, dy) = DIRECTION_DELTAS[(direction & 7) as usize];
     (
         (rx as i32 + dx).max(0) as u16,
         (ry as i32 + dy).max(0) as u16,

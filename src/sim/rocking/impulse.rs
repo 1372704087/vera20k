@@ -4,12 +4,12 @@
 //! absence and existing state. Native controls: unit_rocker_impulse.json.
 
 use super::{RockingState, absolute, double, load, store};
-use crate::map::retail_trig::TrigTable;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{
     MaskedX87Chop53 as M, MaskedX87Ordering, NativeF32Bits, NativeF64Bits, X87Chop53 as X,
     X87Ordering, sqrt_approx_f32,
 };
+use crate::util::retail_trig::TrigTable;
 
 #[derive(Debug, Clone, Copy)]
 pub struct RockerImpulse {
@@ -45,7 +45,7 @@ pub fn apply_rocker_impulse(state: &mut Option<RockingState>, request: RockerImp
     let distance = sqrt_approx_f32(squared).expect("finite squared rocker distance");
     //70B32A..70B341 uses the shared signed word-to-radians owner,
     // including its binary64 store, not a quantized compass step.
-    let angle = X::load_f64(crate::sim::projectile::native_math::radians(
+    let angle = X::load_f64(crate::util::direction_tables::radians_from_facing16(
         request.body_facing,
     ))
     .unwrap();

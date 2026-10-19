@@ -903,7 +903,7 @@ fn node_may_replan(
             return false;
         };
         // `0x00481810` over the eight directions, `0x0047C520` on each.
-        return crate::util::direction_tables::cell::CELL_DELTAS
+        return crate::util::direction::DIRECTION_DELTAS
             .iter()
             .any(|&(dx, dy)| {
                 let neighbor = map_cell_offset(rx, ry, dx, dy);

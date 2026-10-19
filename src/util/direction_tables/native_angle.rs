@@ -17,6 +17,8 @@ const PI_OVER_TWO_F32: NativeF32Bits = NativeF32Bits::from_bits(0x3fc9_0fdb);
 const PI_F64: NativeF64Bits = NativeF64Bits::from_bits(0x4009_21fb_5444_2d18);
 const PI_OVER_TWO_F64: NativeF64Bits = NativeF64Bits::from_bits(0x3ff9_21fb_5444_2d18);
 const FACING_SCALE_F64: NativeF64Bits = NativeF64Bits::from_bits(0xc0c4_5f07_af68_ecef);
+/// `0x007E2810`: -2pi/65534, the radians of one DirStruct unit.
+const RADIANS_PER_FACING_UNIT_F64: NativeF64Bits = NativeF64Bits::from_bits(0xbf19_222d_989f_5e57);
 
 static ATAN_BITS: OnceLock<[u32; ATAN_TABLE_LEN]> = OnceLock::new();
 
@@ -149,6 +151,17 @@ pub fn facing16_from_angle(angle: X87Value) -> u16 {
         .expect("the bounded angle conversion fits the native integer domain") as u16
 }
 
+/// A DirStruct word as the radians its readers form before `SinFromTable` /
+/// `CosFromTable`: the signed word less 0x3FFF times the double at
+/// `0x007E2810`, stored as a double. The inverse of [`facing16_from_angle`].
+pub fn radians_from_facing16(word: u16) -> NativeF64Bits {
+    X87Chop53::store_f64(X87Chop53::mul(
+        X87Chop53::load_i32(i32::from(word as i16) - 0x3fff),
+        load_f64(RADIANS_PER_FACING_UNIT_F64),
+    ))
+    .expect("a facing word's radians are finite")
+}
+
 /// Returns the high facing byte exposed by the simulation's byte-facing fields.
 pub fn facing8_from_delta(dx: i32, dy: i32) -> u8 {
     (facing16_from_delta(dx, dy) >> 8) as u8
@@ -243,5 +256,51 @@ mod tests {
         assert_eq!(facing8_from_delta(0, 1), 127);
         assert_eq!(facing8_from_delta(-1, 0), 192);
         assert_eq!(facing8_from_delta(0, 0), 63);
+    }
+
+    #[test]
+    fn diagonals_and_quadrants_follow_the_native_word() {
+        for ((dx, dy), word, byte) in [
+            ((1, -1), 8_315, 32),
+            ((1, 1), 24_451, 95),
+            ((-1, 1), 41_082, 160),
+            ((-1, -1), 57_221, 223),
+        ] {
+            assert_eq!(facing16_from_delta(dx, dy), word, "({dx},{dy})");
+            assert_eq!(facing8_from_delta(dx, dy), byte, "({dx},{dy})");
+        }
+        // +dx is east and -dy north; each quadrant keeps to its quarter turn.
+        for dx in 1..=5 {
+            for dy in 1..=5 {
+                let north_east = facing8_from_delta(dx, -dy);
+                assert!(
+                    (0..=64).contains(&north_east),
+                    "({dx},-{dy}) -> {north_east}"
+                );
+                let south_east = facing8_from_delta(dx, dy);
+                assert!(
+                    (64..=128).contains(&south_east),
+                    "({dx},{dy}) -> {south_east}"
+                );
+                let south_west = facing8_from_delta(-dx, dy);
+                assert!(
+                    (128..=192).contains(&south_west),
+                    "(-{dx},{dy}) -> {south_west}"
+                );
+                let north_west = facing8_from_delta(-dx, -dy);
+                assert!(
+                    north_west >= 192 || north_west == 0,
+                    "(-{dx},-{dy}) -> {north_west}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_word_depends_on_the_ratio_not_the_magnitude() {
+        assert_eq!(
+            facing16_from_delta(3, 4),
+            facing16_from_delta(3 * 256, 4 * 256)
+        );
     }
 }

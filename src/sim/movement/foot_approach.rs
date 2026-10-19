@@ -25,7 +25,8 @@ use crate::sim::mission::MissionType;
 use crate::sim::movement::bump_crush::{CrushTarget, object_is_crushable_by};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction_tables::{cell_delta_unchecked, facing16_between};
+use crate::util::direction::cell_delta_unchecked;
+use crate::util::direction_tables::facing16_between;
 use crate::util::native_trig::facing_step_world_xy;
 use crate::util::native_x87::{X87Chop53, distance_3d_leptons, sqrt_approx_f32};
 
@@ -462,10 +463,7 @@ impl Simulation {
             .as_ref()
             .ok_or("Approach requires map cells")?;
         let identity = target.cell_identity(terrain);
-        let target_reference = match target {
-            TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-            TargetKind::Entity(id) => NavTargetRef::object(id),
-        };
+        let target_reference = NavTargetRef::from(target);
         let cells = NativeCellQuery::canonical(terrain);
         let mut range = combat::combat_weapon::weapon_range(
             actor,
@@ -934,9 +932,7 @@ impl Simulation {
                     z: z as i32,
                 });
             }
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id } => id,
+            NavTargetRef::Object { id } => id,
         };
         super::ground_pose::target_get_coords(TargetKind::Entity(id), self, Some(cells))
             .ok_or_else(|| "retired Approach NavCom".to_owned())
@@ -1264,8 +1260,5 @@ fn balloon_hover_destination(
         .as_deref()
         .and_then(|name| rules.projectile(name))
         .is_some_and(|projectile| projectile.vertical)
-        .then_some(match target {
-            TargetKind::Entity(id) => NavTargetRef::object(id),
-            TargetKind::Cell(rx, ry) => NavTargetRef::cell(rx, ry),
-        })
+        .then_some(NavTargetRef::from(target))
 }

@@ -2,13 +2,8 @@
 //!
 //! gamemd `((f>>4)+1)>>1 & 7` (8-bit) / `((f>>12)+1)>>1 & 7` (16-bit) — PROVEN
 //! bit-identical to `(f+16)/32 & 7` (study §4.3 / Verification Log #5). The
-//! 8-bit form already lives in util; this is the sim-facing entry point that
-//! ADDS the 16-bit form + muzzle rotation.
-
-/// gamemd 8-bit facing → 8-direction: `((f>>4)+1)>>1 & 7`.
-pub fn dir_from_facing8(f: u8) -> u8 {
-    crate::util::direction::direction_from_facing(f)
-}
+//! 8-bit form is `util::direction::direction_from_facing`; this module ADDS the
+//! 16-bit form + muzzle rotation.
 
 /// gamemd 16-bit facing → 8-direction: `((f>>12)+1)>>1 & 7`. The low byte is
 /// irrelevant (only bits ≥12 feed the quantization).
@@ -16,11 +11,12 @@ pub fn dir_from_facing16(f: u16) -> u8 {
     ((((f >> 12) + 1) >> 1) & 7) as u8
 }
 
-/// Native nearest256-way direction, e.g. ExitObject444AC5..AD8.
-/// This rounds the16-bit word; facing8_from_delta exposes its truncated byte.
-/// Original execution: factory-exit geometry controls include word32767→128,
-/// 38934→152,16383→64 and49153→192, preserving full RNG state.
-pub(crate) fn round_facing16_to_8(f: u16) -> u8 {
+/// gamemd 16-bit facing → nearest 256-way DirType byte: `((f>>7)+1)>>1`,
+/// wrapping 0xFF80.. to 0 (e.g. ExitObject 0x00444AC5..AD8).
+/// This rounds the 16-bit word; facing8_from_delta exposes its truncated byte.
+/// Original execution: factory-exit geometry controls include word 32767→128,
+/// 38934→152, 16383→64 and 49153→192, preserving full RNG state.
+pub fn round_facing16_to_8(f: u16) -> u8 {
     (((u32::from(f) >> 7) + 1) >> 1) as u8
 }
 
@@ -43,27 +39,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dir_from_facing8_full_input_space() {
-        for f in 0u8..=255 {
-            let gamemd = ((((f as u16) >> 4) + 1) >> 1) as u8 & 7;
-            assert_eq!(dir_from_facing8(f), gamemd, "f={f}");
-            assert_eq!(dir_from_facing8(f), (f.wrapping_add(16) / 32) & 7, "f={f}");
-        }
-        // Boundaries (study S3): rounds UP at 16+32n; 240..255 wrap to N.
-        assert_eq!(dir_from_facing8(15), 0);
-        assert_eq!(dir_from_facing8(16), 1);
-        assert_eq!(dir_from_facing8(240), 0);
-        assert_eq!(dir_from_facing8(255), 0);
-    }
-
-    #[test]
     fn dir_from_facing16_ignores_low_byte() {
         for hi in 0u8..=255 {
             for lo in [0u8, 1, 127, 255] {
                 let f16 = ((hi as u16) << 8) | lo as u16;
                 assert_eq!(
                     dir_from_facing16(f16),
-                    dir_from_facing8(hi),
+                    crate::util::direction::direction_from_facing(hi),
                     "hi={hi} lo={lo}"
                 );
             }

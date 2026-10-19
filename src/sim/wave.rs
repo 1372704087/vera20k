@@ -9,7 +9,6 @@ use std::hash::Hash;
 
 use crate::map::cell_index::CELL_ROW_STRIDE;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
-use crate::map::retail_trig::{AcosTable, TrigTable};
 use crate::sim::cell_rect::{CellRef, get_cellclass_fallback};
 use crate::sim::combat::TargetKind;
 use crate::sim::projectile::ProjectileCoord;
@@ -19,6 +18,7 @@ use crate::util::native_x87::{
     NativeF32Bits, NativeF64Bits, X87Chop53, X87Ordering, X87Value, adjust_for_z_standard,
     distance_3d_leptons, sqrt_approx_f32,
 };
+use crate::util::retail_trig::{AcosTable, TrigTable};
 
 const STEP_F32: NativeF32Bits = NativeF32Bits::from_bits(0x3d4c_cccd);
 const SNAP_FADE_F64: NativeF64Bits = NativeF64Bits::from_bits(0x3fef_5c28_f5c2_8f5c);
@@ -702,7 +702,6 @@ fn lepton_cell(coord: ProjectileCoord) -> (i32, i32) {
     (coord.x / 256, coord.y / 256)
 }
 
-const TRIG_SCALE_F32: NativeF32Bits = NativeF32Bits::from_bits(0x4522_f983);
 // Direction75F230 calls Sin4CACB0/Cos4CAD00(pi/8): retail entries512/2560
 // are 3EC3EF15/3F6C835E. Their Chop53 ratio and its reciprocal give these
 // exact thresholds; analytic tan(pi/8) would change boundary comparisons.
@@ -870,15 +869,10 @@ fn wave_geometry(
         if target.y < source.y {
             angle = X87Chop53::neg(angle);
         }
-        let angle_bits = x87_store_f32(angle);
-        let trig_units = x87_ftol_i32(X87Chop53::mul(
-            load_f32(angle_bits),
-            load_f32(TRIG_SCALE_F32),
-        ));
-        let sin_index = trig.sin_index(trig_units);
-        let cos_index = trig.cos_index(trig_units);
-        let sin = NativeF32Bits::from_bits(trig.entry(sin_index).to_bits());
-        let cos = NativeF32Bits::from_bits(trig.entry(cos_index).to_bits());
+        // `Math::SinFromTable` / `CosFromTable` of the stored binary32 angle.
+        let angle = load_f32(x87_store_f32(angle));
+        let sin = x87_store_f32(trig.sin_from_table(angle));
+        let cos = x87_store_f32(trig.cos_from_table(angle));
 
         // Native transforms all four local points before translating/storing any
         // world field. Keep that boundary visible.

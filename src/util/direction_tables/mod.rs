@@ -4,29 +4,26 @@
 //! The compass values are checked against original initializer execution;
 //! other table families document their own evidence and coverage.
 //!
-//! Ownership (F14): the 8-way vocabulary and 8-bit quantization are OWNED by
-//! `util::direction` and re-exported/delegated here (`CELL_DELTAS`,
-//! `dir_from_facing8`); this family ADDS the 16-bit facing
-//! forms, lepton deltas, DRAGON frames, and muzzle rotation. Facing→movement
+//! Ownership (F14): the 8-way vocabulary, the cell-delta table and 8-bit
+//! quantization are OWNED by `util::direction`; this family ADDS the 16-bit
+//! facing forms, lepton deltas, DRAGON frames, and muzzle rotation. Facing→movement
 //! vectors (sin/cos) live in `util::native_trig`. One authority per
 //! conversion — new helpers must delegate, not re-derive.
 //!
 //! ## Dependency rules
 //! - Part of util/ (map-, rules-, and sim-independent). No render/ui/audio/net.
 
-pub mod cell;
 pub mod dragon;
 pub mod lepton;
 mod native_angle;
 mod native_angle_table;
 pub mod quantize;
 
-pub use cell::{CELL_DELTAS, cell_delta_unchecked};
 pub use dragon::DRAGON_FRAME_TABLE;
 pub use lepton::LEPTON_DELTAS;
-pub use native_angle::{facing16_between, facing16_from_angle};
+pub use native_angle::{facing16_between, facing16_from_angle, radians_from_facing16};
 pub use native_angle::{facing8_from_delta, facing16_from_delta};
 pub use native_angle::{native_atan_from_table, native_atan2_f32};
 pub use quantize::{
-    dir_from_facing8, dir_from_facing16, muzzle_anim_index_8way, step32_from_facing16,
+    dir_from_facing16, muzzle_anim_index_8way, round_facing16_to_8, step32_from_facing16,
 };

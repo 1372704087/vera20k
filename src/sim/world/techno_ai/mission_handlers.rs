@@ -2491,8 +2491,7 @@ fn foot_type_takes_cadence_band(
     let Some(primary) = object.primary().and_then(|name| rules.weapon(name)) else {
         return false;
     };
-    (primary.range * crate::util::fixed_math::SimFixed::from_num(256)).to_num::<i64>()
-        < close_primary_range_leptons
+    i64::from(primary.range_leptons) < close_primary_range_leptons
 }
 
 /// `InfantryClass::Mission_Attack`'s deployed arm, vtable `+0x428` =

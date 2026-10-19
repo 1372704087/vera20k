@@ -34,7 +34,6 @@ use super::TerrainDrawRenderer;
 use crate::sim::ion_blast_ripple::{
     FRAME_COUNT, FRAME_HEIGHT, FRAME_WIDTH, RippleFrames, displacement,
 };
-use crate::util::retail_trig::TrigTable;
 
 /// One blast DrawAll draws, in logical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

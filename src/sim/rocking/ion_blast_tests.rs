@@ -1,5 +1,6 @@
 //! Original53CBE0 numeric controls, with declared Map/surface boundaries.
 use super::*;
+use crate::util::native_x87::NativeF32Bits;
 use serde_json::Value;
 
 #[test]

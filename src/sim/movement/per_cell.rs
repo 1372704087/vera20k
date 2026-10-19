@@ -1134,16 +1134,17 @@ impl Simulation {
         {
             return Ok(false);
         }
-        let Some(building) = (match infantry.navigation.nav_com() {
-            Some(NavTargetRef::Object { id }) => Some(id),
-            _ => None,
-        })
-        .filter(|&building| {
-            self.substrate
-                .entities
-                .get(building)
-                .is_some_and(|entity| entity.category() == EntityCategory::Structure)
-        }) else {
+        let Some(building) = infantry
+            .navigation
+            .nav_com()
+            .and_then(NavTargetRef::object_id)
+            .filter(|&building| {
+                self.substrate
+                    .entities
+                    .get(building)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Structure)
+            })
+        else {
             return Ok(false);
         };
         let (rx, ry) = (infantry.position.rx(), infantry.position.ry());

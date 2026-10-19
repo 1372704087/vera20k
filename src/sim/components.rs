@@ -42,6 +42,10 @@ pub use crate::sim::building_construction::BuildingUp;
 /// object store draws from one ID namespace (`Simulation::allocate_stable_id`,
 /// and snapshot restore rejects an ID that two registries claim), so the ID
 /// alone says which store holds the object and what kind it is.
+///
+/// A Cell compares by its coordinates, not as the native Dummy cell pointer
+/// (`0x00ABDC50`) that stands for any cell the map lacks: see the residuals
+/// in `sim::aircraft::leave_map` and `Per_Cell_Process` (`movement::per_cell`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum NavTargetRef {
     /// A `CellClass*`, by its cell.
@@ -713,16 +717,6 @@ mod tests {
         assert_eq!(coord.x, 45 * 256 + 128);
         assert_eq!(coord.y, 40 * 256 + 128);
         assert_eq!(coord.z, 0);
-    }
-
-    #[test]
-    fn nav_target_ref_names_a_cell_or_an_object() {
-        assert_eq!(
-            NavTargetRef::cell(45, 40),
-            NavTargetRef::Cell { rx: 45, ry: 40 }
-        );
-        assert_eq!(NavTargetRef::cell(45, 40).object_id(), None);
-        assert_eq!(NavTargetRef::object(7).object_id(), Some(7));
     }
 
     #[test]

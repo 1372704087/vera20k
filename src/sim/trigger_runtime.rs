@@ -375,6 +375,14 @@ impl RuntimeDefinitions {
         // ignoring case, and ReadINI727240/6E6080 read every record by that
         // Type's own ID, exact case. A key differing from an earlier one only
         // in case revisits that Type and reads the earlier key's records.
+        // Residual, exact duplicate keys: LoadFromStraw525A60 keeps every
+        // copy (526177 appends each to the entry list and CRC index without
+        // a duplicate check) and 7275D0/6E5ED0/4AD1B3 visit each copy by
+        // index, so native reads that Type once per copy: a duplicated
+        // [Triggers] key prepends its events again. ReadString finds the key
+        // through the qsorted CRC index (526B10), so the copy whose value it
+        // returns is the sort's. IniFile keeps the first copy only, so each
+        // Type is read once here. No extracted retail map has a duplicate.
         if let Some(section) = map.ini.section("Triggers") {
             for key in section.keys() {
                 if section.read_name(key, 24).is_none() {
@@ -394,7 +402,7 @@ impl RuntimeDefinitions {
                 let mut events = map
                     .events
                     .get(&id)
-                    .map_or_else(Vec::new, |record| record.conditions.clone());
+                    .map_or_else(Vec::new, |record| record.conditions().to_vec());
                 // Events are prepended, but their reference factories ran in
                 // source order before the retained reverse traversal.
                 for event in events.iter_mut().rev() {
@@ -407,7 +415,7 @@ impl RuntimeDefinitions {
                 //727530..7275A3: a present entry rebuilds the action list.
                 let actions = map.actions.get(&id).map(|record| {
                     record
-                        .entries
+                        .entries()
                         .iter()
                         .cloned()
                         .map(|entry| definitions.resolve_action(entry, eva, sounds))
@@ -1088,11 +1096,11 @@ impl Simulation {
             let events = inputs
                 .events
                 .get(&id)
-                .map_or_else(Vec::new, |r| r.conditions.clone());
+                .map_or_else(Vec::new, |r| r.conditions().to_vec());
             let entries = inputs
                 .actions
                 .get(&id)
-                .map_or_else(Vec::new, |r| r.entries.clone());
+                .map_or_else(Vec::new, |r| r.entries().to_vec());
             let actions = entries
                 .into_iter()
                 .map(|entry| {
@@ -4705,7 +4713,7 @@ mod meteor_action_tests {
         let actions = crate::map::actions::parse_actions(
             &crate::rules::ini_parser::IniFile::from_str("[Actions]\nCUE=1,58,0,0,0,0,0,0,H\n"),
         );
-        let entry = actions["CUE"].entries[0].clone();
+        let entry = actions["CUE"].entries()[0].clone();
         assert_eq!(entry.literal_value(), Some(0));
         assert_eq!(entry.waypoint_index, Some(7));
         assert_eq!(

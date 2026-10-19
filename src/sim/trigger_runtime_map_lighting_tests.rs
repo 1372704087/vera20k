@@ -144,7 +144,7 @@ fn retail_transylv_ambient_action_reaches_native_fade_and_large_flash_request() 
         history["initial"]["current"].as_i64().unwrap() as i32
     );
     let ambient = map.actions["07718EBC"]
-        .entries
+        .entries()
         .iter()
         .find(|a| a.kind == 73)
         .unwrap()
@@ -182,7 +182,7 @@ fn retail_transylv_ambient_action_reaches_native_fade_and_large_flash_request() 
     crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "trigger-map-lighting");
     sim.session.install_waypoints(&map.waypoints);
     let flash = map.actions["09DE99FC"]
-        .entries
+        .entries()
         .iter()
         .find(|a| a.kind == 66)
         .unwrap()
@@ -571,7 +571,7 @@ fn ambient_rate_and_step_match_original_action_bits_and_due_logic_rung() {
             crate::map::actions::parse_actions(&crate::rules::ini_parser::IniFile::from_str(
                 &format!("[Actions]\nA=1,{kind},0,{operand},0,0,0,0,A\n"),
             ));
-        let entry = parsed["A"].entries[0].clone();
+        let entry = parsed["A"].entries()[0].clone();
         assert_eq!(entry.literal_value(), Some(value));
         assert!(run(&mut sim, &rules, entry), "Action{kind}: {operand}");
         assert_eq!(sim.session.lighting.current_ambient, 60);

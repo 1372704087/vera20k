@@ -156,7 +156,7 @@ fn execute(
         "[Actions]\nGRANT=1,{kind},11,{index},0,0,0,0,A\n"
     )));
     let action = RuntimeDefinitions::default().resolve_action(
-        entries["GRANT"].entries[0].clone(),
+        entries["GRANT"].entries()[0].clone(),
         None,
         None,
     );

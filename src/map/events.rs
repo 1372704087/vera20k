@@ -23,11 +23,20 @@ pub struct EventCondition {
     pub team_name: Option<String>,
 }
 
+/// One `[Events]` record. Saved scenario resources serialize this layout.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MapEvent {
-    pub id: String,
-    pub fields: Vec<String>,
-    pub conditions: Vec<EventCondition>,
+    id: String,
+    fields: Vec<String>,
+    conditions: Vec<EventCondition>,
+}
+
+impl MapEvent {
+    /// The events in native list order: the loop at `0x007274E2` prepends
+    /// each one it reads, so the last authored event comes first.
+    pub fn conditions(&self) -> &[EventCondition] {
+        &self.conditions
+    }
 }
 
 pub type EventMap = HashMap<String, MapEvent>;

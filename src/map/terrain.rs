@@ -779,7 +779,9 @@ mod tests {
             164
         );
         assert_eq!(in_bounds_sentinels.len(), 108);
-        assert_eq!(grid.cells.len(), 6_160);
+        // The map load allocates more cells than the IsoMapPack holds; every
+        // allocated cell reaches presentation.
+        assert_eq!(grid.cells.len(), resolved.iter().count());
 
         let needed = HashSet::from([crate::map::theater::TileKey {
             tile_id: clear_tile_id,

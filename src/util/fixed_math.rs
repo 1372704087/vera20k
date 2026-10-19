@@ -47,25 +47,6 @@ pub const RA2_LOGIC_FRAMES_PER_SECOND: u32 = 15;
 pub const SIM_TICK_HZ: u32 = 45;
 
 // ---------------------------------------------------------------------------
-// Conversion helpers
-// ---------------------------------------------------------------------------
-
-/// Convert `f32` to `SimFixed` for loading INI data into the sim layer.
-/// Only use at data-load boundaries (rules.ini, art.ini parsing).
-#[inline]
-pub fn sim_from_f32(val: f32) -> SimFixed {
-    SimFixed::from_num(val)
-}
-
-/// Convert `f64` to `SimFixed` for intermediate calculations during data loading.
-/// Only use at data-load boundaries — never within sim tick logic.
-#[cfg(any(test, feature = "test-support"))]
-#[inline]
-pub fn sim_from_f64(val: f64) -> SimFixed {
-    SimFixed::from_num(val)
-}
-
-// ---------------------------------------------------------------------------
 // RA2 speed conversion
 // ---------------------------------------------------------------------------
 
@@ -128,15 +109,13 @@ mod tests {
         ];
         for s in rows {
             let reference = crate::rules::ini_value::parse_read_double(s);
-            let from_f64 = sim_from_f64(reference);
-            let from_f32 = sim_from_f32(reference as f32);
-            // (a) f32-path vs f64-path agree after 16.16 quantization:
+            let from_f64 = SimFixed::from_num(reference);
+            let from_f32 = SimFixed::from_num(reference as f32);
+            // The f32 and f64 paths agree after 16.16 quantization.
             assert_eq!(
                 from_f64, from_f32,
                 "path divergence for {s:?}: f64={from_f64} f32={from_f32}"
             );
-            // (b) chosen path equals from_num(reference_double):
-            assert_eq!(from_f64, SimFixed::from_num(reference), "row {s:?}");
         }
     }
 

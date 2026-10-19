@@ -1828,7 +1828,7 @@ fn advance_trigger_frame(
     if sim.resolved_terrain.is_none()
         && actions.values().any(|record| {
             record
-                .entries
+                .entries()
                 .iter()
                 .any(|action| matches!(action.kind, 48 | 112))
         })
@@ -1968,8 +1968,8 @@ fn create_building_type10_reaches_placement_and_house_publication() {
     let entry = crate::map::actions::parse_actions(&ini)
         .remove("RESTORE")
         .unwrap()
-        .entries
-        .remove(0);
+        .entries()[0]
+        .clone();
     let action = sim
         .trigger_runtime
         .definitions
@@ -2165,8 +2165,8 @@ fn damage_at_waypoint_reaches_the_shared_building_receiver() {
     let entry = crate::map::actions::parse_actions(&ini)
         .remove("DAMAGE")
         .unwrap()
-        .entries
-        .remove(0);
+        .entries()[0]
+        .clone();
     let action = definitions.resolve_action(entry, None, None);
     sim.trigger_runtime.definitions = definitions;
     assert!(sim.apply_live_trigger_action(
@@ -2205,7 +2205,7 @@ fn parsed_event_records_match_native_list_and_production_predicates() {
              [Events]\nEVENT={}\n[Actions]\nEVENT=1,112,0,0,0,0,0,0,A\n",
             row.raw
         ));
-        let conditions = &events["EVENT"].conditions;
+        let conditions = events["EVENT"].conditions();
         assert_eq!(conditions.len(), row.conditions.len(), "{}", row.raw);
         for (rust, native) in conditions.iter().zip(&row.conditions) {
             assert_eq!(
@@ -2293,7 +2293,7 @@ fn parsed_variable_actions_match_native_reader_dispatch_and_restore() {
              [Events]\nVARIABLE=1,47,0,0\n[Actions]\nVARIABLE=1,{}\n",
             row.raw
         ));
-        let entry = &actions["VARIABLE"].entries[0];
+        let entry = &actions["VARIABLE"].entries()[0];
         assert_eq!(entry.kind, row.kind, "{}", row.raw);
         assert_eq!(entry.literal_value(), Some(row.value), "{}", row.raw);
         assert_eq!(
@@ -2888,7 +2888,7 @@ fn dispatch_typed_trigger_reference(kind: i32, target_enabled: bool) -> Simulati
             .clone();
         let entries = actions
             .get(&id)
-            .map_or_else(Vec::new, |r| r.entries.clone());
+            .map_or_else(Vec::new, |r| r.entries().to_vec());
         sim.trigger_runtime.definitions.trigger_types[index].actions = entries
             .into_iter()
             .map(|a| {
@@ -3149,15 +3149,14 @@ fn run_waypoint_action(
     }
     let actions: ActionMap = [(
         "WAYPOINT_ACTION".to_string(),
-        MapAction {
-            id: "WAYPOINT_ACTION".to_string(),
-            fields: Vec::new(),
-            entries: vec![ActionEntry {
+        MapAction::for_test(
+            "WAYPOINT_ACTION",
+            vec![ActionEntry {
                 kind,
                 params,
                 waypoint_index: crate::map::actions::read_waypoint_token(token),
             }],
-        },
+        ),
     )]
     .into_iter()
     .collect();

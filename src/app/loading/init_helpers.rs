@@ -380,9 +380,9 @@ pub(crate) fn build_presentation_manifest(
     theater_iso_palette: Option<&Palette>,
 ) -> PresentationManifest {
     let art = rules.map(RuleSet::art);
-    // `load_theater` owns both theater palettes; mid-match atlas growth reads
-    // the same ones (`load_theater_unit_and_iso_palettes`). Without a loaded
-    // theater nothing renders, so no entity atlas is built.
+    // `load_theater_unit_and_iso_palettes` owns both theater palettes:
+    // `load_theater` publishes them and mid-match atlas growth re-reads them.
+    // Without a loaded theater nothing renders, so no entity atlas is built.
     let palette = theater_unit_palette;
     let unit_atlas: Option<UnitAtlas> = if palette.is_some() {
         unit_atlas::build_unit_atlas(

@@ -136,11 +136,33 @@ impl ActionEntry {
     }
 }
 
+/// One `[Actions]` record. Saved scenario resources serialize this layout.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct MapAction {
-    pub id: String,
-    pub fields: Vec<String>,
-    pub entries: Vec<ActionEntry>,
+    id: String,
+    fields: Vec<String>,
+    entries: Vec<ActionEntry>,
+}
+
+impl MapAction {
+    /// The actions in authored order, as TActionClass::Read (`0x006DD5B0`)
+    /// consumed them.
+    pub fn entries(&self) -> &[ActionEntry] {
+        &self.entries
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+impl MapAction {
+    /// A fixture record holding entries the reader cannot produce, such as an
+    /// empty waypoint token.
+    pub fn for_test(id: &str, entries: Vec<ActionEntry>) -> Self {
+        Self {
+            id: id.to_string(),
+            fields: Vec::new(),
+            entries,
+        }
+    }
 }
 
 pub type ActionMap = HashMap<String, MapAction>;

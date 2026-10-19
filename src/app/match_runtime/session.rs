@@ -1583,13 +1583,7 @@ mod tests {
     fn wol_caps_rows_at_six_clears_guest_acceptance_and_times_from_game_speed() {
         let wol_host = || {
             let mut session = MatchSession::default();
-            session.enter_network(
-                SessionMode::Wol,
-                super::NetworkReturnContext::Wol {
-                    mode: 4,
-                    return_mode: 0,
-                },
-            );
+            session.enter_network(SessionMode::Wol, super::NetworkReturnContext::Wol);
             let mut launch = network_fixture();
             launch.local_player_index = 0;
             session.accept_network_setup(launch, true, Some(7)).unwrap();

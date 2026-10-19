@@ -1414,6 +1414,8 @@ pub enum SnapshotRestoreError {
     InvalidCurrentHouse {
         owner: crate::sim::intern::InternedId,
     },
+    #[error("entity {object_id} is a live infantryman with the dying mark")]
+    InvalidInfantryDyingMark { object_id: u64 },
     #[error("house {owner} has invalid serialized outcome state: {reason}")]
     InvalidHouseOutcomeState {
         owner: crate::sim::intern::InternedId,
@@ -2776,6 +2778,17 @@ impl Simulation {
                         reason: "native House array must contain each registered House once",
                     });
                 }
+            }
+        }
+        // VERA-internal: the dying mark is the SHP vehicle/aircraft death and
+        // UnInit's. A live infantryman with it would take the vehicle death
+        // path; his corpse is an ordinary IsAlive object at Health 0.
+        for (object_id, entity) in self.substrate.entities.iter_sorted() {
+            if entity.category() == crate::map::entities::EntityCategory::Infantry
+                && entity.death.is_dying()
+                && entity.lifecycle.object_alive()
+            {
+                return Err(SnapshotRestoreError::InvalidInfantryDyingMark { object_id });
             }
         }
         for (&owner, house) in &self.houses {
@@ -4975,6 +4988,32 @@ mod tests {
             sim.restore_after_snapshot_load(),
             Err(SnapshotRestoreError::InvalidCurrentHouse { owner: owners[0] })
         );
+    }
+
+    #[test]
+    fn restore_rejects_a_live_infantryman_with_the_dying_mark() {
+        use crate::map::entities::EntityCategory;
+        use crate::sim::game_entity::GameEntity;
+        for (category, object_alive, rejected) in [
+            (EntityCategory::Infantry, true, true),
+            (EntityCategory::Infantry, false, false),
+            (EntityCategory::Unit, true, false),
+        ] {
+            let mut sim = Simulation::new();
+            let mut entity = GameEntity::test_default(1, "E1", "Americans", 5, 5);
+            entity.set_category_for_test(category);
+            entity.death.set_dying_for_test(true);
+            entity.lifecycle.set_object_alive_for_test(object_alive);
+            sim.substrate.entities.insert(entity);
+            let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
+            let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+            assert_eq!(
+                restored.restore_after_snapshot_load()
+                    == Err(SnapshotRestoreError::InvalidInfantryDyingMark { object_id: 1 }),
+                rejected,
+                "{category:?} alive={object_alive}"
+            );
+        }
     }
 
     #[test]

@@ -12,6 +12,11 @@
 //! leaves its body (`0x00520CA4`) and UnInits it (`0x00520CAD`). The other
 //! arms build their anim and UnInit him at once (`0x00518B9A`).
 //!
+//! RNG on a corpse's visits: the Iron Curtain or airstrike tint draw on the
+//! Scenario stream (`0x006F9EAF`), and PlaceInfantryInCell's draw (`0x00481180`)
+//! in the target-reach step of a CloseRange=, Teleport or Jumpjet corpse
+//! holding a re-acquired target. Both are the ordinary visit's own draws.
+//!
 //! Native InfantryClass::ReceiveDamage has additional selectors/particle
 //! operations not implemented here.
 

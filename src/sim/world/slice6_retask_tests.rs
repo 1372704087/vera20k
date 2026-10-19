@@ -366,7 +366,7 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // (the stopped tank's head-to cell 5,4 and handoff cell 4,4, ground plane)
 // gave the previous value in the same test binary, with every tripwire above
 // green. Control removed. Previous: 0xD310_CFBA_7572_D1FA.
-// Snapshot426 drops the Infantry terminal policy, which every entity's fold
+// Snapshot 428 drops the Infantry terminal policy, which every entity's fold
 // hashed (absent for each here). Hash composition only: a temporary control
 // feeding the hasher that absent policy gave the previous value in the same
 // test binary, with every tripwire above green. Control removed.

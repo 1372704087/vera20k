@@ -2385,6 +2385,11 @@ mod tests {
     /// not. A human house's dead medic lets go of the enemy it held; a dead
     /// rifleman beside it, no healer, keeps his on a frame the sixteenth-frame
     /// CANT drop (`0x006FA472`) skips.
+    ///
+    /// The test sets the held target directly to isolate that gate. In play
+    /// the killing hit's Stun (`0x006FCD40`) clears it; a corpse holds an
+    /// enemy again only after a passive re-acquire (`0x007091D0`, no Health
+    /// gate) followed by an owner change.
     #[test]
     fn a_dead_medic_lets_go_of_an_enemy_on_its_corpse_visit() {
         let art = IniFile::from_str(crate::rules::retail_ini_fixture::GI_ART_EXCERPT);

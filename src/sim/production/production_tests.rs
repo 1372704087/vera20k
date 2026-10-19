@@ -233,8 +233,15 @@ pub(super) fn build_catalog_rules() -> RuleSet {
 }
 
 pub(super) fn naval_production_rules() -> RuleSet {
-    let ini = IniFile::from_str(
-        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n\
+    naval_rules_with_infantry("", "")
+}
+
+/// [`naval_production_rules`] with `infantry` listed under `[InfantryTypes]`
+/// and `sections` appended. A non-empty `infantry` also binds the fixed GI
+/// ART (Image=GI) and its infantry sequences.
+fn naval_rules_with_infantry(infantry: &str, sections: &str) -> RuleSet {
+    let ini = IniFile::from_str(&format!(
+        "[Countries]\n0=Americans\n1=Alliance\n2=Russians\n3=Soviet\n[InfantryTypes]\n{infantry}\
          [VehicleTypes]\n\
          0=DEST\n\
          [AircraftTypes]\n\
@@ -250,7 +257,7 @@ pub(super) fn naval_production_rules() -> RuleSet {
          Naval=yes\n\
          SpeedType=Float\n\
          MovementZone=Water\n\
-         Locomotor={2BEA74E1-7CCA-11d3-BE14-00104B62A16C}\n\
+         Locomotor={{2BEA74E1-7CCA-11d3-BE14-00104B62A16C}}\n\
          TechLevel=1\n\
          Owner=Americans\n\
          [GAYARD]\n\
@@ -263,13 +270,22 @@ pub(super) fn naval_production_rules() -> RuleSet {
          Foundation=4x4\n\
          SpeedType=Float\n\
          WaterBound=yes\n\
-         ExitCoord=512,256,0\n",
-    );
-    RuleSet::from_ini_with_fixed_art_for_test(
-        &ini,
-        &IniFile::from_str("[GAYARD]\nFoundation=4x4\n"),
-    )
-    .expect("naval production rules and ART should parse")
+         ExitCoord=512,256,0\n{sections}",
+    ));
+    let gi_art = if infantry.is_empty() {
+        ""
+    } else {
+        crate::rules::retail_ini_fixture::GI_ART_EXCERPT
+    };
+    let art = IniFile::from_str(&format!("[GAYARD]\nFoundation=4x4\n{gi_art}"));
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
+        .expect("naval production rules and ART should parse");
+    if !infantry.is_empty() {
+        rules.bind_animation_sequences(
+            &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+        );
+    }
+    rules
 }
 
 pub(super) fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
@@ -1377,7 +1393,7 @@ fn deliver_naval_yard_ship(sim: &mut Simulation, rules: &RuleSet) -> (u16, u16) 
 /// living swimmer would, and the ship leaves by another cell.
 #[test]
 fn an_infantry_corpse_in_the_rally_cell_refuses_the_naval_fast_path() {
-    let rules = naval_production_rules();
+    let rules = naval_rules_with_infantry("0=E1\n", "[E1]\nImage=GI\nStrength=100\n");
     let mut sim = naval_yard_with_rally(&rules);
     let mut corpse =
         crate::sim::game_entity::GameEntity::test_default(50, "E1", "Americans", 14, 12);
@@ -1403,6 +1419,8 @@ fn an_infantry_corpse_in_the_rally_cell_refuses_the_naval_fast_path() {
         &rules,
         crate::sim::world::FrameEffects::default(),
     );
+    let corpse = sim.substrate.entities.get(50).unwrap();
+    assert_eq!(corpse.mission_leaf.as_infantry().unwrap().doing(), 11);
     assert_ne!(deliver_naval_yard_ship(&mut sim, &rules), (14, 12));
     let mut clear = naval_yard_with_rally(&rules);
     assert_eq!(deliver_naval_yard_ship(&mut clear, &rules), (14, 12));

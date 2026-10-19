@@ -671,7 +671,7 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // feeding the hasher the two empty fields each surviving Drive held gave
 // 0x08FA_C33A_C7FF_04FD in the same test binary, with every tripwire above
 // green. Control removed.
-// Snapshot426 drops the Infantry terminal policy, which every entity's fold
+// Snapshot 428 drops the Infantry terminal policy, which every entity's fold
 // hashed (absent for each here). Hash composition only: a temporary control
 // feeding the hasher that absent policy gave the previous value in the same
 // test binary, with every tripwire above green. Control removed.

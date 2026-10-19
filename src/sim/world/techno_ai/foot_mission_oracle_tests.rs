@@ -220,7 +220,7 @@ fn build_rules_with_native_reader_context(unread_weapons: bool, context: &str) -
         signed(&native["e1_ctor"]["health"])
     );
     assert_eq!(
-        rules.weapon("M60").unwrap().range.to_num::<i32>() * 256,
+        rules.weapon("M60").unwrap().range_leptons,
         signed(&native["mission_inputs"][0]["e1_range"])
     );
     assert_eq!(

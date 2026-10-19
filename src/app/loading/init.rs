@@ -1790,7 +1790,6 @@ pub(crate) struct RandomMapProjection {
     smudges: Vec<(String, u16, u16)>,
     terrain_objects: Vec<(String, u16, u16)>,
     waypoints: Vec<(u32, u16, u16)>,
-    explicit_tubes: Vec<crate::map::tube_facts::TubeFact>,
     ini_content_hash: u64,
 }
 
@@ -1941,7 +1940,6 @@ impl MapLoadInitial {
                 .map(|object| (object.name.clone(), object.rx, object.ry))
                 .collect(),
             waypoints,
-            explicit_tubes: map_data.explicit_tubes.clone(),
             ini_content_hash: map_data.ini.content_hash(),
         };
         let trace = generated_construction_trace
@@ -1995,6 +1993,9 @@ impl MapLoadInitial {
             no_damage: false,
             free_radar: map_data.basic.free_radar.unwrap_or(false),
             ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
+            train_crate: map_data.basic.train_crate.unwrap_or(false),
+            truck_crate: map_data.basic.truck_crate.unwrap_or(false),
+            ice_growth_enabled: map_data.basic.ice_growth_enabled,
             // Skirmish start forces `TiberiumGrows|TiberiumSpreads` (`OR 0xC0`
             // at `0x005E74CD`), copied into the scenario at `0x00687C23`.
             tiberium_grows_flag: true,
@@ -2732,6 +2733,9 @@ pub(crate) fn load_map_from_initial(
         no_damage: !game_mode_nonzero && map_data.special_flags.inert.unwrap_or(false),
         free_radar: map_data.basic.free_radar.unwrap_or(false),
         ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
+        train_crate: map_data.basic.train_crate.unwrap_or(false),
+        truck_crate: map_data.basic.truck_crate.unwrap_or(false),
+        ice_growth_enabled: map_data.basic.ice_growth_enabled,
         // Skirmish start forces `TiberiumGrows|TiberiumSpreads` (`OR 0xC0`
         // at `0x005E74CD`), copied into the scenario at `0x00687C23`.
         tiberium_grows_flag: game_mode_nonzero

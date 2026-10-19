@@ -1143,10 +1143,14 @@ use crate::util::save_codec;
 // 421 -> 422: the drain link retains the drainer's DrainAnim (Techno+0x1D4).
 // 422 -> 423: processed TechnoTypes retain their per-pass weapon block and
 // ParticleSystemTypes their HoldsWhat binding in saved Rules resources.
-// 423 -> 424: the Infantry terminal policy is gone from TerminalLifetime,
+// 423 -> 424: processed Types retain their Image, DeathWeapon, DeploysInto,
+// occupy weapons, SuperWeapon WeaponType and ShrapnelWeapon, and process
+// Rules state its [CombatDamage] DeathWeapon.
+// 424 -> 425: Scenario retains TrainCrate, TruckCrate and the raw ice-growth byte.
+// 425 -> 426: the Infantry terminal policy is gone from TerminalLifetime,
 // which keeps only the dying mark; an infantry corpse is an ordinary
 // IsAlive object at Health 0.
-const SNAPSHOT_VERSION: u32 = 424;
+const SNAPSHOT_VERSION: u32 = 426;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4843,8 +4847,10 @@ mod tests {
         // 420 -> 421: process Rules retain TalkBubbleTime.
         // 421 -> 422: the drain link retains the drainer's DrainAnim.
         // 422 -> 423: retained weapon blocks and HoldsWhat bindings.
-        // 423 -> 424: TerminalLifetime keeps only the dying mark.
-        assert_eq!(super::SNAPSHOT_VERSION, 424);
+        // 423 -> 424: retained Type references and Rules DeathWeapon.
+        // 424 -> 425: Scenario cargo flags and the ice-growth byte.
+        // 425 -> 426: TerminalLifetime keeps only the dying mark.
+        assert_eq!(super::SNAPSHOT_VERSION, 426);
     }
 
     #[test]

@@ -958,8 +958,16 @@ impl OracleTeam {
             // Unit Enter target in +500 and clears its archive/NavCom.
             // Derive that continuation from the native row's inputs;
             // movement/boarding integration is covered by transport_unload.
+            // A transport sent to another member first breaks its contact,
+            // the zone's infantryman (741AD1..741B22).
+            let broke_contact = member["class"] == "unit"
+                && int(&member["passengers"]) > 0
+                && destination[index]
+                    .as_ref()
+                    .and_then(serde_json::Value::as_u64)
+                    .is_some();
             let pending_entry = if member["class"] == "unit"
-                && !flag(&member["radio"])
+                && (!flag(&member["radio"]) || broke_contact)
                 && mission[index] == Some(MissionType::Enter as i32)
             {
                 destination[index]

@@ -2212,6 +2212,15 @@ fn a_captive_boarding_an_absorber_is_freed_first() {
         None,
         crate::sim::world::FrameEffects::default()
     ));
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(gi)
+            .unwrap()
+            .radio_contacts
+            .slot(0),
+        Some(reactor)
+    );
     sim.sound_events.clear();
     // PerCellProcess boards from the absorber's own foundation cell once
     // the queued Enter is current.

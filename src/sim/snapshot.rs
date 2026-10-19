@@ -4859,7 +4859,8 @@ mod tests {
         // 425 -> 426: the Techno+0x12C Behind indicator Anim.
         // 426 -> 427: IonBlast process inputs, pending forces and Foot lift.
         // 427 -> 428: TerminalLifetime keeps only the dying mark.
-        assert_eq!(super::SNAPSHOT_VERSION, 428);
+        // 428 -> 429: the Boarding passenger relation is gone.
+        assert_eq!(super::SNAPSHOT_VERSION, 429);
     }
 
     #[test]

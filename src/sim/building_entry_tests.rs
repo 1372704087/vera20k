@@ -1021,12 +1021,26 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
             if sound_id == "BioReactorExit"
     )));
 
+    // The scan starts behind the facing; a foundation cell refuses the Foot
+    // (its NavCom went with its entry, `0x004DF0D0`), so the first exit is
+    // the first octant off the foundation.
     let facing = entity(&sim, reactor).body_facing_current(sim.session.binary_frame);
     let start = usize::from(crate::util::direction_tables::dir_from_facing16(
         facing.wrapping_add(0x7FFF),
     ));
-    let exit = adjacent[start];
-    let beyond = neighbor(exit, directions[start]);
+    let octant = (0..8)
+        .map(|index| (start + index) & 7)
+        .find(|&octant| {
+            let (x, y) = adjacent[octant];
+            sim.substrate.occupancy.first_building_on_layer(
+                x,
+                y,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+            ) != Some(reactor)
+        })
+        .unwrap();
+    let exit = adjacent[octant];
+    let beyond = neighbor(exit, directions[octant]);
     block_foot(&mut sim, exit, false);
     block_foot(&mut sim, beyond, false);
 
@@ -1776,11 +1790,11 @@ fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
         entity(&sim, tank).navigation.nav_com(),
         Some(NavTargetRef::object(absorber))
     );
-    let now = sim.session.binary_frame;
-    assert!(crate::sim::mission::authority::commence_entity_mission(
-        sim.substrate.entities.get_mut(tank).unwrap(),
-        now
-    ));
+    // Queue_Mission(Enter, 1) commenced it (`0x0070D83C`).
+    assert_eq!(
+        entity(&sim, tank).mission.effective(),
+        MissionId::from_known(MissionType::Enter)
+    );
     sim.foot_set_location_marked(
         tank,
         cell_centre(16, 10),

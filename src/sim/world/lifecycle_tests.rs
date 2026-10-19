@@ -8,7 +8,7 @@ use crate::map::bridge_facts::{
 use crate::map::entities::{EntityCategory, MapEntity};
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::locomotor_type::LocomotorKind;
-use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::SpeedCostProfile;
 use crate::sim::anim_class::{AnimObject, AnimRuntime, AnimWorldCoord};
 use crate::sim::combat::{Health, TargetKind};
 use crate::sim::components::NavTargetRef;
@@ -766,7 +766,6 @@ pub fn common_raw_terrain_cell(
     ResolvedTerrainCell {
         level,
         template_height: level,
-        base_terrain_class: TerrainClass::Clear,
         has_bridge_deck,
         bridge_walkable: has_bridge_deck,
         bridge_deck_level: if has_bridge_deck {

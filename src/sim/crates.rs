@@ -1181,7 +1181,7 @@ fn crate_surface_at(sim: &Simulation, cell: (u16, u16)) -> CrateSurface {
         .resolved_terrain
         .as_ref()
         .and_then(|terrain| terrain.cell(cell.0, cell.1))
-        .is_some_and(|cell| cell.land_type == LandType::Water.as_index())
+        .is_some_and(|cell| cell.land_type() == LandType::Water.as_index())
     {
         CrateSurface::Water
     } else {
@@ -3331,8 +3331,8 @@ pub(crate) mod tests {
         );
     }
 
-    /// With a uniform surface, destination image selection still follows the
-    /// native LandType byte rather than the derived Rust convenience flag.
+    /// With a uniform surface, destination image selection follows the
+    /// native LandType byte.
     #[test]
     fn gsi_01_04_crate_landtype_two_uses_water_otherwise_wood() {
         let rules = crate_ruleset("CrateMinimum=4\nCrateMaximum=255\n");
@@ -3343,11 +3343,6 @@ pub(crate) mod tests {
             let mut sim = sim_with_grid(0x5150);
             sim.install_fixture_path_grid(Some(&grid));
             sim.resolved_terrain = Some(uniform_terrain(water));
-            // Keep the convenience boolean deliberately opposite: selection
-            // is by CellClass LandType == 2, not this derived Rust flag.
-            for cell in &mut sim.resolved_terrain.as_mut().expect("terrain").cells {
-                cell.is_water = !water;
-            }
 
             let result = place_scenario_start_crates(&mut sim, &rules, &registry, 4);
             assert_eq!((result.accepted, result.visible), (4, 4));
@@ -3546,7 +3541,7 @@ pub(crate) mod tests {
     /// binds its rules.
     fn uniform_terrain(water: bool) -> crate::map::resolved_terrain::ResolvedTerrainGrid {
         use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
-        use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+        use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 
         let speed_costs = SpeedCostProfile {
             foot: Some(100),
@@ -3565,11 +3560,9 @@ pub(crate) mod tests {
         let template = ResolvedTerrainCell {
             land_type,
             speed_costs,
-            is_water: water,
             allows_tiberium: true,
             zone_type: zone_class::GROUND,
             base_land_type: land_type,
-            base_terrain_class: TerrainClass::Clear,
             base_speed_costs: speed_costs,
             ..crate::map::resolved_terrain::test_flat_cell(0, 0)
         };

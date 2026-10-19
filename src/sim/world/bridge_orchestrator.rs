@@ -1020,8 +1020,8 @@ mod tests {
     }
 
     /// Build a single-cell terrain grid where (5,5) is a bridge deck at
-    /// `deck_level`, ground level=0, water below (`is_water=true`,
-    /// `ground_walk_blocked=true`). Used to verify DropIn lets deck units
+    /// `deck_level`, ground level=0, with no walkable ground below
+    /// (`ground_walk_blocked=true`). Used to verify DropIn lets deck units
     /// survive even with no walkable ground.
     pub(super) fn water_below_bridge_terrain(deck_level: u8) -> ResolvedTerrainGrid {
         let mut cells = Vec::new();
@@ -1029,7 +1029,6 @@ mod tests {
             for x in 0..=5u16 {
                 let is_bridge = x == 5 && y == 5;
                 cells.push(ResolvedTerrainCell {
-                    is_water: is_bridge,
                     ground_walk_blocked: is_bridge,
                     has_bridge_deck: is_bridge,
                     bridge_walkable: is_bridge,

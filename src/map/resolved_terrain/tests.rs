@@ -3,7 +3,7 @@ use super::build::{
     apply_land_type_semantics, apply_selected_presentation_metadata,
     canonical_ramp_from_slope_type, classify_overlay_effects, cliff_back_normal_reclass_applies,
     height_in_pixels_from_tmp, materialize_map_load_cells, merge_tmp_file_metadata,
-    merge_tmp_metadata, metadata_from_set_name, ordinary_variant_selection_enabled,
+    merge_tmp_metadata, ordinary_variant_selection_enabled,
 };
 use super::cliffs::DestroyableCliffFamily;
 use super::tubes::{
@@ -18,7 +18,7 @@ use crate::map::tube_facts::TubeSource;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{TerrainClass, TerrainRules};
+use crate::rules::terrain_rules::TerrainRules;
 use crate::sim::rng::SimRng;
 use crate::util::save_codec;
 use std::collections::HashSet;
@@ -737,7 +737,8 @@ fn projectile_level_uses_loaded_theater_interval_through_runtime() {
     use crate::sim::world::{Simulation, TickLane};
     let ini=b"[General]\nWaterSet=1\n[TileSet0000]\nTilesInSet=1\nFileName=wet\nSetName=Water\n[TileSet0001]\nTilesInSet=14\nFileName=band\nSetName=Clear\n";
     let palette = [0u8; 768];
-    let wet = gsi_04_02_last_tiles_tmp_bytes(2, [1, 2, 3], [4, 5, 6]);
+    // TMP terrain byte 9 reads Water through GetSubtileLandType's table.
+    let wet = gsi_04_02_last_tiles_tmp_bytes(9, [1, 2, 3], [4, 5, 6]);
     let dry = gsi_04_02_last_tiles_tmp_bytes(0, [1, 2, 3], [4, 5, 6]);
     let (directory, mut assets) = gsi_04_02_asset_manager_with_loose_tmps(&[
         ("temperatmd.ini", ini),
@@ -783,7 +784,10 @@ fn projectile_level_uses_loaded_theater_interval_through_runtime() {
             &mut selector,
         );
         assert_eq!(grid.projectile_water_set_base(), 1);
-        assert_eq!(grid.cell(3, 3).unwrap().is_water, semantic_water);
+        assert_eq!(
+            grid.cell(3, 3).unwrap().land_type == LandType::Water.as_index(),
+            semantic_water
+        );
         assert_eq!(grid.cell(3, 3).unwrap().final_tile_index, tile);
         let mut sim = Simulation::new();
         sim.install_playfield_from_map_header(&map.header);
@@ -2640,35 +2644,111 @@ fn gsi_04_03a_special_terrain_identity_is_not_promoted_to_hard_blocking() {
     let cell = grid.cell(0, 0).expect("special-identity cell");
 
     assert!(theater.cliff_ranges.is_special_terrain_tile(10, 0));
-    assert!(!cell.is_cliff_like);
+    assert_eq!(cell.land_type, LandType::Clear.as_index());
     assert!(!cell.base_ground_walk_blocked);
     assert!(!cell.ground_walk_blocked);
-    assert_eq!(cell.terrain_class, TerrainClass::Clear);
 }
 
+/// Land is read from the TMP subtile alone (`GetSubtileLandType @
+/// 0x00544BE0`); overlay and CliffBack writers replace it later. With no
+/// assets there is no TMP, so every cell keeps the constructor's Clear
+/// (`CellClass::Constructor` writes `+0xEC` at `0x0047BC93`) however its
+/// tileset is named.
 #[test]
-fn shore_set_name_alone_does_not_block_ground() {
-    let ini = b"[TileSet0000]\nTilesInSet=10\nFileName=shore\nSetName=Shore Pieces\n";
-    let theater = synthetic_theater_from_ini(ini);
-    let map = make_map(
-        vec![MapCell {
-            rx: 0,
+fn tileset_names_never_decide_land_without_a_tmp() {
+    let names = [
+        "Water",
+        "Water Cliffs",
+        "Cliff Set",
+        "Rock",
+        "Paved Roads",
+        "Rough ground",
+        "Shore Pieces",
+    ];
+    let mut ini = String::new();
+    for (index, name) in names.iter().enumerate() {
+        ini.push_str(&format!(
+            "[TileSet{index:04}]\nTilesInSet=1\nFileName=set{index}\nSetName={name}\n"
+        ));
+    }
+    let theater = synthetic_theater_from_ini(ini.as_bytes());
+    let cells = (0..names.len())
+        .map(|index| MapCell {
+            rx: index as u16,
             ry: 0,
-            tile_index: 0,
+            tile_index: index as i32,
             sub_tile: 0,
             z: 0,
-        }],
+        })
+        .collect();
+    let map = make_map(cells, Vec::new(), Vec::new());
+
+    let grid = ResolvedTerrainGrid::build(&map, Some(&theater), None, None, None, false, 0);
+    for (index, name) in names.iter().enumerate() {
+        let cell = grid.cell(index as u16, 0).expect("named-set cell");
+        assert_eq!(cell.tileset_index, Some(index as u16), "{name}");
+        assert_eq!(cell.land_type, LandType::Clear.as_index(), "{name}");
+        assert_eq!(cell.base_land_type, LandType::Clear.as_index(), "{name}");
+    }
+}
+
+/// The TMP decides a cell's land and the land's rules row its attributes; a
+/// land with no row gets the same attributes whatever its tileset is named.
+#[test]
+fn tileset_names_never_decide_land_row_attributes() {
+    let theater = synthetic_theater_from_ini(
+        b"[TileSet0000]\nTilesInSet=1\nFileName=clear\nSetName=Clear\n\
+          [TileSet0001]\nTilesInSet=1\nFileName=wcliff\nSetName=Water Cliffs\n",
+    );
+    let clear_tmp = gsi_04_02_last_tiles_tmp_bytes(0, [1, 2, 3], [4, 5, 6]);
+    let filenames = [0, 1].map(|tile| {
+        theater
+            .lookup
+            .filename_for_variant(tile, 0)
+            .expect("registered tile filename")
+            .to_string()
+    });
+    let (_directory, assets) = gsi_04_02_asset_manager_with_loose_tmps(&[
+        (filenames[0].as_str(), clear_tmp.as_slice()),
+        (filenames[1].as_str(), clear_tmp.as_slice()),
+    ]);
+    let map = make_map(
+        (0..2)
+            .map(|tile| MapCell {
+                rx: tile,
+                ry: 0,
+                tile_index: i32::from(tile),
+                sub_tile: 0,
+                z: 0,
+            })
+            .collect(),
         Vec::new(),
         Vec::new(),
     );
+    let no_rows = TerrainRules::from_ini(&IniFile::from_str(""));
 
-    let grid = ResolvedTerrainGrid::build(&map, Some(&theater), None, None, None, false, 0);
-    let cell = grid.cell(0, 0).expect("shore cell");
-
-    assert!(!cell.is_cliff_like);
-    assert!(!cell.base_ground_walk_blocked);
-    assert!(!cell.ground_walk_blocked);
-    assert_eq!(cell.terrain_class, TerrainClass::Clear);
+    let grid = ResolvedTerrainGrid::build(
+        &map,
+        Some(&theater),
+        Some(&assets),
+        Some(&no_rows),
+        None,
+        false,
+        0,
+    );
+    let attributes = |cell: &ResolvedTerrainCell| {
+        (
+            cell.land_type,
+            cell.speed_costs,
+            cell.ground_walk_blocked,
+            cell.base_ground_walk_blocked,
+            cell.base_build_blocked,
+        )
+    };
+    let plain = grid.cell(0, 0).expect("Clear-named cell");
+    let named = grid.cell(1, 0).expect("Water Cliffs-named cell");
+    assert_eq!(named.land_type, LandType::Clear.as_index());
+    assert_eq!(attributes(named), attributes(plain));
 }
 
 #[test]
@@ -2797,12 +2877,14 @@ fn gsi_04_04_sparse_and_positive_oob_subtiles_clear_cell_land_and_slope() {
     };
 
     for sub_tile in [1, 2] {
-        let mut metadata = metadata_from_set_name(Some("Road"), None);
+        let mut metadata = TileMetadata {
+            land_type: LandType::Road.as_index(),
+            ..TileMetadata::default()
+        };
         let mut warned = HashSet::new();
         merge_tmp_file_metadata(&mut metadata, &tmp, sub_tile, None, &mut warned);
 
         assert_eq!(metadata.subtile_entry_valid, Some(false));
-        assert_eq!(metadata.land_type, LandType::Clear.as_index());
         assert_eq!(metadata.land_type, LandType::Clear.as_index());
         assert_eq!(metadata.slope_type, 0);
         assert!(!metadata.has_ramp);
@@ -3484,17 +3566,16 @@ NoUseTileLandType=yes
     let map = make_map(cells, overlays, Vec::new());
 
     let grid = ResolvedTerrainGrid::build(&map, None, None, None, Some(&registry), false, 0);
-    for (rx, overlay_id, land, class) in [
-        (0, 0, LandType::Road, TerrainClass::Road),
-        (2, 2, LandType::Wall, TerrainClass::Wall),
-        (3, 3, LandType::Railroad, TerrainClass::Railroad),
-        (4, 4, LandType::Water, TerrainClass::Water),
-        (5, 5, LandType::Rough, TerrainClass::Rough),
+    for (rx, overlay_id, land) in [
+        (0, 0, LandType::Road),
+        (2, 2, LandType::Wall),
+        (3, 3, LandType::Railroad),
+        (4, 4, LandType::Water),
+        (5, 5, LandType::Rough),
     ] {
         let cell = grid.cell(rx, 0).expect("retained load cell");
         assert_eq!(cell.base_land_type, LandType::Clear.as_index());
         assert_eq!(cell.land_type, land.as_index(), "overlay {overlay_id}");
-        assert_eq!(cell.terrain_class, class, "overlay {overlay_id}");
         assert_eq!(
             cell.speed_costs,
             registry
@@ -3504,14 +3585,10 @@ NoUseTileLandType=yes
                 .unwrap(),
             "overlay {overlay_id} profile"
         );
-        assert_eq!(cell.is_water, land == LandType::Water);
-        assert_eq!(cell.is_road, land == LandType::Road);
-        assert_eq!(cell.is_rough, land == LandType::Rough);
     }
 
     let restored = grid.cell(1, 0).expect("ordinary restoration cell");
     assert_eq!(restored.land_type, restored.base_land_type);
-    assert_eq!(restored.terrain_class, restored.base_terrain_class);
     assert_eq!(restored.speed_costs, restored.base_speed_costs);
 }
 
@@ -3547,12 +3624,10 @@ NoUseTileLandType=yes
     assert!(!registry.flags(0).expect("bridge flags").land_ground_blocked);
     assert!(registry.flags(1).expect("water flags").land_ground_blocked);
 
-    // Start from a water tile: blocked to ground, water-classed.
+    // Start from a water tile: Water land, blocked to ground.
     let mut metadata = TileMetadata {
         has_tmp_metadata: true,
         land_type: LandType::Water.as_index(),
-        terrain_class: TerrainClass::Water,
-        is_water: true,
         ground_blocked: true,
         ..TileMetadata::default()
     };
@@ -3579,8 +3654,6 @@ NoUseTileLandType=yes
     );
 
     assert_eq!(metadata.land_type, LandType::Road.as_index());
-    assert_eq!(metadata.land_type, LandType::Road.as_index());
-    assert!(!metadata.is_water);
     // The regression: `ground_blocked` was the one land-derived field the
     // override skipped, so the deck stayed impassable while every other
     // attribute said Road.
@@ -3659,7 +3732,10 @@ NoUseTileLandType=no
             );
             assert_eq!(effects.claims_cell_attributes, early_branch);
 
-            let mut current = metadata_from_set_name(Some("Clear"), Some(0));
+            let mut current = TileMetadata {
+                tileset_index: Some(0),
+                ..TileMetadata::default()
+            };
             if let Some(effective_land) = effects.effective_land {
                 apply_canonical_land_to_metadata(
                     &mut current,
@@ -3674,12 +3750,6 @@ NoUseTileLandType=no
                 LandType::Clear
             };
             assert_eq!(current.land_type, expected_land.as_index());
-            assert_eq!(current.land_type, expected_land.as_index());
-            assert_eq!(current.terrain_class, expected_land.terrain_class());
-            assert_eq!(current.is_water, expected_land.is_water());
-            assert_eq!(current.is_cliff_like, expected_land.is_cliff_like());
-            assert_eq!(current.is_rough, expected_land.is_rough());
-            assert_eq!(current.is_road, expected_land.is_road());
             assert_eq!(
                 current.speed_costs,
                 if retains_current_land {
@@ -3710,7 +3780,10 @@ NoUseTileLandType=no
 fn gsi_04_04_rules_backed_land_type_uses_canonical_tmp_conversion() {
     let terrain_rules =
         TerrainRules::from_ini(&IniFile::from_str("[Rough]\nBuildable=yes\nTrack=75%\n"));
-    let mut metadata = metadata_from_set_name(Some("Water"), Some(2));
+    let mut metadata = TileMetadata {
+        tileset_index: Some(2),
+        ..TileMetadata::default()
+    };
     let tile = TmpTile {
         height: 0,
         terrain_type: 14,
@@ -3730,53 +3803,10 @@ fn gsi_04_04_rules_backed_land_type_uses_canonical_tmp_conversion() {
     let mut warned = HashSet::new();
     apply_land_type_semantics(&mut metadata, Some(&terrain_rules), &mut warned);
 
-    assert_eq!(metadata.terrain_class, TerrainClass::Rough);
-    assert!(metadata.is_rough);
-    assert!(!metadata.is_water);
+    assert_eq!(metadata.land_type, LandType::Rough.as_index());
+    assert_eq!(metadata.speed_costs.track, Some(75));
     assert!(!metadata.ground_blocked);
     assert!(!metadata.build_blocked);
-}
-
-#[test]
-fn test_unknown_land_type_keeps_tileset_fallback() {
-    // Use a LandType byte outside the 0-15 range (all 0-15 are now mapped).
-    // Byte 200 is genuinely unknown and should fall back to tileset-name heuristics.
-    let terrain_rules = TerrainRules::from_ini(&IniFile::from_str(""));
-    let mut metadata = metadata_from_set_name(Some("Water Cliffs"), Some(5));
-    let tile = TmpTile {
-        height: 0,
-        terrain_type: 200,
-        ramp_type: 0,
-        radar_left: [0, 0, 0],
-        radar_right: [0, 0, 0],
-        pixels: Vec::new(),
-        depth: Vec::new(),
-        pixel_width: 60,
-        pixel_height: 30,
-        relative_extra_y: 0,
-        offset_x: 0,
-        offset_y: 0,
-        has_damaged_data: false,
-    };
-    merge_tmp_metadata(&mut metadata, &tile);
-    let mut warned = HashSet::new();
-    apply_land_type_semantics(&mut metadata, Some(&terrain_rules), &mut warned);
-
-    assert_eq!(metadata.terrain_class, TerrainClass::Water);
-    assert!(metadata.is_water);
-    assert!(metadata.is_cliff_like);
-    assert!(metadata.ground_blocked);
-    assert_eq!(warned, HashSet::from([200]));
-}
-
-#[test]
-fn test_tileset_water_fallback_sets_water_land_type() {
-    let metadata = metadata_from_set_name(Some("TEMPERATE WATER"), Some(5));
-    assert!(metadata.is_water);
-    assert_eq!(
-        metadata.land_type,
-        crate::rules::terrain_rules::LandType::Water.as_index()
-    );
 }
 
 #[test]
@@ -3792,22 +3822,19 @@ fn test_canonical_ramp_is_ground_passable_but_stays_non_buildable() {
         Vec::new(),
         Vec::new(),
     );
-    let terrain_rules = TerrainRules::from_ini(&IniFile::from_str("[Cliff]\nBuildable=no\n"));
+    let terrain_rules = TerrainRules::from_ini(&IniFile::from_str("[Rock]\nBuildable=no\n"));
     let mut metadata = TileMetadata {
         has_tmp_metadata: true,
         raw_land_type: 15,
         land_type: crate::rules::terrain_rules::tmp_terrain_to_land_type(15).as_index(),
         slope_type: 2,
-        terrain_class: TerrainClass::Cliff,
-        ground_blocked: true,
-        build_blocked: true,
-        is_cliff_like: true,
         has_ramp: true,
         ..TileMetadata::default()
     };
     let mut warned = HashSet::new();
     apply_land_type_semantics(&mut metadata, Some(&terrain_rules), &mut warned);
 
+    assert!(metadata.ground_blocked && metadata.build_blocked);
     let canonical_ramp = canonical_ramp_from_slope_type(metadata.slope_type);
     let base_ground_walk_blocked = canonical_ramp.is_none() && metadata.ground_blocked;
     assert!(!base_ground_walk_blocked);
@@ -3817,9 +3844,7 @@ fn test_canonical_ramp_is_ground_passable_but_stays_non_buildable() {
         vec![ResolvedTerrainCell {
             land_type: metadata.land_type,
             slope_type: metadata.slope_type,
-            terrain_class: metadata.terrain_class,
             speed_costs: metadata.speed_costs,
-            is_cliff_like: true,
             has_ramp: true,
             canonical_ramp,
             base_build_blocked: true,
@@ -4123,10 +4148,7 @@ fn authored_load_recalc_keeps_three_cliff_back_writer_gates_distinct() {
             .collect::<Vec<_>>();
         let center = &mut cells[4];
         center.land_type = land.as_index();
-        center.terrain_class = land.terrain_class();
-        center.is_road = land == LandType::Road;
         center.base_land_type = land.as_index();
-        center.base_terrain_class = land.terrain_class();
         cells[1].level = 4;
         ResolvedTerrainGrid::from_cells(3, 3, cells)
     };
@@ -4221,12 +4243,35 @@ fn authored_load_recalc_keeps_three_cliff_back_writer_gates_distinct() {
     assert_eq!(sparse.cells[4].base_land_type, LandType::Rock.as_index());
 }
 
+/// Loose 1x1 TMPs reading Clear (byte 0) and Road (byte 11) land, for the
+/// `clear` and `road` tilesets these CliffBack fixtures register.
+fn clear_and_road_tmp_assets(theater: &TheaterData) -> (Gsi0404AssetDirectory, AssetManager) {
+    let tmps: Vec<(String, Vec<u8>)> = (0..theater.lookup.len() as u16)
+        .map(|tile| {
+            let filename = theater
+                .lookup
+                .filename_for_variant(tile, 0)
+                .expect("registered tile filename")
+                .to_string();
+            let land_byte = if filename.starts_with("road") { 11 } else { 0 };
+            let tmp = gsi_04_02_last_tiles_tmp_bytes(land_byte, [1, 2, 3], [4, 5, 6]);
+            (filename, tmp)
+        })
+        .collect();
+    let files: Vec<(&str, &[u8])> = tmps
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect();
+    gsi_04_02_asset_manager_with_loose_tmps(&files)
+}
+
 #[test]
 fn gsi_04_04_normal_cliff_back_writer_accepts_clear_but_not_road() {
     let theater = synthetic_theater_from_ini(
         b"[TileSet0000]\nTilesInSet=1\nFileName=clear\nSetName=Clear\n\
           [TileSet0001]\nTilesInSet=1\nFileName=road\nSetName=Road\n",
     );
+    let (_directory, assets) = clear_and_road_tmp_assets(&theater);
     let map = make_map(
         vec![
             MapCell {
@@ -4262,7 +4307,8 @@ fn gsi_04_04_normal_cliff_back_writer_accepts_clear_but_not_road() {
         Vec::new(),
     );
 
-    let grid = ResolvedTerrainGrid::build(&map, Some(&theater), None, None, None, false, 2);
+    let grid =
+        ResolvedTerrainGrid::build(&map, Some(&theater), Some(&assets), None, None, false, 2);
     let clear = grid.cell(1, 1).expect("ordinary Clear cell");
     assert_eq!(clear.land_type, LandType::Rock.as_index());
     assert_eq!(clear.base_land_type, LandType::Rock.as_index());
@@ -4278,6 +4324,7 @@ fn gsi_04_04_normal_cliff_back_writer_accepts_clear_but_not_road() {
 fn gsi_04_04_early_overlay_writer_does_not_bake_rock_into_road_base() {
     let theater =
         synthetic_theater_from_ini(b"[TileSet0000]\nTilesInSet=1\nFileName=road\nSetName=Road\n");
+    let (_directory, assets) = clear_and_road_tmp_assets(&theater);
     let overlay_ini = IniFile::from_str("[OverlayTypes]\n0=CLAIM\n[CLAIM]\nLand=Wall\n");
     let registry = OverlayTypeRegistry::from_ini(&overlay_ini, None);
     let map = make_map(
@@ -4306,8 +4353,15 @@ fn gsi_04_04_early_overlay_writer_does_not_bake_rock_into_road_base() {
         Vec::new(),
     );
 
-    let mut grid =
-        ResolvedTerrainGrid::build(&map, Some(&theater), None, None, Some(&registry), false, 2);
+    let mut grid = ResolvedTerrainGrid::build(
+        &map,
+        Some(&theater),
+        Some(&assets),
+        None,
+        Some(&registry),
+        false,
+        2,
+    );
     let claimed = grid.cell(1, 1).expect("overlay-claimed Road cell");
     assert_eq!(claimed.land_type, LandType::Rock.as_index());
     assert_eq!(claimed.base_land_type, LandType::Road.as_index());
@@ -4401,10 +4455,6 @@ fn gsi_04_04_invalid_clear_cliff_back_writer_bakes_base() {
     assert!(
         cell.ground_walk_blocked,
         "Cell at base of cliff should be blocked"
-    );
-    assert!(
-        cell.is_cliff_like,
-        "Cell at base of cliff should be cliff-like"
     );
     assert_eq!(
         cell.land_type,

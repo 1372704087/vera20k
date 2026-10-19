@@ -10,7 +10,6 @@ use crate::sim::world::Simulation;
 fn flat_cell(rx: u16, ry: u16) -> crate::map::resolved_terrain::ResolvedTerrainCell {
     crate::map::resolved_terrain::ResolvedTerrainCell {
         filled_clear: true,
-        terrain_class: Default::default(),
         accepts_smudge: true,
         ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
     }

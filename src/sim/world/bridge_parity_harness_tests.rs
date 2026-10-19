@@ -494,7 +494,7 @@ fn bridge_resolved_terrain(
         BRIDGE_FLAG_STRUCTURAL, BRIDGE_FLAG_TRANSITION, BridgeCellFacts,
     };
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
-    use crate::rules::terrain_rules::{LandType, TerrainClass};
+    use crate::rules::terrain_rules::LandType;
     let clear_costs = rules
         .terrain_rules
         .semantics_for_land_type(LandType::Clear.as_index())
@@ -520,7 +520,6 @@ fn bridge_resolved_terrain(
                 ground_walk_blocked: !path.ground_walkable,
                 base_ground_walk_blocked: !path.ground_walkable,
                 base_build_blocked: !path.ground_walkable,
-                base_terrain_class: TerrainClass::Clear,
                 base_speed_costs: clear_costs,
                 // Production bridgeheads carry no deck: only 0x100 cells do.
                 has_bridge_deck: path.bridge_walkable && flags & BRIDGE_FLAG_STRUCTURAL != 0,

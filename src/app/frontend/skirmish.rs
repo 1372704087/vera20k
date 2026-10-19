@@ -271,7 +271,7 @@ mod tests {
     use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid, zone_class};
     use crate::map::waypoints::Waypoint;
     use crate::rules::ini_parser::IniFile;
-    use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::SpeedCostProfile;
     use crate::sim::cell_rect::{PlayfieldBounds, cell_is_in_playfield_height_aware};
     use crate::sim::house_state::{HouseDifficulty, HouseState};
     use crate::sim::mission::MissionType;
@@ -680,7 +680,6 @@ mod tests {
                 ..Default::default()
             },
             zone_type: zone_class::GROUND,
-            base_terrain_class: TerrainClass::Clear,
             base_speed_costs: SpeedCostProfile {
                 track: track_cost,
                 ..Default::default()

@@ -129,7 +129,6 @@ fn fixture(input: &Value, stock: &Value) -> (Scene, Vec<(u16, u16)>) {
                     .cell_mut(at.0, at.1)
                     .unwrap();
                 c.land_type = 1;
-                c.base_terrain_class = crate::rules::terrain_rules::TerrainClass::Road;
                 c.allows_tiberium = false;
             }
             "slope" => {

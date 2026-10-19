@@ -225,12 +225,7 @@ impl<'a> LoadCellRecalcState<'a> {
             .and_then(|rules| rules.semantics_for_land_type(LandType::Clear.as_index()))
         {
             metadata.land_type = LandType::Clear.as_index();
-            metadata.terrain_class = semantics.terrain_class;
             metadata.speed_costs = semantics.speed_costs;
-            metadata.is_water = semantics.water;
-            metadata.is_cliff_like = semantics.cliff_like;
-            metadata.is_rough = semantics.rough;
-            metadata.is_road = semantics.road;
             metadata.ground_blocked = semantics.ground_blocked;
             metadata.build_blocked = !semantics.buildable;
         }
@@ -729,7 +724,6 @@ impl ResolvedTerrainGrid {
             .and_then(|rules| rules.semantics_for_land_type(LandType::Rock.as_index()))
             .copied();
         let cell = &mut self.cells[index];
-        let terrain_class = rock.map_or(LandType::Rock.terrain_class(), |row| row.terrain_class);
         let mut speed_costs = rock.map_or_else(SpeedCostProfile::default, |row| row.speed_costs);
         if rock.is_none() {
             speed_costs.wheel = Some(0);
@@ -738,19 +732,13 @@ impl ResolvedTerrainGrid {
         let build_blocked = rock.is_none_or(|row| !row.buildable);
         if apply_base {
             cell.base_land_type = LandType::Rock.as_index();
-            cell.base_terrain_class = terrain_class;
             cell.base_speed_costs = speed_costs;
             cell.base_ground_walk_blocked = ground_blocked;
             cell.base_build_blocked = build_blocked;
         }
         if apply_current {
             cell.land_type = LandType::Rock.as_index();
-            cell.terrain_class = terrain_class;
             cell.speed_costs = speed_costs;
-            cell.is_water = false;
-            cell.is_cliff_like = true;
-            cell.is_rough = false;
-            cell.is_road = false;
         }
         apply_current.then_some(ground_blocked)
     }

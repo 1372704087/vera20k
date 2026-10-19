@@ -17,7 +17,7 @@ use crate::rules::art_data::ArtRegistry;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
 use crate::sim::combat::{Health, TargetKind};
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::components::BuildingUp;
@@ -2951,7 +2951,6 @@ fn place_ready_building_rejects_destroyed_bridge_over_blocked_ground() {
     let resolved = resolved_clear_grid_with_override(64, 64, |cell| {
         if cell.rx == 12 && cell.ry == 10 {
             cell.ground_walk_blocked = true;
-            cell.is_water = true;
             cell.base_build_blocked = true;
             cell.has_bridge_deck = true;
             cell.bridge_walkable = true;
@@ -2992,10 +2991,8 @@ fn gsi_04_04_water_bound_building_accepts_water_but_not_beach_zone() {
         ready_building(&mut sim, &rules, "Americans", "GAYARD");
         sim.resolved_terrain = Some(resolved_clear_grid_with_override(64, 64, |cell| {
             if cell.rx == 20 && cell.ry == 20 {
-                cell.is_water = true;
                 cell.land_type = land_type.as_index();
                 cell.zone_type = zone_type;
-                cell.terrain_class = TerrainClass::Water;
                 cell.base_build_blocked = true;
             }
         }));

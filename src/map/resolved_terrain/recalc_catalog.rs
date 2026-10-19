@@ -4,10 +4,7 @@
 //! terrain below/alongside bridges. Retain registered pristine heads plus
 //! independent presentation files; missing sources never become sparse entries.
 
-use super::build::{
-    TileMetadata, merge_tmp_file_metadata, metadata_from_set_name,
-    ordinary_variant_selection_enabled,
-};
+use super::build::{TileMetadata, merge_tmp_file_metadata, ordinary_variant_selection_enabled};
 use super::tubes::auto_tube_direction_from_bases;
 use super::*;
 use crate::map::tile_variant_selector::TileVariantSelector;
@@ -78,7 +75,6 @@ fn read_resident_tmp(
     rules: &TerrainRules,
     tile: u16,
     filename: &str,
-    set_name: Option<&str>,
     set: Option<u16>,
     warned: &mut HashSet<u8>,
 ) -> Result<ResidentBridgeTmp, BridgeRecalcCatalogError> {
@@ -101,8 +97,11 @@ fn read_resident_tmp(
         });
     }
     let mut metadata = |sub| {
-        let mut entry = metadata_from_set_name(set_name, set);
-        entry.tmp_file_valid = true;
+        let mut entry = TileMetadata {
+            tileset_index: set,
+            tmp_file_valid: true,
+            ..TileMetadata::default()
+        };
         merge_tmp_file_metadata(&mut entry, &tmp, sub, Some(rules), warned);
         entry
     };
@@ -242,16 +241,8 @@ impl BridgeRecalcCatalog {
             names
                 .iter()
                 .map(|name| {
-                    read_resident_tmp(
-                        assets,
-                        &self.terrain_rules,
-                        tile,
-                        name,
-                        None,
-                        None,
-                        &mut warned,
-                    )
-                    .map(Arc::new)
+                    read_resident_tmp(assets, &self.terrain_rules, tile, name, None, &mut warned)
+                        .map(Arc::new)
                 })
                 .collect(),
         );
@@ -321,7 +312,6 @@ impl BridgeRecalcCatalog {
                 continue;
             }
             let set = theater.lookup.tileset_index(tile);
-            let set_name = set.and_then(|set| theater.lookup.set_name(set));
             let pristine = theater
                 .lookup
                 .filename(id)
@@ -330,7 +320,7 @@ impl BridgeRecalcCatalog {
                     reason: "no pristine filename".into(),
                 })
                 .and_then(|filename| {
-                    read_resident_tmp(assets, rules, tile, filename, set_name, set, &mut warned)
+                    read_resident_tmp(assets, rules, tile, filename, set, &mut warned)
                 })
                 .map(Arc::new);
             let result = (|| {
@@ -386,16 +376,8 @@ impl BridgeRecalcCatalog {
                     .expect("registered variant has a filename");
                 let set = theater.lookup.tileset_index(tile);
                 siblings.push(
-                    read_resident_tmp(
-                        assets,
-                        rules,
-                        tile,
-                        filename,
-                        set.and_then(|set| theater.lookup.set_name(set)),
-                        set,
-                        &mut warned,
-                    )
-                    .map(Arc::new),
+                    read_resident_tmp(assets, rules, tile, filename, set, &mut warned)
+                        .map(Arc::new),
                 );
             }
             files.insert(tile, siblings.into_boxed_slice());

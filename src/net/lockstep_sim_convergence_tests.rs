@@ -262,7 +262,6 @@ fn two_instance_multiplayer_checksums_match_every_frame_and_catch_a_desync() {
                 (0..64).map(move |x| {
                     let mut cell = crate::map::resolved_terrain::ResolvedTerrainCell {
                         filled_clear: true,
-                        terrain_class: Default::default(),
                         accepts_smudge: true,
                         ..crate::map::resolved_terrain::test_flat_cell(x, y)
                     };

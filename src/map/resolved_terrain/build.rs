@@ -554,7 +554,6 @@ impl ResolvedTerrainGrid {
                 // The registered pristine TMP owns the base snapshot. Overlay
                 // land never feeds back into these restoration fields.
                 let base_land_type = metadata.land_type;
-                let base_terrain_class = metadata.terrain_class;
                 let base_speed_costs = metadata.speed_costs;
                 let base_ground_walk_blocked = canonical_ramp.is_none() && metadata.ground_blocked;
                 let base_build_blocked = metadata.build_blocked || canonical_ramp.is_some();
@@ -582,7 +581,6 @@ impl ResolvedTerrainGrid {
                     current: current_cliff_back_eligible,
                     base: base_cliff_back_eligible,
                 });
-                let is_cliff_like = metadata.is_cliff_like;
                 let outside = playfield.is_some_and(|playfield| {
                     !playfield.contains_raised(rx, ry, level as i8, metadata.slope_type)
                 });
@@ -662,12 +660,7 @@ impl ResolvedTerrainGrid {
                     height_in_pixels: metadata.height_in_pixels,
                     render_offset_x: metadata.render_offset_x,
                     render_offset_y: metadata.render_offset_y,
-                    terrain_class: metadata.terrain_class,
                     speed_costs: metadata.speed_costs,
-                    is_water: metadata.is_water,
-                    is_cliff_like,
-                    is_rough: metadata.is_rough,
-                    is_road: metadata.is_road,
                     accepts_smudge,
                     allows_tiberium,
                     variant,
@@ -683,7 +676,6 @@ impl ResolvedTerrainGrid {
                     base_ground_walk_blocked,
                     base_build_blocked,
                     base_land_type,
-                    base_terrain_class,
                     base_speed_costs,
                     has_bridge_deck: overlay_effects.has_bridge_deck,
                     bridge_walkable,
@@ -854,24 +846,16 @@ impl ResolvedTerrainGrid {
             const NEIGHBOR_OFFSETS: [(i32, i32); 6] =
                 [(0, -1), (-1, 0), (2, 2), (1, 1), (-1, 1), (1, -1)];
             let rock_lt = LandType::Rock.as_index();
-            let mut rock_terrain_class = LandType::Rock.terrain_class();
             let mut rock_speed_costs = SpeedCostProfile {
                 wheel: Some(0),
                 ..Default::default()
             };
-            let mut rock_is_water = LandType::Rock.is_water();
-            let mut rock_is_rough = LandType::Rock.is_rough();
-            let mut rock_is_road = LandType::Rock.is_road();
             let mut rock_ground_blocked = true;
             let mut rock_build_blocked = true;
             if let Some(rock) = terrain_rules
                 .and_then(|rules| rules.semantics_for_land_type(LandType::Rock.as_index()))
             {
-                rock_terrain_class = rock.terrain_class;
                 rock_speed_costs = rock.speed_costs;
-                rock_is_water = rock.water;
-                rock_is_rough = rock.rough;
-                rock_is_road = rock.road;
                 rock_ground_blocked = rock.ground_blocked;
                 rock_build_blocked = !rock.buildable;
             }
@@ -918,12 +902,7 @@ impl ResolvedTerrainGrid {
                     let cell = &mut cells[idx];
                     if eligibility.current {
                         cell.land_type = rock_lt;
-                        cell.terrain_class = rock_terrain_class;
                         cell.speed_costs = rock_speed_costs;
-                        cell.is_water = rock_is_water;
-                        cell.is_cliff_like = true;
-                        cell.is_rough = rock_is_rough;
-                        cell.is_road = rock_is_road;
                         // RecalcZoneType runs after the native LandType write.
                         cell.ground_walk_blocked = rock_ground_blocked
                             || cell.terrain_object_blocks
@@ -942,7 +921,6 @@ impl ResolvedTerrainGrid {
                     // that overlay is removed.
                     if eligibility.base {
                         cell.base_land_type = rock_lt;
-                        cell.base_terrain_class = rock_terrain_class;
                         cell.base_speed_costs = rock_speed_costs;
                         cell.base_ground_walk_blocked = rock_ground_blocked;
                         cell.base_build_blocked = rock_build_blocked;
@@ -1062,12 +1040,7 @@ pub(super) struct TileMetadata {
     pub(super) height_in_pixels: i8,
     pub(super) render_offset_x: i32,
     pub(super) render_offset_y: i32,
-    pub(super) terrain_class: TerrainClass,
     pub(super) speed_costs: SpeedCostProfile,
-    pub(super) is_water: bool,
-    pub(super) is_cliff_like: bool,
-    pub(super) is_rough: bool,
-    pub(super) is_road: bool,
     pub(super) has_ramp: bool,
     pub(super) ground_blocked: bool,
     pub(super) build_blocked: bool,
@@ -1096,12 +1069,7 @@ impl Default for TileMetadata {
             height_in_pixels: 0,
             render_offset_x: 0,
             render_offset_y: 0,
-            terrain_class: TerrainClass::Unknown,
             speed_costs: SpeedCostProfile::default(),
-            is_water: false,
-            is_cliff_like: false,
-            is_rough: false,
-            is_road: false,
             has_ramp: false,
             ground_blocked: false,
             build_blocked: false,
@@ -1129,12 +1097,7 @@ impl TileMetadata {
             height_in_pixels: cell.height_in_pixels,
             render_offset_x: cell.render_offset_x,
             render_offset_y: cell.render_offset_y,
-            terrain_class: cell.base_terrain_class,
             speed_costs: cell.base_speed_costs,
-            is_water: cell.base_terrain_class == TerrainClass::Water,
-            is_cliff_like: cell.is_cliff_like,
-            is_rough: cell.is_rough,
-            is_road: cell.is_road,
             has_ramp: cell.has_ramp,
             ground_blocked: cell.base_ground_walk_blocked,
             build_blocked: cell.base_build_blocked,
@@ -1234,26 +1197,13 @@ pub(super) fn apply_load_land_to_cell(
     ground_blocked: bool,
 ) {
     cell.land_type = land.as_index();
-    cell.terrain_class = land.terrain_class();
     cell.speed_costs = speed_costs.unwrap_or_default();
-    cell.is_water = land.is_water();
-    cell.is_cliff_like = land.is_cliff_like();
-    cell.is_rough = land.is_rough();
-    cell.is_road = land.is_road();
     cell.ground_walk_blocked = ground_blocked;
 }
 
 pub(super) fn restore_load_base_land(cell: &mut ResolvedTerrainCell) {
     cell.land_type = cell.base_land_type;
-    cell.terrain_class = cell.base_terrain_class;
     cell.speed_costs = cell.base_speed_costs;
-    cell.is_water = cell.base_land_type == LandType::Water.as_index();
-    cell.is_cliff_like = matches!(
-        cell.base_land_type,
-        land if land == LandType::Rock.as_index() || land == LandType::Wall.as_index()
-    );
-    cell.is_rough = cell.base_land_type == LandType::Rough.as_index();
-    cell.is_road = cell.base_land_type == LandType::Road.as_index();
 }
 
 /// Current Cell+38 queries, separate from Recalc's retained pristine metadata.
@@ -1282,18 +1232,12 @@ pub(super) fn apply_pristine_load_metadata(
     cell.slope_type = metadata.slope_type;
     cell.template_height = metadata.template_height;
     cell.height_in_pixels = metadata.height_in_pixels;
-    cell.terrain_class = metadata.terrain_class;
     cell.speed_costs = metadata.speed_costs;
-    cell.is_water = metadata.is_water;
-    cell.is_cliff_like = metadata.is_cliff_like;
-    cell.is_rough = metadata.is_rough;
-    cell.is_road = metadata.is_road;
     cell.accepts_smudge = accepts_smudge;
     cell.allows_tiberium = allows_tiberium;
     cell.has_ramp = metadata.has_ramp;
     cell.canonical_ramp = canonical_ramp_from_slope_type(metadata.slope_type);
     cell.base_land_type = metadata.land_type;
-    cell.base_terrain_class = metadata.terrain_class;
     cell.base_speed_costs = metadata.speed_costs;
     cell.base_ground_walk_blocked = cell.canonical_ramp.is_none() && metadata.ground_blocked;
     cell.base_build_blocked = metadata.build_blocked || cell.canonical_ramp.is_some();
@@ -1467,17 +1411,17 @@ pub(super) fn load_tile_metadata(
     let Some(td) = theater_data else {
         return TileMetadata::default();
     };
-    let Some(asset_manager) = asset_manager else {
-        return metadata_from_set_name(
-            td.lookup
-                .tileset_index(key.tile_id)
-                .and_then(|idx| td.lookup.set_name(idx)),
-            td.lookup.tileset_index(key.tile_id),
-        );
+    // Land is read only from the TMP subtile (`GetSubtileLandType @
+    // 0x00544BE0`), or replaced later by overlay and CliffBack writers. With no
+    // assets there is no TMP, so the cell keeps the constructor's Clear
+    // (`0x0047BC93`); a tileset's name never decides its land.
+    let mut metadata = TileMetadata {
+        tileset_index: td.lookup.tileset_index(key.tile_id),
+        ..TileMetadata::default()
     };
-    let tileset_index = td.lookup.tileset_index(key.tile_id);
-    let set_name = tileset_index.and_then(|idx| td.lookup.set_name(idx));
-    let mut metadata = metadata_from_set_name(set_name, tileset_index);
+    let Some(asset_manager) = asset_manager else {
+        return metadata;
+    };
 
     let Some(filename) = td.lookup.filename_for_variant(key.tile_id, key.variant) else {
         mark_invalid_subtile_metadata(&mut metadata, terrain_rules);
@@ -1555,12 +1499,7 @@ fn mark_invalid_subtile_metadata(
     if let Some(clear) =
         terrain_rules.and_then(|rules| rules.semantics_for_land_type(LandType::Clear.as_index()))
     {
-        metadata.terrain_class = clear.terrain_class;
         metadata.speed_costs = clear.speed_costs;
-        metadata.is_water = clear.water;
-        metadata.is_cliff_like = clear.cliff_like;
-        metadata.is_rough = clear.rough;
-        metadata.is_road = clear.road;
         metadata.ground_blocked = clear.ground_blocked;
         metadata.build_blocked = !clear.buildable;
     }
@@ -1571,56 +1510,6 @@ pub(super) fn height_in_pixels_from_tmp(tile_height: u32, relative_extra_y: i32)
     let effective_height = header_height.checked_sub(relative_extra_y)?;
     let numerator = effective_height.checked_sub(30)?;
     Some((numerator / 15) as i8)
-}
-
-pub(super) fn metadata_from_set_name(
-    set_name: Option<&str>,
-    tileset_index: Option<u16>,
-) -> TileMetadata {
-    let lower = set_name.unwrap_or("").to_ascii_lowercase();
-    let is_water = lower.contains("water");
-    let is_cliff_like = lower.contains("cliff") || lower.contains("rock");
-    let is_rough = lower.contains("rough");
-    let is_road = lower.contains("road") || lower.contains("pavement") || lower.contains("pave");
-    let land_type = if is_water {
-        crate::rules::terrain_rules::LandType::Water.as_index()
-    } else if is_road {
-        crate::rules::terrain_rules::LandType::Road.as_index()
-    } else if is_rough {
-        crate::rules::terrain_rules::LandType::Rough.as_index()
-    } else if is_cliff_like {
-        crate::rules::terrain_rules::LandType::Rock.as_index()
-    } else {
-        crate::rules::terrain_rules::LandType::Clear.as_index()
-    };
-    let terrain_class = if is_water {
-        TerrainClass::Water
-    } else if lower.contains("cliff") {
-        TerrainClass::Cliff
-    } else if lower.contains("rock") {
-        TerrainClass::Rock
-    } else if is_road {
-        TerrainClass::Road
-    } else if is_rough {
-        TerrainClass::Rough
-    } else if !lower.is_empty() {
-        TerrainClass::Clear
-    } else {
-        TerrainClass::Unknown
-    };
-
-    TileMetadata {
-        tileset_index,
-        land_type,
-        terrain_class,
-        is_water,
-        is_cliff_like,
-        is_rough,
-        is_road,
-        ground_blocked: is_water || is_cliff_like,
-        build_blocked: is_water || is_cliff_like,
-        ..TileMetadata::default()
-    }
 }
 
 pub(super) fn merge_tmp_metadata(metadata: &mut TileMetadata, tile: &TmpTile) {
@@ -1665,6 +1554,9 @@ pub(super) fn apply_land_type_semantics(
     }
     // Rules rows use the canonical LandType index. The raw TMP byte remains
     // diagnostic context only after the fixed TMP-to-land conversion has run.
+    // A missing row leaves the unbound defaults (no speed rows, not blocked,
+    // buildable), as `land_speed_costs` does. Native zero-fills it instead
+    // (`0x0089EA40`: impassable, not buildable); retail authors all twelve.
     let Some(semantics) = terrain_rules
         .semantics_for_land_type(metadata.land_type)
         .copied()
@@ -1672,7 +1564,7 @@ pub(super) fn apply_land_type_semantics(
         if warned_unknown_land_types.insert(metadata.raw_land_type) {
             log::warn!(
                 "No terrain-rules row for canonical LandType {} converted from TMP byte {}; \
-                 falling back to tileset-name heuristics",
+                 its row attributes stay unbound",
                 metadata.land_type,
                 metadata.raw_land_type,
             );
@@ -1680,12 +1572,7 @@ pub(super) fn apply_land_type_semantics(
         return;
     };
 
-    metadata.terrain_class = semantics.terrain_class;
     metadata.speed_costs = semantics.speed_costs;
-    metadata.is_water = semantics.water;
-    metadata.is_cliff_like = semantics.cliff_like;
-    metadata.is_rough = semantics.rough;
-    metadata.is_road = semantics.road;
     metadata.ground_blocked = semantics.ground_blocked;
     metadata.build_blocked = !semantics.buildable;
 }
@@ -1708,12 +1595,7 @@ pub(super) fn apply_canonical_land_to_metadata(
     ground_blocked: bool,
 ) {
     metadata.land_type = land.as_index();
-    metadata.terrain_class = land.terrain_class();
     metadata.speed_costs = speed_costs.unwrap_or_default();
-    metadata.is_water = land.is_water();
-    metadata.is_cliff_like = land.is_cliff_like();
-    metadata.is_rough = land.is_rough();
-    metadata.is_road = land.is_road();
     metadata.ground_blocked = ground_blocked;
 }
 

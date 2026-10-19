@@ -1927,7 +1927,6 @@ fn dynamic_navigation_publication_composes_structures_bibs_and_bridges() {
         let cell = terrain.cell_mut(2, 1).expect("bridge body cell");
         cell.ground_walk_blocked = true;
         cell.base_build_blocked = true;
-        cell.is_water = true;
         cell.bridge_walkable = true;
         cell.has_bridge_deck = true;
         cell.bridge_deck_level = 4;
@@ -2756,25 +2755,22 @@ const OPEN_SPEED_COSTS: crate::rules::terrain_rules::SpeedCostProfile =
 
 /// Create a water terrain grid (all cells are water, land_type=4) for ship tests.
 fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-    water_terrain_with_land_type(width, height, 4, false)
+    water_terrain_with_land_type(width, height, 4)
 }
 
 fn gsi_04_10_clear_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
     use crate::map::resolved_terrain::zone_class;
-    use crate::rules::terrain_rules::{LandType, TerrainClass};
+    use crate::rules::terrain_rules::LandType;
 
     let mut terrain = water_terrain(width, height);
     for cell in &mut terrain.cells {
         cell.land_type = LandType::Clear.as_index();
-        cell.terrain_class = TerrainClass::Clear;
         cell.speed_costs = OPEN_SPEED_COSTS;
-        cell.is_water = false;
         cell.ground_walk_blocked = false;
         cell.zone_type = zone_class::GROUND;
         cell.base_ground_walk_blocked = false;
         cell.base_build_blocked = false;
         cell.base_land_type = LandType::Clear.as_index();
-        cell.base_terrain_class = TerrainClass::Clear;
         cell.base_speed_costs = OPEN_SPEED_COSTS;
     }
     terrain
@@ -3103,20 +3099,13 @@ fn gsi_04_10_zero_occupation_removal_forces_ground_zone_with_same_walkability() 
     );
 }
 
-fn water_terrain_with_land_type(
-    width: u16,
-    height: u16,
-    land_type: u8,
-    is_cliff_like: bool,
-) -> ResolvedTerrainGrid {
+fn water_terrain_with_land_type(width: u16, height: u16, land_type: u8) -> ResolvedTerrainGrid {
     let mut cells = Vec::new();
     for y in 0..height {
         for x in 0..width {
             cells.push(crate::map::resolved_terrain::ResolvedTerrainCell {
                 land_type,
                 speed_costs: OPEN_SPEED_COSTS,
-                is_water: true,
-                is_cliff_like,
                 zone_type: 4,
                 base_speed_costs: OPEN_SPEED_COSTS,
                 ..crate::map::resolved_terrain::test_flat_cell(x, y)
@@ -3202,15 +3191,12 @@ fn water_under_structural_bridge() -> (ResolvedTerrainGrid, BridgeRuntimeState) 
     let water = water_terrain(1, 1).cells[0].clone();
     for cell in &mut terrain.cells {
         cell.land_type = water.land_type;
-        cell.terrain_class = water.terrain_class;
         cell.speed_costs = water.speed_costs;
-        cell.is_water = water.is_water;
         cell.ground_walk_blocked = water.ground_walk_blocked;
         cell.zone_type = water.zone_type;
         cell.base_ground_walk_blocked = water.base_ground_walk_blocked;
         cell.base_build_blocked = water.base_build_blocked;
         cell.base_land_type = water.base_land_type;
-        cell.base_terrain_class = water.base_terrain_class;
         cell.base_speed_costs = water.base_speed_costs;
     }
     let state = BridgeRuntimeState::from_resolved_terrain(&terrain, true, 15);
@@ -3223,7 +3209,7 @@ fn structural_bridge_for_fallout(
     ground_level: u8,
     water_below: bool,
 ) -> (ResolvedTerrainGrid, BridgeRuntimeState) {
-    use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+    use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
     let (mut terrain, _) = structural_bridge_for_damage_dispatch();
     for x in 3..=6 {
         let cell = terrain.cell_mut(x, 5).unwrap();
@@ -3235,15 +3221,12 @@ fn structural_bridge_for_fallout(
                 ..Default::default()
             };
             cell.land_type = LandType::Water.as_index();
-            cell.terrain_class = TerrainClass::Water;
             cell.speed_costs = costs;
-            cell.is_water = true;
             cell.zone_type = 4;
             cell.ground_walk_blocked = true;
             cell.base_ground_walk_blocked = true;
             cell.base_build_blocked = true;
             cell.base_land_type = LandType::Water.as_index();
-            cell.base_terrain_class = TerrainClass::Water;
             cell.base_speed_costs = costs;
         }
     }
@@ -3985,7 +3968,6 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
         cell.level = 2;
         cell.template_height = 2;
         cell.land_type = 4;
-        cell.is_water = true;
         cell.zone_type = 4;
         cell.base_land_type = 4;
         cell.has_bridge_deck = true;
@@ -5034,14 +5016,14 @@ fn test_destroyed_bridge_arms_fall_over_blocked_ground() {
 
 /// After collapse, the rebuilt path grid reverts the bridge cell to its
 /// underlying ground walkability — a cliff-like cell stays unwalkable
-/// (per `from_resolved_terrain_with_bridges`'s `is_cliff_like` branch).
+/// (per `from_resolved_terrain_with_bridges`'s Rock-land branch).
 /// Concrete overlay damage leaves structural fallout to its native caller.
 #[test]
 fn test_destroyed_bridge_fallout_matches_rebuilt_ground_walkability() {
     let mut sim = Simulation::new();
     let (mut resolved, bridge_state) = structural_bridge_for_damage_dispatch();
     let idx = resolved.index(5, 5).expect("bridge index");
-    resolved.cells[idx].is_cliff_like = true;
+    resolved.cells[idx].land_type = crate::rules::terrain_rules::LandType::Rock.as_index();
     install_rectangular_test_playfield(&mut sim, resolved.width(), resolved.height());
     sim.resolved_terrain = Some(resolved.clone());
     sim.bridge_state = Some(bridge_state);
@@ -5705,14 +5687,13 @@ fn test_ship_turn_path_completes_without_drive_track_stall() {
 }
 
 /// Land type 4 is the pure water column. Real maps also carry water-surface
-/// tiles that keep is_water=true with a shoreline/coast land_type (7); ships
-/// still navigate them.
+/// tiles with a shoreline/coast land_type (7); ships still navigate them.
 #[test]
 fn test_real_ship_locomotor_move_command_crosses_water_cells() {
     let rules = real_ship_test_rules();
     for land_type in [4, 7] {
         let mut sim = Simulation::new();
-        let terrain = water_terrain_with_land_type(4, 4, land_type, false);
+        let terrain = water_terrain_with_land_type(4, 4, land_type);
         let path_grid = PathGrid::from_resolved_terrain(&terrain);
         install_rectangular_test_map(&mut sim, terrain.width(), terrain.height());
         sim.resolved_terrain = Some(terrain.clone());
@@ -5843,7 +5824,6 @@ fn a_ship_order_routes_around_an_island_through_the_live_search() {
             let cell = terrain.cell_mut(x, y).expect("island cell");
             cell.land_type = LandType::Clear.as_index();
             cell.base_land_type = LandType::Clear.as_index();
-            cell.is_water = false;
             cell.zone_type = zone_class::GROUND;
             cell.speed_costs = land_costs;
             cell.base_speed_costs = land_costs;
@@ -8031,13 +8011,12 @@ fn make_realistic_bridgehead_terrain() -> ResolvedTerrainGrid {
             ground_walk_blocked: true,
             base_build_blocked: true,
             base_land_type: 0,
-            base_terrain_class: Default::default(),
             base_speed_costs: Default::default(),
             bridge_walkable: true,
             bridge_transition: true,
             bridge_deck_level: 4,
             has_bridge_deck: true,
-            is_water: true,
+            land_type: crate::rules::terrain_rules::LandType::Water.as_index(),
             ..bridgehead_base_cell(2, 0)
         },
         ResolvedTerrainCell {
@@ -8686,7 +8665,7 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
     // Retail [Rock]: 0% for every SpeedType, zone impassable.
     {
         use crate::map::resolved_terrain::zone_class;
-        use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainClass};
+        use crate::rules::terrain_rules::{LandType, SpeedCostProfile};
         let rock = SpeedCostProfile {
             foot: Some(0),
             track: Some(0),
@@ -8700,14 +8679,12 @@ fn parked_friendly_on_the_route_is_scattered_out_of_the_way() {
         for ry in (0..24).filter(|&ry| ry != PARKED_AT.1) {
             let cell = terrain.cell_mut(PARKED_AT.0, ry).expect("wall cell");
             cell.land_type = LandType::Rock.as_index();
-            cell.terrain_class = TerrainClass::Rock;
             cell.speed_costs = rock;
             cell.zone_type = zone_class::IMPASSABLE;
             cell.ground_walk_blocked = true;
             cell.base_ground_walk_blocked = true;
             cell.base_build_blocked = true;
             cell.base_land_type = LandType::Rock.as_index();
-            cell.base_terrain_class = TerrainClass::Rock;
             cell.base_speed_costs = rock;
         }
     }

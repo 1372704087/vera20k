@@ -8,7 +8,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::SpeedCostProfile;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::house_state::HouseState;
 use crate::sim::miner::{CargoBale, MinerConfig, MinerKind, MinerState, ResourceType};
@@ -123,17 +123,14 @@ fn seed_human_house(sim: &mut Simulation, owner: &str) {
 fn resolved_cell(
     rx: u16,
     ry: u16,
-    terrain_class: TerrainClass,
     land_type: u8,
     speed_costs: SpeedCostProfile,
 ) -> ResolvedTerrainCell {
     ResolvedTerrainCell {
         land_type,
-        terrain_class,
         speed_costs,
         zone_type: zone_class::GROUND,
         base_land_type: LandType::Clear.as_index(),
-        base_terrain_class: TerrainClass::Clear,
         base_speed_costs: speed_costs,
         ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
     }
@@ -149,15 +146,8 @@ fn staged_terrain(
         GRID_SIZE,
         (0..GRID_SIZE)
             .flat_map(|ry| {
-                (0..GRID_SIZE).map(move |rx| {
-                    resolved_cell(
-                        rx,
-                        ry,
-                        TerrainClass::Clear,
-                        clear_land_type,
-                        oracle.clear_speed_costs,
-                    )
-                })
+                (0..GRID_SIZE)
+                    .map(move |rx| resolved_cell(rx, ry, clear_land_type, oracle.clear_speed_costs))
             })
             .collect(),
     );
@@ -165,7 +155,6 @@ fn staged_terrain(
         let cell = terrain.cell_mut(rx, ry).expect("staged ore cell");
         let tiberium_land_type = LandType::Tiberium.as_index();
         cell.land_type = tiberium_land_type;
-        cell.terrain_class = TerrainClass::Tiberium;
         cell.speed_costs = oracle.tiberium_speed_costs;
         cell.allows_tiberium = true;
     }
@@ -248,11 +237,9 @@ fn rock_where_grid_blocks(sim: &mut Simulation, grid: &PathGrid) {
                 .and_then(|terrain| terrain.cell_mut(rx, ry))
                 .expect("staged cell");
             cell.land_type = LandType::Rock.as_index();
-            cell.terrain_class = TerrainClass::Rock;
             cell.speed_costs = rock;
             cell.zone_type = zone_class::IMPASSABLE;
             cell.base_land_type = LandType::Rock.as_index();
-            cell.base_terrain_class = TerrainClass::Rock;
             cell.base_speed_costs = rock;
         }
     }

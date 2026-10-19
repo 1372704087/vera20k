@@ -5,7 +5,7 @@
 use crate::map::resolved_terrain::{ResolvedTerrainCell, ResolvedTerrainGrid};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
-use crate::rules::terrain_rules::{SpeedCostProfile, TerrainClass};
+use crate::rules::terrain_rules::SpeedCostProfile;
 use crate::sim::command::Command;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::passenger::PassengerRole;
@@ -80,9 +80,6 @@ fn water_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
     let water = LandType::Water.as_index();
     cell.land_type = water;
     cell.base_land_type = water;
-    cell.is_water = true;
-    cell.terrain_class = TerrainClass::Water;
-    cell.base_terrain_class = TerrainClass::Water;
     let costs = SpeedCostProfile {
         foot: Some(0),
         track: Some(0),
@@ -177,7 +174,8 @@ impl Fixture {
                 .unwrap()
                 .cell(cell.0, cell.1)
                 .unwrap()
-                .is_water;
+                .land_type()
+                == LandType::Water.as_index();
             let pax = if water {
                 // Supply already-limbo cargo for the landing-craft prestate.
                 // Ordinary Foot Unlimbo correctly refuses this water row;

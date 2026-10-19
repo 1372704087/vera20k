@@ -1,8 +1,9 @@
 //! Terrain land-type semantics parsed from rules.ini / rulesmd.ini.
 //!
-//! This module maps raw TMP `LandType` bytes onto a small verified subset of
-//! RA2/YR terrain semantics and, when available, parses the corresponding
-//! land-type sections from rules data for buildability and per-SpeedType costs.
+//! This module converts raw TMP terrain bytes to the twelve YR `LandType`s and,
+//! when available, parses each land type's rules section for buildability and
+//! per-SpeedType costs. A cell keeps only its `LandType` (`CellClass+0xEC`);
+//! everything else about its land is asked of that value or of this table.
 
 use std::collections::HashMap;
 
@@ -128,62 +129,6 @@ pub fn tmp_terrain_to_land_type(tmp_terrain_type: u8) -> LandType {
 }
 
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
-)]
-pub enum TerrainClass {
-    Clear,
-    Rough,
-    Road,
-    Water,
-    Rock,
-    Cliff,
-    Beach,
-    Ice,
-    Tiberium,
-    Weeds,
-    Wall,
-    Railroad,
-    Tunnel,
-    #[default]
-    Unknown,
-}
-
-impl LandType {
-    pub const fn terrain_class(self) -> TerrainClass {
-        match self {
-            Self::Clear => TerrainClass::Clear,
-            Self::Road => TerrainClass::Road,
-            Self::Water => TerrainClass::Water,
-            Self::Rock => TerrainClass::Rock,
-            Self::Wall => TerrainClass::Wall,
-            Self::Tiberium => TerrainClass::Tiberium,
-            Self::Beach => TerrainClass::Beach,
-            Self::Rough => TerrainClass::Rough,
-            Self::Ice => TerrainClass::Ice,
-            Self::Railroad => TerrainClass::Railroad,
-            Self::Tunnel => TerrainClass::Tunnel,
-            Self::Weeds => TerrainClass::Weeds,
-        }
-    }
-
-    pub const fn is_water(self) -> bool {
-        matches!(self, Self::Water)
-    }
-
-    pub const fn is_road(self) -> bool {
-        matches!(self, Self::Road)
-    }
-
-    pub const fn is_rough(self) -> bool {
-        matches!(self, Self::Rough)
-    }
-
-    pub const fn is_cliff_like(self) -> bool {
-        matches!(self, Self::Rock)
-    }
-}
-
-#[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
 )]
 pub struct SpeedCostProfile {
@@ -228,16 +173,15 @@ impl SpeedCostProfile {
     }
 }
 
+/// One land type's rules row: its `Buildable=` and SpeedType rows as the
+/// native reader stores them, plus VERA's ground-walk block for that land.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LandTypeSemantics {
-    pub section_name: &'static str,
-    pub terrain_class: TerrainClass,
     pub buildable: bool,
+    /// VERA's ground-walk block (`ResolvedTerrainCell::ground_walk_blocked`):
+    /// true for Water, Rock and Wall. Neither an INI key nor a gamemd field;
+    /// gamemd's movers read the SpeedType rows instead.
     pub ground_blocked: bool,
-    pub rough: bool,
-    pub road: bool,
-    pub water: bool,
-    pub cliff_like: bool,
     pub speed_costs: SpeedCostProfile,
 }
 
@@ -263,7 +207,7 @@ impl TerrainRules {
             let Some(section) = ini.section(section_name) else {
                 continue;
             };
-            let semantics = build_semantics(section_name, section);
+            let semantics = build_semantics(land_type, section);
             by_land_type.insert(land_type.as_index(), semantics);
             by_name.insert(section_name.to_ascii_lowercase(), semantics);
         }
@@ -283,169 +227,11 @@ impl TerrainRules {
     }
 }
 
-fn build_semantics(section_name: &'static str, section: &IniSection) -> LandTypeSemantics {
-    let mut semantics = built_in_semantics(section_name);
-    semantics.buildable = section.read_bool("Buildable", false);
-    semantics.speed_costs = parse_speed_costs(section);
-    semantics
-}
-
-fn built_in_semantics(section_name: &'static str) -> LandTypeSemantics {
-    match section_name {
-        "Clear" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Clear,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Rough" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Rough,
-            buildable: false,
-            ground_blocked: false,
-            rough: true,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Road" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Road,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: true,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Water" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Water,
-            buildable: false,
-            ground_blocked: true,
-            rough: false,
-            road: false,
-            water: true,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Rock" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Rock,
-            buildable: false,
-            ground_blocked: true,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: true,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Cliff" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Cliff,
-            buildable: false,
-            ground_blocked: true,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: true,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Beach" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Beach,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Ice" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Ice,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Tiberium" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Tiberium,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Weeds" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Weeds,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Wall" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Wall,
-            buildable: false,
-            ground_blocked: true,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Railroad" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Railroad,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        "Tunnel" => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Tunnel,
-            buildable: false,
-            ground_blocked: false,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: false,
-            speed_costs: SpeedCostProfile::default(),
-        },
-        _ => LandTypeSemantics {
-            section_name,
-            terrain_class: TerrainClass::Unknown,
-            buildable: false,
-            ground_blocked: true,
-            rough: false,
-            road: false,
-            water: false,
-            cliff_like: true,
-            speed_costs: SpeedCostProfile::default(),
-        },
+fn build_semantics(land_type: LandType, section: &IniSection) -> LandTypeSemantics {
+    LandTypeSemantics {
+        buildable: section.read_bool("Buildable", false),
+        ground_blocked: matches!(land_type, LandType::Water | LandType::Rock | LandType::Wall),
+        speed_costs: parse_speed_costs(section),
     }
 }
 
@@ -566,20 +352,20 @@ mod tests {
         let clear = terrain_rules
             .semantics_for_land_type(0)
             .expect("clear semantics");
-        assert_eq!(clear.terrain_class, TerrainClass::Clear);
         assert!(clear.buildable);
+        assert!(!clear.ground_blocked);
         assert_eq!(clear.cost_for_speed_type(SpeedType::Track), Some(100));
 
         let rough = terrain_rules
             .semantics_for_land_type(LandType::Rough.as_index())
             .expect("rough semantics");
-        assert!(rough.rough);
+        assert!(!rough.ground_blocked);
         assert_eq!(rough.cost_for_speed_type(SpeedType::Wheel), Some(60));
 
         let water = terrain_rules
             .semantics_for_land_type(LandType::Water.as_index())
             .expect("water semantics");
-        assert!(water.water);
+        assert!(water.ground_blocked);
         assert!(!water.buildable);
         assert_eq!(water.cost_for_speed_type(SpeedType::Float), Some(100));
         assert_eq!(water.cost_for_speed_type(SpeedType::Track), Some(0));
@@ -587,7 +373,7 @@ mod tests {
         let rock = terrain_rules
             .semantics_for_land_type(LandType::Rock.as_index())
             .expect("rock semantics");
-        assert!(rock.cliff_like);
+        assert!(rock.ground_blocked);
         assert_eq!(rock.cost_for_speed_type(SpeedType::Foot), Some(0));
     }
 
@@ -615,7 +401,6 @@ mod tests {
         let beach = terrain_rules
             .semantics_for_land_type(LandType::Beach.as_index())
             .expect("beach semantics");
-        assert_eq!(beach.terrain_class, TerrainClass::Beach);
         assert!(!beach.buildable);
         assert_eq!(beach.cost_for_speed_type(SpeedType::Foot), Some(0));
         assert_eq!(beach.cost_for_speed_type(SpeedType::Track), Some(0));
@@ -634,13 +419,11 @@ mod tests {
         let tunnel = terrain_rules
             .semantics_for_land_type(LandType::Tunnel.as_index())
             .expect("tunnel semantics");
-        assert_eq!(tunnel.terrain_class, TerrainClass::Tunnel);
         assert_eq!(tunnel.cost_for_speed_type(SpeedType::Foot), Some(100));
 
         let railroad = terrain_rules
             .semantics_for_land_type(LandType::Railroad.as_index())
             .expect("railroad semantics");
-        assert_eq!(railroad.terrain_class, TerrainClass::Railroad);
         assert_eq!(railroad.cost_for_speed_type(SpeedType::Foot), Some(90));
     }
 

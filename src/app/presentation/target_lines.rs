@@ -113,6 +113,10 @@ impl TargetLineState {
 }
 
 /// Build selected unit action-line instances from live simulation state.
+///
+/// `alpha_at` samples the shroud A-buffer at a surface point, which the
+/// psychic detection line's dashed leaf reads.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_target_line_instances(
     line_state: &TargetLineState,
     planning_active: bool,
@@ -123,15 +127,67 @@ pub(crate) fn build_target_line_instances(
     wall_ms: u32,
     viewport: TacticalViewport,
     mut after_entity: Option<&mut dyn FnMut(u64, &mut Vec<SpriteInstance>)>,
+    alpha_at: &mut dyn FnMut([i32; 2]) -> u8,
 ) -> Vec<SpriteInstance> {
-    // Tactical6D4729 and6D4793 use the same planning gate; the action-line
-    //option/timer gates only Foot4DC060, not CaptureManager relationships.
-    if planning_active {
-        return Vec::new();
-    }
     let Some(sim) = sim else {
         return Vec::new();
     };
+    // Tactical6D4764..6D478E: a Techno the local player does not control
+    // draws its psychic detection line before the planning gate. Skip the
+    // per-Techno 43B150 walk when the player has no operational detector.
+    let psychic = rules.filter(|rules| {
+        sim.session
+            .current_house
+            .is_some_and(|viewer| sim.psychic_detection_sites(viewer, rules).next().is_some())
+    });
+    let cells = sim.resolved_terrain.as_ref().map(NativeCellQuery::isolated);
+    let project = |p: ScreenPoint| {
+        [
+            p.x as i32 - viewport.camera[0],
+            p.y as i32 - viewport.camera[1] + viewport.clip[1],
+        ]
+    };
+    let mut psychic_line_for = |entity: &GameEntity, instances: &mut Vec<SpriteInstance>| {
+        let Some(rules) = psychic else {
+            return;
+        };
+        if sim.house_is_human_player(entity.owner())
+            || !matches!(
+                entity.category(),
+                EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+            )
+            || entity.lifecycle.in_limbo()
+            || !sim.techno_intent_psychically_detected(entity.stable_id(), rules)
+        {
+            return;
+        }
+        let Some(line) = action_line_endpoints(entity, sim, Some(rules), cells.as_ref()) else {
+            return;
+        };
+        let owner = sim.interner.resolve(entity.owner());
+        let color = house_colors.get(owner).copied().unwrap_or(NO_REMAP);
+        let rgb = crate::render::palette_light::house_color_rgb(&rules.house_color_ramps, color);
+        emit_psychic_detection_line(
+            project(line.start),
+            project(line.end),
+            rgb,
+            wall_ms,
+            viewport.clip,
+            &mut *alpha_at,
+            |rect, word| push_surface_word(instances, rect, word, viewport),
+        );
+    };
+    // Tactical6D4729 and6D4793 use the same planning gate; the action-line
+    //option/timer gates only Foot4DC060, not CaptureManager relationships.
+    if planning_active {
+        let mut instances = Vec::new();
+        if psychic.is_some() {
+            for entity in sim.entities().values() {
+                psychic_line_for(entity, &mut instances);
+            }
+        }
+        return instances;
+    }
     let colors = line_state
         .is_selected_action_active(sim.session.binary_frame)
         .then(|| {
@@ -147,16 +203,9 @@ pub(crate) fn build_target_line_instances(
     let mut control = rules
         .map(|rules| super::control_links::prepare(sim, rules, house_colors, wall_ms, viewport))
         .unwrap_or_default();
-    if colors.is_none() && control.is_empty() && after_entity.is_none() {
+    if colors.is_none() && control.is_empty() && after_entity.is_none() && psychic.is_none() {
         return Vec::new();
     }
-    let cells = sim.resolved_terrain.as_ref().map(NativeCellQuery::isolated);
-    let project = |p: ScreenPoint| {
-        [
-            p.x as i32 - viewport.camera[0],
-            p.y as i32 - viewport.camera[1] + viewport.clip[1],
-        ]
-    };
     let line_for = |entity: &GameEntity| {
         selected_action_line_for_entity(entity, sim, rules, cells.as_ref()).map(|line| {
             ProjectedActionLine {
@@ -169,9 +218,10 @@ pub(crate) fn build_target_line_instances(
     // Tactical6D4750 walks the construction-ordered Techno array, not the
     // CurrentObjects selection vector or the Logic active-object order.
     // EntityStore's monotonic stable IDs retain that represented order.
-    if !control.is_empty() || after_entity.is_some() {
-        //6D4750 ->6D47BF/6D47F6 ->6D47FB within EACH Techno visit. Resolving all
-        //action lines before relationships would reverse cross-object overlaps.
+    if !control.is_empty() || after_entity.is_some() || psychic.is_some() {
+        //6D4750/6D478E ->6D47BF/6D47F6 ->6D47FB within EACH Techno visit.
+        //Resolving all action lines before relationships would reverse
+        //cross-object overlaps.
         let mut instances = Vec::new();
         for entity in sim.entities().values() {
             if let Some(colors) = colors
@@ -183,6 +233,7 @@ pub(crate) fn build_target_line_instances(
                     viewport,
                 ));
             }
+            psychic_line_for(entity, &mut instances);
             if let Some(lines) = control.remove(&entity.stable_id()) {
                 instances.extend(lines);
             }
@@ -201,6 +252,73 @@ pub(crate) fn build_target_line_instances(
         .filter_map(line_for)
         .collect::<Vec<_>>();
     build_selected_action_line_instances(&lines, colors, viewport)
+}
+
+/// Foot4DC340, an enemy Foot's psychic detection line: two clipped 3x3 boxes
+/// at point-2 in the owner's colour (House+56F9), then, when 7BC2B0 clips the
+/// line in, DSurface4C0750's dashed walk over pattern822540 (the rally
+/// pattern) at phase `(-time >> 5) & 15`, storing only where the A-buffer is
+/// nonzero. The colour pulses toward white (6612C0 by `time & 0x3FF`, the
+/// low byte mirrored while bit 8 is set) except while bit 9 is set. `time` is
+/// timeGetTime: wall-clock milliseconds. No RNG, timer or simulation write.
+fn emit_psychic_detection_line(
+    start: [i32; 2],
+    end: [i32; 2],
+    rgb: [u8; 3],
+    time: u32,
+    clip: [i32; 4],
+    alpha_at: &mut dyn FnMut([i32; 2]) -> u8,
+    mut draw: impl FnMut([i32; 4], u16),
+) {
+    use crate::render::native_surface_format::{RGB565, interpolate_rgb8};
+    use crate::render::surface_line::{clip_line, patterned_line};
+    let base = RGB565.pack_rgb8(rgb);
+    for point in [start, end] {
+        draw(
+            crate::util::rect::clip_rect(
+                [point[0].wrapping_sub(2), point[1].wrapping_sub(2), 3, 3],
+                clip,
+            ),
+            base,
+        );
+    }
+    let (mut start, mut end) = (start, end);
+    if !clip_line(&mut start, &mut end, clip) {
+        return;
+    }
+    let mut color = rgb;
+    if time & 0x200 == 0 {
+        let mut amount = time & 0x3FF;
+        if time & 0x100 != 0 {
+            amount ^= 0xFF;
+        }
+        color = interpolate_rgb8(rgb, [255; 3], amount & 0xFF);
+    }
+    let word = RGB565.pack_rgb8(color);
+    let phase = ((time.wrapping_neg() as i32) >> 5) & 0xF;
+    patterned_line(start, end, &RALLY_PATTERN, phase, |point| {
+        if alpha_at(point) != 0 {
+            draw([point[0], point[1], 1, 1], word);
+        }
+    });
+}
+
+/// One native RGB565 store as presented, through the shared surface rect.
+pub(crate) fn push_surface_word(
+    instances: &mut Vec<SpriteInstance>,
+    rect: [i32; 4],
+    word: u16,
+    view: TacticalViewport,
+) {
+    let rgb = crate::render::native_surface_format::RGB565.unpack_rgb8(word);
+    let rgba = crate::render::native_surface_format::ACTIVE_RETAIL_RGB565_PRESENTATION
+        .quantize_rgba8([rgb[0], rgb[1], rgb[2], 255]);
+    push_surface_rect(
+        instances,
+        rect,
+        [rgba[0], rgba[1], rgba[2]].map(|v| f32::from(v) / 255.),
+        view,
+    );
 }
 
 /// Compose this call's already projected lines in Tactical6D4750 Techno order.
@@ -413,6 +531,18 @@ fn selected_action_line_for_entity(
     {
         return None;
     }
+    action_line_endpoints(entity, sim, rules, cells)
+}
+
+/// The endpoints Foot4DC060 and Foot4DC340 share: with a Target, the +300
+/// pivot to 70BCB0's lead coordinate; else, with a NavCom, the Location to
+/// the last queued waypoint or the NavCom.
+fn action_line_endpoints(
+    entity: &GameEntity,
+    sim: &Simulation,
+    rules: Option<&RuleSet>,
+    cells: Option<&NativeCellQuery<'_>>,
+) -> Option<SelectedActionLine> {
     let project = |x, y, z| crate::util::lepton::absolute_leptons_to_screen(x, y, z).into();
     if let Some(attack) = entity.attack_target.target() {
         let rules = rules?;
@@ -754,7 +884,8 @@ mod tests {
                 &HouseColorMap::new(),
                 0,
                 test_viewport(),
-                Some(&mut callback)
+                Some(&mut callback),
+                &mut |_| 127,
             )
             .is_empty()
         );
@@ -777,7 +908,8 @@ mod tests {
                 &HouseColorMap::new(),
                 0,
                 test_viewport(),
-                Some(&mut callback)
+                Some(&mut callback),
+                &mut |_| 127,
             )
             .is_empty()
         );
@@ -859,6 +991,7 @@ mod tests {
                 0,
                 test_viewport(),
                 None,
+                &mut |_| 127,
             )
             .is_empty()
         );
@@ -889,6 +1022,7 @@ mod tests {
                 0,
                 test_viewport(),
                 None,
+                &mut |_| 127,
             )
             .is_empty()
         );
@@ -914,3 +1048,7 @@ mod rally_tests;
 #[cfg(test)]
 #[path = "action_line_tests.rs"]
 mod action_tests;
+
+#[cfg(test)]
+#[path = "psychic_line_tests.rs"]
+mod psychic_tests;

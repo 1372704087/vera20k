@@ -1844,9 +1844,7 @@ impl Simulation {
                         }
                         // The class setter samples the building's +4C.
                         crate::sim::movement::nav_target_coordinate(
-                            crate::sim::components::NavTargetRef::Building {
-                                id: *target_building_id,
-                            },
+                            crate::sim::components::NavTargetRef::object(*target_building_id),
                             Some(*attacker_id),
                             self,
                             self.resolved_terrain.as_ref(),
@@ -1902,9 +1900,7 @@ impl Simulation {
                         }
                         // The class setter samples the building's +4C.
                         crate::sim::movement::nav_target_coordinate(
-                            crate::sim::components::NavTargetRef::Building {
-                                id: *target_building_id,
-                            },
+                            crate::sim::components::NavTargetRef::object(*target_building_id),
                             Some(*engineer_id),
                             self,
                             self.resolved_terrain.as_ref(),

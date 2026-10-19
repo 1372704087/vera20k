@@ -587,7 +587,7 @@ impl Simulation {
             let actor = self.substrate.entities.get(id).unwrap();
             if jumpjet_type
                 || actor.mission.current().raw() != 1
-                || !super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
+                || actor.navigation.nav_com() != Some(requested)
             {
                 self.infantry_stop_driver(id, rules, registry, frame_effects)?;
             }
@@ -602,7 +602,7 @@ impl Simulation {
             .ok_or("destination lost infantry after Stop_Driver")?;
         if human
             && type_allows_up
-            && super::navcom::nav_targets_same_receiver(actor.navigation.nav_com(), requested)
+            && actor.navigation.nav_com() == Some(requested)
             && actor
                 .infantry
                 .as_ref()
@@ -619,9 +619,7 @@ impl Simulation {
         let enter_radio_arm = super::movement_commands::enter_without_contact(actor);
         super::movement_commands::clear_destination_path_head(actor);
         let techno_target = match requested {
-            NavTargetRef::Entity { id: target }
-            | NavTargetRef::Object { id: target }
-            | NavTargetRef::Building { id: target } => crate::sim::radio::as_techno(self, target),
+            NavTargetRef::Object { id: target } => crate::sim::radio::as_techno(self, target),
             NavTargetRef::Cell { .. } => None,
         };
         if let Some(target) = techno_target.filter(|_| enter_radio_arm) {

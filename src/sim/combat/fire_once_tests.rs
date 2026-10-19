@@ -235,9 +235,7 @@ fn assert_boundary(
             "{name}: target"
         );
         let nav = actor.navigation.nav_com().map(|nav| match nav {
-            NavTargetRef::Entity { id }
-            | NavTargetRef::Object { id }
-            | NavTargetRef::Building { id } => TargetKind::Entity(id),
+            NavTargetRef::Object { id } => TargetKind::Entity(id),
             NavTargetRef::Cell { .. } => panic!("unexpected cell NavCom"),
         });
         assert_eq!(label(nav, targets), after["destination"], "{name}: NavCom");

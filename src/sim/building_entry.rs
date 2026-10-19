@@ -208,11 +208,7 @@ fn pick_nearest_admitted(
 /// (`0x004DFDBA..0x004DFDD2`) and GarrisonStructure
 /// (`0x004DFF0D..0x004DFF18`): none while NavCom is the pick on Capture.
 fn garrison_seek_reissues(pick: u64, nav_com: Option<NavTargetRef>, mission: MissionId) -> bool {
-    let heading = matches!(
-        nav_com,
-        Some(NavTargetRef::Entity { id } | NavTargetRef::Object { id } | NavTargetRef::Building { id })
-            if id == pick
-    );
+    let heading = nav_com == Some(NavTargetRef::object(pick));
     !(heading && mission == MissionId::from_known(MissionType::Capture))
 }
 
@@ -281,9 +277,7 @@ impl Simulation {
         ) else {
             return false;
         };
-        let nav_matches = matches!(foot.navigation.nav_com(),
-            Some(NavTargetRef::Object { id } | NavTargetRef::Building { id }
-                | NavTargetRef::Entity { id }) if id == building_id);
+        let nav_matches = foot.navigation.nav_com() == Some(NavTargetRef::object(building_id));
         if !nav_matches && foot.attack_target.target() != Some(TargetKind::Entity(building_id)) {
             return false;
         }

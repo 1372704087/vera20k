@@ -266,8 +266,8 @@ fn building_navcom_reads_live_type_requester_and_radio_slots_after_restore() {
         sim.interner = test_interner();
         sim.substrate.next_stable_object_id = 200;
         for target in [
-            NavTargetRef::Entity { id: 2 },
-            NavTargetRef::Building { id: 2 },
+            NavTargetRef::Object { id: 2 },
+            NavTargetRef::Object { id: 2 },
             NavTargetRef::Object { id: 2 },
         ] {
             let before = super::super::nav_target_coordinate(
@@ -286,7 +286,7 @@ fn building_navcom_reads_live_type_requester_and_radio_slots_after_restore() {
             restored.restore_after_snapshot_load().unwrap();
             assert_eq!(sim.state_hash(), restored.state_hash());
             let result = super::super::nav_target_coordinate(
-                NavTargetRef::Building { id: 2 },
+                NavTargetRef::Object { id: 2 },
                 requester.map(|_| 1),
                 &restored,
                 None,

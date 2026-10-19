@@ -3587,15 +3587,15 @@ fn pointer_expiry_clears_live_target_and_navigation_refs() {
         .set_for_test(Some(TargetKind::Entity(2)));
     listener
         .navigation
-        .set_suspended_nav_com_for_test(Some(NavTargetRef::Entity { id: 2 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
         .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener.navigation.set_nav_queue_for_test(vec![
-        NavTargetRef::Entity { id: 2 },
+        NavTargetRef::Object { id: 2 },
         NavTargetRef::Cell { rx: 7, ry: 8 },
         NavTargetRef::Object { id: 2 },
     ]);
@@ -3630,16 +3630,16 @@ fn occupier_capture_retains_live_non_selling_nav_target() {
     listener.removal_facts.set_occupier_for_test(true);
     listener
         .navigation
-        .set_suspended_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_suspended_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_queue_for_test(vec![NavTargetRef::Building { id: 2 }]);
+        .set_nav_queue_for_test(vec![NavTargetRef::Object { id: 2 }]);
 
     sim.uninit(2);
 
@@ -3647,11 +3647,11 @@ fn occupier_capture_retains_live_non_selling_nav_target() {
     assert!(listener.navigation.suspended_nav_com().is_none());
     assert_eq!(
         listener.navigation.nav_com_aux(),
-        Some(NavTargetRef::Building { id: 2 })
+        Some(NavTargetRef::Object { id: 2 })
     );
     assert_eq!(
         listener.navigation.nav_com(),
-        Some(NavTargetRef::Building { id: 2 })
+        Some(NavTargetRef::Object { id: 2 })
     );
     assert!(listener.navigation.nav_queue().is_empty());
 }
@@ -3679,10 +3679,10 @@ fn selling_target_disables_occupier_capture_nav_retention() {
     listener.removal_facts.set_occupier_for_test(true);
     listener
         .navigation
-        .set_nav_com_aux_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_aux_for_test(Some(NavTargetRef::Object { id: 2 }));
     listener
         .navigation
-        .set_nav_com_for_test(Some(NavTargetRef::Building { id: 2 }));
+        .set_nav_com_for_test(Some(NavTargetRef::Object { id: 2 }));
 
     sim.uninit(2);
 

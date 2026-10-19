@@ -246,8 +246,7 @@ fn retail_production_world(history: &Value) -> Option<(SimRuntime, InternedId)> 
         number(&input["house_tech"]),
     );
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     for building in geometry["owned_buildings"].as_array().unwrap() {
         sim.spawn_object(

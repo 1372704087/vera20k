@@ -142,8 +142,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, None, input["human"].as_bool().unwrap(), 0, 10);
     house.player_control = row["human_input"]["player_control_byte"].as_u64().unwrap() != 0;
-    sim.houses.insert(owner, house);
-    sim.session.house_order = vec![owner];
+    sim.houses.register(house);
     assert_eq!(row["human_input"]["house_index"], 0);
     assert_eq!(row["human_input"]["player_control_byte"], 0);
     assert_eq!(row["human_input"]["original_predicate_al"], 1);

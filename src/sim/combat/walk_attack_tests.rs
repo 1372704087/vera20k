@@ -31,11 +31,15 @@ fn walk_attack_scene() -> (Simulation, RuleSet, u64, u64) {
     sim.resolve_type_handles(&rules);
     for (index, (name, human)) in [("Local", true), ("Enemy", false)].into_iter().enumerate() {
         let owner = sim.interner.intern(name);
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, index as u8, None, human, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner,
+                index as u8,
+                None,
+                human,
+                0,
+                10,
+            ));
     }
     sim.session.current_house = sim.interner.get("Local");
     let costs = rules

@@ -1214,7 +1214,7 @@ pub fn initialize_skirmish_launch_houses(
     let session = descriptor.session();
     assert!(
         sim.houses.is_empty()
-            && sim.session.house_order.is_empty()
+            && sim.houses.order().is_empty()
             && sim.entities().is_empty()
             && sim.production.terrain_objects.is_empty(),
         "skirmish houses must be initialized before map objects"
@@ -1374,18 +1374,18 @@ fn apply_resolved_skirmish_launch_session(
         initialize_skirmish_launch_houses(sim, house_roster, rules, descriptor);
     }
     assert_eq!(
-        sim.session.house_order.len(),
+        sim.houses.order().len(),
         slots.len() + 2,
         "launch House array must be complete before start assignment"
     );
-    for (registered, slot) in sim.session.house_order.iter().zip(&slots) {
+    for (registered, slot) in sim.houses.order().iter().zip(&slots) {
         assert_eq!(
             sim.interner.resolve(*registered),
             slot.owner_name,
             "participant House order changed after map construction"
         );
     }
-    for (registered, expected) in sim.session.house_order[slots.len()..]
+    for (registered, expected) in sim.houses.order()[slots.len()..]
         .iter()
         .zip(["Neutral", "Special"])
     {
@@ -1707,8 +1707,7 @@ pub fn populate_special_houses(sim: &mut Simulation, house_roster: &HouseRoster,
         house.multiplay_passive =
             crate::sim::house_state::resolve_multiplay_passive(Some(rules), Some(country_name));
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(name_id, house);
-        sim.session.house_order.push(name_id);
+        sim.houses.register(house);
     }
 }
 
@@ -1763,7 +1762,7 @@ pub fn populate_launch_houses(
             &rules.general,
             rules.country_difficulty_biases(country_name),
             sim.session.game_mode_nonzero(),
-            sim.session.house_order.len() as i32,
+            sim.houses.order().len() as i32,
             sim.session.binary_frame as i32,
         );
         // ScenarioClass::Create_Houses leaves generated human CurrentIQ at
@@ -1780,8 +1779,7 @@ pub fn populate_launch_houses(
         house.multiplay_passive =
             crate::sim::house_state::resolve_multiplay_passive(Some(rules), Some(country_name));
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(name_id, house);
-        sim.session.house_order.push(name_id);
+        sim.houses.register(house);
     }
 }
 
@@ -2737,7 +2735,7 @@ pub fn initialize_campaign_current_house(
     // The native strcmp reads the retained raw House name instead.
     sim.session.current_house = sim
         .scenario_house_named(&requested)
-        .or_else(|| sim.session.house_order.first().copied());
+        .or_else(|| sim.houses.order().first().copied());
     if let Some(owner) = sim.session.current_house {
         // Original 68AD0C/68AD18 set the selected House's +1EC/+1ED.
         // This is scenario construction, never a snapshot/viewer rebind.
@@ -2760,7 +2758,7 @@ pub fn initialize_map_roster_houses(
 ) {
     assert!(
         sim.houses.is_empty()
-            && sim.session.house_order.is_empty()
+            && sim.houses.order().is_empty()
             && sim.entities().is_empty()
             && sim.production.terrain_objects.is_empty(),
         "scenario houses must be initialized before map objects"
@@ -2834,18 +2832,15 @@ pub fn initialize_map_roster_houses(
         if let Some(rules) = rules {
             house_state.project_country_mults(rules, &sim.interner);
         }
-        assert!(
-            sim.houses.insert(name_id, house_state).is_none(),
-            "distinct admitted House names"
-        );
-        sim.session.house_order.push(name_id);
+        // Registration admits distinct House names only.
+        sim.houses.register(house_state);
     }
 
     // Original5009B0 constructs the whole House/Super array before its
     // second loop calls ReadScenarioINI500B40 and SetDifficulty4F6EC0.
     // Cross-House map reads must therefore see every constructor at once.
     for (index, house) in house_roster.houses.iter().enumerate() {
-        let name_id = sim.session.house_order[index];
+        let name_id = sim.houses.order()[index];
         let house_state = sim
             .houses
             .get_mut(&name_id)
@@ -3102,7 +3097,7 @@ mod tests {
         let guest = sim.interner.get("Guest").unwrap();
         let host = sim.interner.get("Host").unwrap();
         assert_eq!(sim.session.current_house, Some(guest));
-        assert_eq!(sim.session.house_order[0], guest);
+        assert_eq!(sim.houses.order()[0], guest);
         assert!(sim.houses[&guest].is_human && sim.houses[&guest].player_control);
         assert!(sim.houses[&host].is_human && !sim.houses[&host].player_control);
         let starts = [
@@ -3491,7 +3486,7 @@ mod tests {
                         );
                         let player = sim.interner.get(owner_key).unwrap();
                         assert_eq!(sim.session.current_house, Some(player));
-                        assert_eq!(sim.session.house_order[0], player);
+                        assert_eq!(sim.houses.order()[0], player);
                         assert!(sim.houses[&player].is_human && sim.houses[&player].player_control);
                     },
                 )
@@ -3545,7 +3540,7 @@ mod tests {
                 assert_eq!(sim.session.current_house, Some(player));
                 assert!(sim.houses[&player].is_human && sim.houses[&player].player_control);
                 assert_eq!(launch.session.local_player().name, handle);
-                let mut distinct = sim.session.house_order.clone();
+                let mut distinct = sim.houses.order().to_vec();
                 distinct.sort();
                 distinct.dedup();
                 assert_eq!(distinct.len(), 3 + usize::from(with_ai));
@@ -3601,7 +3596,7 @@ mod tests {
                     .restore_after_snapshot_load()
                     .expect("valid distinct House registry");
                 assert_eq!(restored.session.current_house, Some(player));
-                assert_eq!(restored.session.house_order, sim.session.house_order);
+                assert_eq!(restored.houses.order(), sim.houses.order());
                 assert!(
                     restored.houses[&player].is_human && restored.houses[&player].player_control
                 );
@@ -3836,7 +3831,7 @@ mod tests {
         let owner = sim.interner.intern("Americans");
         let mut house = HouseState::new(owner, 0, None, true, 0, 10);
         house.base_center = Some((6, 5));
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let slots = [NormalizedSkirmishSlot {
             owner_name: "Americans".to_string(),
             country: LaunchCountry::America,
@@ -4457,14 +4452,14 @@ mod tests {
         let mut sim = owner.into_simulation(&descriptor(seed));
         let rules = techno_constructor_start_rules();
         initialize_skirmish_launch_houses(&mut sim, &HouseRoster::default(), &rules, &launch);
-        assert_eq!(sim.session.current_house, Some(sim.session.house_order[0]));
+        assert_eq!(sim.session.current_house, Some(sim.houses.order()[0]));
         let before = sim.scenario_rng.logical_state();
         let slots = normalized_launch_slots(launch.session());
         project_pre_fill_start_assignment(&mut sim, &slots, projection.assignment());
         assert_eq!(sim.scenario_rng.logical_state(), before);
         assert_eq!(
             sim.houses
-                .get(&sim.session.house_order[0])
+                .get(&sim.houses.order()[0])
                 .and_then(|house| house.base_center),
             Some((40, 40))
         );

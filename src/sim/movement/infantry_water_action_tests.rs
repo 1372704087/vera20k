@@ -166,10 +166,10 @@ fn fixture(row: &Value, rules: &RuleSet, type_name: &str) -> (Simulation, u64) {
     sim.session.binary_frame = 100;
     sim.session.game_options.game_speed = row["game_speed_index"].as_i64().unwrap_or(0) as i32;
     let house = sim.interner.intern("Americans");
-    sim.houses.insert(
-        house,
-        crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            house, 0, None, true, 0, 10,
+        ));
     let xyz = if physical {
         row["physical_xyz"]
             .as_array()

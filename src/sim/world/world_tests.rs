@@ -79,11 +79,10 @@ fn game_speed_command_sim() -> (Simulation, crate::sim::intern::InternedId) {
     let mut sim = Simulation::with_seed(0x5EED_0001);
     sim.hash_state_every(std::num::NonZeroU64::MIN);
     let owner = sim.interner.intern("Local");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     (sim, owner)
 }
 
@@ -206,11 +205,10 @@ fn a_state_hash_interval_selects_frames_by_tick() {
     let mut test_world = Simulation::with_seed(0x5EED_0001);
     for sim in [&mut launched, &mut test_world] {
         let owner = sim.interner.intern("Local");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
     }
     let launched_first = launched.advance_tick(&[], None, None, None, 67);
     assert!(launched_first.frame_committed);
@@ -302,11 +300,10 @@ fn invalid_or_unknown_game_speed_transition_is_consumed_without_state_effect() {
 fn game_speed_ingress_uses_house_order_and_survives_same_frame_exit() {
     let (mut sim, local) = game_speed_command_sim();
     let remote = sim.interner.intern("Remote");
-    sim.houses.insert(
-        remote,
-        crate::sim::house_state::HouseState::new(remote, 1, None, false, 0, 10),
-    );
-    sim.session.house_order.push(remote);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            remote, 1, None, false, 0, 10,
+        ));
     let commands = [
         CommandEnvelope::new(remote, 1, Command::SetGameSpeed { speed: 2 }),
         CommandEnvelope::new(local, 1, Command::SetGameSpeed { speed: 4 }),
@@ -1393,12 +1390,11 @@ pub(crate) fn gsi_04_07_wall_sell_seed_houses(
     let mut owner_house =
         crate::sim::house_state::HouseState::new(wall_owner, 0, None, false, 0, 10);
     owner_house.player_control = true;
-    sim.houses.insert(wall_owner, owner_house);
-    sim.houses.insert(
-        receiver,
-        crate::sim::house_state::HouseState::new(receiver, 1, None, false, 0, 10),
-    );
-    sim.session.house_order = vec![wall_owner, receiver];
+    sim.houses.register(owner_house);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            receiver, 1, None, false, 0, 10,
+        ));
     (wall_owner, receiver)
 }
 
@@ -2611,8 +2607,7 @@ fn insert_house_with_counts(
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
     house.tracking.set_buildings_for_test(buildings);
     house.tracking.set_active_units_for_test(units);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     owner
@@ -3692,10 +3687,10 @@ fn guard_infantry_acquire_return_fire_and_finish_a_duel() {
     // owner after taking damage. A live map actor has its real House.
     for name in ["Americans", "Russians"] {
         let owner = sim.interner.intern(name);
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
     }
     let gi = sim
         .spawn_object("E1", "Americans", 2, 1, 64, &rules)
@@ -6202,10 +6197,10 @@ fn test_select_command_rejects_selectable_no_type() {
 fn declare_selection_gate_houses(sim: &mut Simulation) {
     for (name, is_human) in [("Americans", true), ("Soviet", false)] {
         let id = sim.interner.intern(name);
-        sim.houses.insert(
-            id,
-            crate::sim::house_state::HouseState::new(id, 0, None, is_human, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                id, 0, None, is_human, 0, 10,
+            ));
     }
 }
 
@@ -7630,10 +7625,10 @@ fn test_infantry_attack_move_kills_on_the_way_and_walks_on() {
     // Infantry fear asks the owner's House whether a human controls it.
     for (owner, side_index, is_human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let name = sim.interner.intern(owner);
-        sim.houses.insert(
-            name,
-            crate::sim::house_state::HouseState::new(name, side_index, None, is_human, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                name, side_index, None, is_human, 0, 10,
+            ));
     }
     assert!(sim.rebuild_dynamic_navigation(&rules));
     // This spawn leaves IsInPlayfield (`+0x3D5`) clear; the scan reads it.
@@ -8313,11 +8308,10 @@ fn sale_death_is_ignored_before_ordinary_tail_drain() {
     );
     sim.interner = crate::sim::intern::test_interner();
     let owner_id = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner_id,
-        crate::sim::house_state::HouseState::new(owner_id, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner_id);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner_id, 0, None, true, 0, 10,
+        ));
     for (id, rx, ry) in [(1u64, 10u16, 10u16), (2u64, 20u16, 20u16)] {
         let mut bld = GameEntity::test_default_of_category(
             id,
@@ -8421,7 +8415,7 @@ fn combat_death_after_its_repair_visit_is_freed_at_end_of_tick() {
     sim.interner = crate::sim::intern::test_interner();
     let russia = sim.interner.intern("Russia");
     sim.houses
-        .insert(russia, HouseState::new(russia, 0, None, false, 1000, 10));
+        .register(HouseState::new(russia, 0, None, false, 1000, 10));
     sim.substrate.entities.insert(atk);
     sim.substrate.entities.insert(bld);
     sim.reveal(1);
@@ -10930,11 +10924,10 @@ fn a_captured_war_factory_takes_its_contact_along() {
     let mut sim = Simulation::new();
     for (name, side) in [("Americans", 0), ("Russians", 1)] {
         let id = sim.interner.intern(name);
-        sim.houses.insert(
-            id,
-            crate::sim::house_state::HouseState::new(id, side, None, false, 0, 10),
-        );
-        sim.session.house_order.push(id);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                id, side, None, false, 0, 10,
+            ));
     }
     let factory = sim
         .spawn_object_at_height("WEAP", "Americans", 10, 10, 0, 0, &rules)

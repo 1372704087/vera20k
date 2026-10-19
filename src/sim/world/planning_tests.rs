@@ -117,11 +117,10 @@ fn fixture() -> (Simulation, RuleSet, InternedId) {
     let grid = crate::sim::pathfinding::PathGrid::new(40, 40);
     sim.install_fixture_path_grid(Some(&grid));
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order = vec![owner];
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     sim.session.current_house = Some(owner);
     for actor in 1..=3 {
         assert_eq!(sim.allocate_stable_id(), actor);
@@ -243,11 +242,10 @@ fn special_ordinary_retask_cancels_shared_route(kind: &str) {
         "[VehicleTypes]\n0=PLANNER\n1=CARRIER\n[PLANNER]\nStrength=100\nSpeed=6\nSpeedType=Track\nMovementZone=Normal\nHarvester=yes\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n[CARRIER]\nStrength=200\nSpeed=6\nSpeedType=Track\nPassengers=5\nSizeLimit=10\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n[BuildingTypes]\n1=DEPOT\n[DEPOT]\nStrength=800\nUnitRepair=yes\n",
     );
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order = vec![owner];
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     sim.session.current_house = Some(owner);
     let actor = sim
         .spawn_object("PLANNER", "Americans", 15, 15, 0, &rules)
@@ -523,11 +521,10 @@ fn ownership_transfer_detaches_path_preserves_generated_event_and_restores_snaps
     let generated = sim.pending_command_snapshot();
     assert_eq!(generated.len(), 1);
     let new_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        new_owner,
-        crate::sim::house_state::HouseState::new(new_owner, 1, None, false, 0, 10),
-    );
-    sim.session.house_order.push(new_owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            new_owner, 1, None, false, 0, 10,
+        ));
     // Techno701585 ->638840 clears the path, not the published DoList event.
     sim.change_owner(1, new_owner);
     assert_eq!(sim.substrate.entities.get(1).unwrap().owner(), new_owner);
@@ -696,11 +693,10 @@ fn two_planned_move_legs_progress_through_spawn_and_master_frame_lifecycle() {
         "[VehicleTypes]\n0=PLANNER\n[PLANNER]\nStrength=100\nSpeed=8\nSpeedType=Track\nMovementZone=Normal\nLocomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n",
     );
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order = vec![owner];
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     sim.session.current_house = Some(owner);
     let actor = sim
         .spawn_object_with_overlay_registry("PLANNER", "Americans", 15, 15, 0, &rules, &registry)
@@ -942,7 +938,7 @@ fn planning_snapshot_rejects_missing_actor_or_house() {
         if missing_actor {
             sim.substrate.entities.remove(1);
         } else {
-            sim.houses.remove(&owner);
+            sim.houses.remove_for_test(&owner);
         }
         let bytes = GameSnapshot::save(&sim, 0, 0, "planning", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
@@ -1123,11 +1119,10 @@ fn planned_force_attack_preserves_admitted_friendly_target_through_native_dispat
 fn captured_actor_path_commits_for_current_house_and_preserves_original_issuer() {
     let (mut sim, rules, owner) = fixture();
     let new_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        new_owner,
-        crate::sim::house_state::HouseState::new(new_owner, 1, None, false, 0, 10),
-    );
-    sim.session.house_order.push(new_owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            new_owner, 1, None, false, 0, 10,
+        ));
     append(&mut sim, &rules, owner, 2, (12, 15));
     sim.change_owner(1, new_owner);
     // The old issuer's delayed flag1 is admitted after capture. Its actor's
@@ -1315,10 +1310,10 @@ fn connect_receiver_defers_actor_owner_and_lifetime_admission() {
     append(&mut sim, &rules, owner, 1, (12, 15));
     let connect = sim.encode_plan_connect_record(owner, 2, (12, 15)).unwrap();
     let new_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        new_owner,
-        crate::sim::house_state::HouseState::new(new_owner, 1, None, false, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            new_owner, 1, None, false, 0, 10,
+        ));
     sim.change_owner(2, new_owner);
     let actor = sim.substrate.entities.get_mut(2).unwrap();
     actor.lifecycle.set_object_alive_for_test(false);
@@ -1331,10 +1326,10 @@ fn connect_receiver_defers_actor_owner_and_lifetime_admission() {
 fn commit_uses_the_same_effective_house_as_node_grouping() {
     let (mut sim, rules, owner) = fixture();
     let controlled = sim.interner.intern("Controlled");
-    sim.houses.insert(
-        controlled,
-        crate::sim::house_state::HouseState::new(controlled, 1, None, true, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            controlled, 1, None, true, 0, 10,
+        ));
     sim.change_owner(1, controlled);
     append(&mut sim, &rules, owner, 1, (12, 15));
     let commit = sim.encode_plan_commit_record(owner).unwrap();
@@ -1728,11 +1723,10 @@ fn delete_handoff_uses_first_member_successor_and_invalidates_retained_node() {
 fn retained_highlight_keeps_hidden_node_coordinates_and_full_membership() {
     let (mut sim, rules, owner) = fixture();
     let enemy = sim.interner.intern("Russians");
-    sim.houses.insert(
-        enemy,
-        crate::sim::house_state::HouseState::new(enemy, 1, None, false, 0, 10),
-    );
-    sim.session.house_order.push(enemy);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            enemy, 1, None, false, 0, 10,
+        ));
     sim.change_owner(2, enemy);
     let record = sim
         .encode_planning_order_record(

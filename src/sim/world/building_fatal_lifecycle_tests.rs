@@ -251,8 +251,7 @@ impl Fixture {
         let houses = [sim.intern("Americans"), sim.intern("Second")];
         for house in houses {
             sim.houses
-                .insert(house, HouseState::new(house, 0, None, true, 5000, 10));
-            sim.session.house_order.push(house);
+                .register(HouseState::new(house, 0, None, true, 5000, 10));
         }
         sim.session.current_house = Some(houses[0]);
         sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {

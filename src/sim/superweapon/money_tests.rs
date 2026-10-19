@@ -45,8 +45,7 @@ fn world(rules: &RuleSet, credits: i32, human: bool) -> (Simulation, InternedId)
     sim.session.binary_frame = 100;
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, human, credits, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, human, credits, 10));
     sim.session.current_house = Some(owner);
     sim.session.game_options.super_weapons = true;
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);
@@ -415,7 +414,7 @@ fn superweapon_money_missing_owner_cannot_create_or_grant_a_wallet() {
     let rules = rules("[Reveal]\nMoney.Amount=500\n");
     let (mut sim, owner) = world(&rules, 1000, true);
     let id = ready(&mut sim, &rules, owner, "Reveal", false);
-    sim.houses.remove(&owner);
+    sim.houses.remove_for_test(&owner);
     assert!(!fire(&mut sim, &rules, owner, id, (10, 10)));
     assert!(!sim.houses.contains_key(&owner));
     assert!(sim.super_weapons[&owner][&id].is_ready);

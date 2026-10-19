@@ -58,8 +58,7 @@ fn arena(rules: &RuleSet) -> (Simulation, u64) {
     for (name, side, human) in [("Russians", 1, false), ("Americans", 0, true)] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     let plant = spawn(&mut sim, rules, "GAPOWR", "Russians", 16, 10);

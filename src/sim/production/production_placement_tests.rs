@@ -150,11 +150,10 @@ fn gap_operational_actual_placement_waits_for_build_up_and_next_building_turn() 
     let owner = sim.interner.intern("Americans");
     let viewer = sim.interner.intern("Soviet");
     for house in [owner, viewer] {
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(house, 0, None, true, 10_000, 10),
-        );
-        sim.session.house_order.push(house);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house, 0, None, true, 10_000, 10,
+            ));
     }
     sim.fog.reveal_all_for_owner(owner);
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
@@ -918,10 +917,10 @@ fn placed_gapowr_completion(human: bool) -> (u32, Option<u32>) {
     rules.set_buildup_control_for_test("GAPOWR", [0, 26, 2]);
     let grid = PathGrid::new(64, 64);
     let americans = sim.interner.intern("Americans");
-    sim.houses.insert(
-        americans,
-        crate::sim::house_state::HouseState::new(americans, 0, None, human, 10_000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            americans, 0, None, human, 10_000, 10,
+        ));
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
     let gapowr = sim.interner.intern("GAPOWR");
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
@@ -3203,10 +3202,10 @@ fn a_sale_refunds_regardless_of_health_and_clears_peer_contacts() {
     let refund = |health: i32| {
         let mut sim = placement_sim();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         super::house_for_test(&mut sim, "Americans")
             .economy
             .set_credits_for_test(1000);
@@ -3265,10 +3264,10 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
     let scene = |rules: &RuleSet, type_id: &str| {
         let mut sim = placement_sim();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         super::house_for_test(&mut sim, "Americans")
             .economy
             .set_credits_for_test(1000);
@@ -3699,8 +3698,7 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
         crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
     house.difficulty = crate::sim::house_state::HouseDifficulty::Hard;
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     let producer = sim
         .spawn_object_at_height_with_overlay_registry(
@@ -3857,8 +3855,7 @@ fn stock_yuri_cloning_world_with_scenario(
         crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
     house.difficulty = crate::sim::house_state::HouseDifficulty::Hard;
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
@@ -3882,8 +3879,7 @@ fn stock_yuri_cloning_vat_duplicates_a_successfully_placed_infantry() {
         10,
     );
     other_house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(other_owner, other_house);
-    sim.session.house_order.push(other_owner);
+    sim.houses.register(other_house);
 
     sim.spawn_object_at_height_with_overlay_registry(
         "YABRCK",
@@ -4310,11 +4306,10 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
     )));
     let mut sim = placement_sim();
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     let airfield = sim
         .spawn_object("GAAIRC", "Americans", 20, 20, 0, &rules)
         .expect("airfield");

@@ -37,8 +37,7 @@ fn reset_world(
     let other = sim.interner.intern("UnrelatedHouse");
     for house in [owner, other] {
         sim.houses
-            .insert(house, HouseState::new(house, 0, None, false, 0, 10));
-        sim.session.house_order.push(house);
+            .register(HouseState::new(house, 0, None, false, 0, 10));
         crate::sim::superweapon::construct_house_supers(&mut sim, rules, house, false);
     }
     let id = sim.interner.get("NukeSpecial").unwrap();

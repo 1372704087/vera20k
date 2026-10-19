@@ -80,7 +80,7 @@ fn unit(
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
     house.player_control = input["human"] != false;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let kind = if input["family"] == "drive" {
         "DRV"
     } else {
@@ -555,7 +555,7 @@ fn depot_release_and_pad_entry_route_through_find_path() {
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 5000, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let depot = sim
         .spawn_object("DEPOT", "Americans", 16, 9, 0, &rules)
         .unwrap();
@@ -671,7 +671,7 @@ fn teleporter_bound_for_its_refinery(
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 5000, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let refinery = sim
         .spawn_object("REFN", "Americans", 16, 9, 0, &rules)
         .unwrap();
@@ -885,7 +885,7 @@ fn a_teleporter_is_repaired_at_a_depot_and_drives_off() {
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 5000, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let depot = sim
         .spawn_object("DEPOT", "Americans", 16, 9, 0, &rules)
         .unwrap();
@@ -964,7 +964,7 @@ fn three_depot_waiters_are_repaired_in_turn_without_pad_intrusion() {
         let owner = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 50_000, 0);
         house.player_control = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let depot = sim
             .spawn_object("DEPOT", "Americans", 16, 9, 0, &rules)
             .unwrap();
@@ -1557,10 +1557,10 @@ fn owner_change_mid_track_stops_the_tank_at_its_track_end() {
     let (mut sim, rules, registry, id) = unit(&json!({"family": "drive"}));
     let (head, frame) = drive_to_first_head(&mut sim, &rules, &registry, id);
     let owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 1, None, false, 0, 0),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 1, None, false, 0, 0,
+        ));
     sim.change_owner_with_rules(
         id,
         owner,
@@ -1862,7 +1862,7 @@ fn damaged_hover_unit_reaches_a_free_depot_pad() {
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 5000, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let depot = sim
         .spawn_object("DEPOT", "Americans", 16, 9, 0, &rules)
         .unwrap();

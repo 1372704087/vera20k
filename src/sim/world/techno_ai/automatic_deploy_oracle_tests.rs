@@ -177,6 +177,8 @@ fn retail_gi_and_guardian_gi_deploy_then_team_move_in_bound_runtime() {
     let mut sim = Simulation::with_seed(31);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
+    // A normal game: its unit totals keep the buildingless Houses undefeated.
+    sim.session.game_options.short_game = false;
     // Supply the Clear/Foot row that ordinary Infantry Unlimbo reads before
     // these retail automatic-deploy frames begin.
     let terrain = test_flat_ground_grid(64);
@@ -186,9 +188,11 @@ fn retail_gi_and_guardian_gi_deploy_then_team_move_in_bound_runtime() {
     sim.playfield_bounds = Some(crate::sim::arena_fixture::OPEN_PLAYFIELD);
     sim.playfield_size_height = Some(20);
     assert!(sim.rebuild_dynamic_navigation(&rules));
+    // Funds and a factory keep the computer's Building strategy from selling
+    // off and sending every unit to Hunt.
     for (name, human) in [("Americans", false), ("French", true)] {
         let owner = sim.interner.intern(name);
-        let mut house = HouseState::new(owner, 0, None, human, 0, 10);
+        let mut house = HouseState::new(owner, 0, None, human, 10_000, 10);
         house.set_difficulty(
             HouseDifficulty::Normal,
             &rules.general,
@@ -197,7 +201,7 @@ fn retail_gi_and_guardian_gi_deploy_then_team_move_in_bound_runtime() {
             0,
             0,
         );
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
     }
     let gi = sim
         .spawn_object("E1", "Americans", 10, 10, 0, &rules)
@@ -209,6 +213,8 @@ fn retail_gi_and_guardian_gi_deploy_then_team_move_in_bound_runtime() {
         .spawn_object("E2", "Americans", 20, 20, 0, &rules)
         .unwrap();
     let human = sim.spawn_object("E1", "French", 40, 40, 0, &rules).unwrap();
+    sim.spawn_object("GAPILE", "Americans", 50, 50, 0, &rules)
+        .unwrap();
     sim.resolve_type_handles(&rules);
     let mut resources = SimResources::empty();
     resources.rules = rules;

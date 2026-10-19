@@ -1239,11 +1239,10 @@ fn walk_scene(
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 0),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 0,
+        ));
     if let Some(terrain) = terrain {
         sim.install_resolved_terrain_for_new_map(terrain);
     }

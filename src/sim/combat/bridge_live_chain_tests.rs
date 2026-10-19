@@ -445,8 +445,8 @@ fn retail_bridge_forcefire_chain(vehicle_name: &str, weapon_name: &str, projecti
     let pristine_terrain = scenario.sim().resolved_terrain.as_ref().unwrap().clone();
     let owner = scenario
         .sim()
-        .session
-        .house_order
+        .houses
+        .order()
         .iter()
         .copied()
         .find(|id| {

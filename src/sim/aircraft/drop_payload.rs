@@ -1224,10 +1224,10 @@ mod tests {
             let (aircraft_id, passenger_id) = (1, 2);
             insert_loaded_paradrop_pair(&mut sim, aircraft_id, passenger_id);
             let americans = sim.interner.intern("Americans");
-            sim.houses.insert(
-                americans,
-                crate::sim::house_state::HouseState::new(americans, 0, None, human, 0, 10),
-            );
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    americans, 0, None, human, 0, 10,
+                ));
             sim.substrate
                 .entities
                 .get_mut(passenger_id)

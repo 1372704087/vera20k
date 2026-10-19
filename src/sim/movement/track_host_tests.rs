@@ -1061,10 +1061,10 @@ fn factory_per_cell_fixture(
         crate::sim::movement::track_process::TrackFamily::Drive,
         false
     ));
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .insert_for_test(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let mut producer = GameEntity::test_default_of_category(
         2,
         "GAWEAP",
@@ -1490,7 +1490,7 @@ fn computer_product_at_factory_exit() -> (Simulation, RuleSet) {
     let owner = sim.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
     house.base_center = Some((20, 20));
-    sim.houses.insert(owner, house);
+    sim.houses.insert_for_test(house);
     let producer = sim.substrate.entities.get_mut(2).unwrap();
     producer.type_facts.set_foundation_for_test("5x3".into());
     producer.position.put_location(DriveCoord::cell(6, 9, 0));
@@ -1983,10 +1983,10 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         sim.path_grid = Some(Arc::new(PathGrid::from_resolved_terrain(&terrain)));
         sim.install_resolved_terrain_for_new_map(terrain);
         let owner = sim.intern("Russians");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 1, None, true, 0, 0),
-        );
+        sim.houses
+            .insert_for_test(crate::sim::house_state::HouseState::new(
+                owner, 1, None, true, 0, 0,
+            ));
         let depot = sim
             .spawn_object(building_name, "Russians", 6, 9, 0, &rules)
             .unwrap();
@@ -2566,7 +2566,7 @@ fn retail_unit_on_move(
     let owner = sim.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10);
     house.current_iq = iq;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let id = sim
         .spawn_object(type_name, "Americans", 10, 10, 0, &rules)
         .unwrap();

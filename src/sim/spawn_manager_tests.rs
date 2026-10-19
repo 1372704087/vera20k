@@ -2868,11 +2868,10 @@ fn retail_launches(
 
     let mut sim = Simulation::new();
     let house = sim.interner.intern("Russians");
-    sim.houses.insert(
-        house,
-        crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(house);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            house, 0, None, true, 0, 10,
+        ));
     crate::sim::arena_fixture::flat_arena(&mut sim, rules);
     let terrain = sim.resolved_terrain.as_mut().unwrap();
     for y in 0..32 {

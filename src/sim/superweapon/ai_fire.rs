@@ -586,10 +586,7 @@ fn ground_rally_point(
 /// AI_GroundRallyPoint's seed: the enemy's base cell (`+0x5600`), the
 /// house's own without an enemy ([`HouseState::base_origin`],
 /// `0x00509D41..0x00509D5B`).
-fn ground_rally_seed(
-    houses: &std::collections::BTreeMap<InternedId, HouseState>,
-    owner: InternedId,
-) -> (u16, u16) {
+fn ground_rally_seed(houses: &crate::sim::houses::Houses, owner: InternedId) -> (u16, u16) {
     let Some(house) = houses.get(&owner) else {
         return (0, 0);
     };

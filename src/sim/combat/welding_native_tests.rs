@@ -65,8 +65,7 @@ fn scene(rules: &RuleSet, cursor: &Value) -> (Simulation, Roles) {
     sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(64, 64));
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     sim.intern_rule_type_ids(rules);
     sim.resolve_type_handles(rules);
     let mut roles = Roles::new();

@@ -210,7 +210,7 @@ fn chrono_reinforcement_reader_dispatch_placement_and_process_match_original() {
     // constructor output. Preserve real occupancy and the hostile scan target
     // before installing the action's original RNG/identity cursors.
     for prior in rows[0]["prior"].as_array().unwrap() {
-        let owner = sim.session.house_order[number(&prior["owner_house_index"]) as usize];
+        let owner = sim.houses.order()[number(&prior["owner_house_index"]) as usize];
         let owner = sim.interner.resolve(owner).to_string();
         let coord = DriveCoord {
             x: number(&prior["xyz"][0]),
@@ -288,7 +288,7 @@ fn chrono_reinforcement_reader_dispatch_placement_and_process_match_original() {
             );
             assert_eq!(
                 actor.owner(),
-                sim.session.house_order[number(&prior["owner_house_index"]) as usize]
+                sim.houses.order()[number(&prior["owner_house_index"]) as usize]
             );
             assert_eq!(
                 actor.in_playfield(),

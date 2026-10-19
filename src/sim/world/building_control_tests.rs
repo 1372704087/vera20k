@@ -60,8 +60,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         1,
     );
     house.player_control = input["player_control"].as_bool().unwrap_or(false);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     sim.session.set_game_mode(
         crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(

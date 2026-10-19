@@ -1797,13 +1797,12 @@ fn fixture(inputs: &Inputs, selected: &[u64]) -> (Simulation, RuleSet) {
     sim.session.set_game_mode(
         crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(!inputs.house.campaign),
     );
-    sim.session.house_order = vec![local, other];
     sim.houses
-        .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+        .register(HouseState::new(local, 0, None, true, 0, 10));
     let mut other_house = HouseState::new(other, 1, None, inputs.house.other_human, 0, 10);
     other_house.player_control = inputs.house.other_control;
     other_house.multiplay_passive = inputs.house.other_passive;
-    sim.houses.insert(other, other_house);
+    sim.houses.register(other_house);
     for actor in &inputs.actors {
         assert!(!actor.robot_offline && actor.techno_cast);
         let category = match actor.kind.as_str() {

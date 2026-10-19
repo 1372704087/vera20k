@@ -3148,7 +3148,7 @@ pub(crate) mod tests {
             let id = sim.interner.intern(name);
             let mut house = HouseState::new(id, 0, None, is_human, 10_000, 10);
             house.multiplay_passive = passive;
-            sim.houses.insert(id, house);
+            sim.houses.register(house);
         };
         add("Local", true, false);
         for index in 1..=7 {

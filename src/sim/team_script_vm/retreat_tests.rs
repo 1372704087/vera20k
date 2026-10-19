@@ -39,10 +39,10 @@ fn retail_guard_retreat(ramp: bool) {
     );
     let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 1302);
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-    );
+    sim.houses
+        .insert_for_test(crate::sim::house_state::HouseState::new(
+            owner, 0, None, false, 0, 10,
+        ));
     sim.install_team_ai_registry(&registry, &rules).unwrap();
     sim.session.binary_frame = 100;
     sim.spawn_object("GAPOWR", "Americans", 5, 5, 0, &rules)

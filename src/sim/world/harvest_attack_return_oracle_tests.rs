@@ -67,7 +67,7 @@ impl Replay {
         scene
             .sim
             .houses
-            .insert(owner, HouseState::new(owner, 1, None, true, 0, 10));
+            .register(HouseState::new(owner, 1, None, true, 0, 10));
         let target_owner = if input["same_owner"] == true {
             "Americans"
         } else {

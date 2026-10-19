@@ -216,7 +216,7 @@ pub(crate) fn build_super_timer_instances(
     let sim = &runtime.simulation;
     let frame = sim.session.binary_frame;
     let supers = crate::sim::superweapon::super_timer_views(sim, rules);
-    let blackouts = sim.session.house_order.iter().map(|&house| {
+    let blackouts = sim.houses.order().iter().map(|&house| {
         let left = sim
             .power_states
             .get(&house)

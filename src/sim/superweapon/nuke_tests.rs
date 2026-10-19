@@ -757,8 +757,7 @@ fn retail_nuclear_missile_rises_falls_and_strikes_its_target() {
     let americans = sim.interner.intern("Americans");
     for (id, side, human) in [(russians, 1, true), (americans, 0, false)] {
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     {
         // A hard computer house takes up the defence 90 times in 100.

@@ -56,11 +56,11 @@ fn empty_fv_two_shot_fireat_matches_native_muzzles_ids_rearm_and_rng() {
 
     let mut world = Simulation::new();
     let owner = world.interner.intern("Americans");
-    world.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    world.session.house_order.push(owner);
+    world
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     crate::sim::arena_fixture::flat_arena(&mut world, &rules);
     // guided_step.create supplies flat level6 cells and no bridge flags.
     let terrain = world.resolved_terrain.as_mut().unwrap();

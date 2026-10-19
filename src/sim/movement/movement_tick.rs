@@ -332,10 +332,7 @@ fn advance_ordinary_mover(
     native_frame: u32,
     interner: &mut crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    houses: &std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    >,
+    houses: &crate::sim::houses::Houses,
     effects: &mut MovementPassEffects,
     entry: VisitEntry,
 ) {
@@ -958,10 +955,7 @@ pub(crate) fn begin_movement(
     playfield_bounds: Option<PlayfieldBounds>,
     interner: &mut crate::sim::intern::StringInterner,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    houses: &std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    >,
+    houses: &crate::sim::houses::Houses,
 ) -> PendingMovementPass {
     let grids = PassGrids {
         path_grid,

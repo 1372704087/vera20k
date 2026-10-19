@@ -199,8 +199,8 @@ impl Simulation {
         // A House's power/radar and activation must precede its own teams,
         // EVA, defeat and production; no global half-body sweeps intervene.
         let mut index = 0;
-        while index < self.session.house_order.len() {
-            let owner = self.session.house_order[index];
+        while index < self.houses.order().len() {
+            let owner = self.houses.order()[index];
             if let Some(rules) = rules {
                 self.assess_house_derived_state(owner, rules);
             }
@@ -273,17 +273,6 @@ impl Simulation {
             }
             if let Some(house) = self.houses.get_mut(&owner) {
                 house.release_repair_latch(self.session.binary_frame);
-                #[cfg(any(test, feature = "test-support"))]
-                if self
-                    .house_update_append_after_test
-                    .is_some_and(|(after, _)| after == owner)
-                {
-                    let (_, appended) = self
-                        .house_update_append_after_test
-                        .take()
-                        .expect("matched append");
-                    self.session.house_order.push(appended);
-                }
             }
             index += 1;
         }
@@ -389,8 +378,8 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) {
         let alive: Vec<_> = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .copied()
             .filter(|owner| {
@@ -791,8 +780,8 @@ impl Simulation {
     /// MakeInfantry owner (`0x004249A7`), `CheckAutoSellOrCivilian`
     /// (`0x0045823D`) and FreeSlaves (`0x006B0B0B`).
     pub(crate) fn civilian_side_house(&self, rules: &RuleSet) -> Option<InternedId> {
-        self.session
-            .house_order
+        self.houses
+            .order()
             .iter()
             .copied()
             .find(|&owner| self.house_type_is_civilian(owner, rules))

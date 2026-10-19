@@ -14,11 +14,10 @@ fn retail_arena() -> Option<(Simulation, RuleSet, PathGrid)> {
     let mut sim = Simulation::new();
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     let owner = sim.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     sim.session.current_house = Some(owner);
     Some((sim, rules, grid))
 }
@@ -197,11 +196,10 @@ fn exact_zero_sight_gate_differs_from_empty_walk_and_override() {
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     sim.fog = vision::FogState::new(32, 32);
     let owner = sim.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let zero = sim
         .spawn_object("ZERO", "Americans", 16, 16, 0, &rules)
         .unwrap();
@@ -998,10 +996,10 @@ fn a_source_event_keeps_one_notification_admission_across_logical_planes() {
         owner < ally,
         "the fixture visits the original player plane first"
     );
-    sim.houses.insert(
-        ally,
-        crate::sim::house_state::HouseState::new(ally, 0, None, false, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            ally, 0, None, false, 0, 10,
+        ));
     // Supplied direct alliance prestate; the test exercises source event
     // admission, not the separate diplomacy producer.
     sim.house_alliances
@@ -1069,8 +1067,8 @@ fn retail_goldst_uncached_reveal_border_matches_native_admission_and_transport()
             })
             .unwrap();
         let foreign = sim
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .copied()
             .find(|owner| *owner != local)
@@ -1549,11 +1547,10 @@ fn an_infantry_corpse_keeps_its_sight_until_its_uninit() {
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     sim.fog = vision::FogState::new(32, 32);
     let owner = sim.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let id = sim
         .spawn_object("E1", "Americans", 16, 16, 0, &rules)
         .unwrap();
@@ -1592,12 +1589,11 @@ fn an_infantry_corpse_keeps_its_sight_until_its_uninit() {
 /// A computer House added to the arena's House array.
 fn add_computer_house(sim: &mut Simulation, name: &str) -> crate::sim::intern::InternedId {
     let id = sim.intern(name);
-    let side = sim.session.house_order.len() as u8;
-    sim.houses.insert(
-        id,
-        crate::sim::house_state::HouseState::new(id, side, None, false, 0, 10),
-    );
-    sim.session.house_order.push(id);
+    let side = sim.houses.order().len() as u8;
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            id, side, None, false, 0, 10,
+        ));
     id
 }
 
@@ -1861,11 +1857,10 @@ fn an_shp_aircraft_releases_its_sight_when_its_death_sequence_starts() {
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     sim.fog = vision::FogState::new(32, 32);
     let owner = sim.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let id = sim
         .spawn_object("SHPA", "Americans", 16, 16, 0, &rules)
         .unwrap();

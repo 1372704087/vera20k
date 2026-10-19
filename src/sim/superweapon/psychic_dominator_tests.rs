@@ -873,11 +873,8 @@ fn retail_dominator_takes_a_captive_from_its_controller() {
     };
     let (rules, mut sim, americans) = world_with(rules, 64, &[]);
     let yuri_house = sim.interner.intern("YuriCountry");
-    sim.houses.insert(
-        yuri_house,
-        HouseState::new(yuri_house, 2, None, true, 0, 10),
-    );
-    sim.session.house_order.push(yuri_house);
+    sim.houses
+        .register(HouseState::new(yuri_house, 2, None, true, 0, 10));
     let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", (37, 40));
     let tank = spawn(&mut sim, &rules, "HTNK", "Russians", TARGET);
     assert!(sim.capture_unit(

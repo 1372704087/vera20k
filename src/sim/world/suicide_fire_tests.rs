@@ -38,11 +38,15 @@ fn retail_scene() -> Option<TerrorScene> {
     for (name, human) in [("Confederation", true), ("Americans", false)] {
         let id = sim.interner.intern(name);
         let side = rules.country_side_index_raw(name).unwrap();
-        sim.houses.insert(
-            id,
-            crate::sim::house_state::HouseState::new(id, side, Some(id), human, 10_000, 10),
-        );
-        sim.session.house_order.push(id);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                id,
+                side,
+                Some(id),
+                human,
+                10_000,
+                10,
+            ));
     }
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);

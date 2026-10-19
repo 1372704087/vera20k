@@ -68,8 +68,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
     let mut house = HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
     house.difficulty = HouseDifficulty::Hard;
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    sim.houses.register(house);
     sim.session.current_house = Some(owner);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));

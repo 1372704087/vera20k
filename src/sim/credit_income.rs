@@ -655,8 +655,7 @@ mod tests {
     fn house(sim: &mut Simulation, name: &str, human: bool, credits: i32) -> InternedId {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, 0, None, human, credits, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, 0, None, human, credits, 10));
         id
     }
 

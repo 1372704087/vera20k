@@ -44,7 +44,7 @@ fn retail_attack_acknowledgement_spends_the_original_singleton_main_draw() {
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.houses
-        .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+        .register(HouseState::new(local, 0, None, true, 0, 10));
     let type_ref = sim.interner.intern("MTNK");
     sim.entities_mut()
         .insert(GameEntity::new_at_frame_zero_for_test(
@@ -139,7 +139,7 @@ fn scene_for_rules(
         ),
     );
     sim.houses
-        .insert(local, HouseState::new(local, 0, None, true, 0, 10));
+        .register(HouseState::new(local, 0, None, true, 0, 10));
     let mut other_house = HouseState::new(
         other,
         1,
@@ -149,7 +149,7 @@ fn scene_for_rules(
         10,
     );
     other_house.player_control = input["other_player_control"].as_bool().unwrap_or(false);
-    sim.houses.insert(other, other_house);
+    sim.houses.register(other_house);
     let id = 1;
     sim.entities_mut()
         .insert(GameEntity::new_at_frame_zero_for_test(

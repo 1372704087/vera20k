@@ -27,7 +27,7 @@ fn house(sim: &mut Simulation, name: &str, player_control: bool) -> InternedId {
     let id = sim.interner.intern(name);
     let mut house = HouseState::new(id, 0, None, false, 0, 10);
     house.player_control = player_control;
-    sim.houses.insert(id, house);
+    sim.houses.register(house);
     id
 }
 
@@ -262,7 +262,7 @@ fn original_pickup_rows_match_through_the_dispatcher() {
         let owner = sim.interner.intern("H0");
         let mut owner_house = HouseState::new(owner, 0, None, false, 0, 10);
         owner_house.multiplay_passive = input["passive"].as_i64() == Some(1);
-        sim.houses.insert(owner, owner_house);
+        sim.houses.register(owner_house);
         let actor = if input["null_actor"] == true {
             99
         } else {
@@ -633,11 +633,11 @@ fn arena() -> (Simulation, RuleSet, OverlayTypeRegistry, InternedId, u64) {
     sim.session.game_options.crates = false;
     // Bases off: no MCV pre-empt, and the random Unit draw refuses `BaseUnit=`.
     sim.session.game_options.bases = false;
+    // A normal game: its unit totals keep the buildingless House undefeated.
+    sim.session.game_options.short_game = false;
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        HouseState::new(owner, 0, Some(owner), true, 5000, 10),
-    );
+    sim.houses
+        .register(HouseState::new(owner, 0, Some(owner), true, 5000, 10));
     let actor = sim
         .spawn_object("TNK", "Americans", 20, 22, 0, &rules)
         .expect("the tank spawns");
@@ -795,10 +795,8 @@ fn mcv_preempt_grants_the_base_unit_with_bases_on() {
 fn heal_base_crate_restores_the_owners_buildings() {
     let (mut sim, rules, registry, owner, actor) = arena();
     let rival = sim.interner.intern("Russians");
-    sim.houses.insert(
-        rival,
-        HouseState::new(rival, 1, Some(rival), false, 5000, 10),
-    );
+    sim.houses
+        .register(HouseState::new(rival, 1, Some(rival), false, 5000, 10));
     let own = sim
         .spawn_object("YARD", "Americans", 8, 8, 0, &rules)
         .unwrap();

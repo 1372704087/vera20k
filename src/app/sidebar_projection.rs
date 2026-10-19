@@ -1114,10 +1114,10 @@ mod tests {
         sim.resolve_type_handles(&rules);
         let owner = sim.intern("Russians");
         let other_owner = sim.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 1, None, true, 50_000, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 1, None, true, 50_000, 10,
+            ));
         sim.session.current_house = Some(owner);
         let e2 = sim.interner.get("E2").unwrap();
         let mut projection = SidebarProjectionState::default();

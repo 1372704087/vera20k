@@ -120,7 +120,7 @@ fn fixture(rules: &RuleSet, input: &Value) -> (Simulation, u64, Option<u64>) {
     ] {
         let id = sim.interner.intern(house);
         sim.houses
-            .insert(id, HouseState::new(id, 0, Some(id), human, 5000, 10));
+            .register(HouseState::new(id, 0, Some(id), human, 5000, 10));
     }
     if input["allied"].as_bool().unwrap_or(false) {
         sim.house_alliances
@@ -335,7 +335,7 @@ fn production_fixture(
     for (house, human) in [("Americans", human), ("Russians", false)] {
         let id = sim.interner.intern(house);
         sim.houses
-            .insert(id, HouseState::new(id, 0, Some(id), human, 5000, 10));
+            .register(HouseState::new(id, 0, Some(id), human, 5000, 10));
     }
     let building = sim
         .spawn_object(kind, "Americans", BUILDING.0, BUILDING.1, 0, rules)

@@ -46,7 +46,7 @@ fn scene_with(
     for name in ["Americans", building_owner] {
         let owner = sim.intern(name);
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+            .get_or_register_for_test(owner, || HouseState::new(owner, 0, None, false, 0, 10));
     }
     let object = rules.object(engineer_type).unwrap();
     assert!(object.engineer);

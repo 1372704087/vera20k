@@ -51,7 +51,7 @@ fn run(
         &action,
         TriggerActionContext {
             live_index,
-            incoming_house: Some(sim.session.house_order[2]),
+            incoming_house: Some(sim.houses.order()[2]),
             input: TagEventInput::default(),
         },
         &mut Vec::new(),

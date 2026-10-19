@@ -118,8 +118,7 @@ fn sim() -> Simulation {
     let mut sim = Simulation::with_seed(7);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     sim.overlay_grid = Some(OverlayGrid::new(32, 32));
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(
         32,

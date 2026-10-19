@@ -694,8 +694,8 @@ pub(crate) fn commit_entities(
                         .get(event.attacker_id)
                         .and_then(|attacker| {
                             world
-                                .session
-                                .house_order
+                                .houses
+                                .order()
                                 .iter()
                                 .position(|owner| *owner == attacker.owner())
                         })

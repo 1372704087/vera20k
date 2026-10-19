@@ -59,7 +59,7 @@ fn response_world(frame: u32, attacker_at: (u16, u16)) -> Simulation {
     for (name, side) in [("Victim", 0), ("Enemy", 1)] {
         let id = test_intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, false, 0, 10));
+            .register(HouseState::new(id, side, None, false, 0, 10));
     }
     let victim = GameEntity::test_default_of_category(
         1,
@@ -699,8 +699,7 @@ fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
         for (name, side) in [("Americans", 0), ("Russians", 1)] {
             let owner = sim.interner.intern(name);
             sim.houses
-                .insert(owner, HouseState::new(owner, side, None, false, 0, 10));
-            sim.session.house_order.push(owner);
+                .register(HouseState::new(owner, side, None, false, 0, 10));
         }
         crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let victim = sim

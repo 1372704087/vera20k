@@ -22,11 +22,14 @@ fn fixture() -> (Simulation, RuleSet, OverlayTypeRegistry, [InternedId; 2]) {
         } else {
             "OtherCountry"
         });
-        sim.houses.insert(
+        sim.houses.register(HouseState::new(
             name,
-            HouseState::new(name, i as u8, Some(country), i == 0, 10000, 10),
-        );
-        sim.session.house_order.push(name);
+            i as u8,
+            Some(country),
+            i == 0,
+            10000,
+            10,
+        ));
         name
     });
     sim.session.current_house = Some(houses[0]);

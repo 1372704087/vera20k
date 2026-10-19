@@ -72,7 +72,7 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
     house.player_control = true;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     let id = sim
         .spawn_object("ENGINEER", "Americans", 9, 10, 0, &rules)
         .unwrap();

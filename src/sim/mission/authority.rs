@@ -1507,7 +1507,7 @@ mod tests {
                 let mut sim = Simulation::new();
                 let owner = sim.interner.intern("Receiver");
                 sim.houses
-                    .insert(owner, HouseState::new(owner, 0, None, true, 0, 0));
+                    .register(HouseState::new(owner, 0, None, true, 0, 0));
                 let mut actor = GameEntity::new_at_frame_zero_for_test(
                     1,
                     10,

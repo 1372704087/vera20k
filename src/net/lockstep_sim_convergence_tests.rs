@@ -77,8 +77,8 @@ fn gsi_04_07_wall_sell_raw_lockstep_replay_converges_with_semantic_execution() {
         ))
     );
     let dispatch_houses = raw
-        .session
-        .house_order
+        .houses
+        .order()
         .iter()
         .copied()
         .enumerate()
@@ -245,11 +245,15 @@ fn two_instance_multiplayer_checksums_match_every_frame_and_catch_a_desync() {
         sim.resolve_type_handles(&rules);
         for (index, (name, human)) in [("Local", true), ("Enemy", false)].into_iter().enumerate() {
             let owner = sim.interner.intern(name);
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, index as u8, None, human, 0, 10),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner,
+                    index as u8,
+                    None,
+                    human,
+                    0,
+                    10,
+                ));
         }
         sim.session.current_house = sim.interner.get("Local");
         let costs = rules
@@ -353,8 +357,8 @@ fn two_instance_multiplayer_checksums_match_every_frame_and_catch_a_desync() {
         }
         queue.transfer_single_player();
         let houses = raw
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .enumerate()
             .map(|(index, owner)| {
@@ -392,7 +396,11 @@ fn two_instance_multiplayer_checksums_match_every_frame_and_catch_a_desync() {
     }
     assert_eq!(live.state_hash(), raw.state_hash());
     let moved = &live.substrate.entities.get(actor).unwrap().position;
-    assert_ne!((moved.rx(), moved.ry()), (10, 10), "the Move order executed");
+    assert_ne!(
+        (moved.rx(), moved.ry()),
+        (10, 10),
+        "the Move order executed"
+    );
     assert!(
         live.substrate
             .entities

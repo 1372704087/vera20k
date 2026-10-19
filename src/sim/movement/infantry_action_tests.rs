@@ -43,10 +43,10 @@ fn cheer_matches_original_admission_and_shared_do_action_clock() {
             "{input}: supplied native Cheer count"
         );
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
         sim.session.binary_frame = 100;
         // infantry_deploy_action leaves GameOptions+A8EB60 at the loaded
         // image's zero prior; Cheer normalizes its action-table delay there.
@@ -188,10 +188,10 @@ fn rocketeer(input: &Value) -> (Simulation, RuleSet, u64) {
     // Original Actions/States supplies A8ED84=1000.
     sim.session.binary_frame = 1000;
     let house = sim.interner.intern("Americans");
-    sim.houses.insert(
-        house,
-        crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            house, 0, None, true, 0, 10,
+        ));
     sim.session.game_options.game_speed = input["game_speed"].as_i64().unwrap_or(1) as i32;
     let type_id = if input["jumpjet"].as_bool().unwrap_or(true) {
         "JUMPJET"
@@ -476,10 +476,10 @@ fn walk_consumer(input: &Value) -> (Simulation, RuleSet, u64) {
     let mut sim = Simulation::with_seed(0);
     sim.session.binary_frame = 100;
     let house = sim.interner.intern("Americans");
-    sim.houses.insert(
-        house,
-        crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            house, 0, None, true, 0, 10,
+        ));
     let id = sim
         .construct_object_limbo_at_height(
             "E1",
@@ -638,10 +638,10 @@ fn retail_teleport_default_action_matches_the_native_sequencer() {
         sim.session.binary_frame = 1000;
         sim.session.game_options.game_speed = 1;
         let house = sim.interner.intern("Americans");
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(house, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house, 0, None, true, 0, 10,
+            ));
         let id = sim
             .construct_object_limbo_at_height(
                 "CLEG",

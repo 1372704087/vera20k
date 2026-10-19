@@ -467,10 +467,9 @@ pub(crate) fn reinforcement_world(
         None,
         Some(&rules.general),
     );
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     sim.houses
-        .insert(enemy, HouseState::new(enemy, 0, Some(country), true, 0, 10));
-    sim.session.house_order = vec![owner, enemy];
+        .register(HouseState::new(enemy, 0, Some(country), true, 0, 10));
     sim.session.current_house = Some(if input["allied"].as_bool().unwrap_or(true) {
         owner
     } else {

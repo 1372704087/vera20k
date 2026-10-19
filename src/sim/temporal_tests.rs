@@ -195,8 +195,7 @@ fn sim(seed: u64) -> Simulation {
     ] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     sim
 }
@@ -2631,7 +2630,7 @@ fn arena(seed: u64, rules: &RuleSet) -> (Simulation, crate::sim::pathfinding::Pa
     let mut sim = sim(seed);
     // Native Houses construct all stock Supers before object placement; these
     // synthetic arenas do not run the production scenario bootstrap.
-    for owner in sim.session.house_order.clone() {
+    for owner in sim.houses.order().to_vec() {
         for name in &rules.super_weapon_order {
             let id = sim.interner.intern(name);
             sim.super_weapons.entry(owner).or_default().insert(

@@ -204,9 +204,8 @@ mod tests {
         let mut sim = crate::sim::world::Simulation::with_seed(17);
         let owner = sim.interner.intern("Allies");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 500, 10));
+            .register(HouseState::new(owner, 0, None, true, 500, 10));
         sim.session.current_house = Some(owner);
-        sim.session.house_order.push(owner);
         let mut runtime = crate::sim::runtime::SimRuntime::from_simulation(sim);
         let mut diagnostics = MatchDiagnosticsState::default();
         assert!(diagnostics.get_or_begin_replay(&runtime).is_some());

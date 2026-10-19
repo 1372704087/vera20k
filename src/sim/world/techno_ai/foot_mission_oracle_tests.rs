@@ -550,12 +550,10 @@ impl SuppliedFootFixture {
         let country = sim.interner.intern("Americans");
         // Original fixture supplies House human bytes and country links, then
         // executes4F643B..4F6455. Whole House construction remains excluded.
-        sim.houses.insert(
-            friendly,
-            HouseState::new(friendly, 0, Some(country), true, 0, 10),
-        );
         sim.houses
-            .insert(enemy, HouseState::new(enemy, 0, Some(country), true, 0, 10));
+            .register(HouseState::new(friendly, 0, Some(country), true, 0, 10));
+        sim.houses
+            .register(HouseState::new(enemy, 0, Some(country), true, 0, 10));
         let source_pose = native["greatest_threat_rows"]
             .as_array()
             .unwrap()

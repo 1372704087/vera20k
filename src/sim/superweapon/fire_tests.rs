@@ -67,8 +67,7 @@ fn sim(rules: &RuleSet, human: bool, levels: &[((u16, u16), u8)]) -> Simulation 
     sim.resolve_type_handles(rules);
     let owner = sim.interner.intern(OWNER);
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, human, 0, 10));
     sim.session.game_options.super_weapons = true;
     sim.resolved_terrain = Some(test_grid(64, 64, |x, y| ResolvedTerrainCell {
         level: levels

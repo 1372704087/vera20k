@@ -933,8 +933,8 @@ fn reveal_on_fire(
         // No callback or RNG occurs in this border. Use stable House order
         // for the logical client planes and the shared canonical Dummy.
         let mut viewers: Vec<_> = world
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .copied()
             .filter(|&house| world.owner_is_human(house))
@@ -943,9 +943,7 @@ fn reveal_on_fire(
             .houses
             .keys()
             .copied()
-            .filter(|house| {
-                !world.session.house_order.contains(house) && world.owner_is_human(*house)
-            })
+            .filter(|house| !world.houses.order().contains(house) && world.owner_is_human(*house))
             .collect();
         extra.sort_unstable();
         viewers.extend(extra);
@@ -2635,7 +2633,7 @@ mod reveal_on_fire_tests {
         for (name, human) in [("Americans", true), ("Soviet", false)] {
             let id = sim.interner.intern(name);
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, human, 0, 10));
+                .register(HouseState::new(id, 0, None, human, 0, 10));
         }
         for (id, owner, rx) in [(1, "Soviet", 10), (2, "Americans", 12)] {
             let mut entity = GameEntity::test_default(id, "MTNK", owner, rx, 10);

@@ -394,10 +394,12 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
     // A player's tank: ReceiveDamage's scatter tail moves a computer's host
     // off its cell at a bite (`0x00702C8A`).
     let owner = arena.sim.entities().get(tank).unwrap().owner();
-    arena.sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
+    arena
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     arena.infect(&rules, drone, tank);
     assert!(arena.in_limbo(drone));
 
@@ -475,10 +477,12 @@ fn a_paid_repair_radio_request_releases_the_drone_after_the_heal() {
     // A player's tank, before the sourceless hit: ReceiveDamage's scatter tail
     // moves a computer's (`0x00702C8A`).
     let owner = arena.sim.entities().get(tank).unwrap().owner();
-    arena.sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
+    arena
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     arena.hit(&rules, tank, None, 10, "AP");
     arena.infect(&rules, drone, tank);
     let hp = arena.health(tank).unwrap();
@@ -1262,15 +1266,19 @@ fn grinder_arrival_refunds_the_infesting_drone_before_forced_release() {
     actor
         .navigation
         .set_nav_com_for_test(Some(NavTargetRef::object(building)));
-    arena.sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
+    arena
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let russian = arena.sim.interner.get("Russians").unwrap();
-    arena.sim.houses.insert(
-        russian,
-        crate::sim::house_state::HouseState::new(russian, 1, None, false, 0, 10),
-    );
+    arena
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            russian, 1, None, false, 0, 10,
+        ));
     let before = arena.sim.houses[&owner].economy.credits();
     arena
         .sim

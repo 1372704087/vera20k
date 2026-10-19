@@ -342,10 +342,10 @@ fn production_pair(rules: &RuleSet) -> (Simulation, u64, u64) {
     // turn. Supply both live House owners instead of a null-house fixture.
     for name in ["Americans", "Russians"] {
         let owner = sim.interner.intern(name);
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
     }
     let firer = sim.spawn_object("E1", "Americans", 5, 5, 0, rules).unwrap();
     let target = sim.spawn_object("E2", "Russians", 8, 5, 0, rules).unwrap();

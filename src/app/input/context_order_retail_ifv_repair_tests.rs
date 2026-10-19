@@ -16,8 +16,7 @@ fn boarded_ifv(rules: &RuleSet, passenger_type: &str) -> (Simulation, u64, u64) 
     for (name, side) in [(OWNER, 0), ("Russians", 1)] {
         let owner = sim.interner.intern(name);
         sim.houses
-            .insert(owner, HouseState::new(owner, side, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, side, None, true, 0, 10));
     }
     sim.session.current_house = sim.interner.get(OWNER);
     crate::sim::arena_fixture::flat_arena(&mut sim, rules);
@@ -654,8 +653,7 @@ fn unit_repair_vehicle_class_matches_fire_error_including_undeploy_building() {
     let owner = sim.interner.intern(OWNER);
     sim.session.current_house = Some(owner);
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);

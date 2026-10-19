@@ -514,8 +514,8 @@ impl MatchScenario {
             taken.extend(house.base_center);
         }
         let computers: Vec<(InternedId, (u16, u16))> = sim
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .filter_map(|&id| {
                 let house = sim.houses.get(&id)?;

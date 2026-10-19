@@ -106,18 +106,14 @@ fn production_sim(seed: u64, oracle: &OutboundContractOracle) -> Simulation {
 
 fn seed_human_house(sim: &mut Simulation, owner: &str) {
     let owner_id = sim.interner.intern(owner);
-    sim.houses.insert(
+    sim.houses.register(HouseState::new(
         owner_id,
-        HouseState::new(
-            owner_id,
-            0,
-            Some(owner_id),
-            true,
-            crate::sim::production::STARTING_CREDITS,
-            10,
-        ),
-    );
-    sim.session.house_order.push(owner_id);
+        0,
+        Some(owner_id),
+        true,
+        crate::sim::production::STARTING_CREDITS,
+        10,
+    ));
 }
 
 fn resolved_cell(

@@ -25,11 +25,15 @@ fn fixture() -> (Simulation, RuleSet, OverlayTypeRegistry) {
     let (mut sim, rules, registry) =
         crate::sim::world::entry_test_fixture::fixture_with_rules(CARGO_RULES);
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner,
+            0,
+            Some(owner),
+            true,
+            0,
+            10,
+        ));
     sim.session.game_options.crates = true;
     (sim, rules, registry)
 }

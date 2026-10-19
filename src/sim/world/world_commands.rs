@@ -154,8 +154,8 @@ impl Simulation {
             return None;
         }
         let index = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .position(|&registered| registered == owner)?;
         let index = i8::try_from(index).ok()?;
@@ -188,8 +188,8 @@ impl Simulation {
             return None;
         }
         let house_id = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
@@ -430,8 +430,8 @@ impl Simulation {
             return None;
         }
         let house_id = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
@@ -458,8 +458,8 @@ impl Simulation {
             return None;
         }
         let house_id = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
@@ -483,8 +483,8 @@ impl Simulation {
             return None;
         }
         let house_id = self
-            .session
-            .house_order
+            .houses
+            .order()
             .iter()
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
@@ -511,7 +511,7 @@ impl Simulation {
                 && matches!(record.payload()[22], 1 | 2))
         {
             let house_index = usize::try_from(record.house_id()).ok()?;
-            let owner = *self.session.house_order.get(house_index)?;
+            let owner = *self.houses.order().get(house_index)?;
             return self.houses.contains_key(&owner).then(|| {
                 CommandEnvelope::new(
                     owner,
@@ -524,7 +524,7 @@ impl Simulation {
         }
         if let Some(typed) = ScatterRecord::decode(record) {
             let house_index = usize::try_from(typed.house_id).ok()?;
-            let owner = *self.session.house_order.get(house_index)?;
+            let owner = *self.houses.order().get(house_index)?;
             if !self.houses.contains_key(&owner) {
                 return None;
             }
@@ -538,7 +538,7 @@ impl Simulation {
         }
         if let Some(typed) = MegaMissionRecord::decode(record) {
             let house_index = usize::try_from(typed.house_id).ok()?;
-            let owner = *self.session.house_order.get(house_index)?;
+            let owner = *self.houses.order().get(house_index)?;
             if !self.houses.contains_key(&owner) {
                 return None;
             }
@@ -612,7 +612,7 @@ impl Simulation {
         //lock, cooldown, selection or product admission being repeated.
         if record.opcode() == crate::sim::command::CHEER_OPCODE {
             let index = usize::try_from(record.house_id()).ok()?;
-            let owner = *self.session.house_order.get(index)?;
+            let owner = *self.houses.order().get(index)?;
             return self
                 .houses
                 .contains_key(&owner)
@@ -621,7 +621,7 @@ impl Simulation {
 
         if let Some(typed) = ExitRecord::decode(record) {
             let house_index = usize::try_from(typed.house_id).ok()?;
-            let owner = *self.session.house_order.get(house_index)?;
+            let owner = *self.houses.order().get(house_index)?;
             return self
                 .houses
                 .contains_key(&owner)
@@ -630,7 +630,7 @@ impl Simulation {
 
         let typed = SellWallAtCellRecord::decode(record)?;
         let house_index = usize::try_from(typed.house_id).ok()?;
-        let owner = *self.session.house_order.get(house_index)?;
+        let owner = *self.houses.order().get(house_index)?;
         self.houses.contains_key(&owner).then(|| {
             CommandEnvelope::new(
                 owner,

@@ -243,7 +243,7 @@ fn simulation(
     let type_ref = sim.interner.intern(type_id);
     let mut house = HouseState::new(owner, 0, None, owner == local, 0, 10);
     house.multiplay_passive = passive;
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.session.current_house = Some(local);

@@ -25,8 +25,7 @@ fn a_computer_tanya_guarding_with_a_building_target_queues_sabotage() {
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let mut spawn = |kind, owner, x, y| {

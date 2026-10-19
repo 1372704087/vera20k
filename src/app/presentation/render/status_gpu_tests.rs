@@ -148,7 +148,7 @@ fn native_self_heal_draw_fault_order() {
             if infantry { count } else { 0 },
             if infantry { 0 } else { count },
         );
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.session.binary_frame = row["binary_frame"].as_i64().unwrap() as u32;
         let object = rules.object(name).unwrap();
         let type_ref = sim.interner.intern(name);
@@ -239,7 +239,7 @@ fn production_self_heal_status_workload_timing() {
             let type_ref = sim.interner.intern("MTNK");
             let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
             crate::sim::arena_fixture::install_status_self_heal(&mut house, 0, 1);
-            sim.houses.insert(owner, house);
+            sim.houses.register(house);
             sim.fog = crate::sim::vision::FogState::new(64, 64);
             sim.fog.reveal_all_for_owner(owner);
             let ids: Vec<_> = (1..=count as u64).collect();
@@ -577,8 +577,7 @@ fn native_building_status_labels(fixture: &'static str) {
             sim.session.current_house = Some(owner);
             for house in [owner, ally] {
                 sim.houses
-                    .insert(house, HouseState::new(house, 0, None, true, 0, 10));
-                sim.session.house_order.push(house);
+                    .register(HouseState::new(house, 0, None, true, 0, 10));
             }
             if let Some(totals) = input["retained_house_power"].as_object() {
                 for (name, values) in totals {
@@ -958,7 +957,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     input["self_heal_infantry"].as_i64().unwrap_or(0) as i32,
                     input["self_heal_units"].as_i64().unwrap_or(0) as i32,
                 );
-                sim.houses.insert(owner, house);
+                sim.houses.register(house);
             }
             sim.fog = crate::sim::vision::FogState::new(64, 64);
             sim.fog.reveal_all_for_owner(owner);
@@ -1326,8 +1325,11 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     );
                     entity.lifecycle.set_in_limbo_for_test(false);
                     sim.entities_mut().insert(entity);
-                    if !sim.session.house_order.contains(&owner) {
-                        sim.session.house_order.push(owner);
+                    if !sim.houses.contains_key(&owner) {
+                        sim.houses
+                            .register(crate::sim::house_state::HouseState::new(
+                                owner, 0, None, false, 0, 10,
+                            ));
                     }
                     let frame = sim.session.binary_frame;
                     sim.session.binary_frame = start as u32;

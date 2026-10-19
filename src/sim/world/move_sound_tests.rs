@@ -53,8 +53,7 @@ fn scene(input: &Value, before: &Value, rules: &RuleSet) -> (Simulation, u64) {
     sim.resolve_type_handles(rules);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     let id = sim.allocate_stable_id();
     let xyz: Vec<_> = before["xyz"]
         .as_array()

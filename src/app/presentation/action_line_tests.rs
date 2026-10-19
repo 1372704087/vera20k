@@ -131,7 +131,7 @@ fn fixture(row: &Value) -> (Simulation, TargetLineState, TacticalViewport) {
         house.is_human = flags[0].as_bool().unwrap();
         house.player_control = flags[1].as_bool().unwrap();
     }
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     sim.session.binary_frame = input["frame"].as_u64().unwrap_or(100) as u32;
     // The timer must consume the binary frame, independently of VERA's tick.
     sim.session.tick = 999_999;

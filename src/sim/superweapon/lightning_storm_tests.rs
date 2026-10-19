@@ -186,8 +186,7 @@ fn fixture_world(
         let id = sim.interner.intern(&name);
         let mut state = HouseState::new(id, 0, None, Some(index) == player, 0, 10);
         state.is_defeated = flag(&house[1]);
-        sim.houses.insert(id, state);
-        sim.session.house_order.push(id);
+        sim.houses.register(state);
         sim.power_states.insert(id, PowerState::settled_for_test());
         let bits = int(&house[0]);
         let allies = sim.house_alliances.entry(name).or_default();

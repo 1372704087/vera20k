@@ -55,8 +55,7 @@ fn world(rules: &RuleSet) -> Simulation {
     ] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, 0, Some(id), human, 2000, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, 0, Some(id), human, 2000, 10));
         construct_house_supers(&mut sim, rules, id, false);
     }
     sim.session
@@ -647,23 +646,22 @@ fn unit_delivery_civilian_uses_first_existing_house_not_first_country() {
         let first = sim.interner.get("CIVONE").unwrap();
         let second = sim.interner.get("CIVTWO").unwrap();
         if remove_first {
-            sim.houses.remove(&first);
+            sim.houses.remove_for_test(&first);
             sim.super_weapons.remove(&first);
-            sim.session.house_order.retain(|owner| *owner != first);
         } else {
             let first_index = sim
-                .session
-                .house_order
+                .houses
+                .order()
                 .iter()
                 .position(|id| *id == first)
                 .unwrap();
             let second_index = sim
-                .session
-                .house_order
+                .houses
+                .order()
                 .iter()
                 .position(|id| *id == second)
                 .unwrap();
-            sim.session.house_order.swap(first_index, second_index);
+            sim.houses.swap_order_for_test(first_index, second_index);
         }
         fire(&mut sim, &rules, "Americans", (12, 10));
         let ids = payloads(&sim, "MTNK");

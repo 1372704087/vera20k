@@ -122,11 +122,8 @@ fn scene(rules: &RuleSet, input: &Value) -> (Simulation, u64, u64) {
     let mut sim = Simulation::new();
     for (index, name) in ["Russians", "Americans"].into_iter().enumerate() {
         let owner = sim.intern(name);
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, index as u8, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(HouseState::new(owner, index as u8, None, true, 0, 10));
     }
     sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_flat_ground_grid(
         64,

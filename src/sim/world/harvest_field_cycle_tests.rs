@@ -360,7 +360,7 @@ fn retail_war_miner_area_guard_returns_to_harvesting() {
         s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
         let owner = s.sim.entities().get(s.miner).unwrap().owner();
         s.sim.session.current_house = Some(owner);
-        s.sim.session.house_order = vec![owner];
+        s.sim.houses.reorder_for_test(&[owner]);
         let ore_cell = if on_ore { (15, 15) } else { (16, 15) };
         let ore = registry.id_for_name("TIB01").unwrap();
         let grid = s.sim.overlay_grid.as_mut().unwrap();
@@ -498,7 +498,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
         let enemy = s.sim.interner.intern("Russians");
         s.sim
             .houses
-            .insert(enemy, HouseState::new(enemy, 1, None, true, 0, 10));
+            .register(HouseState::new(enemy, 1, None, true, 0, 10));
         let victim = s
             .sim
             .spawn_object("E1", "Russians", 20, 15, 0, &s.rules)

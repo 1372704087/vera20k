@@ -62,7 +62,7 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
         );
         for house in [player, owner] {
             sim.houses
-                .insert(house, HouseState::new(house, 0, None, true, 0, 10));
+                .register(HouseState::new(house, 0, None, true, 0, 10));
         }
         sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_grid(
             24,
@@ -154,8 +154,7 @@ fn constructor_complete_foot_destructors_match_native_team_gate_and_rng() {
             .set_started(input["scenario_started_byte"].as_i64().unwrap() != 0);
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, Some(owner), true, 0, 10));
-        sim.session.house_order = vec![owner];
+            .register(HouseState::new(owner, 0, Some(owner), true, 0, 10));
         let definitions = IniFile::from_str(&format!(
             "[TeamTypes]\n0=TT\n[TT]\nHouse=Americans\nScript=S\nTaskForce=F\nWaypoint=E\nMax=-1\n[ScriptTypes]\n0=S\n[S]\n0=3,4\n[TaskForces]\n0=F\n[F]\n0=1,{typ}\n"
         ));
@@ -354,7 +353,7 @@ fn insert_reservation_building(
     spacing: i32,
 ) -> crate::sim::intern::InternedId {
     let owner = sim.interner.intern(owner_name);
-    sim.houses.entry(owner).or_insert_with(|| {
+    sim.houses.get_or_register_for_test(owner, || {
         HouseState::new(
             owner,
             0,
@@ -503,8 +502,7 @@ fn receiver_fatal_limbo_clears_sparse_map_dummy_reservation() {
         .as_mut()
         .unwrap()
         .test_set_native_allocated_cells(&allocated);
-    let owner = insert_reservation_building(&mut sim, 41, "Americans", 10, 10, "1x1", 1);
-    sim.session.house_order.push(owner);
+    insert_reservation_building(&mut sim, 41, "Americans", 10, 10, "1x1", 1);
     assert!(matches!(
         sim.try_reveal_entity(41, common_raw_request(10, 10, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -4500,7 +4498,7 @@ fn gsi_05_03_duplicate_uninit_repeats_direct_expiry_and_queue_but_finalizes_once
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     // As its construction would: Add_Tracking.
     sim.update_house_tracking(1, crate::sim::house_tracking::HouseTracking::add_tracking);
@@ -4641,7 +4639,7 @@ fn lifecycle_authority_uninit_records_once_and_the_drain_removes_the_tracking() 
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     sim.update_house_tracking(1, crate::sim::house_tracking::HouseTracking::add_tracking);
 
@@ -4664,7 +4662,6 @@ fn lifecycle_authority_uninit_records_once_and_the_drain_removes_the_tracking() 
 fn gsi_04_05_reservation_successful_reveal_marks_expanded_rect_after_lists() {
     let mut sim = Simulation::new();
     let owner = insert_reservation_building(&mut sim, 101, "Americans", 10, 20, "2x3", 1);
-    sim.session.house_order.push(owner);
 
     assert!(matches!(
         sim.try_reveal_entity(101, request(10, 20, PlacementEvidence::MarkSucceeded)),
@@ -4725,7 +4722,7 @@ fn gsi_04_16_dustbowl_conyard_unlimbo_uses_local_size_edge() {
     let owner = sim.interner.intern("Americans");
     let mut house = HouseState::new(owner, 0, None, true, 0, 10);
     house.base_center = Some((70, 116));
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
 
     let conyard = sim
         .spawn_object("GACNST", "Americans", 69, 115, 0, &rules)
@@ -4752,10 +4749,10 @@ fn gsi_04_16_committed_structure_owner_change_refreshes_new_house_edge() {
     let old_owner = sim.interner.intern("Americans");
     let new_owner = sim.interner.intern("Soviets");
     sim.houses
-        .insert(old_owner, HouseState::new(old_owner, 0, None, true, 0, 10));
+        .register(HouseState::new(old_owner, 0, None, true, 0, 10));
     let mut new_house = HouseState::new(new_owner, 1, None, false, 0, 10);
     new_house.base_center = Some((68, 114));
-    sim.houses.insert(new_owner, new_house);
+    sim.houses.register(new_house);
     let conyard = sim
         .spawn_object("GACNST", "Americans", 69, 115, 0, &rules)
         .expect("GACNST reveals");
@@ -4776,10 +4773,10 @@ fn gsi_04_16_caoild_reveal_and_owner_change_preserve_waypoint_edges() {
     let new_owner = sim.interner.intern("Soviets");
     let mut old_house = HouseState::new(old_owner, 0, None, true, 0, 10);
     old_house.waypoint_edge = 1;
-    sim.houses.insert(old_owner, old_house);
+    sim.houses.register(old_house);
     let mut new_house = HouseState::new(new_owner, 1, None, false, 0, 10);
     new_house.waypoint_edge = 3;
-    sim.houses.insert(new_owner, new_house);
+    sim.houses.register(new_house);
 
     let oil = sim
         .spawn_object("CAOILD", "Americans", 69, 115, 0, &rules)
@@ -4803,8 +4800,7 @@ fn gsi_04_16_caoild_reveal_and_owner_change_preserve_waypoint_edges() {
 #[test]
 fn gsi_04_05_reservation_failed_reveal_never_writes() {
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 102, "Americans", 10, 20, "2x2", 1);
-    sim.session.house_order.push(owner);
+    insert_reservation_building(&mut sim, 102, "Americans", 10, 20, "2x2", 1);
 
     assert_eq!(
         sim.try_reveal_entity(102, request(10, 20, PlacementEvidence::MarkFailed)),
@@ -4822,7 +4818,6 @@ fn gsi_04_05_reservation_failed_reveal_never_writes() {
 fn gsi_04_05_reservation_clear_removes_perimeter_but_retains_bounds() {
     let mut sim = Simulation::new();
     let owner = insert_reservation_building(&mut sim, 111, "Americans", 10, 10, "1x1", 1);
-    sim.session.house_order.push(owner);
     let _ = sim.try_reveal_entity(111, request(10, 10, PlacementEvidence::MarkSucceeded));
     assert_eq!(
         sim.houses
@@ -4844,9 +4839,11 @@ fn gsi_04_05_reservation_clear_removes_perimeter_but_retains_bounds() {
 #[test]
 fn gsi_04_05_reservation_limbo_clears_before_unlink_repairs_overlap_and_preserves_other_house() {
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 103, "Americans", 10, 10, "1x1", 1);
+    insert_reservation_building(&mut sim, 103, "Americans", 10, 10, "1x1", 1);
     let other = sim.interner.intern("Russians");
-    sim.session.house_order.extend([owner, other]);
+    sim.houses.get_or_register_for_test(other, || {
+        crate::sim::house_state::HouseState::new(other, 1, None, false, 0, 10)
+    });
     insert_reservation_building(&mut sim, 104, "Americans", 12, 10, "1x1", 1);
     let _ = sim.try_reveal_entity(103, request(10, 10, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(104, request(12, 10, PlacementEvidence::MarkSucceeded));
@@ -4892,8 +4889,7 @@ fn gsi_04_05_reservation_repair_scan_reaches_asymmetric_high_edge() {
     );
 
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 107, "Americans", 10, 20, "4x4", 1);
-    sim.session.house_order.push(owner);
+    insert_reservation_building(&mut sim, 107, "Americans", 10, 20, "4x4", 1);
     insert_reservation_building(&mut sim, 108, "Americans", 16, 20, "1x1", 2);
     let _ = sim.try_reveal_entity(107, request(10, 20, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(108, request(16, 20, PlacementEvidence::MarkSucceeded));
@@ -4923,8 +4919,7 @@ fn gsi_04_05_reservation_origins_truncate_after_first_spacing_subtraction() {
 #[test]
 fn gsi_04_05_reservation_repair_replays_multicell_neighbor_for_every_hit() {
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 109, "Americans", 10, 10, "1x1", 1);
-    sim.session.house_order.push(owner);
+    insert_reservation_building(&mut sim, 109, "Americans", 10, 10, "1x1", 1);
     insert_reservation_building(&mut sim, 110, "Americans", 12, 10, "2x2", 1);
     let _ = sim.try_reveal_entity(109, request(10, 10, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(110, request(12, 10, PlacementEvidence::MarkSucceeded));
@@ -4983,9 +4978,7 @@ fn gsi_04_05_reservation_processed_foundation_precedes_metadata_and_lifecycle_ma
     let spacing = gacnst.base_reservation_spacing.unwrap();
 
     let mut sim = Simulation::new();
-    let owner =
-        insert_reservation_building(&mut sim, 106, "Americans", 30, 40, &foundation, spacing);
-    sim.session.house_order.push(owner);
+    insert_reservation_building(&mut sim, 106, "Americans", 30, 40, &foundation, spacing);
     assert!(matches!(
         sim.try_reveal_entity(106, request(30, 40, PlacementEvidence::MarkSucceeded)),
         RevealOutcome::Revealed { .. }
@@ -5004,14 +4997,10 @@ fn score_stats_credit_the_killer_and_charge_the_victim_once() {
     let mut sim = Simulation::new();
     let victim_owner = sim.interner.intern("Americans");
     let killer_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        victim_owner,
-        HouseState::new(victim_owner, 0, None, true, 0, 10),
-    );
-    sim.houses.insert(
-        killer_owner,
-        HouseState::new(killer_owner, 1, None, false, 0, 10),
-    );
+    sim.houses
+        .register(HouseState::new(victim_owner, 0, None, true, 0, 10));
+    sim.houses
+        .register(HouseState::new(killer_owner, 1, None, false, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
     victim.health.set_for_test(0);
@@ -5052,14 +5041,10 @@ fn score_stats_come_from_the_kill_record_captured_at_destruction() {
     let mut sim = Simulation::new();
     let victim_owner = sim.interner.intern("Americans");
     let killer_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        victim_owner,
-        HouseState::new(victim_owner, 0, None, true, 0, 10),
-    );
-    sim.houses.insert(
-        killer_owner,
-        HouseState::new(killer_owner, 1, None, false, 0, 10),
-    );
+    sim.houses
+        .register(HouseState::new(victim_owner, 0, None, true, 0, 10));
+    sim.houses
+        .register(HouseState::new(killer_owner, 1, None, false, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
     victim.health.set_for_test(0);
@@ -5083,7 +5068,7 @@ fn score_stats_ignore_a_removal_that_was_not_a_destruction() {
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
     sim.substrate
         .entities
@@ -5109,7 +5094,7 @@ fn score_stats_count_a_self_inflicted_kill_but_award_no_points() {
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Structure);
     sim.substrate
         .entities
@@ -5145,14 +5130,10 @@ fn dont_score_victims_book_no_kill_no_loss_and_no_points() {
     let mut sim = Simulation::new();
     let victim_owner = sim.interner.intern("Americans");
     let killer_owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        victim_owner,
-        HouseState::new(victim_owner, 0, None, true, 0, 10),
-    );
-    sim.houses.insert(
-        killer_owner,
-        HouseState::new(killer_owner, 1, None, false, 0, 10),
-    );
+    sim.houses
+        .register(HouseState::new(victim_owner, 0, None, true, 0, 10));
+    sim.houses
+        .register(HouseState::new(killer_owner, 1, None, false, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Infantry);
     let victim = sim.substrate.entities.get_mut(1).unwrap();
     victim.health.set_for_test(0);
@@ -5216,7 +5197,7 @@ fn lifecycle_authority_animated_death_stays_represented_until_uninit() {
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_entity(&mut sim, 1, EntityCategory::Unit);
     sim.update_house_tracking(1, crate::sim::house_tracking::HouseTracking::add_tracking);
     let _ = sim.reveal(1);
@@ -8744,7 +8725,7 @@ fn naval_build_const_reveal_conceal_and_reentry_preserve_acquisition_order() {
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+        .register(HouseState::new(owner, 0, None, true, 0, 10));
     insert_naval_build_const_fixture(&mut sim, 20, owner, 2, 2);
     insert_naval_build_const_fixture(&mut sim, 10, owner, 4, 2);
     insert_naval_build_const_fixture(&mut sim, 30, owner, 6, 2);
@@ -8823,9 +8804,9 @@ fn naval_build_const_capture_moves_old_entry_to_new_owner_tail() {
     let old_owner = sim.interner.intern("Americans");
     let new_owner = sim.interner.intern("Russians");
     sim.houses
-        .insert(old_owner, HouseState::new(old_owner, 0, None, true, 0, 10));
+        .register(HouseState::new(old_owner, 0, None, true, 0, 10));
     sim.houses
-        .insert(new_owner, HouseState::new(new_owner, 1, None, false, 0, 10));
+        .register(HouseState::new(new_owner, 1, None, false, 0, 10));
     insert_naval_build_const_fixture(&mut sim, 50, new_owner, 8, 8);
     insert_naval_build_const_fixture(&mut sim, 40, old_owner, 2, 2);
     insert_naval_build_const_fixture(&mut sim, 12, old_owner, 4, 2);

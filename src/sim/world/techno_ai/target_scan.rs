@@ -1106,8 +1106,7 @@ mod tests {
         {
             let id = sim.interner.intern(name);
             let house = HouseState::new(id, index as u8, None, human, 0, 10);
-            sim.houses.insert(id, house);
-            sim.session.house_order.push(id);
+            sim.houses.register(house);
         }
         let plane = sim
             .spawn_object_at_height("PLANE", "Americans", 10, 10, 0, 0, &rules)
@@ -1513,7 +1512,7 @@ mod tests {
             let owner = sim.interner.intern("Americans");
             let human = input["human"].as_bool().unwrap_or(true);
             sim.houses
-                .insert(owner, HouseState::new(owner, 0, None, human, 0, 10));
+                .register(HouseState::new(owner, 0, None, human, 0, 10));
             let mut entity = GameEntity::test_default(1, "X", "Americans", 10, 10);
             entity.set_owner_for_test(owner);
             entity.set_type_ref_for_test(sim.interner.intern(&type_name(input)));

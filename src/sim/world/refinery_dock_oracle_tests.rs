@@ -234,7 +234,7 @@ pub(super) fn scene_with(input: &Value, rules: RuleSet, ini: &IniFile) -> Scene 
     if input["income_mult"].is_number() {
         house.country = Some(owner);
     }
-    sim.houses.insert(owner, house);
+    sim.houses.register(house);
     sim.session.set_game_mode(
         crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(
             input["game_mode"].as_u64().unwrap_or(1) != 0,

@@ -105,9 +105,8 @@ impl Scene {
         terrain.test_set_native_allocated_cells(&allocated);
         let owner = sim.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, Some(owner), true, 0, 10));
+            .register(HouseState::new(owner, 0, Some(owner), true, 0, 10));
         sim.power_states.insert(owner, PowerState::default());
-        sim.session.house_order.push(owner);
         sim.session.current_house = Some(owner);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(

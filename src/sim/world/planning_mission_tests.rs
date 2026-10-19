@@ -12,10 +12,10 @@ fn scene() -> Option<(Simulation, crate::rules::ruleset::RuleSet, InternedId)> {
     sim.session.game_options.short_game = false;
     sim.session.game_options.multi_engineer = false;
     let owner = sim.interner.get("Americans").unwrap();
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
+    sim.houses
+        .insert_for_test(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     sim.session.current_house = Some(owner);
     Some((sim, rules, owner))
 }

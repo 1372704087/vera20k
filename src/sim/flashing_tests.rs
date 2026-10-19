@@ -59,8 +59,7 @@ fn arena(rules: &RuleSet, player: &str) -> (Simulation, crate::sim::pathfinding:
     ] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     sim.session.current_house = Some(sim.interner.intern(player));
     let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
@@ -240,8 +239,7 @@ fn a_building_flashes_unless_its_raw_disguise_flag_is_up() {
     let mut sim = Simulation::with_seed(7);
     let americans = sim.interner.intern("Americans");
     sim.houses
-        .insert(americans, HouseState::new(americans, 0, None, true, 0, 10));
-    sim.session.house_order.push(americans);
+        .register(HouseState::new(americans, 0, None, true, 0, 10));
     sim.session.current_house = Some(americans);
     let power = spawn(&mut sim, &rules, "GAPOWR", "Americans", 10, 10);
     sim.flash_object(power, 7);

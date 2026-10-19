@@ -907,10 +907,10 @@ mod tests {
             .place_overlay(10, 10, wood, 0);
         let owner = sim.interner.intern("Americans");
         let type_ref = sim.interner.intern("JUMPJETUNIT");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         let e = sim.substrate.entities.get_mut(1).unwrap();
         e.set_owner_for_test(owner);
         e.set_type_ref_for_test(type_ref);
@@ -1074,10 +1074,10 @@ mod tests {
              [OverlayTypes]\n239=WOOD\n[WOOD]\nCrate=yes\n",
         );
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         let building = sim
             .spawn_object("TESTG", "Americans", 15, 15, 0, &rules)
             .unwrap();

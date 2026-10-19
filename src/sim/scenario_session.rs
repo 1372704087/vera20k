@@ -755,9 +755,6 @@ pub struct ScenarioSession {
     /// Start waypoint index -> owning house, filled during launch application
     /// (after the random-assignment draws), before tick 0.
     pub start_slot_houses: BTreeMap<u32, InternedId>,
-    /// HouseClass array registration order. Native house ids are indices into
-    /// this vector; map ordering by name/id is not an equivalent substitute.
-    pub house_order: Vec<InternedId>,
     /// Native A83D4C: this process's current HouseClass identity. Campaign
     /// Basic.Player and multiplayer participant index0 choose it at creation;
     /// 67F802/67F9F3 save/load the pointer and 67FA0E swizzles it. It is not
@@ -980,7 +977,14 @@ impl ScenarioSession {
     /// game options keep their original fold positions above; this fold adds
     /// only the fields new to the session aggregate. Order is part of the
     /// hash contract and must never change.
-    pub(crate) fn fold_identity(&self, hasher: &mut impl std::hash::Hasher) {
+    /// `house_order` is the House array's registration order, which keeps
+    /// its place in this stream although [`crate::sim::houses::Houses`]
+    /// owns it.
+    pub(crate) fn fold_identity(
+        &self,
+        house_order: &[InternedId],
+        hasher: &mut impl std::hash::Hasher,
+    ) {
         let s = self;
         s.seed.hash(hasher);
         s.map_name.hash(hasher);
@@ -1072,7 +1076,7 @@ impl ScenarioSession {
             idx.hash(hasher);
             owner.hash(hasher);
         }
-        s.house_order.hash(hasher);
+        house_order.hash(hasher);
 
         let lighting = &s.lighting;
         lighting.normal.ambient_percent.hash(hasher);
@@ -1219,7 +1223,6 @@ impl ScenarioSession {
             mp_start_waypoints: desc.mp_start_waypoints.clone(),
             waypoints: BTreeMap::new(),
             start_slot_houses: BTreeMap::new(),
-            house_order: Vec::new(),
             current_house: None,
             game_options: GameOptions::default(),
             tick: 0,

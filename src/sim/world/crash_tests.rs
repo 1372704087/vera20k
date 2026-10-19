@@ -553,11 +553,10 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
     input["crashing"] = serde_json::json!(0);
     let (mut sim, rules) = fixture(&input);
     let owner = sim.substrate.entities.get(1).unwrap().owner();
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let callbacks = row["calls"]
         .as_array()
         .unwrap()
@@ -1139,7 +1138,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
     for (name, human) in [("Americans", true), ("Soviets", false)] {
         let house = sim.interner.intern(name);
         sim.houses
-            .insert(house, HouseState::new(house, 0, None, human, 0, 10));
+            .register(HouseState::new(house, 0, None, human, 0, 10));
     }
     let reveal = |sim: &mut Simulation, id: u64, rx: u16, ry: u16| {
         assert!(matches!(
@@ -1806,12 +1805,9 @@ fn retail_dustbowl_flak_shoots_a_harrier_down() {
     } = &mut scenario.runtime;
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let house = sim.interner.intern(name);
-        sim.houses
-            .entry(house)
-            .or_insert_with(|| HouseState::new(house, side, None, human, 10_000, 10));
-        if !sim.session.house_order.contains(&house) {
-            sim.session.house_order.push(house);
-        }
+        sim.houses.get_or_register_for_test(house, || {
+            HouseState::new(house, side, None, human, 10_000, 10)
+        });
     }
     // A Harrier on open level ground with three flak tracks eight and nine
     // cells east: beyond their sight while it stands, inside their AA range
@@ -2081,12 +2077,9 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
     } = &mut scenario.runtime;
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let house = sim.interner.intern(name);
-        sim.houses
-            .entry(house)
-            .or_insert_with(|| HouseState::new(house, side, None, human, 10_000, 10));
-        if !sim.session.house_order.contains(&house) {
-            sim.session.house_order.push(house);
-        }
+        sim.houses.get_or_register_for_test(house, || {
+            HouseState::new(house, side, None, human, 10_000, 10)
+        });
     }
     // Open level ground: the Nighthawk and the Kirov land west of three flak
     // tracks and are ordered past them. Each side keeps a power plant out of

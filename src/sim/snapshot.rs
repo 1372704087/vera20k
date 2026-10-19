@@ -1193,7 +1193,9 @@ use crate::util::save_codec;
 // 444 -> 445: processed BuildingTypes retain the native signed integer light
 // fields across per-layer reads. Their positional rules-state payload replaces
 // the merged-INI float light projection, so v444 cannot use this schema.
-const SNAPSHOT_VERSION: u32 = 445;
+// 445 -> 446: the House array saves its registration order beside the House
+// states; the session no longer carries a separate copy of that order.
+const SNAPSHOT_VERSION: u32 = 446;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2778,13 +2780,12 @@ impl Simulation {
         self.validate_planning_references()
             .map_err(|reason| SnapshotRestoreError::InvalidPlanningReferences { reason })?;
         if let Some(owner) = self.session.current_house
-            && (!self.houses.contains_key(&owner) || !self.session.house_order.contains(&owner))
+            && !self.houses.contains_key(&owner)
         {
             return Err(SnapshotRestoreError::InvalidCurrentHouse { owner });
         }
         if let Some(observer) = self.session.observer_house()
-            && (!self.houses.contains_key(&observer)
-                || !self.session.house_order.contains(&observer))
+            && !self.houses.contains_key(&observer)
         {
             return Err(SnapshotRestoreError::InvalidMultiplayerSession {
                 reason: "observer House is absent",
@@ -2801,17 +2802,6 @@ impl Simulation {
             .houses
             .values()
             .any(|house| house.native_scenario_name().is_some());
-        let mut named_house_order = std::collections::BTreeSet::new();
-        if scenario_names_admitted {
-            for &owner in &self.session.house_order {
-                if !named_house_order.insert(owner) || !self.houses.contains_key(&owner) {
-                    return Err(SnapshotRestoreError::InvalidHouseScenarioName {
-                        owner,
-                        reason: "native House array must contain each registered House once",
-                    });
-                }
-            }
-        }
         // VERA-internal: the dying mark is the SHP vehicle/aircraft death and
         // UnInit's. A live infantryman with it would take the vehicle death
         // path; his corpse is an ordinary IsAlive object at Health 0.
@@ -2827,9 +2817,7 @@ impl Simulation {
             house.validate_scenario_name().map_err(|reason| {
                 SnapshotRestoreError::InvalidHouseScenarioName { owner, reason }
             })?;
-            if scenario_names_admitted
-                && (house.native_scenario_name().is_none() || !named_house_order.contains(&owner))
-            {
+            if scenario_names_admitted && house.native_scenario_name().is_none() {
                 return Err(SnapshotRestoreError::InvalidHouseScenarioName {
                     owner,
                     reason: "admitted scenario requires a name for every registered House",
@@ -4928,7 +4916,8 @@ mod tests {
         // CompEasyBonus and the House Flag_To_Die latch.
         // 443 -> 444: retained TechnoType ShadowIndex.
         // 444 -> 445: retained per-pass BuildingType light integers.
-        assert_eq!(super::SNAPSHOT_VERSION, 445);
+        // 445 -> 446: the House array's registration order.
+        assert_eq!(super::SNAPSHOT_VERSION, 446);
     }
 
     #[test]
@@ -5112,11 +5101,10 @@ mod tests {
             // persisted session fields from that intentional load-time change.
             let mut sim = Simulation::with_seed(0);
             let owner = sim.intern("Observer");
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, true, 0, 1,
+                ));
             sim.session.current_house = Some(owner);
             sim.session.set_game_mode(mode);
             sim.session.install_network_timing(73);
@@ -5150,11 +5138,10 @@ mod tests {
         let mut owners = Vec::new();
         for name in ["First", "Second"] {
             let owner = sim.intern(name);
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 1),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, true, 0, 1,
+                ));
             owners.push(owner);
         }
         let shared_hash = sim.state_hash();
@@ -5183,12 +5170,6 @@ mod tests {
         assert_eq!(
             sim.restore_after_snapshot_load(),
             Err(SnapshotRestoreError::InvalidCurrentHouse { owner: missing })
-        );
-        sim.session.current_house = Some(owners[0]);
-        sim.session.house_order.retain(|owner| *owner != owners[0]);
-        assert_eq!(
-            sim.restore_after_snapshot_load(),
-            Err(SnapshotRestoreError::InvalidCurrentHouse { owner: owners[0] })
         );
     }
 
@@ -5567,8 +5548,7 @@ mod tests {
             };
             let mut house = HouseState::new(owner, 0, None, false, 0, 10);
             house.set_ai_activation_for_test(latches);
-            sim.houses.insert(owner, house);
-            sim.session.house_order.push(owner);
+            sim.houses.register(house);
 
             let description = format!("house-ai-activation-{bits}");
             let bytes = GameSnapshot::save(&sim, 0, 0, &description, 0);
@@ -5593,8 +5573,7 @@ mod tests {
         house.base_center = Some((40, 50));
         house.alternate_base_center = (93, 106);
         house.base_plan_center = (19, 21);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
 
@@ -5618,8 +5597,7 @@ mod tests {
         let country = sim.interner.intern("Americans");
         let type_ref = sim.interner.intern("GACNST");
         let house = crate::sim::house_state::HouseState::new(owner, 0, Some(country), false, 0, 10);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
             9,
@@ -5725,8 +5703,7 @@ mod tests {
                 retry_count: 6,
             },
         ];
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         let mut entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
             1,
             12,
@@ -5776,8 +5753,7 @@ mod tests {
         house.strategy_emergency.note_building_attack(-17);
         house.strategy_emergency.note_building_attacker(3);
         house.strategy_timer.start(12, 106);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         let mut responder =
             crate::sim::game_entity::GameEntity::test_default(1, "E1", "Computer1", 4, 5);
         responder
@@ -6539,8 +6515,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
         let hash_without_pending_input = sim.state_hash();
         sim.queue_command(CommandEnvelope::new(owner, 17, Command::ExitMatch));
         assert_eq!(
@@ -6571,8 +6546,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
         let hash_without_pending_input = sim.state_hash();
         sim.queue_command(CommandEnvelope::new(
             owner,
@@ -6613,7 +6587,7 @@ mod tests {
         let owner = original.interner.intern("Americans");
         original
             .houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 0, 10));
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
         let before = original.state_hash();
         assert!(original.flag_house_to_die(owner));
         assert_ne!(original.state_hash(), before);
@@ -6651,7 +6625,7 @@ mod tests {
         let owner = original.interner.intern("Americans");
         original
             .houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 10_000, 10));
+            .register(HouseState::new(owner, 0, None, true, 10_000, 10));
         let before_outcome = original.state_hash();
         assert!(
             original
@@ -6740,7 +6714,7 @@ mod tests {
                 ),
                 _ => unreachable!(),
             }
-            malformed.houses.insert(owner, house);
+            malformed.houses.register(house);
 
             let bytes = GameSnapshot::save(&malformed, 11, 22, "", 33);
             let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
@@ -6763,7 +6737,7 @@ mod tests {
         let owner = sim.interner.intern("Americans");
         let mut house = HouseState::new(owner, 0, None, false, 10_000, 10);
         house.is_defeated = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let bytes = GameSnapshot::save(&sim, 11, 22, "", 33);
         let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
         assert_eq!(restored.restore_after_snapshot_load(), Ok(()));
@@ -6816,7 +6790,7 @@ mod tests {
         let owner = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 5_000, 10);
         house.harvester_no_ore = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
 
@@ -6842,7 +6816,7 @@ mod tests {
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 5_000, 10);
         house.eva_funds_timer = crate::sim::timer::CdTimer::started(1_234, 2_880);
         house.eva_low_power_guard = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
 
@@ -6872,7 +6846,7 @@ mod tests {
         let mut house = crate::sim::house_state::HouseState::new(owner, 1, None, true, 10_000, 10);
         house.spy_sat_active = true;
         house.map_is_clear = true;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         sim.fog.reveal_all_for_owner(owner);
         crate::sim::vision::apply_gap_generators(
             &mut sim.fog,
@@ -6983,8 +6957,7 @@ mod tests {
         let owner = sim.interner.intern("Receiver");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
         house.player_control = true;
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
@@ -7094,12 +7067,16 @@ mod tests {
         let threat_peer = sim.interner.intern("ThreatPeer");
         house.grudge_scores.insert(threat_peer, 350);
         house.enemy_house = Some(threat_peer);
-        sim.houses.insert(owner, house);
-        sim.houses.insert(
-            threat_peer,
-            crate::sim::house_state::HouseState::new(threat_peer, 1, None, false, 0, 51),
-        );
-        sim.session.house_order.extend([owner, threat_peer]);
+        sim.houses.register(house);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                threat_peer,
+                1,
+                None,
+                false,
+                0,
+                51,
+            ));
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // damage-authority persistence on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -7789,7 +7766,7 @@ mod tests {
         house
             .base_reservation
             .append_perimeter_cell_if_absent(u32::from(3u16) | (u32::from(4u16) << 16));
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let entity_id = sim.allocate_stable_id();
         let mut building = crate::sim::game_entity::GameEntity::test_default_of_category(
             entity_id,
@@ -8030,7 +8007,10 @@ mod tests {
         sim.session.tick = 0x1_0000_0007;
         sim.session.binary_frame = u32::MAX - 2;
         sim.session.total_sim_ms = 12_345;
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick + 3,
@@ -8049,7 +8029,7 @@ mod tests {
         assert_eq!(restored.map_name, sim.session.map_name);
         assert_eq!(restored.sim.session.binary_frame, u32::MAX - 2);
         assert_eq!(restored.sim.session.total_sim_ms, 12_345);
-        assert_eq!(restored.sim.session.house_order, vec![owner]);
+        assert_eq!(restored.sim.houses.order(), vec![owner]);
         assert_eq!(
             restored.sim.pending_command_snapshot(),
             sim.pending_command_snapshot()
@@ -9411,7 +9391,7 @@ mod tests {
         let owner = sim.interner.intern("Computer1");
         let mut house = HouseState::new(owner, 0, None, false, 0, 10);
         house.difficulty = HouseDifficulty::Easy;
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // house-difficulty persistence on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
@@ -9443,14 +9423,12 @@ mod tests {
         let launch = sim.interner.intern("<human player>");
         let mut launch_house = HouseState::new(launch, 0, None, true, 10_000, 10);
         launch_house.initialize_scenario_name("<human player>");
-        sim.houses.insert(launch, launch_house);
-        sim.session.house_order.push(launch);
+        sim.houses.register(launch_house);
         sim.session.current_house = Some(launch);
         let hostile = sim.interner.intern("Russians");
         let mut hostile_house = HouseState::new(hostile, 1, None, true, 0, 10);
         hostile_house.initialize_scenario_name("Russians");
-        sim.houses.insert(hostile, hostile_house);
-        sim.session.house_order.push(hostile);
+        sim.houses.register(hostile_house);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "mixed-registered-houses", 0);
         let mut restored = GameSnapshot::load(&bytes).expect("load should succeed").sim;
@@ -9469,13 +9447,11 @@ mod tests {
         let launch = nameless.interner.intern("<human player>");
         let mut launch_house = HouseState::new(launch, 0, None, true, 10_000, 10);
         launch_house.initialize_scenario_name("<human player>");
-        nameless.houses.insert(launch, launch_house);
-        nameless.session.house_order.push(launch);
+        nameless.houses.register(launch_house);
         let hostile = nameless.interner.intern("Russians");
         nameless
             .houses
-            .insert(hostile, HouseState::new(hostile, 1, None, true, 0, 10));
-        nameless.session.house_order.push(hostile);
+            .register(HouseState::new(hostile, 1, None, true, 0, 10));
         let bytes = GameSnapshot::save(&nameless, 0, 0, "nameless-registered-house", 0);
         let mut rejected = GameSnapshot::load(&bytes).expect("load should succeed").sim;
         assert!(matches!(

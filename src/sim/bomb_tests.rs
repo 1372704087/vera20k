@@ -122,8 +122,7 @@ fn sim(seed: u64) -> Simulation {
     for (name, side, human) in [("Americans", 0, true), ("Russians", 1, false)] {
         let id = sim.interner.intern(name);
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
     }
     sim
 }
@@ -413,8 +412,7 @@ fn native_world(input: &serde_json::Value, rules: &RuleSet) -> NativeWorld {
         .map(|n| {
             let id = sim.interner.intern(&format!("house{n}"));
             sim.houses
-                .insert(id, HouseState::new(id, 0, None, false, 0, 10));
-            sim.session.house_order.push(id);
+                .register(HouseState::new(id, 0, None, false, 0, 10));
             id
         })
         .collect();
@@ -474,7 +472,7 @@ fn native_world(input: &serde_json::Value, rules: &RuleSet) -> NativeWorld {
         bomb.planter = fields["planter"].as_u64().map(|n| ids[n as usize]);
         bomb.planter_house = houses[fields["house"].as_u64().unwrap_or(0) as usize];
         if technos[slot]["visible"].as_u64() == Some(1) {
-            bomb.seen_by = house_bit(&sim.session.house_order, local);
+            bomb.seen_by = house_bit(&sim.houses.order(), local);
         }
         sim.substrate.entities.get_mut(ids[slot]).unwrap().bomb = Some(bomb);
         sim.bombs.carriers.insert(ids[slot]);

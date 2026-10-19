@@ -504,11 +504,10 @@ impl Spin {
         let mut sim = crate::sim::world::Simulation::new();
         for (name, side, human) in [("YuriCountry", 2, true), ("Americans", 0, false)] {
             let id = sim.interner.intern(name);
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, side, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, side, None, human, 0, 10,
+                ));
         }
         let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let tank = sim

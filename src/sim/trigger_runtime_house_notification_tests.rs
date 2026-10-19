@@ -152,7 +152,8 @@ fn house_notification_predicates_replay_twenty_original_controls() {
                     }
                 }
             }
-            sim.session.house_order = order.map(|i| houses[i]).to_vec();
+            sim.houses
+                .reorder_for_test(&order.map(|i| houses[i]).to_vec());
             let (_, live) = install(&mut sim, &rules, kind, country);
             let type_index = sim.trigger_runtime.trigger(live).unwrap().type_index;
             sim.trigger_runtime.definitions.trigger_types[type_index].events[0].retained_house =

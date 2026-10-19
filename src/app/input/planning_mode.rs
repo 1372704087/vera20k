@@ -505,8 +505,7 @@ mod tests {
         let local = sim.interner.intern("Local");
         let kind = sim.interner.intern("TESTUNIT");
         sim.houses
-            .insert(local, HouseState::new(local, 0, None, false, 0, 10));
-        sim.session.house_order = vec![local];
+            .register(HouseState::new(local, 0, None, false, 0, 10));
         for id in [42, 43] {
             let mut entity = GameEntity::new_at_frame_zero_for_test(
                 id,
@@ -719,8 +718,7 @@ mod tests {
         let side = rules.country_side_index("Americans").unwrap().0;
         let mut house = HouseState::new(owner, side, Some(owner), true, 50_000, 10);
         house.project_country_mults(rules, &sim.interner);
-        sim.houses.insert(owner, house);
-        sim.session.house_order.push(owner);
+        sim.houses.register(house);
         sim.session.current_house = Some(owner);
         crate::sim::arena_fixture::flat_ground(&mut sim, rules);
         let first = sim
@@ -968,9 +966,8 @@ mod tests {
                 } else {
                     sim.intern(&format!("Other{slot}"))
                 };
-                sim.session.house_order.push(owner);
                 sim.houses
-                    .insert(owner, HouseState::new(owner, 0, None, slot == index, 0, 10));
+                    .register(HouseState::new(owner, 0, None, slot == index, 0, 10));
             }
             sim.session.current_house = Some(local);
             sim.houses.get_mut(&local).unwrap().is_defeated = case["initial"]["session300"] != 0;

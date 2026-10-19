@@ -29,11 +29,9 @@ use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::entity_store::EntityStore;
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::GameEntity;
-use crate::sim::house_state::HouseState;
-use crate::sim::intern::{InternedId, StringInterner};
+use crate::sim::intern::StringInterner;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use std::collections::BTreeMap;
 
 use super::locomotor::MovementLayer;
 use super::scatter_cell::OctantJitter;
@@ -113,7 +111,7 @@ impl ScatterTechno {
     pub(super) fn from_entity(
         entity: &GameEntity,
         rules: Option<&RuleSet>,
-        houses: &BTreeMap<InternedId, HouseState>,
+        houses: &crate::sim::houses::Houses,
         interner: &StringInterner,
     ) -> Self {
         use crate::sim::combat::veterancy::has_weapon_ability;
@@ -194,7 +192,7 @@ pub(super) fn scatter_objects_admitted(
     no_kidding: bool,
     rules: Option<&RuleSet>,
     entities: &EntityStore,
-    houses: &BTreeMap<InternedId, HouseState>,
+    houses: &crate::sim::houses::Houses,
     interner: &StringInterner,
 ) -> Vec<u64> {
     let listed = || occupants.iter().copied();

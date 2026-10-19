@@ -289,8 +289,7 @@ fn ordinary_stock_gas_refresh_and_expiry_reach_the_infantry_shp_material() {
             } else {
                 rules.general.max_iq_levels
             };
-            sim.houses.insert(id, house);
-            sim.session.house_order.push(id);
+            sim.houses.register(house);
         }
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);

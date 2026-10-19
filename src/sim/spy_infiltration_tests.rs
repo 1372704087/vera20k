@@ -112,8 +112,7 @@ pub fn replay(row: &Value) -> Replay {
             _ => 0,
         };
         sim.houses
-            .insert(id, HouseState::new(id, 0, None, role == local, credits, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, 0, None, role == local, credits, 10));
     }
     let owner = sim.interner.intern("H0");
     let infiltrator = sim.interner.intern("H1");
@@ -299,7 +298,7 @@ fn spy_gains_are_hashed() {
     let mut sim = Simulation::new();
     let house = sim.interner.intern("H1");
     sim.houses
-        .insert(house, HouseState::new(house, 0, None, true, 0, 10));
+        .register(HouseState::new(house, 0, None, true, 0, 10));
     let mut seen = vec![sim.state_hash()];
     for gain in [
         |house: &mut HouseState| house.steal_tech(0),

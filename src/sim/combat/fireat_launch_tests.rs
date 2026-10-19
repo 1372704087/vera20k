@@ -495,11 +495,10 @@ impl Duel {
         let mut sim = Simulation::new();
         for (name, side, human) in [("Americans", 0, true), ("Russians", 1, true)] {
             let id = sim.interner.intern(name);
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, side, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, side, None, human, 0, 10,
+                ));
         }
         let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         // Production binds every rule identity before building the derived

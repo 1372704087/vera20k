@@ -5250,11 +5250,10 @@ mod tests {
         rules.install_art_fixture(art);
         let mut sim = Simulation::with_seed(3);
         let americans = sim.interner.intern("Americans");
-        sim.houses.insert(
-            americans,
-            crate::sim::house_state::HouseState::new(americans, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(americans);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                americans, 0, None, true, 0, 10,
+            ));
         crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let tank = sim
             .spawn_object_at_height("TANK", "Americans", 8, 8, 0, 0, &rules)
@@ -6220,11 +6219,10 @@ mod tests {
         let player = sim.interner.intern("Player");
         let other = sim.interner.intern("Other");
         for (id, human) in [(player, true), (other, false)] {
-            sim.houses.insert(
-                id,
-                crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10),
-            );
-            sim.session.house_order.push(id);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, human, 0, 10,
+                ));
         }
         sim.session.current_house = Some(player);
         sim.session.binary_frame = 1000;

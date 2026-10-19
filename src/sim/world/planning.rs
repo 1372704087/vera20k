@@ -394,7 +394,7 @@ impl Simulation {
             ) {
                 let issuer = usize::try_from(record.house_id())
                     .ok()
-                    .and_then(|index| self.session.house_order.get(index))
+                    .and_then(|index| self.houses.order().get(index))
                     .ok_or("missing planning order house")?;
                 if !self.houses.contains_key(issuer) {
                     return Err("missing planning order house");
@@ -408,13 +408,7 @@ impl Simulation {
         if !self.houses.contains_key(&owner) {
             return None;
         }
-        let house = i8::try_from(
-            self.session
-                .house_order
-                .iter()
-                .position(|&id| id == owner)?,
-        )
-        .ok()?;
+        let house = i8::try_from(self.houses.order().iter().position(|&id| id == owner)?).ok()?;
         CommandRecord::encode(
             opcode,
             i32::from(house),
@@ -1469,7 +1463,7 @@ impl Simulation {
         };
         let Some(owner) = usize::try_from(record.house_id())
             .ok()
-            .and_then(|index| self.session.house_order.get(index))
+            .and_then(|index| self.houses.order().get(index))
             .copied()
         else {
             return false;

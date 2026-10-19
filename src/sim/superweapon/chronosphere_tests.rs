@@ -100,8 +100,7 @@ fn world_with_cells(
     let russians = sim.interner.intern("Russians");
     for (id, side, human) in [(americans, 0, true), (russians, 1, false)] {
         sim.houses
-            .insert(id, HouseState::new(id, side, None, human, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, side, None, human, 0, 10));
         // The native scenario constructs every stock Super for each House
         // before its map objects; provider passes never construct lazily.
         for name in &rules.super_weapon_order {
@@ -232,9 +231,9 @@ pub(crate) fn charge_super(sim: &mut Simulation, owner: InternedId, name: &str) 
     // Sparse launch-only controls still supply a native Super owner House.
     // Do not append it to House AI order: these cases do not test provider
     // grants, Strategy, natural defeat, or an additional House update.
-    sim.houses
-        .entry(owner)
-        .or_insert_with(|| crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10));
+    sim.houses.get_or_register_for_test(owner, || {
+        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10)
+    });
     sim.houses
         .get_mut(&owner)
         .expect("supplied launcher's House")

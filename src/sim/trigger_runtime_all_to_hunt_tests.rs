@@ -57,19 +57,20 @@ fn all_to_hunt_action_matches_original_selector_mode_timer_and_ordinary_foot() {
                     int(&control["strategy_timers_before"][slot][0]),
                     int(&control["strategy_timers_before"][slot][2]),
                 );
-                sim.houses.insert(owner, house);
+                sim.houses.register(house);
                 owner
             })
             .collect();
-        sim.session.house_order = input["order"].as_array().map_or_else(
-            || houses.clone(),
-            |order| {
-                order
-                    .iter()
-                    .map(|slot| houses[slot.as_u64().unwrap() as usize])
-                    .collect()
-            },
-        );
+        sim.houses
+            .reorder_for_test(&input["order"].as_array().map_or_else(
+                || houses.clone(),
+                |order| {
+                    order
+                        .iter()
+                        .map(|slot| houses[slot.as_u64().unwrap() as usize])
+                        .collect()
+                },
+            ));
         super::tests::install_event_ingress_map(
             &mut sim,
             &rules,

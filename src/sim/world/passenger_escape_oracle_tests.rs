@@ -147,12 +147,12 @@ fn scene(input: &Value) -> Scene {
     let americans = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(americans, 0, None, human, 0, 10);
     house.player_control = human;
-    sim.houses.insert(americans, house);
+    sim.houses.register(house);
     let foreign = sim.interner.intern("Foreign");
-    sim.houses.insert(
-        foreign,
-        crate::sim::house_state::HouseState::new(foreign, 1, None, false, 0, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            foreign, 1, None, false, 0, 10,
+        ));
     if input["foreign_allied"] == true {
         for (a, b) in [("AMERICANS", "FOREIGN"), ("FOREIGN", "AMERICANS")] {
             sim.house_alliances

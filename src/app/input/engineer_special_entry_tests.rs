@@ -33,13 +33,12 @@ fn scene_with_repair_step(
     sim.resolve_type_handles(&rules);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 10_000, 10));
+        .register(HouseState::new(owner, 0, None, true, 10_000, 10));
     sim.session.current_house = Some(owner);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.input_delay_ticks = 0;
     sim.session.game_options.short_game = false;
-    sim.session.house_order.push(owner);
     let actor = sim
         .spawn_object("ENGINEER", "Americans", 10, 12, 0, &rules)
         .unwrap();
@@ -258,7 +257,10 @@ fn hospital_completion_uses_the_native_player_house_voice_gate() {
         if !local {
             let other = sim.interner.intern("OtherHuman");
             sim.houses
-                .insert(other, HouseState::new(other, 0, None, true, 10_000, 10));
+                .register(HouseState::new(other, 0, None, true, 10_000, 10));
+            // A House holding nothing is defeated on its first House update.
+            sim.spawn_object("ENGINEER", "OtherHuman", 2, 2, 0, &rules)
+                .unwrap();
             sim.session.current_house = Some(other);
         }
         let mut heard_completion = false;
@@ -443,9 +445,8 @@ fn retail_engineer_grinder_clicks_reach_yagrnd_in_both_input_modes() {
         sim.resolve_type_handles(&rules);
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, true, 10_000, 10));
+            .register(HouseState::new(owner, 0, None, true, 10_000, 10));
         sim.session.current_house = Some(owner);
-        sim.session.house_order.push(owner);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );

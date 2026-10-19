@@ -190,7 +190,7 @@ fn supplied_fixture(row: &Value) -> (Simulation, RuleSet, u64) {
     sim.session.game_options.game_speed = signed(&input["game_speed_index"]);
     let owner = sim.interner.intern("SuppliedHouse");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     let id = sim
         .construct_object_limbo_at_height(
             input["type_id"].as_str().unwrap(),

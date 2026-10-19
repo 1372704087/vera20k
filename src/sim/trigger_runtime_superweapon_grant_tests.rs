@@ -39,8 +39,7 @@ fn scene_with_rules(
     let other = sim.interner.intern("Russians");
     for id in [owner, other] {
         sim.houses
-            .insert(id, HouseState::new(id, 0, Some(id), id == owner, 0, 10));
-        sim.session.house_order.push(id);
+            .register(HouseState::new(id, 0, Some(id), id == owner, 0, 10));
         superweapon::construct_house_supers(&mut sim, &rules, id, false);
     }
     sim.session.current_house = Some(owner);

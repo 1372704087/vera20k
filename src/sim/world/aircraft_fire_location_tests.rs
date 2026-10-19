@@ -263,11 +263,10 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     // searching aircraft belongs to a different house. No UI cache is built.
     let viewer = sim.interner.intern("CURRENT_HOUSE");
     sim.session.current_house = Some(viewer);
-    sim.houses.insert(
-        viewer,
-        crate::sim::house_state::HouseState::new(viewer, 0, None, true, 0, 1),
-    );
-    sim.session.house_order.push(viewer);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            viewer, 0, None, true, 0, 1,
+        ));
     let mut view = serde_json::to_value(OwnerVisibility::new(128, 128)).unwrap();
     for cell in view["ground_flags"].as_array_mut().unwrap() {
         *cell = json!(if input["visible"].as_bool().unwrap_or(true) {

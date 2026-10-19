@@ -27,13 +27,10 @@ fn fixture(house_index: usize) -> (Simulation, InternedId) {
     let mut sim = Simulation::new();
     for index in 0..=house_index {
         let owner = sim.interner.intern(&format!("CheerFixture{index}"));
-        sim.houses.insert(
-            owner,
-            HouseState::new(owner, 0, None, index == house_index, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(HouseState::new(owner, 0, None, index == house_index, 0, 10));
     }
-    let owner = sim.session.house_order[house_index];
+    let owner = sim.houses.order()[house_index];
     sim.session.current_house = Some(owner);
     // A deliberately distinct ordinal proves that admission reads binary
     // frames, while the ordinary scheduler keeps its own due-tick owner.

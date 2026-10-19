@@ -24,11 +24,10 @@ fn fly_and_jumpjet_planned_move_legs_progress_through_native_arrival() {
         let (mut sim, rules, registry) =
             crate::sim::world::entry_test_fixture::fixture_with_rules("");
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order = vec![owner];
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         sim.session.current_house = Some(owner);
         // Ordinary skirmish paths: Aircraft4196B0's campaign shroud gate
         // must not reject this fixture's initially unexplored spawn cell.

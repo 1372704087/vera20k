@@ -630,10 +630,7 @@ impl crate::sim::world::Simulation {
 pub(crate) fn tick_idle_actions(
     entities: &mut crate::sim::entity_store::EntityStore,
     order: &[u64],
-    houses: &std::collections::BTreeMap<
-        crate::sim::intern::InternedId,
-        crate::sim::house_state::HouseState,
-    >,
+    houses: &crate::sim::houses::Houses,
     rules: &crate::rules::ruleset::RuleSet,
     interner: &crate::sim::intern::StringInterner,
     rng: &mut crate::sim::rng::SimRng,
@@ -910,7 +907,7 @@ mod tests {
             10,
         );
         house.player_control = input["player_control"].as_bool().unwrap_or(false);
-        sim.houses.insert(owner, house);
+        sim.houses.register(house);
         let mut actor = GameEntity::new_at_frame_zero_for_test(
             1,
             0,

@@ -172,10 +172,10 @@ mod tests {
         let rules = stock_cascade_rules();
         let mut sim = world(&rules);
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, false, 1000, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 1000, 10,
+            ));
         let gi = place(&mut sim, &rules, "E1", 4);
         let terror = place(&mut sim, &rules, "TERROR", 4);
         assert_eq!(

@@ -284,8 +284,7 @@ fn dispatch_matches_original_signed_override_waypoint_and_incoming_house_gates()
         let other = sim.interner.intern("UnrelatedHouse");
         for house in [owner, other] {
             sim.houses
-                .insert(house, HouseState::new(house, 0, None, false, 0, 10));
-            sim.session.house_order.push(house);
+                .register(HouseState::new(house, 0, None, false, 0, 10));
             crate::sim::superweapon::construct_house_supers(&mut sim, &rules, house, false);
         }
         let id = sim.interner.get("NukeSpecial").unwrap();
@@ -384,8 +383,7 @@ fn retained_recharge_and_target_survive_snapshot_and_affect_future_state_hash() 
     sim.intern_rule_type_ids(&rules);
     let owner = sim.interner.intern("YuriCountry");
     sim.houses
-        .insert(owner, HouseState::new(owner, 2, None, false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 2, None, false, 0, 10));
     crate::sim::superweapon::construct_house_supers(&mut sim, &rules, owner, false);
     let id = sim.interner.get("NukeSpecial").unwrap();
     let original = sim.state_hash();

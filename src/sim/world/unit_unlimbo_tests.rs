@@ -113,7 +113,7 @@ fn retail_world(rules: &RuleSet, terrain_rules: &TerrainRules) -> Simulation {
     sim.install_resolved_terrain_for_new_map(terrain);
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, true, 50_000, 10));
+        .register(HouseState::new(owner, 0, None, true, 50_000, 10));
     sim
 }
 
@@ -1516,7 +1516,7 @@ fn unit_entry_scope_and_actual_game_mode_match_independent_original_controls() {
         sim.mapgen_rng = crate::sim::rng::SimRng::new(31);
         let owner = sim.interner.intern("Americans");
         sim.houses
-            .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+            .register(HouseState::new(owner, 0, None, false, 0, 10));
         let mut actor = GameEntity::test_default(90, "MOVER", "Americans", 10, 10);
         actor.set_type_ref_for_test(sim.interner.intern("MOVER"));
         actor.set_owner_for_test(owner);

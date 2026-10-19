@@ -1480,11 +1480,10 @@ mod tests {
     fn gsi_01_04_exit_diagnostic_replay_roundtrips_without_native_version_bump() {
         let mut sim = Simulation::with_seed(7);
         let owner = sim.interner.intern("Local");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         sim.session.tick = 3;
         let mut log = ReplayLog::new(ReplayHeader {
             pixel_conversion_bounds: Default::default(),
@@ -1520,11 +1519,10 @@ mod tests {
             let mut sim = Simulation::with_seed(7);
             sim.hash_state_every(std::num::NonZeroU64::MIN);
             let owner = sim.interner.intern("Local");
-            sim.houses.insert(
-                owner,
-                crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-            );
-            sim.session.house_order.push(owner);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    owner, 0, None, true, 0, 10,
+                ));
             (sim, owner)
         };
         let (mut recorded, owner) = make_sim();
@@ -1588,11 +1586,10 @@ mod tests {
     fn diagnostic_replay_does_not_double_admit_regenerated_pending_work() {
         let mut sim = Simulation::with_seed(7);
         let owner = sim.interner.intern("Local");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
 
         // Model a command regenerated during the preceding replay frame. The
         // live app drained and recorded the same command for this frame, so the

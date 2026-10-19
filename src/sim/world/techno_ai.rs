@@ -1722,8 +1722,8 @@ fn allied_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
 /// `TechnoClass::AI_Update` has no health gate on these steps: the berserk
 /// countdown (`0x006F9F0D`), the estimate
 /// recovery (`0x006F9F6E`), the allied and illegal target drops
-/// (`0x006FA30C`, `0x006FA472`) and the passive block (`0x006FA65A`), whose
-/// scan draws and can acquire. Mission dispatch alone skips a Health-0
+/// (`0x006FA30C`, `0x006FA472`), the passive block (`0x006FA65A`), whose
+/// scan draws and can acquire, and the healer drops (`0x006FA9D8`). Mission dispatch alone skips a Health-0
 /// object (`0x005B30A7`). The corpse's own fire routine is refused CANT for
 /// its death Doing (`0x0051C8B8`).
 ///
@@ -1764,6 +1764,7 @@ pub(super) fn dying_infantry_techno_ai(
     }
     charge_turret_step(sim, id, rules);
     passive_acquire_step(sim, id, Some(rules), ctx);
+    healer_target_drop_step(sim, id, rules);
     //51BC9F still reaches Techno6FABC4 for Die1/Die2. A retained death
     // sequence uses the same absolute Stage clock as every other Infantry;
     // its sequencer runs only after this visit, never a second clock.
@@ -1825,7 +1826,7 @@ fn techno_after_acquisition(
 }
 
 /// `TechnoClass::AI_Update @ 0x006FA9D8..0x006FAAEF`, after the spawn manager
-/// (`0x006FA958`) and the dormant cloak-field arms: a healer (CombatDamage
+/// (`0x006FA958`) and the cloak-field arms: a healer (CombatDamage
 /// `0x006F3970(-1) < 0`) lets go of its target (vt+0x3C8(NULL)) in three
 /// arms, each re-reading the target:
 /// - GameMode 0 (`0x00A8B238`): a house that is not the player's
@@ -1840,6 +1841,13 @@ fn techno_after_acquisition(
 ///
 /// IsAlliedWith on an object asks its owner; a Cell or an ownerless object is
 /// never allied. Both alliance arms ask the object's own house (+0x21C).
+///
+/// RESIDUAL: the cloak-field arms before this block (`0x006FA95B..0x006FA9D2`)
+/// are not run. Trigger: an object in a house's cloak field, which only a
+/// `CloakGenerator=` building raises; retail rules name it only in a comment
+/// and `fog.cloaked_by_houses` has no writer, so they are dormant, not
+/// unreachable. Effect if a map sets it: the field's cloak and uncloak calls
+/// are missed. No RNG draws.
 fn healer_target_drop_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     use crate::sim::combat::{TargetKind, combat_weapon};
     let healer = |sim: &Simulation| {
@@ -2111,7 +2119,8 @@ mod tests {
     fn a_human_healer_drops_an_enemy_and_a_unit_healer_an_airborne_aircraft() {
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[InfantryTypes]\n0=MEDIC\n[VehicleTypes]\n0=IFV\n1=TANK\n\
-             [AircraftTypes]\n0=ORCA\n[BuildingTypes]\n\
+             [AircraftTypes]\n0=ORCA\n[BuildingTypes]\n0=PAD\n\
+             [PAD]\nStrength=500\nFoundation=1x1\n\
              [MEDIC]\nStrength=100\nPrimary=Heal\n\
              [IFV]\nStrength=200\nPrimary=Fix\n\
              [TANK]\nStrength=300\nPrimary=Gun\n\
@@ -2145,6 +2154,8 @@ mod tests {
         let enemy = spawn(&mut sim, "TANK", "Russians", 16);
         let friend = spawn(&mut sim, "TANK", "Americans", 18);
         let orca = spawn(&mut sim, "ORCA", "Americans", 20);
+        let pad = spawn(&mut sim, "PAD", "Americans", 24);
+        let their_medic = spawn(&mut sim, "MEDIC", "Russians", 26);
         let run = |sim: &mut Simulation, id: u64, target: u64| {
             sim.substrate
                 .entities
@@ -2180,6 +2191,45 @@ mod tests {
             .position
             .set_exact_z_leptons_for_test(Some(600));
         assert_eq!(run(&mut sim, ifv, orca), None);
+        // Only a Unit drops an aircraft.
+        assert_eq!(run(&mut sim, medic, orca), Some(TargetKind::Entity(orca)));
+        // A grounded aircraft on a building's Cell (an airpad).
+        let at_pad = |sim: &mut Simulation| {
+            let position = &mut sim.substrate.entities.get_mut(orca).unwrap().position;
+            position.set_rx_for_test(24);
+            position.set_exact_z_leptons_for_test(Some(0));
+        };
+        at_pad(&mut sim);
+        assert_eq!(
+            sim.substrate.occupancy.first_building_on_layer(
+                24,
+                10,
+                crate::sim::movement::locomotor::MovementLayer::Ground
+            ),
+            Some(pad)
+        );
+        assert_eq!(run(&mut sim, ifv, orca), None);
+        // A Cell is never allied.
+        sim.substrate
+            .entities
+            .get_mut(medic)
+            .unwrap()
+            .attack_target
+            .set_for_test(Some(TargetKind::Cell(30, 10)));
+        healer_target_drop_step(&mut sim, medic, &rules);
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(medic)
+                .unwrap()
+                .attack_target
+                .target(),
+            None
+        );
+        // GameMode 0: a computer house drops an enemy, a human house keeps it.
+        sim.session.game_mode_nonzero = false;
+        assert_eq!(run(&mut sim, their_medic, friend), None);
+        assert_eq!(run(&mut sim, medic, enemy), Some(TargetKind::Entity(enemy)));
     }
 
     #[test]

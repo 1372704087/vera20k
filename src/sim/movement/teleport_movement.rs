@@ -576,7 +576,7 @@ impl crate::sim::world::Simulation {
         {
             return Ok(false);
         }
-        if actor.parasite.is_paralyzed(self.session.binary_frame)
+        if actor.parasite.is_paralyzed(self.session.binary_frame())
             || actor.is_warped_out()
             || actor.is_warping_in()
         {
@@ -677,7 +677,7 @@ impl crate::sim::world::Simulation {
             // existing Mission authority; a queued Attack can become current
             // here after51AA40's earlier current-mission Stop decision.
             if self.mission_ready_to_commence(id, rules) {
-                self.mission_commence_exact(id, self.session.binary_frame)
+                self.mission_commence_exact(id, self.session.binary_frame())
                     .map_err(|error| format!("Teleport resolver Commence: {error}"))?;
             }
             // 718CA0..718DE3: Enter/Eaten/Capture/Patrol permit preferred
@@ -1055,7 +1055,7 @@ impl crate::sim::world::Simulation {
         rules: Option<&crate::rules::ruleset::RuleSet>,
         ctx: crate::sim::world::ObjectAiCtx<'_>,
     ) -> bool {
-        let frame = self.session.binary_frame as i32;
+        let frame = self.session.binary_frame() as i32;
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;
         };
@@ -1151,7 +1151,7 @@ impl crate::sim::world::Simulation {
                 SpecialMovementOutcome::Continue
             });
         }
-        let frame = self.session.binary_frame as i32;
+        let frame = self.session.binary_frame() as i32;
         let terrain = self.resolved_terrain.as_ref();
         let reached = self
             .substrate
@@ -1305,7 +1305,8 @@ mod tests {
                     input["timer_duration"].as_i64().unwrap() as i32,
                 ),
             }));
-            sim.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
+            sim.session
+                .set_binary_frame_for_test(input["frame"].as_u64().unwrap() as u32);
             sim.substrate.entities.insert(actor);
             let mut bridge_changed = false;
             assert!(!sim.temporal_ai_prologue(

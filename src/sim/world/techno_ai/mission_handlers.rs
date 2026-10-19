@@ -2146,8 +2146,9 @@ pub(super) fn evaluate_foot_guard_cadence(
         return head;
     }
     let effects = ctx.effects;
-    // FootGuard4D50D4: a held Target takes the HoverAttack arm (4D51E0) in
-    // place of the adjacency scan and idle action, which refuse it anyway.
+    // FootGuard4D50DB: a held Target takes the HoverAttack arm (4D51E0);
+    // none, the adjacency scan and idle action. Both precede the rearm-timer
+    // early return.
     if sim
         .substrate
         .entities
@@ -2155,17 +2156,9 @@ pub(super) fn evaluate_foot_guard_cadence(
         .is_some_and(|entity| entity.attack_target.target().is_some())
     {
         hover_attack_reanchor(sim, rules, id, ctx);
-    }
-    let charging = sim.acquire_adjacent_tesla_coil(id, rules, ctx.overlay_registry, effects);
-    //4D51A6 /4D51D8 precede even the rearm-timer early return. Unit's
-    //receiver is a false stub; Infantry's owner decides actual admission.
-    if !charging
-        && sim
-            .substrate
-            .entities
-            .get(id)
-            .is_some_and(|entity| entity.attack_target.target().is_none())
-    {
+    } else if !sim.acquire_adjacent_tesla_coil(id, rules, ctx.overlay_registry, effects) {
+        //4D51A6 /4D51D8: Unit's receiver is a false stub; Infantry's owner
+        //decides actual admission.
         let _ = sim.infantry_idle_action(id, rules, effects);
     }
     let rearm = sim.substrate.entities.get(id).map_or(0, |entity| {
@@ -2194,15 +2187,20 @@ pub(super) fn evaluate_foot_guard_cadence(
 /// The HoverAttack re-anchor `FootClass::Mission_Attack` opens with
 /// (`0x004D4DC0..0x004D4E07`) and `FootClass::Mission_Guard`'s held-Target
 /// arm runs (`0x004D51E0..0x004D521F`): a `HoverAttack=` type
-/// (`TechnoType+0x390`; retail JUMPJET, SCHP) at GetHeight (`0x005F5F40`)
-/// zero takes NearbyLocation anchored on itself (`0x00703590`) as its
-/// destination, vt+0x480(cell, 1). A landed Rocketeer or a grounded Siege
-/// Chopper thus moves to a nearby cell every dispatch, and its locomotor
-/// lifts it. No RNG draw.
+/// (`TechnoType+0x390`) at GetHeight (`0x005F5F40`) zero takes NearbyLocation
+/// anchored on itself (`0x00703590`) as its destination, vt+0x480(cell, 1).
+/// Retail carriers (a plain scan of rulesmd.ini) are all Jumpjets: JUMPJET
+/// and LUNR infantry, SCHP/SCHD, SHAD and HIND. `BalloonHover=` keeps the
+/// Rocketeer aloft, so the gate passes only while one stands on the ground.
+/// This step draws nothing; the receiver's Jumpjet Move_To may (its
+/// placement draw, `infantry_scatter.rs`). No retail aircraft carries the
+/// key, so `AircraftClass`'s Guard path through `0x004D5070` leaves it
+/// dormant.
 ///
-/// RESIDUAL: when the search finds no cell, native assigns `Map[(0, 0)]`;
-/// VERA assigns nothing. Trigger: no passable cell in reach. Effect: the
-/// native object heads for the map corner. Rare (a boxed-in carrier).
+/// RESIDUAL: when the search finds no cell, native assigns `Map[(0, 0)]`,
+/// the shared Dummy cell when (0, 0) is outside the map; VERA assigns
+/// nothing. Trigger: no passable cell in reach. Effect: the native object
+/// takes that cell as its destination. Rare (a boxed-in carrier).
 fn hover_attack_reanchor(
     sim: &mut Simulation,
     rules: &RuleSet,

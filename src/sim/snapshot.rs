@@ -1163,11 +1163,11 @@ use crate::util::save_codec;
 // cliff, rough and road copies of that LandType.
 // 431 -> 432: the VERA-only Boarding passenger relation is gone, which
 // renumbers the later PassengerRole and carrier-relation variants.
-// 432 -> 435 (433 and 434 belong to concurrent changes): a NavCom-family
+// 432 -> 433: a NavCom-family
 // reference (NavCom, its auxiliary, SuspendedNavCom, NavQueue and navigation
 // list) is a Cell or an Object. The Entity and Building spellings of an
 // Object pointer are gone, which renumbers the reference's variants.
-const SNAPSHOT_VERSION: u32 = 435;
+const SNAPSHOT_VERSION: u32 = 433;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -4839,8 +4839,8 @@ mod tests {
         // pointers and lists.
         // 430 -> 431: no derived land caches beside that LandType.
         // 431 -> 432: the Boarding passenger relation is gone.
-        // 432 -> 435: one Object spelling for a NavCom-family pointer.
-        assert_eq!(super::SNAPSHOT_VERSION, 435);
+        // 432 -> 433: one Object spelling for a NavCom-family pointer.
+        assert_eq!(super::SNAPSHOT_VERSION, 433);
     }
 
     #[test]

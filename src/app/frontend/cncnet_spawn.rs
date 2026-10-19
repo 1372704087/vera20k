@@ -17,8 +17,8 @@ use anyhow::{Context, Result, bail, ensure};
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::skirmish_launch::{
     AiDifficulty, LaunchCountry, LaunchHumanRole, LaunchStartPosition, LaunchTeam,
-    PreFillAiHouseSlot, PreFillHouseRoster, PreFillHumanHouse, SkirmishAiSlot, SkirmishHumanSlot,
-    SkirmishLaunchMode, SkirmishLaunchOptions, SkirmishLaunchSession, SkirmishLocalSlot,
+    PreFillHouseRoster, SkirmishAiSlot, SkirmishHumanSlot, SkirmishLaunchMode,
+    SkirmishLaunchOptions, SkirmishLaunchSession, SkirmishLocalSlot,
 };
 
 #[derive(Debug)]
@@ -188,7 +188,6 @@ fn skirmish(
     let ai_count = ranged(settings, "AIPlayers", 0, 0, 7)? as usize;
     let mut active = vec![0usize];
     let mut opponents = Vec::new();
-    let mut ai_roster = Vec::new();
     let mut used_colors = [false; 8];
     let mut used_starts = [false; 8];
     let local_country = country(settings, "Side")?;
@@ -204,12 +203,7 @@ fn skirmish(
             (-1..=2).contains(&difficulty),
             "[HouseHandicaps] {key} must be -1 or 0..2"
         );
-        let valid = difficulty >= 0;
-        ai_roster.push(PreFillAiHouseSlot {
-            slot_index: (raw_slot - 1) as u8,
-            valid,
-        });
-        if !valid {
+        if difficulty < 0 {
             ensure!(
                 !ini.section_or_empty("HouseCountries").is_present(&key)
                     && !ini.section_or_empty("HouseColors").is_present(&key),
@@ -272,7 +266,7 @@ fn skirmish(
         harvester_truce: boolean(settings, "HarvesterTruce", false)?,
         ally_change_allowed: boolean(settings, "AlliesAllowed", false)?,
     };
-    Ok(SkirmishLaunchSession {
+    let mut session = SkirmishLaunchSession {
         // Exact stock descriptor accepted by the shared pre-Fill owner.
         mode: SkirmishLaunchMode {
             class: crate::skirmish_modes::MpModeClass::Battle,
@@ -302,16 +296,12 @@ fn skirmish(
         local_player_index: 0,
         ai_player_count: ai_count as i32,
         opponents,
-        pre_fill_house_roster: PreFillHouseRoster::new(
-            vec![PreFillHumanHouse {
-                priority: i32::from(local_color),
-                source_order: 0,
-                observer: false,
-            }],
-            ai_roster,
-        ),
+        // Derived below by the canonical owner from the human and raw AI rows.
+        pre_fill_house_roster: PreFillHouseRoster::new(Vec::new(), Vec::new()),
         options,
-    })
+    };
+    session.rebuild_house_roster();
+    Ok(session)
 }
 
 fn country(section: &IniSection, key: &str) -> Result<LaunchCountry> {

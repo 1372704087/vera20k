@@ -12,6 +12,10 @@ pub(crate) enum LanSetupEvent {
     ParticipantLeft {
         index: usize,
     },
+    #[expect(
+        dead_code,
+        reason = "the network transport, outside this change, delivers these packets"
+    )]
     PlayerChoices {
         index: usize,
         choices: SkirmishLocalSlot,
@@ -39,6 +43,10 @@ pub(crate) enum LanSetupEvent {
         protocol: i32,
         response_times: [u32; 2],
     },
+    #[expect(
+        dead_code,
+        reason = "the network transport, outside this change, delivers these packets"
+    )]
     CooperativeAssignments(Vec<[[i32; 2]; 8]>),
     HostGo {
         agreed_seed: u32,
@@ -55,12 +63,18 @@ pub(crate) enum LanSetupEvent {
     },
     HostLeft,
     Kicked,
+    #[expect(
+        dead_code,
+        reason = "the network transport, outside this change, delivers these packets"
+    )]
     Chat(LanChatLine),
 }
 
 pub(crate) fn service_event(state: &mut AppState, event: LanSetupEvent) -> anyhow::Result<()> {
+    // The route stays LanSetup until the match returns, but GO's handoff
+    // drops the setup protocol: later setup packets have no receiver.
     anyhow::ensure!(
-        state.frontend.shell_route.lan_setup(),
+        state.frontend.shell_route.lan_setup() && state.frontend.lan_setup_protocol.is_some(),
         "no LAN setup is active"
     );
     match event {
@@ -609,7 +623,9 @@ pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
     }
     if Instant::now() >= deadline {
         if let Err(error) = finish_go(state) {
-            log::warn!("LAN GO completion refused: {error:#}");
+            // The start cannot proceed; leave like a failed network start.
+            log::error!("LAN GO completion refused: {error:#}");
+            super::commit_back(state);
         }
         None
     } else {

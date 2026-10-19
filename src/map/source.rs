@@ -144,10 +144,6 @@ fn decode_metadata(input: MapInput<'_>) -> Result<LoadedMapIni> {
     })
 }
 
-pub(crate) fn load_map_by_name_or_path(ra2_dir: &Path, map_name: &str) -> Result<LoadedMap> {
-    decode_map(read_loose_map_input(&local_map_path(ra2_dir, map_name)?)?)
-}
-
 /// Both gameplay and shell metadata use this one loose-before-MIX resolution
 /// policy. Preserve the existing fallback on a failed loose parse.
 fn load_map_input_with_assets<T>(
@@ -356,7 +352,9 @@ mod tests {
     fn loose_map_source_retains_consumed_bytes_after_file_changes() {
         let directory = TestDirectory::new("loose-source");
         directory.write("Arena.map", SOURCE_TEST_MAP);
-        let loaded = load_map_by_name_or_path(directory.path(), "Arena")
+        let loaded = local_map_path(directory.path(), "Arena")
+            .and_then(|path| read_loose_map_input(&path))
+            .and_then(decode_map)
             .expect("resolve extension and load loose map");
         directory.write("Arena.map", b"file replaced after map load");
 

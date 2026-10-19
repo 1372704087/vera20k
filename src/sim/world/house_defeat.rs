@@ -450,6 +450,8 @@ impl Simulation {
         let duration = crate::rules::ruleset::native_minutes_to_frames(
             rules.map_or(0.03, |rules| rules.general.savour_delay_minutes),
         );
+        // Native applies this for any GameMode other than 0 or 5 (4FCA5C..6C).
+        // Only LAN/WOL admit a MaxAhead; the other raw modes are unreachable.
         if !self.session.game_mode().is_network() {
             return duration;
         }

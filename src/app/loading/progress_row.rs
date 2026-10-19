@@ -79,6 +79,7 @@ impl LoadingProgressRowSnapshot {
         }
     }
 
+    #[cfg(test)]
     pub fn local_label(&self) -> &str {
         self.participants
             .get(self.local_player_index)

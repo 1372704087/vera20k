@@ -129,8 +129,7 @@ pub struct HousePopulation {
     pub is_human: bool,
     /// True for the non-contending houses the engine keeps for map objects:
     /// `Neutral` and `Special` own scenery and civilians but never take part
-    /// in the match, so the dashboard filters them out of any lineup. This is
-    /// the same flag `Simulation::contending_house_count` counts.
+    /// in the match, so the dashboard filters them out of any lineup.
     pub passive: bool,
     pub counts: CategoryCounts,
     /// The house's own team colour, RGB, from the rules `[Colors]` scheme the

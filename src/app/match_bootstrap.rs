@@ -88,7 +88,6 @@ pub struct PreparedNetworkStartup {
     mode: crate::app::match_runtime::session::SessionMode,
     host: bool,
     max_ahead_frames: i32,
-    return_context: crate::app::match_runtime::session::NetworkReturnContext,
 }
 
 impl PreparedNetworkStartup {
@@ -97,7 +96,6 @@ impl PreparedNetworkStartup {
         seed: u32,
         mode: crate::app::match_runtime::session::SessionMode,
         host: bool,
-        return_context: crate::app::match_runtime::session::NetworkReturnContext,
         max_ahead_frames: i32,
     ) -> Self {
         Self {
@@ -110,7 +108,6 @@ impl PreparedNetworkStartup {
             mode,
             host,
             max_ahead_frames,
-            return_context,
         }
     }
 
@@ -126,13 +123,7 @@ impl PreparedNetworkStartup {
     pub(crate) fn host(&self) -> bool {
         self.host
     }
-    pub(crate) fn return_context(
-        &self,
-    ) -> crate::app::match_runtime::session::NetworkReturnContext {
-        self.return_context
-    }
 }
-
 
 /// Explicit settings supplied by an external campaign launcher.
 #[derive(Clone, Debug, Eq, PartialEq)]

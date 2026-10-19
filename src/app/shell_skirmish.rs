@@ -433,7 +433,13 @@ impl App {
         crate::ui::skirmish_shell::blur_player_name_edit(&mut state.frontend.skirmish_shell_state);
     }
 
-    pub(super) fn open_choose_map_modal(state: &mut AppState) {
+    /// Opens the shared chooser on the caller's current mode and map. Each
+    /// dialog supplies its own selection; neither writes the other's state.
+    pub(super) fn open_choose_map_modal(
+        state: &mut AppState,
+        selected_mode_id: i32,
+        current_record_index: Option<usize>,
+    ) {
         state.frontend.skirmish_shell_state.open_combo_dropdown = None;
         state.frontend.skirmish_shell_state.dropdown_scroll_drag = None;
         state.frontend.skirmish_shell_state.trackbar_hold = None;
@@ -442,7 +448,6 @@ impl App {
             .skirmish_shell_state
             .pressed_owner_draw_button = None;
         crate::ui::skirmish_shell::clear_status_help_text(&mut state.frontend.skirmish_shell_state);
-        let current_record_index = Self::current_choose_map_record_index(state);
         let layout = Self::skirmish_choose_map_layout(state);
         state.frontend.skirmish_shell_state.choose_map_modal =
             Some(crate::ui::skirmish_shell::ChooseMapModalState::open(
@@ -457,7 +462,7 @@ impl App {
                 } else {
                     crate::ui::skirmish_shell::ChooseMapContext::Skirmish
                 },
-                state.frontend.skirmish_shell_state.selected_mode_id,
+                selected_mode_id,
                 current_record_index,
                 &state.frontend.skirmish_modes,
                 state.frontend.scenario_catalog.records(),
@@ -466,7 +471,7 @@ impl App {
         Self::ensure_active_cooperative_modal_selection(state);
     }
 
-    fn current_choose_map_record_index(state: &AppState) -> Option<usize> {
+    pub(super) fn current_choose_map_record_index(state: &AppState) -> Option<usize> {
         let file_name = state
             .frontend
             .scenario_catalog

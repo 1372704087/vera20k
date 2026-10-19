@@ -912,7 +912,12 @@ mod tests {
                 .collect();
             assert!(loaded.sim().entities().values().all(|e| e.owner() == owner));
             assert_eq!(
-                loaded.sim().contending_house_count(),
+                loaded
+                    .sim()
+                    .houses
+                    .values()
+                    .filter(|house| !house.multiplay_passive)
+                    .count(),
                 if previous_empty_opponent { 2 } else { 1 }
             );
             assert!(

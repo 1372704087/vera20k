@@ -3790,8 +3790,6 @@ impl Simulation {
 
     /// Accepted House result after its serialized SavourDelay has expired.
     /// Simulation termination and app outcome presentation share this query.
-    /// Explicit solo wins/losses remain valid; the developer solo exception
-    /// belongs only to automatic victory creation in the house rung.
     pub fn ready_outcome_for_owner(
         &self,
         owner: InternedId,
@@ -5779,27 +5777,6 @@ impl Simulation {
     /// failure paths. Reveal/Conceal/UnInit must use synchronous radio authority.
     pub(crate) fn clear_radio_contacts_for(&mut self, stable_id: u64) {
         self.substrate.entities.clear_radio_contacts_for(stable_id);
-    }
-
-    /// Number of houses that can actually contend for the match outcome.
-    ///
-    /// MultiplayPassive houses (stock Civilian/JP) are roster filler: they are
-    /// never defeated and never counted alive, so they must not make a
-    /// solo developer board look contested. Automatic victory creation uses
-    /// `> 1`; accepted explicit outcomes never depend on this count.
-    ///
-    /// VERA-internal: the gamemd equivalent is UNCHECKED. Neither the native
-    /// defeat block nor its all-allied scan has an "is there a real opponent"
-    /// precondition. Native campaign instead skips automatic empty-house defeat
-    /// at 0x004F8E86..0x004F8F87 when SessionType is zero. This developer Battle
-    /// sandbox policy is not that campaign lifecycle. The passive filter is
-    /// gamemd-derived; the count includes defeated opponents so an ordinary
-    /// last-player victory remains valid.
-    pub fn contending_house_count(&self) -> usize {
-        self.houses
-            .values()
-            .filter(|house| !house.multiplay_passive)
-            .count()
     }
 
     /// Restore externally-derived cache fields after validated snapshot

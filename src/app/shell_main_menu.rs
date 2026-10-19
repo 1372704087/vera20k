@@ -1265,7 +1265,11 @@ impl App {
             ShellExitThen::LanStart { agreed_seed, .. } => {
                 crate::app::shell_lan_setup::commit_start(state, agreed_seed)
             }
-            ShellExitThen::SkirmishChooseMap => Self::open_choose_map_modal(state),
+            ShellExitThen::SkirmishChooseMap => {
+                let mode_id = state.frontend.skirmish_shell_state.selected_mode_id;
+                let record_index = Self::current_choose_map_record_index(state);
+                Self::open_choose_map_modal(state, mode_id, record_index);
+            }
             ShellExitThen::ChooseMapUse(selection) => Self::commit_choose_map_use(state, selection),
             ShellExitThen::ChooseMapCancel => Self::close_choose_map_modal(state),
             ShellExitThen::ChooseMapRandomMap => Self::commit_choose_map_random_map(state),

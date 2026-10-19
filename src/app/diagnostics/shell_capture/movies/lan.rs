@@ -242,6 +242,9 @@ pub(super) struct LanCapture {
     delivery: Option<Value>,
     join_requested_at: Option<Instant>,
     loading_wait_reported_at: Option<Instant>,
+    /// Offline 0x102 mode/map before LAN Choose Map; the LAN chooser must not
+    /// write the Skirmish dialog's retained selection.
+    offline_selection: Option<(i32, usize)>,
 }
 impl LanCapture {
     pub(super) fn new(target: LanTarget) -> Self {
@@ -257,6 +260,7 @@ impl LanCapture {
             delivery: None,
             join_requested_at: None,
             loading_wait_reported_at: None,
+            offline_selection: None,
             inputs: super::native_corpus("tools/storage_oracle/lan_shell_controls.json")
                 .expect("native LAN corpus"),
         }
@@ -989,6 +993,7 @@ impl LanCapture {
                         self.phase = LanPhase::Returned;
                     }
                     LanTarget::ChooseMap | LanTarget::ChooseMapCancel => {
+                        self.offline_selection = Some(offline_selection(state));
                         setup_button(state, crate::ui::multiplayer_setup::CHOOSE_MAP)?;
                         self.phase = LanPhase::Chooser;
                     }
@@ -1857,6 +1862,10 @@ impl LanCapture {
                         .is_some(),
                     "chooser not active"
                 );
+                ensure!(
+                    self.offline_selection == Some(offline_selection(state)),
+                    "LAN Choose Map wrote the offline Skirmish selection"
+                );
                 if self.target == LanTarget::ChooseMap {
                     self.settle(state);
                 } else {
@@ -1880,6 +1889,10 @@ impl LanCapture {
                         .choose_map_modal
                         .is_none(),
                     "chooser survived Cancel"
+                );
+                ensure!(
+                    self.offline_selection == Some(offline_selection(state)),
+                    "LAN Choose Map Cancel wrote the offline Skirmish selection"
                 );
                 self.settle(state);
             }
@@ -2253,6 +2266,11 @@ fn setup_button(state: &mut AppState, id: u16) -> Result<()> {
         .rect;
     setup_click(state, rect);
     Ok(())
+}
+
+fn offline_selection(state: &AppState) -> (i32, usize) {
+    let dialog = &state.frontend.skirmish_shell_state;
+    (dialog.selected_mode_id, dialog.selected_map_idx)
 }
 
 #[cfg(test)]

@@ -268,10 +268,10 @@ pub(crate) fn commit_start(state: &mut AppState, agreed_seed: u32) {
             .multiplayer_shell_runtime
             .validate_network_countries(launch)
     {
+        // The dialog has already slid out; a refused start returns to a
+        // fresh BB like the failed network StartScenario retry (52E75F).
         log::error!("Cannot admit network country identity: {error}");
-        if let Some(protocol) = state.frontend.lan_setup_protocol.as_mut() {
-            protocol.locked = false;
-        }
+        super::commit_back(state);
         return;
     }
     match state.match_state.session.freeze_network_start(agreed_seed) {
@@ -286,35 +286,28 @@ pub(crate) fn commit_start(state: &mut AppState, agreed_seed: u32) {
         }
         Err(error) => {
             log::error!("Could not freeze accepted LAN start: {error:#}");
-            if let Some(protocol) = state.frontend.lan_setup_protocol.as_mut() {
-                protocol.locked = false;
-            }
+            super::commit_back(state);
         }
     }
 }
 
 pub(crate) fn open_choose_map(state: &mut AppState) {
     // The shared chooser remains a transaction over the selected map. The
-    // admitted setup is not edited until Use Map commits its result.
+    // admitted setup is not edited until Use Map commits its result, and the
+    // offline Skirmish dialog's retained selection is never touched.
     let Some(launch) = state.match_state.session.network_setup() else {
         return;
     };
-    state.frontend.skirmish_shell_state.selected_mode_id = launch.mode.id;
-    if let Some(index) = state
-        .frontend
-        .scenario_catalog
-        .shell_maps()
-        .iter()
-        .position(|map| {
-            launch
-                .selected_map_file
-                .as_deref()
-                .is_some_and(|file| file.eq_ignore_ascii_case(&map.file_name))
-        })
-    {
-        state.frontend.skirmish_shell_state.selected_map_idx = index;
-    }
-    App::open_choose_map_modal(state);
+    let mode_id = launch.mode.id;
+    let record_index = launch.selected_map_file.as_deref().and_then(|file| {
+        state
+            .frontend
+            .scenario_catalog
+            .records()
+            .iter()
+            .position(|record| record.file_name.eq_ignore_ascii_case(file))
+    });
+    App::open_choose_map_modal(state, mode_id, record_index);
 }
 
 /// Use Map commits the shared chooser transaction into the admitted session.

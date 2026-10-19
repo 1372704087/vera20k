@@ -4546,10 +4546,22 @@ fn passive_houses_do_not_make_a_solo_board_look_contested() {
     insert_passive_house_with_counts(&mut sim, "Special", 2, 0);
 
     assert_eq!(sim.houses.len(), 3);
-    assert_eq!(sim.contending_house_count(), 1);
+    assert_eq!(
+        sim.houses
+            .values()
+            .filter(|house| !house.multiplay_passive)
+            .count(),
+        1
+    );
 
     insert_house_with_counts(&mut sim, "Russians", 1, 1);
-    assert_eq!(sim.contending_house_count(), 2);
+    assert_eq!(
+        sim.houses
+            .values()
+            .filter(|house| !house.multiplay_passive)
+            .count(),
+        2
+    );
 }
 
 #[test]

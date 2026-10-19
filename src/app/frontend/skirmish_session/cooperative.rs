@@ -249,12 +249,14 @@ impl CooperativeProgressRecord {
         ];
     }
 
+    #[cfg(test)]
     pub fn partner_names(&self) -> [&[u8]; 2] {
         [
             self.partner_names[0].as_slice(),
             self.partner_names[1].as_slice(),
         ]
     }
+
     /// Initialize/reset a record for a source-order campaign index.
     ///
     /// A changed (including fresh `-1`) CampaignType makes exactly one logical

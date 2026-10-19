@@ -35,7 +35,17 @@ pub(crate) use crate::sim::scenario_session::ScenarioGameMode as SessionMode;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NetworkReturnContext {
     LanLobby,
-    Wol { mode: i32, return_mode: i32 },
+    #[cfg_attr(
+        not(test),
+        expect(
+            dead_code,
+            reason = "the WOL shell, a later mechanism of this goal, enters it"
+        )
+    )]
+    Wol {
+        mode: i32,
+        return_mode: i32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -235,6 +245,7 @@ impl MatchSession {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn participant_count(&self) -> usize {
         self.network_setup()
             .map_or(usize::from(self.offline_player_name.is_some()), |launch| {
@@ -1201,7 +1212,6 @@ impl MatchSession {
             agreed_seed,
             self.mode,
             self.host,
-            network.return_context,
             max_ahead_frames,
         ));
         network.phase = NetworkPhase::Frozen {
@@ -1326,13 +1336,6 @@ impl MatchSession {
 
     /// Whether this client owns the match setup: it reads the seed and fixes
     /// the participant list. Every offline session is its own host.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the lockstep transport and multi-human bootstrap of later networking stages read the host flag"
-        )
-    )]
     pub(crate) fn host(&self) -> bool {
         self.host
     }
@@ -1463,7 +1466,6 @@ mod tests {
             );
             session.assert_network_start(prepared);
             assert_eq!(prepared.seed.value, 0x1234abcd);
-            assert_eq!(prepared.return_context(), context);
             assert_eq!(prepared.launch_session().local_player_index, 1);
             assert_eq!(session.local_player_name(), Some("Guest"));
             assert!(!session.host());

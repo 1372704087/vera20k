@@ -295,7 +295,6 @@ pub(super) fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
         for x in 0..width {
             cells.push(ResolvedTerrainCell {
                 land_type: 2,
-                yr_cell_land_type: 2,
                 terrain_class: crate::rules::terrain_rules::TerrainClass::Water,
                 speed_costs: crate::rules::terrain_rules::SpeedCostProfile {
                     float: Some(100),
@@ -305,7 +304,6 @@ pub(super) fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
                 is_water: true,
                 zone_type: crate::map::resolved_terrain::zone_class::WATER,
                 base_land_type: 2,
-                base_yr_cell_land_type: 2,
                 base_terrain_class: crate::rules::terrain_rules::TerrainClass::Water,
                 base_speed_costs: crate::rules::terrain_rules::SpeedCostProfile {
                     float: Some(100),
@@ -868,7 +866,6 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     let land_exit = terrain.cell_mut(6, 5).unwrap();
     land_exit.is_water = false;
     land_exit.land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
-    land_exit.yr_cell_land_type = crate::rules::terrain_rules::LandType::Clear.as_index();
     land_exit.terrain_class = crate::rules::terrain_rules::TerrainClass::Clear;
     let grid = PathGrid::test_all_passable(40, 40);
     sim.install_fixture_path_grid(Some(&grid));

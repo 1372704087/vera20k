@@ -76,7 +76,6 @@ fn read_resident_tmp(
     tile: u16,
     filename: &str,
     set: Option<u16>,
-    warned: &mut HashSet<u8>,
 ) -> Result<ResidentBridgeTmp, BridgeRecalcCatalogError> {
     let bytes = assets
         .get(filename)
@@ -96,13 +95,13 @@ fn read_resident_tmp(
             reason: format!("{filename}: empty TMP template"),
         });
     }
-    let mut metadata = |sub| {
+    let metadata = |sub| {
         let mut entry = TileMetadata {
             tileset_index: set,
             tmp_file_valid: true,
             ..TileMetadata::default()
         };
-        merge_tmp_file_metadata(&mut entry, &tmp, sub, Some(rules), warned);
+        merge_tmp_file_metadata(&mut entry, &tmp, sub, Some(rules));
         entry
     };
     let entries = (0..count).map(|sub| metadata(sub as u8)).collect();
@@ -235,14 +234,12 @@ impl BridgeRecalcCatalog {
         names: &[&str],
         table: [u8; 64],
     ) -> Self {
-        let mut warned = HashSet::new();
         self.files.insert(
             tile,
             names
                 .iter()
                 .map(|name| {
-                    read_resident_tmp(assets, &self.terrain_rules, tile, name, None, &mut warned)
-                        .map(Arc::new)
+                    read_resident_tmp(assets, &self.terrain_rules, tile, name, None).map(Arc::new)
                 })
                 .collect(),
         );
@@ -303,7 +300,6 @@ impl BridgeRecalcCatalog {
         let ini = crate::rules::ini_parser::IniFile::from_bytes(&theater.ini_data);
         let mut heads = HashMap::new();
         let mut files = HashMap::new();
-        let mut warned = HashSet::new();
         for id in ids {
             let Ok(tile) = u16::try_from(id) else {
                 continue;
@@ -319,9 +315,7 @@ impl BridgeRecalcCatalog {
                     tile,
                     reason: "no pristine filename".into(),
                 })
-                .and_then(|filename| {
-                    read_resident_tmp(assets, rules, tile, filename, set, &mut warned)
-                })
+                .and_then(|filename| read_resident_tmp(assets, rules, tile, filename, set))
                 .map(Arc::new);
             let result = (|| {
                 let ini = ini
@@ -375,10 +369,7 @@ impl BridgeRecalcCatalog {
                     .filename_for_variant(tile, variant)
                     .expect("registered variant has a filename");
                 let set = theater.lookup.tileset_index(tile);
-                siblings.push(
-                    read_resident_tmp(assets, rules, tile, filename, set, &mut warned)
-                        .map(Arc::new),
-                );
+                siblings.push(read_resident_tmp(assets, rules, tile, filename, set).map(Arc::new));
             }
             files.insert(tile, siblings.into_boxed_slice());
             heads.insert(tile, result);

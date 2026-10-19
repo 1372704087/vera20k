@@ -40,7 +40,7 @@ fn walk_attack_scene() -> (Simulation, RuleSet, u64, u64) {
     sim.session.current_house = sim.interner.get("Local");
     let costs = rules
         .terrain_rules
-        .semantics_by_name("Clear")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
         .unwrap()
         .speed_costs;
     let cells = (0..64)

@@ -56,12 +56,12 @@ fn outbound_contract_oracle() -> OutboundContractOracle {
     let tib01 = overlays.id_for_name("TIB01").expect("retail TIB01");
     let clear_speed_costs = rules
         .terrain_rules
-        .semantics_by_name("Clear")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
         .expect("merged [Clear]")
         .speed_costs;
     let tiberium_speed_costs = rules
         .terrain_rules
-        .semantics_by_name("Tiberium")
+        .semantics_for_land_type(crate::rules::terrain_rules::LandType::Tiberium.as_index())
         .expect("merged [Tiberium]")
         .speed_costs;
 
@@ -1736,15 +1736,10 @@ fn outbound_contract_matches_selected_retail_hills_battle() {
     let overlays = OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
     let tib01 = overlays.id_for_name("TIB01").expect("retail TIB01");
     assert!(overlays.flags(tib01).is_some_and(|flags| flags.tiberium));
-    for terrain in ["Clear", "Tiberium"] {
-        let expected = miner_contract_rules
-            .terrain_rules
-            .semantics_by_name(terrain)
-            .unwrap_or_else(|| panic!("contract {terrain} terrain"));
-        let actual = rules
-            .terrain_rules
-            .semantics_by_name(terrain)
-            .unwrap_or_else(|| panic!("retail {terrain} terrain"));
+    for land in [LandType::Clear, LandType::Tiberium] {
+        let terrain = land.section_name();
+        let expected = miner_contract_rules.terrain_rules.row(land);
+        let actual = rules.terrain_rules.row(land);
         assert_eq!(actual.buildable, expected.buildable, "{terrain} Buildable");
         assert_eq!(
             actual.speed_costs, expected.speed_costs,

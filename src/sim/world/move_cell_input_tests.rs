@@ -586,12 +586,12 @@ impl Simulation {
         sim.playfield_size_height = Some(8);
         let clear = rules
             .terrain_rules
-            .semantics_by_name("Clear")
+            .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
             .unwrap()
             .speed_costs;
         let water = rules
             .terrain_rules
-            .semantics_by_name("Water")
+            .semantics_for_land_type(crate::rules::terrain_rules::LandType::Water.as_index())
             .unwrap()
             .speed_costs;
         let cells = (0..16)

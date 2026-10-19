@@ -405,8 +405,7 @@ pub(super) fn build_destroyable_cliff_catalog(
         .slope_set_pieces
         .and_then(|set| td.lookup.bounds().get(usize::from(set)))?
         .start;
-    let mut warned_unknown_land_types = HashSet::new();
-    let mut load_template = |tile_id: u16| -> Option<SparseTileTemplate> {
+    let load_template = |tile_id: u16| -> Option<SparseTileTemplate> {
         let filename = td.lookup.filename(i32::from(tile_id))?;
         let bytes = assets.get(filename)?;
         let tmp = TmpFile::from_bytes(&bytes).ok()?;
@@ -429,7 +428,6 @@ pub(super) fn build_destroyable_cliff_catalog(
                             sub_tile,
                             variant: 0,
                         },
-                        &mut warned_unknown_land_types,
                     ),
                     accepts_smudge: td.lookup.is_morphable(tile_id),
                     allows_tiberium: td.lookup.allows_tiberium(tile_id),

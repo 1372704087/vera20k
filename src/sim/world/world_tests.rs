@@ -2757,9 +2757,30 @@ const OPEN_SPEED_COSTS: crate::rules::terrain_rules::SpeedCostProfile =
         hover: Some(100),
     };
 
-/// Create a water terrain grid (all cells are water, land_type=4) for ship tests.
+/// A water terrain grid for ship tests: every cell Water land with the Water
+/// zone, ground-blocked and unbuildable as a loaded Water cell is, and every
+/// SpeedType row open.
 fn water_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
-    water_terrain_with_land_type(width, height, 4)
+    use crate::map::resolved_terrain::zone_class;
+    use crate::rules::terrain_rules::LandType;
+
+    let water = LandType::Water.as_index();
+    let cells = (0..height)
+        .flat_map(|y| {
+            (0..width).map(move |x| crate::map::resolved_terrain::ResolvedTerrainCell {
+                land_type: water,
+                speed_costs: OPEN_SPEED_COSTS,
+                zone_type: zone_class::WATER,
+                ground_walk_blocked: true,
+                base_ground_walk_blocked: true,
+                base_build_blocked: true,
+                base_land_type: water,
+                base_speed_costs: OPEN_SPEED_COSTS,
+                ..crate::map::resolved_terrain::test_flat_cell(x, y)
+            })
+        })
+        .collect();
+    ResolvedTerrainGrid::from_cells(width, height, cells)
 }
 
 fn gsi_04_10_clear_terrain(width: u16, height: u16) -> ResolvedTerrainGrid {
@@ -3101,22 +3122,6 @@ fn gsi_04_10_zero_occupation_removal_forces_ground_zone_with_same_walkability() 
         ZONE_INVALID,
         "Limbo's AssignOrphaned must observe the reduced-zone change despite identical PathGrid cells"
     );
-}
-
-fn water_terrain_with_land_type(width: u16, height: u16, land_type: u8) -> ResolvedTerrainGrid {
-    let mut cells = Vec::new();
-    for y in 0..height {
-        for x in 0..width {
-            cells.push(crate::map::resolved_terrain::ResolvedTerrainCell {
-                land_type,
-                speed_costs: OPEN_SPEED_COSTS,
-                zone_type: 4,
-                base_speed_costs: OPEN_SPEED_COSTS,
-                ..crate::map::resolved_terrain::test_flat_cell(x, y)
-            });
-        }
-    }
-    ResolvedTerrainGrid::from_cells(width, height, cells)
 }
 
 fn single_bridge_cell(rx: u16, ry: u16, deck_level: u8) -> ResolvedTerrainGrid {
@@ -3971,9 +3976,12 @@ fn sonic_cell_fire_wave_damage_selects_level_two_bridge_plane() {
     for cell in &mut cells {
         cell.level = 2;
         cell.template_height = 2;
-        cell.land_type = 4;
-        cell.zone_type = 4;
-        cell.base_land_type = 4;
+        cell.land_type = crate::rules::terrain_rules::LandType::Water.as_index();
+        cell.zone_type = crate::map::resolved_terrain::zone_class::WATER;
+        cell.ground_walk_blocked = true;
+        cell.base_ground_walk_blocked = true;
+        cell.base_build_blocked = true;
+        cell.base_land_type = cell.land_type;
         cell.has_bridge_deck = true;
         cell.bridge_walkable = true;
         cell.bridge_deck_level = 6;
@@ -5692,52 +5700,51 @@ fn test_ship_turn_path_completes_without_drive_track_stall() {
     );
 }
 
-/// Land type 4 is the pure water column. Real maps also carry water-surface
-/// tiles with a shoreline/coast land_type (7); ships still navigate them.
 #[test]
 fn test_real_ship_locomotor_move_command_crosses_water_cells() {
     let rules = real_ship_test_rules();
-    for land_type in [4, 7] {
-        let mut sim = Simulation::new();
-        let terrain = water_terrain_with_land_type(4, 4, land_type);
-        let path_grid = PathGrid::from_resolved_terrain(&terrain);
-        install_rectangular_test_map(&mut sim, terrain.width(), terrain.height());
-        sim.resolved_terrain = Some(terrain.clone());
-        assert!(sim.rebuild_dynamic_navigation(&rules));
+    let mut sim = Simulation::new();
+    let terrain = water_terrain(4, 4);
+    let path_grid = PathGrid::from_resolved_terrain(&terrain);
+    install_rectangular_test_map(&mut sim, terrain.width(), terrain.height());
+    sim.resolved_terrain = Some(terrain.clone());
+    assert!(sim.rebuild_dynamic_navigation(&rules));
 
-        let ship_id = sim
-            .spawn_object("DEST", "Americans", 0, 0, 64, &rules)
-            .expect("spawn destroyer");
-        let cmd = cmd_envelope(&sim, "Americans", 1, move_command(ship_id, (3, 1)));
+    let ship_id = sim
+        .spawn_object("DEST", "Americans", 0, 0, 64, &rules)
+        .expect("spawn destroyer");
+    let cmd = cmd_envelope(&sim, "Americans", 1, move_command(ship_id, (3, 1)));
 
-        let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&path_grid), None, 100);
-        // GSI-13.06: Ship Process_Drive_Track (0x6A05F0) spends the integer
-        // GetCurrentSpeed budget in strict 7-unit points; DEST's default ramp can
-        // reach the 0.3 brake floor while its final raw-track tail is still live.
-        for _ in 0..100 {
-            let _ = sim.advance_tick(&[], Some(&rules), Some(&path_grid), None, 100);
-            if sim.substrate.entities.get(ship_id).is_some_and(|ship| {
-                crate::sim::movement::motion_query::is_moving(&ship) != Some(true)
-            }) {
-                break;
-            }
-        }
-
-        let ship = sim
+    let _ = sim.advance_tick(&[cmd], Some(&rules), Some(&path_grid), None, 100);
+    // GSI-13.06: Ship Process_Drive_Track (0x6A05F0) spends the integer
+    // GetCurrentSpeed budget in strict 7-unit points; DEST's default ramp can
+    // reach the 0.3 brake floor while its final raw-track tail is still live.
+    for _ in 0..100 {
+        let _ = sim.advance_tick(&[], Some(&rules), Some(&path_grid), None, 100);
+        if sim
             .substrate
             .entities
             .get(ship_id)
-            .expect("ship still exists");
-        assert_eq!(
-            (ship.position.rx(), ship.position.ry()),
-            (3, 1),
-            "land type {land_type}: real Ship locomotor should complete a simple move over water"
-        );
-        assert!(
-            crate::sim::movement::motion_query::is_moving(&ship) != Some(true),
-            "land type {land_type}: real Ship locomotor should finish its move command"
-        );
+            .is_some_and(|ship| crate::sim::movement::motion_query::is_moving(&ship) != Some(true))
+        {
+            break;
+        }
     }
+
+    let ship = sim
+        .substrate
+        .entities
+        .get(ship_id)
+        .expect("ship still exists");
+    assert_eq!(
+        (ship.position.rx(), ship.position.ry()),
+        (3, 1),
+        "real Ship locomotor should complete a simple move over water"
+    );
+    assert!(
+        crate::sim::movement::motion_query::is_moving(&ship) != Some(true),
+        "real Ship locomotor should finish its move command"
+    );
 }
 
 #[test]

@@ -5,8 +5,6 @@
 //! per-SpeedType costs. A cell keeps only its `LandType` (`CellClass+0xEC`);
 //! everything else about its land is asked of that value or of this table.
 
-use std::collections::HashMap;
-
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::locomotor_type::SpeedType;
 use crate::util::fixed_math::{SIM_ONE, SimFixed};
@@ -142,6 +140,18 @@ pub struct SpeedCostProfile {
 }
 
 impl SpeedCostProfile {
+    /// Every authored SpeedType row at 0.0, as the native table holds an
+    /// unauthored land type.
+    pub const ZERO: Self = Self {
+        foot: Some(0),
+        track: Some(0),
+        wheel: Some(0),
+        float: Some(0),
+        amphibious: Some(0),
+        float_beach: Some(0),
+        hover: Some(0),
+    };
+
     pub fn cost_for_speed_type(&self, speed_type: SpeedType) -> Option<u8> {
         match speed_type {
             // Keep the native parser's invalid index unavailable to live entry
@@ -189,48 +199,71 @@ impl LandTypeSemantics {
     pub fn cost_for_speed_type(&self, speed_type: SpeedType) -> Option<u8> {
         self.speed_costs.cost_for_speed_type(speed_type)
     }
+
+    /// The row of a land type no rules layer authors: the native reader skips
+    /// it (see [`parse_speed_costs`]), so it keeps the image's zeros, every
+    /// SpeedType row 0.0 and not `Buildable`. `ground_blocked` keeps its land
+    /// value. The native Winged slot is 0.0 here too, where
+    /// [`SpeedCostProfile::cost_for_speed_type`] still answers Winged with the
+    /// authored rows' constant.
+    fn zero(land_type: LandType) -> Self {
+        Self {
+            buildable: false,
+            ground_blocked: ground_blocked(land_type),
+            speed_costs: SpeedCostProfile::ZERO,
+        }
+    }
 }
 
-#[derive(Debug, Clone, Default)]
+/// VERA's ground-walk block for a land type: Water, Rock and Wall.
+const fn ground_blocked(land_type: LandType) -> bool {
+    matches!(land_type, LandType::Water | LandType::Rock | LandType::Wall)
+}
+
+/// The scenario's land-type table (`0x0089EA40`): one row per `LandType`,
+/// read from its section or, for an unauthored section, the zero row.
+#[derive(Debug, Clone)]
 pub struct TerrainRules {
-    by_land_type: HashMap<u8, LandTypeSemantics>,
-    by_name: HashMap<String, LandTypeSemantics>,
+    rows: [LandTypeSemantics; LandType::ALL.len()],
+}
+
+impl Default for TerrainRules {
+    /// The table before any rules layer is read: every row zero.
+    fn default() -> Self {
+        Self {
+            rows: LandType::ALL.map(LandTypeSemantics::zero),
+        }
+    }
 }
 
 impl TerrainRules {
     pub fn from_ini(ini: &IniFile) -> Self {
-        let mut by_land_type: HashMap<u8, LandTypeSemantics> = HashMap::new();
-        let mut by_name: HashMap<String, LandTypeSemantics> = HashMap::new();
-
-        for land_type in LandType::ALL {
-            let section_name = land_type.section_name();
-            let Some(section) = ini.section(section_name) else {
-                continue;
-            };
-            let semantics = build_semantics(land_type, section);
-            by_land_type.insert(land_type.as_index(), semantics);
-            by_name.insert(section_name.to_ascii_lowercase(), semantics);
-        }
-
         Self {
-            by_land_type,
-            by_name,
+            rows: LandType::ALL.map(|land_type| {
+                ini.section(land_type.section_name()).map_or_else(
+                    || LandTypeSemantics::zero(land_type),
+                    |section| build_semantics(land_type, section),
+                )
+            }),
         }
     }
 
-    pub fn semantics_for_land_type(&self, land_type: u8) -> Option<&LandTypeSemantics> {
-        self.by_land_type.get(&land_type)
+    /// The row of `land_type`: its section's, or the zero row.
+    pub fn row(&self, land_type: LandType) -> &LandTypeSemantics {
+        &self.rows[usize::from(land_type.as_index())]
     }
 
-    pub fn semantics_by_name(&self, name: &str) -> Option<&LandTypeSemantics> {
-        self.by_name.get(&name.to_ascii_lowercase())
+    /// [`Self::row`] for a `CellClass+0xEC` value; `None` only for a value
+    /// outside the twelve land types.
+    pub fn semantics_for_land_type(&self, land_type: u8) -> Option<&LandTypeSemantics> {
+        LandType::from_index(land_type).map(|land_type| self.row(land_type))
     }
 }
 
 fn build_semantics(land_type: LandType, section: &IniSection) -> LandTypeSemantics {
     LandTypeSemantics {
         buildable: section.read_bool("Buildable", false),
-        ground_blocked: matches!(land_type, LandType::Water | LandType::Rock | LandType::Wall),
+        ground_blocked: ground_blocked(land_type),
         speed_costs: parse_speed_costs(section),
     }
 }
@@ -250,10 +283,10 @@ fn build_semantics(land_type: LandType, section: &IniSection) -> LandTypeSemanti
 /// resolves to full speed.
 ///
 /// A missing *section* does not: the native loop skips the whole row when
-/// `INIClass::FindSectionByName` returns 0, and the block at `0x0089EA40` is
-/// zero-filled in the image, so an unauthored land type is impassable to every
-/// SpeedType. VERA drops the row here too, and each consumer decides what a
-/// missing row means.
+/// `INIClass::FindSectionByName` returns 0 (`JZ` at `0x00674022`), and the
+/// block at `0x0089EA40` is zero-filled in the image, so an unauthored land
+/// type is impassable to every SpeedType and not `Buildable`.
+/// [`TerrainRules`] answers that zero row for it.
 fn parse_speed_costs(section: &IniSection) -> SpeedCostProfile {
     SpeedCostProfile {
         foot: parse_cost(section, "Foot"),
@@ -378,17 +411,40 @@ mod tests {
     }
 
     #[test]
-    fn terrain_rules_do_not_write_missing_sections() {
-        let terrain_rules = TerrainRules::from_ini(&IniFile::from_str(""));
+    fn a_missing_section_is_the_zero_row() {
+        // `RulesClass::ReadSpeedTypeLandTypeTable @ 0x00674000` skips an
+        // unauthored section (`JZ` at `0x00674022`), leaving the image's
+        // zeros at `0x0089EA40`: every SpeedType row 0.0, not Buildable.
+        let terrain_rules = TerrainRules::from_ini(&IniFile::from_str("[Clear]\nBuildable=yes\n"));
+        let zero = SpeedCostProfile {
+            foot: Some(0),
+            track: Some(0),
+            wheel: Some(0),
+            float: Some(0),
+            amphibious: Some(0),
+            float_beach: Some(0),
+            hover: Some(0),
+        };
         for land_type in LandType::ALL {
-            assert!(
-                terrain_rules
-                    .semantics_for_land_type(land_type.as_index())
-                    .is_none(),
-                "{} should remain unwritten",
-                land_type.section_name(),
+            let name = land_type.section_name();
+            let row = terrain_rules
+                .semantics_for_land_type(land_type.as_index())
+                .unwrap_or_else(|| panic!("{name} row"));
+            if land_type == LandType::Clear {
+                // An authored section reads 1.0 for each absent key.
+                assert!(row.buildable);
+                assert_eq!(row.cost_for_speed_type(SpeedType::Track), Some(100));
+                continue;
+            }
+            assert_eq!(row.speed_costs, zero, "{name}");
+            assert!(!row.buildable, "{name}");
+            assert_eq!(
+                row.ground_blocked,
+                matches!(land_type, LandType::Water | LandType::Rock | LandType::Wall),
+                "{name}"
             );
         }
+        assert!(terrain_rules.semantics_for_land_type(12).is_none());
     }
 
     #[test]
@@ -469,7 +525,6 @@ mod tests {
             assert_eq!(row.cost_for_speed_type(SpeedType::FloatBeach), Some(100));
             assert_eq!(row.buildable, land_type != LandType::Clear);
         }
-        assert!(terrain_rules.semantics_by_name("Cliff").is_none());
 
         let clear = terrain_rules
             .semantics_for_land_type(LandType::Clear.as_index())

@@ -42,9 +42,9 @@ use crate::rules::overlay_types::{
 };
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_object_type::TerrainObjectType;
-use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainRules};
+use crate::rules::terrain_rules::{LandType, LandTypeSemantics, SpeedCostProfile, TerrainRules};
 use crate::util::pixel_conversion::PixelConversionBounds;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{
     Arc,
     atomic::{AtomicI16, AtomicI32, AtomicU8, AtomicU32, AtomicU64, Ordering},
@@ -428,6 +428,10 @@ const CELL_CENTRE_LEPTONS: i32 = LEPTONS_PER_CELL / 2;
 /// replaced after map construction. The live ResolvedTerrainGrid is derived
 /// and skipped by Simulation snapshots, so collapse projects these exact
 /// fields into Simulation and reapplies them after map reconstruction.
+///
+/// Only [`Self::capture`] (or a saved game) makes one and only
+/// [`ResolvedTerrainGrid::apply_dynamic_cell_state`] writes it back, so the
+/// two land values stay this module's, as on [`ResolvedTerrainCell`].
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct DynamicTerrainCellState {
     pub final_tile_index: i32,
@@ -436,7 +440,10 @@ pub struct DynamicTerrainCellState {
     pub level: u8,
     pub filled_clear: bool,
     pub tileset_index: Option<u16>,
+    #[cfg(any(test, feature = "test-support"))]
     pub land_type: u8,
+    #[cfg(not(any(test, feature = "test-support")))]
+    land_type: u8,
     pub slope_type: u8,
     pub template_height: u8,
     pub height_in_pixels: i8,
@@ -454,7 +461,10 @@ pub struct DynamicTerrainCellState {
     pub zone_type: u8,
     pub base_ground_walk_blocked: bool,
     pub base_build_blocked: bool,
+    #[cfg(any(test, feature = "test-support"))]
     pub base_land_type: u8,
+    #[cfg(not(any(test, feature = "test-support")))]
+    base_land_type: u8,
     pub base_speed_costs: SpeedCostProfile,
     pub has_bridge_deck: bool,
     pub bridge_walkable: bool,
@@ -508,7 +518,7 @@ impl DynamicTerrainCellState {
         }
     }
 
-    pub(crate) fn apply(&self, cell: &mut ResolvedTerrainCell) {
+    fn apply(&self, cell: &mut ResolvedTerrainCell) {
         cell.final_tile_index = self.final_tile_index;
         cell.final_sub_tile = self.final_sub_tile;
         cell.is_wood_bridge_repair_tile = self.is_wood_bridge_repair_tile;
@@ -835,14 +845,25 @@ pub fn test_flat_cell(rx: u16, ry: u16) -> ResolvedTerrainCell {
     }
 }
 
+/// The rules row a cell of `land` takes: the scenario's (the zero row for an
+/// unauthored section), or, with no rules table bound at all (test fixtures
+/// only; every production builder binds one), the unbound row: no SpeedType
+/// rows, not blocked, buildable.
+fn land_row(rules: Option<&TerrainRules>, land: LandType) -> LandTypeSemantics {
+    rules.map_or(
+        LandTypeSemantics {
+            buildable: true,
+            ground_blocked: false,
+            speed_costs: SpeedCostProfile::default(),
+        },
+        |rules| *rules.row(land),
+    )
+}
+
 fn land_speed_cost_profiles(
     rules: Option<&TerrainRules>,
 ) -> [SpeedCostProfile; LandType::ALL.len()] {
-    std::array::from_fn(|index| {
-        rules
-            .and_then(|rules| rules.semantics_for_land_type(LandType::ALL[index].as_index()))
-            .map_or_else(SpeedCostProfile::default, |row| row.speed_costs)
-    })
+    LandType::ALL.map(|land| land_row(rules, land).speed_costs)
 }
 
 /// The two `OverlayTypeClass` fields `CellClass::CheckCellPassability @
@@ -925,9 +946,10 @@ impl ResolvedTerrainGrid {
     }
 
     /// Original4835D5..4835DE indexes the 89EA40 table using retained Land.
-    /// The existing TerrainRules owner supplies these rows; this grid does
-    /// not parse or independently mutate rules. A missing or invalid row is
-    /// the unbound profile, every cost absent.
+    /// The existing TerrainRules owner supplies these rows (the zero row for
+    /// an unauthored section); this grid does not parse or independently
+    /// mutate rules. A value outside the twelve land types is the unbound
+    /// profile, every cost absent.
     pub(crate) fn land_speed_costs(&self, land: i32) -> SpeedCostProfile {
         usize::try_from(land)
             .ok()

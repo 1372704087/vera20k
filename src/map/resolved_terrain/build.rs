@@ -288,7 +288,6 @@ impl ResolvedTerrainGrid {
 
         let mut final_cells: Vec<MapCell> = raw_cells.clone();
         let mut metadata_cache: HashMap<TileKey, TileMetadata> = HashMap::new();
-        let mut warned_unknown_land_types: HashSet<u8> = HashSet::new();
         let native_allocated = materialized_size_diamond.then(|| {
             let mut mask = vec![false; width as usize * height as usize];
             for cell in &raw_cells {
@@ -321,7 +320,6 @@ impl ResolvedTerrainGrid {
                             sub_tile,
                             variant: 0,
                         },
-                        &mut warned_unknown_land_types,
                     )
                     .slope_type
                 };
@@ -427,7 +425,6 @@ impl ResolvedTerrainGrid {
                     asset_manager,
                     terrain_rules,
                     pristine_key,
-                    &mut warned_unknown_land_types,
                 );
                 // The active RecalcAttributes caller validates this exact
                 // registered pristine receiver. A failed entry check on an
@@ -478,7 +475,6 @@ impl ResolvedTerrainGrid {
                         asset_manager,
                         terrain_rules,
                         selected_key,
-                        &mut warned_unknown_land_types,
                     );
                     apply_selected_presentation_metadata(&mut metadata, &selected_metadata);
                 }
@@ -498,7 +494,6 @@ impl ResolvedTerrainGrid {
                     terrain_rules,
                     pristine_key,
                     &metadata,
-                    &mut warned_unknown_land_types,
                 );
                 let terrain_object_occupation = terrain_objects.get(&(rx, ry)).copied();
                 let terrain_object_blocks =
@@ -846,19 +841,8 @@ impl ResolvedTerrainGrid {
             const NEIGHBOR_OFFSETS: [(i32, i32); 6] =
                 [(0, -1), (-1, 0), (2, 2), (1, 1), (-1, 1), (1, -1)];
             let rock_lt = LandType::Rock.as_index();
-            let mut rock_speed_costs = SpeedCostProfile {
-                wheel: Some(0),
-                ..Default::default()
-            };
-            let mut rock_ground_blocked = true;
-            let mut rock_build_blocked = true;
-            if let Some(rock) = terrain_rules
-                .and_then(|rules| rules.semantics_for_land_type(LandType::Rock.as_index()))
-            {
-                rock_speed_costs = rock.speed_costs;
-                rock_ground_blocked = rock.ground_blocked;
-                rock_build_blocked = !rock.buildable;
-            }
+            // The Rock row, as a TMP Rock cell takes it.
+            let rock = land_row(terrain_rules, LandType::Rock);
 
             debug_assert_eq!(cliff_back_eligibility.len(), cells.len());
             let resolved_cell_count = cells.len();
@@ -902,9 +886,9 @@ impl ResolvedTerrainGrid {
                     let cell = &mut cells[idx];
                     if eligibility.current {
                         cell.land_type = rock_lt;
-                        cell.speed_costs = rock_speed_costs;
+                        cell.speed_costs = rock.speed_costs;
                         // RecalcZoneType runs after the native LandType write.
-                        cell.ground_walk_blocked = rock_ground_blocked
+                        cell.ground_walk_blocked = rock.ground_blocked
                             || cell.terrain_object_blocks
                             || cell.overlay_blocks;
                         cell.zone_type = recalc_zone_type(
@@ -921,9 +905,9 @@ impl ResolvedTerrainGrid {
                     // that overlay is removed.
                     if eligibility.base {
                         cell.base_land_type = rock_lt;
-                        cell.base_speed_costs = rock_speed_costs;
-                        cell.base_ground_walk_blocked = rock_ground_blocked;
-                        cell.base_build_blocked = rock_build_blocked;
+                        cell.base_speed_costs = rock.speed_costs;
+                        cell.base_ground_walk_blocked = rock.ground_blocked;
+                        cell.base_build_blocked = !rock.buildable;
                     }
                 }
             }
@@ -1318,18 +1302,11 @@ pub(super) fn cached_tile_metadata(
     asset_manager: Option<&crate::assets::asset_manager::AssetManager>,
     terrain_rules: Option<&TerrainRules>,
     key: TileKey,
-    warned_unknown_land_types: &mut HashSet<u8>,
 ) -> TileMetadata {
     if let Some(metadata) = cache.get(&key) {
         return metadata.clone();
     }
-    let metadata = load_tile_metadata(
-        theater_data,
-        asset_manager,
-        terrain_rules,
-        key,
-        warned_unknown_land_types,
-    );
+    let metadata = load_tile_metadata(theater_data, asset_manager, terrain_rules, key);
     cache.insert(key, metadata.clone());
     metadata
 }
@@ -1363,7 +1340,6 @@ fn damaged_variant_radar_metadata(
     terrain_rules: Option<&TerrainRules>,
     pristine_key: TileKey,
     pristine: &TileMetadata,
-    warned_unknown_land_types: &mut HashSet<u8>,
 ) -> Option<RadarColorMetadata> {
     if !pristine.has_damaged_data
         || !theater_data
@@ -1380,7 +1356,6 @@ fn damaged_variant_radar_metadata(
             variant: 1,
             ..pristine_key
         },
-        warned_unknown_land_types,
     );
     // A missing/corrupt independent file never enters native's variant chain,
     // so the selector wraps to pristine. A parsed file with no requested
@@ -1406,15 +1381,17 @@ pub(super) fn load_tile_metadata(
     asset_manager: Option<&crate::assets::asset_manager::AssetManager>,
     terrain_rules: Option<&TerrainRules>,
     key: TileKey,
-    warned_unknown_land_types: &mut HashSet<u8>,
 ) -> TileMetadata {
     let Some(td) = theater_data else {
         return TileMetadata::default();
     };
-    // Land is read only from the TMP subtile (`GetSubtileLandType @
-    // 0x00544BE0`), or replaced later by overlay and CliffBack writers. With no
-    // assets there is no TMP, so the cell keeps the constructor's Clear
-    // (`0x0047BC93`); a tileset's name never decides its land.
+    // Land comes from the TMP subtile alone, replaced later by the overlay and
+    // CliffBack writers. RecalcAttributes (`0x0047D2B0`) rewrites `+0xEC` on
+    // every path: GetSubtileLandType (`0x00544BE0`) answers 0, Clear, for a
+    // missing image or entry (`0x00544BEC`/`0x00544C03` -> `0x00544C13`), and
+    // the sentinel and sparse branches store 0 (`0x0047DB48`, `0x0047D5EF`).
+    // With no assets there is no TMP, so the cell is Clear; a tileset's name
+    // never decides its land.
     let mut metadata = TileMetadata {
         tileset_index: td.lookup.tileset_index(key.tile_id),
         ..TileMetadata::default()
@@ -1436,13 +1413,7 @@ pub(super) fn load_tile_metadata(
         return metadata;
     };
     metadata.tmp_file_valid = true;
-    merge_tmp_file_metadata(
-        &mut metadata,
-        &tmp,
-        key.sub_tile,
-        terrain_rules,
-        warned_unknown_land_types,
-    );
+    merge_tmp_file_metadata(&mut metadata, &tmp, key.sub_tile, terrain_rules);
     metadata
 }
 
@@ -1451,7 +1422,6 @@ pub(super) fn merge_tmp_file_metadata(
     tmp: &TmpFile,
     sub_tile: u8,
     terrain_rules: Option<&TerrainRules>,
-    warned_unknown_land_types: &mut HashSet<u8>,
 ) {
     metadata.template_width_cells = tmp.template_width;
     metadata.template_height_cells = tmp.template_height;
@@ -1481,7 +1451,7 @@ pub(super) fn merge_tmp_file_metadata(
         return;
     };
     merge_tmp_metadata(metadata, tile);
-    apply_land_type_semantics(metadata, terrain_rules, warned_unknown_land_types);
+    apply_land_type_semantics(metadata, terrain_rules);
 }
 
 fn mark_invalid_subtile_metadata(
@@ -1494,15 +1464,8 @@ fn mark_invalid_subtile_metadata(
     metadata.slope_type = 0;
     metadata.template_height = 0;
     metadata.has_ramp = false;
-    apply_canonical_land_to_metadata(metadata, LandType::Clear, None, false);
-    metadata.build_blocked = false;
-    if let Some(clear) =
-        terrain_rules.and_then(|rules| rules.semantics_for_land_type(LandType::Clear.as_index()))
-    {
-        metadata.speed_costs = clear.speed_costs;
-        metadata.ground_blocked = clear.ground_blocked;
-        metadata.build_blocked = !clear.buildable;
-    }
+    metadata.land_type = LandType::Clear.as_index();
+    apply_land_row(metadata, land_row(terrain_rules, LandType::Clear));
 }
 
 pub(super) fn height_in_pixels_from_tmp(tile_height: u32, relative_extra_y: i32) -> Option<i8> {
@@ -1544,37 +1507,23 @@ pub(super) fn canonical_ramp_from_slope_type(slope_type: u8) -> Option<RampDirec
 pub(super) fn apply_land_type_semantics(
     metadata: &mut TileMetadata,
     terrain_rules: Option<&TerrainRules>,
-    warned_unknown_land_types: &mut HashSet<u8>,
 ) {
-    let Some(terrain_rules) = terrain_rules else {
-        return;
-    };
     if !metadata.has_tmp_metadata {
         return;
     }
     // Rules rows use the canonical LandType index. The raw TMP byte remains
     // diagnostic context only after the fixed TMP-to-land conversion has run.
-    // A missing row leaves the unbound defaults (no speed rows, not blocked,
-    // buildable), as `land_speed_costs` does. Native zero-fills it instead
-    // (`0x0089EA40`: impassable, not buildable); retail authors all twelve.
-    let Some(semantics) = terrain_rules
-        .semantics_for_land_type(metadata.land_type)
-        .copied()
-    else {
-        if warned_unknown_land_types.insert(metadata.raw_land_type) {
-            log::warn!(
-                "No terrain-rules row for canonical LandType {} converted from TMP byte {}; \
-                 its row attributes stay unbound",
-                metadata.land_type,
-                metadata.raw_land_type,
-            );
-        }
+    let Some(land) = LandType::from_index(metadata.land_type) else {
         return;
     };
+    apply_land_row(metadata, land_row(terrain_rules, land));
+}
 
-    metadata.speed_costs = semantics.speed_costs;
-    metadata.ground_blocked = semantics.ground_blocked;
-    metadata.build_blocked = !semantics.buildable;
+/// Give `metadata` the attributes its land's rules row carries.
+fn apply_land_row(metadata: &mut TileMetadata, row: LandTypeSemantics) {
+    metadata.speed_costs = row.speed_costs;
+    metadata.ground_blocked = row.ground_blocked;
+    metadata.build_blocked = !row.buildable;
 }
 
 /// Replace every land-derived attribute of a cell with the overlay's `Land=` row.

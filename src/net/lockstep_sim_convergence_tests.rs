@@ -254,7 +254,7 @@ fn two_instance_multiplayer_checksums_match_every_frame_and_catch_a_desync() {
         sim.session.current_house = sim.interner.get("Local");
         let costs = rules
             .terrain_rules
-            .semantics_by_name("Clear")
+            .semantics_for_land_type(crate::rules::terrain_rules::LandType::Clear.as_index())
             .unwrap()
             .speed_costs;
         let cells = (0..64)

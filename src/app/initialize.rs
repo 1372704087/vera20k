@@ -600,6 +600,10 @@ impl App {
                 #[cfg(feature = "telemetry-dashboard")]
                 telemetry_timing: Default::default(),
                 #[cfg(feature = "telemetry-dashboard")]
+                telemetry_history: Default::default(),
+                #[cfg(feature = "telemetry-dashboard")]
+                report_history: Default::default(),
+                #[cfg(feature = "telemetry-dashboard")]
                 telemetry_tick_rate: Default::default(),
                 map_basic: BasicSection::default(),
                 map_ranking: crate::map::ranking::RankingSection::default(),

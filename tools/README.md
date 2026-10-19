@@ -7,6 +7,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 
 | Job | Owner / entry point |
 | --- | --- |
+| Observe match populations, production, timings and logs in a local browser | [Read-only telemetry dashboard](telemetry-dashboard/README.md) |
 | Give a new worktree its ignored `ini/` and `config.toml`, or a clone its `config.toml`; report what the game, retail tests and oracles still need | `python -m tools.prepare_checkout` |
 | Run all Python tool and source-skill tests | `python -m tools.run_tests` (below) |
 | Inspect scenario ART ownership, native checks and retail load validation | [ART registry owner](art_registry_owner.md) |

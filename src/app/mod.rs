@@ -51,6 +51,8 @@ pub(crate) mod movie_playback;
 pub(crate) mod persistence;
 pub(crate) mod presentation;
 pub(crate) mod process_assets;
+#[cfg(feature = "telemetry-dashboard")]
+pub(crate) mod process_stats;
 pub(crate) mod radar_movie;
 #[cfg(test)]
 mod random_map_lifecycle_tests;
@@ -70,6 +72,12 @@ pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
 mod state;
+#[cfg(feature = "telemetry-dashboard")]
+pub mod telemetry;
+#[cfg(feature = "telemetry-dashboard")]
+pub(crate) mod telemetry_capture;
+#[cfg(feature = "telemetry-dashboard")]
+pub(crate) mod telemetry_server;
 pub(crate) mod types;
 mod window_icon;
 

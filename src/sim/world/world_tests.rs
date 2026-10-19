@@ -581,7 +581,8 @@ fn a_jumpjet_cruising_over_water_leaves_no_wake() {
 #[test]
 fn a_ship_wakes_every_eighth_frame_unless_it_is_underwater() {
     let ini = IniFile::from_str(
-        "[InfantryTypes]\n[VehicleTypes]\n0=DEST\n1=SUB\n[AircraftTypes]\n[BuildingTypes]\n\
+        "[General]\nWake=WAKE1\n\
+         [InfantryTypes]\n[VehicleTypes]\n0=DEST\n1=SUB\n[AircraftTypes]\n[BuildingTypes]\n\
          [DEST]\nStrength=600\nArmor=heavy\nSpeed=6\nMovementZone=Water\nSpeedType=Float\n\
          Naval=yes\nLocomotor={2BEA74E1-7CCA-11d3-BE14-00104B62A16C}\n\
          [SUB]\nStrength=600\nArmor=heavy\nSpeed=6\nMovementZone=Water\nSpeedType=Float\n\
@@ -645,7 +646,10 @@ fn moving_water_unit_spawns_rules_bound_wake_without_preinterned_effect_name() {
     // A drive-family boat: the native wake gate is the drive locomotor's
     // `Is_Moving_Now` slot, so the fixture names the Drive locomotor.
     let ini: IniFile = IniFile::from_str(
-        "[InfantryTypes]
+        "[General]
+Wake=WAKE1
+
+         [InfantryTypes]
 
          [VehicleTypes]
 0=BOAT

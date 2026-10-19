@@ -561,30 +561,80 @@ fn to_overlay_reads_only_the_image_section() {
     assert_eq!(rules.object("WALL").unwrap().to_overlay, None);
 }
 
-/// The RulesClass pointers are process-resident state each reader keeps on an
-/// empty read, so a continued process whose current stack omits a key keeps
-/// the earlier scenario's Type, where the typed reads saw only the current
-/// merged INI.
+/// A stack that sets RulesClass Type pointers and lists of every owner, and
+/// crate and rocket scalars, for the process-lifetime tests below.
+const RULES_CLASS_REFERENCES: &str = "\
+[BuildingTypes]
+0=GACNST
+[GACNST]
+Foundation=1x1
+[General]
+WarpIn=WARPA
+DeadBodies=BODYA
+MetallicDebris=DEBRISA
+V3RocketType=V3R
+V3RocketDamage=5
+[AI]
+BuildConst=GACNST
+[CrateRules]
+CrateImg=CRATEA
+UnitCrateType=UNITA
+CrateMaximum=7
+[CombatDamage]
+IvanWarhead=IvanWH
+DefaultSparkSystem=SparkSys
+C4Warhead=C4WH
+ControlledAnimationType=MINDANIM
+DrainAnimationType=DISKRAY
+V3Warhead=V3WH
+[Radiation]
+RadSiteWarhead=RadWH
+[SpecialWeapons]
+MutateWarhead=Mutate
+";
+
+/// A stack that keeps GACNST and names none of the keys above.
+const OMITS_RULES_CLASS_REFERENCES: &str = "\
+[BuildingTypes]
+0=GACNST
+[GACNST]
+Foundation=1x1
+[General]
+Unrelated=1
+[CombatDamage]
+MaxDamage=500
+[Radiation]
+RadDurationMultiple=1
+";
+
+/// Process [`OMITS_RULES_CLASS_REFERENCES`] after [`RULES_CLASS_REFERENCES`],
+/// continuing its live state in `context`.
+fn after_rules_class_references(context: RulesProcessContext) -> RuleSet {
+    let prior = RulesLayerStack::new(IniFile::from_str(RULES_CLASS_REFERENCES))
+        .process()
+        .unwrap();
+    let (_, trace) = prior.into_ini_and_native_type_construction_trace();
+    let processed = RulesLayerStack::new(IniFile::from_str(OMITS_RULES_CLASS_REFERENCES))
+        .process_with_fixed_art_and_registry_state_recovering(
+            &IniFile::empty(),
+            trace.into_registry_state_discarding_events(),
+            context,
+        )
+        .unwrap();
+    RuleSet::from_processed_rules(&processed).unwrap()
+}
+
+/// RulesClass is constructed once, by Init_Game (`0x0052BAD1` calls
+/// `0x00665650`), and each reader keeps its field on an empty read, so a
+/// Process call that continues the live state keeps every Type pointer and
+/// list an earlier call read, the crate and rocket ones included. In
+/// production only Full_Init's prepass continues the state, and the reset
+/// after it clears these pointers before anything reads them (below). The
+/// typed reads saw only the current merged INI, and the crate, rocket and
+/// General Type lists restarted from the constructor on every call.
 #[test]
 fn continued_process_keeps_the_rules_class_type_pointers() {
-    let prior = RulesLayerStack::new(IniFile::from_str(
-        "[CombatDamage]\nIvanWarhead=IvanWH\nDefaultSparkSystem=SparkSys\nC4Warhead=C4WH\n\
-         ControlledAnimationType=MINDANIM\nDrainAnimationType=DISKRAY\n\
-         [Radiation]\nRadSiteWarhead=RadWH\n\
-         [SpecialWeapons]\nMutateWarhead=Mutate\n",
-    ))
-    .process()
-    .unwrap();
-    let (_, trace) = prior.into_ini_and_native_type_construction_trace();
-    let processed = RulesLayerStack::new(IniFile::from_str(
-        "[CombatDamage]\nMaxDamage=500\n[Radiation]\nRadDurationMultiple=1\n",
-    ))
-    .process_with_fixed_art_and_registry_state(
-        &IniFile::empty(),
-        trace.into_registry_state_discarding_events(),
-    )
-    .unwrap();
-    let rules = RuleSet::from_processed_rules(&processed).unwrap();
+    let rules = after_rules_class_references(RulesProcessContext::Ordinary);
 
     let damage = &rules.combat_damage;
     assert_eq!(damage.ivan_warhead.as_deref(), Some("IvanWH"));
@@ -597,20 +647,151 @@ fn continued_process_keeps_the_rules_class_type_pointers() {
     );
     assert_eq!(rules.radiation.site_warhead, "RadWH");
     assert_eq!(rules.general.mutate_warhead, "Mutate");
+    assert_eq!(rules.general.warp_in.name, "WARPA");
+    assert_eq!(rules.general.dead_bodies, ["BODYA"]);
+    assert_eq!(rules.general.metallic_debris, ["DEBRISA"]);
+    assert_eq!(rules.build_const_types, ["GACNST"]);
+    assert_eq!(rules.crate_rules.crate_img.as_deref(), Some("CRATEA"));
+    assert_eq!(rules.crate_rules.unit_crate_type.as_deref(), Some("UNITA"));
+    assert_eq!(rules.crate_rules.maximum, 7);
+    let v3 = &rules.missile_spawn.v3;
+    assert_eq!(
+        (v3.type_name.as_str(), v3.warhead.as_str()),
+        ("V3R", "V3WH")
+    );
+    assert_eq!(v3.damage, 5);
+}
+
+/// Full_Init's reset (`0x006686C0`) deletes the Types and leaves RulesClass
+/// alone, so its scalars are the next scenario's defaults while its Type
+/// pointers dangle. VERA clears every pointer and list there, the crate and
+/// rocket ones with the others, and keeps the crate and rocket scalars, which
+/// restarted from the constructor.
+#[test]
+fn scenario_reset_clears_the_rules_class_type_pointers_and_keeps_the_scalars() {
+    let rules = after_rules_class_references(RulesProcessContext::ScenarioReset);
+
+    assert_eq!(rules.combat_damage.ivan_warhead, None);
+    assert_eq!(rules.bridge_warheads.c4_name, "");
+    assert_eq!(rules.general.warp_in.name, "");
+    assert!(rules.general.dead_bodies.is_empty());
+    assert!(rules.general.metallic_debris.is_empty());
+    assert!(rules.build_const_types.is_empty());
+    assert_eq!(rules.crate_rules.crate_img, None);
+    assert_eq!(rules.crate_rules.unit_crate_type, None);
+    assert_eq!(rules.crate_rules.maximum, 7);
+    let v3 = &rules.missile_spawn.v3;
+    assert_eq!((v3.type_name.as_str(), v3.warhead.as_str()), ("", ""));
+    assert_eq!(v3.damage, 5);
+}
+
+/// ReadGeneral's Type pointers (`0x0066D67B..0x0066FD2F`) and lists go
+/// through factories that answer null for `none` and `<none>`, and a list
+/// drops those tokens; so do ReadAI's lists. VERA's typed reads kept them as
+/// names.
+#[test]
+fn general_type_references_read_none_as_null() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nOreTwinkle=none\nBarrelParticle=<none>\nNukeTakeOff=none\nWake=none\n\
+         DominatorWarhead=none\nChronoBlast=<none>\nWarpIn=none\nIronCurtainInvokeAnim=none\n\
+         InfantryExplode=none\nMoveFlash=<none>\nParachute=none\nEngineer=none\n\
+         AlliedCrew=<none>\nDamageFireTypes=none,FIRE1\nDeadBodies=<none>,BODY1\n\
+         BaseUnit=none,MCV\nPadAircraft=<none>\nShipyard=none\n",
+    ))
+    .unwrap();
+
+    let general = &rules.general;
+    assert_eq!(
+        (&general.ore_twinkle, &general.barrel_particle),
+        (&None, &None)
+    );
+    assert_eq!(
+        [
+            general.nuke_take_off.as_str(),
+            &general.wake.name,
+            &general.dominator_warhead,
+            &general.chrono_blast_anim,
+            &general.warp_in.name,
+            &general.iron_curtain_invoke_anim,
+            &general.move_flash.name,
+        ],
+        [""; 7]
+    );
+    assert_eq!(general.infantry_death_anims[3], None);
+    assert_eq!(
+        (&general.parachute_shp, &general.engineer_infantry),
+        (&None, &None)
+    );
+    assert_eq!(general.allied_crew, None);
+    let fire: Vec<&str> = general
+        .damage_fire_types
+        .iter()
+        .map(|anim| anim.name.as_str())
+        .collect();
+    assert_eq!(fire, ["FIRE1"]);
+    assert_eq!(general.dead_bodies, ["BODY1"]);
+    assert_eq!(general.base_unit_types, ["MCV"]);
+    assert!(general.pad_aircraft_types.is_empty());
+    assert!(rules.shipyard_types.is_empty());
+}
+
+/// The RulesClass constructor leaves these pointers null and these vectors
+/// empty (WarpIn..ChronoSparkle1 `0x00665B02..0x00665B14`, Wake `0x0066572F`,
+/// MoveFlash `0x006665CF`, the infantry death anims `0x0066573B..0x0066575F`,
+/// BaseUnit `0x00666515`). VERA's typed reads invented `WARPIN`, `WAKE1`,
+/// `RING`, `S_BANG34` and the rest of retail's names, and `AMCV,SMCV,PCV`.
+#[test]
+fn general_type_references_start_null() {
+    let rules = RuleSet::from_ini(&IniFile::from_str("[General]\nUnrelated=1\n")).unwrap();
+
+    let general = &rules.general;
+    assert_eq!(
+        [
+            general.warp_in.name.as_str(),
+            &general.warp_out.name,
+            &general.warp_away.name,
+            &general.chrono_sparkle1.name,
+            &general.wake.name,
+            &general.move_flash.name,
+        ],
+        [""; 6]
+    );
+    for slot in [3, 4, 6, 7, 8, 9, 10] {
+        assert_eq!(general.infantry_death_anims[slot], None, "{slot}");
+    }
+    assert!(general.base_unit_types.is_empty());
+}
+
+/// Each list entry is the Type its factory found or allocated: a token names
+/// the registered Type, whatever its case, and a token longer than 24 bytes
+/// names the Type of its first 24 (`AbstractType` `0x00410800`). VERA's typed
+/// reads kept the authored token.
+#[test]
+fn type_lists_name_the_type_the_factory_found() {
+    let long = "LONGBUILDINGNAMEOVER24BYTESX";
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[BuildingTypes]\n0=GACNST\n1={long}\n[GACNST]\nFoundation=1x1\n\
+         [{long}]\nFoundation=1x1\n\
+         [General]\nShipyard=gacnst\n[AI]\nBuildConst=gacnst\nBuildPower={long}\n"
+    )))
+    .unwrap();
+
+    assert_eq!(rules.shipyard_types, ["GACNST"]);
+    assert_eq!(rules.build_const_types, ["GACNST"]);
+    assert_eq!(rules.build_power_types, [&long[..24]]);
 }
 
 /// Retail RULESMD over ARTMD, alone and under each of the nine mode INIs
-/// `mpmodesmd.ini` names, sets none of these references to `none` or `<none>`
-/// (bar `UnitCrateType=none`, which both readers null) and spells each
-/// referenced Type as it is first allocated. The processor therefore publishes
-/// what VERA's deleted typed reads of the merged INI and of ARTMD did: the
-/// authored names (Dock, Spawns and the ART AnimType references upper-cased),
-/// the authored RulesClass warheads, and the `ToOverlay=` of each building's
-/// Image section. Only the ten ART sections no AnimType reads lose their
-/// references.
+/// `mpmodesmd.ini` names, through the production reader: every reference this
+/// chain moved to the ordered processor, pinned as a digest of
+/// [`published_references`]. It equals the digest of the values VERA's
+/// deleted typed reads published, taken once on the base build. Each stack
+/// also runs after Full_Init's reset of the previous one's live state, as a
+/// later scenario does, and publishes the same references.
 #[test]
-fn retail_references_publish_the_typed_reads() {
+fn retail_published_references_are_pinned() {
     use crate::rules::retail_ini_fixture::{art_registry, retail_ini, retail_rules_and_art};
+    use crate::util::fnv::{FNV1A64_OFFSET_BASIS, fnv1a64_fold_bytes};
     let Some((rulesmd, artmd)) = retail_rules_and_art() else {
         return;
     };
@@ -626,6 +807,14 @@ fn retail_references_publish_the_typed_reads() {
         Some("MPTeamMD.ini"),
         Some("MPUnholyMD.ini"),
     ];
+    let publish = |processed: &ProcessedRulesLayers| {
+        let mut rules = RuleSet::from_processed_rules(processed).unwrap();
+        rules.install_art_data(art_registry(&artmd));
+        published_references(&rules, processed)
+    };
+    let mut digest = FNV1A64_OFFSET_BASIS;
+    let mut lines = 0;
+    let mut live = None;
     for mode in modes {
         let mut layers = RulesLayerStack::new(rulesmd.clone());
         if let Some(mode) = mode {
@@ -635,468 +824,237 @@ fn retail_references_publish_the_typed_reads() {
             layers.push(RulesLayerKind::GameMode, mode_ini);
         }
         let processed = layers.process_with_fixed_art(&artmd).unwrap();
-        let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
-        rules.install_art_data(art_registry(&artmd));
-        let (counts, orphans) =
-            assert_typed_reads(&rules, processed.ini(), &artmd, mode.unwrap_or("RULESMD"));
-        if mode.is_none() {
-            // Authored TechnoType pointers and list entries, weapon anims and
-            // particle systems, warhead DebrisTypes and ParticleType warheads,
-            // VoxelAnim references and AuxBuildings, AnimTypes with an ART
-            // reference, buildings with a ToOverlay, ART sections with
-            // references that name no AnimType and RulesClass pointers.
-            assert_eq!(counts, [24, 3839, 209, 13, 20, 31, 8, 10, 15]);
-            // Seven commented-out `;GEF` [Animations] entries and three debris
-            // sections nothing names: no AnimClass can be built from them.
-            assert_eq!(
-                orphans,
-                [
-                    "BURN-L", "BURN-M", "DBRIS1HV", "DBRIS2HV", "DBRIS3HV", "METDEBRI", "METLARGE",
-                    "METLTRAL", "METSMALL", "METSTRAL"
-                ]
-            );
+        let published = publish(&processed);
+        let processed = match live.take() {
+            None => processed,
+            Some(state) => {
+                let reset = layers
+                    .process_with_fixed_art_and_registry_state_recovering(
+                        &artmd,
+                        state,
+                        RulesProcessContext::ScenarioReset,
+                    )
+                    .unwrap();
+                assert_eq!(publish(&reset), published, "{mode:?} after a reset");
+                reset
+            }
+        };
+        let (_, trace) = processed.into_ini_and_native_type_construction_trace();
+        live = Some(trace.into_registry_state_discarding_events());
+        for line in published {
+            digest = fnv1a64_fold_bytes(digest, line.as_bytes());
+            digest = fnv1a64_fold_bytes(digest, b"\n");
+            lines += 1;
         }
     }
+    assert_eq!((lines, digest), (15550, 0x4e44_571d_44c6_6b15));
 }
 
-/// Assert that `rules` publishes, for every reference this chain moved to the
-/// ordered processor, the value the deleted typed read of `ini` (the merged
-/// projection) or of `art` produced, and count the authored ones. Also name
-/// the ART sections with references that no AnimType reads.
-fn assert_typed_reads(
-    rules: &RuleSet,
-    ini: &IniFile,
-    art: &IniFile,
-    label: &str,
-) -> ([usize; 9], Vec<String>) {
-    let owned = |name: Option<&str>| name.map(str::to_owned);
-    let upper = |name: Option<&str>| name.map(str::to_ascii_uppercase);
-    let list = |section: &IniSection, key: &str| -> Vec<String> {
-        section
-            .read_list(key, 0x80)
-            .unwrap_or_default()
-            .into_iter()
-            .map(str::to_owned)
-            .collect()
-    };
-    let mut counts = [0; 9];
-    // ArtRegistry::get's case-insensitive section lookup; the last wins.
-    let art_sections: HashMap<String, &IniSection> = art
-        .section_names()
-        .into_iter()
-        .filter_map(|name| Some((name.to_ascii_uppercase(), art.section(name)?)))
-        .collect();
-
-    for object in rules.all_objects() {
-        let id = object.id.as_str();
-        let section = ini.section_or_empty(id);
-        let infantry = object.category == crate::rules::object_type::ObjectCategory::Infantry;
-        let pointers = [
-            (
-                &object.free_unit,
-                owned(section.read_name("FreeUnit", 0x80)),
-                "FreeUnit",
-            ),
-            (
-                &object.undeploys_into,
-                owned(section.read_type_name("UndeploysInto", 0x80)),
-                "UndeploysInto",
-            ),
-            (
-                &object.powers_unit,
-                owned(section.read_type_name("PowersUnit", 0x80)),
-                "PowersUnit",
-            ),
-            (
-                &object.unloading_class,
-                owned(section.read_name("UnloadingClass", 0x80)),
-                "UnloadingClass",
-            ),
-            (
-                &object.deploying_anim,
-                owned(section.read_type_name("DeployingAnim", 0x80)),
-                "DeployingAnim",
-            ),
-            (
-                &object.enslaves,
-                owned(section.read_name("Enslaves", 0x80)),
-                "Enslaves",
-            ),
-            (
-                &object.spawns,
-                upper(section.read_type_name("Spawns", 0x80)),
-                "Spawns",
-            ),
-            (
-                &object.natural_particle_system,
-                owned(section.read_name("NaturalParticleSystem", 0x80)),
-                "NaturalParticleSystem",
-            ),
-            (
-                &object.refinery_smoke_particle_system,
-                owned(section.read_name("RefinerySmokeParticleSystem", 0x80)),
-                "RefinerySmokeParticleSystem",
-            ),
-        ];
-        for (published, typed, key) in pointers {
-            assert_eq!(*published, typed, "{label} {id} {key}");
-            counts[0] += usize::from(typed.is_some());
-        }
-        let dock: Vec<String> = list(section, "Dock")
-            .iter()
-            .map(|name| name.to_ascii_uppercase())
-            .collect();
-        let lists = [
-            (&object.dock, dock, "Dock"),
-            (
-                &object.explosion_anims,
-                list(section, "Explosion"),
-                "Explosion",
-            ),
-            (
-                &object.destroy_anims,
-                list(section, "DestroyAnim"),
-                "DestroyAnim",
-            ),
-            (
-                &object.dead_bodies,
-                if infantry {
-                    list(section, "DeadBodies")
-                } else {
-                    Vec::new()
-                },
-                "DeadBodies",
-            ),
-            (
-                &object.damage_particle_systems,
-                list(section, "DamageParticleSystems"),
-                "DamageParticleSystems",
-            ),
-            (
-                &object.destroy_particle_systems,
-                list(section, "DestroyParticleSystems"),
-                "DestroyParticleSystems",
-            ),
-            (
-                &object.debris_types,
-                list(section, "DebrisTypes"),
-                "DebrisTypes",
-            ),
-            (
-                &object.debris_anims,
-                list(section, "DebrisAnims"),
-                "DebrisAnims",
-            ),
-        ];
-        for (published, typed, key) in lists {
-            assert_eq!(*published, typed, "{label} {id} {key}");
-            counts[1] += typed.len();
-        }
-        let to_overlay = (object.category == crate::rules::object_type::ObjectCategory::Building)
-            .then(|| {
-                art_sections
-                    .get(&object.image.to_ascii_uppercase())
-                    .or_else(|| art_sections.get(&id.to_ascii_uppercase()))
-                    .and_then(|section| owned(section.read_name("ToOverlay", 0x80)))
-            })
-            .flatten();
-        assert_eq!(object.to_overlay, to_overlay, "{label} {id} ToOverlay");
-        counts[6] += usize::from(to_overlay.is_some());
+/// One line per owner of the references this chain moved to the ordered
+/// processor, in a fixed order.
+fn published_references(rules: &RuleSet, processed: &ProcessedRulesLayers) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut objects: Vec<_> = rules.all_objects().collect();
+    objects.sort_by_key(|object| (format!("{:?}", object.category), object.id.clone()));
+    for o in objects {
+        let pointers = (
+            &o.image,
+            &o.death_weapon,
+            &o.deploys_into,
+            &o.occupy_weapon,
+            &o.elite_occupy_weapon,
+            &o.undeploys_into,
+            &o.powers_unit,
+            &o.free_unit,
+            &o.to_overlay,
+            &o.unloading_class,
+            &o.deploying_anim,
+        );
+        let lists = (
+            &o.dock,
+            &o.enslaves,
+            &o.spawns,
+            &o.explosion_anims,
+            &o.destroy_anims,
+            &o.dead_bodies,
+            &o.debris_types,
+            &o.debris_anims,
+        );
+        let systems = (
+            &o.natural_particle_system,
+            &o.refinery_smoke_particle_system,
+            &o.damage_particle_systems,
+            &o.destroy_particle_systems,
+        );
+        lines.push(format!(
+            "{:?} {} {pointers:?} {lists:?} {systems:?} {}",
+            o.category, o.id, o.build_const_eligible
+        ));
     }
-
-    for weapon in rules.weapons_iter() {
-        let section = ini.section_or_empty(&weapon.id);
-        assert_eq!(weapon.anim, list(section, "Anim"), "{label} {}", weapon.id);
-        let pointers = [
-            (
-                &weapon.occupant_anim,
-                section.read_name("OccupantAnim", 0x80),
-            ),
-            (
-                &weapon.open_topped_anim,
-                section.read_name("OpenToppedAnim", 0x80),
-            ),
-            (
-                &weapon.attached_particle_system,
-                section.read_name("AttachedParticleSystem", 0x14),
-            ),
-        ];
-        for (published, typed) in pointers {
-            assert_eq!(published.as_deref(), typed, "{label} {}", weapon.id);
-            counts[2] += usize::from(typed.is_some());
-        }
-        counts[2] += weapon.anim.len();
+    let mut weapons: Vec<_> = rules.weapons_iter().collect();
+    weapons.sort_by_key(|weapon| weapon.id.clone());
+    for w in weapons {
+        let references = (
+            &w.anim,
+            &w.occupant_anim,
+            &w.open_topped_anim,
+            &w.attached_particle_system,
+        );
+        lines.push(format!("Weapon {} {references:?}", w.id));
     }
-    for warhead in rules.warheads_iter() {
-        let typed = list(ini.section_or_empty(&warhead.id), "DebrisTypes");
-        assert_eq!(warhead.debris_types, typed, "{label} {}", warhead.id);
-        counts[3] += typed.len();
+    let mut warheads: Vec<_> = rules.warheads_iter().collect();
+    warheads.sort_by_key(|warhead| warhead.id.clone());
+    for w in warheads {
+        lines.push(format!("Warhead {} {:?}", w.id, w.debris_types));
     }
     for particle in rules.particle_types_iter() {
-        let typed = ini
-            .section_or_empty(&particle.name)
-            .read_name("Warhead", 0x80);
-        assert_eq!(
-            particle.warhead.as_deref(),
-            typed,
-            "{label} {}",
-            particle.name
-        );
-        counts[3] += usize::from(typed.is_some());
+        lines.push(format!("Particle {} {:?}", particle.name, particle.warhead));
     }
     for index in 0..rules.voxel_anim_type_count() {
-        let voxel_anim =
-            rules.voxel_anim_type(crate::rules::voxel_anim_type::VoxelAnimTypeId(index as u32));
-        let section = ini.section_or_empty(&voxel_anim.name);
-        for (published, key) in [
-            (&voxel_anim.spawns, "Spawns"),
-            (&voxel_anim.bounce_anim, "BounceAnim"),
-            (&voxel_anim.expire_anim, "ExpireAnim"),
-            (&voxel_anim.trailer_anim, "TrailerAnim"),
-            (&voxel_anim.warhead, "Warhead"),
-            (&voxel_anim.attached_system, "AttachedSystem"),
-        ] {
-            let typed = section.read_type_name(key, 0x80);
-            assert_eq!(
-                published.as_deref(),
-                typed,
-                "{label} {} {key}",
-                voxel_anim.name
+        let v = rules.voxel_anim_type(crate::rules::voxel_anim_type::VoxelAnimTypeId(index as u32));
+        let references = (
+            &v.spawns,
+            &v.bounce_anim,
+            &v.expire_anim,
+            &v.trailer_anim,
+            &v.warhead,
+            &v.attached_system,
+        );
+        lines.push(format!("VoxelAnim {} {references:?}", v.name));
+    }
+    let mut super_weapons: Vec<_> = rules.super_weapons.values().collect();
+    super_weapons.sort_by_key(|super_weapon| super_weapon.id.clone());
+    for s in super_weapons {
+        lines.push(format!("SuperWeapon {} {:?}", s.id, s.aux_building));
+    }
+    let animations = processed
+        .ini()
+        .section_or_empty("Animations")
+        .registry_ids();
+    for name in animations {
+        if let Some(c) = rules.art().anim_runtime_config(name) {
+            let references = (
+                &c.next,
+                &c.spawns,
+                &c.tiberium_spawn_type,
+                &c.bounce_anim,
+                &c.expire_anim,
+                &c.trailer_anim,
+                &c.warhead,
+                &c.spawns_particle,
             );
-            counts[4] += usize::from(typed.is_some());
+            lines.push(format!("Anim {name} {references:?}"));
         }
     }
-    for super_weapon in rules.super_weapons.values() {
-        let typed = ini
-            .section_or_empty(&super_weapon.id)
-            .read_type_name("AuxBuilding", 0x80);
-        assert_eq!(
-            super_weapon.aux_building.as_deref(),
-            typed,
-            "{label} {}",
-            super_weapon.id
-        );
-        counts[4] += usize::from(typed.is_some());
-    }
-
-    // The AnimTypes' fixed-ART references; the first slot of a name wins.
-    let mut seen = HashSet::new();
-    let anim_keys = [
-        ("Next", 0x80),
-        ("Spawns", 0x80),
-        ("TiberiumSpawnType", 0x80),
-        ("BounceAnim", 0x80),
-        ("ExpireAnim", 0x80),
-        ("TrailerAnim", 0x80),
-        ("Warhead", 0x80),
-        ("SpawnsParticle", 0x20),
-    ];
-    let typed_anim = |section: Option<&&IniSection>| {
-        anim_keys.map(|(key, capacity)| {
-            section.and_then(|section| upper(section.read_name(key, capacity)))
-        })
-    };
-    for (name, read) in rules.anim_type_art_read_states() {
-        let key = name.to_ascii_uppercase();
-        if !seen.insert(key.clone()) {
-            continue;
-        }
-        let Some(config) = rules.art().anim_runtime_config(&key) else {
-            continue;
-        };
-        let typed = typed_anim(art_sections.get(&key).filter(|_| *read));
-        let published = [
-            &config.next,
-            &config.spawns,
-            &config.tiberium_spawn_type,
-            &config.bounce_anim,
-            &config.expire_anim,
-            &config.trailer_anim,
-            &config.warhead,
-            &config.spawns_particle,
-        ]
-        .map(Clone::clone);
-        assert_eq!(published, typed, "{label} {name}");
-        counts[5] += usize::from(typed.iter().any(Option::is_some));
-    }
-    // ART sections with references that name no AnimType: no AnimClass can
-    // be built from them, so their references go unread.
-    let mut orphans: Vec<String> = art_sections
-        .iter()
-        .filter(|(key, section)| {
-            !seen.contains(*key) && typed_anim(Some(*section)).iter().any(Option::is_some)
-        })
-        .map(|(key, _)| key.clone())
-        .collect();
-    orphans.sort();
-    counts[7] = orphans.len();
-
-    // The RulesClass pointers.
-    let combat = ini.section("CombatDamage");
-    let combat_or_empty = ini.section_or_empty("CombatDamage");
     let damage = &rules.combat_damage;
-    assert_eq!(
-        damage.drain_animation_type.as_deref(),
-        combat_or_empty.read_type_name("DrainAnimationType", 0x80),
-        "{label}"
-    );
-    assert_eq!(
-        damage.ivan_warhead.as_deref(),
-        combat_or_empty.read_name("IvanWarhead", 0x80),
-        "{label}"
-    );
-    for (published, key) in [
+    lines.push(format!(
+        "CombatDamage {:?}",
         (
-            &damage.default_large_grey_smoke_system,
-            "DefaultLargeGreySmokeSystem",
-        ),
+            (
+                &rules.bridge_warheads.c4_name,
+                &rules.bridge_warheads.crush_name,
+                &rules.bridge_warheads.ion_cannon_name,
+                &damage.ivan_warhead,
+                &damage.drain_animation_type,
+                &rules.mind_control.controlled_anim,
+                &rules.mind_control.perma_controlled_anim,
+            ),
+            (
+                &damage.default_large_grey_smoke_system,
+                &damage.default_small_grey_smoke_system,
+                &damage.default_spark_system,
+                &damage.default_large_red_smoke_system,
+                &damage.default_small_red_smoke_system,
+                &damage.default_debris_smoke_system,
+                &damage.default_fire_stream_system,
+                &damage.default_test_particle_system,
+                &damage.default_repair_particle_system,
+            ),
+        )
+    ));
+    let general = &rules.general;
+    lines.push(format!(
+        "SpecialWeapons {:?}",
         (
-            &damage.default_small_grey_smoke_system,
-            "DefaultSmallGreySmokeSystem",
-        ),
-        (&damage.default_spark_system, "DefaultSparkSystem"),
+            &rules.radiation.site_warhead,
+            &general.mutate_warhead,
+            &general.mutate_explosion_warhead,
+        )
+    ));
+    lines.push(format!("CrateRules {:?}", rules.crate_rules));
+    lines.push(format!("Rockets {:?}", rules.missile_spawn));
+    lines.push(format!(
+        "General {:?}",
         (
-            &damage.default_large_red_smoke_system,
-            "DefaultLargeRedSmokeSystem",
-        ),
+            (
+                &general.ore_twinkle,
+                &general.barrel_particle,
+                &general.nuke_take_off,
+                &general.wake.name,
+                &general.warp_in.name,
+                &general.warp_out.name,
+                &general.warp_away.name,
+                &general.chrono_sparkle1.name,
+                &general.move_flash.name,
+                &general.parachute_shp,
+            ),
+            (
+                &general.dominator_warhead,
+                &general.dominator_first_anim,
+                &general.dominator_second_anim,
+                &general.chrono_placement_anim,
+                &general.chrono_blast_anim,
+                &general.chrono_blast_dest_anim,
+                &general.iron_curtain_invoke_anim,
+                &general.force_shield_invoke_anim,
+                &general.infantry_death_anims,
+            ),
+            (
+                &general.engineer_infantry,
+                &general.technician,
+                &general.allied_crew,
+                &general.soviet_crew,
+                &general.third_crew,
+                &general.infantry_disguises,
+            ),
+        )
+    ));
+    let fire: Vec<&str> = general
+        .damage_fire_types
+        .iter()
+        .map(|anim| anim.name.as_str())
+        .collect();
+    lines.push(format!(
+        "General lists {:?}",
         (
-            &damage.default_small_red_smoke_system,
-            "DefaultSmallRedSmokeSystem",
-        ),
+            fire,
+            &general.dead_bodies,
+            &general.base_unit_types,
+            &general.pad_aircraft_types,
+            &rules.shipyard_types,
+            &rules.harvester_unit_types,
+        )
+    ));
+    lines.push(format!(
+        "AI {:?}",
         (
-            &damage.default_debris_smoke_system,
-            "DefaultDebrisSmokeSystem",
-        ),
-        (
-            &damage.default_fire_stream_system,
-            "DefaultFireStreamSystem",
-        ),
-        (
-            &damage.default_test_particle_system,
-            "DefaultTestParticleSystem",
-        ),
-        (
-            &damage.default_repair_particle_system,
-            "DefaultRepairParticleSystem",
-        ),
-    ] {
-        assert_eq!(
-            published.as_deref(),
-            combat_or_empty.read_name(key, 0x80),
-            "{label} {key}"
-        );
-        counts[8] += usize::from(published.is_some());
-    }
-    let defaulted = |key: &str, default: &str| {
-        combat
-            .and_then(|section| section.read_name(key, 0x80))
-            .unwrap_or(default)
-            .to_owned()
-    };
-    let bridge = &rules.bridge_warheads;
-    assert_eq!(
-        bridge.ion_cannon_name,
-        defaulted("IonCannonWarhead", "IonCannonWH"),
-        "{label}"
-    );
-    assert_eq!(bridge.c4_name, defaulted("C4Warhead", "Super"), "{label}");
-    assert_eq!(
-        bridge.crush_name,
-        defaulted("CrushWarhead", "Crush"),
-        "{label}"
-    );
-    assert_eq!(
-        rules.mind_control.controlled_anim.as_deref(),
-        combat_or_empty.read_type_name("ControlledAnimationType", 0x80),
-        "{label}"
-    );
-    assert_eq!(
-        rules.mind_control.perma_controlled_anim.as_deref(),
-        combat_or_empty.read_type_name("PermaControlledAnimationType", 0x80),
-        "{label}"
-    );
-    let radiation = ini
-        .section("Radiation")
-        .and_then(|section| section.read_name("RadSiteWarhead", 0x80))
-        .unwrap_or("RadSite");
-    assert_eq!(rules.radiation.site_warhead, radiation, "{label}");
-    let special = ini.section_or_empty("SpecialWeapons");
-    assert_eq!(
-        rules.general.mutate_warhead,
-        special.read_string("MutateWarhead", "", 0x80),
-        "{label}"
-    );
-    assert_eq!(
-        rules.general.mutate_explosion_warhead,
-        special.read_string("MutateExplosionWarhead", "", 0x80),
-        "{label}"
-    );
-    counts[8] += [
-        &bridge.ion_cannon_name,
-        &bridge.c4_name,
-        &bridge.crush_name,
-        &rules.radiation.site_warhead,
-        &rules.general.mutate_warhead,
-        &rules.general.mutate_explosion_warhead,
-    ]
-    .into_iter()
-    .filter(|name| !name.is_empty())
-    .count();
-
-    // The crate Types and rocket references the processor read twice.
-    let crates = ini.section_or_empty("CrateRules");
-    let crate_type = |key: &str| {
-        crates
-            .is_present(key)
-            .then(|| crates.read_string(key, "", 0x80))
-            .filter(|name| !crate::rules::ini_parser::is_native_none_type_name(name))
-            .map(|name| name.to_ascii_uppercase())
-    };
-    let crate_rules = &rules.crate_rules;
-    assert_eq!(
-        crate_rules.wood_crate_img,
-        crate_type("WoodCrateImg"),
-        "{label}"
-    );
-    assert_eq!(crate_rules.crate_img, crate_type("CrateImg"), "{label}");
-    assert_eq!(
-        crate_rules.water_crate_img,
-        crate_type("WaterCrateImg"),
-        "{label}"
-    );
-    assert_eq!(
-        crate_rules.unit_crate_type,
-        crate_type("UnitCrateType"),
-        "{label}"
-    );
-    let general = ini.section_or_empty("General");
-    let missiles = &rules.missile_spawn;
-    for (block, prefix) in [
-        (&missiles.v3, "V3Rocket"),
-        (&missiles.dmisl, "DMisl"),
-        (&missiles.cmisl, "CMisl"),
-    ] {
-        let typed = general
-            .read_name(&format!("{prefix}Type"), 0x80)
-            .unwrap_or("");
-        assert_eq!(block.type_name, typed, "{label} {prefix}");
-    }
-    for (block, prefix) in [
-        (&missiles.v3, "V3"),
-        (&missiles.dmisl, "DMisl"),
-        (&missiles.cmisl, "CMisl"),
-    ] {
-        let warhead = combat_or_empty
-            .read_name(&format!("{prefix}Warhead"), 0x80)
-            .unwrap_or("");
-        let elite = combat_or_empty
-            .read_name(&format!("{prefix}EliteWarhead"), 0x80)
-            .unwrap_or(warhead);
-        assert_eq!(
-            (block.warhead.as_str(), block.elite_warhead.as_str()),
-            (warhead, elite),
-            "{label} {prefix}"
-        );
-    }
-    (counts, orphans)
+            (
+                &rules.build_const_types,
+                &rules.build_power_types,
+                &rules.build_refinery_types,
+                &rules.build_barracks_types,
+                &rules.build_tech_types,
+                &rules.build_weapons_types,
+            ),
+            (
+                &rules.build_radar_types,
+                &rules.allied_base_defense_types,
+                &rules.soviet_base_defense_types,
+                &rules.third_base_defense_types,
+                &rules.concrete_wall_types,
+            ),
+            processed.neutral_tech_buildings(),
+        )
+    ));
+    lines
 }

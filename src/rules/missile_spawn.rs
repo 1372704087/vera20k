@@ -64,7 +64,7 @@ pub enum MissileFamily {
 /// detonates with. The ordered Rules processor resolves the type and both
 /// warheads through their factories (`native_processing`), which answer null
 /// for `none` and `<none>`; this block keeps the stored IDs it supplies.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MissileSpawnParams {
     /// Resolved child AircraftType (`V3ROCKET` / `DMISL` / `CMISL`), `+0x30`,
     /// as its stored ID; empty for the constructor's null.
@@ -187,7 +187,7 @@ impl MissileSpawnParams {
 }
 
 /// The three `RocketStruct` blocks.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MissileSpawnRules {
     pub v3: MissileSpawnParams,
     pub dmisl: MissileSpawnParams,
@@ -281,6 +281,18 @@ impl MissileSpawnRules {
         self.dmisl.elite_warhead = read("DMislEliteWarhead", &self.dmisl.warhead);
         self.cmisl.warhead = read("CMislWarhead", &self.cmisl.warhead);
         self.cmisl.elite_warhead = read("CMislEliteWarhead", &self.cmisl.warhead);
+    }
+
+    /// The types and warheads Full_Init's Type reset leaves dangling,
+    /// cleared; the scalars stay (`NativeRulesRegistryState::
+    /// destructive_reset`).
+    pub(crate) fn without_type_references(mut self) -> Self {
+        for block in [&mut self.v3, &mut self.dmisl, &mut self.cmisl] {
+            block.type_name.clear();
+            block.warhead.clear();
+            block.elite_warhead.clear();
+        }
+        self
     }
 
     /// The spawn manager's missile-slot test: the type is one of the three
@@ -479,34 +491,6 @@ mod tests {
         let rules = parse_layers(&[first, "[CombatDamage]\nC4Delay=0.03\n"]);
         assert_eq!(rules.v3.warhead, "V3WH");
         assert_eq!(rules.v3.elite_warhead, "V3WH");
-    }
-
-    /// The rocket types and warheads go through the AircraftType
-    /// (`0x0041CEF0`) and WarheadType (`0x0075E3B0`) factories, which answer
-    /// null for `none` and `<none>`; an empty read keeps the earlier pass's.
-    #[test]
-    fn rocket_references_read_none_as_null() {
-        let first = "[General]\nV3RocketType=V3ROCKET\nDMislType=DMISL\n\
-                     [CombatDamage]\nV3Warhead=V3WH\nDMislWarhead=DMISLWH\n";
-        let rules = parse_layers(&[
-            first,
-            "[General]\nV3RocketType=none\nDMislType=\n\
-             [CombatDamage]\nV3Warhead=<none>\nDMislEliteWarhead=none\n",
-        ]);
-        assert_eq!(rules.v3.type_name, "");
-        assert_eq!(rules.dmisl.type_name, "DMISL");
-        assert_eq!(rules.family_of("none"), None);
-        assert_eq!(
-            (rules.v3.warhead.as_str(), rules.v3.elite_warhead.as_str()),
-            ("", "")
-        );
-        assert_eq!(
-            (
-                rules.dmisl.warhead.as_str(),
-                rules.dmisl.elite_warhead.as_str()
-            ),
-            ("DMISLWH", "")
-        );
     }
 
     #[test]

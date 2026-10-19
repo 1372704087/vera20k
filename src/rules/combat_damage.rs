@@ -141,22 +141,6 @@ impl CombatDamageDefaults {
             default_repair_particle_system: None,
         }
     }
-
-    /// The nine default particle systems in ReadCombatDamage's order
-    /// (`DefaultLargeGreySmokeSystem=` .. `DefaultRepairParticleSystem=`).
-    pub(crate) fn default_particle_systems_mut(&mut self) -> [&mut Option<String>; 9] {
-        [
-            &mut self.default_large_grey_smoke_system,
-            &mut self.default_small_grey_smoke_system,
-            &mut self.default_spark_system,
-            &mut self.default_large_red_smoke_system,
-            &mut self.default_small_red_smoke_system,
-            &mut self.default_debris_smoke_system,
-            &mut self.default_fire_stream_system,
-            &mut self.default_test_particle_system,
-            &mut self.default_repair_particle_system,
-        ]
-    }
 }
 
 impl Default for CombatDamageDefaults {

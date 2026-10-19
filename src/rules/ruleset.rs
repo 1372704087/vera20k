@@ -23,7 +23,7 @@ use std::hash::{Hash, Hasher};
 use crate::rules::combat_damage::CombatDamageDefaults;
 use crate::rules::crate_rules::CrateRules;
 use crate::rules::error::RulesError;
-use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
+use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::mission_data::MissionControl;
 use crate::rules::native_processing::{
     ProcessedRulesLayers, RulesLayerStack, house_type_index_of_name,
@@ -791,9 +791,13 @@ pub struct GeneralRules {
     pub attack_cursor_on_disguise: bool,
     /// `[General] DefaultMirageDisguises=` selection pool, in source order.
     pub default_mirage_disguises: Vec<String>,
-    /// General AlliedDisguise/SovietDisguise/ThirdDisguise, retained by the
-    /// native scalar reader66FB94..66FBEB. Infantry GetDisguise522640 uses
-    /// the current player's side, independently of the actor's owner.
+    /// General AlliedDisguise/SovietDisguise/ThirdDisguise (Rules
+    /// `+0xD58/+0xD5C/+0xD60`), retained by the native scalar reader
+    /// 66FB94..66FBEB. Infantry GetDisguise522640 uses the current player's
+    /// side, independently of the actor's owner; a `CanDisguise=`/
+    /// `PermaDisguise=` object of each side starts wearing its side's entry
+    /// (`TechnoClass::Init_Managers`, `0x006F423F..0x006F4271`). Stock E1,
+    /// E2 and INIT.
     pub(crate) infantry_disguises: [Option<String>; 3],
     /// General SecretInfantry/SecretUnits/SecretBuildings, retained native identities.
     secret_lab_choices: [Vec<String>; 3],
@@ -1546,15 +1550,6 @@ pub struct GeneralRules {
     pub allied_crew: Option<String>,
     pub soviet_crew: Option<String>,
     pub third_crew: Option<String>,
-    /// `AlliedDisguise=`/`SovietDisguise=`/`ThirdDisguise=` (Rules
-    /// `+0xD58/+0xD5C/+0xD60`, read through the same InfantryType reference
-    /// reader `0x0067BAC0` at `0x0066FBA1..0x0066FBEB`): what a
-    /// `CanDisguise=`/`PermaDisguise=` object of each side starts wearing
-    /// (`TechnoClass::Init_Managers`, `0x006F423F..0x006F4271`). Stock E1,
-    /// E2 and INIT.
-    pub allied_disguise: Option<String>,
-    pub soviet_disguise: Option<String>,
-    pub third_disguise: Option<String>,
     pub technician: Option<String>,
     pub engineer_infantry: Option<String>,
     /// Rules+17F8: constructor667793 initializes1.0f; General671DF7
@@ -2273,7 +2268,7 @@ impl Default for GeneralRules {
             sov_paradrop: ParadropList::default(),
             yuri_paradrop: ParadropList::default(),
             anim_to_infantry: Vec::new(),
-            base_unit_types: vec!["AMCV".to_string(), "SMCV".to_string(), "PCV".to_string()],
+            base_unit_types: Vec::new(),
             multiplayer_ai_cm: Vec::new(),
             pad_aircraft_types: Vec::new(),
             separate_aircraft: false,
@@ -2286,37 +2281,41 @@ impl Default for GeneralRules {
             tiberium_grows: true,
             tiberium_spreads: true,
             growth_rate_minutes: 2.0,
+            // The RulesClass constructor's null pointers (+338..+344, +94 and
+            // +BB4: `0x00665B02..0x00665B14`, `0x0066572F`, `0x006665CF`).
             warp_in: AnimRef {
-                name: "WARPIN".to_string(),
+                name: String::new(),
             },
             warp_out: AnimRef {
-                name: "WARPOUT".to_string(),
+                name: String::new(),
             },
             warp_away: AnimRef {
-                name: "WARPAWAY".to_string(),
+                name: String::new(),
             },
             chrono_sparkle1: AnimRef {
-                name: "CHRONOSK".to_string(),
+                name: String::new(),
             },
             wake: AnimRef {
-                name: "WAKE1".to_string(),
+                name: String::new(),
             },
             move_flash: AnimRef {
-                name: "RING".to_string(),
+                name: String::new(),
             },
             behind: None,
+            // Slots 3/4/6..10 are the constructor's null pointers +9C..+B4
+            // (`0x0066573B..0x0066575F`).
             infantry_death_anims: [
                 None,
                 None,
                 None,
-                Some("S_BANG34".to_string()),
-                Some("FLAMEGUY".to_string()),
-                Some("ELECTRO".to_string()),
-                Some("YURIDIE".to_string()),
-                Some("NUKEDIE".to_string()),
-                Some("VIRUSD".to_string()),
                 None,
-                Some("BRUTDIE".to_string()),
+                None,
+                Some("ELECTRO".to_string()),
+                None,
+                None,
+                None,
+                None,
+                None,
             ],
             attack_cursor_on_disguise: false,
             default_mirage_disguises: Vec::new(),
@@ -2483,9 +2482,6 @@ impl Default for GeneralRules {
             allied_crew: None,
             soviet_crew: None,
             third_crew: None,
-            allied_disguise: None,
-            soviet_disguise: None,
-            third_disguise: None,
             technician: None,
             engineer_infantry: None,
             engineer_capture_level: NativeF32Bits::ONE,
@@ -3114,27 +3110,9 @@ impl GeneralRules {
         };
         // Combat-only globals are read in the late [CombatDamage] pass.
         let combat_damage = ini.section_or_empty("CombatDamage");
-        // Base-planning/credit controls live in the independent [AI] read.
-        // INI parser already strips everything after `;` (Westwood comment
-        // marker), so values like `WarpOut=WARPOUT;WAKE2` are read as
-        // `WARPOUT` — matching gamemd's behaviour.
-        let parse_anim_name =
-            |key: &str, default: &str| -> String { general.read_string(key, default, 0x80) };
+        // Slots 3/4/6..10 are RulesClass pointers the ordered Rules processor
+        // publishes (`rules_type_references`).
         let mut infantry_death_anims = defaults.infantry_death_anims.clone();
-        for (index, key, fallback) in [
-            (3, "InfantryExplode", "S_BANG34"),
-            (4, "FlamingInfantry", "FLAMEGUY"),
-            (6, "InfantryHeadPop", "YURIDIE"),
-            (7, "InfantryNuked", "NUKEDIE"),
-            (8, "InfantryVirus", "VIRUSD"),
-            // `InfantryMutate=` (`+0xB4`, `0x0066E4B6`) keeps the
-            // constructor's null type when absent; retail `GENDEATH`.
-            (9, "InfantryMutate", ""),
-            (10, "InfantryBrute", "BRUTDIE"),
-        ] {
-            infantry_death_anims[index] =
-                Some(parse_anim_name(key, fallback)).filter(|name| !name.is_empty());
-        }
         infantry_death_anims[5] = Some(
             ini.section("Animations")
                 .and_then(|section| section.registry_ids().get(1).copied())
@@ -3211,13 +3189,12 @@ impl GeneralRules {
                 .read_double("EnemyHouseThreatBonus", defaults.enemy_house_threat_bonus),
             threat_per_occupant: general
                 .read_int("ThreatPerOccupant", defaults.threat_per_occupant),
+            // The ordered Rules processor publishes this and the other
+            // RulesClass Type pointers and lists (`rules_type_references`).
+            dead_bodies: defaults.dead_bodies.clone(),
             // Passive-scan cadence, in frames. Both keys are present in stock
             // rulesmd.ini with exactly the constructor defaults (27 / 36); read
             // them rather than hardcoding so a mod's values take effect.
-            dead_bodies: general
-                .read_list("DeadBodies", 0x80)
-                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-                .unwrap_or_default(),
             normal_targeting_delay: general
                 .read_int("NormalTargetingDelay", defaults.normal_targeting_delay),
             guard_area_targeting_delay: general.read_int(
@@ -3332,24 +3309,18 @@ impl GeneralRules {
             hover_brake: general.read_double_bits("HoverBrake", defaults.hover_brake),
             hover_dampen: general.read_double_bits("HoverDampen", defaults.hover_dampen),
             paradrop_radius: general.read_int("ParadropRadius", 1024),
-            parachute_shp: general.read_name("Parachute", 0x80).map(str::to_uppercase),
+            parachute_shp: defaults.parachute_shp.clone(),
             amer_paradrop: ParadropList::read_counts(general, "AmerParaDropNum"),
             ally_paradrop: ParadropList::read_counts(general, "AllyParaDropNum"),
             sov_paradrop: ParadropList::read_counts(general, "SovParaDropNum"),
             yuri_paradrop: ParadropList::read_counts(general, "YuriParaDropNum"),
             // The processed RulesClass vector is authoritative.
             anim_to_infantry: Vec::new(),
-            base_unit_types: general
-                .read_list("BaseUnit", 0x80)
-                .map(|tokens| tokens.into_iter().map(str::to_ascii_uppercase).collect())
-                .unwrap_or_else(|| defaults.base_unit_types),
+            base_unit_types: defaults.base_unit_types.clone(),
             multiplayer_ai_cm: general
                 .read_int_list("MultiplayerAICM")
                 .unwrap_or(defaults.multiplayer_ai_cm),
-            pad_aircraft_types: general
-                .read_list("PadAircraft", 0x80)
-                .map(|tokens| tokens.into_iter().map(str::to_ascii_uppercase).collect())
-                .unwrap_or_else(|| defaults.pad_aircraft_types),
+            pad_aircraft_types: defaults.pad_aircraft_types.clone(),
             separate_aircraft: general.read_bool("SeparateAircraft", defaults.separate_aircraft),
             // Only the ordered Process projection binds these references/reads.
             drop_zone_anim: defaults.drop_zone_anim,
@@ -3458,7 +3429,7 @@ impl GeneralRules {
             // constructor's `true` (see the field doc).
             lightning_print_text: general.read_bool("LightningPrintText", true),
             dig_sound: audio_visual.read_name("DigSound", 0x80).map(str::to_owned),
-            nuke_take_off: general.read_string("NukeTakeOff", "", 0x80),
+            nuke_take_off: defaults.nuke_take_off.clone(),
             ai_super_defense_probability: general
                 .read_int_list("AISuperDefenseProbability")
                 .unwrap_or_default(),
@@ -3515,7 +3486,7 @@ impl GeneralRules {
             gui_checkbox_sound: audio_visual
                 .read_name("GUICheckboxSound", 0x80)
                 .map(str::to_owned),
-            ore_twinkle: general.read_name("OreTwinkle", 0x80).map(str::to_owned),
+            ore_twinkle: defaults.ore_twinkle.clone(),
             ore_twinkle_chance: audio_visual
                 .read_int("OreTwinkleChance", defaults.ore_twinkle_chance),
             gui_build_sound: audio_visual
@@ -3575,42 +3546,20 @@ impl GeneralRules {
             building_repaired_sound: None,
             bomb_ticking_sound,
             bomb_attach_sound,
-            warp_in: AnimRef {
-                name: parse_anim_name("WarpIn", "WARPIN"),
-            },
-            warp_out: AnimRef {
-                name: parse_anim_name("WarpOut", "WARPOUT"),
-            },
-            warp_away: AnimRef {
-                name: parse_anim_name("WarpAway", "WARPAWAY"),
-            },
-            chrono_sparkle1: AnimRef {
-                name: parse_anim_name("ChronoSparkle1", "CHRONOSK"),
-            },
-            wake: AnimRef {
-                name: parse_anim_name("Wake", "WAKE1"),
-            },
-            move_flash: AnimRef {
-                name: parse_anim_name("MoveFlash", "RING"),
-            },
+            warp_in: defaults.warp_in.clone(),
+            warp_out: defaults.warp_out.clone(),
+            warp_away: defaults.warp_away.clone(),
+            chrono_sparkle1: defaults.chrono_sparkle1.clone(),
+            wake: defaults.wake.clone(),
+            move_flash: defaults.move_flash.clone(),
             behind: defaults.behind,
             infantry_death_anims,
             damage_delay_minutes: general.read_double("DamageDelay", 1.0) as f32,
             spy_power_blackout: general.read_int("SpyPowerBlackout", defaults.spy_power_blackout),
             spy_money_steal_percent: general
                 .read_double_to_float("SpyMoneyStealPercent", defaults.spy_money_steal_percent),
-            damage_fire_types: general
-                .read_list("DamageFireTypes", 0x80)
-                .map(|tokens| {
-                    tokens
-                        .into_iter()
-                        .map(|name| AnimRef {
-                            name: name.to_uppercase(),
-                        })
-                        .collect()
-                })
-                .unwrap_or_default(),
-            barrel_particle: general.read_name("BarrelParticle", 0x80).map(str::to_owned),
+            damage_fire_types: defaults.damage_fire_types.clone(),
+            barrel_particle: defaults.barrel_particle.clone(),
             tiberium_short_scan: general.read_range("TiberiumShortScan", 0x600),
             tiberium_long_scan: general.read_range("TiberiumLongScan", 0x2000),
             buildup_time: general.read_double("BuildupTime", f64::from_bits(0x3FA9_9999_9999_999A)),
@@ -3652,14 +3601,11 @@ impl GeneralRules {
                 .read_int_list("AIVirtualPurifiers")
                 .and_then(|values| values.get(..3)?.try_into().ok())
                 .unwrap_or([4, 2, 0]),
-            allied_crew: general.read_name("AlliedCrew", 0x80).map(str::to_owned),
-            soviet_crew: general.read_name("SovietCrew", 0x80).map(str::to_owned),
-            third_crew: general.read_name("ThirdCrew", 0x80).map(str::to_owned),
-            allied_disguise: general.read_name("AlliedDisguise", 0x80).map(str::to_owned),
-            soviet_disguise: general.read_name("SovietDisguise", 0x80).map(str::to_owned),
-            third_disguise: general.read_name("ThirdDisguise", 0x80).map(str::to_owned),
-            technician: general.read_name("Technician", 0x80).map(str::to_owned),
-            engineer_infantry: general.read_name("Engineer", 0x80).map(str::to_owned),
+            allied_crew: defaults.allied_crew.clone(),
+            soviet_crew: defaults.soviet_crew.clone(),
+            third_crew: defaults.third_crew.clone(),
+            technician: defaults.technician.clone(),
+            engineer_infantry: defaults.engineer_infantry.clone(),
             engineer_capture_level: general
                 .read_double_to_float("EngineerCaptureLevel", defaults.engineer_capture_level),
             crew_escape: crate::util::native_x87::NativeF64Bits::from_bits(
@@ -3750,13 +3696,13 @@ impl GeneralRules {
             ambient_change_interval_frames: defaults.ambient_change_interval_frames,
             ambient_change_step: defaults.ambient_change_step,
             iron_curtain_duration: combat_damage.read_int("IronCurtainDuration", 0),
-            iron_curtain_invoke_anim: general.read_string("IronCurtainInvokeAnim", "", 0x80),
-            chrono_placement_anim: general.read_string("ChronoPlacement", "", 0x80),
-            chrono_blast_anim: general.read_string("ChronoBlast", "", 0x80),
-            chrono_blast_dest_anim: general.read_string("ChronoBlastDest", "", 0x80),
-            dominator_warhead: general.read_string("DominatorWarhead", "", 0x80),
-            dominator_first_anim: general.read_string("DominatorFirstAnim", "", 0x80),
-            dominator_second_anim: general.read_string("DominatorSecondAnim", "", 0x80),
+            iron_curtain_invoke_anim: defaults.iron_curtain_invoke_anim.clone(),
+            chrono_placement_anim: defaults.chrono_placement_anim.clone(),
+            chrono_blast_anim: defaults.chrono_blast_anim.clone(),
+            chrono_blast_dest_anim: defaults.chrono_blast_dest_anim.clone(),
+            dominator_warhead: defaults.dominator_warhead.clone(),
+            dominator_first_anim: defaults.dominator_first_anim.clone(),
+            dominator_second_anim: defaults.dominator_second_anim.clone(),
             dominator_fire_at_percentage: general.read_int("DominatorFireAtPercentage", 50),
             dominator_capture_range: general.read_int("DominatorCaptureRange", 2),
             dominator_damage: general.read_int("DominatorDamage", 50),
@@ -3768,7 +3714,7 @@ impl GeneralRules {
             force_shield_duration: general.read_int("ForceShieldDuration", 400),
             force_shield_blackout_duration: general.read_int("ForceShieldBlackoutDuration", 800),
             force_shield_fade_sound_time: general.read_int("ForceShieldPlayFadeSoundTime", 50),
-            force_shield_invoke_anim: general.read_string("ForceShieldInvokeAnim", "", 0x80),
+            force_shield_invoke_anim: defaults.force_shield_invoke_anim.clone(),
             psychic_reveal_radius,
             // The constructor's nulls; only the ordered Process owner reads
             // them (`RulesTypeReferences`).
@@ -4469,42 +4415,36 @@ impl RuleSet {
                 references.apply_to(voxel_anim);
             }
         }
-        rules.publish_rules_type_references(processed.rules_type_references());
+        processed.rules_type_references().apply_to(&mut rules);
         Ok(rules)
     }
 
-    /// Publish the RulesClass Type pointers the ordered Rules processor
-    /// retained; a null warhead is an empty name.
-    fn publish_rules_type_references(
-        &mut self,
-        references: &crate::rules::native_processing::RulesTypeReferences,
-    ) {
-        let name = |reference: &Option<String>| reference.clone().unwrap_or_default();
-        self.bridge_warheads.c4_name = name(&references.c4_warhead);
-        self.bridge_warheads.crush_name = name(&references.crush_warhead);
-        self.combat_damage
-            .ivan_warhead
-            .clone_from(&references.ivan_warhead);
-        self.combat_damage
-            .drain_animation_type
-            .clone_from(&references.drain_animation_type);
-        for (field, system) in self
-            .combat_damage
-            .default_particle_systems_mut()
-            .into_iter()
-            .zip(&references.default_particle_systems)
-        {
-            field.clone_from(system);
+    /// The `ids` whose Type has an object of `category`. The ordered Rules
+    /// processor allocates a Type for each token its factory misses, and
+    /// native keeps it in the list; VERA's projection builds no object for
+    /// some of them (a token with surrounding spaces) and drops them here, an
+    /// approved exclusion that retail never reaches.
+    pub(crate) fn ids_with_objects(&self, ids: &[String], category: ObjectCategory) -> Vec<String> {
+        ids.iter()
+            .filter(|id| {
+                self.object_category_index
+                    .contains_key(&(category, id.to_ascii_uppercase()))
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// `[AI] BuildConst=` and the BuildingTypes it makes eligible.
+    pub(crate) fn set_build_const_types(&mut self, ids: &[String]) {
+        self.build_const_types = self.ids_with_objects(ids, ObjectCategory::Building);
+        for object in &mut self.object_list {
+            object.build_const_eligible = false;
         }
-        self.mind_control
-            .controlled_anim
-            .clone_from(&references.controlled_animation_type);
-        self.mind_control
-            .perma_controlled_anim
-            .clone_from(&references.perma_controlled_animation_type);
-        self.radiation.site_warhead = name(&references.rad_site_warhead);
-        self.general.mutate_warhead = name(&references.mutate_warhead);
-        self.general.mutate_explosion_warhead = name(&references.mutate_explosion_warhead);
+        for id in self.build_const_types.clone() {
+            let handle =
+                self.object_category_index[&(ObjectCategory::Building, id.to_ascii_uppercase())];
+            self.object_list[handle.0 as usize].build_const_eligible = true;
+        }
     }
 
     /// Resolve type sound readers against the startup-selected
@@ -4751,38 +4691,6 @@ impl RuleSet {
         general.berserk_color = color_indexes.berserk_color();
         general.force_shield_color = color_indexes.force_shield_color();
         let ai_base_spacing = ini.section_or_empty("AI").read_int("AIBaseSpacing", 1);
-        let shipyard_types: Vec<String> = ini
-            .section_or_empty("General")
-            .read_list("Shipyard", 0x80)
-            .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
-            .unwrap_or_default();
-        // gamemd-derived: `RulesClass__Process` reads type registries first
-        // (`ReadBuildingTypes` 0x00668E78), then `RulesClass__ReadAI @
-        // 0x00672AE0` (0x00668EC8). All seven BasePlan lists use the exact
-        // char[128]/whole-buffer-trim/comma-only path owned by their blocks at
-        // 0x00672B14..0x00673058 and 0x0067368C..0x0067375B. None falls back
-        // to `[General]`, and individual tokens are not trimmed.
-        let parse_planning_list = |section_name: &str, key: &str| -> Vec<String> {
-            ini.section_or_empty(section_name)
-                .read_list(key, 0x80)
-                .unwrap_or_default()
-                .into_iter()
-                .filter(|token| !is_native_none_type_name(token))
-                .map(str::to_owned)
-                .collect()
-        };
-        let build_const_source_tokens = parse_planning_list("AI", "BuildConst");
-        let build_power_source_tokens = parse_planning_list("AI", "BuildPower");
-        let build_refinery_source_tokens = parse_planning_list("AI", "BuildRefinery");
-        let build_barracks_source_tokens = parse_planning_list("AI", "BuildBarracks");
-        let build_tech_source_tokens = parse_planning_list("AI", "BuildTech");
-        let build_weapons_source_tokens = parse_planning_list("AI", "BuildWeapons");
-        let build_radar_source_tokens = parse_planning_list("AI", "BuildRadar");
-        let allied_base_defense_source_tokens = parse_planning_list("AI", "AlliedBaseDefenses");
-        let soviet_base_defense_source_tokens = parse_planning_list("AI", "SovietBaseDefenses");
-        let third_base_defense_source_tokens = parse_planning_list("AI", "ThirdBaseDefenses");
-        let concrete_wall_source_tokens = parse_planning_list("AI", "ConcreteWalls");
-        let harvester_unit_source_tokens = parse_planning_list("General", "HarvesterUnit");
         // `DifficultyClass::ReadINI_IntVector @ 0x00475D70`, reached by
         // `RulesClass::ReadGeneral` for AISlaveMinerNumber
         // `0x00670585..0x006705B7`, AIExtraRefineries `0x006705F9..0x0067062A`
@@ -4897,53 +4805,6 @@ impl RuleSet {
                 ObjectCategory::Aircraft => aircraft_ids = ids,
                 ObjectCategory::Building => building_ids = ids,
             }
-        }
-
-        // Native BuildingTypeClass__FindOrAllocate @ 0x004653C0 and
-        // UnitTypeClass__FindOrAllocate @ 0x007480D0 resolve the planning-list
-        // tokens case-insensitively while retaining source order and duplicate
-        // pointers. Active-retail tokens were allocated by the earlier type
-        // registry passes. Unknown custom allocation depends on every later
-        // ReadAI list and remains the approved stock-inactive exclusion, so the
-        // Rust projection resolves only within the matching registered family.
-        let resolve_registered = |source: Vec<String>, category: ObjectCategory| {
-            source
-                .into_iter()
-                .filter(|type_id| {
-                    object_category_index.contains_key(&(category, type_id.to_ascii_uppercase()))
-                })
-                .collect::<Vec<_>>()
-        };
-        let build_const_types =
-            resolve_registered(build_const_source_tokens, ObjectCategory::Building);
-        let build_power_types =
-            resolve_registered(build_power_source_tokens, ObjectCategory::Building);
-        let build_refinery_types =
-            resolve_registered(build_refinery_source_tokens, ObjectCategory::Building);
-        let build_barracks_types =
-            resolve_registered(build_barracks_source_tokens, ObjectCategory::Building);
-        let build_tech_types =
-            resolve_registered(build_tech_source_tokens, ObjectCategory::Building);
-        let build_weapons_types =
-            resolve_registered(build_weapons_source_tokens, ObjectCategory::Building);
-        let build_radar_types =
-            resolve_registered(build_radar_source_tokens, ObjectCategory::Building);
-        let allied_base_defense_types =
-            resolve_registered(allied_base_defense_source_tokens, ObjectCategory::Building);
-        let soviet_base_defense_types =
-            resolve_registered(soviet_base_defense_source_tokens, ObjectCategory::Building);
-        let third_base_defense_types =
-            resolve_registered(third_base_defense_source_tokens, ObjectCategory::Building);
-        let concrete_wall_types =
-            resolve_registered(concrete_wall_source_tokens, ObjectCategory::Building);
-        let harvester_unit_types =
-            resolve_registered(harvester_unit_source_tokens, ObjectCategory::Vehicle);
-        for type_id in &build_const_types {
-            let handle = object_category_index
-                .get(&(ObjectCategory::Building, type_id.to_ascii_uppercase()))
-                .copied()
-                .expect("resolved BuildConst membership remains registered");
-            object_list[handle.0 as usize].build_const_eligible = true;
         }
 
         // Step 2: WeaponTypes. The ordered Rules processor allocated every
@@ -5174,19 +5035,21 @@ impl RuleSet {
                 .section_or_empty("General")
                 .read_int("RevealTriggerRadius", 5),
             ai_base_spacing,
-            shipyard_types,
-            build_const_types,
-            build_power_types,
-            build_refinery_types,
-            build_barracks_types,
-            build_tech_types,
-            build_weapons_types,
-            build_radar_types,
-            allied_base_defense_types,
-            soviet_base_defense_types,
-            third_base_defense_types,
-            concrete_wall_types,
-            harvester_unit_types,
+            // The ordered Rules processor publishes these lists
+            // (`rules_type_references`).
+            shipyard_types: Vec::new(),
+            build_const_types: Vec::new(),
+            build_power_types: Vec::new(),
+            build_refinery_types: Vec::new(),
+            build_barracks_types: Vec::new(),
+            build_tech_types: Vec::new(),
+            build_weapons_types: Vec::new(),
+            build_radar_types: Vec::new(),
+            allied_base_defense_types: Vec::new(),
+            soviet_base_defense_types: Vec::new(),
+            third_base_defense_types: Vec::new(),
+            concrete_wall_types: Vec::new(),
+            harvester_unit_types: Vec::new(),
             ai_slave_miner_number,
             ai_extra_refineries,
             allied_base_defense_counts,
@@ -5608,8 +5471,9 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // v25: the retained Type references and RulesClass Type pointers
-        // (retained-type-references-v2 below).
+        // v25: the retained Type references, RulesClass Type pointers and
+        // lists, and the crate and rocket blocks (retained-type-references-v3
+        // below).
         b"rules-simulation-config-v25".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         // UnitType747734 retains CarriesCrate across later absent/invalid
@@ -5724,8 +5588,10 @@ impl RuleSet {
         // WeaponType +9C and AuxBuilding +C8, the WeaponType anims and
         // AttachedParticleSystem, ParticleType and VoxelAnimType references,
         // Warhead DebrisTypes, the AnimTypes' fixed-ART references and the
-        // RulesClass Type pointers.
-        b"retained-type-references-v2".hash(&mut hasher);
+        // RulesClass Type pointers and lists. RulesClass also keeps the crate
+        // and rocket blocks across Process calls, their scalars across
+        // Full_Init's reset.
+        b"retained-type-references-v3".hash(&mut hasher);
         self.object_list
             .iter()
             .map(|object| {
@@ -5830,6 +5696,74 @@ impl RuleSet {
             &self.general.mutate_explosion_warhead,
         )
             .hash(&mut hasher);
+        let general = &self.general;
+        (
+            (
+                &general.ore_twinkle,
+                &general.barrel_particle,
+                &general.nuke_take_off,
+                &general.wake.name,
+                &general.warp_in.name,
+                &general.warp_out.name,
+                &general.warp_away.name,
+                &general.chrono_sparkle1.name,
+                &general.move_flash.name,
+                &general.parachute_shp,
+            ),
+            (
+                &general.dominator_warhead,
+                &general.dominator_first_anim,
+                &general.dominator_second_anim,
+                &general.chrono_placement_anim,
+                &general.chrono_blast_anim,
+                &general.chrono_blast_dest_anim,
+                &general.iron_curtain_invoke_anim,
+                &general.force_shield_invoke_anim,
+                &general.infantry_death_anims,
+            ),
+            (
+                &general.engineer_infantry,
+                &general.technician,
+                &general.allied_crew,
+                &general.soviet_crew,
+                &general.third_crew,
+            ),
+        )
+            .hash(&mut hasher);
+        general
+            .damage_fire_types
+            .iter()
+            .map(|anim| &anim.name)
+            .collect::<Vec<_>>()
+            .hash(&mut hasher);
+        (
+            &general.dead_bodies,
+            &general.base_unit_types,
+            &general.pad_aircraft_types,
+            &self.shipyard_types,
+            &self.harvester_unit_types,
+        )
+            .hash(&mut hasher);
+        (
+            (
+                &self.build_const_types,
+                &self.build_power_types,
+                &self.build_refinery_types,
+                &self.build_barracks_types,
+                &self.build_tech_types,
+                &self.build_weapons_types,
+            ),
+            (
+                &self.build_radar_types,
+                &self.allied_base_defense_types,
+                &self.soviet_base_defense_types,
+                &self.third_base_defense_types,
+                &self.concrete_wall_types,
+            ),
+        )
+            .hash(&mut hasher);
+        self.crate_rules.hash(&mut hasher);
+        self.missile_spawn.hash(&mut hasher);
         let damage = &self.combat_damage;
         (
             &damage.default_large_grey_smoke_system,
@@ -9456,11 +9390,13 @@ GUIMainButtonSound=MenuClick
             "[General]\nOreTwinkle=TWNK1\nOreTwinkleChance=7\n\
              [AudioVisual]\nOreTwinkleChance=30\nOreTwinkle=WRONG\n",
         );
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert_eq!(general.ore_twinkle.as_deref(), Some("TWNK1"));
         assert_eq!(general.ore_twinkle_chance, 30);
 
-        let defaults = GeneralRules::from_ini(&IniFile::from_str("[General]\nOreTwinkle=\n"));
+        let defaults = RuleSet::from_ini(&IniFile::from_str("[General]\nOreTwinkle=\n"))
+            .unwrap()
+            .general;
         assert_eq!(
             defaults.ore_twinkle, None,
             "an empty value keeps the null pointer"
@@ -9529,7 +9465,7 @@ GUIComboCloseSound=ComboClose
 BarrelParticle=SmallGreySSys
 ";
         let ini = IniFile::from_str(ini_str);
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert_eq!(general.barrel_particle.as_deref(), Some("SmallGreySSys"));
     }
 
@@ -9537,7 +9473,7 @@ BarrelParticle=SmallGreySSys
     fn barrel_particle_default_none() {
         let ini_str = "[General]\nFixtureOnly=1\n";
         let ini = IniFile::from_str(ini_str);
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert!(general.barrel_particle.is_none());
     }
 
@@ -9564,7 +9500,7 @@ FixtureOnly=1
 BarrelParticle=SmallGreySSys
 ";
         let ini = IniFile::from_str(ini_str);
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert!(general.barrel_particle.is_none());
     }
 
@@ -9667,14 +9603,7 @@ ChuteSound=
     #[test]
     fn base_unit_types_parse_from_general() {
         let ini = IniFile::from_str("[General]\nBaseUnit=AMCV,SMCV,PCV\n");
-        let general = GeneralRules::from_ini(&ini);
-        assert_eq!(general.base_unit_types, vec!["AMCV", "SMCV", "PCV"]);
-    }
-
-    #[test]
-    fn base_unit_types_default_to_stock_yr() {
-        let ini = IniFile::from_str("[General]\nFixtureOnly=1\n");
-        let general = GeneralRules::from_ini(&ini);
+        let general = RuleSet::from_ini(&ini).unwrap().general;
         assert_eq!(general.base_unit_types, vec!["AMCV", "SMCV", "PCV"]);
     }
 
@@ -10446,11 +10375,11 @@ Projectile=Invisible
         let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art)
             .expect("naval base rules and ART");
 
-        assert_eq!(rules.shipyard_types, ["GAYARD", "nayard", "YAYARD"]);
+        assert_eq!(rules.shipyard_types, ["GAYARD", "NAYARD", "YAYARD"]);
         assert_eq!(
             rules.build_const_types,
-            ["gacnst", "NACNST", "gacnst", "YACNST"],
-            "ReadAI retains authored case, order, and duplicates while omitting null sentinels"
+            ["GACNST", "NACNST", "GACNST", "YACNST"],
+            "ReadAI keeps the order and duplicates of the Types it found, without null sentinels"
         );
         assert_eq!(rules.build_tech_types, ["GAYARD", "YAYARD"]);
         assert_eq!(rules.ai_naval_yard_adjacency, -7);
@@ -10520,7 +10449,10 @@ Projectile=Invisible
              [LATE]\nFoundation=1x1\n"
         )))
         .expect("oversized BuildConst rules");
-        assert_eq!(rules.build_const_types, ["GACNST"]);
+        // The oversized token names the BuildingType its factory allocated,
+        // stored as its first 24 bytes (`AbstractType` `0x00410800`).
+        let allocated = "X".repeat(24);
+        assert_eq!(rules.build_const_types, ["GACNST", allocated.as_str()]);
         assert!(!rules.object("LATE").unwrap().build_const_eligible);
 
         // `IniFile::from_bytes` widens 0xE9 to U+00E9, whose Rust UTF-8
@@ -10544,7 +10476,7 @@ Projectile=Invisible
         assert_eq!(stored.chars().nth(126), Some(char::from(0xE9)));
         assert_eq!(stored.chars().nth(127), Some(','));
         let rules = RuleSet::from_ini(&ini).expect("byte-domain BuildConst RuleSet");
-        assert_eq!(rules.build_const_types, ["GACNST"]);
+        assert_eq!(rules.build_const_types, ["GACNST", allocated.as_str()]);
         assert!(!rules.object("LATE").unwrap().build_const_eligible);
     }
 
@@ -10572,20 +10504,20 @@ Projectile=Invisible
         );
         let rules = RuleSet::from_ini(&ini).expect("all Recalc type lists");
 
-        assert_eq!(rules.build_const_types, ["con", "CON"]);
-        assert_eq!(rules.build_power_types, ["pow", "POW"]);
-        assert_eq!(rules.build_refinery_types, ["ref"]);
-        assert_eq!(rules.build_barracks_types, ["bar"]);
+        assert_eq!(rules.build_const_types, ["CON", "CON"]);
+        assert_eq!(rules.build_power_types, ["POW", "POW"]);
+        assert_eq!(rules.build_refinery_types, ["REF"]);
+        assert_eq!(rules.build_barracks_types, ["BAR"]);
         assert_eq!(
             rules.build_tech_types,
-            ["tech"],
+            ["TECH"],
             "the internally space-prefixed token is not individually trimmed"
         );
-        assert_eq!(rules.build_weapons_types, ["weap"]);
-        assert_eq!(rules.build_radar_types, ["rad", "RAD"]);
+        assert_eq!(rules.build_weapons_types, ["WEAP"]);
+        assert_eq!(rules.build_radar_types, ["RAD", "RAD"]);
         assert_eq!(
             rules.harvester_unit_types,
-            ["harv", "HARV"],
+            ["HARV", "HARV"],
             "sentinels are omitted, duplicates retained, and a space-prefixed Unit token is unresolved"
         );
         assert!(rules.object("CON").unwrap().build_const_eligible);
@@ -10839,13 +10771,17 @@ Projectile=Invisible
              99=FIRST_DECLARED\n\
              2=SECOND_DECLARED\n",
         );
-        let parsed = GeneralRules::from_ini(&ini);
+        let parsed = RuleSet::from_ini(&ini).unwrap().general;
         assert_eq!(parsed.infantry_death_anim(0), None);
         assert_eq!(parsed.infantry_death_anim(1), None);
         assert_eq!(parsed.infantry_death_anim(2), None);
         assert_eq!(parsed.infantry_death_anim(3), Some("EX3"));
         assert_eq!(parsed.infantry_death_anim(4), Some("EX4"));
-        assert_eq!(parsed.infantry_death_anim(5), Some("SECOND_DECLARED"));
+        // Slot 5 is the second declared Animation, which no General key names.
+        assert_eq!(
+            GeneralRules::from_ini(&ini).infantry_death_anim(5),
+            Some("SECOND_DECLARED")
+        );
         assert_eq!(parsed.infantry_death_anim(6), Some("EX6"));
         assert_eq!(parsed.infantry_death_anim(7), Some("EX7"));
         assert_eq!(parsed.infantry_death_anim(8), Some("EX8"));
@@ -10853,9 +10789,9 @@ Projectile=Invisible
         assert_eq!(parsed.infantry_death_anim(10), Some("EX10"));
 
         let defaults = GeneralRules::default();
-        assert_eq!(defaults.infantry_death_anim(3), Some("S_BANG34"));
+        assert_eq!(defaults.infantry_death_anim(3), None);
         assert_eq!(defaults.infantry_death_anim(5), Some("ELECTRO"));
-        assert_eq!(defaults.infantry_death_anim(10), Some("BRUTDIE"));
+        assert_eq!(defaults.infantry_death_anim(10), None);
     }
 
     #[test]
@@ -11235,20 +11171,60 @@ Projectile=Invisible
                 "MutateExplosionWarhead",
                 Box::new(|rules| rules.general.mutate_explosion_warhead = "NAME".into()),
             ),
+            (
+                "OreTwinkle",
+                Box::new(move |rules| rules.general.ore_twinkle = name()),
+            ),
+            (
+                "DominatorWarhead",
+                Box::new(|rules| rules.general.dominator_warhead = "NAME".into()),
+            ),
+            (
+                "Engineer",
+                Box::new(move |rules| rules.general.engineer_infantry = name()),
+            ),
+            (
+                "DamageFireTypes",
+                Box::new(|rules| {
+                    rules.general.damage_fire_types = vec![AnimRef {
+                        name: "NAME".into(),
+                    }];
+                }),
+            ),
+            (
+                "DeadBodies",
+                Box::new(move |rules| rules.general.dead_bodies = names()),
+            ),
+            (
+                "BuildConst",
+                Box::new(move |rules| rules.build_const_types = names()),
+            ),
+            (
+                "ConcreteWalls",
+                Box::new(move |rules| rules.concrete_wall_types = names()),
+            ),
+            (
+                "CrateImg",
+                Box::new(move |rules| rules.crate_rules.crate_img = name()),
+            ),
+            (
+                "CrateMaximum",
+                Box::new(|rules| rules.crate_rules.maximum = 7),
+            ),
+            (
+                "V3RocketDamage",
+                Box::new(|rules| rules.missile_spawn.v3.damage = 7),
+            ),
         ];
         for (key, edit) in edits {
             let mut changed = rules.clone();
             edit(&mut changed);
             assert_ne!(changed.simulation_config_hash(), base, "{key}");
         }
-        for slot in 0..9 {
+        for (key, publish) in crate::rules::rules_type_references::DEFAULT_PARTICLE_SYSTEMS {
             let mut changed = rules.clone();
-            *changed.combat_damage.default_particle_systems_mut()[slot] = name();
-            assert_ne!(
-                changed.simulation_config_hash(),
-                base,
-                "Default system {slot}"
-            );
+            publish(&mut changed, "NAME");
+            assert_ne!(changed.simulation_config_hash(), base, "{key}");
         }
     }
 

@@ -9,7 +9,7 @@ use crate::util::native_x87::NativeF64Bits;
 
 /// Every `[CrateRules]` field `RulesClass__ReadCrateRules @ 0x0066B900` reads,
 /// in its native read order.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CrateRules {
     /// `FreeMCV` -> `Rules+0x40`. `CellClass::PickupCrate @ 0x00481A00` does
     /// not read it: its MCV pre-empt (`0x00481BB8..0x00481BFF`) gates on the
@@ -93,14 +93,12 @@ impl Default for CrateRules {
     }
 }
 
-/// Live fields retained across successive `RulesClass::Process` passes.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct CrateRulesAccumulator(CrateRules);
-
-impl CrateRulesAccumulator {
-    /// `resolve(section, key)` is the ordered Rules processor's ReadString128
-    /// and factory for the Type keys: `None` for an empty read, otherwise the
-    /// factory's answer.
+impl CrateRules {
+    /// One pass of `RulesClass__ReadCrateRules` into the live fields, which
+    /// RulesClass keeps across passes and Process calls. `resolve(section,
+    /// key)` is the ordered Rules processor's ReadString128 and factory for
+    /// the Type keys: `None` for an empty read, otherwise the factory's
+    /// answer.
     pub(crate) fn apply_pass(
         &mut self,
         ini: &IniFile,
@@ -114,14 +112,14 @@ impl CrateRulesAccumulator {
         // this order. Every reader is handed the live value as its default, so
         // a missing key keeps the field. The string keys allocate OverlayType
         // and UnitType objects as they are read.
-        self.0.free_mcv = section.read_bool("FreeMCV", self.0.free_mcv);
+        self.free_mcv = section.read_bool("FreeMCV", self.free_mcv);
         // ReadString128, then `OverlayTypeClass__FindOrAllocate @ 0x005FEC70`
         // only for a nonempty read; its null for `<none>` and `none` is
         // stored, so unlike the sound below these keys null on a sentinel.
         for (key, target) in [
-            ("WoodCrateImg", &mut self.0.wood_crate_img),
-            ("CrateImg", &mut self.0.crate_img),
-            ("WaterCrateImg", &mut self.0.water_crate_img),
+            ("WoodCrateImg", &mut self.wood_crate_img),
+            ("CrateImg", &mut self.crate_img),
+            ("WaterCrateImg", &mut self.water_crate_img),
         ] {
             if let Some(overlay) = resolve(section, key) {
                 *target = overlay;
@@ -134,37 +132,37 @@ impl CrateRulesAccumulator {
             // field the way the image keys above do.
             let value = section.read_string("HealCrateSound", "", 0x80);
             if !is_native_none_type_name(&value) {
-                self.0.heal_crate_sound = Some(value.to_ascii_uppercase());
+                self.heal_crate_sound = Some(value.to_ascii_uppercase());
             }
         }
         if section.is_present("CrateMinimum") {
-            self.0.minimum = section.read_int("CrateMinimum", self.0.minimum);
+            self.minimum = section.read_int("CrateMinimum", self.minimum);
         }
         if section.is_present("CrateMaximum") {
-            self.0.maximum = section.read_int("CrateMaximum", self.0.maximum);
+            self.maximum = section.read_int("CrateMaximum", self.maximum);
         }
         // `CrateRadius` is stored in leptons; the stock `3.0` is three cells.
         // ReadRange owns the absent-key and `-1` sentinel cases itself, so this
         // needs no presence guard of its own.
-        self.0.radius = section.read_range("CrateRadius", self.0.radius);
+        self.radius = section.read_range("CrateRadius", self.radius);
         if section.is_present("CrateRegen") {
-            self.0.regen = NativeF64Bits::from_bits(
+            self.regen = NativeF64Bits::from_bits(
                 section
-                    .read_double("CrateRegen", f64::from_bits(self.0.regen.bits()))
+                    .read_double("CrateRegen", f64::from_bits(self.regen.bits()))
                     .to_bits(),
             );
         }
         // The same read through `UnitTypeClass__FindOrAllocate @ 0x007480D0`.
         if let Some(unit) = resolve(section, "UnitCrateType") {
-            self.0.unit_crate_type = unit;
+            self.unit_crate_type = unit;
         }
         if section.is_present("SoloCrateMoney") {
-            self.0.solo_crate_money = section.read_int("SoloCrateMoney", self.0.solo_crate_money);
+            self.solo_crate_money = section.read_int("SoloCrateMoney", self.solo_crate_money);
         }
         for (key, target) in [
-            ("SilverCrate", &mut self.0.silver_crate),
-            ("WoodCrate", &mut self.0.wood_crate),
-            ("WaterCrate", &mut self.0.water_crate),
+            ("SilverCrate", &mut self.silver_crate),
+            ("WoodCrate", &mut self.wood_crate),
+            ("WaterCrate", &mut self.water_crate),
         ] {
             if !section.is_present(key) {
                 continue;
@@ -176,8 +174,16 @@ impl CrateRulesAccumulator {
         }
     }
 
-    pub(crate) fn finish(self) -> CrateRules {
-        self.0
+    /// The fields Full_Init's Type reset leaves dangling, cleared; the
+    /// scalars stay (`NativeRulesRegistryState::destructive_reset`).
+    pub(crate) fn without_type_references(self) -> Self {
+        Self {
+            wood_crate_img: None,
+            crate_img: None,
+            water_crate_img: None,
+            unit_crate_type: None,
+            ..self
+        }
     }
 }
 

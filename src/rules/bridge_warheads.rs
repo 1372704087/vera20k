@@ -10,7 +10,7 @@
 //!   receiver list even when its ObjectType has DamageSelf=no (Rules+0xFAC).
 //!
 //! Each is the stored ID the ordered Rules processor's WarheadType factory
-//! answered (C4 and Crush in `native_processing::RulesTypeReferences`,
+//! answered (C4 and Crush in `rules_type_references::RulesTypeReferences`,
 //! IonCannon with the ion blast inputs), which `RuleSet` publishes; resolved
 //! to interned `WarheadId`s at world init time when the warhead registry is
 //! populated.

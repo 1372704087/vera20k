@@ -941,24 +941,30 @@ fn bridge_animation_lists_match_original_retained_vectors() {
     }
 }
 
+/// MetallicDebris and BridgeExplosions are RulesClass vectors, which ReadGeneral
+/// replaces only on a nonempty read: a Process call that continues the live
+/// state and omits them keeps them, and their AnimTypes stay registered.
 #[test]
-fn bridge_animation_vectors_belong_to_rules_stack_not_type_registry() {
+fn bridge_animation_vectors_survive_a_continued_process_with_their_types() {
     use crate::rules::ruleset::RuleSet;
     let processed = RulesLayerStack::new(IniFile::from_str(
         "[General]\nMetallicDebris=ONE,ONE\nBridgeExplosions=TWO\n",
     ))
     .process()
     .unwrap();
+    let debris = processed.metallic_debris().to_vec();
+    let explosions = processed.bridge_explosions().to_vec();
+    assert!(!debris.is_empty() && !explosions.is_empty());
     let (_, receipt) = processed.into_ini_and_native_type_construction_trace();
-    let fresh_rules = RulesLayerStack::new(IniFile::empty())
+    let continued = RulesLayerStack::new(IniFile::empty())
         .process_with_fixed_art_and_registry_state(
             &IniFile::empty(),
             receipt.into_registry_state_discarding_events(),
         )
         .unwrap();
-    let rules = RuleSet::from_processed_rules(&fresh_rules).unwrap();
-    assert!(rules.general.metallic_debris.is_empty());
-    assert!(rules.bridge_rules.explosions.is_empty());
+    let rules = RuleSet::from_processed_rules(&continued).unwrap();
+    assert_eq!(rules.general.metallic_debris, debris);
+    assert_eq!(rules.bridge_rules.explosions, explosions);
     assert!(rules.anim_type_names.iter().any(|name| name == "ONE"));
     assert!(rules.anim_type_names.iter().any(|name| name == "TWO"));
 }

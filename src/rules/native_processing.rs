@@ -6,7 +6,7 @@
 //! preserve already-constructed registry state rather than rolling back.
 
 use crate::rules::color_add::{ColorAddSelectors, ColorAddTable};
-use crate::rules::crate_rules::{CrateRules, CrateRulesAccumulator};
+use crate::rules::crate_rules::CrateRules;
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
@@ -19,6 +19,7 @@ use crate::rules::object_type::{
 use crate::rules::powerups::{PowerupTable, PowerupsAccumulator};
 use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequisites};
 use crate::rules::projectile_type::ProjectileArtState;
+use crate::rules::rules_type_references::{DEFAULT_PARTICLE_SYSTEMS, RulesTypeReferences};
 use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules};
 use crate::util::native_x87::NativeF64Bits;
 use std::collections::{HashMap, HashSet};
@@ -199,7 +200,7 @@ impl RulesLayerStack {
                 processor.rules_color_add.apply_pass(root);
             }
             if let Err(error) = processor.apply_pass(ini, fixed_art) {
-                let (_, partial_trace, _, _, _, _) = processor.finish();
+                let (_, partial_trace, _) = processor.finish();
                 return Err(NativeRulesProcessingFailure {
                     error,
                     partial_trace: Box::new(partial_trace),
@@ -215,20 +216,10 @@ impl RulesLayerStack {
         if let Some(root) = root_color_add_reread {
             processor.rules_color_add.apply_pass(root);
         }
-        let (
-            ini,
-            native_type_construction_trace,
-            crate_rules,
-            powerups,
-            general_type_lists,
-            missile_spawn,
-        ) = processor.finish();
+        let (ini, native_type_construction_trace, powerups) = processor.finish();
         Ok(ProcessedRulesLayers {
             ini,
-            crate_rules,
             powerups,
-            general_type_lists,
-            missile_spawn,
             content_hash: self.content_hash(),
             native_type_construction_trace,
         })
@@ -308,7 +299,7 @@ fn process_native_rules_cold_start_inner(
     let after_building_master = processor.native_type_construction_events.len();
     processor.process_techno_family(RulesTypeFamily::Building, selected_rules_root, fixed_art);
     let after_building_bodies = processor.native_type_construction_events.len();
-    let (_, trace, _, _, _, _) = processor.finish();
+    let (_, trace, _) = processor.finish();
     Ok((
         trace,
         [
@@ -349,13 +340,13 @@ pub(crate) fn process_native_campaign_rules_prepass(
     if let Some(ini) = scenario_named_ini
         && let Err(error) = processor.apply_pass(ini, fixed_art)
     {
-        let (_, partial_trace, _, _, _, _) = processor.finish();
+        let (_, partial_trace, _) = processor.finish();
         return Err(NativeRulesProcessingFailure {
             error,
             partial_trace: Box::new(partial_trace),
         });
     }
-    let (_, trace, _, _, _, _) = processor.finish();
+    let (_, trace, _) = processor.finish();
     Ok(trace)
 }
 
@@ -372,7 +363,7 @@ fn process_native_noncampaign_rules_prepass_inner(
     let after_general = processor.native_type_construction_events.len();
     processor.process_house_family(selected_rules_root);
     let after_house_bodies = processor.native_type_construction_events.len();
-    let (_, trace, _, _, _, _) = processor.finish();
+    let (_, trace, _) = processor.finish();
     (trace, [after_countries, after_general, after_house_bodies])
 }
 
@@ -425,10 +416,7 @@ const PARADROP_INFANTRY_KEYS: [&str; 4] = [
 #[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct ProcessedRulesLayers {
     ini: IniFile,
-    crate_rules: CrateRules,
     powerups: PowerupTable,
-    general_type_lists: GeneralTypeLists,
-    missile_spawn: MissileSpawnRules,
     content_hash: u64,
     native_type_construction_trace: NativeTypeConstructionTrace,
 }
@@ -528,7 +516,7 @@ impl ProcessedRulesLayers {
     }
 
     pub(crate) fn secret_lab_choices(&self) -> &[Vec<String>; 3] {
-        &self.general_type_lists.secret_lab_choices
+        &self.general_type_lists().secret_lab_choices
     }
 
     /// BuildingType +EF0 after each reached ReadINI body, retained with its
@@ -911,13 +899,19 @@ impl ProcessedRulesLayers {
             .as_deref()
     }
 
-    /// The RulesClass Type pointers of [`RulesTypeReferences`] after the last
-    /// pass.
+    /// The RulesClass Type pointers and lists of [`RulesTypeReferences`]
+    /// after the last pass.
     pub(crate) fn rules_type_references(&self) -> &RulesTypeReferences {
         &self
             .native_type_construction_trace
             .registry_state()
             .rules_type_references
+    }
+
+    /// `[AI] NeutralTechBuildings=` (Rules+ADC) after the last pass, as
+    /// stored BuildingType IDs.
+    pub fn neutral_tech_buildings(&self) -> &[String] {
+        self.rules_type_references().list("NeutralTechBuildings")
     }
 
     pub(crate) fn warhead_anim_states(
@@ -1215,7 +1209,10 @@ impl ProcessedRulesLayers {
     }
 
     pub fn crate_rules(&self) -> &CrateRules {
-        &self.crate_rules
+        &self
+            .native_type_construction_trace
+            .registry_state()
+            .rules_crate
     }
 
     pub fn powerups(&self) -> &PowerupTable {
@@ -1224,41 +1221,51 @@ impl ProcessedRulesLayers {
 
     /// The three `RocketStruct` blocks and their warheads after every pass.
     pub fn missile_spawn(&self) -> &MissileSpawnRules {
-        &self.missile_spawn
+        &self
+            .native_type_construction_trace
+            .registry_state()
+            .rules_missile_spawn
+    }
+
+    fn general_type_lists(&self) -> &GeneralTypeLists {
+        &self
+            .native_type_construction_trace
+            .registry_state()
+            .rules_general_type_lists
     }
 
     pub(crate) fn metallic_debris(&self) -> &[String] {
-        &self.general_type_lists.metallic_debris
+        &self.general_type_lists().metallic_debris
     }
 
     pub(crate) fn bridge_explosions(&self) -> &[String] {
-        &self.general_type_lists.bridge_explosions
+        &self.general_type_lists().bridge_explosions
     }
 
     pub(crate) fn weather_con_clouds(&self) -> &[String] {
-        &self.general_type_lists.weather_con_clouds
+        &self.general_type_lists().weather_con_clouds
     }
 
     pub(crate) fn weather_con_bolts(&self) -> &[String] {
-        &self.general_type_lists.weather_con_bolts
+        &self.general_type_lists().weather_con_bolts
     }
 
     /// The four `*ParaDropInf=` lists as stored type IDs: American, Allied,
     /// Soviet, Yuri.
     pub(crate) fn paradrop_infantry(&self) -> &[Vec<String>; 4] {
-        &self.general_type_lists.paradrop_infantry
+        &self.general_type_lists().paradrop_infantry
     }
 
     pub(crate) fn anim_to_infantry(&self) -> &[String] {
-        &self.general_type_lists.anim_to_infantry
+        &self.general_type_lists().anim_to_infantry
     }
 
     pub(crate) fn default_mirage_disguises(&self) -> &[String] {
-        &self.general_type_lists.default_mirage_disguises
+        &self.general_type_lists().default_mirage_disguises
     }
 
     pub(crate) fn infantry_disguises(&self) -> &[Option<String>; 3] {
-        &self.general_type_lists.infantry_disguises
+        &self.general_type_lists().infantry_disguises
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -1443,6 +1450,12 @@ pub(crate) struct NativeRulesRegistryState {
     /// The destructive reset clears it with the other Type references.
     rules_death_weapon: Option<String>,
     rules_type_references: RulesTypeReferences,
+    /// `[CrateRules]` (`0x0066B900`): its scalars, three images and
+    /// UnitCrateType.
+    rules_crate: CrateRules,
+    /// The three `RocketStruct` blocks with their types and warheads.
+    rules_missile_spawn: MissileSpawnRules,
+    rules_general_type_lists: GeneralTypeLists,
 }
 
 impl Default for NativeRulesRegistryState {
@@ -1490,6 +1503,9 @@ impl Default for NativeRulesRegistryState {
             select_anim: SelectAnimRulesState::default(),
             rules_death_weapon: None,
             rules_type_references: RulesTypeReferences::default(),
+            rules_crate: CrateRules::default(),
+            rules_missile_spawn: MissileSpawnRules::default(),
+            rules_general_type_lists: GeneralTypeLists::default(),
         }
     }
 }
@@ -1638,7 +1654,10 @@ impl NativeRulesRegistryState {
     /// Rust clears all affected references at deletion rather than rebinding
     /// retired Types by name. This is a deterministic safety policy for native
     /// stale-pointer state; authored post-reset Process reads rebuild bindings.
-    /// Evidence: tools/rules_oracle/select_anim_inputs.md.
+    /// Evidence: tools/rules_oracle/select_anim_inputs.md. Every RulesClass
+    /// Type pointer and pointer list follows it, the crate images,
+    /// UnitCrateType and the rocket types and warheads included, while the
+    /// crate and rocket scalars stay with the others.
     ///
     /// Numeric-ID history is intentionally not represented here and therefore
     /// cannot be rewound by this operation.
@@ -1669,6 +1688,8 @@ impl NativeRulesRegistryState {
             // Plain index vectors, so RulesClass keeps them; the next pass
             // reads them as its default.
             rules_prerequisite_lists: self.rules_prerequisite_lists,
+            rules_crate: self.rules_crate.without_type_references(),
+            rules_missile_spawn: self.rules_missile_spawn.without_type_references(),
             ..Self::default()
         }
     }
@@ -2089,52 +2110,6 @@ impl VoxelAnimTypeReferences {
     }
 }
 
-/// RulesClass Type pointers outside the Type registries, retained across
-/// passes: each is a ReadString into 0x80 bytes whose empty read keeps the
-/// field and whose value goes through the family's FindOrAllocate, which
-/// answers null for `none` and `<none>`. The constructor leaves each one
-/// null, and the destructive reset clears them with the other Type
-/// references. `RuleSet` publishes them, an empty name for a null warhead.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct RulesTypeReferences {
-    /// ReadCombatDamage (`0x0066BBB0`): `C4Warhead=` (+FA8, `0x0066C31F`),
-    /// `CrushWarhead=` (+FAC, `0x0066C35D`) and `IvanWarhead=` (+FC8,
-    /// `0x0066C50C`), WarheadTypes.
-    pub(crate) c4_warhead: Option<String>,
-    pub(crate) crush_warhead: Option<String>,
-    pub(crate) ivan_warhead: Option<String>,
-    /// `DrainAnimationType=` (+31C, `0x0066C94F`), `ControlledAnimationType=`
-    /// (+320, `0x0066CA11`) and `PermaControlledAnimationType=` (+324,
-    /// `0x0066CA4F`), AnimTypes.
-    pub(crate) drain_animation_type: Option<String>,
-    pub(crate) controlled_animation_type: Option<String>,
-    pub(crate) perma_controlled_animation_type: Option<String>,
-    /// The nine `Default*System=` ParticleSystemTypes (+1018..+1038,
-    /// `0x0066CACD..0x0066CCE0`), in [`DEFAULT_PARTICLE_SYSTEM_KEYS`] order.
-    pub(crate) default_particle_systems: [Option<String>; 9],
-    /// ReadRadiation `RadSiteWarhead=` (+1834, `0x0066D0F6..0x0066D127`),
-    /// over the constructor's null (`0x00667801`).
-    pub(crate) rad_site_warhead: Option<String>,
-    /// ReadSpecialWeapons `MutateWarhead=` (+F98, `0x006690B3..0x006690D1`)
-    /// and `MutateExplosionWarhead=` (+F9C, `0x006690F2`).
-    pub(crate) mutate_warhead: Option<String>,
-    pub(crate) mutate_explosion_warhead: Option<String>,
-}
-
-/// The `[CombatDamage]` keys of [`RulesTypeReferences::default_particle_systems`],
-/// in ReadCombatDamage's order.
-const DEFAULT_PARTICLE_SYSTEM_KEYS: [&str; 9] = [
-    "DefaultLargeGreySmokeSystem",
-    "DefaultSmallGreySmokeSystem",
-    "DefaultSparkSystem",
-    "DefaultLargeRedSmokeSystem",
-    "DefaultSmallRedSmokeSystem",
-    "DefaultDebrisSmokeSystem",
-    "DefaultFireStreamSystem",
-    "DefaultTestParticleSystem",
-    "DefaultRepairParticleSystem",
-];
-
 /// The weapon block of `TechnoTypeClass::ReadINI @ 0x00712170`
 /// (`0x0071284A..0x00712AAD`), retained on the live Type. Each reached pass
 /// reads TurretCount (+808, `0x0071285E`), WeaponCount (+80C, `0x00712878`)
@@ -2279,7 +2254,7 @@ impl ProcessedType {
 #[derive(Debug)]
 struct RulesPassProcessor {
     ordinary: Option<IniFile>,
-    crate_rules: CrateRulesAccumulator,
+    crate_rules: CrateRules,
     powerups: PowerupsAccumulator,
     general_type_lists: GeneralTypeLists,
     missile_spawn: MissileSpawnRules,
@@ -2374,11 +2349,11 @@ impl RulesPassProcessor {
             select_anim: registry_state.select_anim,
             rules_death_weapon: registry_state.rules_death_weapon,
             rules_type_references: registry_state.rules_type_references,
+            crate_rules: registry_state.rules_crate,
+            general_type_lists: registry_state.rules_general_type_lists,
+            missile_spawn: registry_state.rules_missile_spawn,
             ordinary: None,
-            crate_rules: CrateRulesAccumulator::default(),
             powerups: PowerupsAccumulator::default(),
-            general_type_lists: GeneralTypeLists::default(),
-            missile_spawn: MissileSpawnRules::default(),
             native_type_construction_events: Vec::new(),
         }
     }
@@ -2435,9 +2410,7 @@ impl RulesPassProcessor {
         self.allocate_combat_references(pass);
         // ReadGeneral's rocket blocks and ReadCombatDamage's rocket warheads.
         // They read and write no other Process state, so one call per pass
-        // keeps their order. RulesClass outlives scenarios, but retail
-        // rulesmd.ini sets every key each scenario re-reads, so a fresh
-        // constructor here is observably the same.
+        // keeps their order.
         self.missile_spawn.apply_pass(pass);
         self.allocate_radiation_references(pass);
         // Elevation and Wall contain no Type factories.
@@ -2721,7 +2694,8 @@ impl RulesPassProcessor {
             return;
         };
         for key in BUILDING_LISTS {
-            self.allocate_list_from(section, key, RulesTypeFamily::Building, 0x80);
+            let resolved = self.resolve_list_from(section, key, RulesTypeFamily::Building, 0x80);
+            self.rules_type_references.read_list(key, resolved);
         }
         // ReadAI672AE0 has its own AI-section gate.67399E..6739C5 reads
         // the current double as default, with no clamp, after the AI lists.
@@ -3001,9 +2975,11 @@ impl RulesPassProcessor {
                     self.missile_spawn.set_type(missile, resolved);
                 }
             } else if is_list {
-                self.allocate_list_from(section, key, family, 0x80);
+                let resolved = self.resolve_list_from(section, key, family, 0x80);
+                self.rules_type_references.read_list(key, resolved);
             } else {
-                let _ = self.resolve_scalar_from(section, key, family, 0x80);
+                let resolved = self.resolve_scalar_from(section, key, family, 0x80);
+                self.rules_type_references.read_pointer(key, resolved);
             }
         }
     }
@@ -3935,15 +3911,9 @@ impl RulesPassProcessor {
         for key in ["FlameDamage", "FlameDamage2"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Warhead, 0x80);
         }
-        if let Some(warhead) =
-            self.resolve_scalar_from(section, "C4Warhead", RulesTypeFamily::Warhead, 0x80)
-        {
-            self.rules_type_references.c4_warhead = warhead;
-        }
-        if let Some(warhead) =
-            self.resolve_scalar_from(section, "CrushWarhead", RulesTypeFamily::Warhead, 0x80)
-        {
-            self.rules_type_references.crush_warhead = warhead;
+        for key in ["C4Warhead", "CrushWarhead"] {
+            let warhead = self.resolve_scalar_from(section, key, RulesTypeFamily::Warhead, 0x80);
+            self.rules_type_references.read_pointer(key, warhead);
         }
         // 0x0066C36A..0x0066C4F4: the six rocket warheads, in this order.
         let mut missile_spawn = std::mem::take(&mut self.missile_spawn);
@@ -3951,11 +3921,10 @@ impl RulesPassProcessor {
             self.resolve_scalar_from(section, key, RulesTypeFamily::Warhead, 0x80)
         });
         self.missile_spawn = missile_spawn;
-        if let Some(warhead) =
-            self.resolve_scalar_from(section, "IvanWarhead", RulesTypeFamily::Warhead, 0x80)
-        {
-            self.rules_type_references.ivan_warhead = warhead;
-        }
+        let warhead =
+            self.resolve_scalar_from(section, "IvanWarhead", RulesTypeFamily::Warhead, 0x80);
+        self.rules_type_references
+            .read_pointer("IvanWarhead", warhead);
         if let Some(weapon) =
             self.resolve_scalar_from(section, "DeathWeapon", RulesTypeFamily::Weapon, 0x80)
         {
@@ -3966,29 +3935,13 @@ impl RulesPassProcessor {
             "MindControlAttackLineFrames",
             self.rules_mind_control_attack_line_frames,
         );
-        if let Some(anim) = self.resolve_scalar_from(
-            section,
+        for key in [
             "DrainAnimationType",
-            RulesTypeFamily::Animation,
-            0x80,
-        ) {
-            self.rules_type_references.drain_animation_type = anim;
-        }
-        if let Some(anim) = self.resolve_scalar_from(
-            section,
             "ControlledAnimationType",
-            RulesTypeFamily::Animation,
-            0x80,
-        ) {
-            self.rules_type_references.controlled_animation_type = anim;
-        }
-        if let Some(anim) = self.resolve_scalar_from(
-            section,
             "PermaControlledAnimationType",
-            RulesTypeFamily::Animation,
-            0x80,
-        ) {
-            self.rules_type_references.perma_controlled_animation_type = anim;
+        ] {
+            let anim = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
+            self.rules_type_references.read_pointer(key, anim);
         }
         //66CA96..66CACB retains the current Rules+FF0 pointer on an
         //empty read; the existing allocating scalar reader handles none.
@@ -3997,21 +3950,19 @@ impl RulesPassProcessor {
         {
             self.rules_ion_cannon_warhead = resolved.unwrap_or_default();
         }
-        for (slot, key) in DEFAULT_PARTICLE_SYSTEM_KEYS.into_iter().enumerate() {
-            if let Some(system) =
-                self.resolve_scalar_from(section, key, RulesTypeFamily::ParticleSystem, 0x80)
-            {
-                self.rules_type_references.default_particle_systems[slot] = system;
-            }
+        for (key, _) in DEFAULT_PARTICLE_SYSTEMS {
+            let system =
+                self.resolve_scalar_from(section, key, RulesTypeFamily::ParticleSystem, 0x80);
+            self.rules_type_references.read_pointer(key, system);
         }
     }
 
     fn allocate_radiation_references(&mut self, pass: &IniFile) {
-        if let Some(section) = pass.section("Radiation")
-            && let Some(warhead) =
-                self.resolve_scalar_from(section, "RadSiteWarhead", RulesTypeFamily::Warhead, 0x80)
-        {
-            self.rules_type_references.rad_site_warhead = warhead;
+        if let Some(section) = pass.section("Radiation") {
+            let warhead =
+                self.resolve_scalar_from(section, "RadSiteWarhead", RulesTypeFamily::Warhead, 0x80);
+            self.rules_type_references
+                .read_pointer("RadSiteWarhead", warhead);
         }
     }
 
@@ -4075,17 +4026,10 @@ impl RulesPassProcessor {
             ("EMPulseWarhead", RulesTypeFamily::Warhead),
             ("EMPulseProjectile", RulesTypeFamily::Projectile),
         ] {
-            let resolved = self.resolve_scalar_from(section, key, family, 0x80);
             // VERA ports no reader of the Nuke and EMPulse pointers; only
             // their allocations are kept.
-            let references = &mut self.rules_type_references;
-            match (key, resolved) {
-                ("MutateWarhead", Some(warhead)) => references.mutate_warhead = warhead,
-                ("MutateExplosionWarhead", Some(warhead)) => {
-                    references.mutate_explosion_warhead = warhead;
-                }
-                _ => {}
-            }
+            let resolved = self.resolve_scalar_from(section, key, family, 0x80);
+            self.rules_type_references.read_pointer(key, resolved);
         }
         self.process_warhead_family(pass);
     }
@@ -4126,16 +4070,7 @@ impl RulesPassProcessor {
         Ok(())
     }
 
-    fn finish(
-        mut self,
-    ) -> (
-        IniFile,
-        NativeTypeConstructionTrace,
-        CrateRules,
-        PowerupTable,
-        GeneralTypeLists,
-        MissileSpawnRules,
-    ) {
+    fn finish(mut self) -> (IniFile, NativeTypeConstructionTrace, PowerupTable) {
         let allocated_super_weapon_type_count = self
             .families
             .get(&RulesTypeFamily::SuperWeapon)
@@ -4236,12 +4171,12 @@ impl RulesPassProcessor {
                     select_anim: self.select_anim,
                     rules_death_weapon: self.rules_death_weapon,
                     rules_type_references: self.rules_type_references,
+                    rules_crate: self.crate_rules,
+                    rules_missile_spawn: self.missile_spawn,
+                    rules_general_type_lists: self.general_type_lists,
                 },
             },
-            self.crate_rules.finish(),
             self.powerups.finish(),
-            self.general_type_lists,
-            self.missile_spawn,
         )
     }
 }

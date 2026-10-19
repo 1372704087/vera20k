@@ -61,10 +61,14 @@ pub(crate) struct MatchState {
 }
 
 impl MatchState {
-    /// ScenarioPause684060 during ChronoScreen affects audio/elapsed time,
-    /// while the original Logic53A747 effect clock continues advancing.
+    /// Shared ScenarioPause684060 audio hold, independent of menu/debug pause.
+    /// Main_Tick55D82C also gates offline world admission on its counter.
     pub(crate) fn presentation_paused(&self) -> bool {
-        self.paused() || self.match_presentation.chrono_screen.scenario_paused()
+        self.paused()
+            || self
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|rt| rt.simulation.session.scenario_paused())
     }
     /// True when the game is paused and the simulation frozen: an in-scenario
     /// modal is open, or the debug pause is on.

@@ -33,8 +33,13 @@ pub(crate) struct RadarMovies {
     /// Credit for this FIFO's prelude suspend. Retirement may run after
     /// playback already released it, and must not release another caller.
     eva_suspended: bool,
+    /// This FIFO's actual684060 credit, independent of other pause callers.
+    scenario_hold: bool,
 }
 impl RadarMovies {
+    pub(crate) const fn scenario_hold(&self) -> bool {
+        self.scenario_hold
+    }
     pub(crate) fn set_active(&mut self, active: bool) {
         if let Some(player) = self.playing.as_mut() {
             player.set_active(active);
@@ -216,6 +221,25 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
         .as_mut()
         .expect("radar admission")
         .set_movie_pause(pause);
+    if pause
+        && !state
+            .match_state
+            .match_presentation
+            .radar_movies
+            .scenario_hold
+    {
+        state
+            .match_state
+            .match_presentation
+            .radar_movies
+            .scenario_hold = true;
+        let effects = state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .map_or_else(Vec::new, |rt| rt.simulation.pause_scenario(0));
+        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
+    }
     reconcile_pause_clock(state, wall_ms);
     if state
         .match_state
@@ -283,6 +307,7 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
             .as_mut()
             .expect("radar retirement")
             .finish_movie(has_next);
+        release_scenario_hold(state);
         if !has_next {
             state.audio.retire_movie_audio(wall_ms);
             reconcile_pause_clock(state, wall_ms);
@@ -294,6 +319,12 @@ pub(crate) fn service(state: &mut AppState, wall_ms: u64) {
 ///5BF450 runs before load preparation (even failure), abort/victory/defeat
 ///fades and scene replacement. Repeated callers must be harmless.
 pub(crate) fn retire(state: &mut AppState, wall_ms: u64) {
+    let held = state
+        .match_state
+        .match_presentation
+        .radar_movies
+        .scenario_hold;
+    // Clear Radar's own movie flag before its shared684180 output is applied.
     let presentation = &mut state.match_state.match_presentation;
     presentation
         .radar_movies
@@ -302,8 +333,48 @@ pub(crate) fn retire(state: &mut AppState, wall_ms: u64) {
     if let Some(radar) = presentation.radar_anim.as_mut() {
         radar.retire_movies();
     }
+    if held {
+        let effects = state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .map_or_else(Vec::new, |rt| rt.simulation.resume_scenario());
+        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
+    }
     state.audio.retire_movie_audio(wall_ms);
     if state.frontend.screen == crate::ui::game_screen::GameScreen::InGame {
         reconcile_pause_clock(state, wall_ms);
+    }
+}
+
+// Native657CC8 and the5BF450 retirement route release only this clip's hold.
+fn release_scenario_hold(state: &mut AppState) {
+    if std::mem::take(
+        &mut state
+            .match_state
+            .match_presentation
+            .radar_movies
+            .scenario_hold,
+    ) {
+        let effects = state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .map_or_else(Vec::new, |rt| rt.simulation.resume_scenario());
+        crate::app::match_runtime::sim_tick::apply_trigger_effects(state, &effects);
+    }
+}
+
+/// A loaded world retains Scenario62C but not the physical video FIFO. This
+/// Rust recovery policy releases only its recorded credit through684180;
+/// native saved Radar/Bink reconstruction remains an explicit boundary.
+pub(crate) fn release_saved_scenario_hold(
+    sim: &mut crate::sim::world::Simulation,
+    held: bool,
+) -> Vec<crate::sim::trigger_runtime::TriggerEffect> {
+    if held {
+        sim.resume_scenario()
+    } else {
+        Vec::new()
     }
 }

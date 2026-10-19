@@ -245,6 +245,7 @@ pub fn load_with_launch(
         train_crate: map.basic.train_crate.unwrap_or(false),
         truck_crate: map.basic.truck_crate.unwrap_or(false),
         ice_growth_enabled: map.basic.ice_growth_enabled,
+        vein_growth_enabled: map.basic.vein_growth_enabled,
         // Skirmish start forces `TiberiumGrows|TiberiumSpreads` (`OR 0xC0`
         // at `0x005E74CD`), copied into the scenario at `0x00687C23`.
         tiberium_grows_flag: true,

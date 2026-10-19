@@ -638,6 +638,7 @@ pub(crate) struct RuntimePassInputs {
     pub(crate) startup_admitted: bool,
     pub(crate) frame_stepping: bool,
     pub(crate) paused: bool,
+    pub(crate) scenario_paused: bool,
     pub(crate) menu_open: bool,
     pub(crate) session_mode: SessionMode,
     /// The frame pacer's pure timing answer (`should_admit` with no pause
@@ -687,6 +688,11 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
     );
     let pacer_admitted = service.simulation && inputs.pacer_timing_admits;
     let run_sim = !inputs.focus_frozen
+        && !(inputs.scenario_paused
+            && matches!(
+                inputs.session_mode,
+                SessionMode::Campaign | SessionMode::Skirmish
+            ))
         && inputs.startup_admitted
         && (inputs.frame_stepping || pacer_admitted);
     let tick_lane = if inputs.paused && inputs.session_mode.is_network() {
@@ -826,6 +832,41 @@ fn advance_in_game_runtime_mode(
         }
         RuntimeAdvanceMode::ExactOneStep => false,
     };
+    let wall_ms = match mode {
+        RuntimeAdvanceMode::WallClock { now_ms } => now_ms,
+        RuntimeAdvanceMode::ExactOneStep => crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+    };
+    let service_live = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
+        && !state.match_state.match_presentation.in_game_menu.is_open()
+        && !state.match_state.debug_pause
+        && !state.platform.focus_freeze_active();
+    if service_live {
+        let effects = super::scenario_pause::poll(state, wall_ms);
+        apply_trigger_effects(state, &effects);
+    }
+    let scenario_paused = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|rt| rt.simulation.session.scenario_paused());
+    if service_live
+        && scenario_paused
+        && matches!(
+            state.match_state.session.mode(),
+            SessionMode::Campaign | SessionMode::Skirmish
+        )
+        && pacer_timing_admits
+    {
+        // Main_Tick55D830..55D859 services53B560 and returns without Logic.
+        // A Finish here admits the world only on the following pass.
+        let effects = state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .map_or_else(Vec::new, |rt| rt.simulation.process_chrono_screen_effect());
+        apply_trigger_effects(state, &effects);
+        state.platform.frame_pacer.record_admitted_frame(wall_ms);
+    }
     let decision = decide_runtime_pass(RuntimePassInputs {
         exact_step: matches!(mode, RuntimeAdvanceMode::ExactOneStep),
         window_active: state.platform.window_active,
@@ -833,6 +874,7 @@ fn advance_in_game_runtime_mode(
         startup_admitted,
         frame_stepping,
         paused: state.match_state.paused(),
+        scenario_paused,
         menu_open: state.match_state.match_presentation.in_game_menu.is_open(),
         session_mode: state.match_state.session.mode(),
         pacer_timing_admits,
@@ -1475,10 +1517,21 @@ fn refresh_cell_lighting(state: &mut AppState) {
     );
 }
 
-fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
+pub(crate) fn apply_trigger_effects(state: &mut AppState, effects: &[TriggerEffect]) {
     let mut refresh_sidebar = false;
     for effect in effects {
         match effect {
+            TriggerEffect::ScenarioPause {
+                duration,
+                outermost,
+            } => {
+                let now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                super::scenario_pause::enter(state, *duration, *outermost, now);
+            }
+            TriggerEffect::ScenarioResume => {
+                let now = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+                super::scenario_pause::resume(state, now);
+            }
             TriggerEffect::TalkBubble {
                 actor,
                 value,

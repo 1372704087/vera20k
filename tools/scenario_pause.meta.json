@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "native_sha256": "3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600",
+  "unicorn_binding": "2.1.4",
+  "unicorn_core": [
+    2,
+    1,
+    33621247
+  ],
+  "scope": "Original ScenarioPause enter/exit and Main_Tick timer/admission slice; signed duration multiplication, rearm, nesting and modes.",
+  "assumptions": [
+    "Fresh Scenario62C/630=0 and620=-1; supplied16ms bucket clock; preexisting35A2=1 keeps sidebar/media outside scope.",
+    "No full Main_Tick, game, audio or save/load execution is claimed."
+  ],
+  "substitutions": [
+    "6C8C40 returns each declared clock;406F00/406F40 record audio boundaries;55D830/55D878 terminate the unchanged55D7C2 timer/branch slice."
+  ],
+  "entry_points": {
+    "enter": "0x00684060",
+    "exit": "0x00684180",
+    "timer_branch": "0x0055D7C2"
+  },
+  "replay_command": "python -m tools.superweapon_oracle --scenario-pause",
+  "payload_sha256": "c1c8329c1633e80215ec2e25dbcd5bc6e8e379fd9e5c2ea17f5ac57d3f222639"
+}

@@ -8445,6 +8445,72 @@ def chrono_screen_metadata():
                       'sin_table': 0x4CB150, 'cos_table': 0x4CB1A0, 'ftol': 0x7C5F00})
 
 
+
+def scenario_pause_controls():
+    """Original684060/684180 plus Main_Tick's timer/admission slice.
+
+    The preexisting35A2 flag is supplied true to isolate numeric/countdown
+    state from sidebar and media; GamePause audio edges are recorded sinks.
+    """
+    histories = [
+        (0, [('enter', n, 100)]) for n in
+        (0, 1, -1, 0x7fffffff, -0x80000000, 71582788, 71582789)
+    ] + [
+        (0, [('enter', 1, 100), ('poll', 0, 159), ('poll', 0, 160)]),
+        (5, [('enter', 2, 100), ('enter', 1, 130), ('poll', 0, 189), ('poll', 0, 190)]),
+        (0, [('enter', 1, 100), ('enter', 0, 101), ('poll', 0, 160), ('exit', 0, 161)]),
+        (0, [('enter', 0, 100), ('enter', 1, 101), ('exit', 0, 102), ('poll', 0, 161)]),
+        (3, [('enter', 1, 100), ('poll', 0, 1000), ('exit', 0, 1001)]),
+        (0, [('enter', 1, 0x0fffffff), ('poll', 0, 0)]),
+    ]
+    rows = []
+    for mode, steps in histories:
+        emu = Emu()
+        now = [0]
+        emu.write32(0xa8b238, mode)
+        emu.write32(SCENARIO + 0x614, -1)
+        emu.write32(SCENARIO + 0x620, -1)
+        write8(emu, SCENARIO + 0x35a2, 1)
+        emu.hook(0x6c8c40, lambda e: now[0], 0)
+        def sink(e, name):
+            e.events.append(name)
+            return 0
+        emu.hook(0x406f00, lambda e: sink(e, 'enter_audio'), 0)
+        emu.hook(0x406f40, lambda e: sink(e, 'exit_audio'), 0)
+        emu.hook(0x55d830, lambda e: sink(e, 'paused_branch'), 0)
+        emu.hook(0x55d878, lambda e: sink(e, 'world_branch'), 0)
+        records = []
+        for operation, value, clock in steps:
+            now[0] = clock
+            emu.events.clear()
+            if operation == 'enter':
+                emu.invoke(0x684060, ecx=value)
+            elif operation == 'exit':
+                emu.invoke(0x684180)
+            else:
+                emu.invoke(0x55d7c2)
+            records.append(dict(operation=operation, value=value, bucket=clock,
+                                depth=emu.read32(SCENARIO + 0x62c),
+                                timed=read8(emu, SCENARIO + 0x630),
+                                timer_start=emu.read_i32(SCENARIO + 0x620),
+                                timer_duration=emu.read_i32(SCENARIO + 0x628),
+                                events=list(emu.events)))
+        rows.append(dict(mode=mode, steps=records))
+    return dict(controls=rows)
+
+
+def scenario_pause_metadata():
+    return provenance(
+        scope='Original ScenarioPause enter/exit and Main_Tick timer/admission '
+              'slice; signed duration multiplication, rearm, nesting and modes.',
+        assumptions=['Fresh Scenario62C/630=0 and620=-1; supplied16ms bucket '
+                     'clock; preexisting35A2=1 keeps sidebar/media outside scope.',
+                     'No full Main_Tick, game, audio or save/load execution is claimed.'],
+        substitutions=['6C8C40 returns each declared clock;406F00/406F40 '
+                       'record audio boundaries;55D830/55D878 terminate the '
+                       'unchanged55D7C2 timer/branch slice.'],
+        entry_points={'enter':0x684060,'exit':0x684180,'timer_branch':0x55d7c2})
+
 def generate():
     return {'source': 'unicorn/gamemd.exe', 'click_fire': click_fire(),
             'defense_alert': defense_alert(), 'mission_missile': mission_missile(),
@@ -8526,6 +8592,12 @@ if __name__ == '__main__':
         arguments.remove('--airstrike-tint')
         finish_vectors(airstrike_tint, Path(__file__).with_name('airstrike_tint.json'),
                        provenance=airstrike_tint_metadata, argv=arguments)
+        raise SystemExit
+    if '--scenario-pause' in sys.argv[1:]:
+        arguments = sys.argv[1:]
+        arguments.remove('--scenario-pause')
+        finish_vectors(scenario_pause_controls, Path(__file__).with_name('scenario_pause.json'),
+                       provenance=scenario_pause_metadata, argv=arguments)
         raise SystemExit
     if '--chrono-screen' in sys.argv[1:]:
         arguments = sys.argv[1:]

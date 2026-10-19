@@ -801,6 +801,11 @@ impl OracleTeam {
             15,
             row.get("zone").map_or([0x80, 0x80, 0], point),
         );
+        assert_eq!(
+            sim.substrate.entities.get(zone).unwrap().category(),
+            EntityCategory::Infantry,
+            "the radio rows' contact is an infantryman"
+        );
         let mut members = Vec::new();
         for (slot, member) in row["members"].as_array().unwrap().iter().enumerate() {
             let passengers = int(&member["passengers"]);
@@ -954,20 +959,42 @@ impl OracleTeam {
                     EntityCategory::Infantry | EntityCategory::Aircraft
                 );
             // The oracle records Assign_Destination's argument, not the
-            // class setter body. Unit741C4F..741CCC parks a contactless
-            // Unit Enter target in +500 and clears its archive/NavCom.
-            // Derive that continuation from the native row's inputs;
-            // movement/boarding integration is covered by transport_unload.
-            // A transport sent to another member first breaks its contact,
-            // the zone's infantryman (741AD1..741B22).
-            let broke_contact = member["class"] == "unit"
+            // class setter body, so the setter's two effects are compared
+            // as the member's state shows them. Unit741AD1..741B22: a
+            // transport (`Passengers=` above 0) whose first contact is an
+            // infantryman breaks it when sent to a Techno it holds no
+            // contact with. A member's only contact here is the zone's
+            // infantryman and no member is one, so a transport sent to a
+            // member must have lost it and every other contact must stand;
+            // the setter's other gates have their own controls
+            // (`gunner_tests`).
+            let had_contact = flag(&member["radio"]);
+            let sent_to_member = destination[index]
+                .as_ref()
+                .and_then(serde_json::Value::as_u64)
+                .is_some();
+            let breaks = had_contact
+                && member["class"] == "unit"
                 && int(&member["passengers"]) > 0
-                && destination[index]
-                    .as_ref()
-                    .and_then(serde_json::Value::as_u64)
-                    .is_some();
+                && sent_to_member;
+            assert!(
+                entity
+                    .radio_contacts
+                    .iter_live()
+                    .all(|contact| contact == self.zone),
+                "{at}: the zone's infantryman is the only contact"
+            );
+            assert_eq!(
+                entity.radio_contacts.contains(self.zone),
+                had_contact && !breaks,
+                "{at}: contact with the zone"
+            );
+            // Unit741C4F..741CCC then parks an Enter target that is a Unit
+            // in +500 and clears the archive and NavCom, when no contact is
+            // left; movement and boarding integration is covered by
+            // transport_unload.
             let pending_entry = if member["class"] == "unit"
-                && (!flag(&member["radio"]) || broke_contact)
+                && entity.radio_contacts.is_empty()
                 && mission[index] == Some(MissionType::Enter as i32)
             {
                 destination[index]

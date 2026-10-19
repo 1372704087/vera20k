@@ -1035,3 +1035,189 @@ fn retail_a_transport_sent_elsewhere_breaks_its_passengers_contact() {
         Some(crate::sim::components::NavTargetRef::object(other))
     );
 }
+
+/// The Unit setter's break (`0x00741AD1..0x00741B22`) names its trigger: an
+/// infantryman as first contact, a target the transport holds no contact
+/// with, and a type with `Passengers=`. A transport sent to that infantryman,
+/// one whose first contact is a vehicle, and a tank without `Passengers=`
+/// each keep the contact.
+#[test]
+fn retail_the_setters_break_spares_every_other_contact() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, _) = arena(rules);
+    let hello = |sim: &mut Simulation, from: u64, to: u64| {
+        assert_eq!(
+            crate::sim::radio::transmit(
+                sim,
+                from,
+                to,
+                crate::sim::radio::RadioMessage::Hello,
+                crate::sim::radio::RadioPayload::default(),
+                Some(rules),
+                crate::sim::world::FrameEffects::default(),
+            ),
+            crate::sim::radio::RadioResponse::Roger
+        );
+    };
+    let send = |sim: &mut Simulation, unit: u64, target: u64| {
+        let _ = sim.assign_destination_represented(
+            unit,
+            Some(crate::sim::components::NavTargetRef::object(target)),
+            Some(rules),
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+    };
+    let htk = sim.spawn_object("HTK", OWNER, 16, 16, 64, rules).unwrap();
+    let gi = sim.spawn_object("E1", OWNER, 16, 13, 64, rules).unwrap();
+    hello(&mut sim, gi, htk);
+    send(&mut sim, htk, gi);
+    assert_eq!(
+        entity(&sim, htk).radio_contacts.slot(0),
+        Some(gi),
+        "sent to it"
+    );
+
+    let carrier = sim.spawn_object("HTK", OWNER, 16, 22, 64, rules).unwrap();
+    let rider = sim.spawn_object("MTNK", OWNER, 12, 22, 64, rules).unwrap();
+    let elsewhere = sim.spawn_object("MTNK", OWNER, 24, 22, 64, rules).unwrap();
+    hello(&mut sim, rider, carrier);
+    send(&mut sim, carrier, elsewhere);
+    assert_eq!(
+        entity(&sim, carrier).radio_contacts.slot(0),
+        Some(rider),
+        "a vehicle contact"
+    );
+
+    let tank = sim.spawn_object("MTNK", OWNER, 16, 27, 64, rules).unwrap();
+    let walker = sim.spawn_object("E1", OWNER, 13, 27, 64, rules).unwrap();
+    hello(&mut sim, walker, tank);
+    send(&mut sim, tank, elsewhere);
+    assert_eq!(
+        entity(&sim, tank).radio_contacts.slot(0),
+        Some(walker),
+        "no Passengers="
+    );
+}
+
+/// A transport's DOCKING asks a passenger it holds NEED_TO_MOVE and sends
+/// him MOVE_HERE with itself (Unit `0x00737994..0x00737A95`). One already in
+/// its cell answers ALREADY_THERE (Foot `0x004D9139..0x004D9189`), and the
+/// transport BREAKs the contact but answers ROGER, so his Mission_Enter
+/// (`0x004D9290`) does not idle him.
+#[test]
+fn retail_a_refused_move_here_breaks_the_passengers_contact() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, _) = arena(rules);
+    let ifv = sim.spawn_object("FV", OWNER, 16, 16, 64, rules).unwrap();
+    let gi = sim.spawn_object("E1", OWNER, 15, 16, 64, rules).unwrap();
+    let enter = crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter);
+    sim.mission_assign_exact(gi, enter, 0).unwrap();
+    assert_eq!(
+        crate::sim::radio::transmit(
+            &mut sim,
+            gi,
+            ifv,
+            crate::sim::radio::RadioMessage::Hello,
+            crate::sim::radio::RadioPayload::default(),
+            Some(rules),
+            crate::sim::world::FrameEffects::default(),
+        ),
+        crate::sim::radio::RadioResponse::Roger
+    );
+    let at = crate::sim::movement::ground_pose::position_world_coord(&entity(&sim, ifv).position);
+    sim.foot_set_location_marked(
+        gi,
+        at,
+        Some(rules),
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+
+    crate::sim::world::dispatch_foot_mission(
+        &mut sim,
+        gi,
+        rules,
+        crate::sim::world::ObjectAiCtx::default(),
+    );
+
+    let pax = entity(&sim, gi);
+    assert!(pax.radio_contacts.is_empty(), "the transport broke it");
+    assert!(entity(&sim, ifv).radio_contacts.is_empty());
+    assert_eq!(pax.mission.effective(), enter);
+    assert_eq!(
+        pax.mission.queued(),
+        crate::sim::mission::MissionId::NONE,
+        "he does not idle"
+    );
+    assert!(!pax.passenger_role.is_inside_transport());
+}
+
+/// A vehicle asks DOCKING only from Mission_Enter (`0x004D92B2`), once
+/// TryEnterTransport (`0x0070D7E0`) has made the transport its contact. One
+/// on Water takes the vehicle as its destination and answers DOCKING (Unit
+/// `0x0073796B`), which Mission_Enter, untethered, takes as a refusal
+/// (`0x004D92CE..0x004D92E8`): the vehicle breaks the contact and idles
+/// while the transport heads for it.
+#[test]
+fn retail_a_vehicle_gives_up_on_a_transport_at_sea_that_comes_for_it() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, _) = arena(rules);
+    crate::sim::arena_fixture::flood(
+        &mut sim,
+        rules,
+        32,
+        (0..32).flat_map(|y| (19..32).map(move |x| (x, y))),
+    );
+    let grid = sim.path_grid_snapshot().unwrap();
+    let boat = sim.spawn_object("SAPC", OWNER, 23, 16, 64, rules).unwrap();
+    let tank = sim.spawn_object("HTNK", OWNER, 15, 16, 64, rules).unwrap();
+    assert!(sim.apply_command(
+        OWNER,
+        &Command::EnterTransport {
+            passenger_id: tank,
+            transport_id: boat,
+        },
+        Some(rules),
+    ));
+    assert_eq!(entity(&sim, tank).pending_entry(), Some(boat));
+    let mut came = false;
+    for _ in 0..300 {
+        sim.advance_tick(&[], Some(rules), Some(&grid), None, 33);
+        if entity(&sim, boat).navigation.nav_com()
+            == Some(crate::sim::components::NavTargetRef::object(tank))
+        {
+            came = true;
+            break;
+        }
+    }
+    assert!(came, "the transport takes the vehicle as its destination");
+    assert!(entity(&sim, tank).radio_contacts.is_empty());
+    assert!(entity(&sim, boat).radio_contacts.is_empty());
+    for _ in 0..30 {
+        sim.advance_tick(&[], Some(rules), Some(&grid), None, 33);
+    }
+    let vehicle = entity(&sim, tank);
+    assert_ne!(
+        vehicle.mission.effective(),
+        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Enter),
+        "the vehicle gave up"
+    );
+    assert!(!vehicle.passenger_role.is_inside_transport());
+    assert!(
+        entity(&sim, boat)
+            .passenger_role
+            .cargo()
+            .unwrap()
+            .is_empty()
+    );
+}

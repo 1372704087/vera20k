@@ -1819,6 +1819,67 @@ fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
     assert_eq!(occupants(&sim, absorber), [tank]);
 }
 
+/// #1045: an infantryman ordered into a Bio Reactor and retasked to Move
+/// while his step onto its foundation is paid finishes that step, but
+/// InfantryClass::PerCellProcess enters only on Enter (`0x0051A21F`), so he
+/// walks on to the Move goal and the reactor keeps no claim on him.
+#[test]
+fn a_foot_retasked_to_move_stays_out_of_the_old_absorber() {
+    let rules = rules();
+    let (mut sim, grid) = arena(&rules);
+    let reactor = spawn(&mut sim, &rules, "YAPOWR", "Americans", 16, 10);
+    let foot = spawn(&mut sim, &rules, "INIT", "Americans", 10, 10);
+    let on_foundation = |rx: i32, ry: i32| (16..18).contains(&rx) && (10..12).contains(&ry);
+    let cell = |sim: &Simulation| {
+        let foot = entity(sim, foot);
+        (i32::from(foot.position.rx()), i32::from(foot.position.ry()))
+    };
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::EnterTransport {
+            passenger_id: foot,
+            transport_id: reactor,
+        },
+        Some(&rules),
+    ));
+    let stepping_on = |sim: &Simulation| {
+        let (rx, ry) = cell(sim);
+        !on_foundation(rx, ry)
+            && entity(sim, foot)
+                .locomotor
+                .as_ref()
+                .and_then(|loco| loco.step_head())
+                .is_some_and(|head| on_foundation(head.x / 256, head.y / 256))
+    };
+    assert!(
+        run_until(&mut sim, &rules, &grid, 300, stepping_on),
+        "his step onto the foundation"
+    );
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::Move {
+            entity_id: foot,
+            target_rx: 4,
+            target_ry: 10,
+        },
+        Some(&rules),
+    ));
+    let mut crossed = false;
+    for _ in 0..300 {
+        let commands = sim.take_due_commands();
+        sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
+        assert!(
+            !entity(&sim, foot).passenger_role.is_inside_transport(),
+            "he went into the old absorber"
+        );
+        let (rx, ry) = cell(&sim);
+        crossed |= on_foundation(rx, ry);
+    }
+    assert!(crossed, "the paid step carried him onto the foundation");
+    assert!(occupants(&sim, reactor).is_empty());
+    assert!(cell(&sim).0 < 16, "he walked on toward the Move goal");
+}
+
 /// An order into an absorber is admitted by the CAN_LOAD the click sends
 /// (`InfantryClass::What_Action_OnObject`, `0x0051EE1A`): the building
 /// (`0x0043C2D0`) refuses a class it does not absorb (`0x0043C43B..

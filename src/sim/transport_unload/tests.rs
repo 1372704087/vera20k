@@ -320,8 +320,8 @@ impl Fixture {
 }
 
 /// Drive4B20CD..4B2115 retires the arrival track before Unit PerCell739EC0
-/// can attach a vehicle (73A6E8..73A793). Boarding at a cell boundary in the
-/// late passenger phase instead retains that track across Limbo/Unlimbo.
+/// attaches a vehicle (73A6E8..73A793), so no track survives its Limbo and
+/// Unlimbo.
 #[test]
 fn driven_vehicle_boards_at_arrival_and_unloads_at_the_moved_transport() {
     let mut fx = Fixture::new(|_, _| false);

@@ -13,6 +13,60 @@
 //! follow their Foot+0x30 link. This owner's Vec keeps that same head order.
 //! Building garrisons use a separate append-order occupants vector.
 //!
+//! ## The way aboard: RNG draws, timer writes and detaches
+//! An Enter order, team script action 14 and the Bio Reactor seek all take
+//! this one route; each step lists what it writes.
+//! - Order admission ([`can_enter_transport`]): the click's alliance test and
+//!   the carrier's CAN_LOAD, sending nothing; no writes.
+//! - The Infantry setter's Enter radio arm (`0x0051AC51..0x0051AD0F`): a
+//!   busy Unit or Building becomes his pending entry (`+0x500`), his
+//!   ArchiveTarget is cleared and Foot's setter takes NULL; a free Techno
+//!   is sent HELLO (a contact both ways) and DOCKING, and any answer but
+//!   ROGER or DOCKING BREAKs it (both ways).
+//! - The Unit setter: a transport whose first contact is an infantryman
+//!   BREAKs it when sent to a Techno it holds no contact with
+//!   (`0x00741AD1..0x00741B22`); its Enter arm parks a Unit or `UnitAbsorb=`
+//!   target in `+0x500` with the ArchiveTarget cleared (`0x00741C4F..
+//!   0x00741CCC`, `0x00741CE5..0x00741D0D`).
+//! - Every class setter call that takes a destination writes Foot's
+//!   movement timers `+0x640` and `+0x668` and clears `+0x6B7`
+//!   (`0x004D96C2..0x004D9707`).
+//! - A transport's DOCKING (`0x007377D8..0x00737A95`): one with no contact
+//!   HELLOs the sender; on Water or across zones it takes the sender as its
+//!   destination (its setter's writes) and answers DOCKING; otherwise it asks
+//!   NEED_TO_MOVE and sends MOVE_HERE with itself. The sender's Foot
+//!   receiver (`0x004D9139`) answers ALREADY_THERE in the transport's cell;
+//!   elsewhere it may queue Move (Guard with nothing queued), commences a
+//!   queued Enter when ready, gives the transport to its own class setter
+//!   (that setter's writes) and writes its UpdateTimer `{Frame, 0}`
+//!   (`0x004D91F1`). Mission_Enter's dispatch epilogue overwrites that
+//!   timer; at order time (the Infantry setter's DOCKING) it stands. A
+//!   MOVE_HERE not answered ROGER makes the transport BREAK the sender
+//!   (`0x00737A7F`), and it still answers ROGER.
+//! - Mission_Enter (`0x004D9290`), each dispatch: DOCKING to Contacts[0] or
+//!   the ArchiveTarget, and on any answer but ROGER, untethered, BREAK and
+//!   idle (Guard or AreaGuard queued); with neither, the pending entry is
+//!   walked to (its setter, Move queued; a dead one clears `+0x500`) or the
+//!   Foot idles. Then the timer: `ftol(Rate * 900)` plus one Scenario
+//!   `RandomRanged(0, 2)` (`0x004D946C..0x004D9497`).
+//! - FootClass::AI's TryEnterTransport (`0x0070D7E0`) for a `+0x500` entry:
+//!   HELLO; CAN_LOAD ROGER queues Enter, sets the destination and clears
+//!   `+0x500`; any other answer queues NONE, sets NULL, clears `+0x500` and
+//!   BREAKs.
+//! - Arrival (`sim::movement::per_cell`): an infantryman's carrier's Tag
+//!   hears event 1, whose triggers may act; the Infantry building arm sends
+//!   DOCK_NOW (a depot queues its Repair and his Sleep, a refinery his
+//!   Unload). A refusal sets NULL, queues Guard and Scatters from no
+//!   coordinate: one Scenario `RandomRanged(0, 4)` once an infantryman's
+//!   Scatter is admitted (`0x0051D2D9`), none for a Unit (`0x00743BE0`).
+//! - [`board_passenger`]: the ArchiveTarget, OnBridge, `+0xC4` and the
+//!   gattling spin cleared, a captive freed, then Limbo, which BREAKs every
+//!   contact and conceals him; the arm's HELLO or house power
+//!   invalidation, AddPassenger, an open-topped rider's Guard orders and
+//!   logic entry, a gunner's weapon, and Stop_Moving after the building arm.
+//! - Action 14 orders one member at a time; its next comes once his Limbo
+//!   broke the transport's contact.
+//!
 //! ## Dependency rules
 //! - Part of sim/ — depends on rules/ (ObjectType), sim/game_entity, sim/entity_store.
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
@@ -487,12 +541,12 @@ impl PassengerRole {
     }
 }
 
-/// The shared order/UI admission adapter: CAN_LOAD, which the click asks an
-/// allied Techno with `Passengers=` (`InfantryClass::What_Action_OnObject`
-/// `0x0051ED10..0x0051EE3B`), its ROGER being ENTER. A Unit answers through
-/// `radio::receive::unit_can_enter_radio` (original737430 message0F), a
-/// building (an absorber) through `radio::receive::can_load_query`. Building
-/// garrison admission keeps its existing CanBeOccupiedBy owner.
+/// The shared order/UI admission adapter, the click's ENTER
+/// (`InfantryClass::What_Action_OnObject` `0x0051ED10..0x0051EE3B`): the
+/// passenger's house allied with the carrier's, then the carrier's CAN_LOAD
+/// ([`crate::sim::radio::receive::can_load_query`], each class receiver's
+/// answer), whose ROGER is ENTER. Building garrison admission keeps its
+/// existing CanBeOccupiedBy owner.
 pub fn can_enter_transport(
     sim: &Simulation,
     rules: &RuleSet,
@@ -524,37 +578,15 @@ pub fn can_enter_transport(
             sim,
         );
     }
-    if transport.category() == EntityCategory::Unit {
-        // Infantry51ED10 asks the actor's alliance before issuing the radio;
-        // Unit7375AD then independently asks the receiver's alliance.
-        return crate::sim::combat::combat_weapon::is_ally_by_object(
-            Some(&sim.house_alliances),
-            &sim.interner,
-            passenger.owner(),
-            transport.owner(),
-        ) && crate::sim::radio::receive::unit_can_enter_radio(
-            sim,
-            transport_id,
-            Some(passenger_id),
-            rules,
-        ) == crate::sim::radio::RadioResponse::Roger;
-    }
-    if transport.category() == EntityCategory::Structure {
-        return crate::sim::radio::receive::can_load_query(sim, transport_id, passenger_id, rules)
-            == crate::sim::radio::RadioResponse::Roger;
-    }
-    // Other carriers (aircraft) keep the existing nonretail adapter.
-    if passenger.owner() != transport.owner()
-        || passenger.parasite.eater().is_some()
-        || (transport.category() != EntityCategory::Aircraft
-            && passenger
-                .capture_manager
-                .as_ref()
-                .is_some_and(|manager| manager.has_any()))
-    {
-        return false;
-    }
-    cargo.can_accept(passenger_obj.size)
+    // Infantry51ED10 asks the actor's alliance before issuing the radio; the
+    // receiver then asks its own (Building 0x0043C2D0, Unit 0x00737430).
+    crate::sim::combat::combat_weapon::is_ally_by_object(
+        Some(&sim.house_alliances),
+        &sim.interner,
+        passenger.owner(),
+        transport.owner(),
+    ) && crate::sim::radio::receive::can_load_query(sim, transport_id, passenger_id, rules)
+        == crate::sim::radio::RadioResponse::Roger
 }
 
 /// `BuildingClass::CanBeOccupiedBy @ 0x00457CE0` for an infantryman: the
@@ -774,6 +806,30 @@ pub(crate) fn board_passenger(
         return false;
     };
     let (carrier_owner, open_topped, gunner, infantry_absorb, extra_power) = carrier;
+    // RESIDUAL: the Infantry building arm adds him to whatever building
+    // answered DOCK_NOW ROGER (`PassengersClass::AddPassenger`, `0x0051A38A`),
+    // but VERA keeps a hold only for a type that can carry passengers.
+    // Trigger: an infantryman on Enter whose NavCom or Target is a
+    // `UnitRepair=`/`UnitReload=` depot, which answers ROGER after queueing
+    // its Repair and his Sleep (`0x0043C732..0x0043C785`), or a `DockUnload=`
+    // refinery, which answers after queueing his Unload (`0x0043C788..
+    // 0x0043C7B2`), arriving on its foundation. Effect: native hides him in
+    // that building's cargo; VERA returns here, so he stays on the
+    // foundation, visible and selectable, with those missions queued.
+    // Frequency: no retail order is known to send him there; the click's
+    // ENTER needs CAN_LOAD ROGER from a Techno with `Passengers=`
+    // (`0x0051ED10..0x0051EE3B`), which no retail depot or refinery has
+    // (`retail_no_service_building_carries_passengers`). Risk: a map or mod
+    // that sends him would see him stay out.
+    if arm == BoardingArm::InfantryBuilding
+        && sim
+            .substrate
+            .entities
+            .get(carrier_id)
+            .is_some_and(|carrier| !carrier.passenger_role.is_transport())
+    {
+        return false;
+    }
     let absorber_entry = arm == BoardingArm::InfantryBuilding && infantry_absorb;
     // `0x0051A2EF..0x0051A30A`: Foot's GetCoords (`+0x48`) before Limbo,
     // played with `VocClass::PlayAt @ 0x007509E0` once the add commits.
@@ -861,6 +917,7 @@ pub(crate) fn board_passenger(
     //4733A0 repeats the head's virtual Limbo before its unconditional
     //prepend.
     let boarded = sim.add_cargo_passenger_chain(carrier_id, &[(pax_id, pax_size)], context);
+    // The hold was there before Limbo; nothing in this transaction removes it.
     debug_assert!(boarded, "boarding admission changed during one transaction");
     if !boarded {
         // Recover the passenger rather than strand a concealed object if an
@@ -1566,5 +1623,27 @@ ConditionYellow=50%
             row["after"]["firing_latch"].as_u64().unwrap() as u8,
             "SetInOpenTransport710484 must observe the former TarCom",
         );
+    }
+
+    /// The Infantry building arm's residual in [`board_passenger`] needs an
+    /// ENTER to a service building, which the click gives only to a Techno
+    /// with `Passengers=` (`0x0051ED10..0x0051EE3B`): no retail depot or
+    /// refinery has one.
+    #[test]
+    fn retail_no_service_building_carries_passengers() {
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_rulesmd_rules() else {
+            return;
+        };
+        let mut services = 0;
+        for name in &rules.building_ids {
+            let Some(object) = rules.object(name) else {
+                continue;
+            };
+            if object.unit_repair || object.unit_reload || object.dock_unload {
+                services += 1;
+                assert!(object.passengers <= 0, "{name}");
+            }
+        }
+        assert!(services > 0, "retail has depots and refineries");
     }
 }

@@ -123,7 +123,7 @@ fn ready_and_place(
 }
 
 fn set_ticks_until_completion(sim: &mut Simulation, stable_id: u64, ticks: u16) {
-    let now = sim.session.binary_frame as i32;
+    let now = sim.session.binary_frame() as i32;
     let building = sim
         .substrate
         .entities
@@ -150,11 +150,10 @@ fn gap_operational_actual_placement_waits_for_build_up_and_next_building_turn() 
     let owner = sim.interner.intern("Americans");
     let viewer = sim.interner.intern("Soviet");
     for house in [owner, viewer] {
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(house, 0, None, true, 10_000, 10),
-        );
-        sim.session.house_order.push(house);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house, 0, None, true, 10_000, 10,
+            ));
     }
     sim.fog.reveal_all_for_owner(owner);
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
@@ -282,7 +281,7 @@ fn complete_stock_allied_refinery_on(
     override_cell: impl FnMut(&mut ResolvedTerrainCell),
 ) -> (Simulation, u64, bool) {
     let mut sim = placement_sim();
-    sim.session.binary_frame = start_frame;
+    sim.session.set_binary_frame_for_test(start_frame);
     let rules = stock_refinery_completion_rules();
     let mut grid = PathGrid::new(64, 64);
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 14, 20);
@@ -660,9 +659,9 @@ fn a_completed_building_waits_in_its_factory_for_placement() {
     let americans = sim.interner.intern("Americans");
     let gacnst = sim.interner.intern("GACNST");
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(50_000);
-    let built_before = sim.houses[&americans].stats.built();
+    let built_before = sim.houses[&americans].stats().built();
     // Arm the Building build in the registry and complete it; the Strip's
     // publish then announces the held building once.
     super::tests::arm_build_via(
@@ -700,7 +699,7 @@ fn a_completed_building_waits_in_its_factory_for_placement() {
         publish_production_changes(&mut sim, &rules);
     }
     // Record_Last_Built waits for the placement (`0x004FB4B7`).
-    assert_eq!(sim.houses[&americans].stats.built(), built_before);
+    assert_eq!(sim.houses[&americans].stats().built(), built_before);
     assert_eq!(
         super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building),
         held_id
@@ -800,7 +799,7 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
     );
     let held = super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Building);
     // The last step, paid off, is due in the next frame.
-    let frame = sim.session.binary_frame as i32;
+    let frame = sim.session.binary_frame() as i32;
     let factory = sim
         .production
         .factories
@@ -812,7 +811,7 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
     factory.step_timer = crate::sim::timer::CdTimer::started(frame, 0);
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
 
-    let place = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+    let place = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
     let tick = sim.advance_tick(&[place], Some(&rules), Some(&grid), None, 67);
 
     assert_eq!(tick.executed_commands, 1);
@@ -833,7 +832,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
     // The house whose Record_Last_Built counts the placement.
     super::house_for_test(&mut sim, "Americans");
     ready_building(&mut sim, &rules, "Americans", "GACNST");
-    let built_before = sim.houses[&americans].stats.built();
+    let built_before = sim.houses[&americans].stats().built();
     let held_id = sim
         .production
         .factories
@@ -855,7 +854,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
     assert!(admitted);
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
-    assert_eq!(sim.houses[&americans].stats.built(), built_before + 1);
+    assert_eq!(sim.houses[&americans].stats().built(), built_before + 1);
 
     let structures = sim
         .substrate
@@ -918,17 +917,17 @@ fn placed_gapowr_completion(human: bool) -> (u32, Option<u32>) {
     rules.set_buildup_control_for_test("GAPOWR", [0, 26, 2]);
     let grid = PathGrid::new(64, 64);
     let americans = sim.interner.intern("Americans");
-    sim.houses.insert(
-        americans,
-        crate::sim::house_state::HouseState::new(americans, 0, None, human, 10_000, 10),
-    );
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            americans, 0, None, human, 10_000, 10,
+        ));
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
     let gapowr = sim.interner.intern("GAPOWR");
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
 
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-    let place = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
-    let placed_frame = sim.session.binary_frame;
+    let place = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
+    let placed_frame = sim.session.binary_frame();
     let tick = sim.advance_tick(&[place], Some(&rules), Some(&grid), None, 67);
     assert_eq!(tick.executed_commands, 1);
     let placed = sim
@@ -941,7 +940,7 @@ fn placed_gapowr_completion(human: bool) -> (u32, Option<u32>) {
 
     let mut completed = None;
     for _ in 0..80 {
-        let frame = sim.session.binary_frame;
+        let frame = sim.session.binary_frame();
         sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
         if !sim.substrate.entities.get(placed).unwrap().building_up() {
             completed = Some(frame);
@@ -991,7 +990,7 @@ fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
     );
 
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-    let place = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+    let place = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
 
     let tick = sim.advance_tick(&[place], Some(&rules), Some(&grid), None, 67);
     assert_eq!(tick.executed_commands, 1);
@@ -1134,7 +1133,7 @@ fn stock_refinery_free_unit_spawns_on_building_up_completion_once() {
     assert!(
         completion.spawned_entities,
         "completion frame{}: mission={:?}/{:?}, status={}, ready={}, body={:?}, stage={:?}, placed={}, free_units={:?}",
-        sim.session.binary_frame - 1,
+        sim.session.binary_frame() - 1,
         building.mission.current(),
         building.mission.queued(),
         building.mission.handler_state(),
@@ -1421,7 +1420,7 @@ fn free_unit_total_placement_failure_refunds_once_and_leaves_no_entity() {
         }
     }
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(100);
     sim.spawn_object("NAINDP", "Americans", 40, 40, 0, &rules)
         .expect("the Industrial Plant unlimbos");
@@ -1644,7 +1643,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
         let entities_before = sim.substrate.entities.len();
         let next_id_before = sim.substrate.next_stable_object_id;
         let occupancy_generation_before = sim.substrate.occupancy.generation();
-        let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+        let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
         let tick = sim.advance_tick(&[rejected], Some(&rules), Some(&grid), None, 67);
 
         assert_eq!(tick.executed_commands, 1);
@@ -1688,7 +1687,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
             "the same foundation must become legal after {blocker_type} is unmarked"
         );
 
-        let accepted = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+        let accepted = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
         let tick = sim.advance_tick(&[accepted], Some(&rules), Some(&grid), None, 67);
         assert!(tick.spawned_entities);
         assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
@@ -1729,7 +1728,7 @@ fn placement_command_rejects_nonblocking_overlay_and_preserves_ready_building() 
     let entities_before = sim.substrate.entities.len();
     let next_id_before = sim.substrate.next_stable_object_id;
     let occupancy_generation_before = sim.substrate.occupancy.generation();
-    let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+    let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
     let tick = sim.advance_tick(&[rejected], Some(&rules), Some(&grid), None, 67);
 
     assert_eq!(tick.executed_commands, 1);
@@ -1762,7 +1761,7 @@ fn placement_command_rejects_nonblocking_overlay_and_preserves_ready_building() 
         "the same foundation must become legal after the overlay is cleared"
     );
 
-    let accepted = place_event(americans, gapowr, (12, 10), sim.session.tick + 1);
+    let accepted = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
     let tick = sim.advance_tick(&[accepted], Some(&rules), Some(&grid), None, 67);
     assert!(tick.spawned_entities);
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
@@ -1811,7 +1810,7 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
     ready_building(&mut overlay_sim, &rules, "Americans", "GAWALL");
     let placement_credits = 1_337;
     super::house_for_test(&mut overlay_sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(placement_credits);
     assert!(overlay_sim.rebuild_dynamic_navigation(&rules));
     let owner = overlay_sim.interner.get("Americans").expect("owner");
@@ -1940,7 +1939,7 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     let mut sim = placement_sim();
     sim.hash_state_every(std::num::NonZeroU64::MIN);
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(50_000);
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
     sim.overlay_grid = Some(OverlayGrid::new(64, 64));
@@ -1973,7 +1972,12 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     let entities_before = sim.substrate.entities.len();
 
     let tick = sim.advance_tick(
-        &[place_event(owner, type_id, (12, 10), sim.session.tick + 1)],
+        &[place_event(
+            owner,
+            type_id,
+            (12, 10),
+            sim.session.tick() + 1,
+        )],
         Some(&rules),
         Some(&path_grid),
         Some(&registry),
@@ -2084,7 +2088,7 @@ fn gsi_04_07_regular_wall_autofill_is_cardinal_ordered_bounded_and_consumes_once
     ready_building(&mut sim, &rules, "Americans", "GAWALL");
     let placement_credits = 1_337;
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(placement_credits);
     let owner = sim.interner.get("Americans").expect("owner");
     let wall_type = sim.interner.get("GAWALL").expect("wall type");
@@ -2507,7 +2511,7 @@ fn gsi_04_07_placement_command_places_only_its_own_houses_production() {
             event_owner,
             wall_type,
             (12, 10),
-            sim.session.tick + 1,
+            sim.session.tick() + 1,
         )],
         Some(&rules),
         Some(&path_grid),
@@ -2728,7 +2732,7 @@ fn build_off_ally_lends_an_eligible_allied_provider_only_while_enabled() {
         (true, "GAPOWR", false),
     ] {
         let mut sim = placement_sim();
-        sim.session.game_options.build_off_ally = build_off_ally;
+        sim.session.game_options_mut_for_test().build_off_ally = build_off_ally;
         spawn_structure(&mut sim, &rules, 1, "Alliance", provider, 10, 10);
         // PLACE still needs this house's producer; only its radius comes from
         // the nearby ally. Keep the own yard outside this placement's build area.
@@ -2749,7 +2753,7 @@ fn build_off_ally_off_keeps_own_base_provider() {
     let mut sim = placement_sim();
     let rules = build_off_ally_rules();
 
-    sim.session.game_options.build_off_ally = false;
+    sim.session.game_options_mut_for_test().build_off_ally = false;
     spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
     ready_building(&mut sim, &rules, "Americans", "GAPOWR");
 
@@ -3203,12 +3207,12 @@ fn a_sale_refunds_regardless_of_health_and_clears_peer_contacts() {
     let refund = |health: i32| {
         let mut sim = placement_sim();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         super::house_for_test(&mut sim, "Americans")
-            .economy
+            .economy_mut()
             .set_credits_for_test(1000);
         spawn_structure(&mut sim, &rules, 1, "Americans", "GAPOWR", 20, 20);
         if let Some(ge) = sim.substrate.entities.get_mut(1) {
@@ -3265,12 +3269,12 @@ fn sell_back_admits_by_control_buildup_and_firestorm_wall() {
     let scene = |rules: &RuleSet, type_id: &str| {
         let mut sim = placement_sim();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
         super::house_for_test(&mut sim, "Americans")
-            .economy
+            .economy_mut()
             .set_credits_for_test(1000);
         spawn_structure(&mut sim, rules, 1, "Americans", type_id, 20, 20);
         sim
@@ -3423,7 +3427,7 @@ fn sell_player_built_garrisoned_building_demolishes_and_ejects_alive() {
     let mut sim = placement_sim();
     let rules = sell_rules();
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .set_credits_for_test(0);
 
     // Spawn a CanBeOccupied building OWNED by Americans with NO original_owner
@@ -3697,11 +3701,10 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
     let owner = sim.interner.intern("Americans");
     let mut house =
         crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
-    house.difficulty = crate::sim::house_state::HouseDifficulty::Hard;
+    house.set_difficulty_for_test(crate::sim::house_state::HouseDifficulty::Hard);
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
-    sim.session.current_house = Some(owner);
+    sim.houses.register(house);
+    sim.session.set_current_house_for_test(Some(owner));
     let producer = sim
         .spawn_object_at_height_with_overlay_registry(
             "GAPILE",
@@ -3742,7 +3745,7 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
     let category = ProductionCategory::Infantry;
     let held = super::lifecycle_tests::held_id(&sim, owner, category);
     let cost = sim.cost_of(owner, rules.object("E1").unwrap(), &rules);
-    let economy = &mut sim.houses.get_mut(&owner).unwrap().economy;
+    let economy = sim.houses.get_mut(&owner).unwrap().economy_mut();
     assert!(
         economy.available_money() >= cost,
         "the wallet covers the build"
@@ -3752,16 +3755,16 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
     // The focused publisher helper increments both clocks before applying
     // due PLACE, so159 ->160 reaches the measured native fallback call frame.
     // No actor/House turns or native completion cadence are asserted here.
-    sim.session.binary_frame = 159;
-    sim.session.tick = 159;
+    sim.session.set_binary_frame_for_test(159);
+    sim.session.set_tick_for_test(159);
     let event_start = sim.sound_events.len();
     assert!(super::dispatch_production_changes_for_tests(
         &mut sim,
         &rules,
         Some(&registry),
     ));
-    assert_eq!(sim.session.binary_frame, 160);
-    assert_eq!(sim.session.tick, 160);
+    assert_eq!(sim.session.binary_frame(), 160);
+    assert_eq!(sim.session.tick(), 160);
     assert!(sim.pending_command_snapshot().is_empty());
     let product = sim.substrate.entities.get(held).unwrap();
     let position = ground_pose::position_world_coord(&product.position);
@@ -3855,14 +3858,13 @@ fn stock_yuri_cloning_world_with_scenario(
     let owner = sim.interner.intern("YuriCountry");
     let mut house =
         crate::sim::house_state::HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
-    house.difficulty = crate::sim::house_state::HouseDifficulty::Hard;
+    house.set_difficulty_for_test(crate::sim::house_state::HouseDifficulty::Hard);
     house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
-    sim.session.current_house = Some(owner);
+    sim.houses.register(house);
+    sim.session.set_current_house_for_test(Some(owner));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.game_options.game_speed = 3;
+    sim.session.game_options_mut_for_test().game_speed = 3;
     Some((sim, rules, registry, owner))
 }
 
@@ -3882,8 +3884,7 @@ fn stock_yuri_cloning_vat_duplicates_a_successfully_placed_infantry() {
         10,
     );
     other_house.project_country_mults(&rules, &sim.interner);
-    sim.houses.insert(other_owner, other_house);
-    sim.session.house_order.push(other_owner);
+    sim.houses.register(other_house);
 
     sim.spawn_object_at_height_with_overlay_registry(
         "YABRCK",
@@ -3941,11 +3942,11 @@ fn stock_yuri_cloning_vat_duplicates_a_successfully_placed_infantry() {
     let category = ProductionCategory::Infantry;
     let held = super::lifecycle_tests::held_id(&sim, owner, category);
     let cost = sim.cost_of(owner, rules.object("E1").unwrap(), &rules);
-    assert!(sim.houses.get(&owner).unwrap().economy.available_money() >= cost);
+    assert!(sim.houses.get(&owner).unwrap().economy().available_money() >= cost);
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .spend_money(cost);
     assert!(sim.production.factories.test_arm_ready(owner, category));
     let mut low_power = crate::sim::power_system::PowerState::default();
@@ -4053,7 +4054,7 @@ fn cloning_vat_keeps_a_refused_copy_in_limbo() {
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .spend_money(cost);
     assert!(sim.production.factories.test_arm_ready(owner, category));
 
@@ -4133,7 +4134,7 @@ fn cloning_vats_do_not_duplicate_yuri_vehicle_factory_output() {
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .spend_money(cost);
     assert!(sim.production.factories.test_arm_ready(owner, category));
 
@@ -4202,7 +4203,7 @@ fn cloning_vat_copies_wait_for_the_source_dock_cell() {
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .spend_money(cost);
     assert!(sim.production.factories.test_arm_ready(owner, category));
 
@@ -4310,11 +4311,10 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
     )));
     let mut sim = placement_sim();
     let owner = sim.interner.intern("Americans");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     let airfield = sim
         .spawn_object("GAAIRC", "Americans", 20, 20, 0, &rules)
         .expect("airfield");
@@ -4336,7 +4336,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .spend_money(cost);
         assert!(
             sim.production

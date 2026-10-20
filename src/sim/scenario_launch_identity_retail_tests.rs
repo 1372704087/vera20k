@@ -68,7 +68,7 @@ fn padded_ai_handle_does_not_turn_an_enemy_refinery_into_an_allied_target() {
     let mut scene = load_session(&root, name, 0x1234_5678, launch)
         .expect("ordinary three-participant retail Battle startup");
     let sim = scene.sim();
-    let player = sim.session.current_house.unwrap();
+    let player = sim.session.current_house().unwrap();
     let computer = sim.interner.get("Computer1").unwrap();
     let teammate = sim.interner.get("Computer2").unwrap();
     assert_ne!(player, computer);
@@ -109,7 +109,7 @@ fn padded_ai_handle_does_not_turn_an_enemy_refinery_into_an_allied_target() {
     // After admission, use the ordinary command/frame and physical entry owners.
     let command = CommandEnvelope::new(
         player,
-        sim.session.tick + 1,
+        sim.session.tick() + 1,
         Command::CaptureBuilding {
             engineer_id: spy,
             target_building_id: refinery,
@@ -139,8 +139,8 @@ fn padded_ai_handle_does_not_turn_an_enemy_refinery_into_an_allied_target() {
             entered = true;
             break;
         }
-        assert_eq!(sim.houses[&computer].economy.credits(), 5000);
-        assert_eq!(sim.houses[&player].economy.credits(), 5000);
+        assert_eq!(sim.houses[&computer].economy().credits(), 5000);
+        assert_eq!(sim.houses[&player].economy().credits(), 5000);
     }
     assert!(
         entered,
@@ -149,8 +149,8 @@ fn padded_ai_handle_does_not_turn_an_enemy_refinery_into_an_allied_target() {
     assert_eq!(cash_entries, 1);
     let sim = scene.sim();
     assert_eq!(sim.entities().get(refinery).unwrap().owner(), computer);
-    assert_eq!(sim.houses[&player].economy.credits(), 7500);
-    assert_eq!(sim.houses[&computer].economy.credits(), 2500);
-    assert_eq!(sim.houses[&computer].economy.spent_credits(), 2500);
-    assert_eq!(sim.houses[&teammate].economy.credits(), 5000);
+    assert_eq!(sim.houses[&player].economy().credits(), 7500);
+    assert_eq!(sim.houses[&computer].economy().credits(), 2500);
+    assert_eq!(sim.houses[&computer].economy().spent_credits(), 2500);
+    assert_eq!(sim.houses[&teammate].economy().credits(), 5000);
 }

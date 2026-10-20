@@ -1102,7 +1102,7 @@ impl Simulation {
         else {
             return;
         };
-        let frame = self.session.binary_frame;
+        let frame = self.session.binary_frame();
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
             entity.unlimbo_barrel_elevation(fire_angle, frame);
         }
@@ -1237,7 +1237,7 @@ impl Simulation {
         {
             entity
                 .body_facing
-                .snap(u16::from(facing) << 8, self.session.binary_frame);
+                .snap(u16::from(facing) << 8, self.session.binary_frame());
             #[cfg(any(test, feature = "test-support"))]
             self.trace_lifecycle_for_test(LifecycleTestEvent::UnlimboBodyFacingSnapped);
         }
@@ -1304,7 +1304,7 @@ impl Simulation {
             crate::sim::movement::slope_transition::snap_after_successful_unlimbo(
                 entity,
                 sampled_slope,
-                self.session.binary_frame,
+                self.session.binary_frame(),
             );
         }
         // ObjectUnlimbo5F4FB4 Mark/CellPUT has already run. Foot4D722F calls
@@ -1359,7 +1359,7 @@ impl Simulation {
             )
             && let Some(barrel) = entity.barrel_facing.as_mut()
         {
-            barrel.snap(u16::from(facing) << 8, self.session.binary_frame);
+            barrel.snap(u16::from(facing) << 8, self.session.binary_frame());
         }
         // Unit737BF5..737C75 resets the SAME +F8 StageClass after Foot
         // success. E18/E19 are Unit-section booleans, not General references.
@@ -1388,7 +1388,7 @@ impl Simulation {
             if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
                 entity.restart_native_stage(
                     value,
-                    self.session.binary_frame as i32,
+                    self.session.binary_frame() as i32,
                     i32::from(visceroid),
                 );
             }
@@ -1420,7 +1420,7 @@ impl Simulation {
                 entity.finish_aircraft_unlimbo(
                     height,
                     object.flight_level(rules.general.flight_level),
-                    self.session.binary_frame as i32,
+                    self.session.binary_frame() as i32,
                 );
             }
         }
@@ -1575,7 +1575,7 @@ impl Simulation {
         if entity.category() == EntityCategory::Structure
             && game_mode_nonzero
             && self.houses.get(&entity.owner()).is_some_and(|house| {
-                !house.is_controlled_by_human(game_mode_nonzero) && !house.multiplay_passive
+                !house.is_controlled_by_human(game_mode_nonzero) && !house.multiplay_passive()
             })
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
@@ -1631,7 +1631,7 @@ impl Simulation {
         //6F4960..6F4972 compares the nonnull viewer against PlayerPtr;
         //there is no null-Player guard. A headless owner callback therefore
         //takes the ordinary other-house arm when no local player is bound.
-        let current = Some(viewer) == self.session.current_house;
+        let current = Some(viewer) == self.session.current_house();
         let history = entity.discovery;
         if (current && history.discovered_by_current_house)
             || (!current && history.discovered_by_other_house)
@@ -1781,7 +1781,7 @@ impl Simulation {
         cell: (u16, u16),
         context: UninitContext<'_>,
     ) {
-        let Some(viewer) = self.session.current_house else {
+        let Some(viewer) = self.session.current_house() else {
             return;
         };
         if !self.session.game_mode_nonzero() {
@@ -1825,7 +1825,7 @@ impl Simulation {
             return;
         }
         let _filled = house
-            .base_plan
+            .base_plan_mut()
             .fill_successful_building(type_index, packed_cell, has_undeploy_target)
             .is_some();
         #[cfg(any(test, feature = "test-support"))]
@@ -1861,7 +1861,7 @@ impl Simulation {
             return;
         }
         if let Some(house) = self.houses.get_mut(&owner) {
-            house.base_plan.invalidate_limbo_building(
+            house.base_plan_mut().invalidate_limbo_building(
                 type_index,
                 packed_cell,
                 is_base_defense,
@@ -1890,7 +1890,7 @@ impl Simulation {
         };
         let edge = crate::sim::house_state::determine_waypoint_edge(anchor, bounds);
         if let Some(house) = self.houses.get_mut(&owner) {
-            house.waypoint_edge = edge;
+            house.assign_waypoint_edge(edge);
         }
     }
 
@@ -1955,7 +1955,7 @@ impl Simulation {
                         current_cell,
                         &foundation,
                         profile,
-                        Some((self.session.map_width, self.session.map_height)),
+                        Some((self.session.map_width(), self.session.map_height())),
                     )
                 })
             {
@@ -2009,18 +2009,16 @@ impl Simulation {
         // Active YR Full_Init constructs the complete HouseClass array before
         // Terrain/Techno map sections reveal objects. Scenario loading preserves
         // that order, so Reveal writes the final house-index bit immediately.
-        if self.session.house_order.is_empty() {
+        if self.houses.is_empty() {
             return None;
         }
         let index = self
-            .session
-            .house_order
-            .iter()
-            .position(|registered| *registered == owner)
+            .houses
+            .index_of(owner)
             .and_then(|index| i32::try_from(index).ok());
         debug_assert!(
             index.is_some(),
-            "base-reservation owner must be present in ScenarioSession.house_order"
+            "base-reservation owner must be registered in the House array"
         );
         index
     }
@@ -2044,7 +2042,7 @@ impl Simulation {
         );
         if let Some(house) = self.houses.get_mut(&owner) {
             house
-                .base_reservation
+                .base_reservation_mut()
                 .update_bounds(rect.x, rect.y, rect.width, rect.height);
         } else {
             debug_assert!(false, "base-reservation owner must have HouseState");
@@ -2077,9 +2075,9 @@ impl Simulation {
             let packed = packed_reservation_coord(x, y);
             if let Some(house) = self.houses.get_mut(&owner) {
                 match neighbor_mask {
-                    0x0000_00ff => house.base_reservation.remove_perimeter_cell(packed),
+                    0x0000_00ff => house.base_reservation_mut().remove_perimeter_cell(packed),
                     1..=0x0000_00fe => house
-                        .base_reservation
+                        .base_reservation_mut()
                         .append_perimeter_cell_if_absent(packed),
                     0 | u32::MAX => {}
                     _ => unreachable!("neighbor mask is eight bits or the absent-center sentinel"),
@@ -2110,19 +2108,19 @@ impl Simulation {
             match neighbor_mask {
                 0x0000_00ff => {
                     if let Some(house) = self.houses.get_mut(&owner) {
-                        house.base_reservation.remove_perimeter_cell(packed);
+                        house.base_reservation_mut().remove_perimeter_cell(packed);
                     }
                 }
                 1..=0x0000_00fe => {
                     if let Some(house) = self.houses.get_mut(&owner) {
                         house
-                            .base_reservation
+                            .base_reservation_mut()
                             .append_perimeter_cell_if_absent(packed);
                     }
                 }
                 0 | u32::MAX => {
                     if let Some(house) = self.houses.get_mut(&owner) {
-                        house.base_reservation.remove_perimeter_cell(packed);
+                        house.base_reservation_mut().remove_perimeter_cell(packed);
                     }
                     // Native resolves the center again before the extra clear.
                     self.substrate.base_reservations.clear(
@@ -2284,7 +2282,7 @@ impl Simulation {
                         current_cell,
                         &foundation,
                         profile,
-                        Some((self.session.map_width, self.session.map_height)),
+                        Some((self.session.map_width(), self.session.map_height())),
                     )
                 })
             {
@@ -2661,7 +2659,7 @@ impl Simulation {
                     .barrel_facing
                     .as_mut()
                     .unwrap()
-                    .set(desired, self.session.binary_frame);
+                    .set(desired, self.session.binary_frame());
             }
             TakeoffFacing::PrimaryToDestination => {
                 // Original also evaluates the zero delta; do not special-case
@@ -2670,7 +2668,7 @@ impl Simulation {
                     destination.x.wrapping_sub(xy[0]),
                     destination.y.wrapping_sub(xy[1]),
                 );
-                entity.body_facing.set(desired, self.session.binary_frame);
+                entity.body_facing.set(desired, self.session.binary_frame());
                 entity
                     .locomotor
                     .as_mut()
@@ -3525,7 +3523,7 @@ impl Simulation {
             // keeps an alternate admission it holds. Every production Limbo
             // passes rules.
             let reveal_to_all = context.rules().filter(|&rules| {
-                self.session.current_house.is_some()
+                self.session.current_house().is_some()
                     && self
                         .substrate
                         .entities
@@ -3563,7 +3561,9 @@ impl Simulation {
             {
                 let owner = entity.owner();
                 if let Some(house) = self.houses.get_mut(&owner) {
-                    house.tracking.limbo_airport_docks(object.number_of_docks);
+                    house
+                        .tracking_mut()
+                        .limbo_airport_docks(object.number_of_docks);
                 }
             }
         }
@@ -3668,7 +3668,7 @@ impl Simulation {
             && !dont_score
             && let Some(house) = self.houses.get_mut(&owner)
         {
-            house.stats.record_loss(category);
+            house.stats_mut().record_loss(category);
         }
     }
 
@@ -4400,7 +4400,7 @@ impl Simulation {
     /// The native priority bracket A8E7AC suppresses both the draw and write.
     /// Original controls: infantry_deploy_action.json's reload rows.
     pub(crate) fn shorten_passive_scan_timer(&mut self, id: u64) -> bool {
-        let now = self.session.binary_frame;
+        let now = self.session.binary_frame();
         if self.object_placement_scope_active()
             || self
                 .substrate

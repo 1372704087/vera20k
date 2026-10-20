@@ -318,7 +318,7 @@ impl Simulation {
         let Some(victim_id) = object.filter(|_| !in_factory) else {
             return;
         };
-        let frame = self.session.binary_frame;
+        let frame = self.session.binary_frame();
         let Some(victim) = self.substrate.entities.get(victim_id) else {
             return;
         };
@@ -411,7 +411,7 @@ impl Simulation {
             return;
         };
         let gatherer = object.resource_gatherer;
-        let now = self.session.binary_frame;
+        let now = self.session.binary_frame();
         if gatherer
             && entity.lift.source().is_none()
             && entity
@@ -530,7 +530,7 @@ impl Simulation {
         let hunts = self.substrate.entities.get(target).is_some_and(|entity| {
             self.houses
                 .get(&entity.owner())
-                .is_some_and(|house| !house.is_human && !gatherer && !house.multiplay_passive)
+                .is_some_and(|house| !house.is_human() && !gatherer && !house.multiplay_passive())
         });
         if hunts {
             let _ = self.mission_queue_exact(

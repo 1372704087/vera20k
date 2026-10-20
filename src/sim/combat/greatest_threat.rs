@@ -910,7 +910,7 @@ impl ScanContext<'_> {
     fn owner_is_passive(&self, candidate: &GameEntity) -> bool {
         self.fire_world
             .and_then(|world| world.houses.get(&candidate.owner()))
-            .is_some_and(|house| house.multiplay_passive)
+            .is_some_and(|house| house.multiplay_passive())
     }
 
     /// The exception both passive-house gates share (`0x006F8292..0x006F835E`,
@@ -1041,7 +1041,7 @@ impl<'a> ScannerStanding<'a> {
 
     /// The owner's current enemy (`House+0x5600`).
     fn enemy(&self) -> Option<InternedId> {
-        self.house.and_then(|house| house.enemy_house)
+        self.house.and_then(|house| house.enemy_house())
     }
 }
 
@@ -1257,7 +1257,7 @@ pub(crate) fn greatest_threat(
 
     // Scenario+0 bit `0x800`, read once per scan; the HarvesterImmune gate's
     // Rules list resolves with it so the ordinary bit-off scan builds nothing.
-    let harvester_immune = fire_world.is_some_and(|world| world.session.harvester_immune);
+    let harvester_immune = fire_world.is_some_and(|world| world.session.harvester_immune());
     let ctx = ScanContext {
         entities,
         scanner,
@@ -1359,7 +1359,9 @@ pub(crate) fn greatest_threat(
     };
     let air_extent = terrain
         .map(|terrain| (terrain.width(), terrain.height()))
-        .or_else(|| fire_world.map(|world| (world.session.map_width, world.session.map_height)));
+        .or_else(|| {
+            fire_world.map(|world| (world.session.map_width(), world.session.map_height()))
+        });
     let airborne = if scan_air {
         air_extent
             .map(|extent| {

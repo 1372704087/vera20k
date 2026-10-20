@@ -349,8 +349,8 @@ fn original_state10_rows() {
                 0,
                 1,
             );
-            house.is_human = get("house_1ec").as_i64().unwrap() != 0;
-            house.player_control = get("house_1ed").as_i64().unwrap() != 0;
+            house.set_is_human_for_test(get("house_1ec").as_i64().unwrap() != 0);
+            house.set_player_control_for_test(get("house_1ed").as_i64().unwrap() != 0);
             let facts = ExitFacts {
                 ammo: ammo.current(),
                 target: get("target").as_bool().unwrap(),
@@ -481,10 +481,10 @@ fn an_empty_fighter_lets_go_heads_for_its_edge_and_idles() {
         // After `test_default` interned the names.
         sim.interner = crate::sim::intern::test_interner();
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 1),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, human, 0, 1,
+            ));
         sim.playfield_bounds = Some(bounds);
         if airfield {
             // Find_Docking_Bay walks the house's buildings and its tracked

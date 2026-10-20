@@ -28,8 +28,7 @@ fn houses(sim: &mut Simulation) {
     for (name, side) in [("Americans", 0), ("Russians", 1)] {
         let owner = sim.interner.intern(name);
         sim.houses
-            .insert(owner, HouseState::new(owner, side, None, true, 0, 10));
-        sim.session.house_order.push(owner);
+            .register(HouseState::new(owner, side, None, true, 0, 10));
     }
 }
 
@@ -175,7 +174,7 @@ fn run_drop(sim: &mut Simulation, rules: &RuleSet, carrier: u64, passenger: u64,
     let owner = sim.substrate.entities.get(carrier).unwrap().owner();
     let landing_xy =
         ground_pose::position_world_xy(&sim.substrate.entities.get(carrier).unwrap().position);
-    let losses = sim.houses[&owner].stats.units_lost();
+    let losses = sim.houses[&owner].stats().units_lost();
     let existing = sim.substrate.entities.keys_sorted();
     sim.clear_lifecycle_test_events_for_test();
     remove_deck(sim);
@@ -242,7 +241,7 @@ fn run_drop(sim: &mut Simulation, rules: &RuleSet, carrier: u64, passenger: u64,
         !sim.substrate.entities.contains(passenger),
         "bomb cargo dies without escape"
     );
-    assert_eq!(sim.houses[&owner].stats.units_lost(), losses + 2);
+    assert_eq!(sim.houses[&owner].stats().units_lost(), losses + 2);
     assert!(
         sim.substrate
             .entities

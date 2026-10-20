@@ -108,8 +108,7 @@ fn add_house(scene: &mut Replay, name: &str) -> crate::sim::intern::InternedId {
     scene
         .sim
         .houses
-        .insert(id, HouseState::new(id, 2, None, false, 0, 10));
-    scene.sim.session.house_order.push(id);
+        .register(HouseState::new(id, 2, None, false, 0, 10));
     id
 }
 
@@ -218,7 +217,12 @@ fn action56_allied_buildings_are_skipped_unless_the_house_is_passive() {
             .entry(OWNER.to_ascii_uppercase())
             .or_default()
             .insert("ALLY".into());
-        scene.sim.houses.get_mut(&ally).unwrap().multiplay_passive = passive;
+        scene
+            .sim
+            .houses
+            .get_mut(&ally)
+            .unwrap()
+            .set_multiplay_passive_for_test(passive);
         step(&mut scene);
         let target = if passive { close } else { scene.plant.unwrap() };
         assert_eq!(
@@ -391,7 +395,12 @@ fn action56_missing_centre_or_primary_enemy_finishes_safely() {
                 .zone = None;
         } else {
             let owner = scene.sim.interner.get(OWNER).unwrap();
-            scene.sim.houses.get_mut(&owner).unwrap().enemy_house = None;
+            scene
+                .sim
+                .houses
+                .get_mut(&owner)
+                .unwrap()
+                .set_enemy_house_for_test(None);
             set_only_enemy(&mut scene, true);
         }
         assert!(step(&mut scene).is_empty());

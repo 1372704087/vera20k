@@ -978,7 +978,7 @@ fn per_cell_promotes_queued_mission_before_tail_without_dispatching_handler() {
     .unwrap();
     for unload_active in [false, true] {
         let (mut sim, _, _) = fixture(TrackFamily::Drive, 8);
-        sim.session.binary_frame = 57;
+        sim.session.set_binary_frame_for_test(57);
         let entity = sim.substrate.entities.get_mut(1).unwrap();
         assert!(entity.locomotor.as_mut().unwrap().store_track_head(
             crate::sim::movement::track_process::TrackFamily::Drive,
@@ -1031,7 +1031,7 @@ fn factory_per_cell_fixture(
     use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
 
     let (mut sim, _, _) = fixture(TrackFamily::Drive, 0);
-    sim.session.binary_frame = 57;
+    sim.session.set_binary_frame_for_test(57);
     let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
         "[VehicleTypes]\n0=MTNK\n[MTNK]\nStrength=300\nSpeed=6\n{unit_reader_lines}\n\
          [BuildingTypes]\n0=GAWEAP\n[GAWEAP]\nWeaponsFactory=yes\n",
@@ -1061,10 +1061,10 @@ fn factory_per_cell_fixture(
         crate::sim::movement::track_process::TrackFamily::Drive,
         false
     ));
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10),
-    );
+    sim.houses
+        .insert_for_test(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
     let mut producer = GameEntity::test_default_of_category(
         2,
         "GAWEAP",
@@ -1489,8 +1489,8 @@ fn computer_product_at_factory_exit() -> (Simulation, RuleSet) {
     let (mut sim, rules) = factory_per_cell_fixture(true, false, "");
     let owner = sim.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
-    house.base_center = Some((20, 20));
-    sim.houses.insert(owner, house);
+    house.set_base_center_for_test(Some((20, 20)));
+    sim.houses.insert_for_test(house);
     let producer = sim.substrate.entities.get_mut(2).unwrap();
     producer.type_facts.set_foundation_for_test("5x3".into());
     producer.position.put_location(DriveCoord::cell(6, 9, 0));
@@ -1853,12 +1853,12 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         let raw_stage = serde_json::to_value(stage).unwrap();
         let rng = sim.scenario_rng.logical_view();
         json!({
-            "frame": sim.session.binary_frame,
+            "frame": sim.session.binary_frame(),
             "unit_coordinate": [at.x,at.y,at.z],
             "health": unit.health.current(),
             "estimate": unit.estimated_health.get(),
-            "balance": house.economy.credits(),
-            "spent": house.economy.spent_credits(),
+            "balance": house.economy().credits(),
+            "spent": house.economy().spent_credits(),
             "unit_mission": unit.mission.current().raw(),
             "unit_queued": unit.mission.queued().raw(),
             "unit_nav": nav(unit.navigation.nav_com()),
@@ -1968,7 +1968,8 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             RuleSet::from_processed_rules(&stack.process_with_fixed_art(&art).unwrap()).unwrap();
         rules.install_art_data(ArtRegistry::from_ini(&art));
         let mut sim = Simulation::new();
-        sim.session.binary_frame = integer(&before["frame"]) as u32;
+        sim.session
+            .set_binary_frame_for_test(integer(&before["frame"]) as u32);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         // Same declared clear-map membership as the native joined fixture.
@@ -1977,16 +1978,16 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
         );
         sim.playfield_bounds = Some(bounds);
         sim.playfield_size_height = Some(16);
-        sim.session.map_width = 16;
-        sim.session.map_height = 16;
+        sim.session.set_map_width_for_test(16);
+        sim.session.set_map_height_for_test(16);
         let terrain = test_flat_ground_grid(32);
         sim.path_grid = Some(Arc::new(PathGrid::from_resolved_terrain(&terrain)));
         sim.install_resolved_terrain_for_new_map(terrain);
         let owner = sim.intern("Russians");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 1, None, true, 0, 0),
-        );
+        sim.houses
+            .insert_for_test(crate::sim::house_state::HouseState::new(
+                owner, 1, None, true, 0, 0,
+            ));
         let depot = sim
             .spawn_object(building_name, "Russians", 6, 9, 0, &rules)
             .unwrap();
@@ -2131,9 +2132,11 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             ));
         let house = sim.houses.get_mut(&owner).unwrap();
         house
-            .economy
+            .economy_mut()
             .set_credits_for_test(integer(&before["balance"]));
-        house.economy.set_spent_for_test(integer(&before["spent"]));
+        house
+            .economy_mut()
+            .set_spent_for_test(integer(&before["spent"]));
         sim.substrate.occupancy =
             crate::sim::occupancy::OccupancyGrid::rebuild(&sim.substrate.entities);
         sim.scenario_rng = SimRng::new(input["seed"].as_u64().unwrap_or(1));
@@ -2565,8 +2568,8 @@ fn retail_unit_on_move(
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let owner = sim.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, human, 0, 10);
-    house.current_iq = iq;
-    sim.houses.insert(owner, house);
+    house.set_current_iq_for_test(iq);
+    sim.houses.register(house);
     let id = sim
         .spawn_object(type_name, "Americans", 10, 10, 0, &rules)
         .unwrap();

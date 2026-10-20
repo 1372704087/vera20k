@@ -71,8 +71,8 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     rules.general.scold_sound = None;
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 0);
-    house.player_control = true;
-    sim.houses.insert(owner, house);
+    house.set_player_control_for_test(true);
+    sim.houses.register(house);
     let id = sim
         .spawn_object("ENGINEER", "Americans", 9, 10, 0, &rules)
         .unwrap();
@@ -253,7 +253,8 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
             CellListInsertion::PrependNonBuilding,
         );
     }
-    sim.session.binary_frame = input["frame"].as_u64().unwrap_or(100) as u32;
+    sim.session
+        .set_binary_frame_for_test(input["frame"].as_u64().unwrap_or(100) as u32);
     sim.scenario_rng = SimRng::new(input["seed"].as_u64().unwrap_or(31));
     (sim, rules, registry, id, other)
 }

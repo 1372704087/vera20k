@@ -35,12 +35,9 @@ fn world() -> Option<(RuleSet, Simulation, InternedId)> {
     });
     assert!(sim.rebuild_dynamic_navigation(&rules));
     let confederation = sim.interner.intern("Confederation");
-    sim.houses.insert(
-        confederation,
-        HouseState::new(confederation, 1, None, false, 0, 10),
-    );
-    sim.session.house_order.push(confederation);
-    sim.session.current_house = Some(americans);
+    sim.houses
+        .register(HouseState::new(confederation, 1, None, false, 0, 10));
+    sim.session.set_current_house_for_test(Some(americans));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.fog = vision::FogState::new(128, 128);
@@ -533,8 +530,10 @@ fn native_action51_keeps_null_house241_and_gates_foreign_map_changes() {
             local_height: width,
         });
         for (name, owner) in [("player", player), ("foreign", foreign)] {
-            sim.houses.get_mut(&owner).unwrap().map_is_clear =
-                row["houses_before"][name]["clear"] == 1;
+            sim.houses
+                .get_mut(&owner)
+                .unwrap()
+                .set_map_is_clear_for_test(row["houses_before"][name]["clear"] == 1);
             assert_eq!(row["houses_before"][name]["revealed"], 1);
             sim.fog.admit_whole_map_reveal(owner);
         }
@@ -552,7 +551,7 @@ fn native_action51_keeps_null_house241_and_gates_foreign_map_changes() {
         sim.trigger_reshroud_map(incoming, &rules);
         for (name, owner) in [("player", player), ("foreign", foreign)] {
             assert_eq!(
-                sim.houses[&owner].map_is_clear,
+                sim.houses[&owner].map_is_clear(),
                 row["houses"][name]["clear"] == 1,
                 "{} {name}241",
                 row["name"]

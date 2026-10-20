@@ -4436,6 +4436,15 @@ impl RuleSet {
                 references.apply_to(object);
             }
         }
+        for (category, name, shadow_index) in processed.voxel_shadow_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.set_voxel_shadow_index(shadow_index);
+            }
+        }
         for (name, pips) in processed.infantry_pip_states() {
             if let Some(object) = rules
                 .object_list
@@ -4500,6 +4509,15 @@ impl RuleSet {
                 .find(|o| o.category == ObjectCategory::Building && o.id == name)
             {
                 building.has_spotlight = flag;
+            }
+        }
+        for (name, light) in processed.building_light_states() {
+            if let Some(building) = rules
+                .object_list
+                .iter_mut()
+                .find(|o| o.category == ObjectCategory::Building && o.id == name)
+            {
+                building.project_building_light(light);
             }
         }
         for (name, offset) in processed.building_target_coord_offsets() {
@@ -11686,7 +11704,7 @@ Projectile=Invisible
                 &bytes,
                 11,
                 reordered.simulation_config_hash(),
-                &sim.session.map_name
+                &sim.session.map_name()
             )
             .is_ok()
         );
@@ -11696,7 +11714,7 @@ Projectile=Invisible
                     &bytes,
                     11,
                     changed.simulation_config_hash(),
-                    &sim.session.map_name
+                    &sim.session.map_name()
                 ),
                 Err(SnapshotError::RulesMismatch { .. })
             ));

@@ -1173,7 +1173,7 @@ mod tests {
     /// State the production ordered receiver commit (`commit_damage_events`)
     /// keeps across calls; no house order, overlays or traces.
     struct ReceiverCommit {
-        houses: BTreeMap<crate::sim::intern::InternedId, HouseState>,
+        houses: crate::sim::houses::Houses,
         alliances: HouseAllianceMap,
         main_rng: SimRng,
         scenario_rng: SimRng,
@@ -1183,7 +1183,7 @@ mod tests {
     impl ReceiverCommit {
         fn new() -> Self {
             Self {
-                houses: BTreeMap::new(),
+                houses: crate::sim::houses::Houses::default(),
                 alliances: HouseAllianceMap::new(),
                 main_rng: SimRng::new(1),
                 scenario_rng: SimRng::new(2),
@@ -1210,7 +1210,6 @@ mod tests {
                 rules,
                 interner,
                 &mut self.houses,
-                &[],
                 &self.alliances,
                 &mut self.main_rng,
                 &mut self.scenario_rng,
@@ -2136,7 +2135,7 @@ mod tests {
             let hit_order = hit_ids(&aoe.hits);
             let mut main_rng = SimRng::new(9);
             let mut handled_deaths = Vec::new();
-            let mut houses = BTreeMap::new();
+            let mut houses = crate::sim::houses::Houses::default();
             let mut fatal_lifecycle = None;
             let mut sound_sink = None;
             // The production Apply_area_damage commit, whose dispatch gates
@@ -2149,7 +2148,6 @@ mod tests {
                     &rules,
                     &mut interner,
                     &mut houses,
-                    &[],
                     &HouseAllianceMap::new(),
                     &mut main_rng,
                     &mut scenario_rng,
@@ -3205,8 +3203,8 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut target_house = HouseState::new(american, 0, Some(american), true, 0, 10);
-        target_house.difficulty = HouseDifficulty::Normal;
-        commit.houses.insert(american, target_house);
+        target_house.set_difficulty_for_test(HouseDifficulty::Normal);
+        commit.houses.register(target_house);
         let (death, pings) = commit.run(
             &aoe.hits,
             &mut entities,
@@ -3497,11 +3495,11 @@ mod tests {
 
         let mut commit = ReceiverCommit::new();
         let mut normal = HouseState::new(normal_house, 0, None, false, 0, 10);
-        normal.difficulty = HouseDifficulty::Normal;
-        commit.houses.insert(normal_house, normal);
+        normal.set_difficulty_for_test(HouseDifficulty::Normal);
+        commit.houses.register(normal);
         let mut easy = HouseState::new(easy_house, 0, None, false, 0, 10);
-        easy.difficulty = HouseDifficulty::Easy;
-        commit.houses.insert(easy_house, easy);
+        easy.set_difficulty_for_test(HouseDifficulty::Easy);
+        commit.houses.register(easy);
         let (death, _) = commit.run(
             &aoe.hits,
             &mut entities,
@@ -3837,7 +3835,7 @@ mod tests {
                     ),
                 );
             }
-            world.session.binary_frame = 100;
+            world.session.set_binary_frame_for_test(100);
             world.main_rng = SimRng::new(7).into();
             world.scenario_rng = SimRng::new(1);
             // Some(false) models campaign PlayerControl without IsHuman.
@@ -3846,8 +3844,8 @@ mod tests {
             );
             let mut house =
                 HouseState::new(victim_house, 0, None, human_control == Some(true), 0, 10);
-            house.player_control = human_control.is_some();
-            world.houses.insert(victim_house, house);
+            house.set_player_control_for_test(human_control.is_some());
+            world.houses.register(house);
             if team {
                 let script = world.interner.intern("ScatterFixture");
                 world
@@ -4530,7 +4528,7 @@ mod tests {
         sim.production
             .tiberium_spawning_terrain_cells
             .insert((5, 5));
-        sim.session.no_damage = true;
+        sim.session.set_no_damage_for_test(true);
         let outer_ref = sim.interner.intern("OUTERWH");
         let before_hash = sim.state_hash();
         let before_rng = sim.scenario_rng.state();

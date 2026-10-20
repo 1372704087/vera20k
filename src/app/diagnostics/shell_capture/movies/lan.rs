@@ -2021,8 +2021,8 @@ impl LanCapture {
                         .get(&local_slot.owner_name)
                         .context("constructed local House")?;
                     ensure!(
-                        sim.session.tick == 0
-                            && sim.session.binary_frame == 0
+                        sim.session.tick() == 0
+                            && sim.session.binary_frame() == 0
                             && sim
                                 .houses
                                 .get(&owner)
@@ -2074,9 +2074,9 @@ impl LanCapture {
                     sim.session.started() && sim.session.game_mode_nonzero(),
                     "LAN runtime was not admitted"
                 );
-                self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session.tick,
+                self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session.tick(),
                     "current_house":sim.session.current_house().map(|id|sim.interner.resolve(id)),
-                    "map":sim.session.map_name,"host":state.match_state.session.host()}));
+                    "map":sim.session.map_name(),"host":state.match_state.session.host()}));
                 self.abort_input = Some(abort_return::AbortReturnInput::begin(
                     state,
                     &mut self.route,
@@ -2115,7 +2115,7 @@ impl LanCapture {
                         "LAN return began before local queued EXIT consumed"
                     );
                     self.route.push(
-                        json!({"frame":frame,"action":"EXIT consumed","tick":sim.session.tick}),
+                        json!({"frame":frame,"action":"EXIT consumed","tick":sim.session.tick()}),
                     );
                     self.observed_exit_cascade = true;
                 }

@@ -161,10 +161,21 @@ impl Fixture {
         sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(48));
         crate::sim::arena_fixture::supply_native_map_keyed(&mut sim, "prism flat ground 48");
         let owner = sim.interner.intern("Americans");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, false, 0, 10,
+            ));
+        // The target's House: building spawns mark their owner's reservation.
+        let target_owner = sim.interner.intern("Russians");
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                target_owner,
+                1,
+                None,
+                false,
+                0,
+                10,
+            ));
         let mut buildings = BTreeMap::new();
         let mut spawned = Vec::new();
         let towers = input["towers"].as_array().cloned().unwrap_or_default();
@@ -192,13 +203,13 @@ impl Fixture {
             spawned.push(id);
         }
         // Unlimbo's House+68 appends, in spawn order.
-        assert_eq!(sim.houses[&owner].base_projection.buildings(), spawned);
+        assert_eq!(sim.houses[&owner].base_projection().buildings(), spawned);
         let target = sim
             .spawn_object("SHED", "Russians", 15, 12, 0, &rules)
             .unwrap();
         // No power state: every tower is operational until `unpower`.
         sim.power_states.clear();
-        sim.session.binary_frame = FRAME as u32;
+        sim.session.set_binary_frame_for_test(FRAME as u32);
         for &id in &spawned {
             let entity = sim.substrate.entities.get_mut(id).unwrap();
             assert!(
@@ -240,7 +251,7 @@ impl Fixture {
                 .houses
                 .get_mut(&owner)
                 .unwrap()
-                .base_projection
+                .base_projection_mut()
                 .replace_buildings_for_test(ids);
         }
         fixture
@@ -880,7 +891,7 @@ fn prism_cadence_matches_the_original() {
                 .map(|building| fixture.id(building.as_str().unwrap()))
                 .collect(),
             None => fixture.sim.houses[&fixture.owner]
-                .base_projection
+                .base_projection()
                 .buildings()
                 .to_vec(),
         };
@@ -888,7 +899,7 @@ fn prism_cadence_matches_the_original() {
         for frame in row["frames"].as_array().unwrap() {
             let k = frame["frame"].as_i64().unwrap();
             let now = FRAME + k as i32;
-            fixture.sim.session.binary_frame = now as u32;
+            fixture.sim.session.set_binary_frame_for_test(now as u32);
             for event in events.iter().filter(|event| event[0] == k) {
                 let building = fixture.id(event[2].as_str().unwrap());
                 apply_event(&mut fixture, event[1].as_str().unwrap(), building);

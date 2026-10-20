@@ -30,10 +30,11 @@ fn factory_fixture(
     saved.intern_rule_type_ids(&rules);
     saved.resolve_type_handles(&rules);
     let owner = saved.interner.intern("Americans");
-    saved.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
+    saved
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     let parent = saved
         .construct_object_limbo_at_height(
             type_name,
@@ -107,11 +108,11 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
     saved.intern_rule_type_ids(&rules);
     saved.resolve_type_handles(&rules);
     let owner = saved.interner.intern("Americans");
-    saved.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, None, true, 50_000, 10),
-    );
-    saved.session.house_order.push(owner);
+    saved
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 50_000, 10,
+        ));
     // An on-map factory keeps the held build eligible after restore. Its
     // placement uses the same raw fixture boundary as production replay tests.
     let producer_id = saved.allocate_stable_id();
@@ -141,7 +142,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
         .houses
         .get_mut(&owner)
         .unwrap()
-        .tracking
+        .tracking_mut_for_test()
         .set_buildings_for_test(1);
     // Execute the build start before saving: it constructs the held graph and
     // arms its timer. A queue kernel alone is intentionally not a running build.
@@ -162,16 +163,16 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
             .factories
             .test_factory_mut(owner, ProductionCategory::Building)
             .unwrap()
-            .advance_one_step(&mut house.economy);
+            .advance_one_step(house.economy_mut_for_test());
     }
     crate::sim::credit_income::add_credits(&mut saved, owner, 123);
     saved
         .houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut_for_test()
         .set_score_for_test(35);
-    let expected = saved.houses[&owner].economy.clone();
+    let expected = saved.houses[&owner].economy().clone();
     assert!(expected.spent_credits() > 0);
     assert_eq!(expected.credits() + expected.spent_credits(), 50_123);
 
@@ -183,7 +184,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
         resources,
     };
     prepared.commit_into(&mut runtime);
-    assert_eq!(runtime.simulation.houses[&owner].economy, expected);
+    assert_eq!(*runtime.simulation.houses[&owner].economy(), expected);
     let mut reference_resources = crate::sim::runtime::SimResources::empty();
     reference_resources.rules = factory_rules();
     let mut reference = crate::sim::runtime::SimRuntime {
@@ -208,7 +209,8 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
             )
             .expect("uninterrupted active frame");
         assert_eq!(
-            runtime.simulation.houses[&owner].economy, reference.simulation.houses[&owner].economy,
+            runtime.simulation.houses[&owner].economy(),
+            reference.simulation.houses[&owner].economy(),
             "wallet at resumed frame {frame}"
         );
         assert_eq!(
@@ -216,7 +218,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
             "factory at resumed frame {frame}"
         );
     }
-    let resumed = runtime.simulation.houses[&owner].economy.clone();
+    let resumed = runtime.simulation.houses[&owner].economy().clone();
     assert!(
         resumed.spent_credits() > expected.spent_credits(),
         "restored production must charge again"
@@ -252,7 +254,7 @@ fn wallet_survives_prepared_load_and_active_cancellation() {
             crate::sim::world::FrameEffects::default(),
         )
         .expect("restored frame");
-    let economy = &runtime.simulation.houses[&owner].economy;
+    let economy = runtime.simulation.houses[&owner].economy();
     assert_eq!(economy.credits(), 50_123);
     assert_eq!(economy.spent_credits(), resumed.spent_credits());
     assert_eq!(economy.score(), 35);
@@ -323,7 +325,7 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
                     .set_in_playfield(true);
             }
             "absent-house" => {
-                saved.houses.remove(&owner);
+                saved.houses.remove_for_test(&owner);
             }
             "unrelated-limbo" => {
                 saved
@@ -351,10 +353,13 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
             .into_iter()
             .cloned()
             .collect();
-        let counts = saved
-            .houses
-            .get(&owner)
-            .map(|house| (house.tracking.clone(), house.economy.credits(), house.stats));
+        let counts = saved.houses.get(&owner).map(|house| {
+            (
+                house.tracking().clone(),
+                house.economy().credits(),
+                house.stats(),
+            )
+        });
         let identities: Vec<_> = saved
             .substrate
             .entities
@@ -398,9 +403,9 @@ fn factory_restore_preserves_supported_held_states_and_constructor_graphs() {
         );
         assert_eq!(
             restored.houses.get(&owner).map(|house| (
-                house.tracking.clone(),
-                house.economy.credits(),
-                house.stats
+                house.tracking().clone(),
+                house.economy().credits(),
+                house.stats()
             )),
             counts,
             "{label}"

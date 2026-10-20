@@ -24,7 +24,7 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false),
         );
         for house in sim.houses.values_mut() {
-            house.is_human = true;
+            house.set_is_human_for_test(true);
         }
         let victims: Vec<_> = [(15, 15), (16, 15)]
             .into_iter()
@@ -57,7 +57,7 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
         sim.classify_map_triggers(Some(&rules));
         let team_type = sim.interner.get("TT").unwrap();
         let loss_count = |sim: &Simulation| {
-            let stats = &sim.houses[&houses[0]].stats;
+            let stats = sim.houses[&houses[0]].stats();
             if kind == 15 {
                 stats.buildings_lost()
             } else {
@@ -90,7 +90,8 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
             );
             assert!(!sim.trigger_runtime.globals_set.contains(&7));
             sim.uninit_with_rules(victim, &rules);
-            sim.session.binary_frame = if index == 0 { 8 } else { 16 };
+            sim.session
+                .set_binary_frame_for_test(if index == 0 { 8 } else { 16 });
             frame(&mut sim);
             assert_eq!(sim.trigger_runtime.globals_set.contains(&7), index == 1);
         }
@@ -107,7 +108,7 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
         assert!(!reinforcement.lifecycle.in_limbo());
         assert!(reinforcement.lifecycle.object_alive());
         assert!(sim.trigger_runtime.tag_order.is_empty());
-        sim.session.binary_frame = 24;
+        sim.session.set_binary_frame_for_test(24);
         frame(&mut sim);
         assert_eq!(
             sim.trigger_runtime
@@ -127,7 +128,7 @@ fn funds_event_runs_from_house_rung_after_a_spend() {
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     for house in sim.houses.values_mut() {
-        house.is_human = true;
+        house.set_is_human_for_test(true);
     }
     install_event_ingress_map(
         &mut sim,
@@ -138,9 +139,9 @@ fn funds_event_runs_from_house_rung_after_a_spend() {
          [Tags]\nFUNDS_TAG=0,Funds,FUNDS\n",
     );
     crate::sim::credit_income::add_credits(&mut sim, houses[0], 70000);
-    sim.session.binary_frame = 0;
+    sim.session.set_binary_frame_for_test(0);
     for frame in 0..=8 {
-        assert_eq!(sim.session.binary_frame, frame);
+        assert_eq!(sim.session.binary_frame(), frame);
         if frame == 7 {
             crate::sim::credit_income::spend_money(&mut sim, houses[0], 60000);
         }
@@ -166,12 +167,12 @@ fn building_loss_event_waits_for_the_real_destructor_and_house_poll() {
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     for house in sim.houses.values_mut() {
-        house.is_human = true;
+        house.set_is_human_for_test(true);
     }
     let building = sim
         .spawn_object_at_height("CABHUT", "House0", 15, 15, 0, 0, &rules)
         .expect("the shared fixture admits ordinary Building construction");
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 1);
     install_event_ingress_map(
         &mut sim,
         &rules,
@@ -185,7 +186,7 @@ fn building_loss_event_waits_for_the_real_destructor_and_house_poll() {
     };
     frame(&mut sim);
     assert!(!sim.trigger_runtime.locals_set.contains(&10));
-    sim.session.binary_frame = 8;
+    sim.session.set_binary_frame_for_test(8);
     sim.uninit_with_rules(building, &rules);
     assert!(
         sim.substrate
@@ -195,14 +196,14 @@ fn building_loss_event_waits_for_the_real_destructor_and_house_poll() {
             .lifecycle
             .in_limbo()
     );
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 1);
     frame(&mut sim);
     // House polls before the shared pending-delete drain. Limbo alone must
     // not report all buildings destroyed, even with no live map building.
     assert!(!sim.trigger_runtime.locals_set.contains(&10));
     assert!(sim.substrate.entities.get(building).is_none());
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 0);
-    sim.session.binary_frame = 16;
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 0);
+    sim.session.set_binary_frame_for_test(16);
     frame(&mut sim);
     assert!(sim.trigger_runtime.locals_set.contains(&10));
     assert!(!sim.trigger_runtime.globals_set.contains(&7));
@@ -222,11 +223,15 @@ fn naval_land_events_poll_final_tracking_removal_from_the_master_house_rung() {
     );
     let country = sim.interner.intern("Country0");
     let owner = sim.interner.intern("House0");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 0, Some(country), true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner,
+            0,
+            Some(country),
+            true,
+            0,
+            10,
+        ));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     let navy = sim
@@ -244,13 +249,13 @@ fn naval_land_events_poll_final_tracking_removal_from_the_master_house_rung() {
          [Tags]\nNAVY_TAG=0,Navy,NAVY\nLAND_TAG=0,Land,LAND\n",
     );
     for frame in 0..=24 {
-        assert_eq!(sim.session.binary_frame, frame);
+        assert_eq!(sim.session.binary_frame(), frame);
         if frame == 7 {
             sim.uninit_with_rules(navy, &rules);
-            assert_eq!(sim.houses[&owner].tracking.navy(), 1);
+            assert_eq!(sim.houses[&owner].tracking().navy(), 1);
         } else if frame == 15 {
             sim.uninit_with_rules(land, &rules);
-            assert_eq!(sim.houses[&owner].tracking.vehicles(), 1);
+            assert_eq!(sim.houses[&owner].tracking().vehicles(), 1);
         }
         ordinary_master_frame(&mut sim, Some(&rules), Some(&overlay), true);
         assert_eq!(
@@ -513,13 +518,17 @@ fn retail_sov01_make_enemy_reaches_the_shared_diplomacy_owner() {
     let Some((mut sim, rules, overlay, _)) = retail_sov01_script_context() else {
         return;
     };
-    let russians = sim.session.current_house.unwrap();
+    let russians = sim.session.current_house().unwrap();
     let arabs = sim.interner.intern("Arabs");
-    sim.houses.insert(
-        arabs,
-        crate::sim::house_state::HouseState::new(arabs, 1, Some(arabs), false, 0, 10),
-    );
-    sim.session.house_order.push(arabs);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            arabs,
+            1,
+            Some(arabs),
+            false,
+            0,
+            10,
+        ));
     let graph = [
         (
             "RUSSIANS".into(),
@@ -574,7 +583,7 @@ fn retail_sov01_make_enemy_reaches_the_shared_diplomacy_owner() {
     ));
     assert!(!sim.house_alliances["RUSSIANS"].contains("ARABS"));
     assert!(!sim.house_alliances["ARABS"].contains("RUSSIANS"));
-    assert_eq!(sim.session.current_house, Some(russians));
+    assert_eq!(sim.session.current_house(), Some(russians));
 }
 
 #[test]
@@ -590,7 +599,7 @@ fn retail_sov01_transport_hint_emits_the_named_cameo_on_the_native_clock() {
     let actions = sim.trigger_runtime.definitions.trigger_types[source]
         .actions
         .clone();
-    sim.session.binary_frame = 0x7FFF_FFF0;
+    sim.session.set_binary_frame_for_test(0x7FFF_FFF0);
     let mut effects = Vec::new();
     for action in actions
         .iter()
@@ -627,7 +636,7 @@ fn scenario_timer_retail_sov01_actions_reach_the_expiry_predicate() {
     let actions = sim.trigger_runtime.definitions.trigger_types[source]
         .actions
         .clone();
-    sim.session.binary_frame = 123;
+    sim.session.set_binary_frame_for_test(123);
     for action in actions
         .iter()
         .filter(|action| matches!(action.entry.kind, 23..=27 | 103))
@@ -648,7 +657,7 @@ fn scenario_timer_retail_sov01_actions_reach_the_expiry_predicate() {
     sim.classify_map_triggers(Some(&rules));
     let live = live_trigger_of_type(&sim, trigger_type_index(&sim, "0BDE333C"));
     for (frame, elapsed) in [(1922, false), (1923, true)] {
-        sim.session.binary_frame = frame;
+        sim.session.set_binary_frame_for_test(frame);
         assert_eq!(
             sim.has_occurred(
                 0,
@@ -685,16 +694,18 @@ fn all_change_house_dispatch_matches_original_selector_controls() {
             .get("house_order")
             .cloned()
             .unwrap_or_else(|| serde_json::json!([1, 2, 0]));
-        sim.session.house_order = order
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|index| houses[index.as_u64().unwrap() as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &order
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|index| houses[index.as_u64().unwrap() as usize])
+                .collect::<Vec<_>>(),
+        );
         for (slot, house_index) in [(0, 1), (1, 0)] {
             sim.session
-                .start_slot_houses
-                .insert(slot, sim.session.house_order[house_index]);
+                .start_slot_houses_mut_for_test()
+                .insert(slot, sim.houses.order()[house_index]);
         }
         let actor = spawn_event_ingress_unit(&mut sim, &rules, houses[0], (15, 15));
         install_event_ingress_map(
@@ -752,15 +763,15 @@ fn all_change_house_retail_sov01_handoff_transfers_units_and_powered_buildings()
     // rules and action reader; the flat arena is not retail terrain evidence.
     for name in ["Americans", "Russians"] {
         let id = sim.interner.intern(name);
-        sim.houses.get_mut(&id).unwrap().country = Some(id);
+        sim.houses
+            .get_mut(&id)
+            .unwrap()
+            .set_country_for_test(Some(id));
     }
     let target = sim.interner.intern("PowerHouse");
     let country = sim.interner.intern("PowerHouse Country");
-    sim.houses.insert(
-        target,
-        HouseState::new(target, 2, Some(country), false, 0, 10),
-    );
-    sim.session.house_order.push(target);
+    sim.houses
+        .register(HouseState::new(target, 2, Some(country), false, 0, 10));
     assert_eq!(sim.house_by_trigger_selector(14, &rules), Some(target));
     let actors: Vec<_> = [("GAGAP", 20, 20), ("MTNK", 25, 25), ("GAPOWR", 30, 30)]
         .into_iter()
@@ -934,11 +945,10 @@ fn script40_clears_local_through_trigger_owner_and_advances_on_rejected_indices(
     ] {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Russians");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 1, None, false, 0, 10),
-        );
-        sim.session.house_order.push(owner);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 1, None, false, 0, 10,
+            ));
         let member = sim
             .spawn_object("E1", "Russians", 10, 10, 0, &rules)
             .unwrap();
@@ -1036,20 +1046,24 @@ fn retail_sov01_script_context() -> Option<(
             cell
         },
     ));
-    sim.session.map_width = 198;
-    sim.session.map_height = 198;
+    sim.session.set_map_width_for_test(198);
+    sim.session.set_map_height_for_test(198);
     sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds::from_map_header(
         &map.header,
     ));
     sim.playfield_size_height = Some(map.header.height as i32);
     sim.session.install_waypoints(&map.waypoints);
     let owner = sim.interner.intern("Russians");
-    sim.houses.insert(
-        owner,
-        crate::sim::house_state::HouseState::new(owner, 1, Some(owner), true, 0, 10),
-    );
-    sim.session.house_order.push(owner);
-    sim.session.current_house = Some(owner);
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner,
+            1,
+            Some(owner),
+            true,
+            0,
+            10,
+        ));
+    sim.session.set_current_house_for_test(Some(owner));
     sim.install_team_ai_registry(&registry, &rules).unwrap();
     sim.initialize_trigger_definitions(&map, &registry, None, None);
     Some((sim, rules, overlay, map))
@@ -1130,9 +1144,13 @@ fn script40_releases_all_retail_sov01_opening_naval_teams_to_their_move_step() {
 fn script20_uses_country_order_and_survives_members_unlinked_by_owner_callbacks() {
     use crate::sim::team_script_vm::{TeamScriptAction, TeamScriptDefinition};
     let (mut sim, rules, overlay, houses) = event_ingress_fixture();
-    sim.houses.get_mut(&houses[2]).unwrap().is_human = true;
-    sim.session.current_house = Some(houses[2]);
-    sim.session.house_order = vec![houses[1], houses[2], houses[0]];
+    sim.houses
+        .get_mut(&houses[2])
+        .unwrap()
+        .set_is_human_for_test(true);
+    sim.session.set_current_house_for_test(Some(houses[2]));
+    sim.houses
+        .reorder_for_test(&[houses[1], houses[2], houses[0]]);
     // Houses 0 and 2 share Country0. Registration selects House2, while
     // lexical order would select House0 and raw House index0 names House1.
     let members: Vec<_> = [(3, 4), (4, 4), (5, 4)]
@@ -1219,11 +1237,15 @@ fn script20_retail_sov01_transport_tails_set_the_authored_landing_flags() {
             "the map appends this Country after retail rules"
         );
         let target = sim.interner.intern(&target_name);
-        sim.houses.insert(
-            target,
-            crate::sim::house_state::HouseState::new(target, 2, Some(target), false, 0, 10),
-        );
-        sim.session.house_order.push(target);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                target,
+                2,
+                Some(target),
+                false,
+                0,
+                10,
+            ));
         let member = sim
             .spawn_object("SAPC", "Russians", 100, 100, 0, &rules)
             .unwrap();
@@ -1298,18 +1320,15 @@ pub(super) fn event_ingress_fixture_with_rules(
         let country = sim
             .interner
             .intern(if index == 1 { "Country7" } else { "Country0" });
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
                 house,
                 index as u8,
                 Some(country),
                 false,
                 0,
                 10,
-            ),
-        );
-        sim.session.house_order.push(house);
+            ));
         house
     });
     (sim, rules, overlays, houses)
@@ -1364,8 +1383,8 @@ pub(super) fn sparse_line_ingress_fixture() -> (
         None,
         FrameEffects::default(),
     );
-    sim.session.map_width = 5;
-    sim.session.map_height = 5;
+    sim.session.set_map_width_for_test(5);
+    sim.session.set_map_height_for_test(5);
     (sim, rules, houses, actor)
 }
 
@@ -1452,11 +1471,15 @@ fn unit_record_kill_releases_retail_sov01_landing_when_the_last_target_is_a_ship
     for (name, country) in [("Americans", "Americans"), ("Alliance", "Alliance")] {
         let house = sim.interner.intern(name);
         let country = sim.interner.intern(country);
-        sim.houses.insert(
-            house,
-            crate::sim::house_state::HouseState::new(house, 0, Some(country), false, 0, 10),
-        );
-        sim.session.house_order.push(house);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house,
+                0,
+                Some(country),
+                false,
+                0,
+                10,
+            ));
     }
     // Real map readers select the seven authored targets and their shared
     // repeat=1 Tag. Flat-water placement is the declared arena above, not
@@ -1796,7 +1819,7 @@ fn advance_trigger_frame(
     rules: Option<&crate::rules::ruleset::RuleSet>,
     waypoints: &HashMap<u32, Waypoint>,
 ) -> Vec<TriggerEffect> {
-    sim.session.binary_frame = current_frame;
+    sim.session.set_binary_frame_for_test(current_frame);
     sim.session.install_waypoints(waypoints);
     if sim.resolved_terrain.is_none()
         && sim
@@ -1919,8 +1942,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
         );
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, Some(owner), false, 0, 10));
-    sim.session.house_order.push(owner);
+        .register(HouseState::new(owner, 0, Some(owner), false, 0, 10));
     sim.session.install_waypoints(&waypoint_map(139, (10, 10)));
     assert!(crate::sim::build_site::can_place_building_at(
         &sim,
@@ -1966,7 +1988,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
     assert!(!building.lifecycle.in_limbo());
     assert!(
         sim.houses[&owner]
-            .base_projection
+            .base_projection()
             .buildings()
             .contains(&building.stable_id())
     );
@@ -1998,30 +2020,40 @@ fn destroyed_house_predicates_match_original_independent_signed_counters() {
                 let country = sim
                     .interner
                     .intern(if index == 1 { "Country7" } else { "Country0" });
-                sim.houses.insert(
+                sim.houses.register(HouseState::new(
                     owner,
-                    HouseState::new(owner, index, Some(country), false, 0, 10),
-                );
+                    index as i32,
+                    Some(country),
+                    false,
+                    0,
+                    10,
+                ));
                 let totals = &case["inputs"]["destruction_counts"][index as usize];
-                sim.houses.get_mut(&owner).unwrap().tracking.set_for_test(
-                    totals[0].as_i64().unwrap() as i32,
-                    &[],
-                    (
-                        totals[1].as_i64().unwrap() as i32,
-                        totals[2].as_i64().unwrap() as i32,
-                        totals[3].as_i64().unwrap() as i32,
-                    ),
-                    &[],
-                );
+                sim.houses
+                    .get_mut(&owner)
+                    .unwrap()
+                    .tracking_mut()
+                    .set_for_test(
+                        totals[0].as_i64().unwrap() as i32,
+                        &[],
+                        (
+                            totals[1].as_i64().unwrap() as i32,
+                            totals[2].as_i64().unwrap() as i32,
+                            totals[3].as_i64().unwrap() as i32,
+                        ),
+                        &[],
+                    );
                 owner
             })
             .collect();
-        sim.session.house_order = case["inputs"]["house_order"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|index| houses[index.as_u64().unwrap() as usize])
-            .collect();
+        sim.houses.reorder_for_test(
+            &case["inputs"]["house_order"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|index| houses[index.as_u64().unwrap() as usize])
+                .collect::<Vec<_>>(),
+        );
         let map = trigger_fixture_map(&format!(
             "[Triggers]\nDESTRUCTION=Neutral,<none>,Destruction,0,1,1,1,0\n\
              [Events]\nDESTRUCTION={}\n\
@@ -2036,7 +2068,7 @@ fn destroyed_house_predicates_match_original_independent_signed_counters() {
             Some(houses[1]);
         let timer_before = sim.trigger_runtime.trigger(live).unwrap().timer;
         let mut persistence = false;
-        sim.session.binary_frame = 123;
+        sim.session.set_binary_frame_for_test(123);
         let mut evaluate = |sim: &mut Simulation| {
             sim.has_occurred(
                 0,
@@ -2099,7 +2131,7 @@ fn damage_at_waypoint_reaches_the_shared_building_receiver() {
     sim.resolved_terrain = Some(flat_trigger_playfield_terrain(32, 32));
     let owner = sim.interner.intern("Neutral");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, None, false, 0, 10));
+        .register(HouseState::new(owner, 0, None, false, 0, 10));
     let type_id = sim.interner.intern("REACTOR");
     let building = GameEntity::new_at_frame_zero_for_test(
         1,
@@ -2190,7 +2222,7 @@ fn parsed_event_records_match_native_list_and_production_predicates() {
         }
         for (n, frame) in row.frames.iter().enumerate() {
             let mut sim = Simulation::new();
-            sim.session.binary_frame = *frame;
+            sim.session.set_binary_frame_for_test(*frame);
             install_map_triggers(&mut sim, &map);
             sim.classify_map_triggers(None);
             sim.resolved_terrain = Some(flat_trigger_playfield_terrain(32, 32));
@@ -2546,7 +2578,7 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
 
     let owner = sim.interner.intern("Americans");
     sim.houses
-        .insert(owner, HouseState::new(owner, 0, Some(owner), true, 0, 10));
+        .register(HouseState::new(owner, 0, Some(owner), true, 0, 10));
     sim.fog.width = 100;
     sim.fog.height = 100;
     let mobile_type = sim.interner.intern("MTNK");
@@ -2749,8 +2781,8 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
         pixel_conversion_bounds: Default::default(),
         version: 1,
         tick_hz: 15,
-        seed: original.session.seed,
-        map_name: original.session.map_name.clone(),
+        seed: original.session.seed(),
+        map_name: original.session.map_name().to_owned(),
         rules_hash: 0,
     });
     replay_log.record_tick(original_tick.tick, Vec::new(), original_tick.state_hash);
@@ -2950,16 +2982,17 @@ fn mission_announce_then_end_uses_the_player_house_and_shared_timer() {
     let other = sim.interner.intern("OtherHouse");
     let player_country = sim.interner.intern("PlayerCountry");
     let other_country = sim.interner.intern("OtherCountry");
-    sim.houses.insert(
+    sim.houses.register(HouseState::new(
         player,
-        HouseState::new(player, 0, Some(player_country), true, 0, 10),
-    );
-    sim.houses.insert(
-        other,
-        HouseState::new(other, 0, Some(other_country), false, 0, 10),
-    );
-    sim.session.house_order = vec![player, other];
-    sim.session.current_house = Some(player);
+        0,
+        Some(player_country),
+        true,
+        0,
+        10,
+    ));
+    sim.houses
+        .register(HouseState::new(other, 0, Some(other_country), false, 0, 10));
+    sim.session.set_current_house_for_test(Some(player));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     let map = trigger_fixture_map(
@@ -3097,10 +3130,9 @@ fn register_waypoint_action_house(
     let owner = sim.interner.intern(name);
     let country = country.map(|country| sim.interner.intern(country));
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, country, false, 0, 10);
-    house.base_center = Some((40, 50));
-    house.alternate_base_center = alternate_base_center;
-    sim.houses.insert(owner, house);
-    sim.session.house_order.push(owner);
+    house.set_base_center_for_test(Some((40, 50)));
+    house.set_alternate_base_center_for_test(alternate_base_center);
+    sim.houses.register(house);
     owner
 }
 
@@ -3159,8 +3191,8 @@ fn action_137_replays_all_three_retail_waypoint_fixtures() {
             )
             .is_empty()
         );
-        assert_eq!(sim.houses[&house].alternate_base_center, cell);
-        assert_eq!(sim.houses[&house].base_center, Some((40, 50)));
+        assert_eq!(sim.houses[&house].alternate_base_center(), cell);
+        assert_eq!(sim.houses[&house].base_center(), Some((40, 50)));
     }
 }
 
@@ -3181,10 +3213,10 @@ fn action_137_uses_first_registration_order_country_match_only() {
         Some(&rules),
     );
 
-    assert_eq!(sim.houses[&first].alternate_base_center, (93, 106));
-    assert_eq!(sim.houses[&second].alternate_base_center, (3, 4));
-    assert_eq!(sim.houses[&first].base_center, Some((40, 50)));
-    assert_eq!(sim.houses[&second].base_center, Some((40, 50)));
+    assert_eq!(sim.houses[&first].alternate_base_center(), (93, 106));
+    assert_eq!(sim.houses[&second].alternate_base_center(), (3, 4));
+    assert_eq!(sim.houses[&first].base_center(), Some((40, 50)));
+    assert_eq!(sim.houses[&second].base_center(), Some((40, 50)));
 }
 
 #[test]
@@ -3204,7 +3236,7 @@ fn action_137_canonicalizes_house_type_alias_and_none_owner() {
         Some(&rules),
     );
     assert_eq!(
-        alias_sim.houses[&alias_house].alternate_base_center,
+        alias_sim.houses[&alias_house].alternate_base_center(),
         (93, 106)
     );
 
@@ -3221,9 +3253,9 @@ fn action_137_canonicalizes_house_type_alias_and_none_owner() {
         &waypoints,
         Some(&rules),
     );
-    assert_eq!(none_sim.houses[&russian].alternate_base_center, (7, 8));
+    assert_eq!(none_sim.houses[&russian].alternate_base_center(), (7, 8));
     assert_eq!(
-        none_sim.houses[&first_type].alternate_base_center,
+        none_sim.houses[&first_type].alternate_base_center(),
         (93, 106)
     );
 }
@@ -3244,7 +3276,7 @@ fn action_137_rejects_only_exact_packed_zero_cell() {
             &waypoints,
             Some(&rules),
         );
-        assert_eq!(sim.houses[&house].alternate_base_center, cell);
+        assert_eq!(sim.houses[&house].alternate_base_center(), cell);
     }
 }
 
@@ -3268,11 +3300,11 @@ fn action_137_writes_signed_waypoint_halves_as_raw_nonzero_cell() {
     );
 
     assert_eq!(
-        sim.houses[&house].alternate_base_center,
+        sim.houses[&house].alternate_base_center(),
         (u16::MAX, u16::MAX),
         "signed -1 quotient/remainder halves are nonzero and must be written"
     );
-    assert_eq!(sim.houses[&house].base_center, Some((40, 50)));
+    assert_eq!(sim.houses[&house].base_center(), Some((40, 50)));
 }
 
 #[test]
@@ -3298,8 +3330,8 @@ fn action_137_invalid_resolution_and_waypoints_do_not_mutate_either_base_cell() 
             with_rules.then_some(&rules),
         );
         if let Some(house) = house {
-            assert_eq!(sim.houses[&house].alternate_base_center, (7, 8));
-            assert_eq!(sim.houses[&house].base_center, Some((40, 50)));
+            assert_eq!(sim.houses[&house].alternate_base_center(), (7, 8));
+            assert_eq!(sim.houses[&house].base_center(), Some((40, 50)));
         }
     }
 
@@ -3340,10 +3372,10 @@ fn action_138_clears_only_first_country_match_without_token_or_rng_use() {
         Some(&rules),
     );
 
-    assert_eq!(sim.houses[&first].alternate_base_center, (0, 0));
-    assert_eq!(sim.houses[&second].alternate_base_center, (122, 135));
-    assert_eq!(sim.houses[&first].base_center, Some((40, 50)));
-    assert_eq!(sim.houses[&second].base_center, Some((40, 50)));
+    assert_eq!(sim.houses[&first].alternate_base_center(), (0, 0));
+    assert_eq!(sim.houses[&second].alternate_base_center(), (122, 135));
+    assert_eq!(sim.houses[&first].base_center(), Some((40, 50)));
+    assert_eq!(sim.houses[&second].base_center(), Some((40, 50)));
     assert_eq!(sim.scenario_rng.state(), rng_before);
 
     let mut no_match = Simulation::new();
@@ -3357,7 +3389,7 @@ fn action_138_clears_only_first_country_match_without_token_or_rng_use() {
         &HashMap::new(),
         Some(&rules),
     );
-    assert_eq!(no_match.houses[&house].alternate_base_center, (105, 194));
+    assert_eq!(no_match.houses[&house].alternate_base_center(), (105, 194));
 }
 
 /// HouseClass::Update's Tag raise against the original block executed in
@@ -3379,7 +3411,7 @@ fn house_tag_raise_matches_original_cadence_and_order() {
         sim.trigger_runtime
             .house_tags
             .insert(house, (0..count).collect());
-        sim.session.binary_frame = frame as u32;
+        sim.session.set_binary_frame_for_test(frame as u32);
         sim.raise_house_tags(house, None, None, FrameEffects::default());
         let expected: Vec<(usize, i32)> = case["raises"]
             .as_array()

@@ -242,10 +242,10 @@ fn superweapon_money_cameo_refuses_before_target_or_direct_launch_but_allows_rig
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         let id = sim.interner.intern("Paid");
-        sim.houses.insert(
-            owner,
-            crate::sim::house_state::HouseState::new(owner, 0, None, true, 499, 10),
-        );
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 499, 10,
+            ));
         let mut instance = SuperWeaponInstance::new(id, owner, 0);
         instance.is_active = true;
         instance.is_ready = true;
@@ -277,7 +277,11 @@ fn superweapon_money_cameo_refuses_before_target_or_direct_launch_but_allows_rig
             SuperWeaponClick::None
         );
         assert!(input.targeting_mode.is_none());
-        sim.houses.get_mut(&owner).unwrap().economy.add_credits(1);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut_for_test()
+            .add_credits(1);
         let views = superweapon_views_for_owner(&sim, &rules, &owner);
         let result = press(&mut input, &mut gadgets, views.first(), Some(action), false);
         assert_eq!(

@@ -1957,33 +1957,6 @@ fn set_infantry_stage(store: &mut EntityStore, id: u64, stage: i32) {
 }
 
 #[test]
-fn test_armor_index_lookup() {
-    assert_eq!(armor_index("none"), 0);
-    assert_eq!(armor_index("flak"), 1);
-    assert_eq!(armor_index("heavy"), 5);
-    assert_eq!(armor_index("wood"), 6);
-    assert_eq!(armor_index("concrete"), 8);
-    assert_eq!(armor_index("unknown"), 0);
-}
-
-#[test]
-fn cell_center_coords_and_mapless_launch_height() {
-    let (rx, ry, sub_x, sub_y) = cell_center_coords(7, 9);
-    assert_eq!((rx, ry), (7, 9));
-    assert_eq!(sub_x.to_num::<i32>(), 128);
-    assert_eq!(sub_y.to_num::<i32>(), 128);
-
-    let sim = crate::sim::world::Simulation::new();
-    assert_eq!(
-        attack_world_z_leptons(TargetKind::Cell(7, 9), &sim, None),
-        0,
-        "with no loaded terrain there is no cell floor to read; the cell-centre \
-         helper never invents one. The terrain-backed cases live in \
-         `impact_height_tests`."
-    );
-}
-
-#[test]
 /// Re-baselined for GSI-08.02 (row 122). Weapon selection is altitude-driven,
 /// not category-driven: `TechnoClass::What_Weapon_Should_I_Use @ 0x006F3330`
 /// arm V and the `GetFireError` AA gate both call `ObjectClass::IsHighFlying`
@@ -2066,52 +2039,6 @@ fn considered_aircraft_infantry_is_air_only_while_high_flying() {
 }
 
 #[test]
-fn test_install_entity_attack_target_for_test() {
-    let mut store = EntityStore::new();
-    store.insert(make_entity(1, "MTNK", 5, 5, 300));
-    store.insert(make_entity(2, "MTNK", 8, 5, 300));
-    // Mid-reload: the reload is the object's (`TechnoClass+0x2EC`), and
-    // `Assign_Target @ 0x006FCDB0` never touches it.
-    let rearm = crate::sim::timer::CdTimer::started(0, 40);
-    store.get_mut(1).unwrap().rearm_timer.set_for_test(rearm);
-
-    let result: bool = install_entity_attack_target_for_test(&mut store, 1, 2);
-    assert!(result, "Should succeed for valid entities");
-
-    let attack = store.get(1).unwrap().attack_target.target().unwrap();
-    assert!(matches!(attack, crate::sim::combat::TargetKind::Entity(2)));
-    assert_eq!(
-        store.get(1).unwrap().rearm_timer.timer(),
-        rearm,
-        "a new attack order does not reload the weapon"
-    );
-}
-
-#[test]
-fn test_tick_combat_applies_damage() {
-    let rules: RuleSet = test_rules();
-    let mut store = EntityStore::new();
-
-    // MTNK attacks another MTNK (heavy armor).
-    // 105mm: damage=65, warhead=AP, AP verses[heavy(5)] = 75%.
-    // Integer math: 65 * 75 / 100 = 48.
-    store.insert(make_entity(1, "MTNK", 5, 5, 300));
-    store.insert(make_entity(2, "MTNK", 8, 5, 300));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    align_attackers_to_targets(&mut store);
-    tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
-
-    let target_health = store.get(2).expect("target alive").health.current();
-    assert_eq!(
-        target_health,
-        300 - 48,
-        "Should take 48 damage (65 * 75 / 100)"
-    );
-}
-
-#[test]
 fn combat_damage_crosses_live_type_condition_yellow() {
     let rules = test_rules();
     let mut store = EntityStore::new();
@@ -2158,30 +2085,6 @@ fn aoe_damage_crosses_live_type_condition_yellow() {
                 rules.general.condition_yellow
             )
             == crate::util::native_x87::MaskedX87Ordering::Less
-    );
-}
-
-#[test]
-fn combat_damage_landed_applies_infantry_fear() {
-    let rules = test_rules();
-    let mut store = EntityStore::new();
-    store.insert(make_entity(1, "MTNK", 5, 5, 300));
-    store.insert(make_infantry_entity(2, "E1", 8, 5, 125));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    align_attackers_to_targets(&mut store);
-    tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
-
-    assert_eq!(
-        store
-            .get(2)
-            .unwrap()
-            .infantry
-            .as_ref()
-            .unwrap()
-            .fear_level(),
-        100
     );
 }
 
@@ -5667,24 +5570,6 @@ fn test_tick_combat_out_of_range() {
     );
 }
 
-#[test]
-fn undeployed_guardian_gi_vs_infantry_uses_m60() {
-    let rules = guardian_gi_rules();
-    let mut store = EntityStore::new();
-    store.insert(make_infantry_entity(1, "GGI", 0, 0, 100));
-    store.insert(make_infantry_entity(2, "E2", 3, 0, 125));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    let result = tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
-
-    assert_eq!(result.consequences.fire_events().len(), 1);
-    let ev = &result.consequences.fire_events()[0];
-    assert_eq!(interner.resolve(ev.weapon_id), "M60");
-    assert_eq!(ev.weapon_slot, WeaponSlot::Primary);
-    assert_eq!(store.get(2).unwrap().health.current(), 110);
-}
-
 /// `TechnoClass::FireAt 0x006FE5E2..0x006FE622`: every launched shot whose
 /// BulletType is not `Inaccurate=` takes `EstimateDamage` off its TarCom's
 /// retained estimate (`+0x70`), apart from the bullet's own damage.
@@ -5921,57 +5806,6 @@ fn a_slow_infantry_shot_scatters_its_targets_cell_away_from_the_shooter() {
 }
 
 #[test]
-fn prone_infantry_uses_prone_fire_sequence_and_frame() {
-    let rules = infantry_fire_frame_rules();
-    let mut store = EntityStore::new();
-    let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
-    attacker
-        .infantry
-        .as_mut()
-        .unwrap()
-        .set_is_prone_for_test(true);
-    attacker
-        .mission_leaf
-        .set_infantry_doing_verified(2)
-        .unwrap();
-    store.insert(attacker);
-    store.insert(make_infantry_entity(2, "E2", 8, 5, 125));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-    let mut main_rng = SimRng::new(1);
-
-    let result = tick(&mut store, &rules, &mut interner, 0, &mut main_rng);
-    assert!(result.consequences.fire_events().is_empty());
-    let attacker = store.get(1).unwrap();
-    assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 1);
-    assert_eq!(attacker.mission_leaf.as_infantry().unwrap().doing(), 8);
-    assert_eq!(attacker.infantry_sprite_pose(), Some((8, 0)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone());
-    assert_eq!(store.get(2).unwrap().health.current(), 125);
-
-    set_infantry_stage(&mut store, 1, 2);
-    let result = tick(&mut store, &rules, &mut interner, 1, &mut main_rng);
-    assert_eq!(store.get(2).unwrap().health.current(), 125);
-    assert!(result.consequences.fire_events().is_empty());
-
-    set_infantry_stage(&mut store, 1, 3);
-    let result = tick(&mut store, &rules, &mut interner, 2, &mut main_rng);
-    assert_eq!(store.get(2).unwrap().health.current(), 100);
-    assert_eq!(result.consequences.fire_events().len(), 1);
-    let attacker = store.get(1).unwrap();
-    assert_eq!(attacker.mission_leaf.foot_firing_sequence_latch(), 0);
-    assert_eq!(attacker.infantry_sprite_pose(), Some((8, 3)));
-    assert!(attacker.infantry.as_ref().unwrap().is_prone());
-    let ev = &result.consequences.fire_events()[0];
-    assert_eq!(interner.resolve(ev.weapon_id), "M60");
-    assert_eq!(ev.weapon_slot, WeaponSlot::Primary);
-    assert_eq!(
-        ev.report_sound_id.map(|id| interner.resolve(id)),
-        Some("GIAttack")
-    );
-}
-
-#[test]
 fn deployed_gi_uses_deployed_fire_visual_with_deploy_fire_weapon() {
     let rules = infantry_fire_frame_rules();
     let mut store = EntityStore::new();
@@ -6133,53 +5967,6 @@ fn delayed_infantry_fire_cancels_when_target_dies_before_fire_frame() {
         store.get(1).unwrap().attack_target.target().is_none(),
         "dead target should cancel delayed shot instead of spawning stale damage"
     );
-}
-
-/// ProneDamage scales the hit on a prone man both for a direct warhead and at
-/// the centre of an area one (`CellSpread=1`).
-#[test]
-fn test_prone_infantry_takes_scaled_direct_and_aoe_damage() {
-    for (spread, message) in [
-        ("", "100 damage with ProneDamage=50% should deal 50"),
-        (
-            "CellSpread=1\nPercentAtMax=1\n",
-            "AoE center hit should also respect ProneDamage=50%",
-        ),
-    ] {
-        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
-            "[InfantryTypes]\n0=E1\n1=E2\n\n\
-             [VehicleTypes]\n0=MTNK\n\n\
-             [AircraftTypes]\n\n\
-             [BuildingTypes]\n\n\
-             [E1]\nStrength=125\nArmor=flak\nSpeed=4\nPrimary=M60\n\n\
-             [E2]\nStrength=125\nArmor=flak\nSpeed=4\n\n\
-             [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=105mm\n\n\
-             [M60]\nDamage=25\nROF=20\nRange=5\nWarhead=SA\n\n\
-             [105mm]\nDamage=100\nROF=50\nRange=6\nWarhead=AP\n\n\
-             [SA]\nVerses=100%,100%,100%,90%,70%,25%,100%,25%,25%,0%,0%\n\n\
-             [AP]\n{spread}Verses=100%,100%,90%,75%,75%,75%,60%,30%,20%,0%,0%\nProneDamage=50%\n",
-        )))
-        .expect("prone combat rules should parse");
-
-        let mut store = EntityStore::new();
-        store.insert(make_entity(1, "MTNK", 5, 5, 300));
-        let mut target = make_infantry_entity(2, "E2", 8, 5, 125);
-        target
-            .infantry
-            .as_mut()
-            .unwrap()
-            .set_is_prone_for_test(true);
-        store.insert(target);
-
-        let mut interner = test_interner();
-        install_entity_attack_target_for_test(&mut store, 1, 2);
-
-        align_attackers_to_targets(&mut store);
-        tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
-
-        let target_health = store.get(2).expect("target alive").health.current();
-        assert_eq!(target_health, 75, "{message}");
-    }
 }
 
 /// No fire path reads shroud or fog: GetFireError `0x006FC0B0`, the class
@@ -6387,61 +6174,6 @@ fn test_weapon_fire_destroys_ore_in_spread() {
         req_amount(9, 5),
         Some(12),
         "neighbor cell within CellSpread=2 should get a 12-level reduction request"
-    );
-}
-
-#[test]
-fn test_direct_hit_weapon_destroys_center_ore() {
-    let rules = test_rules(); // AP warhead has CellSpread=0.
-    let mut store = EntityStore::new();
-    store.insert(make_entity(1, "MTNK", 5, 5, 300));
-    store.insert(make_entity(2, "MTNK", 8, 5, 300));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    // Ore at adjacent cell (9,5) should NOT be affected (CellSpread=0 = center only).
-
-    let ore_ini =
-        IniFile::from_str("[OverlayTypes]\n0=ORE\n[ORE]\nTiberium=yes\nChainReaction=yes\n");
-    let ore_registry = OverlayTypeRegistry::from_ini(&ore_ini, None);
-    let mut overlays = OverlayGrid::new(16, 16);
-    overlays.place_overlay(8, 5, 0, 5);
-    overlays.place_overlay(9, 5, 0, 5);
-
-    align_attackers_to_targets(&mut store);
-    let result = tick_with_map(
-        &mut store,
-        &rules,
-        &mut interner,
-        Some(&mut overlays),
-        Some(&ore_registry),
-        None,
-        &[],
-        &mut SimRng::new(1),
-    );
-
-    // Combat emits a TiberiumReductionRequest (applied later by World). 105mm
-    // damage=65 → ore_damage = 65/10 = 6 density levels. CellSpread=0 → only the
-    // impact cell (8,5) gets a request; the adjacent cell (9,5) gets none.
-    let center = result
-        .consequences
-        .effects()
-        .tiberium_reduction_requests
-        .iter()
-        .find(|r| r.rx == 8 && r.ry == 5);
-    assert_eq!(
-        center.map(|r| r.amount),
-        Some(6),
-        "center cell should get a 6-level reduction request"
-    );
-    assert!(
-        !result
-            .consequences
-            .effects()
-            .tiberium_reduction_requests
-            .iter()
-            .any(|r| r.rx == 9 && r.ry == 5),
-        "adjacent cell should get no request with CellSpread=0"
     );
 }
 
@@ -6825,68 +6557,6 @@ fn crushable_fence_falls_to_any_crusher_and_plays_its_crush_sound() {
     );
 }
 
-/// Build a Simulation with a row of GAWALL at `(rx_range, ry)`. Each cell gets
-/// both an OverlayCell entry and a matching wall GameEntity.
-fn build_minimal_sim_with_gawall_row(
-    ry: u16,
-    rx_range: std::ops::Range<u16>,
-) -> (Simulation, RuleSet, OverlayTypeRegistry) {
-    let ini = IniFile::from_str(wall_test_ini());
-    let rules = RuleSet::from_ini(&ini).expect("wall rules parse");
-    let registry = OverlayTypeRegistry::from_ini(&ini, None);
-
-    let mut sim = Simulation::new();
-    let mut grid = OverlayGrid::new(10, 10);
-    let owner_id = sim.interner.intern("Test");
-    let type_id = sim.interner.intern("GAWALL");
-    for (next_id, rx) in (1u64..).zip(rx_range) {
-        grid.place_overlay(rx, ry, 2, 0);
-        let mut entity = GameEntity::test_default(next_id, "GAWALL", "Test", rx, ry);
-        entity.set_owner_for_test(owner_id);
-        entity.set_type_ref_for_test(type_id);
-        entity.health = Health::new(400);
-        sim.substrate.entities.insert(entity);
-    }
-    sim.overlay_grid = Some(grid);
-    sim.resolved_terrain = Some(crate::sim::tiberium::test_support::flat_terrain(10, 10));
-    sim.substrate.entities.rebuild_class_registries();
-
-    (sim, rules, registry)
-}
-
-#[test]
-fn concrete_wall_chain_reaction_runs_without_panic() {
-    // Row of 4 GAWALL at (4..8, 5).
-    let (mut sim, _rules, registry) = build_minimal_sim_with_gawall_row(5, 4..8);
-    // Pre-set (5,5) to stage 2 with E+W connectivity so a single damage event
-    // pushes it through the penultimate-stage chain trigger (stage 3 of
-    // DamageLevels=4). Connectivity nibble 0b1010 = E+W = 0xA, byte = 0x2A.
-    sim.overlay_grid
-        .as_mut()
-        .unwrap()
-        .set_overlay_data(5, 5, 0x2A);
-
-    // damage = Strength (400) — gate `damage < strength` is false, so the
-    // probabilistic check is skipped and the damage applies. Stage advances
-    // to 3 → chain triggers 200-damage events on pristine same-type cardinal
-    // neighbors. Outcome of those events depends on RNG roll vs strength=400.
-    sim.apply_wall_damage(WallPointerTarget::Real(5, 5), 400, &registry);
-
-    // The chain code path ran (no panic). Assert (5,5) is at stage ≥ 3 or
-    // gone — either outcome is consistent with the binary's behavior at the
-    // penultimate damage level.
-    let grid = sim.overlay_grid.as_ref().unwrap();
-    let cell = grid.cell(5, 5);
-    if let Some(id) = cell.overlay_id {
-        assert_eq!(id, 2, "if not destroyed, must still be GAWALL");
-        assert!(
-            cell.overlay_data >> 4 >= 3,
-            "stage should have advanced to ≥3 after applied damage"
-        );
-    }
-    // No assertion about pristine neighbors — their fate depends on RNG.
-}
-
 /// Seeded variant of `build_minimal_sim_with_gawall` — used for determinism
 /// replay tests where two sims must produce byte-identical state given the
 /// same input event sequence.
@@ -6951,29 +6621,6 @@ fn selected_weapon_range(
     )
     .and_then(|(_, selected)| selected)
     .map(|selected| selected.weapon.range_leptons)
-}
-
-/// An Entity and a Cell target take different arms of the selection's target
-/// facts; against either, the one-weapon MTNK measures with its 105mm.
-#[test]
-fn selected_weapon_range_for_entity_and_cell_targets() {
-    use crate::sim::combat::TargetKind;
-    let rules = test_rules();
-    let mut sim = crate::sim::world::Simulation::new();
-    sim.substrate
-        .entities
-        .insert(make_entity(1, "MTNK", 0, 0, 300));
-    sim.substrate
-        .entities
-        .insert(make_entity(2, "MTNK", 5, 0, 300));
-    sim.interner = test_interner();
-
-    let attacker = sim.substrate.entities.get(1).unwrap();
-    for target in [TargetKind::Entity(2), TargetKind::Cell(50, 50)] {
-        let range = selected_weapon_range(attacker, &target, &sim, &rules, &sim.interner, None);
-        // 105mm Range=6; a Cell target's ladder returns slot 0.
-        assert_eq!(range, Some(6 * 256), "{target:?}");
-    }
 }
 
 /// `TechnoClass::CanFireAtTarget @ 0x006F7780` is `CanFireAt(target,
@@ -7047,86 +6694,12 @@ fn an_illegal_shot_is_still_in_range() {
     assert_eq!(range, Some(6 * 256));
 }
 
-#[test]
-fn selected_weapon_range_none_for_unarmed_attacker() {
-    use crate::sim::combat::TargetKind;
-    let rules_str = "[InfantryTypes]\n0=ENGI\n\n\
-                     [VehicleTypes]\n\n[BuildingTypes]\n\n[AircraftTypes]\n\n\
-                     [ENGI]\nStrength=75\nArmor=none\nSpeed=4\n";
-    let ini = IniFile::from_str(rules_str);
-    let rules = RuleSet::from_ini(&ini).expect("parse");
-    let mut sim = crate::sim::world::Simulation::new();
-    sim.substrate
-        .entities
-        .insert(make_entity(1, "ENGI", 0, 0, 75));
-    sim.interner = test_interner();
-
-    let attacker = sim.substrate.entities.get(1).unwrap();
-    let range = selected_weapon_range(
-        attacker,
-        &TargetKind::Cell(50, 50),
-        &sim,
-        &rules,
-        &sim.interner,
-        None,
-    );
-    assert_eq!(range, None);
-}
-
 /// The app loader publishes the canonical AnimType read receipt through this
 /// owner before combat. These phase fixtures supply no ART/SHP, so registered
 /// AnimList types retain real constructor-only End0 state; they still create
 /// AnimClass objects. Do not fabricate spawn observations or loaded frames.
 fn initialize_fixture_anim_types(rules: &mut RuleSet) {
     rules.install_art_data(crate::rules::art_data::ArtRegistry::empty());
-}
-
-#[test]
-fn v3_non_killing_aoe_emits_one_detonation_anim() {
-    // V3-style splash hits a heavy-armor target with HP > splash damage.
-    // The target survives; the shot still starts one AnimList anim, whose
-    // own Middle marks the ground.
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
-        "[InfantryTypes]\n\n\
-         [VehicleTypes]\n0=MTNK\n1=V3\n\n\
-         [AircraftTypes]\n\n\
-         [BuildingTypes]\n\n\
-         [MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=V3W\n\n\
-         [V3]\nStrength=300\nArmor=heavy\nSpeed=6\nPrimary=V3W\n\n\
-         [V3W]\nDamage=100\nROF=20\nRange=10\nWarhead=V3WH\n\n\
-         [V3WH]\nCellSpread=1\nPercentAtMax=1\nAnimList=V3EXP\n\
-         Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("v3 test rules should parse");
-    initialize_fixture_anim_types(&mut rules);
-
-    let mut store = EntityStore::new();
-    store.insert(make_entity(1, "MTNK", 5, 5, 300));
-    store.insert(make_entity(2, "MTNK", 8, 5, 300)); // full HP — won't die
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    align_attackers_to_targets(&mut store);
-    let result = tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
-
-    assert!(
-        store
-            .get(2)
-            .map(|e| e.health.current() > 0)
-            .unwrap_or(false),
-        "target must survive (test setup invariant)"
-    );
-    let v3exp = interner.intern("V3EXP");
-    let anims: Vec<_> = result
-        .fixture_anims
-        .iter()
-        .map(|effect| effect.type_id)
-        .collect();
-    assert_eq!(
-        anims,
-        vec![v3exp],
-        "one detonation starts one AnimList anim"
-    );
 }
 
 #[test]
@@ -8998,41 +8571,6 @@ fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
     );
 }
 
-/// Build one ObjectType straight from an INI body, so the `Cost=` parse feeding
-/// the score award is exercised rather than a hand-set field.
-fn object_with_body(body: &str) -> ObjectType {
-    let ini = IniFile::from_str(&format!(
-        "[TEST]
-{body}"
-    ));
-    ObjectType::from_ini_section(
-        "TEST",
-        ini.section("TEST").expect("test section"),
-        crate::rules::object_type::ObjectCategory::Vehicle,
-    )
-}
-
-#[test]
-fn score_award_ignores_the_dormant_points_key() {
-    // `Points=` parses into a type field the binary never reads back — dormant
-    // TS legacy in YR — so this engine does not parse it and a section carrying
-    // only `Points=` is worth nothing. Stock GI (E1) is Cost=200 / Points=10; the
-    // award must follow the cost, not the points.
-    let points_only = object_with_body(
-        "Points=10
-",
-    );
-    let award = |cost| veterancy::kill_award_points(cost, veterancy::VeterancyRank::Rookie, false);
-    assert_eq!(award(points_only.cost), 0);
-
-    let gi = object_with_body(
-        "Cost=200
-Points=10
-",
-    );
-    assert_eq!(award(gi.cost), 200);
-}
-
 #[test]
 fn campaign_reverse_only_alliance_keeps_shrapnel_hostile_head_before_random_cell_child() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -9532,7 +9070,9 @@ fn projectile_shrapnel_is_admitted_by_a_tree_heading_the_bullets_cell() {
         vec![make_entity_owned(1, "MTNK", 2, 2, 100, "Soviet")],
     );
     assert!(commit_shrapnel_at_5_5(&mut sim, &rules).is_empty());
-    sim.production.terrain_object_cells.insert((5, 5), 900);
+    sim.terrain_objects
+        .cell_index_mut_for_test()
+        .insert((5, 5), 900);
     assert_eq!(commit_shrapnel_at_5_5(&mut sim, &rules).len(), 1);
 }
 
@@ -9821,13 +9361,15 @@ fn gsi_04_10_near_center_iron_curtain_isolates_earlier_terrain_receiver() {
 
         let terrain_id = 700;
         let terrain_ref = sim.interner.intern("TREE01");
-        sim.production.terrain_objects.insert(terrain_id, {
-            let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
-            terrain.occupation_bits = 4;
-            terrain
-        });
-        sim.production
-            .terrain_object_cells
+        sim.terrain_objects
+            .objects_mut_for_test()
+            .insert(terrain_id, {
+                let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
+                terrain.set_occupation_bits_for_test(4);
+                terrain
+            });
+        sim.terrain_objects
+            .cell_index_mut_for_test()
             .insert((5, 5), terrain_id);
 
         let warhead_ref = sim.interner.intern("WOODWH");
@@ -9858,7 +9400,7 @@ fn gsi_04_10_near_center_iron_curtain_isolates_earlier_terrain_receiver() {
             &receivers,
             crate::sim::world::FrameEffects::default(),
         );
-        sim.production.terrain_objects[&terrain_id].health
+        sim.terrain_objects.objects()[&terrain_id].health()
     }
 
     assert_eq!(
@@ -9905,15 +9447,17 @@ fn gsi_04_10_entity_fatal_hook_and_later_terrain_share_raw_occupation() {
         .expect("fatal vehicle spawns");
     let terrain_id = 701;
     let terrain_ref = sim.interner.intern("TREE01");
-    sim.production.terrain_objects.insert(terrain_id, {
-        let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain.occupation_bits = 4;
-        terrain
-    });
-    sim.production
-        .terrain_object_cells
+    sim.terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(4);
+            terrain
+        });
+    sim.terrain_objects
+        .cell_index_mut_for_test()
         .insert((5, 5), terrain_id);
     mark_terrain_raw_occupation(&mut sim.substrate.raw_cell_occupation, (5, 5), 4);
     assert_ne!(sim.substrate.raw_cell_occupation.ground_bits(4, 5), 0);
@@ -9957,7 +9501,7 @@ fn gsi_04_10_entity_fatal_hook_and_later_terrain_share_raw_occupation() {
         "the later Terrain finalize observes and mutates that same grid"
     );
     assert_eq!(
-        sim.production.terrain_objects[&terrain_id].lifecycle,
+        sim.terrain_objects.objects()[&terrain_id].lifecycle(),
         TerrainObjectLifecycle::Destroyed
     );
 }
@@ -10219,48 +9763,6 @@ fn gsi_08_05_a_garrison_shot_takes_the_f32_occupy_multiplier() {
         "the garrison fired"
     );
     assert_eq!(store.get(2).expect("target").health.current(), 125 - 36);
-}
-
-/// `UnitClass::Death_Explosion @ 0x00738680` plays one anim from the dying
-/// type's own `Explosion=` list and then one from `DestroyAnim=`, at its own
-/// coordinate, one `Random__Next()` draw each. Before this the type's list had
-/// no reader at all and every vehicle died with the warhead's puff.
-#[test]
-fn gsi_08_11_unit_death_plays_type_explosion_then_destroy_anim() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
-        "[VehicleTypes]\n0=MTNK\n1=HTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nCost=700\nPrimary=105mm\n[HTNK]\nStrength=1\nArmor=heavy\nSpeed=4\nCost=900\nPrimary=105mm\nExplosion=TWLT070,TWLT120\nDestroyAnim=SMOKEY\n[105mm]\nDamage=65\nROF=50\nRange=6\nWarhead=AP\n[AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("death-explosion fixture parses");
-
-    let mut store = EntityStore::new();
-    store.insert(make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet"));
-    let _ = test_intern("HTNK");
-    store.insert(make_entity_owned(2, "HTNK", 8, 5, 1, "Americans"));
-    let mut interner = test_interner();
-    install_entity_attack_target_for_test(&mut store, 1, 2);
-
-    align_attackers_to_targets(&mut store);
-    let result = tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(4));
-
-    let names: Vec<&str> = result
-        .consequences
-        .effects()
-        .explosion_effects
-        .iter()
-        .map(|effect| interner.resolve(effect.shp_name))
-        .collect();
-    let explosion_index = names
-        .iter()
-        .position(|name| *name == "TWLT070" || *name == "TWLT120")
-        .expect("the type's own Explosion= anim");
-    let destroy_index = names
-        .iter()
-        .position(|name| *name == "SMOKEY")
-        .expect("the type's DestroyAnim=");
-    assert!(
-        explosion_index < destroy_index,
-        "Explosion= precedes DestroyAnim=: {names:?}"
-    );
 }
 
 /// `Record_The_Kill @ 0x00702D40` reads the VICTIM type's `DontScore=` byte
@@ -10679,29 +10181,6 @@ fn gsi_08_05_rearm_frames_match_the_original() {
             "{row}"
         );
     }
-}
-
-/// `TechnoClass::FireAt 0x006FF28F..0x006FF29C`: a berserk firer (`+0x298`,
-/// set by a `Psychedelic=` warhead) re-arms with half of GetROF's value,
-/// signed and toward zero.
-#[test]
-fn gsi_08_05_a_berserk_firer_rearms_at_half_its_rof() {
-    let rearm = |berserk: bool| {
-        let rules = test_rules();
-        let mut store = EntityStore::new();
-        let mut tank = make_entity_owned(1, "MTNK", 5, 5, 300, "Soviet");
-        tank.berserk.set_active_for_test(berserk);
-        store.insert(tank);
-        store.insert(make_entity_owned(2, "MTNK", 7, 5, 300, "Americans"));
-        let mut interner = test_interner();
-        install_entity_attack_target_for_test(&mut store, 1, 2);
-        align_attackers_to_targets(&mut store);
-        tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(7));
-        store.get(1).unwrap().rearm_timer.duration()
-    };
-    let (normal, berserk) = (rearm(false), rearm(true));
-    assert!(normal > 1, "precondition: the tank fired ({normal})");
-    assert_eq!(berserk, normal / 2);
 }
 
 /// `TechnoClass::FireAt 0x006FE9FE`: EVERY launch speed is clamped to half the

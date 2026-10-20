@@ -728,7 +728,7 @@ impl Simulation {
             house.roster = type_counts(counts, &self.interner, TELEMETRY_MAX_ROSTER);
         }
 
-        for factory in self.production.factories.iter_insertion_ordered() {
+        for factory in self.production.factories().iter_insertion_ordered() {
             let Some(&index) = owner_index.get(&factory.owner) else {
                 continue;
             };

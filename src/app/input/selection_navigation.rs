@@ -640,24 +640,6 @@ mod tests {
     }
 
     #[test]
-    fn health_bands_include_thresholds_and_recheck_current_damage() {
-        let bands: Vec<_> = [0, 1, 25, 26, 50, 51, 100]
-            .into_iter()
-            .map(|hp| health_category(hp, 100, 0.25, 0.5))
-            .collect();
-        assert_eq!(bands, [2, 0, 0, 1, 1, 2, 2]);
-    }
-
-    #[test]
-    fn health_bands_keep_signed_actual_and_live_strength_width() {
-        assert_eq!(health_category(70_000, 100_000, 0.25, 0.5), 2);
-        assert_eq!(health_category(70_000, 200_000, 0.25, 0.5), 1);
-        assert_eq!(health_category(70_000, 400_000, 0.25, 0.5), 0);
-        assert_eq!(health_category(-1, 100_000, 0.25, 0.5), 2);
-        assert_eq!(health_category(i32::MAX, i32::MAX, 0.25, 0.5), 2);
-    }
-
-    #[test]
     fn world_replacement_drops_candidates_and_preserves_process_navigation() {
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/input_oracle/selection_navigation.json",

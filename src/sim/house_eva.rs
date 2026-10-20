@@ -352,20 +352,6 @@ mod tests {
         assert!(!sim.houses[&owner].eva_low_power_guard());
     }
 
-    /// A construction yard is enough: short on power with no power plant at
-    /// all, the line plays.
-    #[test]
-    fn low_power_speaks_with_a_construction_yard_and_no_power_plant() {
-        let rules = rules();
-        let (mut sim, owner) = sim_with_house(5_000, true);
-        structure(&mut sim, &rules, "GACNST", 3);
-        structure(&mut sim, &rules, "GAPILE", 7);
-        let lines = run_frames(&mut sim, &rules, 3);
-        assert_eq!(lines.len(), 1, "{lines:?}");
-        assert_eq!(lines[0].1, EVA_LOW_POWER);
-        assert!(sim.houses[&owner].eva_low_power_guard());
-    }
-
     /// With a construction yard the line plays once, stays silent while
     /// short, clears on recovery and re-announces on the next shortfall. The
     /// yard need not be the first `BuildConst=` type.

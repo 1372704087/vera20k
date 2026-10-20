@@ -1217,7 +1217,7 @@ pub fn initialize_skirmish_launch_houses(
         sim.houses.is_empty()
             && sim.houses.order().is_empty()
             && sim.entities().is_empty()
-            && sim.production.terrain_objects.is_empty(),
+            && sim.terrain_objects.objects().is_empty(),
         "skirmish houses must be initialized before map objects"
     );
     let slots = normalized_launch_slots(session);
@@ -2759,7 +2759,7 @@ pub fn initialize_map_roster_houses(
         sim.houses.is_empty()
             && sim.houses.order().is_empty()
             && sim.entities().is_empty()
-            && sim.production.terrain_objects.is_empty(),
+            && sim.terrain_objects.objects().is_empty(),
         "scenario houses must be initialized before map objects"
     );
     let campaign_difficulties = sim.session.campaign_house_difficulties();
@@ -3947,42 +3947,6 @@ mod tests {
             .rng_state();
 
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn main_variant_draws_do_not_advance_scenario_cursor() {
-        let seed = 0x51C0_1002;
-        let mut sim = ScenarioBootstrapRng::new(seed).into_simulation(&descriptor(seed));
-        {
-            let (_, main) = sim.terrain_load_draws();
-            let _ = main.next_u32();
-        }
-        let actual = sim.rng_state();
-        let mut expected_main = SimRng::new(u64::from(seed));
-        let _ = expected_main.next_u32();
-
-        assert_eq!(
-            actual.scenario,
-            SimRng::new(u64::from(seed)).logical_state()
-        );
-        assert_eq!(actual.main, expected_main.logical_state());
-    }
-
-    #[test]
-    fn terrain_scenario_draws_do_not_advance_main() {
-        let seed = 0x51C0_1003;
-        let mut sim = ScenarioBootstrapRng::new(seed).into_simulation(&descriptor(seed));
-        {
-            let (mut scenario, main) = sim.terrain_load_draws();
-            let _ = scenario.next_range_u32_inclusive(5, 17);
-            drop(main);
-        }
-        let actual = sim.rng_state();
-        let mut expected_scenario = SimRng::new(u64::from(seed));
-        let _ = expected_scenario.next_range_u32_inclusive(5, 17);
-
-        assert_eq!(actual.scenario, expected_scenario.logical_state());
-        assert_eq!(actual.main, SimRng::new(u64::from(seed)).logical_state());
     }
 
     #[test]

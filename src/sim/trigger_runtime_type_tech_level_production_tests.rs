@@ -78,7 +78,7 @@ fn assert_production_state(
     );
     let actual = sim
         .production
-        .factories
+        .factories()
         .iter_insertion_ordered()
         .into_iter()
         .find(|factory| factory.owner == owner && factory.category == ProductionCategory::Aircraft);
@@ -331,7 +331,7 @@ fn retail_all05_type_tech_level_recheck_cancels_paid_harrier_and_unlocks_black_e
     let held = runtime
         .simulation
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Aircraft)
         .unwrap()
         .object

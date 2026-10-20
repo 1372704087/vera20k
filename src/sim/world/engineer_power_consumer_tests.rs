@@ -224,7 +224,7 @@ fn assert_joined(sim: &Simulation, rules: &RuleSet, owner: InternedId, native: &
         native["eva_guard"] == 1,
         "{boundary}: local EVA guard"
     );
-    let factory = sim.production.factories.iter_insertion_ordered()[0];
+    let factory = sim.production.factories().iter_insertion_ordered()[0];
     let expected = &native["factory"];
     assert_eq!(
         i32::from(factory.progress),
@@ -294,7 +294,7 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
             .start_blackout(int(&timer[0]) as u32, int(&timer[2]));
         sim.assess_house_derived_state(owner, &rules);
         let type_ref = sim.interner.intern("PENDING");
-        assert!(sim.production.factories.test_enqueue_kernel(
+        assert!(sim.production.factories_mut().test_enqueue_kernel(
             owner,
             ProductionCategory::Vehicle,
             type_ref,
@@ -303,7 +303,7 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
         ));
         // Exact native-produced frame195 prior, not a Rust-derived start.
         let pending = &prior["factory"];
-        let factory = sim.production.factories.test_first_mut().unwrap();
+        let factory = sim.production.factories_mut().test_first_mut().unwrap();
         factory.progress = int(&pending["stage"]) as u16;
         factory.step_rate_frames = int(&pending["rate"]) as u16;
         factory.step_timer = CdTimer::from_raw(

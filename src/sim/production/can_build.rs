@@ -254,7 +254,7 @@ fn build_limit(
     }
     let in_production =
         sim.production
-            .factories
+            .factories()
             .iter_insertion_ordered()
             .into_iter()
             .any(|factory| {
@@ -297,7 +297,9 @@ pub(crate) fn check_build_limit(
     let tracking = sim.houses.get(&owner).map(HouseState::tracking);
     let in_factory = |type_id: Option<InternedId>| {
         type_id.map_or(0, |type_id| {
-            sim.production.factories.count_total(owner, strip, type_id)
+            sim.production
+                .factories()
+                .count_total(owner, strip, type_id)
         })
     };
     if obj.category == ObjectCategory::Aircraft && obj.airport_bound {

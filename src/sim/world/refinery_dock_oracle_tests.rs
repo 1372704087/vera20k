@@ -710,69 +710,51 @@ pub(super) fn compare_delay(
     }
 }
 
+/// The docking handshake (`can_dock`: the miner's CanDock to its refinery)
+/// and the radio core's other transmits.
 #[test]
-fn docking_handshake_matches_the_original_receivers() {
+fn docking_handshake_and_radio_core_match_the_original_transmits() {
     let corpus = corpus();
-    for row in corpus["can_dock"].as_array().unwrap() {
-        let input = &row["input"];
-        let context = input["name"].as_str().unwrap().to_string();
-        let mut s = scene(input);
-        radio::take_transmit_log();
-        let reply = radio::transmit(
-            &mut s.sim,
-            s.miner,
-            s.refinery,
-            RadioMessage::CanDock,
-            RadioPayload::default(),
-            Some(&s.rules),
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(
-            u64::from(reply.code()),
-            row["reply"].as_u64().unwrap(),
-            "{context}: reply"
-        );
-        assert_eq!(sends(&s), oracle_sends(row), "{context}: transmit sequence");
-        compare_state(&s, row, &context);
-    }
-}
-
-#[test]
-fn radio_core_matches_the_original_transmits() {
-    let corpus = corpus();
-    for row in corpus["radio"].as_array().unwrap() {
-        let input = &row["input"];
-        let context = input["name"].as_str().unwrap().to_string();
-        let mut s = scene(input);
-        let (sender, target) = match input["from"].as_str().unwrap() {
-            "miner" => (s.miner, s.refinery),
-            _ => (s.refinery, s.miner),
-        };
-        let msg = match input["msg"].as_u64().unwrap() {
-            2 => RadioMessage::Hello,
-            3 => RadioMessage::Break,
-            0x15 => RadioMessage::DockNow,
-            0x18 => RadioMessage::Tether,
-            0x19 => RadioMessage::Untether,
-            other => panic!("unmapped message {other}"),
-        };
-        radio::take_transmit_log();
-        let reply = radio::transmit(
-            &mut s.sim,
-            sender,
-            target,
-            msg,
-            RadioPayload::default(),
-            Some(&s.rules),
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(
-            u64::from(reply.code()),
-            row["reply"].as_u64().unwrap(),
-            "{context}: reply"
-        );
-        assert_eq!(sends(&s), oracle_sends(row), "{context}: transmit sequence");
-        compare_state(&s, row, &context);
+    for group in ["can_dock", "radio"] {
+        for row in corpus[group].as_array().unwrap() {
+            let input = &row["input"];
+            let context = input["name"].as_str().unwrap().to_string();
+            let mut s = scene(input);
+            let (sender, target, msg) = if group == "can_dock" {
+                (s.miner, s.refinery, RadioMessage::CanDock)
+            } else {
+                let (sender, target) = match input["from"].as_str().unwrap() {
+                    "miner" => (s.miner, s.refinery),
+                    _ => (s.refinery, s.miner),
+                };
+                let msg = match input["msg"].as_u64().unwrap() {
+                    2 => RadioMessage::Hello,
+                    3 => RadioMessage::Break,
+                    0x15 => RadioMessage::DockNow,
+                    0x18 => RadioMessage::Tether,
+                    0x19 => RadioMessage::Untether,
+                    other => panic!("unmapped message {other}"),
+                };
+                (sender, target, msg)
+            };
+            radio::take_transmit_log();
+            let reply = radio::transmit(
+                &mut s.sim,
+                sender,
+                target,
+                msg,
+                RadioPayload::default(),
+                Some(&s.rules),
+                crate::sim::world::FrameEffects::default(),
+            );
+            assert_eq!(
+                u64::from(reply.code()),
+                row["reply"].as_u64().unwrap(),
+                "{context}: reply"
+            );
+            assert_eq!(sends(&s), oracle_sends(row), "{context}: transmit sequence");
+            compare_state(&s, row, &context);
+        }
     }
 }
 

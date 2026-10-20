@@ -150,11 +150,11 @@ pub(crate) fn collect_area(
         damage,
         true,
         world.session.no_damage(),
-        &mut world.production.ore_growth_state,
-        &world.production.tiberium_spawning_terrain_cells,
-        &world.production.terrain_object_cells,
+        &mut world.ore_growth_state,
+        world.terrain_objects.spawning_cells(),
+        world.terrain_objects.cell_index(),
         world.session.binary_frame(),
-        world.production.ore_growth_config.spreads,
+        world.ore_growth_config.spreads(),
         &mut world.radar_terrain_dirty_cells,
         &mut world.radar_terrain_dirty_generation,
         &mut world.tactical_dirty_cells,
@@ -181,7 +181,7 @@ pub(crate) fn collect_area(
     let prelude: &mut dyn combat_aoe::AoECellPrelude = &mut prelude;
     combat_aoe::apply_aoe_damage_with_terrain_and_scenario(
         &mut world.substrate.entities,
-        &world.production.terrain_objects,
+        world.terrain_objects.objects(),
         cell.0,
         cell.1,
         damage,
@@ -200,8 +200,8 @@ pub(crate) fn collect_area(
             impact_z,
         },
         include_terrain_objects.then_some(combat_aoe::TerrainCollectionView {
-            objects: &world.production.terrain_objects,
-            cells: &world.production.terrain_object_cells,
+            objects: world.terrain_objects.objects(),
+            cells: world.terrain_objects.cell_index(),
         }),
         world.session.no_damage(),
         Some(prelude),
@@ -473,10 +473,10 @@ pub(crate) fn commit_area_with_dispatch(
                     continue;
                 }
                 if !world
-                    .production
                     .terrain_objects
+                    .objects()
                     .get(&event.stable_id)
-                    .is_some_and(|terrain| terrain.is_live() && terrain.health > 0)
+                    .is_some_and(|terrain| terrain.is_live() && terrain.health() > 0)
                 {
                     continue;
                 }
@@ -567,9 +567,7 @@ pub(crate) fn commit_terrain(
     else {
         return (effects, under_attack_events);
     };
-    let receive = crate::sim::terrain_object::receive_terrain_damage_with_scenario(
-        &mut world.production.terrain_objects,
-        &world.production.terrain_object_cells,
+    let receive = world.terrain_objects.receive_damage(
         &mut run.finalizing_terrain,
         event.stable_id,
         (event.rx, event.ry),
@@ -599,7 +597,7 @@ pub(crate) fn commit_terrain(
         let c4_id = world.interner.intern(&c4_warhead.id);
         // Terrain71BABF passes its retained Object Location, not a fresh
         // sample of the ground/deck after nested callbacks.
-        let impact = world.production.terrain_objects[&lethal.stable_id].world_coord();
+        let impact = world.terrain_objects.objects()[&lethal.stable_id].world_coord();
         let (nested, mut pings) = apply_area_damage_in_run(
             world,
             run,
@@ -2071,8 +2069,8 @@ fn nuke_maker(world: &mut Simulation, rules: &RuleSet, detonation: &ProjectileDe
     let target_coords = match detonation.target {
         ProjectileTarget::Entity(id) => object_get_coords(world, id),
         ProjectileTarget::Terrain(id) => world
-            .production
             .terrain_objects
+            .objects()
             .get(&id)
             .map(|tree| tree.world_coord()),
         ProjectileTarget::Cell { rx, ry } => {

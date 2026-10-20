@@ -673,13 +673,17 @@ fn replay(row: &Value) {
     }
 }
 
+/// The actual contact slots (admission, receiver and scanner) and the
+/// deposit busy retry and destroyed refinery histories.
 #[test]
-fn actual_contact_slots_match_original_admission_receiver_and_scanner() {
+fn contact_slots_and_deposit_histories_match_original_controls() {
     let c = corpus();
-    let rows = c["actual_slot_controls"].as_array().unwrap();
-    assert_eq!(rows.len(), 9);
-    for row in rows {
-        replay(row);
+    for (group, count) in [("actual_slot_controls", 9), ("deposit_histories", 3)] {
+        let rows = c[group].as_array().unwrap();
+        assert_eq!(rows.len(), count, "{group}");
+        for row in rows {
+            replay(row);
+        }
     }
 }
 
@@ -699,16 +703,6 @@ fn shared_enter_radio_and_depot_arrival_match_original_controls() {
         }
     }
     assert!(failures.is_empty(), "failed native controls: {failures:?}");
-}
-
-#[test]
-fn deposit_busy_retry_and_destroyed_refinery_match_original_histories() {
-    let c = corpus();
-    let rows = c["deposit_histories"].as_array().unwrap();
-    assert_eq!(rows.len(), 3);
-    for row in rows {
-        replay(row);
-    }
 }
 
 #[test]

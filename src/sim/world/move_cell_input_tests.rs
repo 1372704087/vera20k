@@ -608,7 +608,7 @@ impl Simulation {
         let terrain = self.resolved_terrain.as_mut().unwrap();
         for x in 8..=10 {
             let cell = terrain
-                .cells
+                .cells_mut_for_test()
                 .iter_mut()
                 .find(|c| c.rx == x && c.ry == 6)
                 .unwrap();

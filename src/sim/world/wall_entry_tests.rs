@@ -101,7 +101,7 @@ fn map_wall(sim: &mut Simulation, overlay: u8, data: u8) {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(16, 15)
+        .cell_mut_for_test(16, 15)
         .unwrap()
         .bridge_facts
         .overlay_id = Some(overlay);
@@ -244,7 +244,7 @@ fn the_land_row_refuses_after_the_wall_arm() {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(16, 15)
+        .cell_mut_for_test(16, 15)
         .unwrap()
         .speed_costs
         .foot = Some(0);

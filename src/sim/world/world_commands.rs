@@ -2132,9 +2132,9 @@ impl Simulation {
     }
 
     /// Object5F6C30 (+138), with Foot4DFA50's +6AD guard for mobile objects.
-    /// Native +D0(1) is the disguise House: Unit7465F0 may return NULL;
-    /// Infantry5226C0 defaults it to the current House. Reuse the existing
-    /// +C8 disguise owner instead of treating current fog as selectability.
+    /// Its disguise arm (+C8 with a NULL +D0(1)) is
+    /// [`crate::sim::game_entity::GameEntity::disguise_hides_house_from`]; it
+    /// does not treat current fog as selectability.
     pub fn object_is_selectable(&self, stable_id: u64, rules: Option<&RuleSet>) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
@@ -2144,20 +2144,14 @@ impl Simulation {
         {
             return false;
         }
-        if entity.category() == crate::map::entities::EntityCategory::Unit
-            && entity
-                .disguise
-                .as_ref()
-                .is_some_and(|d| d.house().is_none())
-            && self.session.current_house().is_some_and(|house| {
-                entity.is_disguised_to(
-                    house,
-                    Some(&self.fog),
-                    Some(&self.house_alliances),
-                    &self.interner,
-                )
-            })
-        {
+        if self.session.current_house().is_some_and(|house| {
+            entity.disguise_hides_house_from(
+                house,
+                Some(&self.fog),
+                Some(&self.house_alliances),
+                &self.interner,
+            )
+        }) {
             return false;
         }
         rules.is_none_or(|r| {

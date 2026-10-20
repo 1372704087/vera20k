@@ -29,7 +29,7 @@ fn queued_destructs(state: &AppState) -> Result<usize> {
         .iter()
         .filter(|command| {
             matches!(command.payload, crate::sim::command::Command::Destruct)
-                && Some(command.owner) == sim.session.current_house()
+                && Some(command.owner) == sim.session().current_house()
         })
         .count())
 }
@@ -416,12 +416,12 @@ impl AbortReturnInput {
                     })
                     .collect::<Vec<_>>();
                 ensure!(
-                    exits.len() == 1 && Some(exits[0].owner) == sim.session.current_house(),
+                    exits.len() == 1 && Some(exits[0].owner) == sim.session().current_house(),
                     "physical Leave did not queue exactly the current House's EXIT"
                 );
                 let exit = &exits[0];
                 ensure!(
-                    !sim.quit_requested,
+                    !sim.quit_requested(),
                     "Leave confirmation executed EXIT instead of only queueing it"
                 );
                 let destruct_count = queued_destructs(state)?;
@@ -435,11 +435,11 @@ impl AbortReturnInput {
                     json!({"frame": frame, "action": "Leave release", "dialog": 0xb6,
                     "leave_result": if destructs { 3 } else { 2 }, "destruct_queued": destructs}),
                 );
-                route.push(json!({"frame": frame, "action": "EXIT queued", "queued_at_tick": sim.session.tick(),
-                    "execute_tick": exit.execute_tick, "owner": sim.interner.resolve(exit.owner),
-                    "owner_native_unique_id": sim.houses.get(&exit.owner).and_then(|house| house.native_unique_id()),
+                route.push(json!({"frame": frame, "action": "EXIT queued", "queued_at_tick": sim.session().tick(),
+                    "execute_tick": exit.execute_tick, "owner": sim.interner().resolve(exit.owner),
+                    "owner_native_unique_id": sim.houses().get(&exit.owner).and_then(|house| house.native_unique_id()),
                     "modal_closed": !state.match_state.paused(), "diagnostic_simulation_freeze": false,
-                    "quit_requested": sim.quit_requested}));
+                    "quit_requested": sim.quit_requested()}));
                 MoviesCapture::restore_neutral_pointer(state);
                 self.phase = AbortInputPhase::Queued;
             }

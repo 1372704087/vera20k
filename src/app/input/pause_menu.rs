@@ -88,7 +88,7 @@ pub(crate) fn current_layout(state: &AppState) -> Option<PauseMenuLayout> {
 /// changes it only when it executes.
 fn current_game_speed(state: &AppState) -> i32 {
     state.match_state.sim_runtime.as_ref().map_or(0, |runtime| {
-        runtime.simulation.session.game_options().game_speed
+        runtime.simulation.session().game_options().game_speed
     })
 }
 

@@ -620,9 +620,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
     use crate::sim::mission::{MissionId, MissionType};
     use crate::sim::movement::FindPathResult;
     use crate::sim::movement::movement_tick::FootPathRequest;
-    use crate::sim::movement::path_markers::{
-        DeferredBridgeMarker, bridge_marker_peer, install_path_replay,
-    };
+    use crate::sim::movement::path_markers::{DeferredBridgeMarker, bridge_marker_peer};
     use crate::sim::pathfinding::SearchMarkerOverlay;
     use crate::util::fixed_math::{SIM_ONE, SIM_ZERO};
 
@@ -752,7 +750,10 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
             crate::sim::movement::motion_query::is_moving(actor),
             Some(true)
         );
-        install_path_replay(actor.navigation.path_replay_mut(), peer_cell, &peer_path, 1);
+        actor
+            .navigation
+            .path_replay_mut()
+            .install(peer_cell, &peer_path, 1);
         assert_eq!(
             actor.navigation.path_replay().reference_cell(),
             Some((

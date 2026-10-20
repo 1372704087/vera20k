@@ -36,7 +36,7 @@ fn output_arrival_fixture() -> (Simulation, RuleSet) {
         entity.set_owner_for_test(sim.intern("Americans"));
         entity.set_type_ref_for_test(sim.intern(name));
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         if category == EntityCategory::Infantry {
             entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Walk));
             entity
@@ -279,7 +279,10 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
         .navigation
         .path_replay_mut()
         .set_directions_for_test(vec![2, 2]);
-    entity.navigation.path_runtime_mut().set_path_blocked(true);
+    entity
+        .navigation
+        .path_runtime_mut()
+        .set_path_blocked_for_test(true);
     entity
         .navigation
         .path_runtime_mut()

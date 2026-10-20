@@ -32,7 +32,7 @@ fn secondary_for(
     sim: Option<&crate::sim::world::Simulation>,
 ) -> AbortSecondary {
     let live_humans = sim.map_or(0, |sim| {
-        sim.houses
+        sim.houses()
             .values()
             .filter(|house| house.is_human() && !house.is_defeated())
             .count()
@@ -125,12 +125,19 @@ mod tests {
     fn observe_counts_undefeated_humans_and_the_local_house() {
         let mut sim = Simulation::new();
         let names = ["Local", "Peer", "Ai"];
-        let ids = names.map(|name| sim.interner.intern(name));
+        let ids = names.map(|name| sim.intern(name));
         for (index, id) in ids.iter().enumerate() {
-            sim.houses
-                .register(HouseState::new(*id, index as i32, None, index < 2, 0, 10));
+            sim.houses_mut_for_test().register(HouseState::new(
+                *id,
+                index as i32,
+                None,
+                index < 2,
+                0,
+                10,
+            ));
         }
-        sim.session.set_current_house_for_test(Some(ids[0]));
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(ids[0]));
         let secondary = |sim: &Simulation, mode| secondary_for(mode, false, Some(sim));
         assert_eq!(secondary(&sim, SessionMode::Lan), AbortSecondary::Observe);
         assert_eq!(secondary(&sim, SessionMode::Wol), AbortSecondary::Observe);
@@ -143,7 +150,7 @@ mod tests {
             AbortSecondary::Restart
         );
         // A defeated peer leaves one live human: the AI House never counts.
-        sim.houses
+        sim.houses_mut_for_test()
             .get_mut(&ids[1])
             .unwrap()
             .set_is_defeated_for_test(true);

@@ -2071,22 +2071,22 @@ impl LanCapture {
                         .context("installed timeout runtime")?
                         .simulation;
                     let owner = sim
-                        .interner
+                        .interner()
                         .get(&peer_slot.owner_name)
                         .context("constructed remote House")?;
                     let local_owner = sim
-                        .interner
+                        .interner()
                         .get(&local_slot.owner_name)
                         .context("constructed local House")?;
                     ensure!(
-                        sim.session.tick() == 0
-                            && sim.session.binary_frame() == 0
+                        sim.session().tick() == 0
+                            && sim.session().binary_frame() == 0
                             && sim
-                                .houses
+                                .houses()
                                 .get(&owner)
                                 .is_some_and(|house| house.is_to_die())
                             && sim
-                                .houses
+                                .houses()
                                 .get(&local_owner)
                                 .is_some_and(|house| !house.is_to_die()),
                         "timeout did not flag only the mapped remote House before first simulation tick"
@@ -2129,12 +2129,12 @@ impl LanCapture {
                     .context("installed LAN runtime")?
                     .simulation;
                 ensure!(
-                    sim.session.started() && sim.session.game_mode_nonzero(),
+                    sim.session().started() && sim.session().game_mode_nonzero(),
                     "LAN runtime was not admitted"
                 );
-                self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session.tick(),
-                    "current_house":sim.session.current_house().map(|id|sim.interner.resolve(id)),
-                    "map":sim.session.map_name(),"host":state.match_state.session.host()}));
+                self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session().tick(),
+                    "current_house":sim.session().current_house().map(|id|sim.interner().resolve(id)),
+                    "map":sim.session().map_name(),"host":state.match_state.session.host()}));
                 let choice = match self.target {
                     LanTarget::HostObserve => Some(crate::ui::shell::abort::AbortButton::Secondary),
                     LanTarget::HostObserveOffered => None,
@@ -2179,11 +2179,11 @@ impl LanCapture {
                     .context("Observe lost its installed runtime")?
                     .simulation;
                 ensure!(
-                    state.match_state.scenario_exit.is_none() && !sim.quit_requested,
+                    state.match_state.scenario_exit.is_none() && !sim.quit_requested(),
                     "Observe ended the match"
                 );
                 if sim.local_player_defeated() {
-                    let tick = sim.session.tick();
+                    let tick = sim.session().tick();
                     let destructs_pending = sim.pending_command_snapshot().iter().any(|command| {
                         matches!(command.payload, crate::sim::command::Command::Destruct)
                     });
@@ -2226,7 +2226,7 @@ impl LanCapture {
                         .context("EXIT runtime")?
                         .simulation;
                     ensure!(
-                        sim.quit_requested
+                        sim.quit_requested()
                             && state.match_state.scenario_outcome.is_none()
                             && !sim
                                 .pending_command_snapshot()
@@ -2238,7 +2238,7 @@ impl LanCapture {
                         "LAN return began before local queued EXIT consumed"
                     );
                     self.route.push(
-                        json!({"frame":frame,"action":"EXIT consumed","tick":sim.session.tick()}),
+                        json!({"frame":frame,"action":"EXIT consumed","tick":sim.session().tick()}),
                     );
                     self.observed_exit_cascade = true;
                 }

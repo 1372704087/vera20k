@@ -50,8 +50,7 @@ pub(crate) fn depth_cell(
             ramp: cell.slope_type,
             flags: cell.bridge_facts.raw_flags,
             iso_tile_index: cell.final_tile_index,
-            low_bridge: cell.land_type()
-                == crate::rules::terrain_rules::LandType::Tunnel.as_index()
+            low_bridge: cell.land_type == crate::rules::terrain_rules::LandType::Tunnel.as_index()
                 && terrain.tube_at_cell(cell.rx, cell.ry).is_some(),
             overlay_rock: rock(overlay_id),
             tmp_height: terrain.native_tmp_draw_height(cell.final_tile_index, cell.final_sub_tile),
@@ -321,8 +320,7 @@ fn unit_z_adjust_in_runtime(
             Some(-3)
         } else if object.is_some_and(|o| o.harvester) {
             let cell = depth_cell(terrain, None, None, coord);
-            sim.substrate
-                .occupancy
+            sim.occupancy()
                 .first_building_on_layer(
                     cell.coord[0] as u16,
                     cell.coord[1] as u16,

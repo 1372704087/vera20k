@@ -695,8 +695,8 @@ impl Simulation {
     /// not moving (native trace: `spatial_oracle/anytown_damage/
     /// unit_unlimbo.json`, `factory_unload_rows[0]`, Ready 1 at `0x0073ACC2`).
     /// Whether a Hover or Jumpjet product is moving at its arrival call is
-    /// not established; if it is, `ready_to_commence_answer`'s moving-defer
-    /// residual applies.
+    /// not established; if it is, Is_Ready_To_Commence's moving defer
+    /// (`0x007442C2..0x00744327`) holds the AreaGuard until it stops.
     fn unit_factory_post(
         &mut self,
         id: u64,

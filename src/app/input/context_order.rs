@@ -5289,19 +5289,41 @@ mod tests {
             "already-primary Action0 uses row0"
         );
         assert_eq!(
-            cursor(&[first, second], second),
-            CursorFeedbackKind::FriendlyStructure,
-            "a group hover selects instead of choosing a primary"
-        );
-        assert_eq!(
-            cursor(&[first], second),
-            CursorFeedbackKind::FriendlyStructure,
+            cursor_id_for_feedback(cursor(&[first], second)),
+            Some(CursorId::Select),
             "the hovered factory must be the selected object"
         );
         assert_ne!(
             cursor(&[foreign], foreign),
             CursorFeedbackKind::Deploy,
             "a foreign nonprimary must not offer the local self action"
+        );
+        // DetermineAction692610 asks the best object alone; with two
+        // selected, Techno's self rung (0x007000C1) is closed and its tail
+        // answers 0 over a selected object (0x007005BF), which Building
+        // keeps (0x0044750D).
+        for id in [first, second] {
+            sim.entities_mut_for_test()
+                .get_mut(id)
+                .unwrap()
+                .selection
+                .set_selected_for_test(true);
+        }
+        let group = capability_cursor_for_hover(
+            &sim,
+            &[first, second],
+            Some(first),
+            &hover(second),
+            Some(rules),
+            None,
+            crate::app::input::context_order::OrderModifier::Normal,
+            false,
+            false,
+        );
+        assert_eq!(
+            cursor_id_for_feedback(group),
+            Some(CursorId::Default),
+            "a group hover over a selected factory is the arrow"
         );
     }
 

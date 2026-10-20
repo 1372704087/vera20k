@@ -480,6 +480,7 @@ fn allied_object_infantry_and_building_owners_answer_their_own_tails() {
             Some(&overlays),
             OrderModifier::Normal,
             false,
+            false,
         );
         assert_eq!(
             crate::app::input::cursor::cursor_id_for_feedback(feedback),
@@ -556,6 +557,7 @@ fn a_building_over_another_selected_building_does_nothing() {
         Some(&battle.rules),
         Some(&overlays),
         OrderModifier::Normal,
+        false,
         false,
     );
     assert_eq!(

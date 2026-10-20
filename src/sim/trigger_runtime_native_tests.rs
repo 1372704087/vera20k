@@ -722,7 +722,7 @@ fn funds_events_match_original_house_logic_and_cleanup_histories() {
             let runtime = &sim.trigger_runtime;
             let trigger = runtime.trigger(live).unwrap();
             let actual = json!({
-                "wallet": crate::sim::credit_income::available_money(&sim, houses[0]),
+                "wallet": crate::sim::credit_income::available_money(&sim.houses, houses[0]),
                 "spent": sim.houses[&houses[0]].economy().spent_credits(),
                 "actions": runtime.action_trace.len(),
                 "house_tag_count": runtime.house_tags.get(&houses[0]).map_or(0, Vec::len),
@@ -759,7 +759,7 @@ fn funds_events_match_original_house_logic_and_cleanup_histories() {
             );
         }
         let cleanup = json!({
-            "wallet": crate::sim::credit_income::available_money(&sim, houses[0]),
+            "wallet": crate::sim::credit_income::available_money(&sim.houses, houses[0]),
             "spent": sim.houses[&houses[0]].economy().spent_credits(),
             "house_tag_count": sim.trigger_runtime.house_tags.get(&houses[0]).map_or(0, Vec::len),
             "logic_tag_count": sim.trigger_runtime.logic_tags.len(),
@@ -824,7 +824,7 @@ fn funds_event_sov06_retail_cash_taunt_reaches_named_eva_once() {
     );
     let owner = sim.interner.get("Russians").unwrap();
     assert_eq!(
-        crate::sim::credit_income::available_money(&sim, owner),
+        crate::sim::credit_income::available_money(&sim.houses, owner),
         70000
     );
     sim.initialize_trigger_definitions(&map, &Default::default(), Some(&eva), None);
@@ -1387,7 +1387,8 @@ fn per_cell_arrival_uses_native_bridge_admission_and_keeps_the_cached_tag() {
                 }
             ),
         );
-        let cell = sim.trigger_cell_identity((15, 15));
+        let cell =
+            crate::sim::world::Simulation::trigger_cell_identity(&sim.resolved_terrain, (15, 15));
         sim.resolved_terrain
             .as_mut()
             .unwrap()
@@ -1464,7 +1465,10 @@ fn fresh_line_marker_writer_and_arrival_consumers_match_original_sparse_cells() 
             .map(|xy| (integer(&xy[0]), integer(&xy[1])))
             .collect();
         for &(x, y) in &cells {
-            let identity = sim.trigger_cell_identity((x as i16, y as i16));
+            let identity = crate::sim::world::Simulation::trigger_cell_identity(
+                &sim.resolved_terrain,
+                (x as i16, y as i16),
+            );
             sim.resolved_terrain
                 .as_mut()
                 .unwrap()
@@ -2991,7 +2995,8 @@ fn restored_live_owner_rejects_dangling_definitions_instances_and_attachments() 
     sim.substrate.entities.insert(entity);
     sim.trigger_runtime
         .replace_trigger_tag_attachment(TagAttachment::Object(object), Some(tag));
-    let cell = sim.trigger_cell_identity((50, 60));
+    let cell =
+        crate::sim::world::Simulation::trigger_cell_identity(&sim.resolved_terrain, (50, 60));
     sim.trigger_runtime
         .replace_cell_trigger_tag(cell, Some(tag));
     sim.trigger_runtime.logic_tags.push(tag);
@@ -4089,10 +4094,10 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                         .session
                         .set_binary_frame_for_test(args[1].as_u64().unwrap() as u32),
                     "attach_cell" => {
-                        let cell = sim.trigger_cell_identity((
-                            integer(&args[2]) as i16,
-                            integer(&args[3]) as i16,
-                        ));
+                        let cell = crate::sim::world::Simulation::trigger_cell_identity(
+                            &sim.resolved_terrain,
+                            (integer(&args[2]) as i16, integer(&args[3]) as i16),
+                        );
                         sim.trigger_runtime.replace_cell_trigger_tag(
                             cell,
                             Some(identities[integer(&args[1]) as usize]),

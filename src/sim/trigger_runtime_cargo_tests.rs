@@ -254,7 +254,7 @@ fn live_house_trigger_enables_train_cargo_before_fatal_receiver_and_pickup() {
     let collector = sim
         .spawn_object_at_height("CARGOTRUCK", "Americans", 16, 15, 0, 0, &rules)
         .unwrap();
-    let money = crate::sim::credit_income::available_money(&sim, owner);
+    let money = crate::sim::credit_income::available_money(&sim.houses, owner);
     assert!(sim.pickup_crate_at(
         collector,
         (slot.cell_x, slot.cell_y),
@@ -273,7 +273,7 @@ fn live_house_trigger_enables_train_cargo_before_fatal_receiver_and_pickup() {
             .overlay_id
             .is_none()
     );
-    assert!(crate::sim::credit_income::available_money(&sim, owner) > money);
+    assert!(crate::sim::credit_income::available_money(&sim.houses, owner) > money);
     assert!(
         sim.trigger_runtime.dirty[3],
         "native CrateTrigger still feeds event50"

@@ -513,7 +513,14 @@ fn manual_primary_native_histories_preserve_retained_flags_consumers_and_streams
                 sim.sound_events.clear_for_test();
                 let mut event = None;
                 match input["op"].as_str().unwrap() {
-                    "automatic" => initialize_factory_primary(&mut sim, id, &rules),
+                    "automatic" => initialize_factory_primary(
+                        &sim.interner,
+                        &mut sim.production,
+                        &sim.substrate,
+                        &sim.houses,
+                        id,
+                        &rules,
+                    ),
                     "click" => {
                         for &selected in &ids {
                             sim.substrate

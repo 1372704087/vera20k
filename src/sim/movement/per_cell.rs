@@ -1282,7 +1282,12 @@ impl Simulation {
         if let Some(rules) = rules {
             self.spatial_threat_at_per_cell(id, rules);
         }
-        self.foot_neighbors_at_per_cell(id);
+        Self::foot_neighbors_at_per_cell(
+            &mut self.substrate,
+            &self.resolved_terrain,
+            &mut self.overlay_grid,
+            id,
+        );
         if let Some(rules) = rules {
             crate::sim::world::techno_ai_cloak::uncloak_on_sensor_neighbour_after_cell_entry(
                 self, id, rules,
@@ -1351,7 +1356,12 @@ impl Simulation {
         self.deselect_over_player_shroud(id, Self::house_is_human_player);
         // `0x006F5090`'s head lets a held Temporal target go, then caches the
         // Cell of its GetCoords (`0x006F50B9..0x006F50F6`) for the tail.
-        self.temporal_release_if_warping(id);
+        Self::temporal_release_if_warping(
+            &mut self.substrate,
+            &mut self.houses,
+            &mut self.power_states,
+            id,
+        );
         let cell = self
             .substrate
             .entities

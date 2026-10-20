@@ -44,6 +44,7 @@ impl App {
         state.match_state.match_presentation.in_game_options.buttons = Default::default();
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.diplomacy = Default::default();
         if let Some(dialog) = state.match_state.match_presentation.sound_dialog.as_mut() {
             dialog.reset_interaction();
         }
@@ -794,10 +795,16 @@ impl ApplicationHandler for App {
                         return;
                     }
                     if in_game
-                        && state.match_state.match_presentation.in_game_menu
-                            == crate::ui::pause_menu::InGameMenuState::Sound
+                        && matches!(
+                            state.match_state.match_presentation.in_game_menu,
+                            crate::ui::pause_menu::InGameMenuState::Sound
+                                | crate::ui::pause_menu::InGameMenuState::Diplomacy
+                        )
                     {
-                        // B8 has no IDOK/IDCANCEL close command.
+                        // B8 has no IDOK/IDCANCEL close command. Neither has
+                        // 0x73: its proc keys commands by GetDlgCtrlID(lParam)
+                        // (0x006581A7), and Return 0x423 is owner-drawn, so
+                        // Enter and Escape name no child it handles.
                         return;
                     }
                     if in_game

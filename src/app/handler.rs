@@ -838,6 +838,21 @@ impl ApplicationHandler for App {
                         return;
                     }
                     if in_game
+                        && state.match_state.match_presentation.in_game_menu
+                            == crate::ui::pause_menu::InGameMenuState::Page
+                    {
+                        // 0xCF's loop takes every key; Escape names nothing.
+                        if event.state.is_pressed() {
+                            crate::app::shell_wol::page::key_press(
+                                state,
+                                Some(code),
+                                event.text.as_deref(),
+                            );
+                        }
+                        state.platform.window.request_redraw();
+                        return;
+                    }
+                    if in_game
                         && matches!(
                             state.match_state.match_presentation.in_game_menu,
                             crate::ui::pause_menu::InGameMenuState::Sound

@@ -433,19 +433,35 @@ pub(crate) fn post_chat_line(state: &mut AppState, name: &str, text: &str, rgb: 
 /// scheme (`0x004E12D0` with `0x00822728`), flags 0x16, MessageDelay*900
 /// (`0x0055EED0..0x0055EF2C`).
 pub(crate) fn post_observer_refusal(state: &mut AppState) {
-    post_grey_row(state, "TXT_OBSERVER_CANT_SEND", true);
+    post_grey_row(state, "TXT_OBSERVER_CANT_SEND", true, true);
+}
+
+/// The WOL page sinks in a match (`0x007A92F9..0x007A93B4`): the page line
+/// and, from the ANSI sink, `TXT_HOW_TO_REPLY` under it, each a Grey row
+/// with flags 0x16, `MessageDelay * 900` and silent 0.
+pub(crate) fn post_wol_page_rows(state: &mut AppState, line: &str, reply_hint: bool) {
+    post_grey_row(state, line, false, false);
+    if reply_hint {
+        post_grey_row(state, "TXT_HOW_TO_REPLY", true, false);
+    }
+}
+
+/// A WOL find or page-result row in a match with no window to take it
+/// (`0x007AA5D5..`, `0x007A9800`): the same Grey row, silent 0.
+pub(crate) fn post_wol_result_row(state: &mut AppState, text: &str) {
+    post_grey_row(state, text, false, false);
 }
 
 /// The WOL NetStatus sink's lost connection in a match (`0x007AA7C0..`):
 /// one `TXT_WOL_CONNLOST` row in the same scheme, flags and timeout, with
 /// its sound.
 pub(crate) fn post_wol_connection_lost(state: &mut AppState) {
-    post_grey_row(state, "TXT_WOL_CONNLOST", false);
+    post_grey_row(state, "TXT_WOL_CONNLOST", true, false);
 }
 
-/// A CSF row in `GadgetClass::GetColorScheme` (`0x004E12D0`, "Grey"),
-/// flags 0x16, `MessageDelay * 900`.
-fn post_grey_row(state: &mut AppState, key: &str, silent: bool) {
+/// A row in `GadgetClass::GetColorScheme` (`0x004E12D0`, "Grey"), flags
+/// 0x16, `MessageDelay * 900`; `text` is a CSF key when `localize`.
+fn post_grey_row(state: &mut AppState, text: &str, localize: bool, silent: bool) {
     let Some(rules) = state.rules() else {
         return;
     };
@@ -459,15 +475,16 @@ fn post_grey_row(state: &mut AppState, key: &str, silent: bool) {
             )
             .map(|channel| f32::from(channel) / 255.0)
         });
-    post_localized_message(
+    post_message(
         state,
         &crate::ui::messages::MessagePost {
             prefix: None,
-            text: key,
+            text,
             rgb,
             timeout_ms,
             silent,
         },
+        localize,
     );
 }
 

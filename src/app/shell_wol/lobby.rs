@@ -55,6 +55,8 @@ pub(crate) struct WolLobbyGlobals {
     pub(crate) limit_resolution: bool,
     /// `[0xB77E8C]`: the `0xCF` control that last notified, never reset.
     pub(crate) page_last_control: u16,
+    /// `[0xB76478..0xB76480]`: the in-match page's reply prefill window.
+    pub(crate) page_reply_window: crate::ui::wol_page::PageReplyWindow,
 }
 
 /// The decoded result of a joined channel: its record and its users.
@@ -1766,21 +1768,18 @@ pub(super) fn channel_ban(state: &mut AppState, name: &str, banned: bool) {
     state.platform.window.request_redraw();
 }
 
-/// The page sink (`0x007A9200`, UTF-16 `0x007A9550`): the two gates, then
-/// the sender becomes `[0xB77E30]`; a dialog with a transcript shows
-/// `(%hs) %s` in white and `[AudioVisual] IncomingMessage` plays. Elsewhere
-/// the page dialog `0x11E` would open, a later chain; no auto-reply text
-/// exists without wolinfo.
-/// RESIDUAL: in a match the page is a MessageList row pair (WOL in-match
-/// chain).
 /// The page sinks after their gates: the ANSI one (`0x007A9200`) keeps the
 /// sender as the `/reply` target `[0xB77E30]`; the UTF-16 one (`0x007A9550`)
 /// does not. Outside a match the line `u"(%hs) %s"` walks the shell stack
 /// from the current window: `0xCF`'s list `0x5B5` takes it and the walk goes
 /// on (`0x005E2790`); the first transcript `0x53F` (`0x113`, C2/C9 or an
 /// open `0x11E`) takes it and the walk stops; with none, `0x11E` opens.
-/// RESIDUAL: in a match the two Grey MessageList rows, the reply window and
-/// the in-match `0xCF` list are the in-match page chain; nothing shows yet.
+/// In a match (`[0xB77DC1]`, `0x007A92F9..0x007A93DC`) the line is a Grey
+/// MessageList row, the ANSI sink adds `TXT_HOW_TO_REPLY` under it, an open
+/// `0xCF` takes the line too, and the ANSI sink arms the reply window
+/// (now, 300) that prefills the next `0xCF`. `[AudioVisual] IncomingMessage`
+/// plays last in both.
+/// RESIDUAL: the auto-reply `[0xB77E40]`/`[0xB76230]` has no writer here.
 pub(super) fn page_received(state: &mut AppState, from: WolMember, text: Vec<u16>, ansi: bool) {
     if state.frontend.wol.is_none() || !sender_passes(state, &from, &text) {
         return;
@@ -1797,7 +1796,19 @@ pub(super) fn page_received(state: &mut AppState, from: WolMember, text: Vec<u16
         color: wol_chat::PAGE_COLOR,
     };
     if in_game {
-        log::warn!("WOL page during a match: the in-match rows are not ported");
+        let row = String::from_utf16_lossy(&line.text);
+        crate::app::input::messages::post_wol_page_rows(state, &row, ansi);
+        super::page::append_page_line(state, line);
+        if ansi {
+            let now = crate::ui::wol_page::reply_window_now(
+                crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+            );
+            state
+                .frontend
+                .wol_lobby_globals
+                .page_reply_window
+                .arm(now, crate::ui::wol_page::REPLY_WINDOW_TICKS);
+        }
     } else {
         super::page::append_page_line(state, line.clone());
         // The walk down the stack stops at the first `0x53F`: the lobby's

@@ -763,6 +763,7 @@ pub(super) fn dispatch_draw_passes(
             state.renderer.combat_light_renderer.composition_texture(),
             [tac_x, tac_y, tac_w, tac_h],
         );
+    let page_draw = crate::app::frontend::skirmish_shell_render::in_match_page_draw(state);
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
 
     // --- Screen-fixed UI: sidebar, messages, tooltips, cursor — UI camera (zoom=1.0) ---
@@ -834,6 +835,10 @@ pub(super) fn dispatch_draw_passes(
         Some(state.renderer.bit_font.atlas()),
         "tooltip_text",
     );
+    // State 7's 0xCF window over the live battlefield (0x0077D840).
+    if let Some(page) = page_draw.as_ref() {
+        page.draw(&mut pass, state);
+    }
 
     // Active YR ScreenCaptureCommandClass::Execute (0x00537BC0) hides
     // WWMouse while copying the already-presented client. Preserve the same

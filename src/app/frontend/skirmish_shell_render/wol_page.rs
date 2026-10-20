@@ -101,7 +101,9 @@ fn paint_transcript(
     }
 }
 
-/// Draw the box first, then its children over it.
+/// Draw the box first, then its children over it. The mode-2 paint
+/// (`0x006221D1`) picks the neutral background in the shell and the
+/// scenario side's in a match.
 fn paint_box(
     state: &AppState,
     dialog: RectPx,
@@ -112,9 +114,11 @@ fn paint_box(
     let Some(atlas) = state.frontend.skirmish_shell_chrome.as_ref() else {
         return paint;
     };
+    let side = (state.frontend.screen == crate::app::GameScreen::InGame)
+        .then(|| crate::app::presentation::sidebar_render::current_sidebar_theme(state));
     let draw = shell_paint::paint_modal_shp(
         &state.renderer.bit_font,
-        atlas.mode_two_dialog_background(None),
+        atlas.mode_two_dialog_background(side),
         super::type3_button_frames(atlas),
         dialog,
         buttons,
@@ -288,4 +292,92 @@ pub(crate) fn paint_wol_page_received(
         true,
     );
     paint
+}
+
+/// The in-match `0xCF` (state 7) as GPU buffers for the screen-fixed UI
+/// pass: the battlefield keeps drawing under it, and the dialog goes down
+/// after the tooltips and before the cursor.
+/// RESIDUAL: in a match `0x00622B50` skips `OwnerDraw__LoadNotInGameResources`;
+/// the buttons, edits and list here keep the shell's control art.
+pub(crate) struct InMatchPageDraw {
+    controls: Option<(wgpu::Buffer, u32)>,
+    texts: Vec<(
+        crate::render::shell_text::ScissorRect,
+        Option<(wgpu::Buffer, u32)>,
+    )>,
+}
+
+pub(crate) fn in_match_page_draw(state: &AppState) -> Option<InMatchPageDraw> {
+    if state.match_state.match_presentation.in_game_menu
+        != crate::ui::pause_menu::InGameMenuState::Page
+    {
+        return None;
+    }
+    let page = crate::app::shell_wol::page::page_dialog(state)?;
+    let paint = paint_wol_page_dialog(
+        state,
+        page,
+        &crate::app::shell_wol::page::page_layout(state),
+    );
+    let batch = &state.renderer.batch_renderer;
+    let gpu = &state.renderer.gpu;
+    // The UI camera follows the world camera's scroll (see the message
+    // rows): add it back so the dialog stays at its screen pixels.
+    let camera = [
+        state.match_state.input.camera_x,
+        state.match_state.input.camera_y,
+    ];
+    let screen = |instances: &[crate::render::batch::SpriteInstance]| {
+        let shifted: Vec<_> = instances
+            .iter()
+            .map(|instance| {
+                let mut instance = *instance;
+                instance.position[0] += camera[0];
+                instance.position[1] += camera[1];
+                instance
+            })
+            .collect();
+        batch.create_instance_buffer(gpu, &shifted)
+    };
+    Some(InMatchPageDraw {
+        controls: screen(&paint.controls),
+        texts: paint
+            .texts
+            .iter()
+            .map(|text| (text.scissor, screen(&text.instances)))
+            .collect(),
+    })
+}
+
+impl InMatchPageDraw {
+    pub(crate) fn draw<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, state: &'a AppState) {
+        let batch = &state.renderer.batch_renderer;
+        let (width, height) = (state.render_width(), state.render_height());
+        if let (Some((buffer, count)), Some(atlas)) = (
+            &self.controls,
+            state.frontend.skirmish_shell_chrome.as_ref(),
+        ) {
+            batch.draw_with_buffer_ui_passthrough(pass, &atlas.texture, buffer, *count);
+        }
+        for (scissor, buffer) in &self.texts {
+            let Some((buffer, count)) = buffer else {
+                continue;
+            };
+            let x = scissor.x.min(width);
+            let y = scissor.y.min(height);
+            let w = scissor.w.min(width - x);
+            let h = scissor.h.min(height - y);
+            if w == 0 || h == 0 {
+                continue;
+            }
+            pass.set_scissor_rect(x, y, w, h);
+            batch.draw_with_buffer_ui_passthrough(
+                pass,
+                state.renderer.bit_font.atlas(),
+                buffer,
+                *count,
+            );
+        }
+        pass.set_scissor_rect(0, 0, width, height);
+    }
 }

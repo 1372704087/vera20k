@@ -11,6 +11,7 @@ use super::service::WolServiceRequest;
 use crate::app::{App, AppState};
 use crate::ui::lan_shell::{LanChatLine, LanEditKey, LanListState, append_list_message};
 use crate::ui::main_menu_dialogs::options::LauncherCue;
+use crate::ui::pause_menu::InGameMenuState;
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use crate::ui::shell::list::{ListMetrics, ShellListGeometry};
 use crate::ui::shell::modal::{
@@ -22,11 +23,17 @@ use crate::ui::wol_page::*;
 /// `[0x7EEF2C]`: `0x11E`'s own echo.
 const REPLY_COLOR: u32 = 0xF0F0;
 
+/// The shell's window, or in a match the frame the battlefield draws into
+/// (the in-match `0xCF` centres over it, at its source size).
 fn screen(state: &AppState) -> (i32, i32) {
-    (
-        state.renderer.gpu.config.width as i32,
-        state.renderer.gpu.config.height as i32,
-    )
+    if state.frontend.screen == crate::app::GameScreen::InGame {
+        (state.render_width() as i32, state.render_height() as i32)
+    } else {
+        (
+            state.renderer.gpu.config.width as i32,
+            state.renderer.gpu.config.height as i32,
+        )
+    }
 }
 
 pub(crate) fn page_layout(state: &AppState) -> WolPageLayout {
@@ -73,16 +80,68 @@ pub(crate) fn open(state: &AppState) -> bool {
     page_dialog(state).is_some() || page_received(state).is_some()
 }
 
-/// `0x0078BA3E`, `0x00790C8D`, `0x0079235F`: `UI__BeginDialog(0xCF)` and
-/// its modal loop. The input lock `[0xA8ED9C]` and the keyboard clears
-/// around it have nothing to hold here: the dialog takes every key while
-/// it exists.
+/// `0x0078BA3E`, `0x00790C8D`, `0x0079235F` and, in a match, `0x0077D840`:
+/// `UI__BeginDialog(0xCF)` and its modal loop. The input lock `[0xA8ED9C]`
+/// and the keyboard clears around it have nothing to hold here: the dialog
+/// takes every key while it exists.
 pub(crate) fn open_page_dialog(state: &mut AppState) {
-    let Some(visit) = state.frontend.wol.as_mut() else {
+    let Some(visit) = state.frontend.wol.as_ref() else {
         return;
     };
-    visit.page_dialog = Some(Box::new(WolPageDialog::new()));
-    state.platform.window.request_redraw();
+    let last_pager = visit.last_pager.clone();
+    let now = reply_window_now(crate::app::match_runtime::frame_pacer::wall_clock_ms());
+    let globals = &mut state.frontend.wol_lobby_globals;
+    let (page, actions) = WolPageDialog::open(
+        &mut globals.page_reply_window,
+        now,
+        last_pager.as_deref(),
+        &mut globals.page_last_control,
+    );
+    if let Some(visit) = state.frontend.wol.as_mut() {
+        visit.page_dialog = Some(Box::new(page));
+    }
+    apply(state, actions);
+}
+
+/// State 7 (`State_Machine 0x0048CC2C`): the PageUser event's dialog over
+/// the running match. The state machine's admission runs first; Cancel
+/// ends the state (`0x0048CC31`).
+pub(crate) fn open_in_match(state: &mut AppState) {
+    if state.frontend.wol.is_none() {
+        return;
+    }
+    App::enter_in_game_menu_state(state, InGameMenuState::Page);
+    if state.match_state.match_presentation.in_game_menu == InGameMenuState::Page {
+        open_page_dialog(state);
+    }
+}
+
+/// `0xCF` closes; in a match its state ends with it.
+pub(crate) fn close_page_dialog(state: &mut AppState) {
+    if let Some(visit) = state.frontend.wol.as_mut() {
+        visit.page_dialog = None;
+    }
+    if state.match_state.match_presentation.in_game_menu == InGameMenuState::Page {
+        App::enter_in_game_menu_state(state, InGameMenuState::Closed);
+    }
+}
+
+/// The observer gate `0x0078D52A..0x0078D566`: once the local player is
+/// out (Session+0x300, `[0xA8B538]`), a name `_stricmp`-equal to any
+/// connection node's refuses the page. Outside a match there are no nodes.
+fn observer_cannot_page(state: &AppState, name: &str) -> bool {
+    let out = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .is_some_and(|runtime| runtime.simulation.local_player_defeated());
+    let session = &state.match_state.session;
+    out && crate::app::match_runtime::network_match::nodes(session)
+        .into_iter()
+        .any(|node| {
+            crate::app::match_runtime::network_match::participant_name(session, node)
+                .eq_ignore_ascii_case(name)
+        })
 }
 
 /// `0x005E2820` into one of the dialogs' lists, wrapped to its width.
@@ -144,10 +203,9 @@ pub(super) fn append_received_line(state: &mut AppState, line: LanChatLine) {
 
 /// The current window's `0x53F`, else its `0x5B5` (the find sink's tail
 /// `0x007AA5D5`, the page-result sink's failure branch `0x007A9800`):
-/// `0xCF`'s list, `0x11E`'s, or the lobby's or C2/C9's transcript. Returns
-/// false when the current window has neither.
-/// RESIDUAL: in a match both sinks then post a MessageList row (in-match
-/// chain).
+/// `0xCF`'s list, `0x11E`'s, or the lobby's or C2/C9's transcript; with
+/// neither, in a match (Session+0x30D8, `0x0069BBE0`), a Grey MessageList
+/// row. Returns false when nothing took the line.
 pub(super) fn current_window_line(state: &mut AppState, line: LanChatLine) -> bool {
     if page_dialog(state).is_some() {
         return append_page_line(state, line);
@@ -156,12 +214,15 @@ pub(super) fn current_window_line(state: &mut AppState, line: LanChatLine) -> bo
         append_received_line(state, line);
         return true;
     }
-    let shell = state
-        .frontend
-        .wol
-        .as_ref()
-        .is_some_and(|visit| !visit.in_game);
-    if shell && (state.frontend.shell_route.network_setup() || App::wol_page_is_lobby(state)) {
+    let Some(in_game) = state.frontend.wol.as_ref().map(|visit| visit.in_game) else {
+        return false;
+    };
+    if in_game {
+        let text = String::from_utf16_lossy(&line.text);
+        crate::app::input::messages::post_wol_result_row(state, &text);
+        return true;
+    }
+    if state.frontend.shell_route.network_setup() || App::wol_page_is_lobby(state) {
         crate::app::shell_lan::append_chat(state, line);
         return true;
     }
@@ -287,31 +348,31 @@ fn apply(state: &mut AppState, actions: Vec<WolPageAction>) {
                 if !state.frontend.wol.as_ref().is_some_and(|visit| visit.api) {
                     continue;
                 }
-                // RESIDUAL: the observer gate (0x0078D52A) reads [0xA8B538]
-                // and the connection nodes; it refuses pages only from a
-                // match, the in-match page chain.
+                if observer_cannot_page(state, &name) {
+                    notice(state, "TXT_OBSERVER_CANT_PAGE");
+                    continue;
+                }
                 send_page(state, &name, &text);
                 let line = echo_line(state, &text, wol_chat::SAY_COLOR);
                 append_page_line(state, line);
             }
-            WolPageAction::Notice(key) => {
-                let text = App::csf_label(state, key, key).encode_utf16().collect();
-                append_page_line(
-                    state,
-                    LanChatLine {
-                        text,
-                        color: u32::MAX,
-                    },
-                );
-            }
-            WolPageAction::Close => {
-                if let Some(visit) = state.frontend.wol.as_mut() {
-                    visit.page_dialog = None;
-                }
-            }
+            WolPageAction::Notice(key) => notice(state, key),
+            WolPageAction::Close => close_page_dialog(state),
         }
     }
     state.platform.window.request_redraw();
+}
+
+/// A white (-1) CSF line through `0x005E2790`.
+fn notice(state: &mut AppState, key: &str) {
+    let text = App::csf_label(state, key, key).encode_utf16().collect();
+    append_page_line(
+        state,
+        LanChatLine {
+            text,
+            color: u32::MAX,
+        },
+    );
 }
 
 fn apply_received(state: &mut AppState, action: Option<WolPageReceivedAction>) {

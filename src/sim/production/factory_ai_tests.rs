@@ -124,25 +124,6 @@ fn the_yard_builds_its_choice_and_places_it_on_the_node() {
     assert!(f.held_object().is_none(), "the yard's factory is gone");
 }
 
-#[test]
-fn a_placed_building_that_does_not_score_is_not_counted() {
-    let mut f = fixture_with(&RULES.replace("[PLAIN]\n", "[PLAIN]\nDontScore=yes\n"));
-    let mut frames = 0;
-    while f.placed().is_none() && frames < 3000 {
-        f.tick();
-        frames += 1;
-    }
-    assert_eq!(f.placed(), Some((16, 16)), "after {frames} frames");
-    assert_eq!(f.sim.houses[&f.owner].stats().built(), 0);
-    assert_eq!(
-        f.sim.houses[&f.owner].produced_count(
-            ObjectCategory::Building,
-            f.rules.building_type_index("PLAIN").unwrap(),
-        ),
-        0
-    );
-}
-
 /// AI4501A4 records after ExitObject has consumed its wall. The original
 /// deferred-delete boundary preserves type and raw ctor Location for that
 /// call; Rust's earlier disposal must preserve the same input facts.

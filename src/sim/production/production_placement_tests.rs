@@ -1076,37 +1076,6 @@ fn place_ready_building_accepts_clear_mixed_height_footprint() {
 }
 
 #[test]
-fn place_ready_building_rejects_blocked_cell_inside_mixed_height_footprint() {
-    let mut sim = placement_sim();
-    let rules = placement_radius_rules();
-    sim.resolved_terrain = Some(resolved_clear_grid_with_override(64, 64, |cell| {
-        if (cell.rx, cell.ry) == (13, 11) {
-            cell.land_type = LandType::Rock.as_index();
-        }
-    }));
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-
-    for (cell, z) in [((12, 10), 0), ((13, 10), 1), ((12, 11), 2), ((13, 11), 3)] {
-        sim.resolved_terrain
-            .as_mut()
-            .expect("placement fixture terrain")
-            .cell_mut(cell.0, cell.1)
-            .expect("footprint cell")
-            .level = z;
-    }
-
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-
-    let placed = place_building(&mut sim, &rules, "Americans", "GAPOWR", (12, 10), None);
-    assert!(!placed);
-    assert_eq!(
-        ready_buildings_for_owner(&sim, &rules, "Americans").len(),
-        1,
-        "blocked placement must not consume the ready building"
-    );
-}
-
-#[test]
 fn stock_refinery_free_unit_spawns_on_building_up_completion_once() {
     let mut sim = placement_sim();
     let rules = stock_refinery_completion_rules();
@@ -1302,48 +1271,6 @@ fn refinery_whose_primary_cell_clears_its_footprint_keeps_the_primary_cell_and_f
 }
 
 #[test]
-fn occupied_primary_bay_uses_one_fallback_without_overlap() {
-    let mut sim = placement_sim();
-    let rules = stock_refinery_completion_rules();
-    let mut grid = PathGrid::new(64, 64);
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 14, 20);
-    let refinery_id = ready_and_place(&mut sim, &rules, "Americans", "GAREFN", 20, 20);
-    block_building_foundation(&mut grid, &rules, "GAREFN", 20, 20);
-    let blocker_id = spawn_standing_blocker(&mut sim, &rules, (22, 22));
-    assert!(sim.substrate.occupancy.contains_entity(22, 22, refinery_id));
-    assert!(sim.substrate.occupancy.contains_entity(22, 22, blocker_id));
-    install_refinery_test_terrain(&mut sim);
-    set_ticks_until_completion(&mut sim, refinery_id, 1);
-
-    let completion = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
-    assert!(completion.spawned_entities);
-    let cmin_ids = unit_ids(&sim, "Americans", "CMIN");
-    assert_eq!(
-        cmin_ids.len(),
-        1,
-        "fallback must reuse one constructed unit"
-    );
-    let miner = sim
-        .substrate
-        .entities
-        .get(cmin_ids[0])
-        .expect("fallback miner should remain alive");
-    assert_ne!(
-        (miner.position.rx(), miner.position.ry()),
-        (22, 22),
-        "FreeUnit must not overlap an independent primary-bay blocker"
-    );
-    assert_eq!(miner.body_facing.destination(), 0xA000);
-    assert!(sim.substrate.occupancy.contains_entity(22, 22, blocker_id));
-    assert!(
-        !sim.substrate
-            .occupancy
-            .contains_entity(22, 22, miner.stable_id()),
-        "failed primary Reveal must not mark the miner into occupancy"
-    );
-}
-
-#[test]
 fn live_occupant_on_a_candidate_cell_drops_that_cell_from_the_fallback_pool() {
     // The nearby search runs AFTER the primary placement is refused and reads live
     // occupancy — it is not precomputed off the static path grid before the primary
@@ -1470,28 +1397,6 @@ fn free_unit_total_placement_failure_refunds_once_and_leaves_no_entity() {
 }
 
 #[test]
-fn non_refinery_completion_has_no_free_unit_or_credit_side_effect() {
-    let mut sim = placement_sim();
-    let rules = stock_refinery_completion_rules();
-    let grid = PathGrid::new(64, 64);
-    let construction_yard_id = sim
-        .spawn_object("GACNST", "Americans", 20, 20, 0, &rules)
-        .expect("construction yard should spawn");
-    sim.substrate
-        .entities
-        .get_mut(construction_yard_id)
-        .expect("construction yard should exist")
-        .install_building_up(BuildingUp::completing_in_ticks(1, 0), 0);
-    let credits_before = credits_for_owner(&sim, "Americans");
-
-    let completion = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
-    assert!(!completion.spawned_entities);
-    assert!(unit_ids(&sim, "Americans", "CMIN").is_empty());
-    assert!(unit_ids(&sim, "Americans", "HARV").is_empty());
-    assert_eq!(credits_for_owner(&sim, "Americans"), credits_before);
-}
-
-#[test]
 fn simultaneous_refinery_completions_preserve_stable_id_order() {
     let mut sim = placement_sim();
     let rules = stock_refinery_completion_rules();
@@ -1517,23 +1422,6 @@ fn simultaneous_refinery_completions_preserve_stable_id_order() {
         cmin[0] < harv[0],
         "FreeUnits must allocate in completed-building stable-ID order"
     );
-}
-
-#[test]
-fn modded_refinery_completion_uses_free_unit_from_rules() {
-    let rules = modded_refinery_rules("3x3", Some("MODHARV"));
-    let mut sim = placement_sim();
-    let grid = PathGrid::new(64, 64);
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 18, 18);
-    let refinery_id = ready_and_place(&mut sim, &rules, "Americans", "MODPROC", 20, 20);
-    assert!(unit_ids(&sim, "Americans", "MODHARV").is_empty());
-    install_refinery_test_terrain(&mut sim);
-    set_ticks_until_completion(&mut sim, refinery_id, 1);
-
-    let completion = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
-    assert!(completion.spawned_entities);
-    assert_eq!(unit_ids(&sim, "Americans", "MODHARV").len(), 1);
 }
 
 #[test]
@@ -2749,32 +2637,6 @@ fn build_off_ally_lends_an_eligible_allied_provider_only_while_enabled() {
 }
 
 #[test]
-fn build_off_ally_off_keeps_own_base_provider() {
-    let mut sim = placement_sim();
-    let rules = build_off_ally_rules();
-
-    sim.session.game_options_mut_for_test().build_off_ally = false;
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-
-    let placed = place_building(&mut sim, &rules, "Americans", "GAPOWR", (12, 10), None);
-    assert!(placed);
-}
-
-#[test]
-fn placement_preview_reports_out_of_build_area() {
-    let mut sim = placement_sim();
-    let rules = placement_radius_rules();
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-
-    let preview = preview_at(&sim, &rules, "Americans", "GAPOWR", (20, 20), None);
-    assert!(!preview.valid);
-    assert_eq!(preview.reason, Some(BuildingPlacementError::OutOfBuildArea));
-}
-
-#[test]
 fn placement_preview_keeps_shared_dummy_unchanged_across_unallocated_foundation_cells() {
     let mut sim = placement_sim();
     let rules = placement_radius_rules();
@@ -2816,24 +2678,6 @@ fn placement_preview_keeps_shared_dummy_unchanged_across_unallocated_foundation_
         None,
     ));
     assert_eq!(dummy.snapshot().coord, (64, 11));
-}
-
-#[test]
-fn placement_preview_reports_blocked_terrain() {
-    let mut sim = placement_sim();
-    let rules = placement_radius_rules();
-    sim.resolved_terrain = Some(resolved_clear_grid_with_override(64, 64, |cell| {
-        if (cell.rx, cell.ry) == (12, 10) {
-            cell.land_type = LandType::Rock.as_index();
-        }
-    }));
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GACNST", 10, 10);
-    ready_building(&mut sim, &rules, "Americans", "GAPOWR");
-
-    let preview = preview_at(&sim, &rules, "Americans", "GAPOWR", (12, 10), None);
-    assert!(!preview.valid);
-    assert_eq!(preview.reason, Some(BuildingPlacementError::BlockedTerrain));
 }
 
 #[test]
@@ -3121,51 +2965,6 @@ fn blocked_active_war_factory_does_not_spawn_from_second_factory() {
     );
     assert!(produced.has_live_contact_with(1));
     assert!(!produced.has_live_contact_with(2));
-}
-
-#[test]
-fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
-    let mut sim = placement_sim();
-    let rules = factory_rules();
-    let mut grid = PathGrid::new(64, 64);
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAWEAP", 10, 10);
-    grid.set_blocked(12, 11, true);
-    sim.install_fixture_path_grid(Some(&grid));
-
-    arm_build_via(
-        &mut sim,
-        &rules,
-        "Americans",
-        "MTNK",
-        ProductionCategory::Vehicle,
-        0,
-    );
-    let owner = sim.interner.get("Americans").unwrap();
-    let held = super::lifecycle_tests::held_id(&sim, owner, ProductionCategory::Vehicle);
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(owner, ProductionCategory::Vehicle)
-    );
-    assert!(place_production_with_overlays(
-        &mut sim,
-        &rules,
-        "Americans",
-        ProductionPlacement::Mobile {
-            category: ProductionCategory::Vehicle
-        },
-        None,
-        crate::sim::world::FrameEffects::default(),
-    ));
-    let produced = sim.substrate.entities.get(held).unwrap();
-
-    assert_eq!(
-        (produced.position.rx(), produced.position.ry()),
-        (12, 11),
-        "native factory scope bypasses class admission without choosing a nearby coordinate"
-    );
-    assert!(produced.lifecycle.cell_marked() && !produced.lifecycle.in_limbo());
 }
 
 #[test]

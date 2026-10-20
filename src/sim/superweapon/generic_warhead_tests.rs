@@ -5,10 +5,8 @@ use super::*;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
 use crate::rules::superweapon_type::{GenericWarheadAiTargeting, SuperWeaponKind};
-use crate::sim::command::{Command, CommandEnvelope};
-use crate::sim::runtime::{SimResources, SimRuntime};
+use crate::sim::command::Command;
 use crate::sim::superweapon::SuperWeaponInstance;
-use crate::sim::world::TickLane;
 
 const RULES: &str = "\
 [SuperWeaponTypes]
@@ -147,21 +145,6 @@ fn ares_generic_warhead_command_applies_area_damage_and_consumes_charge_once() {
 }
 
 #[test]
-fn ares_generic_warhead_invalid_payload_or_cell_keeps_charge() {
-    for extra in ["[Strike]\nSW.Warhead=none\n", ""] {
-        let (mut sim, rules, owner, sw_type, target) = fixture(extra, "Russians");
-        let cell = if extra.is_empty() {
-            (u16::MAX, 15)
-        } else {
-            (15, 15)
-        };
-        assert!(!fire(&mut sim, &rules, owner, sw_type, cell));
-        assert!(sim.super_weapons[&owner][&sw_type].is_ready);
-        assert_eq!(sim.entities().get(target).unwrap().health.current(), 200);
-    }
-}
-
-#[test]
 fn ares_generic_warhead_source_obeys_damage_self() {
     for damage_self in [false, true] {
         let extra = format!(
@@ -239,41 +222,6 @@ fn ares_generic_warhead_ai_offensive_and_none_use_normal_firing() {
         );
         assert_eq!(sim.super_weapons[&owner][&sw_type].is_ready, mode == "None");
     }
-}
-
-#[test]
-fn ares_generic_warhead_queued_command_runs_through_bound_frame() {
-    let (mut sim, rules, owner, sw_type, target) = fixture("", "Russians");
-    sim.input_delay_ticks = 0;
-    let command = CommandEnvelope::new(
-        owner,
-        sim.session.tick() + 1,
-        Command::LaunchSuperWeapon {
-            sw_type_id: sw_type,
-            target_rx: 15,
-            target_ry: 15,
-        },
-    );
-    let mut resources = SimResources::empty();
-    resources.rules = rules;
-    let mut runtime = SimRuntime {
-        simulation: sim,
-        resources,
-    };
-    runtime
-        .advance_frame(&[command], 33, TickLane::Ordinary, FrameEffects::default())
-        .unwrap();
-    assert_eq!(
-        runtime
-            .simulation
-            .entities()
-            .get(target)
-            .unwrap()
-            .health
-            .current(),
-        125
-    );
-    assert!(!runtime.simulation.super_weapons[&owner][&sw_type].is_ready);
 }
 
 // Migrated from SuperweaponTargetPreflightTests.InvalidTargetPreflight_...

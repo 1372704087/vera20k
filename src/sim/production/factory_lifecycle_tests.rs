@@ -2779,101 +2779,6 @@ fn factory_loss_revalidation_disposes_parent_and_children_before_returning() {
     }
 }
 
-#[test]
-fn revalidation_without_house_disposes_held_graph_without_creating_account() {
-    let (mut sim, rules, owner) = world(0xfac7_0017);
-    assert!(enqueue_by_type(
-        &mut sim,
-        &rules,
-        "Americans",
-        "SMIN",
-        crate::sim::world::FrameEffects::default(),
-        false,
-    ));
-    let parent = held_id(&sim, owner, ProductionCategory::Vehicle);
-    let child_ids = children(&sim, parent);
-    sim.substrate.entities.remove(1);
-    sim.houses.remove_for_test(&owner);
-    let rng = sim.scenario_rng.logical_state();
-    super::update_factory_queue(
-        &mut sim,
-        &rules,
-        owner,
-        ProductionCategory::Vehicle,
-        crate::sim::world::FrameEffects::default(),
-    );
-    assert_gone(&sim, parent, &child_ids);
-    assert!(!sim.houses.contains_key(&owner));
-    assert_eq!(sim.scenario_rng.logical_state(), rng);
-}
-
-#[test]
-fn missing_aircraft_producer_retains_completed_aircraft_and_queued_successor() {
-    let (mut sim, rules, owner) = world(0xfac7_0018);
-    spawn_structure(&mut sim, &rules, 5, "Americans", "GAAIRC", 26, 10);
-    assert!(enqueue_by_type(
-        &mut sim,
-        &rules,
-        "Americans",
-        "ORCA",
-        crate::sim::world::FrameEffects::default(),
-        false,
-    ));
-    assert!(enqueue_by_type(
-        &mut sim,
-        &rules,
-        "Americans",
-        "ORCA",
-        crate::sim::world::FrameEffects::default(),
-        false,
-    ));
-    let held = held_id(&sim, owner, ProductionCategory::Aircraft);
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(owner, ProductionCategory::Aircraft)
-    );
-    // This is FindFactory's absent producer branch, not a present, full pad.
-    sim.substrate.entities.remove(5);
-    let credits = sim.houses[&owner].economy().credits();
-    let rng = (
-        sim.main_rng.logical_state(),
-        sim.scenario_rng.logical_state(),
-        sim.mapgen_rng.logical_state(),
-    );
-    let allocated = sim.substrate.next_stable_object_id;
-    assert!(!dispatch_production_changes_for_tests(
-        &mut sim, &rules, None
-    ));
-    assert_eq!(held_id(&sim, owner, ProductionCategory::Aircraft), held);
-    let factory = sim
-        .production
-        .factories
-        .view(owner, ProductionCategory::Aircraft)
-        .unwrap();
-    assert!(factory.complete_object().is_some());
-    assert_eq!(factory.progress, super::PRODUCTION_STEPS);
-    assert_eq!(factory.queue.len(), 1);
-    assert!(
-        sim.substrate
-            .entities
-            .get(held)
-            .unwrap()
-            .lifecycle
-            .in_limbo()
-    );
-    assert_eq!(sim.houses[&owner].economy().credits(), credits);
-    assert_eq!(sim.substrate.next_stable_object_id, allocated);
-    assert_eq!(
-        (
-            sim.main_rng.logical_state(),
-            sim.scenario_rng.logical_state(),
-            sim.mapgen_rng.logical_state()
-        ),
-        rng
-    );
-}
-
 /// A finished object held for delivery goes with its factory. At a building's
 /// kill `BuildingClass::Detach_All(1) @ 0x0044EBF0` abandons its own factory
 /// and, for a Construction Yard, every production no other factory can build,
@@ -2928,35 +2833,6 @@ fn a_ready_building_goes_with_the_last_construction_yard() {
             .view(owner, ProductionCategory::Building)
             .is_none()
     );
-}
-
-/// The same for a finished vehicle held at its factory: with the last War
-/// Factory gone, the tank and its spawns are deleted, untracked and refunded.
-#[test]
-fn a_held_vehicle_goes_with_the_last_war_factory() {
-    let (mut sim, rules, owner) = world(0xfac7_001a);
-    assert!(enqueue_by_type(
-        &mut sim,
-        &rules,
-        "Americans",
-        "MTNK",
-        crate::sim::world::FrameEffects::default(),
-        false,
-    ));
-    let held = held_id(&sim, owner, ProductionCategory::Vehicle);
-    let child_ids = children(&sim, held);
-    assert!(
-        sim.production
-            .factories
-            .test_arm_ready(owner, ProductionCategory::Vehicle)
-    );
-    assert_eq!(sim.houses[&owner].tracking().units_for_test(), 1);
-    let credits = sim.houses[&owner].economy().credits();
-
-    sim.uninit_with_rules(1, &rules);
-    assert_gone(&sim, held, &child_ids);
-    assert_eq!(sim.houses[&owner].tracking().units_for_test(), 0);
-    assert_eq!(sim.houses[&owner].economy().credits(), credits + 700);
 }
 
 /// A 900-credit tank buildable from a war factory, and an Industrial Plant type

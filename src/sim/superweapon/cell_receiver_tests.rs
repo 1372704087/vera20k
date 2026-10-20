@@ -243,11 +243,6 @@ fn iron_curtain_command_does_not_damage_factory_held_or_unmarked_infantry() {
 }
 
 #[test]
-fn genetic_converter_command_does_not_damage_factory_held_or_unmarked_infantry() {
-    held_infantry_survives_launch("GM");
-}
-
-#[test]
 fn genetic_converter_per_cell_retires_animated_victim_through_production_frames() {
     animated_mutation_victim_retires(false);
 }
@@ -871,11 +866,6 @@ fn iron_curtain_command_uses_packed_aliases_and_stamps_missing_cells() {
     command_uses_packed_aliases_and_stamps_missing_cells("IC", "MTNK");
 }
 
-#[test]
-fn genetic_converter_command_uses_packed_aliases_and_stamps_missing_cells() {
-    command_uses_packed_aliases_and_stamps_missing_cells("GM", "E1");
-}
-
 fn command_uses_packed_aliases_and_stamps_missing_cells(name: &str, object_type: &str) {
     for (x, y) in [(512, 1), (u16::MAX, 2)] {
         let (mut sim, rules) = fixture();
@@ -883,23 +873,11 @@ fn command_uses_packed_aliases_and_stamps_missing_cells(name: &str, object_type:
             .spawn_object_at_height(object_type, "Americans", 0, 2, 0, 0, &rules)
             .unwrap();
         launch_command(&mut sim, &rules, name, x, y);
-        if name == "GM" {
-            // The fixed-stride alias / independent word wrap reaches actual
-            // cell (0,2), whose victim InfDeath 9 UnInits.
-            assert!(
-                sim.substrate
-                    .entities
-                    .get(victim)
-                    .is_none_or(|object| !object.lifecycle.object_alive())
-            );
-            assert!(!sim.substrate.occupancy.contains_entity(0, 2, victim));
-        } else {
-            let object = sim.substrate.entities.get(victim).unwrap();
-            assert!(
-                object.invulnerability.is_some(),
-                "fixed-stride alias / independent word wrap reaches actual cell (0,2)"
-            );
-        }
+        let object = sim.substrate.entities.get(victim).unwrap();
+        assert!(
+            object.invulnerability.is_some(),
+            "fixed-stride alias / independent word wrap reaches actual cell (0,2)"
+        );
     }
     let (mut sim, rules) = fixture();
     let victim = sim

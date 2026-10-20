@@ -1379,7 +1379,7 @@ fn a_busy_factory_exit_pushes_its_neighbours_away_from_the_head() {
 /// Mission_Unload state 2 for a Teleport product (`0x0044DFAD..0x0044E163`):
 /// the retail Chrono Miner takes a Drive piggyback over its Teleport and
 /// leaves the bay on track 0x42, as a Drive product does
-/// (`0x0044DF6E..0x0044DFA4`); once it stops past the bay the Drive ends and
+/// (`0x0044DF72..0x0044DFA4`); once it stops past the bay the Drive ends and
 /// its Teleport is back.
 #[test]
 fn a_chrono_miner_leaves_the_war_factory_on_the_bay_track() {

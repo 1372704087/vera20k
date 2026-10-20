@@ -127,7 +127,7 @@ pub use effects::{
     UnderAttackEvent, UnitLostEvent,
 };
 pub use in_range::can_fire_at_target;
-pub use in_range::{can_fire_at_target_in_query, is_within_range_leptons, lepton_distance_sq_raw};
+pub use in_range::{MaplessTarget, can_fire_at_target_in_query, mapless_in_range};
 pub use object_health::{Health, health_category};
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
 pub use receiver_call::TerrainDamageEvent;

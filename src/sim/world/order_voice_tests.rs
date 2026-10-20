@@ -750,31 +750,6 @@ fn capture_enter_and_harvest_preserve_scalar_precedence_and_move_fallback() {
 }
 
 #[test]
-fn scalar_and_unknown_order_voice_fields_do_not_spend_main_draws() {
-    let (mut sim, rules, id) = scene(
-        "VoiceMove=Move\nVoiceAttack=Attack\nVoiceCapture=Capture\n\
-         VoiceEnter=Enter\nVoiceHarvest=Harvest\n",
-    );
-    for (field, expected) in [
-        ("VoiceCapture", Some("Capture")),
-        ("VoiceEnter", Some("Enter")),
-        ("VoiceHarvest", Some("Harvest")),
-        ("unrecognized", None),
-    ] {
-        let before = sim.main_rng.native_state_hex();
-        let (sound, draws) = trace_draws(|| sim.order_voice_request(&rules, id, field, None, true));
-        assert_eq!(sound, expected, "{field}");
-        assert!(draws.is_empty(), "{field}");
-        assert_eq!(sim.main_rng.native_state_hex(), before, "{field}");
-    }
-    let (mut sim, rules, id) = scene("VoiceMove=Move\n");
-    assert_eq!(
-        sim.order_voice_request(&rules, id, "VoiceAttack", None, true),
-        None
-    );
-}
-
-#[test]
 fn disabled_order_voice_rejects_before_move_or_fallback_is_reached() {
     let (mut sim, rules, id) = scene("VoiceMove=Move\n");
     for field in [

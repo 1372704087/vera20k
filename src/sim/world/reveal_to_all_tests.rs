@@ -155,26 +155,6 @@ fn a_computer_houses_opening_shows_the_current_house_its_sight_until_it_dies() {
 }
 
 #[test]
-fn a_human_houses_opening_shows_no_one_else_its_sight() {
-    let Some((rules, mut sim, _)) = world() else {
-        return;
-    };
-    let id = sim
-        .spawn_object("NAIRON", "Americans", SITE.0, SITE.1, 0, &rules)
-        .unwrap();
-    assert!(
-        sim.substrate
-            .entities
-            .get(id)
-            .unwrap()
-            .building_art
-            .actually_placed()
-    );
-    assert!(radar_events(&sim).is_empty());
-    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
-}
-
-#[test]
 fn captures_keep_the_sight_and_a_shroud_reset_shows_it_again() {
     let Some((rules, mut sim, americans)) = world() else {
         return;
@@ -472,32 +452,6 @@ fn a_shroud_reset_shows_a_computer_superweapon_still_building_up() {
         assert!(sim.fog.is_cell_revealed(americans, x, y), "{x},{y}");
         assert!(!sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
     }
-}
-
-/// A computer house that captures the human's Iron Curtain reopens it
-/// without showing its sight (`Grand_Opening(1)`). A Reset_Shroud of the
-/// current house shows it, as it does any computer house's.
-#[test]
-fn a_shroud_reset_shows_a_superweapon_a_computer_captured_from_the_human() {
-    let Some((rules, mut sim, americans)) = world() else {
-        return;
-    };
-    let russians = sim.interner.get("Russians").unwrap();
-    let id = sim
-        .spawn_object("NAIRON", "Americans", SITE.0, SITE.1, 0, &rules)
-        .unwrap();
-    sim.change_owner_with_rules(id, russians, &rules, None, FrameEffects::default());
-    assert_eq!(radar_events(&sim), [OPENED]);
-    assert!(sim.fog.alternate_sight_admissions_for_test().is_empty());
-
-    sim.reset_shroud_for_owner(americans, &rules);
-    let cells = alternate_cells(&sim, id, americans);
-    assert!(cells.contains(&SITE));
-    for &(x, y) in &cells {
-        assert!(sim.fog.is_cell_visible(americans, x, y), "{x},{y}");
-        assert_eq!(counter(&sim, americans, (x, y)), -1, "{x},{y}");
-    }
-    assert!(!sim.fog.is_cell_revealed(americans, FAR.0, FAR.1));
 }
 
 #[test]

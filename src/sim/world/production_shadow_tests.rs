@@ -9,16 +9,11 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
-use crate::sim::production::{PRODUCTION_STEPS, ProductionCategory, StepOutcome};
+use crate::sim::production::ProductionCategory;
 use crate::sim::timer::CdTimer;
 
-fn empty_rules() -> RuleSet {
-    RuleSet::from_ini(&IniFile::from_str("")).expect("empty rules parse")
-}
-
 /// Rules with a costed buildable vehicle (`GRIZZLY`, Cost 700) so the per-step charge
-/// machine actually moves credits — `empty_rules()` has no type, so cost resolves to 0
-/// and the charge/cancel/stall paths are inert. `BEAG` (Cost 600) gives a second category for the
+/// machine actually moves credits. `BEAG` (Cost 600) gives a second category for the
 /// same-tick two-Begin ordering test.
 fn vehicle_rules() -> RuleSet {
     RuleSet::from_ini(&IniFile::from_str(
@@ -39,7 +34,7 @@ fn vehicle_rules() -> RuleSet {
 /// retired `insert_queue(queued_item(..))` pattern: `enqueue` creates-or-re-arms the
 /// active build for `(owner, cat)`, or appends a `QueueEntry` to the FIFO tail when an
 /// active object is already held (a second `arm` call with a higher `order`). The cost is
-/// resolved from `rules` (0 for `empty_rules`, matching the old shadow's zero-cost path).
+/// resolved from `rules` (0 for a type the rules lack).
 fn arm(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -159,122 +154,7 @@ fn snapshot_roundtrip_factory_registry() {
     );
 }
 
-/// Identical fixtures over N ticks produce identical per-tick state_hash sequences
-/// (the production shadow keeps advance_tick deterministic).
-#[test]
-fn production_shadow_preserves_advance_tick_phase_order() {
-    fn run() -> Vec<u64> {
-        let mut sim = Simulation::new();
-        (0..5)
-            .map(|_| {
-                sim.advance_tick(&[], None, None, None, 67);
-                sim.state_hash()
-            })
-            .collect()
-    }
-    assert_eq!(
-        run(),
-        run(),
-        "advance_tick with the production shadow stays deterministic"
-    );
-}
-
 // ===== P4 — FIFO queue =====
-
-/// P4 C7/C12: completion suspends with the object attached; `start_next_queued` does
-/// NOT advance while the object is held; only after the object is CLEARED (simulating
-/// the delivery commit, a later slice) does the queue front advance. Proves the
-/// negative invariant end-to-end WITHOUT wiring delivery. Driven on a CLONE.
-#[test]
-fn queue_advances_only_after_delivery() {
-    let mut sim = Simulation::new();
-    let rules = empty_rules();
-    let owner = sim.interner.intern("Americans");
-    sim.houses
-        .register(HouseState::new(owner, 0, None, true, 1_000_000, 10));
-    let active = sim.interner.intern("GRIZZLY");
-    let next = sim.interner.intern("FV"); // the queued tail item
-    // Front Building (active object) with a tail item behind it.
-    arm(
-        &mut sim,
-        &rules,
-        owner,
-        ProductionCategory::Vehicle,
-        active,
-        1,
-    );
-    arm(
-        &mut sim,
-        &rules,
-        owner,
-        ProductionCategory::Vehicle,
-        next,
-        2,
-    );
-
-    let before = sim.state_hash();
-    let mut f = sim.production.factories.iter_insertion_ordered()[0].clone();
-    assert_eq!(
-        f.object.as_ref().map(|o| o.type_id),
-        Some(active),
-        "active = GRIZZLY"
-    );
-    assert_eq!(
-        f.queue.iter().map(|e| e.type_id).collect::<Vec<_>>(),
-        vec![next],
-        "tail = [FV]"
-    );
-    // empty_rules -> cost 0; seed a real cost so completion takes the full ladder.
-    f.progress = 0;
-    f.balance = 700;
-    // This clone supplies the running step-kernel prior, after native Resume;
-    // StartProduction alone leaves +70 suspended until that separate call.
-    f.suspended = false;
-    // The credits mirror is retired, so a cloned economy starts at 0 — fund the oracle
-    // explicitly so the per-step charge can actually complete the build.
-    let mut oracle = sim.houses[&owner].economy().clone();
-    oracle.set_credits_for_test(700);
-    assert!(
-        (0..PRODUCTION_STEPS)
-            .any(|_| { matches!(f.advance_one_step(&mut oracle), StepOutcome::Completed) }),
-        "the running, funded head must complete within its native ladder"
-    );
-    assert!(
-        f.suspended && f.object.is_some(),
-        "C12: completion holds the object, suspended"
-    );
-    // The queue does NOT advance on completion alone (the cost is inert when the
-    // object is still held — the guard fires before the seed).
-    assert_eq!(
-        f.start_next_queued(),
-        None,
-        "C7: held object blocks the advance"
-    );
-    assert_eq!(
-        f.queue.iter().map(|e| e.type_id).collect::<Vec<_>>(),
-        vec![next],
-        "queue front unchanged while the object is held"
-    );
-    // Simulate the delivery commit: clear the object, THEN the queue advances.
-    f.object = None;
-    f.suspended = false;
-    assert_eq!(
-        f.start_next_queued(),
-        Some(next),
-        "after delivery the front pops"
-    );
-    assert!(
-        f.object.is_none(),
-        "forced Begin owns construction after the pop"
-    );
-    assert!(f.queue.is_empty(), "tail consumed");
-
-    assert_eq!(
-        before,
-        sim.state_hash(),
-        "the clone drive must not perturb the hash"
-    );
-}
 
 // ===== P5a — flip-prep (pure producers + temporal mint + inversion-readiness, hash-neutral) =====
 

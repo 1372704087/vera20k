@@ -1541,22 +1541,17 @@ impl Fixture {
     }
 }
 
+/// The ready MTNK shot runs building fires, crew and deferred cleanup, with
+/// and without the stock smudges joined.
 #[test]
 fn original_ready_mtnk_shot_runs_building_fires_crew_and_deferred_cleanup() {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
+    for path in [
         "tools/spatial_oracle/building_death_anims_joined.json",
-    ))
-    .unwrap();
-    assert_ready_fatal_routes(&corpus);
-}
-
-#[test]
-fn original_stock_smudges_join_ready_shot_crew_and_deferred_cleanup() {
-    let corpus: Value = serde_json::from_str(crate::test_fixture::text(
         "tools/spatial_oracle/building_death_anims_joined_stock_smudges.json",
-    ))
-    .unwrap();
-    assert_ready_fatal_routes(&corpus);
+    ] {
+        let corpus: Value = serde_json::from_str(crate::test_fixture::text(path)).unwrap();
+        assert_ready_fatal_routes(&corpus);
+    }
 }
 
 fn assert_ready_fatal_routes(corpus: &Value) {

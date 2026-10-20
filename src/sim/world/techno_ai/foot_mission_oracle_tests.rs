@@ -687,7 +687,7 @@ impl SuppliedFootFixture {
                     .lifecycle
                     .set_object_alive_for_test(control["alive"] != 0);
             }
-            entity.lifecycle.set_cell_marked(true);
+            entity.lifecycle.set_cell_marked_for_test(true);
             entity.set_in_playfield(true);
             entity.locomotor = Some(LocomotorState::from_object_type(object, 0));
             if infantry {
@@ -739,7 +739,7 @@ impl SuppliedFootFixture {
                     entity
                         .navigation
                         .path_replay_mut()
-                        .set_reference_cell(Some((
+                        .set_reference_cell_for_test(Some((
                             signed(&before["reference_cell"][0]) as i16,
                             signed(&before["reference_cell"][1]) as i16,
                         )));
@@ -752,8 +752,8 @@ impl SuppliedFootFixture {
                         signed(&before["blocked_timer_words"][0]),
                         signed(&before["blocked_timer_words"][2]),
                     ));
-                    path.set_path_blocked(before["blocked"] != 0);
-                    path.set_retries_left(signed(&before["retry"]) as u32);
+                    path.set_path_blocked_for_test(before["blocked"] != 0);
+                    path.set_retries_left_for_test(signed(&before["retry"]) as u32);
                 }
                 let head = xyz(&before["loco_head"]);
                 if head != [0, 0, 0] {

@@ -169,7 +169,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         LocomotorKind::Teleport
     );
     actor.lifecycle.set_in_limbo_for_test(false);
-    actor.lifecycle.set_cell_marked(true);
+    actor.lifecycle.set_cell_marked_for_test(true);
     actor
         .position
         .put_location(coord(&before["actor"]["coords"]));
@@ -222,11 +222,14 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             .map(|word| signed(word) as u8)
             .collect(),
     );
-    actor.navigation.path_replay_mut().set_cursor(0);
-    actor.navigation.path_replay_mut().set_reference_cell(Some((
-        signed(&before["actor"]["reference"][0]) as i16,
-        signed(&before["actor"]["reference"][1]) as i16,
-    )));
+    actor.navigation.path_replay_mut().set_cursor_for_test(0);
+    actor
+        .navigation
+        .path_replay_mut()
+        .set_reference_cell_for_test(Some((
+            signed(&before["actor"]["reference"][0]) as i16,
+            signed(&before["actor"]["reference"][1]) as i16,
+        )));
     actor
         .navigation
         .path_runtime_mut()
@@ -238,7 +241,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     actor
         .navigation
         .path_runtime_mut()
-        .set_retries_left(before["actor"]["retries"].as_u64().unwrap() as u32);
+        .set_retries_left_for_test(before["actor"]["retries"].as_u64().unwrap() as u32);
     //Raw prestate follows the actual original5217C0 initial mark. Native Cell
     //object lists are deliberately empty, independently of these raw bytes.
     for native in before["cells"].as_array().unwrap() {
@@ -273,7 +276,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         let supplied = coord(&transport["coords"]);
         let vehicle = sim.substrate.entities.get_mut(target).unwrap();
         vehicle.lifecycle.set_in_limbo_for_test(false);
-        vehicle.lifecycle.set_cell_marked(true);
+        vehicle.lifecycle.set_cell_marked_for_test(true);
         vehicle.position.put_location(supplied);
         vehicle.health.set_for_test(signed(&transport["health"]));
         vehicle.set_on_bridge(

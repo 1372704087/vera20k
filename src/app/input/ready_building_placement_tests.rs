@@ -1527,7 +1527,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         .sim
         .session
         .set_map_name_for_test("HOLD-RESUME.MAP".into());
-    fixture.sim.session.set_started(true);
+    fixture.sim.session.publish_started();
     let before_factories = fixture.sim.production.factories().clone();
     let before_wallet = fixture.sim.houses[&owner].economy().clone();
     roundtrip_fixture_save(&mut fixture, "paid-user-hold");

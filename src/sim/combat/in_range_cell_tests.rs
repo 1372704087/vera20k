@@ -60,7 +60,7 @@ fn placed(id: u64, xyz: [i32; 3], marked: bool, on_bridge: bool) -> GameEntity {
         .position
         .set_sub_y_for_test(SimFixed::from_num(y % 256));
     entity.position.set_exact_z_leptons_for_test(Some(z));
-    entity.lifecycle.set_cell_marked(marked);
+    entity.lifecycle.set_cell_marked_for_test(marked);
     entity.set_on_bridge(on_bridge);
     entity
 }

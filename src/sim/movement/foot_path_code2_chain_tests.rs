@@ -77,7 +77,7 @@ fn set_head(sim: &mut Simulation, id: u64, head: Option<u8>) {
         .navigation
         .path_replay_mut();
     queue.set_directions_for_test(head.into_iter().collect());
-    queue.set_cursor(0);
+    queue.set_cursor_for_test(0);
 }
 
 /// A cell whose first object is no Foot jams (`0x0042989A`); an empty one

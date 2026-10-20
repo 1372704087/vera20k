@@ -168,7 +168,7 @@ mod map_wall_owner_candidate_tests {
             .type_facts
             .set_foundation_for_test(foundation.to_string());
         entity.lifecycle.set_object_alive_for_test(true);
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         entity
     }
 
@@ -644,7 +644,7 @@ mod map_wall_owner_candidate_tests {
                 );
                 lamp.lifecycle.set_object_alive_for_test(true);
                 lamp.lifecycle.set_in_limbo_for_test(false);
-                lamp.lifecycle.set_cell_marked(true);
+                lamp.lifecycle.set_cell_marked_for_test(true);
                 sim.entities_mut().insert(lamp);
                 sim.allocate_building_light(id, &rules);
                 id += 1;
@@ -1333,7 +1333,7 @@ mod map_wall_owner_candidate_tests {
         );
         lamp.lifecycle.set_object_alive_for_test(true);
         lamp.lifecycle.set_in_limbo_for_test(false);
-        lamp.lifecycle.set_cell_marked(false);
+        lamp.lifecycle.set_cell_marked_for_test(false);
         lamp.install_building_up(BuildingUp::completing_in_ticks(9, 0), 0);
         sim.entities_mut().insert(lamp);
         sim.add_entity_occupancy(41);

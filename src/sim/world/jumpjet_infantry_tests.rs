@@ -898,7 +898,7 @@ fn rocketeer_crash_fixture(
         flight.facing_mut().snap(0x4000, 1000);
         // The oracle's locomotor holds `JumpjetHeight=` as its target height
         // whatever the row's height (`jumpjet_infantry_actions` ROCKETEER).
-        flight.set_target_height(500);
+        flight.set_target_height_for_test(500);
         *runtime = runtime
             .clone()
             .with_phase_for_test(input["owner"]["phase"].as_i64().unwrap() as i32)
@@ -1260,7 +1260,7 @@ fn grounded_rocketeer() -> (super::Simulation, crate::rules::ruleset::RuleSet, u
         .locomotor
         .as_mut()
         .unwrap()
-        .set_layer(crate::sim::movement::locomotor::MovementLayer::Ground);
+        .set_layer_for_test(crate::sim::movement::locomotor::MovementLayer::Ground);
     (sim, rules, shooter)
 }
 

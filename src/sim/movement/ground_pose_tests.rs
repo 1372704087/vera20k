@@ -159,7 +159,7 @@ fn insert(sim: &mut Simulation, mut entity: GameEntity) {
     // must agree. Forced terminal relinking intentionally respects this flag.
     entity.lifecycle.set_object_alive_for_test(true);
     entity.lifecycle.set_in_limbo_for_test(false);
-    entity.lifecycle.set_cell_marked(true);
+    entity.lifecycle.set_cell_marked_for_test(true);
     sim.substrate.occupancy.add(
         entity.position.rx(),
         entity.position.ry(),
@@ -308,7 +308,11 @@ fn residual_bridge_crossing_preserves_z_and_projects_the_layer_from_on_bridge() 
         } else {
             MovementLayer::Bridge
         };
-        entity.locomotor.as_mut().unwrap().set_layer(start_layer);
+        entity
+            .locomotor
+            .as_mut()
+            .unwrap()
+            .set_layer_for_test(start_layer);
         set_track_budget(&mut entity, 7); // strict paid gate >7
         // This route continues beyond the first retained segment. Native
         // owner NavCom must survive that terminal; a route without it admits
@@ -720,12 +724,10 @@ fn terminal_centre_height_commits_before_next_process_turn_without_finalizer() {
     );
     entity.position.set_sub_y_for_test(SimFixed::from_num(131));
     super::navcom::set_destination_internal_cell(&mut entity, (4, 3), Some(&terrain), 0);
-    super::path_markers::install_path_replay(
-        entity.navigation.path_replay_mut(),
-        (3, 3),
-        &[(3, 3), (4, 3)],
-        1,
-    );
+    entity
+        .navigation
+        .path_replay_mut()
+        .install((3, 3), &[(3, 3), (4, 3)], 1);
     insert(&mut sim, entity);
     tick_with_rules(&mut sim, &terrain, &grid, 0, Some(&mover_rules()));
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -1060,8 +1062,8 @@ fn chained_mover(sim: &mut Simulation, kind: LocomotorKind) -> (GameEntity, Driv
     let head = offset(offset(current, (turn / 8) as u8), (turn % 8) as u8);
     super::track_head::accept_fresh_progress(entity.locomotor.as_mut().unwrap(), turn);
     let mut replay = crate::sim::components::FootPathQueue::default();
-    super::path_markers::install_path_replay(&mut replay, (3, 3), &path, 1);
-    super::path_markers::accept_path_replay(&mut replay, (4, 1), 2);
+    replay.install((3, 3), &path, 1);
+    replay.accept((4, 1), 2);
     entity.navigation.set_path_replay_for_test(replay);
     match kind {
         LocomotorKind::Drive => {
@@ -1277,7 +1279,7 @@ fn two_marked_units() -> Simulation {
     for id in [1, 2] {
         let mut entity = GameEntity::test_default(id, "ACTOR", "Americans", 4, 4);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(false);
+        entity.lifecycle.set_cell_marked_for_test(false);
         entity.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
         entity.position.set_exact_z_leptons_for_test(Some(0));
         sim.substrate.entities.insert(entity);

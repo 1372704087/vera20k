@@ -1648,13 +1648,13 @@ mod tests {
             // Ordinary Aircraft41B920 reaches Object5F6B90: Object+74 must
             // be marked before the physical GetHeight threshold is queried.
             air.lifecycle.set_in_limbo_for_test(false);
-            air.lifecycle.set_cell_marked(true);
+            air.lifecycle.set_cell_marked_for_test(true);
             air.position.set_exact_z_leptons_for_test(Some(altitude));
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object(type_id).unwrap(),
                 0,
             );
-            locomotor.set_layer(MovementLayer::Air);
+            locomotor.set_layer_for_test(MovementLayer::Air);
             air.locomotor = Some(locomotor);
             air = air
                 .with_air_spatial_membership_for_test(Some(5 + 5 * 20), stable_id)
@@ -1724,13 +1724,13 @@ mod tests {
             air.set_category_for_test(EntityCategory::Aircraft);
             air.health.set_for_test(1000);
             air.lifecycle.set_in_limbo_for_test(false);
-            air.lifecycle.set_cell_marked(marked);
+            air.lifecycle.set_cell_marked_for_test(marked);
             air.position.set_exact_z_leptons_for_test(Some(0));
             let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
                 rules.object("AIR").unwrap(),
                 0,
             );
-            locomotor.set_layer(layer);
+            locomotor.set_layer_for_test(layer);
             air.locomotor = Some(locomotor);
             air = air
                 .with_air_spatial_membership_for_test(Some(5 + 5 * 20), stable_id)
@@ -1930,7 +1930,7 @@ mod tests {
             vulnerable.position.set_sub_x_for_test(CELL_CENTER_LEPTON);
             vulnerable.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
             vulnerable.lifecycle.set_in_limbo_for_test(false);
-            vulnerable.lifecycle.set_cell_marked(true);
+            vulnerable.lifecycle.set_cell_marked_for_test(true);
             entities.insert(vulnerable);
 
             let mut protected = GameEntity::test_default(2, "TARGET", "Victim", 5, 5);
@@ -1943,7 +1943,7 @@ mod tests {
             ));
             protected.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
             protected.lifecycle.set_in_limbo_for_test(false);
-            protected.lifecycle.set_cell_marked(true);
+            protected.lifecycle.set_cell_marked_for_test(true);
             protected.invulnerability = Some(InvulnerabilityState::new(
                 crate::sim::timer::CdTimer::started(0, 100),
                 kind,
@@ -2067,7 +2067,7 @@ mod tests {
                 air.lifecycle.set_in_limbo_for_test(false);
                 // On the map, so marked (`+0x74`): the airborne phase skips
                 // an unmarked member.
-                air.lifecycle.set_cell_marked(true);
+                air.lifecycle.set_cell_marked_for_test(true);
                 air.health.set_for_test(hp);
                 air.position.set_z_for_test(0);
                 let mut air_locomotor =
@@ -2075,7 +2075,7 @@ mod tests {
                         rules.object("AIRBOMB").unwrap(),
                         0,
                     );
-                air_locomotor.set_layer(MovementLayer::Air);
+                air_locomotor.set_layer_for_test(MovementLayer::Air);
                 air.locomotor = Some(air_locomotor);
                 air.position.set_exact_z_leptons_for_test(Some(1));
                 air = air
@@ -3696,8 +3696,8 @@ mod tests {
                 let path = victim.navigation.path_runtime_mut();
                 path.set_movement_timer_for_test(CdTimer::started(50, 5));
                 path.set_blocked_timer_for_test(CdTimer::started(40, 6));
-                path.set_path_blocked(true);
-                path.set_retries_left(7);
+                path.set_path_blocked_for_test(true);
+                path.set_retries_left_for_test(7);
                 let loco = victim.locomotor.as_mut().unwrap();
                 loco.set_powered_for_test(case["power_off"] != true);
                 if let Some(head) = case["head"].as_array() {
@@ -4227,14 +4227,14 @@ mod tests {
         let mut air = GameEntity::test_default(10, "AIR", "Americans", 5, 5);
         air.set_category_for_test(EntityCategory::Aircraft);
         air.lifecycle.set_in_limbo_for_test(false);
-        air.lifecycle.set_cell_marked(true);
+        air.lifecycle.set_cell_marked_for_test(true);
         air.position.set_sub_x_for_test(CELL_CENTER_LEPTON);
         air.position.set_sub_y_for_test(CELL_CENTER_LEPTON);
         let mut air_locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
             rules.object("AIR").expect("air type"),
             0,
         );
-        air_locomotor.set_layer(MovementLayer::Air);
+        air_locomotor.set_layer_for_test(MovementLayer::Air);
         air.locomotor = Some(air_locomotor);
         air.position.set_exact_z_leptons_for_test(Some(1));
         air = air

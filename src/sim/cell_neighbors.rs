@@ -269,7 +269,7 @@ mod tests {
             entity.lifecycle.set_in_limbo_for_test(false);
             entity
                 .lifecycle
-                .set_cell_marked(input["marked"].as_bool().unwrap_or(true));
+                .set_cell_marked_for_test(input["marked"].as_bool().unwrap_or(true));
             entity
                 .position
                 .set_exact_z_leptons_for_test(Some(input["z"].as_i64().unwrap_or(0) as i32));

@@ -652,8 +652,8 @@ fn compare_rows(json: &str, expected_count: usize, repair_projection: bool) {
                             else {
                                 unreachable!()
                             };
-                            walk.set_moving(state["moving"].as_bool().unwrap());
-                            walk.set_head(head);
+                            walk.set_moving_for_test(state["moving"].as_bool().unwrap());
+                            walk.set_head_for_test(head);
                             blocker.locomotor = Some(loco);
                         }
                         "fly" | "jumpjet" => {

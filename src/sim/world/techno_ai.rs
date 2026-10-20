@@ -3714,7 +3714,7 @@ mod tests {
                 .navigation
                 .path_replay_mut()
                 .set_directions_for_test(vec![0, 1, 2]);
-            actor.navigation.path_replay_mut().set_cursor(0);
+            actor.navigation.path_replay_mut().set_cursor_for_test(0);
             if allied {
                 allied_target_drop_step(&mut sim, 1, &rules);
             } else {

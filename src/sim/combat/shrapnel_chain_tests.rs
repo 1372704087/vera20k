@@ -935,9 +935,9 @@ fn shrapnel_children_and_lasers_match_original_spawn_shrapnel() {
                 .position
                 .set_sub_y_for_test(SimFixed::from_num(coord.y % 256));
             entity.position.set_exact_z_leptons_for_test(Some(coord.z));
-            entity
-                .lifecycle
-                .set_cell_marked(!(row["input"]["refused"] == true && actor_name == "victim"));
+            entity.lifecycle.set_cell_marked_for_test(
+                !(row["input"]["refused"] == true && actor_name == "victim"),
+            );
             world.substrate.entities.insert(entity);
         }
         // Native actors are supplied boundaries, but Terrain representation

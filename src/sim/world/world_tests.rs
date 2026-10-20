@@ -2541,7 +2541,7 @@ fn gsi_04_15_active_tube_leaf_preempts_unit_and_infantry_mission_host() {
             true,
         );
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(false);
+        entity.lifecycle.set_cell_marked_for_test(false);
         if category == EntityCategory::Unit {
             entity.mega_mission = crate::sim::mission::mega_mission::MegaMission::attack_move(
                 Some(crate::sim::combat::TargetKind::Cell(2, 0)),
@@ -4455,7 +4455,7 @@ fn test_bridge_collapse_kills_ground_unit_under_destroyed_cell() {
     let unit = sim.substrate.entities.get_mut(id).unwrap();
     unit.set_on_bridge(false);
     if let Some(locomotor) = unit.locomotor.as_mut() {
-        locomotor.set_layer(MovementLayer::Ground);
+        locomotor.set_layer_for_test(MovementLayer::Ground);
     }
     sim.add_entity_occupancy(id);
     assert!(

@@ -372,7 +372,7 @@ fn marked_entity(
     let mut entity = make_entity(id, type_name, rx, ry, hp);
     entity.set_owner_for_test(owner);
     entity.set_type_ref_for_test(type_ref);
-    entity.lifecycle.set_cell_marked(true);
+    entity.lifecycle.set_cell_marked_for_test(true);
     entity
 }
 
@@ -1366,7 +1366,7 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
             man.navigation
                 .path_replay_mut()
                 .set_directions_for_test(vec![0, 1, 2]);
-            man.navigation.path_replay_mut().set_cursor(0);
+            man.navigation.path_replay_mut().set_cursor_for_test(0);
         },
     );
     let man = sim.substrate.entities.get(ids[0]).unwrap();
@@ -1759,7 +1759,7 @@ fn lifecycle_authority_immediate_combat_death_reaches_uninit_without_precleanup(
         .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
     dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
-    dead.lifecycle.set_cell_marked(true);
+    dead.lifecycle.set_cell_marked_for_test(true);
     dead.radio_contacts.insert(2);
     store.insert(dead);
 
@@ -1862,7 +1862,7 @@ fn lifecycle_authority_animated_combat_handoff_changes_only_health_and_sequence(
         .set_nav_com_for_test(Some(crate::sim::components::NavTargetRef::cell(9, 9)));
     dead.in_logic_vector.set_for_test(true);
     dead.lifecycle.set_in_limbo_for_test(false);
-    dead.lifecycle.set_cell_marked(true);
+    dead.lifecycle.set_cell_marked_for_test(true);
     dead.radio_contacts.insert(2);
     store.insert(dead);
 
@@ -2349,7 +2349,7 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
                 .get_mut(id)
                 .unwrap()
                 .lifecycle
-                .set_cell_marked(true);
+                .set_cell_marked_for_test(true);
         }
         let mut occupancy = OccupancyGrid::rebuild(&entities);
         let result = tick_combat_with_fog_and_main_rng(
@@ -2630,12 +2630,12 @@ fn retaliates(case: RetaliationCase) -> bool {
         .set_sub_x_for_test(crate::util::fixed_math::SimFixed::from_num(
             case.source_sub_x,
         ));
-    source.lifecycle.set_cell_marked(true);
+    source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     let mut victim = make_entity(2, "VICTIM", victim_rx, 5, 100);
     victim.set_owner_for_test(victim_owner);
     victim.set_type_ref_for_test(interner.intern("VICTIM"));
-    victim.lifecycle.set_cell_marked(true);
+    victim.lifecycle.set_cell_marked_for_test(true);
     set_mission(&mut victim, case.mission, MissionId::NONE);
     victim.body_facing.snap(0xC000, 0);
     entities.insert(victim);
@@ -2872,7 +2872,7 @@ fn retaliation_gate_world(
         entity.set_category_for_test(category);
         entity.health.set_for_test(health);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         set_mission(&mut entity, MissionType::Guard, MissionId::NONE);
         sim.substrate.entities.insert(entity);
     }
@@ -3236,7 +3236,9 @@ fn gsi_04_07_damage_retaliation_peek_rejects_limbo_attacker() {
         source.set_owner_for_test(source_owner);
         source.set_type_ref_for_test(source_type);
         source.lifecycle.set_in_limbo_for_test(attacker_in_limbo);
-        source.lifecycle.set_cell_marked(!attacker_in_limbo);
+        source
+            .lifecycle
+            .set_cell_marked_for_test(!attacker_in_limbo);
         entities.insert(source);
 
         let mut victim = marked_entity(2, "VICTIM", 8, 5, 100, victim_owner, victim_type);
@@ -3916,7 +3918,7 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
         victim.set_owner_for_test(victim_owner);
         victim.set_type_ref_for_test(victim_type);
         victim.lifecycle.set_in_limbo_for_test(false);
-        victim.lifecycle.set_cell_marked(true);
+        victim.lifecycle.set_cell_marked_for_test(true);
         set_mission(&mut victim, MissionType::Guard, MissionId::NONE);
         let links: Vec<u64> = (0..link_count).map(|offset| 10 + offset as u64).collect();
         for (offset, &id) in links.iter().enumerate() {
@@ -3926,7 +3928,7 @@ fn gsi_04_07_damage_full_capture_manager_blocks_retaliation() {
             controlled.mind_control =
                 crate::sim::capture_manager::MindControlLink::controlled_by_for_test(2);
             controlled.lifecycle.set_in_limbo_for_test(false);
-            controlled.lifecycle.set_cell_marked(true);
+            controlled.lifecycle.set_cell_marked_for_test(true);
             entities.insert(controlled);
         }
         // The stock tower's link limit (`[MultipleMindControlTower] Damage=3`).
@@ -6885,7 +6887,7 @@ fn a_death_weapon_over_water_picks_its_anim_at_the_zero_location() {
         make_entity(1, "TNK", 5, 5, 300),
         make_entity(2, "DEMO", 8, 5, 100),
     ] {
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         store.insert(entity);
     }
     let mut occupancy = OccupancyGrid::rebuild(&store);
@@ -8583,11 +8585,11 @@ fn campaign_reverse_only_alliance_keeps_shrapnel_hostile_head_before_random_cell
     .expect("shrapnel rules");
     let mut entities = EntityStore::new();
     let mut source = make_entity_owned(1, "MTNK", 5, 5, 100, "Soviet");
-    source.lifecycle.set_cell_marked(true);
+    source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     // First ring-table entry is (+1,-1).
     let mut target = make_entity_owned(2, "MTNK", 6, 4, 100, "Americans");
-    target.lifecycle.set_cell_marked(true);
+    target.lifecycle.set_cell_marked_for_test(true);
     entities.insert(target);
     let mut occupancy = OccupancyGrid::rebuild(&entities);
     let mut interner = test_interner();
@@ -8662,11 +8664,11 @@ fn projectile_shrapnel_count_measures_to_the_firers_get_coords() {
     source.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=3x3`.
     source.type_facts.set_foundation_for_test("3x3".to_string());
-    source.lifecycle.set_cell_marked(true);
+    source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     // The target stands in the bullet's cell, which SpawnShrapnel requires.
     let mut target = make_entity_owned(2, "MTNK", 8, 5, 100, "Americans");
-    target.lifecycle.set_cell_marked(true);
+    target.lifecycle.set_cell_marked_for_test(true);
     entities.insert(target);
     let mut occupancy = OccupancyGrid::rebuild(&entities);
     let mut interner = test_interner();
@@ -8716,14 +8718,14 @@ fn projectile_shrapnel_aims_at_a_building_foundation_center() {
     let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("shrapnel rules");
     let mut entities = EntityStore::new();
     let mut source = make_entity_owned(1, "MTNK", 5, 5, 100, "Soviet");
-    source.lifecycle.set_cell_marked(true);
+    source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     // First ring-table entry is (+1,-1): the HQ's north-west cell.
     let mut target = make_entity_owned(2, "HQ", 6, 4, 100, "Americans");
     target.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=2x2`.
     target.type_facts.set_foundation_for_test("2x2".to_string());
-    target.lifecycle.set_cell_marked(true);
+    target.lifecycle.set_cell_marked_for_test(true);
     entities.insert(target);
     let mut occupancy = OccupancyGrid::rebuild(&entities);
     let mut interner = test_interner();
@@ -8807,7 +8809,7 @@ fn shrapnel_world(rules: &RuleSet, entities: Vec<GameEntity>) -> Simulation {
     let mut store = EntityStore::new();
     let mut next_id = 1;
     for mut entity in entities {
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         next_id = next_id.max(entity.stable_id() + 1);
         store.insert(entity);
     }
@@ -8890,7 +8892,7 @@ fn shrapnel_at_cell_5_5(
             .get_mut(id)
             .unwrap()
             .lifecycle
-            .set_cell_marked(true);
+            .set_cell_marked_for_test(true);
     }
     let mut occupancy = OccupancyGrid::rebuild(&entities);
     let mut interner = test_interner();
@@ -9200,7 +9202,7 @@ fn gsi_04_01_projectile_shrapnel_captures_each_shared_dummy_lookup() {
     .expect("shrapnel rules");
     let mut entities = EntityStore::new();
     let mut source = make_entity_owned(1, "MTNK", 5, 5, 100, "Soviet");
-    source.lifecycle.set_cell_marked(true);
+    source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     let occupancy = OccupancyGrid::rebuild(&entities);
     let mut interner = test_interner();

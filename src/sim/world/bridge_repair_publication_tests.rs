@@ -1015,10 +1015,12 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
         e.locomotor.as_mut().unwrap().set_step_head(Some(head));
         e.navigation.path_runtime_mut().start_movement(50, 5);
         e.navigation.path_runtime_mut().start_blocked(40, 6);
-        e.navigation.path_runtime_mut().set_path_blocked(true);
         e.navigation
             .path_runtime_mut()
-            .set_retries_left(0x8000_0001);
+            .set_path_blocked_for_test(true);
+        e.navigation
+            .path_runtime_mut()
+            .set_retries_left_for_test(0x8000_0001);
         // The paid head is the last Foot+5E0 word, as the object-turn
         // suspension exposes it to the real PerCell completion owner.
         sim.run_completed_walk_step(
@@ -1256,8 +1258,8 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                 .path_runtime_mut();
             path_runtime.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(-1, 7));
             path_runtime.set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(-1, 31));
-            path_runtime.set_path_blocked(true);
-            path_runtime.set_retries_left(256);
+            path_runtime.set_path_blocked_for_test(true);
+            path_runtime.set_retries_left_for_test(256);
             let grid = sim.path_grid_snapshot();
             assert!(sim.apply_command_with_overlays(
                 "Americans",
@@ -1277,7 +1279,7 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                 sim.session.binary_frame() as i32,
                 60,
             ));
-            expected_runtime.set_retries_left(256);
+            expected_runtime.set_retries_left_for_test(256);
             assert_eq!(
                 sim.substrate
                     .entities
@@ -1541,7 +1543,7 @@ fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
     let mut changed = original.clone();
     assert!(changed.contains("5312"));
     changed = changed.replacen("5312", "5313", 1);
-    loco.set_piggyback(serde_json::from_str(&changed).unwrap());
+    loco.set_piggyback_for_test(serde_json::from_str(&changed).unwrap());
     assert_ne!(before, restored.state_hash());
     let loco = restored
         .substrate
@@ -1551,7 +1553,7 @@ fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
         .locomotor
         .as_mut()
         .unwrap();
-    loco.set_piggyback(serde_json::from_str(&original).unwrap());
+    loco.set_piggyback_for_test(serde_json::from_str(&original).unwrap());
     assert!(piggyback::end(loco).is_some());
     assert_eq!(loco.jumpjet_runtime(), Some(&retained));
 }

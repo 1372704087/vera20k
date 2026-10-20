@@ -1845,7 +1845,7 @@ fn cargo_departure_ground_reveal_rejection_preserves_route_retry_state() {
                     .get_mut(passenger)
                     .unwrap()
                     .lifecycle
-                    .set_cell_marked(true);
+                    .set_cell_marked_for_test(true);
             }
             fx.sim
                 .substrate

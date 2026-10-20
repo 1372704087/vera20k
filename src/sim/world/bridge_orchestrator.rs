@@ -1053,7 +1053,7 @@ mod tests {
     /// Build a Drive locomotor on the Bridge layer (mimics `high=true` spawn).
     fn drive_loco_on_bridge() -> LocomotorState {
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Drive);
-        loco.set_layer(MovementLayer::Bridge);
+        loco.set_layer_for_test(MovementLayer::Bridge);
         loco
     }
 
@@ -1075,7 +1075,7 @@ mod tests {
         );
         entity.set_on_bridge(true);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         entity.locomotor = Some(drive_loco_on_bridge());
         sim.substrate.entities.insert(entity);
         1
@@ -1610,7 +1610,7 @@ mod tests {
             true,
         );
         let mut loco = drive_loco_on_bridge();
-        loco.set_layer(MovementLayer::Air);
+        loco.set_layer_for_test(MovementLayer::Air);
         air.locomotor = Some(loco);
         air.set_on_bridge(false);
         sim.substrate.entities.insert(air);
@@ -1643,7 +1643,7 @@ mod tests {
         .unwrap();
         let ground = sim.substrate.entities.get_mut(1).unwrap();
         ground.lifecycle.set_in_limbo_for_test(false);
-        ground.lifecycle.set_cell_marked(true);
+        ground.lifecycle.set_cell_marked_for_test(true);
         sim.substrate.occupancy.add(
             5,
             5,

@@ -746,6 +746,29 @@ impl WolCapture {
                         && sim.session().game_mode_nonzero(),
                     "the WOL runtime was not admitted"
                 );
+                // [0xB77DC1]: a line received during the match shows nowhere.
+                let lines = |state: &AppState| {
+                    state
+                        .frontend
+                        .wol
+                        .as_ref()
+                        .and_then(|visit| visit.lobby())
+                        .map(|lobby| lobby.ui.chat.lines.len())
+                };
+                let before = lines(state);
+                service_event(
+                    state,
+                    WolServiceEvent::Message {
+                        from: member("Hotel", MEMBER_OPERATOR, ""),
+                        text: "mid-match".encode_utf16().collect(),
+                        private: false,
+                        action: false,
+                    },
+                );
+                ensure!(
+                    lines(state) == before,
+                    "a line received during the match was shown"
+                );
                 self.event(frame, "WOL match installed");
                 self.abort_input = Some(match self.target {
                     WolTarget::InternetMenu => {

@@ -159,7 +159,7 @@ pub(crate) struct WolVisit {
     /// `[0xB77E30]`: the last user who paged us, the `/reply` target.
     last_pager: Option<String>,
     /// `[0xB77DC1]`: a WOL match runs. Set when the runner hands over to
-    /// the match and cleared on runner entry (`0x0078796E`); the chat sinks
+    /// the match and cleared on runner entry (`0x00787973`); the chat sinks
     /// show nothing while it is set.
     in_game: bool,
     /// `[0xB76E28]`: the name the last locate (`0x0078A470`) asked for; the

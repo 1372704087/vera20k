@@ -288,7 +288,7 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;
     };
-    // Runner entry clears [0xB77DC1] (0x0078796E).
+    // Runner entry clears [0xB77DC1] (0x00787973).
     visit.in_game = false;
     if state.match_state.session.network_return_context().is_none() {
         state
@@ -1429,8 +1429,9 @@ fn sender(member: &WolMember) -> wol_chat::WolSender<'_> {
 
 /// The two gates every chat, action and page sink runs: the language gate
 /// (`0x0077D2E0`, inlined) and `0x0077D4C0`. The runner holds `0x113` in
-/// the shell stack, also while C2/C9 run over it; C2/C9 run when the setup
-/// route is up. The local record is found by the login nickname
+/// the shell stack, also while C2/C9 run over it, until it hands over to a
+/// match (it closes every dialog first); C2/C9 run when the setup route is
+/// up. The local record is found by the login nickname
 /// (`[0xB73E40]`) among the channel's users.
 /// RESIDUAL: the buddy list (`0xB73AB0`) is not ported, so it is empty.
 fn sender_passes(state: &AppState, from: &WolMember, text: &[u16]) -> bool {
@@ -1444,7 +1445,12 @@ fn sender_passes(state: &AppState, from: &WolMember, text: &[u16]) -> bool {
     let sender = sender(from);
     let setup_open = state.frontend.shell_route.network_setup();
     let local = nickname(state);
-    let lobby = lobby(state);
+    let in_game = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_none_or(|visit| visit.in_game);
+    let lobby = lobby(state).filter(|_| !in_game);
     let local_clan = lobby
         .and_then(|lobby| {
             lobby
@@ -1489,13 +1495,14 @@ pub(super) fn message_received(
 /// `TXT_USER_FOUND` with a chat lobby's room text (type 0 named
 /// `Lob_41_<n>`, as `TXT_JOINED_S` shows it) or the channel's own name;
 /// otherwise the code's `TXT_USER_*` text. The line goes, white, to the
-/// current dialog's transcript; the name is cleared either way.
+/// current dialog's transcript and the sink returns; only the path without
+/// a transcript clears the name (`0x007AA685`).
 /// RESIDUAL: in a match the line is a MessageList row (WOL in-match chain).
 pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
-    let Some(visit) = state.frontend.wol.as_mut() else {
+    let Some(visit) = state.frontend.wol.as_ref() else {
         return;
     };
-    let name = visit.locate_name.take().unwrap_or_default();
+    let name = visit.locate_name.clone().unwrap_or_default();
     use crate::assets::csf_file::{CsfArg, format_csf};
     let text = match result {
         Ok(channel) => {
@@ -1523,6 +1530,9 @@ pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
         state.platform.window.request_redraw();
     } else {
         log::info!("WOL find result outside a transcript: {text}");
+        if let Some(visit) = state.frontend.wol.as_mut() {
+            visit.locate_name = None;
+        }
     }
 }
 
@@ -2017,7 +2027,10 @@ pub(crate) fn status_help(state: &AppState) -> String {
             .and_then(|row| ui.player_rows.get(row))
         {
             None => csf(state, "STT:LobbyListUsers"),
-            Some(row) => user_help(state, &row.name),
+            Some(row) => {
+                let member = lobby.members.iter().find(|member| member.name == row.name);
+                user_help(state, &row.name, member)
+            }
         },
         Some(control) => tooltip_key(control)
             .map(|key| csf(state, key))
@@ -2030,10 +2043,11 @@ pub(crate) fn status_help(state: &AppState) -> String {
 /// `TXT_UNRANKED`, then `": "` and the clan name (`+0x2E`, else the tag
 /// `+0x57`) when there is one, then `" : "` and `WOL:Locale%02d` for a
 /// known nonzero locale. Both tables are looked up by the ASCII-lowered
-/// name (`0x007B5B30`).
+/// name (`0x007B5B30`). A player row passes its user record; a game row's
+/// record (`0x00780E30`) holds only the host's name, so no clan.
 /// RESIDUAL: nothing requests ladder ranks or locales yet (ladder chain);
 /// only a service that sends them fills the tables.
-fn user_help(state: &AppState, name: &str) -> String {
+fn user_help(state: &AppState, name: &str, member: Option<&WolMember>) -> String {
     let Some(visit) = state.frontend.wol.as_ref() else {
         return String::new();
     };
@@ -2047,9 +2061,6 @@ fn user_help(state: &AppState, name: &str) -> String {
         }
         None => help.push_str(&csf(state, "TXT_UNRANKED")),
     }
-    let member = visit
-        .lobby()
-        .and_then(|lobby| lobby.members.iter().find(|member| member.name == name));
     if let Some(member) = member {
         let clan = if member.clan_name.is_empty() {
             &member.clan_tag
@@ -2089,7 +2100,7 @@ fn game_help(state: &AppState, row: &WolGameRow) -> String {
             &[crate::assets::csf_file::CsfArg::Int(i64::from(row.ping))],
         )
     };
-    format!("{}, {ping}", user_help(state, &host))
+    format!("{}, {ping}", user_help(state, &host, None))
 }
 
 #[cfg(test)]

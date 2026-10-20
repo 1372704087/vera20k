@@ -73,10 +73,9 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
             super::wol::emote(state);
             Ok(())
         }
+        // 0x00790C8D (C2) and 0x0079235F (C9): the modal page dialog 0xCF.
         SetupAction::Page => {
-            // 0x5C2 runs the modal page dialog 0xCF (0078D120), a later
-            // WOL chain; nothing is invented in its place.
-            log::warn!("WOL page dialog 0xCF is not implemented");
+            crate::app::shell_wol::page::open_page_dialog(state);
             Ok(())
         }
         SetupAction::Chat(text) => {

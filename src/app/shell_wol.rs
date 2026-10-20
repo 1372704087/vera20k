@@ -15,6 +15,7 @@
 pub(crate) mod lobby;
 mod login;
 pub(crate) mod options;
+pub(crate) mod page;
 pub(crate) mod persona;
 mod service;
 mod test_service;
@@ -32,6 +33,7 @@ pub(crate) fn poll(state: &mut AppState) -> Option<std::time::Instant> {
         service::poll_wait(state),
         login::poll_scroll_repeat(state),
         persona::poll_scroll_repeat(state),
+        page::poll_scroll_repeat(state),
         lobby::poll(state),
         test_service::poll(state),
     ]
@@ -199,6 +201,10 @@ pub(crate) struct WolVisit {
     /// A chat lobby was joined earlier in this visit: the picker passes
     /// over crowded lobbies (`0x00788180`).
     lobby_joined_before: bool,
+    /// The page dialog `0xCF` over `0x113`, C2 or C9.
+    page_dialog: Option<Box<crate::ui::wol_page::WolPageDialog>>,
+    /// The modeless page-received dialog `0x11E`.
+    page_received: Option<Box<crate::ui::wol_page::WolPageReceived>>,
 }
 
 impl WolVisit {
@@ -231,6 +237,8 @@ impl WolVisit {
             locales: Default::default(),
             lobby: None,
             lobby_joined_before: false,
+            page_dialog: None,
+            page_received: None,
         }
     }
 
@@ -491,7 +499,7 @@ impl App {
             .is_some_and(|visit| matches!(visit.page, WolPage::Options(_)))
     }
 
-    fn wol_page_is_lobby(state: &AppState) -> bool {
+    pub(super) fn wol_page_is_lobby(state: &AppState) -> bool {
         state
             .frontend
             .wol
@@ -500,6 +508,10 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_move(state: &mut AppState) {
+        if page::open(state) {
+            page::cursor_moved(state);
+            return;
+        }
         if Self::wol_page_is_options(state) {
             options::cursor_moved(state);
             return;
@@ -539,6 +551,10 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_down(state: &mut AppState) {
+        if page::open(state) {
+            page::mouse(state, true);
+            return;
+        }
         if Self::wol_page_is_options(state) {
             options::mouse(state, true);
             return;
@@ -575,6 +591,10 @@ impl App {
     }
 
     pub(super) fn handle_wol_mouse_up(state: &mut AppState) {
+        if page::open(state) {
+            page::mouse(state, false);
+            return;
+        }
         if Self::wol_page_is_options(state) {
             options::mouse(state, false);
             return;
@@ -638,7 +658,9 @@ impl App {
         pressed: bool,
         text: Option<&str>,
     ) {
-        if pressed && Self::wol_page_is_login(state) {
+        if pressed && page::open(state) {
+            page::key_press(state, code, text);
+        } else if pressed && Self::wol_page_is_login(state) {
             login::key_press(state, code, text);
         } else if pressed && Self::wol_page_is_lobby(state) {
             lobby::key_press(state, code, text);

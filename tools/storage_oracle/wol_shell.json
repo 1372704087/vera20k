@@ -50,6 +50,13 @@
       "0x7A3": "STT:WOLTournament",
       "0x7A6": "STT:WOLNews"
     },
+    "0x11E": {
+      "0x53F": null,
+      "0x540": null,
+      "0x5C2": null,
+      "0x686": null,
+      "0x718": null
+    },
     "0x2BC": {
       "0x1": "STT:WOLOptionsOk",
       "0x2": "STT:WOLOptionsCancel",
@@ -280,6 +287,14 @@
       "0x793": null,
       "0x794": null,
       "0x796": null
+    },
+    "0xCF": {
+      "0x2": null,
+      "0x540": null,
+      "0x5B5": null,
+      "0x5C1": null,
+      "0x5C2": null,
+      "0x5C8": null
     },
     "0xD6": {
       "0x52F": null,
@@ -3565,6 +3580,525 @@
             0,
             800,
             600
+          ]
+        }
+      }
+    },
+    "0x11E": {
+      "background_mode": 2,
+      "kind": "popup",
+      "sizes": {
+        "1024x768": {
+          "controls": {
+            "0x53F": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                12,
+                36,
+                423,
+                129
+              ],
+              "screen_rect": [
+                299,
+                257,
+                423,
+                129
+              ],
+              "style": 1342177617,
+              "template": [
+                8,
+                22,
+                281,
+                79
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                12,
+                192,
+                426,
+                24
+              ],
+              "screen_rect": [
+                299,
+                413,
+                426,
+                24
+              ],
+              "style": 1342246916,
+              "template": [
+                8,
+                118,
+                283,
+                14
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:ReplyPage",
+              "class": "Button",
+              "rect": [
+                63,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                350,
+                491,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                42,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x686": {
+              "caption": "GUI:Back",
+              "class": "Button",
+              "rect": [
+                246,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                533,
+                491,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                164,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x718": {
+              "caption": "",
+              "class": "Static",
+              "rect": [
+                213,
+                239,
+                210,
+                14
+              ],
+              "screen_rect": [
+                500,
+                460,
+                210,
+                14
+              ],
+              "style": 1342308352,
+              "template": [
+                142,
+                147,
+                139,
+                8
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:PageReceived",
+              "class": "Static",
+              "rect": [
+                11,
+                7,
+                417,
+                19
+              ],
+              "screen_rect": [
+                298,
+                228,
+                417,
+                19
+              ],
+              "style": 1342308353,
+              "template": [
+                7,
+                4,
+                277,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:ReplyTo",
+              "class": "Static",
+              "rect": [
+                38,
+                237,
+                159,
+                19
+              ],
+              "screen_rect": [
+                325,
+                458,
+                159,
+                19
+              ],
+              "style": 1342308354,
+              "template": [
+                25,
+                146,
+                105,
+                11
+              ]
+            }
+          },
+          "dialog": [
+            287,
+            221,
+            451,
+            326
+          ]
+        },
+        "640x480": {
+          "controls": {
+            "0x53F": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                12,
+                36,
+                423,
+                129
+              ],
+              "screen_rect": [
+                107,
+                113,
+                423,
+                129
+              ],
+              "style": 1342177617,
+              "template": [
+                8,
+                22,
+                281,
+                79
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                12,
+                192,
+                426,
+                24
+              ],
+              "screen_rect": [
+                107,
+                269,
+                426,
+                24
+              ],
+              "style": 1342246916,
+              "template": [
+                8,
+                118,
+                283,
+                14
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:ReplyPage",
+              "class": "Button",
+              "rect": [
+                63,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                158,
+                347,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                42,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x686": {
+              "caption": "GUI:Back",
+              "class": "Button",
+              "rect": [
+                246,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                341,
+                347,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                164,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x718": {
+              "caption": "",
+              "class": "Static",
+              "rect": [
+                213,
+                239,
+                210,
+                14
+              ],
+              "screen_rect": [
+                308,
+                316,
+                210,
+                14
+              ],
+              "style": 1342308352,
+              "template": [
+                142,
+                147,
+                139,
+                8
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:PageReceived",
+              "class": "Static",
+              "rect": [
+                11,
+                7,
+                417,
+                19
+              ],
+              "screen_rect": [
+                106,
+                84,
+                417,
+                19
+              ],
+              "style": 1342308353,
+              "template": [
+                7,
+                4,
+                277,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:ReplyTo",
+              "class": "Static",
+              "rect": [
+                38,
+                237,
+                159,
+                19
+              ],
+              "screen_rect": [
+                133,
+                314,
+                159,
+                19
+              ],
+              "style": 1342308354,
+              "template": [
+                25,
+                146,
+                105,
+                11
+              ]
+            }
+          },
+          "dialog": [
+            95,
+            77,
+            451,
+            326
+          ]
+        },
+        "800x600": {
+          "controls": {
+            "0x53F": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                12,
+                36,
+                423,
+                129
+              ],
+              "screen_rect": [
+                187,
+                173,
+                423,
+                129
+              ],
+              "style": 1342177617,
+              "template": [
+                8,
+                22,
+                281,
+                79
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                12,
+                192,
+                426,
+                24
+              ],
+              "screen_rect": [
+                187,
+                329,
+                426,
+                24
+              ],
+              "style": 1342246916,
+              "template": [
+                8,
+                118,
+                283,
+                14
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:ReplyPage",
+              "class": "Button",
+              "rect": [
+                63,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                238,
+                407,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                42,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x686": {
+              "caption": "GUI:Back",
+              "class": "Button",
+              "rect": [
+                246,
+                270,
+                126,
+                25
+              ],
+              "screen_rect": [
+                421,
+                407,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                164,
+                166,
+                83,
+                15
+              ]
+            },
+            "0x718": {
+              "caption": "",
+              "class": "Static",
+              "rect": [
+                213,
+                239,
+                210,
+                14
+              ],
+              "screen_rect": [
+                388,
+                376,
+                210,
+                14
+              ],
+              "style": 1342308352,
+              "template": [
+                142,
+                147,
+                139,
+                8
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:PageReceived",
+              "class": "Static",
+              "rect": [
+                11,
+                7,
+                417,
+                19
+              ],
+              "screen_rect": [
+                186,
+                144,
+                417,
+                19
+              ],
+              "style": 1342308353,
+              "template": [
+                7,
+                4,
+                277,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:ReplyTo",
+              "class": "Static",
+              "rect": [
+                38,
+                237,
+                159,
+                19
+              ],
+              "screen_rect": [
+                213,
+                374,
+                159,
+                19
+              ],
+              "style": 1342308354,
+              "template": [
+                25,
+                146,
+                105,
+                11
+              ]
+            }
+          },
+          "dialog": [
+            175,
+            137,
+            451,
+            326
           ]
         }
       }
@@ -17899,6 +18433,663 @@
             0,
             800,
             600
+          ]
+        }
+      }
+    },
+    "0xCF": {
+      "background_mode": 2,
+      "kind": "popup",
+      "sizes": {
+        "1024x768": {
+          "controls": {
+            "0x2": {
+              "caption": "GUI:Cancel",
+              "class": "Button",
+              "rect": [
+                245,
+                265,
+                126,
+                25
+              ],
+              "screen_rect": [
+                532,
+                486,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                163,
+                163,
+                83,
+                15
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                24,
+                63,
+                403,
+                21
+              ],
+              "screen_rect": [
+                311,
+                284,
+                403,
+                21
+              ],
+              "style": 1342246912,
+              "template": [
+                16,
+                39,
+                268,
+                12
+              ]
+            },
+            "0x5B5": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                24,
+                102,
+                403,
+                128
+              ],
+              "screen_rect": [
+                311,
+                323,
+                403,
+                128
+              ],
+              "style": 1342194000,
+              "template": [
+                16,
+                63,
+                268,
+                78
+              ]
+            },
+            "0x5C1": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                119,
+                15,
+                121,
+                21
+              ],
+              "screen_rect": [
+                406,
+                236,
+                121,
+                21
+              ],
+              "style": 1342242816,
+              "template": [
+                79,
+                9,
+                80,
+                12
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:Page",
+              "class": "Button",
+              "rect": [
+                68,
+                267,
+                126,
+                25
+              ],
+              "screen_rect": [
+                355,
+                488,
+                126,
+                25
+              ],
+              "style": 1476395019,
+              "template": [
+                45,
+                164,
+                83,
+                15
+              ]
+            },
+            "0x5C8": {
+              "caption": "GUI:Blank",
+              "class": "Static",
+              "rect": [
+                275,
+                36,
+                148,
+                17
+              ],
+              "screen_rect": [
+                562,
+                257,
+                148,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                22,
+                98,
+                10
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:TextToSend",
+              "class": "Static",
+              "rect": [
+                30,
+                42,
+                207,
+                19
+              ],
+              "screen_rect": [
+                317,
+                263,
+                207,
+                19
+              ],
+              "style": 1342308864,
+              "template": [
+                20,
+                26,
+                137,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:PageBuddy",
+              "class": "Static",
+              "rect": [
+                30,
+                15,
+                82,
+                19
+              ],
+              "screen_rect": [
+                317,
+                236,
+                82,
+                19
+              ],
+              "style": 1342308866,
+              "template": [
+                20,
+                9,
+                54,
+                11
+              ]
+            },
+            "0xFFFF#2": {
+              "caption": "GUI:FindStatus",
+              "class": "Static",
+              "rect": [
+                275,
+                15,
+                75,
+                17
+              ],
+              "screen_rect": [
+                562,
+                236,
+                75,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                9,
+                49,
+                10
+              ]
+            }
+          },
+          "dialog": [
+            287,
+            221,
+            451,
+            326
+          ]
+        },
+        "640x480": {
+          "controls": {
+            "0x2": {
+              "caption": "GUI:Cancel",
+              "class": "Button",
+              "rect": [
+                245,
+                265,
+                126,
+                25
+              ],
+              "screen_rect": [
+                340,
+                342,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                163,
+                163,
+                83,
+                15
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                24,
+                63,
+                403,
+                21
+              ],
+              "screen_rect": [
+                119,
+                140,
+                403,
+                21
+              ],
+              "style": 1342246912,
+              "template": [
+                16,
+                39,
+                268,
+                12
+              ]
+            },
+            "0x5B5": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                24,
+                102,
+                403,
+                128
+              ],
+              "screen_rect": [
+                119,
+                179,
+                403,
+                128
+              ],
+              "style": 1342194000,
+              "template": [
+                16,
+                63,
+                268,
+                78
+              ]
+            },
+            "0x5C1": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                119,
+                15,
+                121,
+                21
+              ],
+              "screen_rect": [
+                214,
+                92,
+                121,
+                21
+              ],
+              "style": 1342242816,
+              "template": [
+                79,
+                9,
+                80,
+                12
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:Page",
+              "class": "Button",
+              "rect": [
+                68,
+                267,
+                126,
+                25
+              ],
+              "screen_rect": [
+                163,
+                344,
+                126,
+                25
+              ],
+              "style": 1476395019,
+              "template": [
+                45,
+                164,
+                83,
+                15
+              ]
+            },
+            "0x5C8": {
+              "caption": "GUI:Blank",
+              "class": "Static",
+              "rect": [
+                275,
+                36,
+                148,
+                17
+              ],
+              "screen_rect": [
+                370,
+                113,
+                148,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                22,
+                98,
+                10
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:TextToSend",
+              "class": "Static",
+              "rect": [
+                30,
+                42,
+                207,
+                19
+              ],
+              "screen_rect": [
+                125,
+                119,
+                207,
+                19
+              ],
+              "style": 1342308864,
+              "template": [
+                20,
+                26,
+                137,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:PageBuddy",
+              "class": "Static",
+              "rect": [
+                30,
+                15,
+                82,
+                19
+              ],
+              "screen_rect": [
+                125,
+                92,
+                82,
+                19
+              ],
+              "style": 1342308866,
+              "template": [
+                20,
+                9,
+                54,
+                11
+              ]
+            },
+            "0xFFFF#2": {
+              "caption": "GUI:FindStatus",
+              "class": "Static",
+              "rect": [
+                275,
+                15,
+                75,
+                17
+              ],
+              "screen_rect": [
+                370,
+                92,
+                75,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                9,
+                49,
+                10
+              ]
+            }
+          },
+          "dialog": [
+            95,
+            77,
+            451,
+            326
+          ]
+        },
+        "800x600": {
+          "controls": {
+            "0x2": {
+              "caption": "GUI:Cancel",
+              "class": "Button",
+              "rect": [
+                245,
+                265,
+                126,
+                25
+              ],
+              "screen_rect": [
+                420,
+                402,
+                126,
+                25
+              ],
+              "style": 1342177291,
+              "template": [
+                163,
+                163,
+                83,
+                15
+              ]
+            },
+            "0x540": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                24,
+                63,
+                403,
+                21
+              ],
+              "screen_rect": [
+                199,
+                200,
+                403,
+                21
+              ],
+              "style": 1342246912,
+              "template": [
+                16,
+                39,
+                268,
+                12
+              ]
+            },
+            "0x5B5": {
+              "caption": "",
+              "class": "ListBox",
+              "rect": [
+                24,
+                102,
+                403,
+                128
+              ],
+              "screen_rect": [
+                199,
+                239,
+                403,
+                128
+              ],
+              "style": 1342194000,
+              "template": [
+                16,
+                63,
+                268,
+                78
+              ]
+            },
+            "0x5C1": {
+              "caption": "",
+              "class": "Edit",
+              "rect": [
+                119,
+                15,
+                121,
+                21
+              ],
+              "screen_rect": [
+                294,
+                152,
+                121,
+                21
+              ],
+              "style": 1342242816,
+              "template": [
+                79,
+                9,
+                80,
+                12
+              ]
+            },
+            "0x5C2": {
+              "caption": "GUI:Page",
+              "class": "Button",
+              "rect": [
+                68,
+                267,
+                126,
+                25
+              ],
+              "screen_rect": [
+                243,
+                404,
+                126,
+                25
+              ],
+              "style": 1476395019,
+              "template": [
+                45,
+                164,
+                83,
+                15
+              ]
+            },
+            "0x5C8": {
+              "caption": "GUI:Blank",
+              "class": "Static",
+              "rect": [
+                275,
+                36,
+                148,
+                17
+              ],
+              "screen_rect": [
+                450,
+                173,
+                148,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                22,
+                98,
+                10
+              ]
+            },
+            "0xFFFF": {
+              "caption": "GUI:TextToSend",
+              "class": "Static",
+              "rect": [
+                30,
+                42,
+                207,
+                19
+              ],
+              "screen_rect": [
+                205,
+                179,
+                207,
+                19
+              ],
+              "style": 1342308864,
+              "template": [
+                20,
+                26,
+                137,
+                11
+              ]
+            },
+            "0xFFFF#1": {
+              "caption": "GUI:PageBuddy",
+              "class": "Static",
+              "rect": [
+                30,
+                15,
+                82,
+                19
+              ],
+              "screen_rect": [
+                205,
+                152,
+                82,
+                19
+              ],
+              "style": 1342308866,
+              "template": [
+                20,
+                9,
+                54,
+                11
+              ]
+            },
+            "0xFFFF#2": {
+              "caption": "GUI:FindStatus",
+              "class": "Static",
+              "rect": [
+                275,
+                15,
+                75,
+                17
+              ],
+              "screen_rect": [
+                450,
+                152,
+                75,
+                17
+              ],
+              "style": 1342308352,
+              "template": [
+                183,
+                9,
+                49,
+                10
+              ]
+            }
+          },
+          "dialog": [
+            175,
+            137,
+            451,
+            326
           ]
         }
       }

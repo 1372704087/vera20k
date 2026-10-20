@@ -143,6 +143,21 @@ pub enum WolTarget {
     LocaleChosen,
     /// The persona's Country and Color: Create, then C2 settled with them.
     PersonaPicks,
+    /// Test service: `0x113` Page, a name and text, Enter: `0xCF` with the
+    /// echo, the result and the stand-in's page back.
+    PageDialog,
+    /// Test service: an unknown name and Tab: `0xCF`'s find status.
+    PageFindStatus,
+    /// Test service: a page to an unknown name: `TXT_PAGEUSERGONE`.
+    PageUserGone,
+    /// Test service: C2's Page: `0xCF` over C2 after a page.
+    SetupPage,
+    /// Test service: a page on `0x10E` after lobby Back: `0x11E` opens.
+    PageReceived,
+    /// The same, then a reply: its echo and the stand-in's answer.
+    PageReceivedReply,
+    /// The same, then Back: `0x10E` again.
+    PageReceivedBack,
 }
 
 impl WolTarget {
@@ -204,7 +219,24 @@ impl WolTarget {
     fn test_service(self) -> bool {
         matches!(
             self,
-            Self::TestServiceLobby | Self::TestServiceCreate | Self::TestServiceJoin
+            Self::TestServiceLobby
+                | Self::TestServiceCreate
+                | Self::TestServiceJoin
+                | Self::PageDialog
+                | Self::PageFindStatus
+                | Self::PageUserGone
+                | Self::SetupPage
+                | Self::PageReceived
+                | Self::PageReceivedReply
+                | Self::PageReceivedBack
+        )
+    }
+
+    /// `0x11E` over `0x10E` after lobby Back.
+    fn page_received(self) -> bool {
+        matches!(
+            self,
+            Self::PageReceived | Self::PageReceivedReply | Self::PageReceivedBack
         )
     }
 
@@ -316,6 +348,13 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0xfe-locale", WolTarget::LocaleQuery),
     ("wol-0xfe-ok", WolTarget::LocaleChosen),
     ("wol-c2-persona-picks", WolTarget::PersonaPicks),
+    ("wol-0xcf-page", WolTarget::PageDialog),
+    ("wol-0xcf-find-status", WolTarget::PageFindStatus),
+    ("wol-0xcf-user-gone", WolTarget::PageUserGone),
+    ("wol-c2-page", WolTarget::SetupPage),
+    ("wol-0x11e-page-received", WolTarget::PageReceived),
+    ("wol-0x11e-reply", WolTarget::PageReceivedReply),
+    ("wol-0x11e-back", WolTarget::PageReceivedBack),
 ];
 
 /// The controlled guest of the C2 targets, the host of the C9 targets.
@@ -383,6 +422,12 @@ enum WolPhase {
     PersonaPage,
     /// `0x112` or `0xFE` closed: the login continues.
     PersonaClosing,
+    /// `0xCF` input sent: waiting for the test service's answers.
+    PageAnswers,
+    /// Lobby Back for `0x11E`: waiting for `0x10E`.
+    PageWelcome,
+    /// `0x11E` open: its answers or its Back.
+    PageReceivedAnswers,
     Settle(u32),
 }
 
@@ -875,6 +920,72 @@ impl WolCapture {
                 self.phase = WolPhase::Lobby;
                 self.lobby_entry(state, frame)?;
             }
+            WolPhase::PageAnswers => self.page_answers(state, frame)?,
+            WolPhase::PageWelcome
+                if rendered == PresentedShell::WolWelcome
+                    && Self::page_settled(state, ShellSlideKind::WolWelcome) =>
+            {
+                // A current client's page on the welcome: no 0x53F anywhere.
+                service_event(
+                    state,
+                    WolServiceEvent::Page {
+                        from: member("Tanya", 0, ""),
+                        text: "Are you coming back?".encode_utf16().collect(),
+                        ansi: false,
+                    },
+                );
+                let received = crate::app::shell_wol::page::page_received(state)
+                    .context("0x11E did not open")?;
+                ensure!(
+                    received.reply_to == "Tanya" && received.lines.len() == 1,
+                    "0x11E did not take the page: {:?}",
+                    received.reply_to
+                );
+                self.event(frame, "page on 0x10E: 0x11E opened");
+                let layout = crate::app::shell_wol::page::received_layout(state);
+                match self.target {
+                    WolTarget::PageReceivedReply => {
+                        welcome_click(state, layout.reply);
+                        App::handle_wol_key(state, None, true, Some("On my way"));
+                        App::handle_wol_key(
+                            state,
+                            Some(winit::keyboard::KeyCode::Enter),
+                            true,
+                            None,
+                        );
+                        self.event(frame, "0x11E reply typed, Enter");
+                        self.phase = WolPhase::PageReceivedAnswers;
+                    }
+                    WolTarget::PageReceivedBack => {
+                        welcome_click(state, layout.back);
+                        ensure!(
+                            crate::app::shell_wol::page::page_received(state).is_none(),
+                            "Back did not close 0x11E"
+                        );
+                        self.event(frame, "0x11E Back");
+                        self.hover_settle(state);
+                    }
+                    _ => self.hover_settle(state),
+                }
+            }
+            WolPhase::PageReceivedAnswers => {
+                let received =
+                    crate::app::shell_wol::page::page_received(state).context("0x11E closed")?;
+                let texts: Vec<String> = received
+                    .lines
+                    .iter()
+                    .map(|line| String::from_utf16_lossy(&line.text))
+                    .collect();
+                if texts.iter().any(|text| text == "(Tanya) Got your page.") {
+                    ensure!(
+                        texts.contains(&format!("[{NICKNAME}] On my way"))
+                            && received.lines.iter().any(|line| line.color == 0xF0F0),
+                        "0x11E did not echo the reply: {texts:?}"
+                    );
+                    self.event(frame, json!({"0x11E lines": texts}));
+                    self.hover_settle(state);
+                }
+            }
             WolPhase::Lobby => self.lobby_entry(state, frame)?,
             WolPhase::Leaving => {
                 let requests = self.requests(state, frame)?;
@@ -1163,7 +1274,10 @@ impl WolCapture {
                     "the test service did not fill 0x113"
                 );
                 self.event(frame, "0x113 settled from the test service");
-                if self.target == WolTarget::TestServiceCreate {
+                if matches!(
+                    self.target,
+                    WolTarget::TestServiceCreate | WolTarget::SetupPage
+                ) {
                     let layout = crate::app::shell_wol::lobby::layout(state);
                     lobby_button(state, &layout, lobby_ui::CREATE)?;
                     let (width, height) = (
@@ -1174,6 +1288,22 @@ impl WolCapture {
                     welcome_click(state, ok);
                     self.event(frame, "0xC3 OK (test service)");
                     self.phase = WolPhase::ServiceSetup;
+                    return Ok(());
+                }
+                if matches!(
+                    self.target,
+                    WolTarget::PageDialog | WolTarget::PageFindStatus | WolTarget::PageUserGone
+                ) {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    lobby_button(state, &layout, lobby_ui::PAGE_BUTTON)?;
+                    self.page_input(state, frame, false)?;
+                    return Ok(());
+                }
+                if self.target.page_received() {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    lobby_button(state, &layout, lobby_ui::BACK)?;
+                    self.event(frame, "0x113 Back");
+                    self.phase = WolPhase::PageWelcome;
                     return Ok(());
                 }
                 if self.target == WolTarget::TestServiceJoin {
@@ -1199,6 +1329,11 @@ impl WolCapture {
                     "C2/C9 did not open for the local user"
                 );
                 self.event(frame, "C2/C9 settled from the test service");
+                if self.target == WolTarget::SetupPage {
+                    setup_button(state, crate::ui::multiplayer_setup::PAGE)?;
+                    self.page_input(state, frame, true)?;
+                    return Ok(());
+                }
                 MoviesCapture::restore_neutral_pointer(state);
                 crate::app::input::multiplayer_setup::cursor_moved(state);
                 self.settle();
@@ -1788,6 +1923,8 @@ impl WolCapture {
                     WolServiceEvent::Page {
                         from: member("Golf", 0, ""),
                         text: "are you there?".encode_utf16().collect(),
+                        // An older client's ANSI page: the /reply target.
+                        ansi: true,
                     },
                 );
                 ensure!(
@@ -2506,6 +2643,115 @@ impl WolCapture {
                 self.phase = WolPhase::PersonaClosing;
             }
             target => bail!("{target:?} has no persona page"),
+        }
+        Ok(())
+    }
+
+    /// `0xCF` opened over `0x113` or C2: the target's name and text through
+    /// the real input routes.
+    fn page_input(&mut self, state: &mut AppState, frame: u32, setup: bool) -> Result<()> {
+        use crate::app::shell_wol::page;
+        ensure!(page::page_dialog(state).is_some(), "Page did not open 0xCF");
+        self.event(frame, "0xCF opened");
+        let layout = page::page_layout(state);
+        let click = |state: &mut AppState, rect: RectPx| {
+            if setup {
+                setup_click(state, rect);
+            } else {
+                welcome_click(state, rect);
+            }
+        };
+        let key =
+            |state: &mut AppState, code: Option<winit::keyboard::KeyCode>, text: Option<&str>| {
+                if setup {
+                    crate::app::input::multiplayer_setup::key_press(state, code, text);
+                } else {
+                    App::handle_wol_key(state, code, true, text);
+                }
+            };
+        let (name, text) = match self.target {
+            WolTarget::SetupPage => ("Boris", Some("Join my game")),
+            WolTarget::PageFindStatus => ("Nobody", None),
+            WolTarget::PageUserGone => ("Nobody", Some("hello")),
+            _ => ("Tanya", Some("hello")),
+        };
+        click(state, layout.name);
+        key(state, None, Some(name));
+        match text {
+            Some(text) => {
+                // Leaving the name for the text locates it.
+                click(state, layout.text);
+                key(state, None, Some(text));
+                ensure!(
+                    page::page_dialog(state).is_some_and(|page| page.send_enabled),
+                    "0xCF Page stayed disabled"
+                );
+                key(state, Some(winit::keyboard::KeyCode::Enter), None);
+                self.event(frame, json!({"0xCF page": [name, text]}));
+            }
+            None => {
+                key(state, Some(winit::keyboard::KeyCode::Tab), None);
+                self.event(frame, json!({"0xCF Tab from": name}));
+            }
+        }
+        self.phase = WolPhase::PageAnswers;
+        Ok(())
+    }
+
+    /// The test service has answered `0xCF`'s locate and page.
+    fn page_answers(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let Some(page) = crate::app::shell_wol::page::page_dialog(state) else {
+            bail!("0xCF closed");
+        };
+        let texts: Vec<String> = page
+            .lines
+            .iter()
+            .map(|line| String::from_utf16_lossy(&line.text))
+            .collect();
+        let csf = |key: &str| App::csf_label(state, key, key);
+        let done = match self.target {
+            WolTarget::PageFindStatus => page.status == csf("TXT_FINDPAGE_NOT_ONLINE"),
+            WolTarget::PageUserGone => texts.contains(&csf("TXT_PAGEUSERGONE")),
+            _ => texts.iter().any(|text| text.ends_with(") Got your page.")),
+        };
+        if !done {
+            return Ok(());
+        }
+        if matches!(self.target, WolTarget::PageDialog | WolTarget::SetupPage) {
+            let name = if self.target == WolTarget::SetupPage {
+                "Boris"
+            } else {
+                "Tanya"
+            };
+            let echo = texts
+                .iter()
+                .any(|text| text.starts_with(&format!("[{NICKNAME}] ")));
+            ensure!(
+                echo && texts.contains(&csf("TXT_PAGESENT")) && !page.status.is_empty(),
+                "0xCF lacks the echo, the result or the status: {texts:?} {:?}",
+                page.status
+            );
+            let line = format!("({name}) Got your page.");
+            let transcript = if self.target == WolTarget::SetupPage {
+                setup_chat_has(state, &line)?
+            } else {
+                Self::chat_has(state, &line)?
+            };
+            ensure!(
+                transcript,
+                "the page back did not reach the transcript below"
+            );
+        }
+        self.event(
+            frame,
+            json!({"0xCF lines": texts, "status": page.status.clone()}),
+        );
+        MoviesCapture::restore_neutral_pointer(state);
+        if self.target == WolTarget::SetupPage {
+            crate::app::input::multiplayer_setup::cursor_moved(state);
+            self.settle();
+        } else {
+            self.hover_settle(state);
         }
         Ok(())
     }

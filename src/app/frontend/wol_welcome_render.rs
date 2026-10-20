@@ -63,6 +63,29 @@ pub(crate) fn presented_wol_page(state: &AppState) -> PresentedShell {
     }
 }
 
+/// `0xCF` or `0x11E` over whatever the page shows.
+pub(crate) fn page_dialogs_paint(
+    state: &AppState,
+) -> Option<crate::app::frontend::skirmish_shell_render::WolLobbyPaint> {
+    use crate::app::frontend::skirmish_shell_render::{
+        paint_wol_page_dialog, paint_wol_page_received,
+    };
+    use crate::app::shell_wol::page;
+    if let Some(dialog) = page::page_dialog(state) {
+        return Some(paint_wol_page_dialog(
+            state,
+            dialog,
+            &page::page_layout(state),
+        ));
+    }
+    let received = page::page_received(state)?;
+    Some(paint_wol_page_received(
+        state,
+        received,
+        &page::received_layout(state),
+    ))
+}
+
 /// The page being painted and what it needs beyond the shared chrome.
 enum Painted {
     Welcome(crate::ui::wol_shell::WolWelcomeLayout),
@@ -118,6 +141,8 @@ pub(crate) fn render_wol_page(
     }
     let welcome = crate::app::App::wol_welcome_layout(state);
     let painted = match &state.frontend.wol.as_ref().expect("checked").page {
+        // 0x11E opens over the empty backdrop (0x0052FEC0).
+        _ if crate::app::shell_wol::page::page_received(state).is_some() => Painted::Backdrop,
         WolPage::Welcome => {
             crate::app::App::ensure_wol_welcome_art(state);
             Painted::Welcome(welcome.clone())
@@ -413,6 +438,8 @@ pub(crate) fn render_wol_page(
             ),
         )
     });
+
+    let page_dialogs = page_dialogs_paint(state);
 
     // The column: the slide engine draws it while a slide runs, the empty
     // backdrop draws it shut, otherwise the page's buttons paint.
@@ -766,6 +793,13 @@ pub(crate) fn render_wol_page(
             instances: popup.controls,
         });
         text.extend(popup.texts);
+    }
+    if let (Some(atlas), Some(page)) = (controls_atlas, page_dialogs) {
+        draws.push(TexturedDraw {
+            texture: &atlas.texture,
+            instances: page.controls,
+        });
+        text.extend(page.texts);
     }
     if let Some(atlas) = box_atlas {
         draws.push(TexturedDraw {

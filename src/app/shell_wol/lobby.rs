@@ -53,6 +53,8 @@ pub(crate) struct WolLobbyGlobals {
     pub(crate) player_sort: PlayerSort,
     /// `[0xA8B540]`: Create's Limit Screen Resolution.
     pub(crate) limit_resolution: bool,
+    /// `[0xB77E8C]`: the `0xCF` control that last notified, never reset.
+    pub(crate) page_last_control: u16,
 }
 
 /// The decoded result of a joined channel: its record and its users.
@@ -225,7 +227,7 @@ fn options_screen(state: &AppState) -> (i32, i32) {
     }
 }
 
-fn base_names(state: &AppState) -> [String; 8] {
+pub(super) fn base_names(state: &AppState) -> [String; 8] {
     std::array::from_fn(|index| csf(state, &format!("TXT_LOB_{}", index + 1)))
 }
 
@@ -1133,9 +1135,10 @@ fn dispatch(state: &mut AppState, action: WolLobbyAction) {
         WolLobbyAction::Options => {
             App::leave_shell_dialog(state, shell_transition::ShellExitThen::WolOptionsOpen);
         }
+        WolLobbyAction::Page => super::page::open_page_dialog(state),
         WolLobbyAction::Unported(control) => {
-            // Buddy List (mode 5), Clan/Tournament/News (0x00773E90 web
-            // pages) and Page (0xCF) are later chains.
+            // Buddy List (mode 5) and Clan/Tournament/News (0x00773E90 web
+            // pages) are later chains.
             log::warn!("WOL lobby control {control:#x} is not implemented; 0x113 stays");
         }
         WolLobbyAction::Popup(action) => popup_action(state, action),
@@ -1551,7 +1554,7 @@ pub(super) fn message_received(
 }
 
 /// The find sink `0x007A9970` for a locate this user sent (`[0xB76E28]`),
-/// outside a buddy-status locate (chain F) and the `0xCF` page (chain E):
+/// outside a buddy-status locate (chain F) and an open `0xCF`:
 /// `TXT_USER_FOUND` with a chat lobby's room text (type 0 named
 /// `Lob_41_<n>`, as `TXT_JOINED_S` shows it) or the channel's own name;
 /// otherwise the code's `TXT_USER_*` text. The line goes, white, to the
@@ -1559,6 +1562,10 @@ pub(super) fn message_received(
 /// a transcript clears the name (`0x007AA685`).
 /// RESIDUAL: in a match the line is a MessageList row (WOL in-match chain).
 pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
+    // 0x007A997A: with 0xCF in the stack its status takes the answer.
+    if super::page::located(state, &result) {
+        return;
+    }
     let Some(visit) = state.frontend.wol.as_ref() else {
         return;
     };
@@ -1594,6 +1601,38 @@ pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
             visit.locate_name = None;
         }
     }
+}
+
+/// The page-send result sink `0x007A9800`: success writes `TXT_PAGESENT`
+/// through `0x005E2790`, so only an open `0xCF` shows it. A failure goes
+/// to the current window only: its `0x53F` (`0x113`, C2/C9, `0x11E`), else
+/// its `0x5B5` (`0xCF`).
+/// RESIDUAL: with neither, a match posts a MessageList row (in-match chain).
+pub(super) fn page_result(state: &mut AppState, result: Result<(), u32>) {
+    let key = match result {
+        Ok(()) => "TXT_PAGESENT",
+        Err(0x0004_0134) => "TXT_PAGEDISABLED",
+        Err(0x0004_0133) => "TXT_PAGEUSERGONE",
+        Err(_) => "TXT_PAGEFAILED",
+    };
+    let line = LanChatLine {
+        text: units(state, key),
+        color: u32::MAX,
+    };
+    if result.is_ok() || super::page::page_dialog(state).is_some() {
+        super::page::append_page_line(state, line);
+    } else if super::page::page_received(state).is_some() {
+        super::page::append_received_line(state, line);
+    } else if !state
+        .frontend
+        .wol
+        .as_ref()
+        .is_none_or(|visit| visit.in_game)
+        && (state.frontend.shell_route.network_setup() || App::wol_page_is_lobby(state))
+    {
+        crate::app::shell_lan::append_chat(state, line);
+    }
+    state.platform.window.request_redraw();
 }
 
 /// The NetStatus sink `0x007AA6D0` outside the server-list wait: only
@@ -1739,19 +1778,41 @@ pub(super) fn channel_ban(state: &mut AppState, name: &str, banned: bool) {
 /// exists without wolinfo.
 /// RESIDUAL: in a match the page is a MessageList row pair (WOL in-match
 /// chain).
-pub(super) fn page_received(state: &mut AppState, from: WolMember, text: Vec<u16>) {
+/// The page sinks after their gates: the ANSI one (`0x007A9200`) keeps the
+/// sender as the `/reply` target `[0xB77E30]`; the UTF-16 one (`0x007A9550`)
+/// does not. Outside a match the line `u"(%hs) %s"` walks the shell stack
+/// from the current window: `0xCF`'s list `0x5B5` takes it and the walk goes
+/// on (`0x005E2790`); the first transcript `0x53F` (`0x113`, C2/C9 or an
+/// open `0x11E`) takes it and the walk stops; with none, `0x11E` opens.
+/// RESIDUAL: in a match the two Grey MessageList rows, the reply window and
+/// the in-match `0xCF` list are the in-match page chain; nothing shows yet.
+pub(super) fn page_received(state: &mut AppState, from: WolMember, text: Vec<u16>, ansi: bool) {
     if state.frontend.wol.is_none() || !sender_passes(state, &from, &text) {
         return;
     }
     let visit = state.frontend.wol.as_mut().expect("checked");
-    visit.last_pager = Some(from.name.clone());
-    let route = state.frontend.shell_route;
-    if route.wol_lobby() || route.network_setup() {
-        let mut line: Vec<u16> = format!("({}) ", from.name).encode_utf16().collect();
-        line.extend_from_slice(&text);
-        echo(state, line, wol_chat::PAGE_COLOR);
+    if ansi {
+        visit.last_pager = Some(from.name.clone());
+    }
+    let in_game = visit.in_game;
+    let mut units: Vec<u16> = format!("({}) ", from.name).encode_utf16().collect();
+    units.extend_from_slice(&text);
+    let line = LanChatLine {
+        text: units,
+        color: wol_chat::PAGE_COLOR,
+    };
+    if in_game {
+        log::warn!("WOL page during a match: the in-match rows are not ported");
     } else {
-        log::warn!("WOL page outside a transcript needs dialog 0x11E; not shown");
+        super::page::append_page_line(state, line.clone());
+        let route = state.frontend.shell_route;
+        let transcript = super::page::page_received(state).is_none()
+            && (route.network_setup() || lobby(state).is_some());
+        if transcript {
+            crate::app::shell_lan::append_chat(state, line);
+        } else {
+            super::page::page_received_line(state, line);
+        }
     }
     let sound = state
         .rules()
@@ -2120,6 +2181,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
     let layout = layout(state);
     let (x, y) = state.match_state.input.cursor_px();
     let mut redraw = false;
+    let page_open = super::page::page_dialog(state).is_some();
     let lobby = lobby_mut(state)?;
     redraw |= lobby.wait.as_mut().is_some_and(|wait| wait.poll(now));
     match lobby.step {
@@ -2159,7 +2221,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         }
     }
     // The timers run only while 0x113 is the current window.
-    let current_window = lobby.interactive() && lobby.ui.popup.is_none();
+    let current_window = lobby.interactive() && lobby.ui.popup.is_none() && !page_open;
     let mut requests = Vec::new();
     if current_window {
         if now >= lobby.games_at {

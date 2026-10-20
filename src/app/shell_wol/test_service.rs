@@ -151,6 +151,21 @@ fn answer(state: &mut AppState, request: WolServiceRequest) {
             line: WolChatLine::Locate { name },
             ..
         } => WolServiceEvent::Located(locate(&String::from_utf16_lossy(&name))),
+        WolServiceRequest::Chat {
+            line: WolChatLine::Page { name, .. },
+            ..
+        } => {
+            page(state, &String::from_utf16_lossy(&name));
+            return;
+        }
+        WolServiceRequest::Chat {
+            line: WolChatLine::Reply { .. },
+            ..
+        } => {
+            let name = super::last_pager(state).unwrap_or_default().to_owned();
+            page(state, &name);
+            return;
+        }
         // OnPart arrives only for a channel this user is in.
         WolServiceRequest::LeaveChannel if super::lobby::in_channel(state) => {
             WolServiceEvent::ChannelLeft
@@ -226,6 +241,27 @@ fn lobby_greeting(state: &mut AppState) {
 /// Tanya's locale (United States); the other stand-ins have none.
 fn stand_in_locale(name: &str) -> Option<i32> {
     name.eq_ignore_ascii_case("Tanya").then_some(2)
+}
+
+/// A page reaches a stand-in, who pages back from a current client (the
+/// UTF-16 sink); anyone else is gone (`0x40133`).
+fn page(state: &mut AppState, name: &str) {
+    let Some(stand_in) = lobby_members()
+        .into_iter()
+        .find(|member| member.name.eq_ignore_ascii_case(name))
+    else {
+        service_event(state, WolServiceEvent::PageResult(Err(0x0004_0133)));
+        return;
+    };
+    service_event(state, WolServiceEvent::PageResult(Ok(())));
+    service_event(
+        state,
+        WolServiceEvent::Page {
+            from: stand_in,
+            text: "Got your page.".encode_utf16().collect(),
+            ansi: false,
+        },
+    );
 }
 
 /// A locate finds a stand-in in the first chat lobby; anyone else is not

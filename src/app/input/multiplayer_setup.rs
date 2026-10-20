@@ -85,6 +85,11 @@ pub(crate) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Optio
     if transfer_active(state) {
         return;
     }
+    // The page dialog 0xCF runs its own modal loop over C2/C9.
+    if crate::app::shell_wol::page::open(state) {
+        crate::app::shell_wol::page::key_press(state, code, text);
+        return;
+    }
     if notice_active(state) {
         activate_notice(state);
         if let Some(key) = code.and_then(App::shell_key_for_code)
@@ -137,6 +142,10 @@ pub(crate) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Optio
 
 pub(crate) fn cursor_moved(state: &mut AppState) {
     if transfer_active(state) {
+        return;
+    }
+    if crate::app::shell_wol::page::open(state) {
+        crate::app::shell_wol::page::cursor_moved(state);
         return;
     }
     if notice_active(state) {
@@ -204,6 +213,10 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
         return;
     }
     if button != MouseButton::Left || shell_transition::blocks_shell_input(state) {
+        return;
+    }
+    if crate::app::shell_wol::page::open(state) {
+        crate::app::shell_wol::page::mouse(state, pressed);
         return;
     }
     if notice_active(state) {

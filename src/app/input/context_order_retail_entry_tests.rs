@@ -1,9 +1,10 @@
-//! The building-entry click chain on retail rules: CAN_LOAD (Grinder
-//! `0x0043C4F8`, Bunker `0x0043C506`, UnitRepair `0x0043C544`, refinery), the
-//! Unit (`0x00740122..0x007401BC`) and Infantry (`0x0051F0AF..0x0051F111`)
-//! What_Action rows, the Enter/NoEnter cursor rows and Foot ClickedAction's
-//! missions Enter (case 3) and Eaten (`0x004D774F`), then the production
-//! receivers.
+//! The entry click chain on retail rules: CAN_LOAD (Grinder `0x0043C4F8`,
+//! Bunker `0x0043C506`, UnitRepair `0x0043C544`, refinery, Unit transport
+//! `0x0073758A`), the Unit building arm (`0x00740122..0x007401BC`), the
+//! Infantry grinder row (`0x0051F0AF..0x0051F111`), both passenger rows
+//! (`0x0051ED10..0x0051EE36`, `0x0074029F..0x00740378`), the Enter/NoEnter
+//! cursor rows and Foot ClickedAction's missions Enter (case 3) and Eaten
+//! (`0x004D774F`), then the production receivers.
 
 use super::*;
 use crate::app::input::cursor::{capability_cursor_for_hover, cursor_id_for_feedback};
@@ -152,12 +153,14 @@ fn a_players_vehicle_and_rifleman_grind_at_their_own_grinder() {
         Some(CursorId::Enter)
     );
     let mut selected = vec![tank, gi];
-    let orders = building_entry_orders(
+    let orders = entry_orders(
         &sim,
         rules,
         &selected.clone(),
         &mut selected,
         &hover(grinder),
+        OrderModifier::Normal,
+        false,
         Some(&registry),
     )
     .expect("both grind");
@@ -204,18 +207,28 @@ fn armed_objects_over_an_allied_grinder_are_not_ground() {
     );
     for actor in [tank, gi] {
         assert_eq!(
-            building_entry_action(&sim, rules, actor, grinder, Some(&registry)),
+            entry_action(
+                &sim,
+                rules,
+                actor,
+                grinder,
+                OrderModifier::Normal,
+                false,
+                Some(&registry)
+            ),
             None
         );
     }
     let mut selected = vec![tank, gi];
     assert_eq!(
-        building_entry_orders(
+        entry_orders(
             &sim,
             rules,
             &selected.clone(),
             &mut selected,
             &hover(grinder),
+            OrderModifier::Normal,
+            false,
             Some(&registry)
         ),
         None
@@ -246,12 +259,14 @@ fn a_crazy_ivan_bombs_the_players_grinder_rather_than_entering() {
     );
     let mut selected = vec![ivan];
     assert_eq!(
-        building_entry_orders(
+        entry_orders(
             &sim,
             rules,
             &selected.clone(),
             &mut selected,
             &hover(grinder),
+            OrderModifier::Normal,
+            false,
             Some(&registry)
         ),
         None
@@ -317,12 +332,14 @@ fn a_miner_enters_the_players_refinery_unless_a_tank_owns_the_cursor() {
         Some(CursorId::Enter)
     );
     let mut selected = vec![miner];
-    let orders = building_entry_orders(
+    let orders = entry_orders(
         &sim,
         rules,
         &selected.clone(),
         &mut selected,
         &hover(refinery),
+        OrderModifier::Normal,
+        false,
         Some(&registry),
     )
     .expect("the miner enters");
@@ -330,17 +347,27 @@ fn a_miner_enters_the_players_refinery_unless_a_tank_owns_the_cursor() {
     assert!(selected.is_empty());
 
     assert_eq!(
-        building_entry_action(&sim, rules, tank, refinery, Some(&registry)),
+        entry_action(
+            &sim,
+            rules,
+            tank,
+            refinery,
+            OrderModifier::Normal,
+            false,
+            Some(&registry)
+        ),
         None
     );
     let mut selected = vec![tank, miner];
     assert_eq!(
-        building_entry_orders(
+        entry_orders(
             &sim,
             rules,
             &selected.clone(),
             &mut selected,
             &hover(refinery),
+            OrderModifier::Normal,
+            false,
             Some(&registry)
         ),
         None
@@ -370,28 +397,40 @@ fn a_full_health_tank_is_sent_to_the_depot_and_turned_away() {
     // The GI has no depot row. Beside the tank it stands nearer the depot,
     // so its Select owns the cursor and the release selects the depot.
     assert_eq!(
-        building_entry_action(&sim, rules, gi, depot, Some(&registry)),
+        entry_action(
+            &sim,
+            rules,
+            gi,
+            depot,
+            OrderModifier::Normal,
+            false,
+            Some(&registry)
+        ),
         None
     );
     let mut selected = vec![tank, gi];
     assert_eq!(
-        building_entry_orders(
+        entry_orders(
             &sim,
             rules,
             &selected.clone(),
             &mut selected,
             &hover(depot),
+            OrderModifier::Normal,
+            false,
             Some(&registry),
         ),
         None
     );
     let mut selected = vec![tank];
-    let orders = building_entry_orders(
+    let orders = entry_orders(
         &sim,
         rules,
         &selected.clone(),
         &mut selected,
         &hover(depot),
+        OrderModifier::Normal,
+        false,
         Some(&registry),
     )
     .expect("the tank enters");
@@ -441,12 +480,14 @@ fn a_damaged_tank_sent_to_the_depot_is_repaired() {
         Some(CursorId::Enter)
     );
     let mut selected = vec![tank];
-    let orders = building_entry_orders(
+    let orders = entry_orders(
         &sim,
         rules,
         &selected.clone(),
         &mut selected,
         &hover(depot),
+        OrderModifier::Normal,
+        false,
         Some(&registry),
     )
     .expect("the tank enters");
@@ -482,12 +523,14 @@ fn every_tank_is_sent_into_an_empty_bunker_until_one_is_installed() {
         );
     }
     let mut selected = vec![tank, second];
-    let orders = building_entry_orders(
+    let orders = entry_orders(
         &sim,
         rules,
         &selected.clone(),
         &mut selected,
         &hover(bunker),
+        OrderModifier::Normal,
+        false,
         Some(&registry),
     )
     .expect("both enter");
@@ -504,11 +547,281 @@ fn every_tank_is_sent_into_an_empty_bunker_until_one_is_installed() {
         Some(tank)
     );
     assert_eq!(
-        building_entry_action(&sim, rules, second, bunker, Some(&registry)),
+        entry_action(
+            &sim,
+            rules,
+            second,
+            bunker,
+            OrderModifier::Normal,
+            false,
+            Some(&registry)
+        ),
         None
     );
     assert_ne!(
         cursor(&sim, rules, &registry, second, bunker),
         Some(CursorId::Enter)
+    );
+}
+
+/// The player's `carrier` beside the Grizzly and GI of [`scene_with`].
+fn carrier_scene(rules: &RuleSet, carrier: &str) -> (Simulation, u64, u64, u64) {
+    let (mut sim, _, tank, gi) = scene_with(rules, "GAPOWR", "Americans");
+    let carrier = sim
+        .spawn_object(carrier, "Americans", 16, 18, 0, rules)
+        .unwrap_or_else(|| panic!("{carrier}"));
+    (sim, carrier, tank, gi)
+}
+
+fn unit_hover(carrier: u64) -> HoverTargetKindWithId {
+    HoverTargetKindWithId {
+        stable_id: carrier,
+        kind: HoverTargetKind::FriendlyUnit,
+    }
+}
+
+fn carrier_cursor(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    actor: u64,
+    carrier: u64,
+    modifier: OrderModifier,
+) -> Option<CursorId> {
+    cursor_id_for_feedback(capability_cursor_for_hover(
+        sim,
+        &[actor],
+        Some(actor),
+        &unit_hover(carrier),
+        Some(rules),
+        Some(registry),
+        modifier,
+        modifier == OrderModifier::ForceMove,
+    ))
+}
+
+fn carrier_orders(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    selected: &[u64],
+    carrier: u64,
+    modifier: OrderModifier,
+) -> Option<Vec<Command>> {
+    let mut receivers = selected.to_vec();
+    let orders = entry_orders(
+        sim,
+        rules,
+        selected,
+        &mut receivers,
+        &unit_hover(carrier),
+        modifier,
+        modifier == OrderModifier::ForceMove,
+        Some(registry),
+    );
+    if orders.is_some() {
+        assert!(receivers.is_empty(), "every receiver answers an entry");
+    }
+    orders
+}
+
+/// Advances until `passenger` is inside `carrier`, at most `frames` frames.
+fn board(sim: &mut Simulation, rules: &RuleSet, passenger: u64, carrier: u64, frames: u32) {
+    for _ in 0..frames {
+        if sim
+            .entities()
+            .get(passenger)
+            .is_some_and(|entity| entity.passenger_role.is_inside_transport())
+        {
+            break;
+        }
+        sim.advance_tick(&[], Some(rules), None, None, 67);
+    }
+    assert_eq!(
+        sim.entities()
+            .get(carrier)
+            .unwrap()
+            .passenger_role
+            .passenger_count(),
+        1
+    );
+}
+
+/// A GI over the player's IFV gets Enter and boards it. A full IFV answers
+/// CAN_LOAD NEGATORY (`0x0073758A..0x007376AA`), so the next GI gets NoEnter,
+/// and his click orders nothing and selects nothing.
+#[test]
+fn a_gi_boards_the_players_ifv_until_it_is_full() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, ifv, _, gi) = carrier_scene(rules, "FV");
+    assert_eq!(
+        carrier_cursor(&sim, rules, &registry, gi, ifv, OrderModifier::Normal),
+        Some(CursorId::Enter)
+    );
+    let orders = carrier_orders(&sim, rules, &registry, &[gi], ifv, OrderModifier::Normal)
+        .expect("the GI enters");
+    assert_eq!(orders, [enter(gi, ifv)]);
+    assert!(sim.apply_command("Americans", &orders[0], Some(rules)));
+    board(&mut sim, rules, gi, ifv, 200);
+
+    let second = sim
+        .spawn_object("E1", "Americans", 13, 20, 0, rules)
+        .expect("second gi");
+    assert_eq!(
+        carrier_cursor(&sim, rules, &registry, second, ifv, OrderModifier::Normal),
+        Some(CursorId::NoEnter)
+    );
+    assert_eq!(
+        carrier_orders(
+            &sim,
+            rules,
+            &registry,
+            &[second],
+            ifv,
+            OrderModifier::Normal
+        ),
+        Some(Vec::new())
+    );
+}
+
+/// A Grizzly over the player's IFV: its rung asks CAN_LOAD, which a
+/// `SizeLimit=1` IFV answers NEGATORY, so the cursor is NoEnter and the click
+/// orders nothing (it no longer selects the IFV). Beside a GI, whichever owns
+/// the cursor answers an entry, so the click dispatches and only the GI is
+/// sent in. A Rocketeer (`BalloonHover=yes`) is turned away
+/// (`0x0051EDAE..0x0051EDC3`).
+#[test]
+fn a_tank_or_a_rocketeer_over_the_players_ifv_gets_no_enter() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, ifv, tank, gi) = carrier_scene(rules, "FV");
+    assert_eq!(
+        carrier_cursor(&sim, rules, &registry, tank, ifv, OrderModifier::Normal),
+        Some(CursorId::NoEnter)
+    );
+    assert_eq!(
+        carrier_orders(&sim, rules, &registry, &[tank], ifv, OrderModifier::Normal),
+        Some(Vec::new())
+    );
+    assert_eq!(
+        carrier_orders(
+            &sim,
+            rules,
+            &registry,
+            &[tank, gi],
+            ifv,
+            OrderModifier::Normal
+        ),
+        Some(vec![enter(gi, ifv)])
+    );
+    let rocketeer = sim
+        .spawn_object("JUMPJET", "Americans", 13, 21, 0, rules)
+        .expect("rocketeer");
+    assert_eq!(
+        carrier_cursor(
+            &sim,
+            rules,
+            &registry,
+            rocketeer,
+            ifv,
+            OrderModifier::Normal
+        ),
+        Some(CursorId::NoEnter)
+    );
+}
+
+/// A Grizzly over the player's Amphibious Transport (`SizeLimit=6`) gets
+/// Enter and boards it.
+#[test]
+fn a_tank_boards_the_players_amphibious_transport() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, transport, tank, _) = carrier_scene(rules, "LCRF");
+    assert_eq!(
+        carrier_cursor(
+            &sim,
+            rules,
+            &registry,
+            tank,
+            transport,
+            OrderModifier::Normal
+        ),
+        Some(CursorId::Enter)
+    );
+    let orders = carrier_orders(
+        &sim,
+        rules,
+        &registry,
+        &[tank],
+        transport,
+        OrderModifier::Normal,
+    )
+    .expect("the tank enters");
+    assert_eq!(orders, [enter(tank, transport)]);
+    assert!(sim.apply_command("Americans", &orders[0], Some(rules)));
+    board(&mut sim, rules, tank, transport, 300);
+}
+
+/// The Bio Reactor (`Passengers=5`, `InfantryAbsorb=yes`) takes a GI. A
+/// Grizzly's building arm finds its CAN_LOAD refusing and leaves Select, then
+/// its passenger rung asks again and answers NoEnter.
+#[test]
+fn the_bio_reactor_takes_a_gi_and_turns_a_tank_away() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (sim, reactor, tank, gi) = scene_with(rules, "YAPOWR", "Americans");
+    assert_eq!(
+        cursor(&sim, rules, &registry, gi, reactor),
+        Some(CursorId::Enter)
+    );
+    assert_eq!(
+        cursor(&sim, rules, &registry, tank, reactor),
+        Some(CursorId::NoEnter)
+    );
+    let mut selected = vec![gi, tank];
+    assert_eq!(
+        entry_orders(
+            &sim,
+            rules,
+            &selected.clone(),
+            &mut selected,
+            &hover(reactor),
+            OrderModifier::Normal,
+            false,
+            Some(&registry),
+        ),
+        Some(vec![enter(gi, reactor)])
+    );
+}
+
+/// Alt answers Move (`0x007001E9`), which the passenger rows still take: a
+/// GI over the IFV gets Enter and is sent in, a Grizzly gets NoEnter.
+#[test]
+fn alt_still_boards_a_transport() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (sim, ifv, tank, gi) = carrier_scene(rules, "FV");
+    assert_eq!(
+        carrier_cursor(&sim, rules, &registry, gi, ifv, OrderModifier::ForceMove),
+        Some(CursorId::Enter)
+    );
+    assert_eq!(
+        carrier_cursor(&sim, rules, &registry, tank, ifv, OrderModifier::ForceMove),
+        Some(CursorId::NoEnter)
+    );
+    assert_eq!(
+        carrier_orders(&sim, rules, &registry, &[gi], ifv, OrderModifier::ForceMove),
+        Some(vec![enter(gi, ifv)])
     );
 }

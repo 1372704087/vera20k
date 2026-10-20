@@ -2018,17 +2018,18 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
-            // Alt answers Move first (`0x007001E9`), in the Ctrl+Shift+Alt
-            // chord too.
-            if context_actions_enabled
-                && !force_move
+            // The passenger rows take Alt's Move too; the objects they leave
+            // take the force-move below.
+            if (context_actions_enabled || force_move)
                 && let Some(target) = hover.as_ref()
-                && let Some(orders) = building_entry_orders(
+                && let Some(orders) = entry_orders(
                     sim,
                     &resources.rules,
                     &current_objects,
                     &mut selected_units,
                     target,
+                    modifier,
+                    force_move_key,
                     Some(&resources.overlay_registry),
                 )
             {
@@ -2044,12 +2045,8 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             }
 
             if context_actions_enabled && let Some(target) = hover.as_ref() {
-                let orders = transport_entry_orders(
-                    sim,
-                    &resources.rules,
-                    &selected_units,
-                    target.stable_id,
-                );
+                let orders =
+                    garrison_entry_orders(sim, &resources.rules, &selected_units, target.stable_id);
                 if !orders.is_empty() {
                     queued.extend(
                         orders
@@ -2171,8 +2168,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             // nothing under the cursor is a target, and the object receiver
             // 4D74E0 orders the object or a Cell near it
             // ([`Simulation::object_move_click`]). Rungs that answer first
-            // (Self, handled above) or rewrite it are not asked here (#605):
-            // the class rungs noted above, and Foot's shroud rung
+            // (Self) or rewrite it (the passenger rows, [`entry_orders`]) are
+            // handled above. Others are not asked here (#605): the class
+            // rungs noted above, and Foot's shroud rung
             // (`0x004DDF45..0x004DDF82`), which only GameMode 0 reaches. An
             // enemy the player cannot see is no object to click, as for the
             // cursor: the Cell under it takes the click.
@@ -2561,110 +2559,136 @@ fn self_action(
     })
 }
 
-/// Object entry orders use the same admission owner as the hover cursor.
+/// Garrison orders use the same admission owner as the hover cursor.
 /// Infantry What_Action51E668..51E6B1 answers action9 for an admitted
 /// garrison; Foot ClickedAction4D7716..4D773A sends Capture8 with NULL
 /// Target and the building as Destination. Actual arrival belongs to the
 /// existing Capture/PerCell owners, as for computer occupiers (#1400).
-fn transport_entry_orders(
+/// Passenger carriers take [`entry_orders`].
+fn garrison_entry_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     selected: &[u64],
-    transport_id: u64,
+    building_id: u64,
 ) -> Vec<Command> {
     let garrison = sim
         .entities()
-        .get(transport_id)
+        .get(building_id)
         .filter(|target| target.category() == EntityCategory::Structure)
         .and_then(|target| sim.interner().object_type(target.type_ref(), rules))
         .is_some_and(|object| object.can_be_occupied);
+    if !garrison {
+        return Vec::new();
+    }
     selected
         .iter()
         .copied()
-        .filter(|&id| crate::sim::passenger::can_enter_transport(sim, rules, id, transport_id))
-        .map(|passenger_id| {
-            if garrison {
-                Command::CaptureBuilding {
-                    engineer_id: passenger_id,
-                    target_building_id: transport_id,
-                }
-            } else {
-                Command::EnterTransport {
-                    passenger_id,
-                    transport_id,
-                }
-            }
+        .filter(|&id| crate::sim::passenger::can_enter_transport(sim, rules, id, building_id))
+        .map(|engineer_id| Command::CaptureBuilding {
+            engineer_id,
+            target_building_id: building_id,
         })
         .collect()
 }
 
-/// [`Simulation::building_click_action`] for an object whose base action
-/// over the building is Select ([`attack_action`]), which both class rows
-/// need (action 7: Unit `0x00740122`, Infantry `0x0051F0AF`). An armed
-/// player's object over another house's building (0, `0x0070056C`), an Ivan
-/// granted Attack (IvanBomb, `0x0051EB24`) and a selected or warped-out
-/// building take other rows.
+/// [`Simulation::entry_click_action`] under the base action the modifier and
+/// [`attack_action`] give:
+/// - Shift's ToggleSelect (8) returns first (`0x0051E453`), and Ctrl's Attack
+///   (5) and Ctrl+Alt's GuardArea (0x1A) skip every entry row;
+/// - Alt answers Move (1) first (`0x007001E9`), in the Ctrl+Shift+Alt chord
+///   too, which only the passenger rows take;
+/// - otherwise Select (7) takes every row, and Attack none. Every other
+///   answer takes only the passenger rows: an armed player's object over
+///   another house's object (0, `0x0070056C`) or a selected one.
 ///
-/// [`Simulation::building_click_action`]: crate::sim::world::Simulation::building_click_action
-pub(super) fn building_entry_action(
+/// [`Simulation::entry_click_action`]: crate::sim::world::Simulation::entry_click_action
+pub(super) fn entry_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     actor_id: u64,
     target_id: u64,
+    modifier: OrderModifier,
+    force_move_key: bool,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-) -> Option<crate::sim::world::BuildingClickAction> {
-    let action = sim.building_click_action(actor_id, target_id, rules)?;
-    (attack_action(
-        sim,
-        rules,
-        actor_id,
-        &TargetKind::Entity(target_id),
-        false,
-        overlay_registry,
-    ) == AttackAction::Select)
-        .then_some(action)
+) -> Option<crate::sim::world::EntryClickAction> {
+    use crate::sim::world::EntryBaseAction;
+    let base = match modifier {
+        OrderModifier::Shift | OrderModifier::ForceFire | OrderModifier::GuardArea => {
+            return None;
+        }
+        OrderModifier::ForceMove => EntryBaseAction::Other,
+        OrderModifier::AttackMove if force_move_key => EntryBaseAction::Other,
+        OrderModifier::Normal | OrderModifier::AttackMove => match attack_action(
+            sim,
+            rules,
+            actor_id,
+            &TargetKind::Entity(target_id),
+            false,
+            overlay_registry,
+        ) {
+            AttackAction::Select => EntryBaseAction::Select,
+            AttackAction::Attack => return None,
+            _ => EntryBaseAction::Other,
+        },
+    };
+    sim.entry_click_action(actor_id, target_id, base, rules)
 }
 
-/// The selected objects whose Select over a friendly building is Enter,
-/// Grind or NoEnter ([`building_entry_action`]) leave `selected`, each on its
-/// own What_Action as `Selection__DispatchMultiUnitOrder`'s object loop
+/// The selected objects whose action over a friendly object is Enter, Grind
+/// or NoEnter ([`entry_action`]) leave `selected`, each on its own
+/// What_Action as `Selection__DispatchMultiUnitOrder`'s object loop
 /// (`0x004AE829..0x004AE85A`) asks it. Foot ClickedAction (`0x004D74E0`)
 /// sends a controllable (vt+0xA0) one mission Enter (case 3) or Eaten (case
-/// 0xB) with NULL Target and the building as Destination; NoEnter has no
-/// case and orders nothing. The loop runs only when the object that owns the
-/// cursor ([`cursor_owner`] of `current_objects`) has one of these actions:
-/// for its Select, BandBox_LeftUp selects the building instead
-/// (`0x004AB9B0` -> `0x004ABE18`) and never reaches the dispatcher. None when
-/// no selected object takes it.
-fn building_entry_orders(
+/// 0xB) with NULL Target and the object as Destination; NoEnter has no case
+/// and orders nothing. Without Alt the loop runs only when the object that
+/// owns the cursor ([`cursor_owner`] of `current_objects`) has one of these
+/// actions: for its Select, BandBox_LeftUp selects the object instead
+/// (`0x004AB9B0` -> `0x004ABE18`) and never reaches the dispatcher. Alt's
+/// Move is an order, so the loop always runs, and the objects it leaves take
+/// the force-move. None when no selected object takes an entry action.
+fn entry_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     current_objects: &[u64],
     selected: &mut Vec<u64>,
     hover: &HoverTargetKindWithId,
+    modifier: OrderModifier,
+    force_move_key: bool,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<Vec<Command>> {
-    if hover.kind != HoverTargetKind::FriendlyStructure {
+    if !matches!(
+        hover.kind,
+        HoverTargetKind::FriendlyStructure | HoverTargetKind::FriendlyUnit
+    ) {
         return None;
     }
-    let owner = cursor_owner(sim, rules, current_objects, hover.stable_id)?;
-    building_entry_action(sim, rules, owner, hover.stable_id, overlay_registry)?;
+    let action = |id| {
+        entry_action(
+            sim,
+            rules,
+            id,
+            hover.stable_id,
+            modifier,
+            force_move_key,
+            overlay_registry,
+        )
+    };
+    let force_move = modifier == OrderModifier::ForceMove
+        || (modifier == OrderModifier::AttackMove && force_move_key);
+    if !force_move {
+        action(cursor_owner(sim, rules, current_objects, hover.stable_id)?)?;
+    }
     let mut consumed = false;
     let mut orders = Vec::new();
     selected.retain(|&id| {
-        let Some(action) = building_entry_action(sim, rules, id, hover.stable_id, overlay_registry)
-        else {
+        let Some(action) = action(id) else {
             return true;
         };
         consumed = true;
         let mission = match action {
-            crate::sim::world::BuildingClickAction::Enter => {
-                crate::sim::mission::MissionType::Enter
-            }
-            crate::sim::world::BuildingClickAction::Grind => {
-                crate::sim::mission::MissionType::Eaten
-            }
-            crate::sim::world::BuildingClickAction::NoEnter => return false,
+            crate::sim::world::EntryClickAction::Enter => crate::sim::mission::MissionType::Enter,
+            crate::sim::world::EntryClickAction::Grind => crate::sim::mission::MissionType::Eaten,
+            crate::sim::world::EntryClickAction::NoEnter => return false,
         };
         if sim.techno_player_controllable(id, rules) {
             orders.push(Command::MegaMission {
@@ -6064,8 +6088,8 @@ mod retail_engineer_tests;
 mod retail_garrison_tests;
 
 #[cfg(test)]
-#[path = "context_order_retail_building_entry_tests.rs"]
-mod retail_building_entry_tests;
+#[path = "context_order_retail_entry_tests.rs"]
+mod retail_entry_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_ifv_repair_tests.rs"]

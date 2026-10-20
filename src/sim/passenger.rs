@@ -16,8 +16,9 @@
 //! ## The way aboard: RNG draws, timer writes and detaches
 //! An Enter order, team script action 14 and the Bio Reactor seek all take
 //! this one route; each step lists what it writes.
-//! - Order admission ([`can_enter_transport`]): the click's alliance test and
-//!   the carrier's CAN_LOAD, sending nothing; no writes.
+//! - Order admission: the click's passenger rows
+//!   ([`crate::sim::world::Simulation::entry_click_action`]), which ask the
+//!   carrier's CAN_LOAD and send nothing; no writes.
 //! - The Infantry setter's Enter radio arm (`0x0051AC51..0x0051AD0F`): a
 //!   busy Unit or Building becomes his pending entry (`+0x500`), his
 //!   ArchiveTarget is cleared and Foot's setter takes NULL; a free Techno
@@ -590,12 +591,14 @@ impl PassengerRole {
     }
 }
 
-/// The shared order/UI admission adapter, the click's ENTER
-/// (`InfantryClass::What_Action_OnObject` `0x0051ED10..0x0051EE3B`): the
-/// passenger's house allied with the carrier's, then the carrier's CAN_LOAD
+/// The admission of a garrison order and of the typed
+/// [`crate::sim::command::Command::EnterTransport`] (#2242): a
+/// `CanBeOccupied=` building asks its CanBeOccupiedBy owner; any other
+/// carrier needs `Passengers=` above 0, the passenger's house allied with the
+/// carrier's, and the carrier's CAN_LOAD
 /// ([`crate::sim::radio::receive::can_load_query`], each class receiver's
-/// answer), whose ROGER is ENTER. Building garrison admission keeps its
-/// existing CanBeOccupiedBy owner.
+/// answer) ROGER. The click and cursor ask the full passenger rows instead
+/// ([`crate::sim::world::Simulation::entry_click_action`]).
 pub fn can_enter_transport(
     sim: &Simulation,
     rules: &RuleSet,
@@ -627,11 +630,8 @@ pub fn can_enter_transport(
             sim,
         );
     }
-    // Infantry51ED10 asks the actor's alliance before issuing the radio; the
-    // receiver then asks its own (Building 0x0043C2D0, Unit 0x00737430).
-    // Only a carrier whose type has `Passengers=` above 0 (`+0x5E0`,
-    // `0x0051ED7C..0x0051ED96`) is asked: a Grinder answers ROGER but carries
-    // no one.
+    // The receiver asks its own alliance too (Building 0x0043C2D0, Unit
+    // 0x00737430). A Grinder answers ROGER but carries no one.
     transport_obj.passengers > 0
         && crate::sim::combat::combat_weapon::is_ally_by_object(
             Some(sim.house_alliances.as_map()),

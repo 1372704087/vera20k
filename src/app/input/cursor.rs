@@ -573,9 +573,9 @@ fn what_action_on_cell(
 /// 2. Infantry class capabilities, then admitted weapon cursor overrides.
 /// 3. Engineer capturing: selected Engineer hovering capturable enemy building.
 /// 4. Engineer repairing: selected Engineer hovering damaged friendly building.
-///    Then building entry: a Unit's Select over a friendly building whose
-///    CAN_LOAD admits it, or an Infantryman's over a Grinder (Enter/NoEnter).
-/// 5. Infantry boarding: selected infantry hovering friendly transport (Passengers>0).
+/// 5. Entry (Enter/NoEnter): a Unit's Select over a friendly building whose
+///    CAN_LOAD admits it, an Infantryman's over a Grinder, and either's over a
+///    friendly passenger carrier.
 /// 6. Infantry garrisoning: selected Occupier infantry hovering friendly CanBeOccupied building.
 /// 7. Admitted friendly Attack: consume the shared Techno grant and class action.
 /// 9. Generic friendly/enemy/in-range/out-of-range fallback.
@@ -709,45 +709,38 @@ pub(super) fn capability_cursor_for_hover(
             };
         }
 
-        // A Unit's Select over a friendly building it may enter (refinery,
-        // Service Depot, Tank Bunker, Grinder), or an Infantryman's over a
-        // Grinding= building (`context_order::building_entry_action`).
-        if !matches!(
-            modifier,
-            OrderModifier::ForceFire | OrderModifier::ForceMove | OrderModifier::GuardArea
-        ) && !(modifier == OrderModifier::AttackMove && force_move_key)
-            && matches!(hover.kind, HoverTargetKind::FriendlyStructure)
-            && let Some(action) = rules.and_then(|rules| {
-                super::context_order::building_entry_action(
+        // 5. Entry: a Unit's Select over a friendly building it may enter
+        //    (refinery, Service Depot, Tank Bunker, Grinder), an Infantryman's
+        //    over a Grinding= building, and either's over a friendly
+        //    passenger carrier, Alt's Move included
+        //    (`context_order::entry_action`).
+        if let Some(action) = rules
+            .filter(|_| {
+                matches!(
+                    hover.kind,
+                    HoverTargetKind::FriendlyStructure | HoverTargetKind::FriendlyUnit
+                )
+            })
+            .and_then(|rules| {
+                super::context_order::entry_action(
                     sim,
                     rules,
                     best_id,
                     hover.stable_id,
+                    modifier,
+                    force_move_key,
                     overlay_registry,
                 )
             })
         {
             return match action {
-                crate::sim::world::BuildingClickAction::NoEnter => CursorFeedbackKind::NoEnter,
-                crate::sim::world::BuildingClickAction::Grind
-                | crate::sim::world::BuildingClickAction::Enter => CursorFeedbackKind::Enter,
+                crate::sim::world::EntryClickAction::NoEnter => CursorFeedbackKind::NoEnter,
+                crate::sim::world::EntryClickAction::Grind
+                | crate::sim::world::EntryClickAction::Enter => CursorFeedbackKind::Enter,
             };
         }
 
         let is_infantry = sel_entity.category() == EntityCategory::Infantry;
-
-        // 5. Infantry boarding a friendly transport (Passengers > 0).
-        if is_infantry
-            && !matches!(
-                modifier,
-                OrderModifier::ForceFire | OrderModifier::ForceMove | OrderModifier::GuardArea
-            )
-            && !(modifier == OrderModifier::AttackMove && force_move_key)
-            && matches!(hover.kind, HoverTargetKind::FriendlyUnit)
-            && hovered_obj.is_some_and(|o| o.passengers > 0)
-        {
-            return CursorFeedbackKind::Enter;
-        }
 
         // 6. Infantry garrisoning uses the shared CanBeOccupiedBy-equivalent predicate.
         //    garrisonable — only show Enter for those, not actual enemy-player buildings.
@@ -756,6 +749,7 @@ pub(super) fn capability_cursor_for_hover(
                 modifier,
                 OrderModifier::ForceFire | OrderModifier::GuardArea
             )
+            && hovered_obj.is_some_and(|object| object.can_be_occupied)
             && let Some(rules) = rules
             && crate::sim::passenger::can_enter_transport(sim, rules, best_id, hover.stable_id)
         {

@@ -2955,7 +2955,7 @@ mod tests {
 
     #[test]
     fn bunker_full_lifecycle_enter_install_then_eject() {
-        use crate::sim::docking::bunker_install::{BunkerState, tick_bunker_install};
+        use crate::sim::docking::bunker_install::{BunkerState, update_bunker};
         use crate::sim::docking::bunker_link::BunkerLink;
         let rules = bunker_rules();
         let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -3040,10 +3040,11 @@ mod tests {
                 .process_ground_locomotor_stats_for_test(1, Some(&rules), None)
                 .expect("flat arena supplies every production movement receiver");
             moved += movement.moved_steps;
-            tick_bunker_install(
+            update_bunker(
                 &mut sim,
                 &rules,
                 None,
+                2,
                 crate::sim::world::FrameEffects::default(),
             );
             let state = sim
@@ -3162,12 +3163,6 @@ mod tests {
         for _ in 0..600 {
             sim.process_ground_locomotor_stats_for_test(1, Some(&rules), None)
                 .expect("normal release reaches the production movement corridor");
-            tick_bunker_install(
-                &mut sim,
-                &rules,
-                None,
-                crate::sim::world::FrameEffects::default(),
-            );
             sim.session
                 .set_binary_frame_for_test(sim.session.binary_frame() + 1);
             let unit = sim.substrate.entities.get(1).unwrap();

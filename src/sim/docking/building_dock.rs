@@ -1311,6 +1311,11 @@ fn release_contact(
     }
 }
 
+/// Mission_Repair's return for a type with none of its ConstructionYard,
+/// Hospital, Armory, UnitRepair and UnitReload families (`0x0044C971`), such
+/// as a plain `Bunker=` type.
+const PLAIN_REPAIR_DELAY_FRAMES: i32 = 0xF;
+
 /// BuildingClass::MissionRepairAndProduce44B780's UnitRepair arm. MissionCom
 /// owns status/dispatch; BuildingMissionLeaf owns the independent+620 progress;
 /// Techno RepairTick owns heal/payment. Original corpus: building_repair.depot_service.
@@ -1328,6 +1333,11 @@ pub(crate) fn mission_repair(
     };
     let building = sim.substrate.entities.get(depot)?;
     let object = sim.object_type(building.type_ref(), rules)?;
+    // 0x0044B791..0x0044B7A3: a Bunker= type steps its install first.
+    if object.bunker {
+        super::bunker_install::update_bunker(sim, rules, registry, depot, frame_effects);
+    }
+    let building = sim.substrate.entities.get(depot)?;
     if object.hospital && !object.construction_yard {
         return Some(super::hospital::mission_repair(
             sim,
@@ -1339,11 +1349,19 @@ pub(crate) fn mission_repair(
     }
     if !object.unit_repair {
         // The ConstructionYard, Hospital and Armory arms come first.
-        let reload =
-            object.unit_reload && !object.construction_yard && !object.hospital && !object.armory();
-        return reload.then(|| {
-            super::airfield_reload::mission_reload(sim, rules, depot, registry, frame_effects)
-        });
+        if object.unit_reload && !object.construction_yard && !object.hospital && !object.armory() {
+            return Some(super::airfield_reload::mission_reload(
+                sim,
+                rules,
+                depot,
+                registry,
+                frame_effects,
+            ));
+        }
+        // 0x0044C836 -> 0x0044C970: a type in none of the five families.
+        let plain =
+            !(object.unit_reload || object.construction_yard || object.hospital || object.armory());
+        return plain.then_some(PLAIN_REPAIR_DELAY_FRAMES);
     }
     let status = building.mission.handler_state();
     let current = building

@@ -2076,9 +2076,9 @@ fn is_bunker_building(sim: &Simulation, sid: u64) -> bool {
 }
 
 /// Tank-bunker inbound admission + commit. Mirrors the refinery handshake shape:
-/// CAN_ENTER is the eligibility query; DOCK_NOW commits the install machine.
+/// CAN_ENTER is the eligibility query; DOCK_NOW starts the install mission.
 /// Native: `BuildingClass::Receive_Radio` (`0x0043C2D0`)'s Bunker arms, CanEnterBunker
-/// (`0x0043C512`) and the DOCK_NOW queue (`0x0043C75A..0x0043C773`).
+/// (`0x0043C512`) and DOCK_NOW (`0x0043C6F2..0x0043C785`).
 fn bunker_receive(
     sim: &mut Simulation,
     bld: u64,
@@ -2097,15 +2097,29 @@ fn bunker_receive(
             }
         }
         RadioMessage::DockNow => {
-            // Commit: start the install machine if the bunker is idle.
-            if let Some(rt) = sim
-                .substrate
-                .entities
-                .get_mut(bld)
-                .and_then(|b| b.bunker_runtime.as_mut())
-            {
-                rt.dock_now(unit);
+            // 0x0043C6F6: a building being sold refuses.
+            if sim.substrate.entities.get(bld).is_some_and(|b| {
+                b.mission.effective() == MissionId::from_known(MissionType::Selling)
+            }) {
+                return RadioResponse::Negatory;
             }
+            // 0x0043C75A..0x0043C785: ready to commence, then
+            // Queue_Mission(Repair, 0), whose visits run UpdateBunker. The
+            // adapter records the sender in place of radio contact 0.
+            if let Some(b) = sim.substrate.entities.get_mut(bld) {
+                b.mission_leaf.set_building_ready_latch(1);
+                if let Some(rt) = b.bunker_runtime.as_mut() {
+                    rt.dock_now(unit);
+                }
+            }
+            let now = sim.session.binary_frame();
+            let _ = sim.mission_queue_exact(
+                bld,
+                MissionId::from_known(MissionType::Repair),
+                0,
+                now,
+                &EntityReadyInputProvider,
+            );
             RadioResponse::Roger
         }
         RadioMessage::Break => {
@@ -2564,6 +2578,65 @@ mod tests {
             .unwrap()
             .set_state_for_test(BunkerState::ArriveWait);
         assert_eq!(can_enter(&mut sim, 1, 2), RadioResponse::Negatory);
+    }
+
+    /// DOCK_NOW on a bunker (`0x0043C6F2..0x0043C785`): refused while it is
+    /// sold; otherwise ready to commence, Repair queued, the sender recorded.
+    #[test]
+    fn bunker_dock_now_queues_repair_unless_selling() {
+        use crate::sim::docking::bunker_install::BunkerState;
+        use crate::sim::mission::{MissionId, MissionType};
+        let dock_now = |sim: &mut Simulation| {
+            transmit(
+                sim,
+                1,
+                2,
+                RadioMessage::DockNow,
+                RadioPayload::default(),
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+        };
+        let runtime = |sim: &Simulation| {
+            sim.substrate
+                .entities
+                .get(2)
+                .unwrap()
+                .bunker_runtime
+                .unwrap()
+        };
+        let mut sim = Simulation::new();
+        spawn_bunker(&mut sim, 2, "Americans");
+        spawn_miner(&mut sim, 1, "Americans");
+
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .mission
+            .set_current_for_test(MissionId::from_known(MissionType::Selling), 0);
+        assert_eq!(dock_now(&mut sim), RadioResponse::Negatory);
+        assert_eq!(runtime(&sim).state(), BunkerState::Idle);
+        assert_eq!(
+            sim.substrate.entities.get(2).unwrap().mission.queued(),
+            MissionId::NONE
+        );
+
+        sim.substrate
+            .entities
+            .get_mut(2)
+            .unwrap()
+            .mission
+            .set_current_for_test(MissionId::from_known(MissionType::Guard), 0);
+        assert_eq!(dock_now(&mut sim), RadioResponse::Roger);
+        let bunker = sim.substrate.entities.get(2).unwrap();
+        assert_eq!(
+            bunker.mission.queued(),
+            MissionId::from_known(MissionType::Repair)
+        );
+        assert_eq!(bunker.building_ready_latch(), 1);
+        assert_eq!(runtime(&sim).state(), BunkerState::ArriveWait);
+        assert_eq!(runtime(&sim).installing_unit(), Some(1));
     }
 
     #[test]

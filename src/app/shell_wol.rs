@@ -28,7 +28,7 @@ pub(crate) use service::{
     NET_STATUS_LOST, WolApiStatus, WolLadderRecord, WolLoginAccepted, WolProvider, WolServer,
     WolServerList, WolServiceEvent, WolServiceRequest, service_event,
 };
-pub(crate) use test_service::default_buddies as test_service_buddies;
+pub(crate) use test_service::{WolTestGuest, default_buddies as test_service_buddies};
 
 /// The wait box's reveal timer and the login drop list's scroll repeats;
 /// the caller schedules the earliest deadline with the other shell timers.

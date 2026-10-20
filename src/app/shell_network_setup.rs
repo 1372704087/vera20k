@@ -12,8 +12,8 @@ mod wol;
 pub(crate) use actions::{apply_action, commit_map_selection, commit_start, open_choose_map};
 pub(crate) use view::view;
 pub(crate) use wol::{
-    WolStartUser, guest_users_listed, kicked_key, local_left, send_first_choices, user_joined,
-    user_kicked, user_left,
+    WolStartUser, guest_users_listed, kicked_key, local_left, play_player_left, player_choices,
+    player_ready, send_first_choices, user_joined, user_kicked, user_left,
 };
 
 use super::{App, AppState};
@@ -553,6 +553,9 @@ pub(crate) fn local_map_metadata(
 /// and clearing the admitted setup through its owner.
 pub(crate) fn commit_back(state: &mut AppState) {
     let dialog = leave_setup(state);
+    if dialog.wol() && dialog.host {
+        crate::app::shell_wol::lobby::host_setup_left(state);
+    }
     open_service_lobby(state, dialog);
 }
 

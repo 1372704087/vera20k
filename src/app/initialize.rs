@@ -785,6 +785,7 @@ impl App {
                 wol_buddy_art: None,
                 wol_buddies: Default::default(),
                 wol_test_buddies: crate::app::shell_wol::test_service_buddies(),
+                wol_test_guest: Default::default(),
                 wol_sound_options_art: None,
                 wol_lobby_globals: Default::default(),
                 wol_preferences: Default::default(),

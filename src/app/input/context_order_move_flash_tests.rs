@@ -44,7 +44,6 @@ fn flashes(
     sim: &Simulation,
     rules: &RuleSet,
     overlays: &OverlayTypeRegistry,
-    enabled: bool,
     selection: &[u64],
     receivers: &[u64],
     cell: (u16, u16),
@@ -54,7 +53,6 @@ fn flashes(
     for &receiver in receivers {
         push_move_flash(
             &mut queued,
-            enabled,
             sim,
             rules,
             Some(overlays),
@@ -80,7 +78,6 @@ fn retail_move_click_flashes_once_for_the_first_receiver() {
         &sim,
         &retail.rules,
         &overlays,
-        true,
         &[first, second],
         &[second, first],
         (15, 12),
@@ -94,21 +91,7 @@ fn retail_move_click_flashes_once_for_the_first_receiver() {
             &sim,
             &retail.rules,
             &overlays,
-            true,
             &[second, first],
-            &[first],
-            (15, 12),
-        )
-        .is_empty()
-    );
-    // PlanningMode answers before Move.
-    assert!(
-        flashes(
-            &sim,
-            &retail.rules,
-            &overlays,
-            false,
-            &[first, second],
             &[first],
             (15, 12),
         )
@@ -143,7 +126,6 @@ fn retail_no_move_cell_click_spawns_no_flash() {
             &sim,
             &retail.rules,
             &overlays,
-            true,
             &[first, second],
             &[first],
             WATER,

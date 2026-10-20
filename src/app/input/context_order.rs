@@ -1523,9 +1523,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
     let mut rally_announce = false;
     let mut consumed_attack_action = false;
 
-    // PlanningMode's What_Action rung answers before Move (`0x00700840`),
-    // so a planning click spawns no MoveFlash.
-    let move_flash_enabled = !state.match_state.input.planning.active();
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
         let resources = &rt.resources;
         let sim = &mut rt.simulation;
@@ -1989,7 +1986,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 if !selected_miner_ids.contains(&stable_id) {
                     push_move_flash(
                         &mut queued,
-                        move_flash_enabled,
                         sim,
                         &resources.rules,
                         Some(&resources.overlay_registry),
@@ -2379,7 +2375,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     // clicked Cell before committing its Move event.
                     push_move_flash(
                         &mut queued,
-                        move_flash_enabled,
                         sim,
                         &resources.rules,
                         Some(&resources.overlay_registry),
@@ -2420,7 +2415,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                             if force_move_target.is_none() {
                                 push_move_flash(
                                     &mut queued,
-                                    move_flash_enabled,
                                     sim,
                                     &resources.rules,
                                     Some(&resources.overlay_registry),
@@ -2470,7 +2464,12 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 };
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, payload));
             }
-            if !queued.is_empty() {
+            // A MoveFlash alone is no order: Resolve_Move_Order_Cell can
+            // still refuse every receiver after it.
+            if queued
+                .iter()
+                .any(|envelope| !matches!(envelope.payload, Command::MoveFlash { .. }))
+            {
                 consumed_order_mode = true;
             }
         }
@@ -2495,11 +2494,12 @@ pub(crate) fn try_queue_context_order_at_screen_point(
 /// for one receiver of a Cell click: only the selection's first object asks
 /// ([`crate::sim::world::Simulation::cell_click_flashes_move`]), and its
 /// flash is queued before its own order, as native constructs it before the
-/// receiver's destination resolves.
+/// receiver's destination resolves. Planning Mode clicks reach the same
+/// receiver loop (`0x004ABF94`), so they flash too; a plan's execution clears
+/// the latch around its own ClickedAction (`0x004DC96F..0x004DC984`).
 #[allow(clippy::too_many_arguments)]
 fn push_move_flash(
     queued: &mut Vec<CommandEnvelope>,
-    enabled: bool,
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -2510,7 +2510,7 @@ fn push_move_flash(
     cell: (u16, u16),
     shift: bool,
 ) {
-    if !enabled || current_objects.first() != Some(&receiver) {
+    if current_objects.first() != Some(&receiver) {
         return;
     }
     let flashes = sim

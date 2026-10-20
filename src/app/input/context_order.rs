@@ -337,10 +337,22 @@ pub(crate) fn attack_action(
             crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
         };
     }
-    // Aircraft417F4A..417F63: Attack over an Immune= type (vt+0x88 +0x233) is
-    // NoMove, which its ClickedAction refuses (417C12).
+    // Attack over an Immune= type (vt+0x88 +0x233) is NoMove for the Foot
+    // classes: Unit740486..74049A, Infantry51F160..51F179 and
+    // Aircraft417F4A..417F63. An Aircraft's ClickedAction refuses it
+    // (417C12); a Unit's or Infantryman's moves to the object or a Cell near
+    // it (Foot4D74E0, Simulation::object_move_click).
+    // RESIDUAL: the Unit's Attack reaches 740486 only when vt+0x310
+    // (0x00700D10, 74041B..74042E) admits it, and is 0 otherwise. That test
+    // refuses a Unit in a tube (Foot +0x684 >= 0) whose vt+0x4E4
+    // (0x00736D50) answers yes, and a Unit under EMP (vt+0x37C), which has
+    // no Rust producer. Not ported: a selected Unit hovering an object from
+    // inside a tube is rare.
     if action == AttackAction::Attack
-        && actor.category() == EntityCategory::Aircraft
+        && matches!(
+            actor.category(),
+            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+        )
         && target_is_immune(sim, rules, target)
     {
         action = AttackAction::NoMove;
@@ -410,7 +422,7 @@ pub(super) fn object_action_answers_friendly(
 }
 
 /// The target is an object whose type is `Immune=` (`+0x233`), which the
-/// Building and Aircraft object actions turn from Attack into NoMove.
+/// Building and Foot object actions turn from Attack into NoMove.
 fn target_is_immune(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -4578,6 +4590,111 @@ mod tests {
             cursor(harrier, HoverTargetKind::FriendlyUnit),
             CursorFeedbackKind::Default
         );
+    }
+
+    /// Unit (`0x0074041B..0x0074049A`) and Infantry
+    /// (`0x0051F160..0x0051F179`) What_Action over an object turn a final
+    /// Attack over an `Immune=` type (`+0x233`) into NoMove, with or without
+    /// Ctrl: the NoMove cursor, and the click is Foot ClickedAction's Move
+    /// (`0x004D74E0`), not an Attack. Retail's `Immune=yes` object is the
+    /// bridge repair hut (`CABHUT`); the patched Grizzly shows the same answer
+    /// over a unit. A Rhino and a GI keep Attack over another enemy tank.
+    #[test]
+    fn a_tank_and_a_gi_refuse_to_attack_an_immune_object() {
+        use crate::app::types::CursorFeedbackKind;
+        let patch = crate::rules::ini_parser::IniFile::from_str("[MTNK]\nImmune=yes\n");
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch(
+            "Hills.mmx",
+            &patch,
+        ) else {
+            return;
+        };
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        assert!(rules.object("CABHUT").is_some_and(|hut| hut.immune));
+        let owner = sim.interner().get("Local").unwrap();
+        let rhino = sim.spawn_object("HTNK", "Local", 5, 4, 0, &rules).unwrap();
+        let gi = sim.spawn_object("E1", "Local", 5, 6, 0, &rules).unwrap();
+        let grizzly = sim.spawn_object("MTNK", "Enemy", 4, 11, 0, &rules).unwrap();
+        let enemy_rhino = sim.spawn_object("HTNK", "Enemy", 6, 8, 0, &rules).unwrap();
+        let hut = sim
+            .spawn_object("CABHUT", "Enemy", 13, 13, 0, &rules)
+            .unwrap();
+        sim.resolve_type_handles(&rules);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(16, 16);
+        sim.fog_mut_for_test()
+            .reveal_cells_for_owner(owner, (0..16).flat_map(|y| (0..16).map(move |x| (x, y))));
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        for actor in [rhino, gi] {
+            let action = |target, forced| {
+                attack_action(
+                    &sim,
+                    &rules,
+                    actor,
+                    &TargetKind::Entity(target),
+                    forced,
+                    None,
+                )
+            };
+            let cursor = |target, kind| {
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    &sim,
+                    &[actor],
+                    Some(actor),
+                    &HoverTargetKindWithId {
+                        kind,
+                        stable_id: target,
+                    },
+                    Some(&rules),
+                    None,
+                    OrderModifier::Normal,
+                    false,
+                    false,
+                )
+            };
+            let click = |target| {
+                object_attack_click_command(
+                    &sim,
+                    &rules,
+                    &overlays,
+                    owner,
+                    OrderMode::Move,
+                    OrderModifier::Normal,
+                    false,
+                    actor,
+                    target,
+                )
+            };
+            assert_eq!(action(enemy_rhino, false), AttackAction::Attack);
+            assert_eq!(
+                cursor(enemy_rhino, HoverTargetKind::EnemyUnit),
+                CursorFeedbackKind::EnemyUnit
+            );
+            assert!(matches!(
+                click(enemy_rhino),
+                Some(Command::Attack { .. } | Command::AttackMove { .. })
+            ));
+            for (target, kind) in [
+                (grizzly, HoverTargetKind::EnemyUnit),
+                (hut, HoverTargetKind::EnemyStructure),
+            ] {
+                assert_eq!(action(target, false), AttackAction::NoMove, "{target}");
+                assert_eq!(action(target, true), AttackAction::NoMove, "{target}");
+                assert_eq!(
+                    cursor(target, kind),
+                    CursorFeedbackKind::Invalid,
+                    "{target}"
+                );
+                assert!(
+                    matches!(
+                        click(target),
+                        Some(Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. })
+                            if entity_id == actor
+                    ),
+                    "{target}: {:?}",
+                    click(target)
+                );
+            }
+        }
     }
 
     /// What_Action_OnCell's force-fire rung is a human player's too

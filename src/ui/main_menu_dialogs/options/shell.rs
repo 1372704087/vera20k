@@ -50,7 +50,7 @@ pub(crate) const VERA_OPTIONS_BUTTON: u16 = 0x7FFF;
 /// `0xD5` as a family page (Session `+0x30D8` clear at the main menu): the
 /// right-panel column is Keyboard and Network (`0x006092CB`), then Main Menu
 /// (`0x0060982C`); the heading and status line sit at the family places.
-/// VERA adds its VERA Options button in the next slot, the third stacked top
+/// VERA adds its VERA20K Options button in the next slot, the third stacked top
 /// the family pages use. Button captions come from the dialog's own labels.
 pub(crate) const OPTIONS_PAGE: MenuPageSpec = MenuPageSpec {
     dialog: DialogId(0x00D5),
@@ -875,7 +875,7 @@ mod tests {
             assert!(!texts.iter().any(|text| text == vera), "{vera}");
         }
         assert_eq!(texts[0], "Options");
-        // VERA Options takes the slot under Network, the next stacked top.
+        // VERA20K Options takes the slot under Network, the next stacked top.
         let network = button(&layout, LauncherButton::Exit(LauncherParentResult::Network));
         let keyboard = button(
             &layout,

@@ -81,9 +81,9 @@ pub(crate) const FPS_COUNTER_HELP: &str = "Show frames per second in the top-lef
 pub(crate) const SHIFT_QUEUE_HELP: &str =
     "Shift-click an infantry, vehicle or aircraft cameo to queue several at once.";
 /// The main page's button to VERA's page, and that page's heading.
-pub(crate) const VERA_OPTIONS_LABEL: &str = "VERA Options";
+pub(crate) const VERA_OPTIONS_LABEL: &str = "VERA20K Options";
 pub(crate) const VERA_OPTIONS_HELP: &str =
-    "Settings VERA adds: full screen, sidebar size, smooth motion and more.";
+    "Settings VERA20K adds: full screen, sidebar size, smooth motion and more.";
 /// The VERA page's Back reuses retail's caption; its status help is the
 /// Keyboard page's Back help, "Return to the Options Menu."
 /// (`STT:KeyboardButtonBack`).
@@ -91,7 +91,7 @@ const VERA_PAGE_BACK_LABEL: (&str, &str) = ("GUI:Back", "Back");
 
 /// Which page of Options shows. The main page keeps retail's controls, with
 /// VERA's Zoom in the resolution combo's place; VERA's own controls are on a
-/// page of their own behind the VERA Options button, so the main page looks
+/// page of their own behind the VERA20K Options button, so the main page looks
 /// like retail's. Both pages are one dialog with one set of values: switching
 /// pages applies, saves and resets nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,7 +105,7 @@ pub(crate) enum OptionsPage {
 pub(crate) enum LauncherButton {
     /// Keyboard, Network or Main Menu: one of gamemd's parent exits.
     Exit(LauncherParentResult),
-    /// VERA Options on the main page, Back on VERA's: shows that page.
+    /// VERA20K Options on the main page, Back on VERA's: shows that page.
     Page(OptionsPage),
 }
 

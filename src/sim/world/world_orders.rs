@@ -278,7 +278,8 @@ impl Simulation {
     /// What a human player's object makes of a Select over a `Grinding=`
     /// building (`+0x16AD`): Grind (0xB) or NoEnter (0x1F), shown as the
     /// Enter and NoEnter rows (`SetCursorFromAction 0x004AB555`,
-    /// `0x004AB382`).
+    /// `0x004AB382`). Both class rows run only for base action Select (7),
+    /// which the caller establishes (the input layer's base-action owner).
     /// - A Unit asks CAN_LOAD ([`Self::unit_building_click_action`]).
     /// - An Infantryman takes `InfantryClass::What_Action_OnObject`'s grinder
     ///   row (`0x0051F0AF..0x0051F111`) without asking: a building that is

@@ -1985,10 +1985,18 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
+            // Alt answers Move first (`0x007001E9`), in the Ctrl+Shift+Alt
+            // chord too.
             if context_actions_enabled
+                && !force_move
                 && let Some(target) = hover.as_ref()
-                && let Some(orders) =
-                    grinder_orders(sim, &resources.rules, &mut selected_units, target)
+                && let Some(orders) = grinder_orders(
+                    sim,
+                    &resources.rules,
+                    &mut selected_units,
+                    target,
+                    Some(&resources.overlay_registry),
+                )
             {
                 consumed_building_action = true;
                 queued.extend(
@@ -2555,18 +2563,44 @@ fn transport_entry_orders(
         .collect()
 }
 
-/// The selected objects whose Select over a friendly `Grinding=` building is
-/// Grind or NoEnter ([`Simulation::grinder_click_action`]) leave `selected`.
-/// Foot ClickedAction (`0x004D774F`) sends a controllable (vt+0xA0) one
-/// mission Eaten with NULL Target and the building as Destination; NoEnter
-/// has no case and orders nothing. None when no selected object takes it.
+/// [`Simulation::grinder_click_action`] for an object whose base action over
+/// the Grinder is Select ([`attack_action`]), which both class rows need
+/// (action 7: Unit `0x00740122`, Infantry `0x0051F0AF`). An armed player's
+/// object over another house's Grinder (0, `0x0070056C`), an Ivan granted
+/// Attack (IvanBomb, `0x0051EB24`) and a selected or warped-out Grinder take
+/// other rows.
 ///
 /// [`Simulation::grinder_click_action`]: crate::sim::world::Simulation::grinder_click_action
+pub(super) fn grinder_action(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    target_id: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> Option<crate::sim::world::BuildingClickAction> {
+    let action = sim.grinder_click_action(actor_id, target_id, rules)?;
+    (attack_action(
+        sim,
+        rules,
+        actor_id,
+        &TargetKind::Entity(target_id),
+        false,
+        overlay_registry,
+    ) == AttackAction::Select)
+        .then_some(action)
+}
+
+/// The selected objects whose Select over a friendly `Grinding=` building is
+/// Grind or NoEnter ([`grinder_action`]) leave `selected`. Foot ClickedAction
+/// (`0x004D774F`) sends a controllable (vt+0xA0) one mission Eaten with NULL
+/// Target and the building as Destination; NoEnter has no case and orders
+/// nothing. None when no selected object takes it.
 fn grinder_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     selected: &mut Vec<u64>,
     hover: &HoverTargetKindWithId,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<Vec<Command>> {
     if hover.kind != HoverTargetKind::FriendlyStructure {
         return None;
@@ -2574,7 +2608,7 @@ fn grinder_orders(
     let mut consumed = false;
     let mut orders = Vec::new();
     selected.retain(|&id| {
-        let Some(action) = sim.grinder_click_action(id, hover.stable_id, rules) else {
+        let Some(action) = grinder_action(sim, rules, id, hover.stable_id, overlay_registry) else {
             return true;
         };
         consumed = true;

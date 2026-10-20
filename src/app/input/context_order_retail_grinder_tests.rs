@@ -61,6 +61,26 @@ fn cursor(
     actor: u64,
     grinder: u64,
 ) -> Option<CursorId> {
+    chord_cursor(
+        sim,
+        rules,
+        registry,
+        actor,
+        grinder,
+        OrderModifier::Normal,
+        false,
+    )
+}
+
+fn chord_cursor(
+    sim: &Simulation,
+    rules: &RuleSet,
+    registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    actor: u64,
+    grinder: u64,
+    modifier: OrderModifier,
+    force_move_key: bool,
+) -> Option<CursorId> {
     cursor_id_for_feedback(capability_cursor_for_hover(
         sim,
         &[actor],
@@ -71,9 +91,16 @@ fn cursor(
         },
         Some(rules),
         Some(registry),
-        OrderModifier::Normal,
-        false,
+        modifier,
+        force_move_key,
     ))
+}
+
+fn hover(grinder: u64) -> HoverTargetKindWithId {
+    HoverTargetKindWithId {
+        stable_id: grinder,
+        kind: HoverTargetKind::FriendlyStructure,
+    }
 }
 
 fn eaten(entity_id: u64, grinder: u64) -> Command {
@@ -108,12 +135,9 @@ fn a_players_vehicle_and_rifleman_grind_at_their_own_grinder() {
         cursor(&sim, rules, &registry, gi, grinder),
         Some(CursorId::Enter)
     );
-    let hover = HoverTargetKindWithId {
-        stable_id: grinder,
-        kind: HoverTargetKind::FriendlyStructure,
-    };
     let mut selected = vec![tank, gi];
-    let orders = grinder_orders(&sim, rules, &mut selected, &hover).expect("both grind");
+    let orders = grinder_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry))
+        .expect("both grind");
     assert!(selected.is_empty());
     assert_eq!(orders, [eaten(tank, grinder), eaten(gi, grinder)]);
 
@@ -133,11 +157,12 @@ fn a_players_vehicle_and_rifleman_grind_at_their_own_grinder() {
     assert!(sim.houses[&owner].economy().credits() > credits, "refunded");
 }
 
-/// An ally's Grinder admits the player's vehicle through CAN_LOAD, but the
-/// Infantry row answers NoEnter for a Grinder the player does not own: the
-/// cursor shows NoEnter and the click orders the GI nothing.
+/// Over an ally's Grinder an armed player's object has base action 0, not
+/// Select (`0x0070056C`), so neither grinder row runs and the click sends no
+/// one to be ground; the Unit tail (`0x007403EB`) makes the vehicle's NoMove
+/// (2). The rifleman's cursor keeps the existing friendly-object fallback.
 #[test]
-fn an_allied_grinder_takes_a_vehicle_but_shows_a_rifleman_noenter() {
+fn armed_objects_over_an_allied_grinder_are_not_ground() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
@@ -149,20 +174,73 @@ fn an_allied_grinder_takes_a_vehicle_but_shows_a_rifleman_noenter() {
     let (sim, grinder, tank, gi) = scene(rules, "Russians");
     assert_eq!(
         cursor(&sim, rules, &registry, tank, grinder),
-        Some(CursorId::Enter)
+        Some(CursorId::NoMove)
     );
-    assert_eq!(
-        cursor(&sim, rules, &registry, gi, grinder),
-        Some(CursorId::NoEnter)
-    );
-    let hover = HoverTargetKindWithId {
-        stable_id: grinder,
-        kind: HoverTargetKind::FriendlyStructure,
-    };
+    for actor in [tank, gi] {
+        assert_eq!(
+            grinder_action(&sim, rules, actor, grinder, Some(&registry)),
+            None
+        );
+    }
     let mut selected = vec![tank, gi];
     assert_eq!(
-        grinder_orders(&sim, rules, &mut selected, &hover),
-        Some(vec![eaten(tank, grinder)])
+        grinder_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry)),
+        None
     );
-    assert!(selected.is_empty(), "the GI's NoEnter consumes the click");
+    assert_eq!(selected, [tank, gi]);
+}
+
+/// A Crazy Ivan (`AttackCursorOnFriendlies=yes`) over the player's own
+/// Grinder (`Bombable=` by default) has base action Attack, so the Ivan row
+/// (`0x0051EB24`) answers IvanBomb before the grinder row is reached.
+#[test]
+fn a_crazy_ivan_bombs_the_players_grinder_rather_than_entering() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &retail.processed_rules,
+        Some(&retail.fixed_art),
+    );
+    let (mut sim, grinder, _, _) = scene(rules, "Americans");
+    let ivan = sim
+        .spawn_object("IVAN", "Americans", 15, 19, 0, rules)
+        .expect("ivan");
+    assert_eq!(
+        cursor(&sim, rules, &registry, ivan, grinder),
+        Some(CursorId::IvanBomb)
+    );
+    let mut selected = vec![ivan];
+    assert_eq!(
+        grinder_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry)),
+        None
+    );
+}
+
+/// Alt answers Move before any object row (`0x007001E9`), in the
+/// Ctrl+Shift+Alt chord too.
+#[test]
+fn the_alt_chord_moves_rather_than_grinds() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &retail.processed_rules,
+        Some(&retail.fixed_art),
+    );
+    let (sim, grinder, tank, _) = scene(rules, "Americans");
+    assert_eq!(
+        chord_cursor(
+            &sim,
+            rules,
+            &registry,
+            tank,
+            grinder,
+            OrderModifier::AttackMove,
+            true,
+        ),
+        Some(CursorId::Move)
+    );
 }

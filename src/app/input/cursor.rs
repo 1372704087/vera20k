@@ -702,15 +702,21 @@ pub(super) fn capability_cursor_for_hover(
         }
 
         // Grinder: a Unit's or Infantryman's Select over a Grinding= building
-        // ([`Simulation::grinder_click_action`]).
-        //
-        // [`Simulation::grinder_click_action`]: crate::sim::world::Simulation::grinder_click_action
+        // (`context_order::grinder_action`).
         if !matches!(
             modifier,
             OrderModifier::ForceFire | OrderModifier::ForceMove | OrderModifier::GuardArea
-        ) && matches!(hover.kind, HoverTargetKind::FriendlyStructure)
-            && let Some(action) =
-                rules.and_then(|rules| sim.grinder_click_action(best_id, hover.stable_id, rules))
+        ) && !(modifier == OrderModifier::AttackMove && force_move_key)
+            && matches!(hover.kind, HoverTargetKind::FriendlyStructure)
+            && let Some(action) = rules.and_then(|rules| {
+                super::context_order::grinder_action(
+                    sim,
+                    rules,
+                    best_id,
+                    hover.stable_id,
+                    overlay_registry,
+                )
+            })
         {
             return match action {
                 crate::sim::world::BuildingClickAction::NoEnter => CursorFeedbackKind::NoEnter,

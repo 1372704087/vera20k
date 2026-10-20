@@ -442,7 +442,7 @@ impl Simulation {
                 SuppliedPath::FoundUnchanged => return Ok(FindPathResult::Route),
                 SuppliedPath::Found(words) => {
                     queue.set_directions_for_test(words);
-                    queue.set_cursor(0);
+                    queue.set_cursor_for_test(0);
                     return Ok(FindPathResult::Route);
                 }
                 SuppliedPath::Failed => return Ok(FindPathResult::Failed),

@@ -2083,7 +2083,7 @@ mod tests {
         terrain: &ResolvedTerrainGrid,
         sources: &[(u16, u16)],
     ) -> Vec<u8> {
-        let mut counts = vec![0u8; terrain.cells.len()];
+        let mut counts = vec![0u8; terrain.cells().len()];
         for &(rx, ry) in sources {
             let anchor = (rx as i16, ry as i16);
             for (dx, dy) in ADJACENT_8 {
@@ -2331,8 +2331,14 @@ mod tests {
                 .flat_map(|y| (0..6).map(move |x| (x, y)))
                 .collect::<Vec<_>>(),
         );
-        terrain.cell_mut(0, 0).expect("rock cell").slope_type = 5;
-        terrain.cell_mut(3, 0).expect("sloped ore cell").slope_type = 1;
+        terrain
+            .cell_mut_for_test(0, 0)
+            .expect("rock cell")
+            .slope_type = 5;
+        terrain
+            .cell_mut_for_test(3, 0)
+            .expect("sloped ore cell")
+            .slope_type = 1;
         let placed = [
             ((0, 0), rock, 3),
             ((1, 0), crate_overlay, 41),
@@ -2417,7 +2423,9 @@ mod tests {
         );
 
         let mut unchanged_zone_terrain = clear_terrain_grid(5, 5);
-        let cleanup_cell = unchanged_zone_terrain.cell_mut(2, 1).expect("cleanup cell");
+        let cleanup_cell = unchanged_zone_terrain
+            .cell_mut_for_test(2, 1)
+            .expect("cleanup cell");
         cleanup_cell.outside_playfield = true;
         cleanup_cell.zone_type = crate::map::resolved_terrain::zone_class::OUTSIDE;
         let full_plane =
@@ -2861,8 +2869,14 @@ NoUseTileLandType=yes
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, overlay_id, 0);
             let mut terrain = single_cell_terrain(clear, clear_speed, false);
-            terrain.cell_mut(0, 0).unwrap().terrain_object_occupation = Some(7);
-            terrain.cell_mut(0, 0).unwrap().terrain_object_blocks = true;
+            terrain
+                .cell_mut_for_test(0, 0)
+                .unwrap()
+                .terrain_object_occupation = Some(7);
+            terrain
+                .cell_mut_for_test(0, 0)
+                .unwrap()
+                .terrain_object_blocks = true;
             recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
             let cell = terrain.cell(0, 0).expect("priority cell");
             assert_eq!(cell.zone_type, expected_zone, "overlay {overlay_id}");
@@ -2926,7 +2940,7 @@ NoUseTileLandType=yes
             (0, zone_class::BUILDING, false),
         ] {
             let mut object = single_cell_terrain(clear, clear_speed, false);
-            let object_cell = object.cell_mut(0, 0).unwrap();
+            let object_cell = object.cell_mut_for_test(0, 0).unwrap();
             object_cell.terrain_object_occupation = Some(occupation);
             object_cell.terrain_object_blocks = expected_blocks;
             recalc_overlay_passability(&mut empty_grid, &mut object, &registry, 0, 0);
@@ -3018,7 +3032,7 @@ NoUseTileLandType=yes
             let mut overlay_grid = OverlayGrid::new(1, 1);
             overlay_grid.place_overlay(0, 0, 11, 7);
             let mut terrain = single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
-            terrain.cell_mut(0, 0).unwrap().slope_type = slope;
+            terrain.cell_mut_for_test(0, 0).unwrap().slope_type = slope;
 
             assert!(recalc_overlay_passability(
                 &mut overlay_grid,
@@ -3058,7 +3072,7 @@ NoUseTileLandType=yes
                 overlay_grid.place_overlay(0, 0, overlay_id, 7);
                 let mut terrain =
                     single_cell_terrain(LandType::Clear.as_index(), base_speed, false);
-                terrain.cell_mut(0, 0).unwrap().slope_type = slope;
+                terrain.cell_mut_for_test(0, 0).unwrap().slope_type = slope;
 
                 assert!(recalc_overlay_passability(
                     &mut overlay_grid,
@@ -3138,7 +3152,7 @@ NoUseTileLandType=yes
         let changed = recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 5, 5);
         assert!(changed, "tiberium placement must report a change");
         let idx = 5 * 10 + 5;
-        let cell = &terrain.cells[idx];
+        let cell = &terrain.cells()[idx];
         assert_eq!(cell.land_type, tib_lt, "land_type → Tiberium");
         assert_eq!(cell.land_type, tib_lt, "land_type → 5");
         assert_eq!(
@@ -3152,7 +3166,7 @@ NoUseTileLandType=yes
         overlay_grid.clear_overlay(5, 5);
         let changed = recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 5, 5);
         assert!(changed, "tiberium removal must report a change");
-        let cell = &terrain.cells[idx];
+        let cell = &terrain.cells()[idx];
         assert_eq!(cell.land_type, clear_lt, "land_type → underlying Clear");
         assert_eq!(cell.land_type, clear_lt);
         assert_eq!(

@@ -305,8 +305,13 @@ pub(crate) fn can_load(
             return CanLoad::Answer(RadioResponse::Roger);
         }
     }
+    // `0x0043C4F8..0x0043C500`: a `Grinding=` building (`+0x16AD`) takes
+    // anyone the gates above admit.
+    if building_type.grinding {
+        return CanLoad::Answer(RadioResponse::Roger);
+    }
     // Other building mechanisms retain their existing owner/residual.
-    if building_type.grinding || building_type.bunker {
+    if building_type.bunker {
         return CanLoad::Answer(RadioResponse::None);
     }
     if building_type.unit_repair {
@@ -2257,7 +2262,7 @@ mod tests {
         let building = sim.substrate.entities.get_mut(2).unwrap();
         building.set_type_ref_for_test(type_ref);
         building.lifecycle.set_in_limbo_for_test(false);
-        building.lifecycle.set_cell_marked(true);
+        building.lifecycle.set_cell_marked_for_test(true);
         let owner = sim.intern("Americans");
         let type_ref = sim.intern("E1");
         let mut infantry = GameEntity::new_at_frame_zero_for_test(
@@ -2275,7 +2280,7 @@ mod tests {
             false,
         );
         infantry.lifecycle.set_in_limbo_for_test(false);
-        infantry.lifecycle.set_cell_marked(true);
+        infantry.lifecycle.set_cell_marked_for_test(true);
         infantry.radio_contacts.set_capacity(3);
         sim.substrate.entities.insert(infantry);
         assert_eq!(hello(&mut sim, 1, 2), RadioResponse::Roger);

@@ -148,7 +148,7 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 })
                 .collect(),
         );
-        let selected_cell = terrain.cell_mut(cx, cy).unwrap();
+        let selected_cell = terrain.cell_mut_for_test(cx, cy).unwrap();
         selected_cell.level = cell["level_slope"][0].as_u64().unwrap() as u8;
         selected_cell.slope_type = cell["level_slope"][1].as_u64().unwrap() as u8;
         sim.install_resolved_terrain_for_new_map(terrain);
@@ -204,7 +204,7 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 dispatch_timer: MissionDispatchTimer::from_raw(0, 0),
             });
             gate.lifecycle.set_in_limbo_for_test(false);
-            gate.lifecycle.set_cell_marked(true);
+            gate.lifecycle.set_cell_marked_for_test(true);
             gate.set_in_playfield(true);
             sim.substrate.entities.insert(gate);
             sim.substrate.occupancy.add(
@@ -1484,7 +1484,7 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(bridge_cell.0, bridge_cell.1)
+            .cell_mut_for_test(bridge_cell.0, bridge_cell.1)
             .unwrap();
         bridge.level = 3;
         bridge.bridge_deck_level = 7;
@@ -1506,7 +1506,7 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
         sim.resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(cell.0, cell.1)
+            .cell_mut_for_test(cell.0, cell.1)
             .unwrap()
             .bridge_facts
             .overlay_id = Some(0);

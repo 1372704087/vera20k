@@ -55,7 +55,7 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
     mover.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     mover.lifecycle.set_object_alive_for_test(true);
     mover.lifecycle.set_in_limbo_for_test(false);
-    mover.lifecycle.set_cell_marked(true);
+    mover.lifecycle.set_cell_marked_for_test(true);
     assert!(
         mover
             .locomotor
@@ -105,7 +105,7 @@ fn add_blocker(sim: &mut Simulation, moving: bool) {
     blocker.locomotor = Some(LocomotorState::for_test_kind(LocomotorKind::Drive));
     blocker.lifecycle.set_object_alive_for_test(true);
     blocker.lifecycle.set_in_limbo_for_test(false);
-    blocker.lifecycle.set_cell_marked(true);
+    blocker.lifecycle.set_cell_marked_for_test(true);
     if moving {
         // Unit Can_Enter_Cell's code2 body arm (0x73F86B) sees a NavCom and
         // retains Foot+6B6 while moving.
@@ -162,7 +162,7 @@ fn production_chain_code3_opens_gate_without_consuming_the_queue() {
     gate.building_gate = Some(BuildingGateRuntime::default());
     gate.lifecycle.set_object_alive_for_test(true);
     gate.lifecycle.set_in_limbo_for_test(false);
-    gate.lifecycle.set_cell_marked(true);
+    gate.lifecycle.set_cell_marked_for_test(true);
     sim.substrate.entities.insert(gate);
     sim.interner = test_interner();
     sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
@@ -328,7 +328,7 @@ fn accepted_chain_per_cell_crush_finishes_lifecycle_in_list_order_before_continu
         victim.crushable_facts.set_crushable_for_test(true);
         victim.lifecycle.set_object_alive_for_test(true);
         victim.lifecycle.set_in_limbo_for_test(false);
-        victim.lifecycle.set_cell_marked(true);
+        victim.lifecycle.set_cell_marked_for_test(true);
         sim.substrate.entities.insert(victim);
     }
     sim.interner = test_interner();

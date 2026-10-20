@@ -942,13 +942,13 @@ pub(super) mod retail_tests {
                 i32::from(target_cell.1) * 256 + 128,
             ];
             for (&id, bomb) in sim.projectiles.iter() {
-                if hornets.contains(&bomb.source_id) && !bombs.contains_key(&id) {
-                    let [x, y, z] = bomb.velocity.native().map(|v| f64::from_bits(v.bits()));
-                    let toward = [goal[0] - bomb.position.x, goal[1] - bomb.position.y];
+                if hornets.contains(&bomb.source_id()) && !bombs.contains_key(&id) {
+                    let [x, y, z] = bomb.velocity().native().map(|v| f64::from_bits(v.bits()));
+                    let toward = [goal[0] - bomb.position().x, goal[1] - bomb.position().y];
                     let aim = x * f64::from(toward[0]) + y * f64::from(toward[1]);
                     bombs.insert(
                         id,
-                        (frame, bomb.source_id, (x * x + y * y + z * z).sqrt(), aim),
+                        (frame, bomb.source_id(), (x * x + y * y + z * z).sqrt(), aim),
                     );
                 }
             }

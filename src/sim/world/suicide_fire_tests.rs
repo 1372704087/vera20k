@@ -302,7 +302,7 @@ fn stock_terror_suicide_short_circuits_normal_fire() {
                     .sim
                     .projectiles
                     .iter()
-                    .all(|(_, bullet)| bullet.source_id != scene.source),
+                    .all(|(_, bullet)| bullet.source_id() != scene.source),
                 "the nested DeathWeapon finishes synchronously; no ordinary outgoing shot remains"
             );
             for visit in row["death_visits"].as_array().unwrap() {

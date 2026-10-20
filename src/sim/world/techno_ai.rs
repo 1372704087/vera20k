@@ -415,7 +415,7 @@ impl Simulation {
                 let trailer = self
                     .projectiles
                     .get(id)
-                    .and_then(|projectile| projectile.payload.projectile_type())
+                    .and_then(|projectile| projectile.payload().projectile_type())
                     .and_then(|type_id| rules.projectile(self.interner.resolve(type_id)))
                     .and_then(|kind| {
                         self.projectiles
@@ -446,7 +446,7 @@ impl Simulation {
             let source_is_jumpjet = rules.is_some_and(|rules| {
                 self.substrate
                     .entities
-                    .get(projectile.source_id)
+                    .get(projectile.source_id())
                     .is_some_and(|source| {
                         self.object_type(source.type_ref(), rules)
                             .is_some_and(|kind| kind.jumpjet)
@@ -455,7 +455,7 @@ impl Simulation {
             // `BulletClass::AI 0x0046699D` reads the GLOBAL frame counter's
             // parity for the half-rate course-locked acceleration ramp, so the
             // Logic slot has to hand the flight loop the current frame.
-            let target_is_aircraft = match projectile.target {
+            let target_is_aircraft = match projectile.target() {
                 crate::sim::projectile::ProjectileTarget::Entity(target) => {
                     self.substrate.entities.get(target).is_some_and(|entity| {
                         entity.category() == crate::map::entities::EntityCategory::Aircraft

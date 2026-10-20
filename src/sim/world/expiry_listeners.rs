@@ -647,7 +647,11 @@ mod tests {
             .get_mut(11)
             .unwrap()
             .set_owner_entity_for_test(Some(4));
-        stores.projectiles.get_mut(30).unwrap().target = ProjectileTarget::Entity(5);
+        stores
+            .projectiles
+            .get_mut(30)
+            .unwrap()
+            .set_target_for_test(ProjectileTarget::Entity(5));
         assert!(stores.particle_systems.pointer_expired(20, 3));
         stores.waves.remove(40);
         assert_eq!(reach(&mut index, &mut stores, 3), [3, 10]);
@@ -657,7 +661,7 @@ mod tests {
         stores.anims = stores.anims.clone();
         stores.anims.remove(10);
         for (_, bullet) in stores.projectiles.iter_mut() {
-            bullet.source_id = 6;
+            bullet.set_source_id_for_test(6);
         }
         assert_eq!(reach(&mut index, &mut stores, 3), [3]);
         assert_eq!(reach(&mut index, &mut stores, 6), [30, 31]);

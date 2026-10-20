@@ -508,7 +508,7 @@ fn a_busy_refinery_leaves_a_second_miners_click_on_select() {
     assert_eq!(
         s.sim
             .unit_building_click_action(s.miner, s.refinery, &s.rules),
-        Some(crate::sim::world::BuildingClickAction::Enter)
+        Some(crate::sim::world::EntryClickAction::Enter)
     );
 }
 

@@ -102,7 +102,7 @@ mod playfield_membership;
 mod rally_cell_input;
 mod rocket_flight;
 pub use frame_error::FrameAdvanceError;
-pub use world_orders::BuildingClickAction;
+pub use world_orders::{EntryBaseAction, EntryClickAction};
 pub(crate) use world_orders::CapturedInfantryType;
 pub use world_orders::EngineerBuildingAction;
 pub use world_orders::UnitRepairAction;

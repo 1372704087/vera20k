@@ -74,7 +74,7 @@ fn native_trigger_reveal_cell_put_discovers_unshrouded_campaign_resident() {
         if revealed {
             plane.mark_visible(10, 10);
         }
-        sim.fog.by_owner.insert(player, plane);
+        sim.fog.by_owner_mut_for_test().insert(player, plane);
         let typ = sim.interner.intern("E1");
         let mut actor = GameEntity::new_at_frame_for_test(
             1,
@@ -3815,7 +3815,7 @@ fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
                 .sensor_deposit
                 .is_some()
         );
-        let sensor_counts = sim.fog.sensors_by_house.clone();
+        let sensor_counts = sim.fog.sensors_by_house().clone();
         let registered = sim.live_object_order_snapshot();
         sim.session.set_binary_frame_for_test(105);
         {
@@ -3988,7 +3988,7 @@ fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
             sim.scenario_rng.logical_state(),
             expected_rng.logical_state()
         );
-        assert_eq!(sim.fog.sensors_by_house, sensor_counts);
+        assert_eq!(sim.fog.sensors_by_house(), &sensor_counts);
         assert_eq!(sim.terrain_objects.cell_index()[&(16, 16)], tree);
         assert!(sim.terrain_objects.objects()[&tree].is_live());
         assert_eq!(sim.live_object_order_snapshot(), registered);

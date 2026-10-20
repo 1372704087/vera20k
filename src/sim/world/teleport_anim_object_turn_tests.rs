@@ -76,8 +76,8 @@ fn relocating_chrono_unit(target: (u16, u16)) -> Simulation {
 
 fn relocating_owner(category: EntityCategory, type_name: &str, target: (u16, u16)) -> Simulation {
     let mut sim = Simulation::with_seed(0);
-    sim.fog.width = 32;
-    sim.fog.height = 32;
+    sim.fog.set_width_for_test(32);
+    sim.fog.set_height_for_test(32);
     // Construct the actual class. Reclassifying a Unit test default leaves
     // Infantry's required fear/action runtime absent from its real AI turn.
     let mut entity = GameEntity::new_at_frame_zero_for_test(

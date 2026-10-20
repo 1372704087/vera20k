@@ -6293,8 +6293,8 @@ mod tests {
     #[test]
     fn gsi_04_18_spy_sat_latch_and_erased_map_knowledge_roundtrip_at_v65() {
         let mut sim = Simulation::with_seed(0x418);
-        sim.fog.width = 12;
-        sim.fog.height = 12;
+        sim.fog.set_width_for_test(12);
+        sim.fog.set_height_for_test(12);
         let owner = sim.interner.intern("Soviet");
         let gapper = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 1, None, true, 10_000, 10);
@@ -7031,8 +7031,8 @@ mod tests {
         let viewer = sim.interner.intern("AMERICANS");
         let source_owner = sim.interner.intern("RUSSIANS");
         let type_ref = sim.interner.intern("SUB");
-        sim.fog.width = 8;
-        sim.fog.height = 8;
+        sim.fog.set_width_for_test(8);
+        sim.fog.set_height_for_test(8);
         sim.fog
             .insert_fogged_object_footprint(viewer, 91, vec![(3, 3), (4, 3)]);
         sim.fog.sensors_add_at(viewer, (3, 3), 2);
@@ -7070,7 +7070,7 @@ mod tests {
         let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
 
         assert_eq!(restored.state_hash(), expected_hash);
-        assert_eq!(restored.fog.fogged_objects.len(), 1);
+        assert_eq!(restored.fog.fogged_objects().len(), 1);
         assert!(restored.fog.has_sensor_for_house(viewer, 3, 3));
         assert!(restored.fog.is_cloaked_by_house(7, 3, 3));
         let restored_entity = restored.substrate.entities.get(entity_id).unwrap();

@@ -25,8 +25,6 @@ const MISSION_AIRCRAFT_ACTION_EXCEPTION: MissionId = MissionId::from_raw(0x1e);
 pub enum ReadyUnavailable {
     #[error("exact locomotor readiness input is unavailable")]
     Locomotor,
-    #[error("exact signed object height is unavailable")]
-    SignedHeight,
     #[error("Infantry Doing value is outside the verified writer domain: {0}")]
     InvalidDoing(i32),
     #[error("required entity/type/occupancy lookup is unavailable")]
@@ -97,7 +95,8 @@ pub(crate) struct UnitReadyView<'a, W: UnitReadyWorld + ?Sized> {
     pub(crate) leaf: &'a UnitMissionLeaf,
     pub(crate) unload_active: bool,
     pub(crate) locomotor: Option<LocomotorReadyState>,
-    pub(crate) signed_height: Option<i32>,
+    /// `Get_Height` (vt+0x1C8).
+    pub(crate) signed_height: i32,
     pub(crate) attack_target_present: bool,
     pub(crate) position: ReadyLeptonPoint,
     pub(crate) world: &'a W,
@@ -155,8 +154,7 @@ pub(crate) fn unit_ready_to_commence<W: UnitReadyWorld + ?Sized>(
             .ok_or(ReadyUnavailable::Locomotor)?
             .is_moving_now();
         if moving {
-            let signed_height = view.signed_height.ok_or(ReadyUnavailable::SignedHeight)?;
-            if signed_height >= 0 {
+            if view.signed_height >= 0 {
                 let effective = view.mission.effective();
                 if effective != MISSION_GUARD
                     && !(effective == MISSION_ATTACK && !view.attack_target_present)
@@ -345,7 +343,7 @@ mod tests {
             leaf,
             unload_active: false,
             locomotor: Some(stopped()),
-            signed_height: Some(0),
+            signed_height: 0,
             attack_target_present: false,
             position: ReadyLeptonPoint::new(40 * 256, 51 * 256),
             world,
@@ -391,7 +389,6 @@ mod tests {
             };
             let mut view = unit_view(&mission, leaf_state.as_unit().expect("Unit leaf"), &world);
             view.locomotor = None;
-            view.signed_height = None;
             assert_eq!(unit_ready_to_commence(view), Ok(false));
             assert!(world.calls.borrow().is_empty());
         }
@@ -433,24 +430,14 @@ mod tests {
         let world = TestWorld::default();
         let mut view = unit_view(&mission, leaf, &world);
         view.locomotor = Some(moving());
-        view.signed_height = None;
-        assert_eq!(
-            unit_ready_to_commence(view),
-            Err(ReadyUnavailable::SignedHeight)
-        );
-        assert!(world.calls.borrow().is_empty());
-
-        let world = TestWorld::default();
-        let mut view = unit_view(&mission, leaf, &world);
-        view.locomotor = Some(moving());
-        view.signed_height = Some(0);
+        view.signed_height = 0;
         assert_eq!(unit_ready_to_commence(view), Ok(false));
         assert!(world.calls.borrow().is_empty());
 
         let world = TestWorld::default();
         let mut view = unit_view(&mission, leaf, &world);
         view.locomotor = Some(moving());
-        view.signed_height = Some(-1);
+        view.signed_height = -1;
         assert_eq!(unit_ready_to_commence(view), Ok(true));
 
         for (current, target_present, bypass) in [
@@ -487,7 +474,6 @@ mod tests {
         let world = TestWorld::default();
         let mut view = unit_view(&mission, leaf_state.as_unit().expect("Unit leaf"), &world);
         view.locomotor = None;
-        view.signed_height = None;
         let position = view.position;
         assert_eq!(unit_ready_to_commence(view), Ok(true));
         assert_eq!(

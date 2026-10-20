@@ -4699,14 +4699,6 @@ impl Simulation {
         true
     }
 
-    /// Acknowledge one completed radar-terrain presentation update
-    /// ([`DirtyCells::acknowledge_radar`](crate::sim::dirty_cells::DirtyCells::acknowledge_radar)).
-    /// The marks are presentation handoff state, so this consumption cannot
-    /// mutate lockstep state.
-    pub(crate) fn acknowledge_radar_terrain_dirty(&mut self, generation: u64) -> bool {
-        self.dirty_cells.acknowledge_radar(generation)
-    }
-
     fn poll_triggers_for_master_frame(
         &mut self,
         rules: Option<&RuleSet>,

@@ -1019,7 +1019,7 @@ impl Fixture {
             );
             let power = &self.sim.power_states[owner];
             assert_eq!(
-                power.total_output,
+                power.total_output(),
                 int(&native["power"]),
                 "{boundary}: cached power"
             );

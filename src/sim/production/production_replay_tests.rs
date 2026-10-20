@@ -260,10 +260,10 @@ fn retail_builds_step_at_the_native_frames() {
                 .factories()
                 .iter_insertion_ordered()
                 .into_iter()
-                .find(|f| f.owner == owner && f.category == category)
+                .find(|f| f.owner() == owner && f.category() == category)
                 .map(|f| {
-                    let held = f.object.as_ref().and_then(|object| object.entity_id);
-                    (f.progress, f.step_rate_frames, f.step_timer, held)
+                    let held = f.object().and_then(|object| object.entity_id);
+                    (f.progress(), f.step_rate_frames(), *f.step_timer(), held)
                 })
         };
         let mut start = None;

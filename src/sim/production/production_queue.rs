@@ -1007,22 +1007,22 @@ pub fn queue_view_for_owner(sim: &Simulation, rules: &RuleSet, owner: &str) -> V
     // test-support view field.
     let mut items: Vec<(ProductionCategory, u64, InternedId, BuildQueueState, u16)> = Vec::new();
     for f in sim.production.factories().iter_insertion_ordered() {
-        if f.owner != owner_id {
+        if f.owner() != owner_id {
             continue;
         }
-        if let Some(obj) = f.object.as_ref() {
+        if let Some(obj) = f.object() {
             let state = f.view().cameo_state();
             items.push((
-                f.category,
-                f.insertion_seq,
+                f.category(),
+                f.insertion_seq(),
                 obj.type_id,
                 state,
-                f.progress.min(PRODUCTION_STEPS),
+                f.progress().min(PRODUCTION_STEPS),
             ));
         }
-        for e in &f.queue {
+        for e in f.queue() {
             items.push((
-                f.category,
+                f.category(),
                 e.enqueue_order,
                 e.type_id,
                 BuildQueueState::Queued,

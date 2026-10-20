@@ -81,38 +81,40 @@ fn assert_production_state(
         .factories()
         .iter_insertion_ordered()
         .into_iter()
-        .find(|factory| factory.owner == owner && factory.category == ProductionCategory::Aircraft);
+        .find(|factory| {
+            factory.owner() == owner && factory.category() == ProductionCategory::Aircraft
+        });
     let expected = &original["factory"];
     if expected.is_null() || expected["exists"] == false {
         assert!(actual.is_none(), "{name}: the empty Factory was deleted");
     } else {
         let factory = actual.expect("native retained the aircraft Factory");
         assert_eq!(
-            i32::from(factory.progress),
+            i32::from(factory.progress()),
             number(&expected["stage"]),
             "{name}"
         );
-        assert_eq!(factory.balance, number(&expected["balance"]), "{name}");
+        assert_eq!(factory.balance(), number(&expected["balance"]), "{name}");
         assert_eq!(
-            i32::from(factory.step_rate_frames),
+            i32::from(factory.step_rate_frames()),
             number(&expected["rate"]),
             "{name}"
         );
         // CdTimer owns the start/duration fields. The unused native middle
         // timer dword is outside this representation and this comparison.
         assert_eq!(
-            factory.step_timer.start_frame(),
+            factory.step_timer().start_frame(),
             number(&expected["timer"][0]),
             "{name}"
         );
         assert_eq!(
-            factory.step_timer.duration(),
+            factory.step_timer().duration(),
             number(&expected["timer"][2]),
             "{name}"
         );
         assert_eq!(
             factory
-                .object
+                .object()
                 .as_ref()
                 .map(|object| sim.interner.resolve(object.type_id)),
             expected["held_type"].as_str(),
@@ -272,7 +274,7 @@ fn retail_production_world(history: &Value) -> Option<(SimRuntime, InternedId)> 
     );
     let power = &sim.power_states[&owner];
     assert_eq!(
-        json!([power.total_output, power.total_drain]),
+        json!([power.total_output(), power.total_drain()]),
         input["house_power"]
     );
     assert_eq!(

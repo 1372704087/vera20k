@@ -252,17 +252,17 @@ fn build_limit(
     if !count_in_production || (obj.category == ObjectCategory::Infantry && owned != limit) {
         return CanBuild::AtLimit;
     }
-    let in_production =
-        sim.production
-            .factories()
-            .iter_insertion_ordered()
-            .into_iter()
-            .any(|factory| {
-                factory.owner == owner
-                    && factory.object.as_ref().is_some_and(|object| {
-                        object.type_id == type_id && object.entity_id.is_some()
-                    })
-            });
+    let in_production = sim
+        .production
+        .factories()
+        .iter_insertion_ordered()
+        .into_iter()
+        .any(|factory| {
+            factory.owner() == owner
+                && factory
+                    .object()
+                    .is_some_and(|object| object.type_id == type_id && object.entity_id.is_some())
+        });
     if in_production {
         CanBuild::Yes
     } else {

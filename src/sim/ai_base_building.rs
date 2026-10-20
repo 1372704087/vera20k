@@ -181,7 +181,7 @@ pub(crate) fn economy_state_machine(
             let (output, drain) = sim
                 .power_states
                 .get(&owner)
-                .map_or((0, 0), |power| (power.total_output, power.total_drain));
+                .map_or((0, 0), |power| (power.total_output(), power.total_drain()));
             let may_stay = owns_any(&rules.build_barracks_types)
                 && owns_any(&rules.build_weapons_types)
                 && drain <= output;
@@ -425,12 +425,12 @@ fn power_plant_to_splice(
     let house = sim.houses.get(&owner)?;
     let power = sim.power_states.get(&owner).cloned().unwrap_or_default();
     let drain = crate::sim::power_system::native_building_power_drain(ty.power);
-    let short = power.total_drain.wrapping_add(drain) > power.total_output;
+    let short = power.total_drain().wrapping_add(drain) > power.total_output();
     if !short
         || ty.build_const_eligible
         || drain <= 0
         || power.blackout_remaining(sim.session.binary_frame()) > 0
-        || power.has_drained_power_source
+        || power.has_drained_power_source()
     {
         return None;
     }

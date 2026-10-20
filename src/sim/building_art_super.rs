@@ -270,9 +270,9 @@ mod tests {
         for (index, row_super) in supers.iter().enumerate() {
             let type_id = sim.interner.intern(&format!("SW{index}"));
             let mut instance = SuperWeaponInstance::new(type_id, owner, 0);
-            instance.is_active = true;
-            instance.charge_start_tick = int(&row_super[1]);
-            instance.charge_duration = int(&row_super[2]);
+            instance.set_is_active_for_test(true);
+            instance.set_charge_start_tick_for_test(int(&row_super[1]));
+            instance.set_charge_duration_for_test(int(&row_super[2]));
             sim.super_weapons
                 .get_mut(&owner)
                 .unwrap()

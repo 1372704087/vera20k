@@ -3755,8 +3755,8 @@ mod tests {
         }
         let owner = sim.interner.intern("Americans");
         let mut power = crate::sim::power_system::PowerState::default();
-        power.total_drain = 100;
-        power.is_low_power = true;
+        power.set_total_drain_for_test(100);
+        power.set_is_low_power_for_test(true);
         sim.power_states.insert(owner, power);
 
         let before = sim.scenario_rng.state();

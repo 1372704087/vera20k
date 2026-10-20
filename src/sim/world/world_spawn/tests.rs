@@ -1190,8 +1190,8 @@ fn infantry_owner_discovery_leaves_building_power_radar_and_spysat_inputs_unchan
     );
     sim.advance_tick(&[], Some(&rules), None, None, 66);
     let before = (
-        sim.power_states[&owner].total_output,
-        sim.power_states[&owner].total_drain,
+        sim.power_states[&owner].total_output(),
+        sim.power_states[&owner].total_drain(),
         crate::sim::radar::has_radar_for_owner(&sim, &rules, "Americans"),
         sim.houses[&owner].spy_sat_active(),
     );
@@ -1208,8 +1208,8 @@ fn infantry_owner_discovery_leaves_building_power_radar_and_spysat_inputs_unchan
     );
     sim.advance_tick(&[], Some(&rules), None, None, 66);
     let after = (
-        sim.power_states[&owner].total_output,
-        sim.power_states[&owner].total_drain,
+        sim.power_states[&owner].total_output(),
+        sim.power_states[&owner].total_drain(),
         crate::sim::radar::has_radar_for_owner(&sim, &rules, "Americans"),
         sim.houses[&owner].spy_sat_active(),
     );

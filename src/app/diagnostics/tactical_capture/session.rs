@@ -901,20 +901,20 @@ impl TacticalCaptureSession {
         let owner_id = sim.interner.get(&owner).unwrap_or_default();
         let mut queued_production = Vec::new();
         for factory in sim.production.factories().iter_insertion_ordered() {
-            if factory.owner != owner_id {
+            if factory.owner() != owner_id {
                 continue;
             }
             // A completed building remains attached to its factory until
             // placement. It belongs to ready_buildings, not the in-flight list.
-            if let Some(object) = factory.object.as_ref()
-                && factory.progress < crate::sim::production::PRODUCTION_STEPS
+            if let Some(object) = factory.object()
+                && factory.progress() < crate::sim::production::PRODUCTION_STEPS
             {
                 queued_production.push(ProductionQueueObservation {
                     type_id: sim.interner.resolve(object.type_id).to_owned(),
-                    resolved_rate_frames: factory.step_rate_frames,
+                    resolved_rate_frames: factory.step_rate_frames(),
                 });
             }
-            for queued in &factory.queue {
+            for queued in factory.queue() {
                 queued_production.push(ProductionQueueObservation {
                     type_id: sim.interner.resolve(queued.type_id).to_owned(),
                     resolved_rate_frames: 0,
@@ -955,7 +955,7 @@ impl TacticalCaptureSession {
         let power_state = sim.power_states.get(&owner_id);
         let power_authority_sufficient = power_output >= power_drain
             && power_state.is_some_and(|power| {
-                !power.is_low_power && power.blackout_remaining(sim.session.binary_frame()) == 0
+                !power.is_low_power() && power.blackout_remaining(sim.session.binary_frame()) == 0
             });
         let radar_authority_active = crate::sim::radar::has_radar_for_owner(sim, rules, &owner);
         let radar_online = state
@@ -1106,8 +1106,8 @@ impl TacticalCaptureSession {
             && state.match_state.input.cursor_y == profile.capture.post_load_cursor.y as f32;
         let power = sim.power_states.get(&owner_id);
         let power_ready = power.is_some_and(|power| {
-            power.total_output >= power.total_drain
-                && !power.is_low_power
+            power.total_output() >= power.total_drain()
+                && !power.is_low_power()
                 && power.blackout_remaining(sim.session.binary_frame()) == 0
         });
         let radar_authority = state
@@ -1325,9 +1325,9 @@ impl TacticalCaptureSession {
                 "score": house.economy().score(),
             },
             "power": {
-                "output": power.total_output,
-                "drain": power.total_drain,
-                "is_low_power": power.is_low_power,
+                "output": power.total_output(),
+                "drain": power.total_drain(),
+                "is_low_power": power.is_low_power(),
                 "blackout_remaining": power.blackout_remaining(sim.session.binary_frame()),
             },
             "radar": {

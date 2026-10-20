@@ -348,7 +348,7 @@ mod tests {
         set_health(&mut sim, plant, 1);
         let lines = run_frames(&mut sim, &rules, 10);
         assert!(lines.is_empty(), "{lines:?}");
-        assert!(sim.power_states[&owner].is_low_power);
+        assert!(sim.power_states[&owner].is_low_power());
         assert!(!sim.houses[&owner].eva_low_power_guard());
     }
 

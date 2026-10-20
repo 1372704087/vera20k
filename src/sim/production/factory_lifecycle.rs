@@ -233,7 +233,7 @@ pub(super) fn start_active_production(
         .production
         .factories()
         .factory(holder)
-        .map(|factory| factory.owner)?;
+        .map(|factory| factory.owner())?;
     let obj = sim.object_type(type_id, rules)?;
     let owner = sim.interner.resolve(owner_id).to_string();
     let type_name = sim.interner.resolve(type_id).to_string();
@@ -1170,7 +1170,7 @@ pub fn validate_restored_factory_state(
     let fail = |owner, reason| FactoryRestoreError { owner, reason };
     let mut roots = BTreeSet::new();
     for (&holder, factory) in sim.production.factories().keyed_factories() {
-        let (owner, category) = (factory.owner, factory.category);
+        let (owner, category) = (factory.owner(), factory.category());
         match holder {
             FactoryHolder::House(key_owner, key_category) => {
                 if owner != key_owner || category != key_category {
@@ -1189,11 +1189,11 @@ pub fn validate_restored_factory_state(
                         "factory's building is absent or another house's",
                     ));
                 }
-                if factory.object.is_none() || !factory.queue.is_empty() {
+                if factory.object().is_none() || !factory.queue().is_empty() {
                     return Err(fail(owner, "building factory holds no single object"));
                 }
                 if factory
-                    .object
+                    .object()
                     .as_ref()
                     .is_some_and(|object| object.completion_accounted)
                 {
@@ -1204,7 +1204,7 @@ pub fn validate_restored_factory_state(
         if sim.interner.try_resolve(owner).is_none() {
             return Err(fail(owner, "factory owner is absent from the interner"));
         }
-        for queued in &factory.queue {
+        for queued in factory.queue() {
             let object = sim
                 .interner
                 .try_resolve(queued.type_id)
@@ -1214,8 +1214,8 @@ pub fn validate_restored_factory_state(
                 return Err(fail(owner, "queued type disagrees with factory category"));
             }
         }
-        let Some(held) = &factory.object else {
-            if !factory.queue.is_empty() {
+        let Some(held) = &factory.object() else {
+            if !factory.queue().is_empty() {
                 return Err(fail(owner, "queued tail has no active object"));
             }
             continue;
@@ -1271,7 +1271,7 @@ pub fn validate_restored_factory_state(
                 "factory object is already admitted to the world",
             ));
         }
-        if held.completion_accounted && factory.progress < super::PRODUCTION_STEPS {
+        if held.completion_accounted && factory.progress() < super::PRODUCTION_STEPS {
             return Err(fail(
                 owner,
                 "completion accounting precedes completed progress",
@@ -1282,8 +1282,8 @@ pub fn validate_restored_factory_state(
     // Restrict only factory roots: native manager pointers elsewhere can alias
     // without implying reciprocal ownership, and ordinary limbo is not a root.
     for (_, factory) in sim.production.factories().keyed_factories() {
-        let owner = factory.owner;
-        let Some(parent) = factory.object.as_ref().and_then(|object| object.entity_id) else {
+        let owner = factory.owner();
+        let Some(parent) = factory.object().and_then(|object| object.entity_id) else {
             continue;
         };
         let entity = sim

@@ -3146,7 +3146,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
         .factories()
         .iter_insertion_ordered()
         .iter()
-        .map(|factory| (factory.category, factory.insertion_seq))
+        .map(|factory| (factory.category(), factory.insertion_seq()))
         .collect::<Vec<_>>();
     // A real admission is saved; its returned envelope is deliberately not
     // delivered before the supplied product-expiry notification.
@@ -3217,7 +3217,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
             .factories()
             .iter_insertion_ordered()
             .iter()
-            .map(|factory| factory.category)
+            .map(|factory| factory.category())
             .collect::<Vec<_>>(),
         native_order,
     );
@@ -3228,7 +3228,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
             .factories()
             .iter_insertion_ordered()
             .iter()
-            .map(|factory| (factory.category, factory.insertion_seq))
+            .map(|factory| (factory.category(), factory.insertion_seq()))
             .collect::<Vec<_>>(),
         factory_order,
         "native Begin reuses the Factory rather than appending a new one"

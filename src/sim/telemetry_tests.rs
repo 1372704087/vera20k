@@ -101,14 +101,14 @@ fn production_rows_report_the_active_build_its_queue_and_ready_stock() {
     let actor = sim.interner.intern("ACTOR");
     // Two factories for one house: the projection groups by owner, not by
     // category, so both must appear rather than one shadowing the other.
-    sim.production.factories.test_enqueue_kernel(
+    sim.production.factories_mut().test_enqueue_kernel(
         americans,
         ProductionCategory::Infantry,
         actor,
         0,
         100,
     );
-    sim.production.factories.test_enqueue_kernel(
+    sim.production.factories_mut().test_enqueue_kernel(
         americans,
         ProductionCategory::Vehicle,
         actor,
@@ -116,7 +116,7 @@ fn production_rows_report_the_active_build_its_queue_and_ready_stock() {
         100,
     );
     // A different house's factory must land on that house's row.
-    sim.production.factories.test_enqueue_kernel(
+    sim.production.factories_mut().test_enqueue_kernel(
         soviets,
         ProductionCategory::Infantry,
         actor,
@@ -146,10 +146,10 @@ fn production_rows_report_the_active_build_its_queue_and_ready_stock() {
     // ready-to-place stock: that is the state a player can act on, and the
     // panel has to show it as such rather than as a full progress bar.
     sim.production
-        .factories
+        .factories_mut()
         .test_factory_mut(americans, ProductionCategory::Infantry)
         .unwrap()
-        .progress = PRODUCTION_STEPS;
+        .set_progress_for_test(PRODUCTION_STEPS);
     let snapshot = sim.telemetry_snapshot();
     let infantry = house_row(&snapshot, "Americans")
         .production
@@ -347,11 +347,15 @@ fn snapshot_bounds_long_names_house_rows_and_production_queues() {
             .register(HouseState::new(owner, 0, None, false, 0, 10));
     }
     let owner = first.unwrap();
-    sim.production
-        .factories
-        .test_enqueue_kernel(owner, ProductionCategory::Vehicle, kind, 0, 1);
+    sim.production.factories_mut().test_enqueue_kernel(
+        owner,
+        ProductionCategory::Vehicle,
+        kind,
+        0,
+        1,
+    );
     for index in 0..TELEMETRY_MAX_QUEUE + 4 {
-        sim.production.factories.test_enqueue_kernel(
+        sim.production.factories_mut().test_enqueue_kernel(
             owner,
             ProductionCategory::Vehicle,
             kind,

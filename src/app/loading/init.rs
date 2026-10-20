@@ -1359,9 +1359,9 @@ mod map_wall_owner_candidate_tests {
         assert_ne!(lit, low_detail);
 
         let mut power_state = PowerState::default();
-        power_state.total_output = 0;
-        power_state.total_drain = 100;
-        power_state.is_low_power = true;
+        power_state.set_total_output_for_test(0);
+        power_state.set_total_drain_for_test(100);
+        power_state.set_is_low_power_for_test(true);
         sim.power_states.insert(owner, power_state);
         let offline = derive_lighting_view(&config, Some(&sim), 2);
         // House508C30->454CE0 RET and Building4549B0 animation-only
@@ -1370,8 +1370,8 @@ mod map_wall_owner_candidate_tests {
         assert_eq!(lit, offline);
 
         let power = sim.power_states.get_mut(&owner).expect("power state");
-        power.total_output = 100;
-        power.is_low_power = false;
+        power.set_total_output_for_test(100);
+        power.set_is_low_power_for_test(false);
         let restored = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(restored.point_lights.len(), 1);
         assert_eq!(lit, restored);
@@ -1408,9 +1408,9 @@ mod map_wall_owner_candidate_tests {
         assert_eq!(before_capture.point_lights.len(), 1);
 
         let mut power_state = PowerState::default();
-        power_state.total_output = 0;
-        power_state.total_drain = 100;
-        power_state.is_low_power = true;
+        power_state.set_total_output_for_test(0);
+        power_state.set_total_drain_for_test(100);
+        power_state.set_is_low_power_for_test(true);
         sim.power_states.insert(captured_owner, power_state);
         sim.change_owner(41, captured_owner);
         let captured_offline = derive_lighting_view(&config, Some(&sim), 2);
@@ -1421,8 +1421,8 @@ mod map_wall_owner_candidate_tests {
             .power_states
             .get_mut(&captured_owner)
             .expect("captured owner power state");
-        power.total_output = 100;
-        power.is_low_power = false;
+        power.set_total_output_for_test(100);
+        power.set_is_low_power_for_test(false);
         let captured_online = derive_lighting_view(&config, Some(&sim), 2);
         assert_eq!(captured_online.point_lights.len(), 1);
         assert_eq!(before_capture, captured_online);

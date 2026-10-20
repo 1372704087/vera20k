@@ -68,15 +68,15 @@ pub struct PowerState {
     /// Signed retained generation at House+53A4. `Power_Output4F6A00`
     /// returns interface+5380, where that IHouse receiver is House+24.
     /// The query does not clamp; assessment and the later House clamp own it.
-    pub total_output: i32,
+    total_output: i32,
     /// Signed retained drain at House+53A8. `Power_Drain4F6A10` returns
     /// interface+5384 unchanged, including before the House4F87FF clamp.
-    pub total_drain: i32,
+    total_drain: i32,
     /// House+577B: an admitted positive-output Building has DrainingMe.
     #[serde(default)]
-    pub has_drained_power_source: bool,
+    has_drained_power_source: bool,
     /// Native signed House power ratio is below one.
-    pub is_low_power: bool,
+    is_low_power: bool,
     /// House+2A4/+2AC, read through the shared native countdown owner.
     blackout_timer: crate::sim::timer::CdTimer,
     /// House ctor4F5C5F/4F5C66 initializes both dirty bytes to one.
@@ -118,6 +118,48 @@ impl Default for PowerState {
 }
 
 impl PowerState {
+    /// The retained generation (House+53A4), without the trainer's override
+    /// ([`Self::effective_totals`]).
+    pub fn total_output(&self) -> i32 {
+        self.total_output
+    }
+
+    /// The retained drain (House+53A8).
+    pub fn total_drain(&self) -> i32 {
+        self.total_drain
+    }
+
+    /// House+577B.
+    pub fn has_drained_power_source(&self) -> bool {
+        self.has_drained_power_source
+    }
+
+    /// The retained low-power flag, without the trainer's override
+    /// ([`Self::low_power`]).
+    pub fn is_low_power(&self) -> bool {
+        self.is_low_power
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_has_drained_power_source_for_test(&mut self, value: bool) {
+        self.has_drained_power_source = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_is_low_power_for_test(&mut self, value: bool) {
+        self.is_low_power = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_total_drain_for_test(&mut self, value: i32) {
+        self.total_drain = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_total_output_for_test(&mut self, value: i32) {
+        self.total_output = value;
+    }
+
     pub(crate) fn invalidate(&mut self, radar: bool) {
         self.power_dirty = true;
         self.radar_dirty |= radar;

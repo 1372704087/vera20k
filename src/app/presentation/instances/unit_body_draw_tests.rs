@@ -358,7 +358,7 @@ fn retail_spy_plane_flight_counter_reaches_both_physical_hva_frames_on_gpu() {
         sim.super_weapons
             .get(&owner)
             .and_then(|supers| supers.get(&sw_type_id))
-            .is_some_and(|instance| instance.is_ready)
+            .is_some_and(|instance| instance.is_ready())
     };
     for _ in 0..4000 {
         if ready(scene.sim()) {

@@ -148,8 +148,8 @@ fn the_production_mode_steps_as_native() {
             .set_for_test(int(&row["mode"]) as i32, -1, true);
         house.tracking_mut().set_for_test(0, &[], (0, 0, 0), &owned);
         let mut power_state = PowerState::default();
-        power_state.total_output = int(&row["output"]) as i32;
-        power_state.total_drain = int(&row["drain"]) as i32;
+        power_state.set_total_output_for_test(int(&row["output"]) as i32);
+        power_state.set_total_drain_for_test(int(&row["drain"]) as i32);
         sim.power_states.insert(owner, power_state);
         let draws: Vec<&Value> = row["draws"].as_array().unwrap().iter().collect();
         let expected = expect_draws(&mut sim, &draws, 0, 1);
@@ -233,10 +233,10 @@ fn the_building_choice_handles_nodes_as_native() {
                 .collect(),
         );
         let mut power_state = PowerState::default();
-        power_state.total_output = int(&row["output"]) as i32;
-        power_state.total_drain = int(&row["drain"]) as i32;
+        power_state.set_total_output_for_test(int(&row["output"]) as i32);
+        power_state.set_total_drain_for_test(int(&row["drain"]) as i32);
         power_state.start_blackout(0, int(&row["blackout"]) as i32);
-        power_state.has_drained_power_source = flag(&row["drained_source"]);
+        power_state.set_has_drained_power_source_for_test(flag(&row["drained_source"]));
         sim.power_states.insert(owner, power_state);
         let draws: Vec<&Value> = row["events"]
             .as_array()

@@ -715,8 +715,8 @@ fn retail_spy_plane_flies_with_super_weapons_off() {
     };
 
     step(&mut sim, &rules);
-    assert!(!sim.power_states[&americans].is_low_power);
-    assert!(!sim.power_states[&russians].is_low_power);
+    assert!(!sim.power_states[&americans].is_low_power());
+    assert!(!sim.power_states[&russians].is_low_power());
     assert!(granted(&sim, americans, spy_plane));
     assert!(granted(&sim, russians, spy_plane));
     assert!(!granted(&sim, americans, nuke));

@@ -79,7 +79,7 @@ impl Fixture {
             .production
             .factories()
             .building_factory(self.yard)
-            .and_then(|factory| factory.object.as_ref())
+            .and_then(|factory| factory.object())
             .and_then(|object| object.entity_id)
     }
 

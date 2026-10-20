@@ -119,14 +119,17 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
             frame(&mut sim, &rules);
         }
         assert!(
-            sim.super_weapons[&owner][&id].is_active,
+            sim.super_weapons[&owner][&id].is_active(),
             "{name}: provider grant"
         );
         assert!(
-            !sim.power_states[&owner].is_low_power,
+            !sim.power_states[&owner].is_low_power(),
             "{name}: initial power"
         );
-        assert!(!sim.super_weapons[&owner][&id].is_ready, "{name}: charging");
+        assert!(
+            !sim.super_weapons[&owner][&id].is_ready(),
+            "{name}: charging"
+        );
         let mut input = MatchInputState::new(Default::default());
         let mut gadgets = SidebarGadgetState::default();
         input.begin_building_placement("GAPILE", 0, owner);
@@ -158,11 +161,11 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
         // the production Super AI, rather than a fixture flag, makes it ready.
         let instance = &sim.super_weapons[&owner][&id];
         sim.session.set_binary_frame_for_test(
-            (instance.charge_start_tick + instance.charge_duration + 1) as u32,
+            (instance.charge_start_tick() + instance.charge_duration() + 1) as u32,
         );
         frame(&mut sim, &rules);
         assert!(
-            sim.super_weapons[&owner][&id].is_ready,
+            sim.super_weapons[&owner][&id].is_ready(),
             "{name}: real ready transition"
         );
         let cached_online_item = sidebar_item(&sim, &rules, owner, name);
@@ -174,18 +177,19 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
         );
         for _ in 0..64 {
             frame(&mut sim, &rules);
-            if sim.power_states[&owner].is_low_power {
+            if sim.power_states[&owner].is_low_power() {
                 break;
             }
         }
         assert!(
-            sim.power_states[&owner].is_low_power,
+            sim.power_states[&owner].is_low_power(),
             "{name}: actual reactor loss"
         );
         let instance = &sim.super_weapons[&owner][&id];
-        assert!(instance.is_ready, "{name}: hold retains charge");
+        assert!(instance.is_ready(), "{name}: hold retains charge");
         assert_eq!(
-            instance.is_suspended, sw.is_powered,
+            instance.is_suspended(),
+            sw.is_powered,
             "{name}: retail IsPowered"
         );
         let offline_item = sidebar_item(&sim, &rules, owner, name);
@@ -234,7 +238,7 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
             let output = frame(&mut sim, &rules);
             assert!(!output.sound_events.iter().any(|event| matches!(event,
                 SimSoundEvent::SuperWeaponLaunched { sw_type, .. } if *sw_type == id)));
-            assert!(sim.super_weapons[&owner][&id].is_ready);
+            assert!(sim.super_weapons[&owner][&id].is_ready());
         }
         sim.spawn_object("NANRCT", "Americans", 5, 20, 0, &rules)
             .unwrap();
@@ -242,11 +246,11 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
             frame(&mut sim, &rules);
         }
         assert!(
-            !sim.power_states[&owner].is_low_power,
+            !sim.power_states[&owner].is_low_power(),
             "{name}: restored power"
         );
-        assert!(sim.super_weapons[&owner][&id].is_ready);
-        assert!(!sim.super_weapons[&owner][&id].is_suspended);
+        assert!(sim.super_weapons[&owner][&id].is_ready());
+        assert!(!sim.super_weapons[&owner][&id].is_suspended());
         let restored_item = sidebar_item(&sim, &rules, owner, name);
         assert_eq!(
             click(
@@ -295,7 +299,7 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
             let output = frame(&mut sim, &rules);
             assert!(output.sound_events.iter().any(|event| matches!(event,
                 SimSoundEvent::SuperWeaponLaunched { sw_type, .. } if *sw_type == id)));
-            assert!(!sim.super_weapons[&owner][&id].is_ready);
+            assert!(!sim.super_weapons[&owner][&id].is_ready());
             command(
                 &mut sim,
                 owner,
@@ -305,12 +309,12 @@ fn retail_supers_recheck_live_admission_after_power_loss_and_recovery() {
             );
             for _ in 0..64 {
                 frame(&mut sim, &rules);
-                if !sim.super_weapons[&owner][&id].is_active {
+                if !sim.super_weapons[&owner][&id].is_active() {
                     break;
                 }
             }
             assert!(
-                !sim.super_weapons[&owner][&id].is_active,
+                !sim.super_weapons[&owner][&id].is_active(),
                 "silo loss revokes Super"
             );
             assert_eq!(

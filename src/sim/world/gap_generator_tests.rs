@@ -194,9 +194,9 @@ fn gap_operational_original_gate_and_native_order_corpus() {
                 dispatch_timer: crate::sim::mission::MissionDispatchTimer::at_frame(0),
             });
         let power = sim.power_states.entry(owner).or_default();
-        power.total_output = v["output"].as_i64().unwrap() as i32;
-        power.total_drain = v["drain"].as_i64().unwrap() as i32;
-        power.is_low_power = !power.has_full_power();
+        power.set_total_output_for_test(v["output"].as_i64().unwrap() as i32);
+        power.set_total_drain_for_test(v["drain"].as_i64().unwrap() as i32);
+        power.set_is_low_power_for_test(!power.has_full_power());
         assert_eq!(
             sim.gap_operational_state(1, &rules).unwrap().0,
             case["admitted"] == 1,
@@ -251,7 +251,7 @@ pub fn gap_operational_power_loss_views() -> Vec<(
     sim.session.set_binary_frame_for_test(238);
     damage(&mut sim, &rules, 50, 75);
     power(&mut sim, &rules);
-    assert!(sim.power_states[&last].is_low_power);
+    assert!(sim.power_states[&last].is_low_power());
     sim.reconcile_active_vision_structures(&rules);
     assert!(
         sim.substrate

@@ -125,10 +125,10 @@ pub fn replay(row: &Value) -> Replay {
     if let Some(state) = row["super"].as_object() {
         let sw = sim.interner.intern("SW0");
         let mut instance = SuperWeaponInstance::new(sw, owner, 0);
-        instance.is_active = true;
-        instance.is_ready = flag(&state["ready"]);
-        instance.charge_start_tick = int(&state["start"]);
-        instance.charge_duration = int(&state["duration"]);
+        instance.set_is_active_for_test(true);
+        instance.set_is_ready_for_test(flag(&state["ready"]));
+        instance.set_charge_start_tick_for_test(int(&state["start"]));
+        instance.set_charge_duration_for_test(int(&state["duration"]));
         sim.super_weapons
             .entry(owner)
             .or_default()
@@ -267,9 +267,9 @@ fn infiltrate_matches_the_original() {
             let instance = &sim.super_weapons[&owner][&sw];
             assert_eq!(
                 (
-                    i32::from(instance.is_ready),
-                    instance.charge_start_tick,
-                    instance.charge_duration
+                    i32::from(instance.is_ready()),
+                    instance.charge_start_tick(),
+                    instance.charge_duration()
                 ),
                 (
                     int(&state["ready"]),

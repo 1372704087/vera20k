@@ -101,10 +101,10 @@ fn native_superweapon_cameo_controls_match_modes_and_requests() {
         let owner = sim.interner.intern("Americans");
         let id = sim.interner.intern("SUPER");
         let mut instance = SuperWeaponInstance::new(id, owner, 0);
-        instance.is_active = true;
-        instance.is_ready = supplied["ready"].as_bool().unwrap_or(true);
-        instance.is_suspended = supplied["held"].as_bool().unwrap_or(false);
-        instance.charge_drain_state = supplied["state"].as_i64().unwrap_or(0) as i32;
+        instance.set_is_active_for_test(true);
+        instance.set_is_ready_for_test(supplied["ready"].as_bool().unwrap_or(true));
+        instance.set_is_suspended_for_test(supplied["held"].as_bool().unwrap_or(false));
+        instance.set_charge_drain_state_for_test(supplied["state"].as_i64().unwrap_or(0) as i32);
         sim.super_weapons
             .entry(owner)
             .or_default()
@@ -205,8 +205,8 @@ fn delivery_missing_or_custom_action_arms_the_real_cameo_targeting_path() {
         let owner = sim.interner.intern("Americans");
         let id = sim.interner.intern("Delivery");
         let mut instance = SuperWeaponInstance::new(id, owner, 0);
-        instance.is_active = true;
-        instance.is_ready = true;
+        instance.set_is_active_for_test(true);
+        instance.set_is_ready_for_test(true);
         sim.super_weapons
             .entry(owner)
             .or_default()
@@ -247,8 +247,8 @@ fn superweapon_money_cameo_refuses_before_target_or_direct_launch_but_allows_rig
                 owner, 0, None, true, 499, 10,
             ));
         let mut instance = SuperWeaponInstance::new(id, owner, 0);
-        instance.is_active = true;
-        instance.is_ready = true;
+        instance.set_is_active_for_test(true);
+        instance.set_is_ready_for_test(true);
         sim.super_weapons
             .entry(owner)
             .or_default()

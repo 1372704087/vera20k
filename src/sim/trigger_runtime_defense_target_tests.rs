@@ -185,7 +185,7 @@ fn scripted_alerts_drive_the_original_force_shield_timing_controls() {
             .unwrap()
             .get_mut(&shield)
             .unwrap()
-            .is_ready = true;
+            .set_is_ready_for_test(true);
         let cell = (
             row["defense"][0].as_i64().unwrap() as u16,
             row["defense"][1].as_i64().unwrap() as u16,

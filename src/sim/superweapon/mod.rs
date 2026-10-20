@@ -202,15 +202,15 @@ pub struct SuperWeaponInstance {
     #[serde(default)]
     native_unique_id: Option<i32>,
     /// Which SuperWeaponType this instance represents (interned ID of the INI section name).
-    pub type_id: InternedId,
+    type_id: InternedId,
     /// Which house owns this instance.
-    pub owner: InternedId,
+    owner: InternedId,
     /// Whether the SW is granted (owning building exists and is alive).
-    pub is_active: bool,
+    is_active: bool,
     /// Whether the SW is fully charged and ready to fire.
-    pub is_ready: bool,
+    is_ready: bool,
     /// Whether charging is paused due to low power.
-    pub is_suspended: bool,
+    is_suspended: bool,
     /// Super+6E: Grant6CB57D stores its one-time argument. ClickFire6CBB18
     /// consumes it after Launch; Deactivate deliberately leaves it retained.
     #[serde(default)]
@@ -220,18 +220,18 @@ pub struct SuperWeaponInstance {
     #[serde(default = "default_can_lose")]
     can_lose: bool,
     /// Native frame when charging began. -1 = timer stopped.
-    pub charge_start_tick: i32,
+    charge_start_tick: i32,
     /// Total charge duration in native frames (may be adjusted on suspend/resume).
-    pub charge_duration: i32,
+    charge_duration: i32,
     /// Super+24, initialized to -1 by 0x006CAFA7. Exactly -1 inherits the type's
     /// recharge time; every other signed value is retained verbatim.
     #[serde(default = "inherited_recharge_time")]
     custom_recharge_time: i32,
     /// Charge/drain state: -1=N/A, 0=empty, 1=charged, 2=draining.
     /// Only used when UseChargeDrain=yes (Force Shield). -1 for all others.
-    pub charge_drain_state: i32,
+    charge_drain_state: i32,
     /// Native frame when the SW became ready. Construction uses -100.
-    pub ready_tick: i32,
+    ready_tick: i32,
     /// `SuperClass+0x62` (ChronoMapCoords): the cell a Chronosphere click
     /// stores (`0x006CC3D3`) and a PostClick Fire_SW copies from its
     /// PreDependent Super (`0x004FAE8F`). Construction copies the static
@@ -278,6 +278,81 @@ fn default_can_lose() -> bool {
 }
 
 impl SuperWeaponInstance {
+    /// The SuperWeaponType this instance represents.
+    pub fn type_id(&self) -> InternedId {
+        self.type_id
+    }
+
+    pub fn owner(&self) -> InternedId {
+        self.owner
+    }
+
+    /// Granted (`SuperClass+0x6D`).
+    pub fn is_active(&self) -> bool {
+        self.is_active
+    }
+
+    /// Charged (`SuperClass+0x6F`).
+    pub fn is_ready(&self) -> bool {
+        self.is_ready
+    }
+
+    /// Held for low power or by the user ([`Self::suspend`]).
+    pub fn is_suspended(&self) -> bool {
+        self.is_suspended
+    }
+
+    pub fn charge_start_tick(&self) -> i32 {
+        self.charge_start_tick
+    }
+
+    pub fn charge_duration(&self) -> i32 {
+        self.charge_duration
+    }
+
+    pub fn charge_drain_state(&self) -> i32 {
+        self.charge_drain_state
+    }
+
+    pub fn ready_tick(&self) -> i32 {
+        self.ready_tick
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_charge_drain_state_for_test(&mut self, value: i32) {
+        self.charge_drain_state = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_charge_duration_for_test(&mut self, value: i32) {
+        self.charge_duration = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_charge_start_tick_for_test(&mut self, value: i32) {
+        self.charge_start_tick = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_is_active_for_test(&mut self, value: bool) {
+        self.is_active = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_is_ready_for_test(&mut self, value: bool) {
+        self.is_ready = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_is_suspended_for_test(&mut self, value: bool) {
+        self.is_suspended = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_ready_tick_for_test(&mut self, value: i32) {
+        self.ready_tick = value;
+    }
+
     #[inline]
     fn charge_timer(&self) -> CdTimer {
         CdTimer::from_raw(self.charge_start_tick, self.charge_duration)
@@ -472,6 +547,22 @@ impl SuperWeaponInstance {
         self.ready_tick = current_frame as i32;
         if sw.use_charge_drain {
             self.charge_drain_state = 1;
+        }
+    }
+
+    /// SuperClass::AI's readiness edge: the charge is ready at `frame`.
+    fn mark_ready(&mut self, frame: u32) {
+        self.is_ready = true;
+        self.ready_tick = frame as i32;
+    }
+
+    /// The trainer's Superweapons Ready action on a granted, unheld
+    /// instance: [`Self::set_charge_percentage`] to 100, then the readiness
+    /// edge, without waiting for SuperClass::AI.
+    #[cfg(feature = "debug-tools")]
+    pub(crate) fn debug_charge_full(&mut self, sw: &SuperWeaponType, frame: u32) {
+        if self.is_active && !self.is_suspended && self.set_charge_percentage(100, sw, frame) {
+            self.mark_ready(frame);
         }
     }
 
@@ -941,8 +1032,7 @@ pub(crate) fn tick_house_superweapon_instances(
                 && instance.charge_start_tick != -1
                 && instance.charge_timer().expired(current_frame as i32);
             if ready {
-                instance.is_ready = true;
-                instance.ready_tick = current_frame as i32;
+                instance.mark_ready(current_frame);
             }
             (fade, ready)
         };

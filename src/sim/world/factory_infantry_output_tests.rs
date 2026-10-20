@@ -1943,11 +1943,11 @@ fn joined_two_paid_gi(route: OutputRoute) {
         native["producer_prior"]["health"]
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_output),
+        json!(sim.power_states[&owner].total_output()),
         native["producer_prior"]["power"]
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_drain),
+        json!(sim.power_states[&owner].total_drain()),
         native["producer_prior"]["drain"]
     );
     if route == OutputRoute::Rally

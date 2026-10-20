@@ -405,7 +405,10 @@ mod tests {
             .unwrap()
             .runtime
             .frame_timer = CdTimer::started(0, 3);
-        sim.power_states.entry(owner).or_default().total_drain = 100;
+        sim.power_states
+            .entry(owner)
+            .or_default()
+            .set_total_drain_for_test(100);
         sim.session.set_binary_frame_for_test(20);
         sim.visit_building_operational(
             id,
@@ -421,7 +424,10 @@ mod tests {
         );
         assert_eq!(sim.anim(anim).unwrap().runtime.current_frame, 0);
         assert_eq!(sim.anim(anim).unwrap().runtime.frame_timer.start_frame(), 0);
-        sim.power_states.get_mut(&owner).unwrap().total_output = 100;
+        sim.power_states
+            .get_mut(&owner)
+            .unwrap()
+            .set_total_output_for_test(100);
         sim.visit_building_operational(
             id,
             &rules,
@@ -494,9 +500,9 @@ mod tests {
                 .set_for_test(i["old"].as_bool().unwrap());
             let owner = entity.owner();
             let state = sim.power_states.entry(owner).or_default();
-            state.total_output = i["output"].as_i64().unwrap() as i32;
-            state.total_drain = 100;
-            state.is_low_power = state.total_output < 100;
+            state.set_total_output_for_test(i["output"].as_i64().unwrap() as i32);
+            state.set_total_drain_for_test(100);
+            state.set_is_low_power_for_test(state.total_output() < 100);
             state.start_blackout(
                 sim.session.binary_frame(),
                 i["outage"].as_u64().unwrap() as i32,

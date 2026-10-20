@@ -1566,7 +1566,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
             .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap()
-            .balance;
+            .balance();
         assert_eq!(
             i64::from(balance),
             row["before"]["factories"]["MGTK"]["balance"]
@@ -1600,8 +1600,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
                 .factories_mut()
                 .test_factory_mut(owner, category)
                 .unwrap()
-                .step_timer
-                .start(frame, 0);
+                .set_step_timer_for_test(crate::sim::timer::CdTimer::started(frame, 0));
         }
         // Native BuildingLimbo445D99 sets House+1FC for either loss, but
         // only a Factory= building reaches UpdateFactoryQueue445E14. The
@@ -1679,7 +1678,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
             .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Infantry)
             .unwrap()
-            .balance;
+            .balance();
         assert_eq!(
             i64::from(balance),
             expected["factories"]["E1"]["balance"].as_i64().unwrap()
@@ -2563,8 +2562,8 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
             .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
-        assert!(factory.progress > 0 && factory.progress < 54);
-        let balance = factory.balance;
+        assert!(factory.progress() > 0 && factory.progress() < 54);
+        let balance = factory.balance();
         sim.cost_of(owner, rules.object("SMIN").unwrap(), &rules) - balance
     };
     let before = sim.houses[&owner].economy().credits();
@@ -2597,7 +2596,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
             .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
-        (factory.step_rate_frames, factory.step_timer)
+        (factory.step_rate_frames(), factory.step_timer())
     };
     assert_eq!(timer.start_frame(), promotion_frame as i32);
     assert!(rate > 1);
@@ -2758,8 +2757,8 @@ fn factory_loss_revalidation_disposes_parent_and_children_before_returning() {
                 .factories_mut()
                 .test_factory_mut(owner, ProductionCategory::Vehicle)
                 .unwrap();
-            assert!(factory.progress > 0 && factory.progress < 54);
-            let balance = factory.balance;
+            assert!(factory.progress() > 0 && factory.progress() < 54);
+            let balance = factory.balance();
             sim.cost_of(owner, rules.object(parent_type).unwrap(), &rules) - balance
         };
         let before = sim.houses[&owner].economy().credits();
@@ -2898,8 +2897,8 @@ fn a_build_starts_without_money_owing_its_cost_of() {
         .factories_mut()
         .test_factory_mut(owner, ProductionCategory::Vehicle)
         .unwrap();
-    assert_eq!(factory.balance, 675);
-    assert!(factory.on_hold && factory.progress == 0);
+    assert_eq!(factory.balance(), 675);
+    assert!(factory.on_hold() && factory.progress() == 0);
 }
 
 /// The cancel refund is the Cost_Of at cancel time less the Balance still owed
@@ -2923,7 +2922,7 @@ fn a_cancel_refunds_the_cost_of_at_cancel_time() {
             .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
-        (factory.progress, factory.balance)
+        (factory.progress(), factory.balance())
     };
     for _ in 0..2000 {
         if progress(&mut sim).0 > 0 {
@@ -3055,7 +3054,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
             .factories_mut()
             .test_factory_mut(owner, category)
             .unwrap()
-            .balance,
+            .balance(),
         0
     );
     super::publish_production_changes(&mut sim, &rules);

@@ -951,7 +951,7 @@ fn retail_walk_reads_each_object() {
     let factory = factories
         .test_factory_mut(russians, ProductionCategory::Vehicle)
         .unwrap();
-    factory.object.as_mut().unwrap().entity_id = Some(built);
+    factory.object_mut_for_test().as_mut().unwrap().entity_id = Some(built);
     assert_eq!(fact(&sim, built), (false, 2, false), "no rate yet");
     let set = |sim: &mut Simulation, rate, suspended, progress| {
         let factory = sim
@@ -959,11 +959,9 @@ fn retail_walk_reads_each_object() {
             .factories_mut()
             .test_factory_mut(russians, ProductionCategory::Vehicle)
             .unwrap();
-        (
-            factory.step_rate_frames,
-            factory.suspended,
-            factory.progress,
-        ) = (rate, suspended, progress);
+        factory.set_step_rate_frames_for_test(rate);
+        factory.set_suspended_for_test(suspended);
+        factory.set_progress_for_test(progress);
     };
     set(&mut sim, 5, false, 0);
     assert_eq!(fact(&sim, built), (true, 2, false));

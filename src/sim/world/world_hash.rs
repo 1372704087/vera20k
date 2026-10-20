@@ -1224,10 +1224,10 @@ impl Simulation {
         // BTreeMap<InternedId, _> iterates in deterministic sorted order.
         for (owner_id, state) in &self.power_states {
             owner_id.hash(hasher);
-            state.total_output.hash(hasher);
-            state.total_drain.hash(hasher);
+            state.total_output().hash(hasher);
+            state.total_drain().hash(hasher);
             state.hash_assessment_state(hasher);
-            if state.has_drained_power_source {
+            if state.has_drained_power_source() {
                 b"House.DrainedPowerSource".hash(hasher);
             }
         }
@@ -1370,13 +1370,13 @@ impl Simulation {
             owner.hash(hasher);
             for (type_id, inst) in weapons {
                 type_id.hash(hasher);
-                inst.is_active.hash(hasher);
-                inst.is_ready.hash(hasher);
-                inst.is_suspended.hash(hasher);
-                inst.charge_start_tick.hash(hasher);
-                inst.charge_duration.hash(hasher);
-                inst.charge_drain_state.hash(hasher);
-                inst.ready_tick.hash(hasher);
+                inst.is_active().hash(hasher);
+                inst.is_ready().hash(hasher);
+                inst.is_suspended().hash(hasher);
+                inst.charge_start_tick().hash(hasher);
+                inst.charge_duration().hash(hasher);
+                inst.charge_drain_state().hash(hasher);
+                inst.ready_tick().hash(hasher);
                 inst.hash_recharge_time(hasher);
                 inst.hash_grant_flags(hasher);
                 if let Some(id) = inst.native_unique_id() {

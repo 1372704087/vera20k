@@ -117,7 +117,7 @@ fn auxiliary_is_any_of_negative_is_any_veto_and_native_aux_remains_required() {
         sim.power_states
             .entry(sim.interner.get(OWNER).unwrap())
             .or_default()
-            .is_low_power = true;
+            .set_is_low_power_for_test(true);
         assert!(
             allowed(&sim, &rules, OWNER, NORMAL),
             "presence does not require power"

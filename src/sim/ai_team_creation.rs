@@ -490,7 +490,7 @@ fn condition_holds(
     let power = || {
         sim.power_states
             .get(&enemy)
-            .map_or((0, 0), |power| (power.total_output, power.total_drain))
+            .map_or((0, 0), |power| (power.total_output(), power.total_drain()))
     };
     match trigger.condition {
         -1 => true,

@@ -104,9 +104,9 @@ fn state(sim: &Simulation, owner: InternedId, id: InternedId) -> Value {
     // mutable slot to another simulation owner.
     let saved = serde_json::to_value(instance).unwrap();
     let preferred = sim.houses[&owner].preferred_super_weapon_target();
-    json!({"start": instance.charge_start_tick, "duration": instance.charge_duration,
-        "granted": instance.is_active, "ready": instance.is_ready,
-        "held": instance.is_suspended, "custom_recharge": saved["custom_recharge_time"],
+    json!({"start": instance.charge_start_tick(), "duration": instance.charge_duration(),
+        "granted": instance.is_active(), "ready": instance.is_ready(),
+        "held": instance.is_suspended(), "custom_recharge": saved["custom_recharge_time"],
         "preferred": [preferred.0 as i16, preferred.1 as i16]})
 }
 
@@ -316,11 +316,11 @@ fn dispatch_matches_original_signed_override_waypoint_and_incoming_house_gates()
             .get_mut(&id)
             .unwrap();
         instance.set_recharge_time(int(&input["custom_recharge"]));
-        instance.charge_start_tick = int(&input["start"]);
-        instance.charge_duration = int(&input["duration"]);
-        instance.is_active = input["granted"].as_bool().unwrap();
-        instance.is_ready = input["ready"].as_bool().unwrap();
-        instance.is_suspended = input["held"].as_bool().unwrap();
+        instance.set_charge_start_tick_for_test(int(&input["start"]));
+        instance.set_charge_duration_for_test(int(&input["duration"]));
+        instance.set_is_active_for_test(input["granted"].as_bool().unwrap());
+        instance.set_is_ready_for_test(input["ready"].as_bool().unwrap());
+        instance.set_is_suspended_for_test(input["held"].as_bool().unwrap());
         sim.houses
             .get_mut(&owner)
             .unwrap()

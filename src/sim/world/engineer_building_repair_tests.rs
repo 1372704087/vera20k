@@ -565,12 +565,12 @@ impl Fixture {
             );
             let power = &self.sim.power_states[&owner];
             assert_eq!(
-                power.total_output,
+                power.total_output(),
                 int(&expected["power"]),
                 "{boundary}: cached power"
             );
             assert_eq!(
-                power.total_drain,
+                power.total_drain(),
                 int(&expected["drain"]),
                 "{boundary}: cached drain"
             );

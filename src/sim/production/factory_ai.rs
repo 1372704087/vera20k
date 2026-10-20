@@ -126,8 +126,8 @@ fn exit_finished_object(
         .production
         .factories()
         .building_factory(building)
-        .filter(|factory| factory.progress >= PRODUCTION_STEPS)
-        .and_then(|factory| factory.object.clone())
+        .filter(|factory| factory.progress() >= PRODUCTION_STEPS)
+        .and_then(|factory| factory.object().cloned())
     else {
         return;
     };
@@ -320,7 +320,7 @@ pub(crate) fn detach_all(
     let Some(factory) = sim.production.factories().building_factory(building) else {
         return;
     };
-    let owner = factory.owner;
+    let owner = factory.owner();
     match rules {
         Some(rules) => abandon_production(
             sim,

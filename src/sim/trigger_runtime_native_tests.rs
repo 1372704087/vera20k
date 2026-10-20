@@ -1757,12 +1757,12 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     assert_eq!(sim.entities().get(reactor).unwrap().health.current(), 769);
     assert_eq!(
         (
-            sim.power_states[&owner].total_output,
-            sim.power_states[&owner].total_drain
+            sim.power_states[&owner].total_output(),
+            sim.power_states[&owner].total_drain()
         ),
         (1537, 1000)
     );
-    assert!(!sim.super_weapons[&owner][&dominator].is_suspended);
+    assert!(!sim.super_weapons[&owner][&dominator].is_suspended());
     sim.trigger_runtime.action_trace.clear();
     sim.advance_app_frame(
         &[],
@@ -1791,18 +1791,18 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
         .unwrap()["rows"][0]
         .clone();
     assert_eq!(
-        json!(sim.power_states[&owner].total_output),
+        json!(sim.power_states[&owner].total_output()),
         golden["retained_output"]
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_drain),
+        json!(sim.power_states[&owner].total_drain()),
         golden["retained_drain"]
     );
-    assert!(sim.power_states[&owner].is_low_power);
+    assert!(sim.power_states[&owner].is_low_power());
     let instance = &sim.super_weapons[&owner][&dominator];
     assert_eq!(
-        json!({"start": instance.charge_start_tick, "duration": instance.charge_duration,
-        "granted": instance.is_active, "ready": instance.is_ready, "held": instance.is_suspended,
+        json!({"start": instance.charge_start_tick(), "duration": instance.charge_duration(),
+        "granted": instance.is_active(), "ready": instance.is_ready(), "held": instance.is_suspended(),
         "custom_recharge": -1}),
         golden["output"]
     );
@@ -1845,7 +1845,7 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
     assert!(paused.iter().all(|(_, _, paused)| *paused));
     assert!(sim.trigger_runtime.action_trace.is_empty());
     assert_eq!(
-        sim.super_weapons[&owner][&dominator].charge_duration,
+        sim.super_weapons[&owner][&dominator].charge_duration(),
         integer(&golden["output"]["duration"])
     );
 }
@@ -1967,11 +1967,11 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
             .unwrap()
             .get_mut(&id)
             .unwrap();
-        instance.is_active = input["granted"].as_bool().unwrap();
-        instance.is_ready = input["ready"].as_bool().unwrap();
-        instance.is_suspended = input["held"].as_bool().unwrap();
-        instance.charge_start_tick = integer(&input["start"]);
-        instance.charge_duration = integer(&input["duration"]);
+        instance.set_is_active_for_test(input["granted"].as_bool().unwrap());
+        instance.set_is_ready_for_test(input["ready"].as_bool().unwrap());
+        instance.set_is_suspended_for_test(input["held"].as_bool().unwrap());
+        instance.set_charge_start_tick_for_test(integer(&input["start"]));
+        instance.set_charge_duration_for_test(integer(&input["duration"]));
         assert_eq!(integer(&input["recharge"]), sw.recharge_time_frames);
         assert_eq!(
             integer(&input["count"]) as usize,
@@ -2016,9 +2016,9 @@ fn native_all01_super_charge_dispatch_uses_retail_type_and_retained_operands() {
         );
         let instance = &sim.super_weapons[&owner][&id];
         assert_eq!(
-            json!({"start": instance.charge_start_tick,
-            "duration": instance.charge_duration, "granted": instance.is_active,
-            "ready": instance.is_ready, "held": instance.is_suspended,
+            json!({"start": instance.charge_start_tick(),
+            "duration": instance.charge_duration(), "granted": instance.is_active(),
+            "ready": instance.is_ready(), "held": instance.is_suspended(),
             "custom_recharge": -1}),
             row["output"],
             "{row}"
@@ -2295,7 +2295,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
         sim.session.binary_frame(),
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_output),
+        json!(sim.power_states[&owner].total_output()),
         native["power_consumer"]["initial_power"]
     );
     sim.session.install_waypoints(&HashMap::from([(
@@ -2366,7 +2366,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
         native["power_consumer"]["before_sample"]["sampled_health"]
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_output),
+        json!(sim.power_states[&owner].total_output()),
         native["power_consumer"]["before_sample"]["house_power"]
     );
     sim.sample_building_health_for_house_update(1);
@@ -2390,7 +2390,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
         sim.session.binary_frame(),
     );
     assert_eq!(
-        json!(sim.power_states[&owner].total_output),
+        json!(sim.power_states[&owner].total_output()),
         native["power_consumer"]["after_power"]["house_power"]
     );
     assert!(!sim.power_states[&owner].power_recheck_for_test());

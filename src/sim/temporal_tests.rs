@@ -899,7 +899,7 @@ fn a_warped_building_goes_offline() {
         );
         sim.power_states
             .get(&americans)
-            .map_or(0, |state| state.total_output)
+            .map_or(0, |state| state.total_output())
     };
     assert_eq!(output(&mut sim), 100);
     assert_eq!(sim.building_operational_state(plant, &rules), Some(true));
@@ -990,10 +990,10 @@ fn a_warped_superweapon_building_holds_its_super() {
     let state = |sim: &Simulation| {
         let inst = &sim.super_weapons[&americans][&nuke];
         (
-            inst.is_active,
-            inst.is_suspended,
-            inst.charge_start_tick,
-            inst.charge_duration,
+            inst.is_active(),
+            inst.is_suspended(),
+            inst.charge_start_tick(),
+            inst.charge_duration(),
         )
     };
     step(&mut sim);
@@ -1047,7 +1047,7 @@ fn a_super_holds_only_while_no_provider_is_online() {
     let [nuke, spy_plane] =
         ["NukeSpecial", "SpyPlaneSpecial"].map(|sw| sim.interner.get(sw).unwrap());
     let step = |sim: &mut Simulation| sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
-    let held = |sim: &Simulation, sw| sim.super_weapons[&americans][&sw].is_suspended;
+    let held = |sim: &Simulation, sw| sim.super_weapons[&americans][&sw].is_suspended();
     step(&mut sim);
     assert!(!held(&sim, nuke) && !held(&sim, spy_plane), "both charging");
 
@@ -1114,12 +1114,12 @@ fn erasing_a_superweapon_building_revokes_its_super() {
             erased_at = Some(frame);
             break;
         }
-        held |=
-            head_of(&sim, silo) == Some(cleg) && sim.super_weapons[&americans][&nuke].is_suspended;
+        held |= head_of(&sim, silo) == Some(cleg)
+            && sim.super_weapons[&americans][&nuke].is_suspended();
     }
     assert!(held, "held while warped");
     assert!(erased_at.is_some(), "the silo is erased");
-    assert!(!sim.super_weapons[&americans][&nuke].is_active, "revoked");
+    assert!(!sim.super_weapons[&americans][&nuke].is_active(), "revoked");
     assert!(sim.sound_events.iter().any(|event| matches!(
         event,
         SimSoundEvent::SuperWeaponStatusChanged { owner, sw_type }

@@ -359,8 +359,8 @@ impl Fixture {
     /// support beam and the Prism walk do not).
     fn unpower(&mut self) {
         let mut power_state = crate::sim::power_system::PowerState::default();
-        power_state.total_output = 0;
-        power_state.total_drain = 75;
+        power_state.set_total_output_for_test(0);
+        power_state.set_total_drain_for_test(75);
         self.sim.power_states.insert(self.owner, power_state);
     }
 

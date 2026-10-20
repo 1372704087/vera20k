@@ -805,10 +805,10 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
         .factories_mut()
         .test_factory_mut(americans, ProductionCategory::Building)
         .expect("armed Buildings factory");
-    factory.progress = super::PRODUCTION_STEPS - 1;
-    factory.balance = 0;
-    factory.step_rate_frames = 1;
-    factory.step_timer = crate::sim::timer::CdTimer::started(frame, 0);
+    factory.set_progress_for_test(super::PRODUCTION_STEPS - 1);
+    factory.set_balance_for_test(0);
+    factory.set_step_rate_frames_for_test(1);
+    factory.set_step_timer_for_test(crate::sim::timer::CdTimer::started(frame, 0));
     assert!(ready_buildings_for_owner(&sim, &rules, "Americans").is_empty());
 
     let place = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
@@ -981,9 +981,9 @@ fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
         .power_states
         .get(&americans)
         .expect("stock radar house should have derived power state");
-    assert_eq!(outage.total_output, 0);
-    assert_eq!(outage.total_drain, 50);
-    assert!(outage.is_low_power);
+    assert_eq!(outage.total_output(), 0);
+    assert_eq!(outage.total_drain(), 50);
+    assert!(outage.is_low_power());
     assert!(
         !has_active_radar(&sim.power_states, americans),
         "stock American radar must be offline during house low power"
@@ -1027,9 +1027,9 @@ fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
         .power_states
         .get(&americans)
         .expect("post-placement tick should reassess stock power");
-    assert_eq!(recovered.total_output, 200);
-    assert_eq!(recovered.total_drain, 50);
-    assert!(!recovered.is_low_power);
+    assert_eq!(recovered.total_output(), 200);
+    assert_eq!(recovered.total_drain(), 50);
+    assert!(!recovered.is_low_power());
     assert!(
         has_active_radar(&sim.power_states, americans),
         "existing stock American radar should recover while GAPOWR is building up"
@@ -3757,7 +3757,7 @@ fn stock_yuri_cloning_vat_duplicates_a_successfully_placed_infantry() {
             .test_arm_ready(owner, category)
     );
     let mut low_power = crate::sim::power_system::PowerState::default();
-    low_power.is_low_power = true;
+    low_power.set_is_low_power_for_test(true);
     sim.power_states.insert(owner, low_power);
 
     assert!(super::dispatch_production_changes_for_tests(

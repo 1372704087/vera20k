@@ -711,8 +711,8 @@ fn native_decide_unit_fate_corpus() {
             .economy_mut()
             .set_credits_for_test(int("money"));
         let mut power_state = crate::sim::power_system::PowerState::default();
-        power_state.total_output = int("produced");
-        power_state.total_drain = int("drained");
+        power_state.set_total_output_for_test(int("produced"));
+        power_state.set_total_drain_for_test(int("drained"));
         sim.power_states.insert(controller_house, power_state);
         let russians = sim.interner.get("Russians").unwrap();
         sim.houses
@@ -721,8 +721,8 @@ fn native_decide_unit_fate_corpus() {
             .economy_mut()
             .set_credits_for_test(0);
         let mut power_state = crate::sim::power_system::PowerState::default();
-        power_state.total_output = 0;
-        power_state.total_drain = 100;
+        power_state.set_total_output_for_test(0);
+        power_state.set_total_drain_for_test(100);
         sim.power_states.insert(russians, power_state);
         let seed = input["seed"].as_u64().unwrap();
         sim.scenario_rng = SimRng::new(seed);

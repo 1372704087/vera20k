@@ -257,7 +257,7 @@ fn retail_building_repair_input_walk_art_sound_house_and_retirement() {
             .resolve(runtime.simulation.anim(healthy_slot).unwrap().type_id),
         after["slots"][0]["type_name"].as_str().unwrap()
     );
-    assert!(runtime.simulation.power_states[&owner].total_output >= 200);
+    assert!(runtime.simulation.power_states[&owner].total_output() >= 200);
     let second = runtime
         .simulation
         .spawn_object("ENGINEER", &owner_name, 30, 90, 0, &runtime.resources.rules)

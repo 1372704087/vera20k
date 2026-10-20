@@ -310,16 +310,19 @@ impl WolVisit {
                     );
                     return WolStep::Welcome;
                 }
-                // 0x00786390 resets the WOL globals (0x00780110), including
-                // [0xB77AD0], the selected record and the ladder and locale
-                // tables.
-                self.api = true;
-                self.last_error = None;
-                self.selected_server = 0;
-                self.ladder_ranks.clear();
-                self.locales.clear();
-                // 0x00786485: [0xB77DC0] set until a connect clears it.
-                self.connected = false;
+                // 0x00786390 creates the object once per visit ([0xB77E75]);
+                // only then does it reset the WOL globals (0x00780110),
+                // including [0xB77AD0], the selected record and the ladder
+                // and locale tables, and set [0xB77DC0] (0x00786485) until a
+                // connect clears it.
+                if !self.api {
+                    self.api = true;
+                    self.last_error = None;
+                    self.selected_server = 0;
+                    self.ladder_ranks.clear();
+                    self.locales.clear();
+                    self.connected = false;
+                }
                 self.requests.push(WolServiceRequest::ListCredentials);
                 self.requests
                     .push(WolServiceRequest::FetchServers { flags: 0x2900 });
@@ -632,17 +635,22 @@ fn accept_login(state: &mut AppState) {
             .multiplayer_shell_runtime
             .persist_local_preferences();
     }
-    // The login flow returned 1: the mode-loop pass (0x0077B402) applies
-    // before the lobby runner. wolinfoMD.ini is absent from retail: no
-    // auto-login query 0x112.
-    super::apply_wol_preferences(state);
-    // A re-login on runner entry continues that runner (0x007879B6).
-    let postmatch = state
+    // wolinfoMD.ini is absent from retail: no auto-login query 0x112.
+    // A re-login on runner entry (0x007879B6) continues that runner;
+    // otherwise the login flow returned 1 to WOL_Main, whose mode-loop pass
+    // applies before the runner.
+    match state
         .frontend
         .wol
         .as_mut()
-        .is_some_and(|visit| std::mem::take(&mut visit.relogin_postmatch));
-    super::open_lobby(state, postmatch);
+        .and_then(|visit| visit.relogin.take())
+    {
+        Some(postmatch) => super::open_lobby(state, postmatch),
+        None => {
+            super::apply_wol_preferences(state);
+            super::open_lobby(state, false);
+        }
+    }
 }
 
 /// A box or wait-box button released.

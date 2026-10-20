@@ -169,8 +169,9 @@ pub(crate) struct WolVisit {
     /// `[0xB77DC2]`: the connection was lost. The next runner entry logs in
     /// again (`0x007879B6`); a successful login clears it (`0x007A559D`).
     disconnected: bool,
-    /// That re-login continues a post-match runner.
-    relogin_postmatch: bool,
+    /// A re-login on runner entry is running; it continues that runner,
+    /// post-match or not. A failed login ends the runner instead.
+    relogin: Option<bool>,
     /// `[0xB76E28]`: the name the last locate (`0x0078A470`) asked for; the
     /// find sink formats its answer with it and clears it.
     locate_name: Option<String>,
@@ -208,7 +209,7 @@ impl WolVisit {
             in_game: false,
             connected: false,
             disconnected: false,
-            relogin_postmatch: false,
+            relogin: None,
             locate_name: None,
             ladder_ranks: Default::default(),
             locales: Default::default(),
@@ -634,6 +635,7 @@ impl App {
         };
         visit.mode = None;
         visit.status_help = None;
+        visit.relogin = None;
         visit.page = WolPage::Welcome;
         // The mode-loop pass (0x0077B402) before the welcome runs.
         apply_wol_preferences(state);

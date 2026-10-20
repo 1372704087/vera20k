@@ -299,10 +299,11 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     if visit.disconnected {
         // 0x007879B6: after a lost connection the runner logs in again
         // first, and a failed login ends it (the welcome).
-        visit.relogin_postmatch = postmatch;
+        visit.relogin = Some(postmatch);
         visit.lobby = None;
         visit.page = WolPage::Backdrop { wait: None };
         state.frontend.wol_lobby_art = None;
+        state.match_state.session.leave_network();
         state.frontend.shell_route = crate::app::shell_route::ShellRoute::Wol;
         service::begin_flow(state);
         return;
@@ -1595,7 +1596,10 @@ pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
 /// `[0xB77DC0]` and `[0xB77DC2]` are set, the channel records cleared and
 /// event 0 ends the runner, whose `[0xB77AD0]` box is empty (the welcome).
 /// RESIDUAL: native shows that box over a running C2/C9; here the setup is
-/// dropped first and the box shows over `0x113`.
+/// dropped first and the box shows over `0x113`. A native slide pumps no
+/// messages, so the sink never runs mid-slide; here a status arriving during
+/// a C2/C9 Back slide is handled at once and the slide's end then starts a
+/// re-login over the box.
 pub(super) fn net_status(state: &mut AppState, status: u32) {
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;

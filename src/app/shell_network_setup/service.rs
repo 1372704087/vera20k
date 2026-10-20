@@ -258,9 +258,13 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             // Native never automatically restarts when the last A1 arrives.
         }
         NetworkSetupEvent::MapStatus { index, status } => {
-            // 0x5E39C0 (the K arm, 0x5E4C39): the local node always holds
-            // its map; K0 and K2 print the sender and map name.
+            // 0x5E39C0 (the K arm, 0x5E4C39): only the host screens C2/BC
+            // take it (0x5E4C3D..0x5E4C57); the local node always holds its
+            // map; K0 and K2 print the sender and map name.
             anyhow::ensure!(status <= 2, "unknown native K status");
+            if !state.match_state.session.host() {
+                return Ok(());
+            }
             let launch = state
                 .match_state
                 .session

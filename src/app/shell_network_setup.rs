@@ -99,7 +99,8 @@ pub(crate) enum NetworkSetupRequest {
 pub(crate) struct NetworkSetupProtocol {
     locked: bool,
     /// WOL `00B77DEC`/`00B77E28` after the host's StartGame request, until
-    /// the server's OnGameStart answers or rejects it.
+    /// the server's OnGameStart rejects it; a matching OnGameStart holds it
+    /// (`[0xB77E28] = 2`) until the abort or the match.
     wol_start_pending: bool,
     /// WOL host `SetTimer(0x14AF8, 5000)` (`0x7914FF`).
     ping_deadline: Option<Instant>,

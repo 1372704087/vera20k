@@ -411,6 +411,11 @@ pub(super) fn game_started(
     users: Vec<WolStartUser>,
     pings: [i32; 8],
 ) -> anyhow::Result<()> {
+    // 0x7A7B95: once a start has matched ([0xB77E27]), OnGameStart does
+    // nothing more.
+    if verify(state).is_some() {
+        return Ok(());
+    }
     // 0x7A7B82..0x7A7B9E: the page reply window restarts with no time.
     let now = crate::ui::wol_page::reply_window_now(
         crate::app::match_runtime::frame_pacer::wall_clock_ms(),
@@ -460,25 +465,35 @@ pub(super) fn game_started(
         .as_mut()
         .expect("setup owns protocol");
     protocol.locked = true;
-    protocol.wol_start_pending = false;
+    // 0x7A7E03: [0xB77E28] = 2 until the abort or the match, so packets,
+    // joins and the setup's own controls stay dropped under 0x130.
+    protocol.wol_start_pending = true;
     protocol.ping_deadline = None;
     protocol.wol_verify = Some(crate::ui::wol_verify::WolVerifyDialog::open(names));
     Ok(())
 }
 
+/// The local node leads `[0xA8DA78]`: the host's own, and a guest's join
+/// (`0x007A61F0..0x007A620D`); `0x00792F10` skips it and addresses nodes 1
+/// up.
+/// RESIDUAL: a guest's peers follow the roster order; the native order of
+/// a guest's other nodes is not traced.
 fn launch_names(state: &AppState) -> Vec<String> {
-    state
-        .match_state
-        .session
-        .network_setup()
-        .map(|launch| {
+    let Some(launch) = state.match_state.session.network_setup() else {
+        return Vec::new();
+    };
+    let local = launch.local_player_index;
+    std::iter::once(&launch.humans[local])
+        .chain(
             launch
                 .humans
                 .iter()
-                .map(|human| human.name.clone())
-                .collect()
-        })
-        .unwrap_or_default()
+                .enumerate()
+                .filter(|(index, _)| *index != local)
+                .map(|(_, human)| human),
+        )
+        .map(|human| human.name.clone())
+        .collect()
 }
 
 /// Start Game Now's verify `0x130`, while it is up.

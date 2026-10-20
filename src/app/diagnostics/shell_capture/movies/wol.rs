@@ -2269,6 +2269,17 @@ impl WolCapture {
             names(state)
         );
         self.event(frame, "C2 Start, then controlled OnGameStart: 0x130");
+        // 0x7A7E03 holds [0xB77E28] = 2: a guest's A0 and K0 are dropped
+        // under 0x130 (0x5E3E73).
+        setup::player_ready(state, PEER, 0)?;
+        setup::map_status(state, PEER, 0)?;
+        let session = &state.match_state.session;
+        ensure!(
+            session.network_player_ready(1)
+                && session.network_map_status(1) == Some(1)
+                && setup_requests(state).is_empty(),
+            "a guest packet changed the setup under 0x130"
+        );
         setup::service_event(state, NetworkSetupEvent::VerifyStarted { pairs: true })?;
         setup::service_event(state, NetworkSetupEvent::PeerConnected { node: 1 })?;
         // A click holds node 0's box and clears a peer's (0x7932D7).

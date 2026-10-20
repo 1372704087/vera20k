@@ -3589,7 +3589,7 @@ impl Simulation {
                 // of +90, centre pan2000, volume1.0, no handle. -1 returns at
                 //75093B.
                 if let Some(sound_id) = sound {
-                    self.sound_events.push(SimSoundEvent::VocCentered {
+                    self.sound_events.emit(SimSoundEvent::VocCentered {
                         sound_id: sound_id.to_owned(),
                     });
                     frame_effects.flush_sound(self, rules);
@@ -3605,7 +3605,7 @@ impl Simulation {
                     return false;
                 };
                 if let Ok(kind) = crate::sim::radar::RadarEventType::try_from(value.unwrap_or(0)) {
-                    self.sound_events.push(SimSoundEvent::RadarEvent {
+                    self.sound_events.emit(SimSoundEvent::RadarEvent {
                         radar: crate::sim::radar::RadarEventRequest::new(
                             kind,
                             cell.0 as u16,
@@ -3666,8 +3666,7 @@ impl Simulation {
                     return false;
                 };
                 self.power_states
-                    .entry(owner)
-                    .or_default()
+                    .house_mut(owner)
                     .start_radar_outage(self.session.binary_frame(), value.unwrap_or(0));
             }
             128 => {
@@ -3730,7 +3729,7 @@ impl Simulation {
                 let Some(index) = value else {
                     return false;
                 };
-                self.sound_events.push(SimSoundEvent::TriggerEva { index });
+                self.sound_events.emit(SimSoundEvent::TriggerEva { index });
                 frame_effects.flush_sound(self, rules);
             }
             59 => {
@@ -4008,7 +4007,7 @@ impl Simulation {
                 };
                 let warhead_ref = self.interner.intern(&rules.bridge_warheads.c4_name);
                 self.combat_light_requests
-                    .push(crate::sim::combat::CombatLightRequest::Impact {
+                    .emit(crate::sim::combat::CombatLightRequest::Impact {
                         target_id: None,
                         damage: match action.kind {
                             64 => 50,
@@ -4173,11 +4172,7 @@ impl Simulation {
                 let Some(type_id) = self.interner.get(name) else {
                     return false;
                 };
-                let Some(instance) = self
-                    .super_weapons
-                    .get_mut(&owner)
-                    .and_then(|weapons| weapons.get_mut(&type_id))
-                else {
+                let Some(instance) = self.super_weapons.instance_mut(&owner, &type_id) else {
                     return false;
                 };
                 match action.kind {

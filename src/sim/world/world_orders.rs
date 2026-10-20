@@ -645,7 +645,7 @@ impl Simulation {
                 cell.1,
             )
         });
-        self.sound_events.push(SimSoundEvent::BridgeRepaired {
+        self.sound_events.emit(SimSoundEvent::BridgeRepaired {
             rx: building_cell.0,
             ry: building_cell.1,
             radar,
@@ -709,7 +709,7 @@ impl Simulation {
                 ry,
             )
         });
-        self.sound_events.push(SimSoundEvent::BuildingCaptured {
+        self.sound_events.emit(SimSoundEvent::BuildingCaptured {
             old_owner,
             new_owner,
             tech_building,

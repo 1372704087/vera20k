@@ -507,7 +507,7 @@ impl Simulation {
         };
         if line || eva.is_some() {
             self.sound_events
-                .push(crate::sim::world::SimSoundEvent::AllianceChanged {
+                .emit(crate::sim::world::SimSoundEvent::AllianceChanged {
                     owner,
                     other,
                     formed,

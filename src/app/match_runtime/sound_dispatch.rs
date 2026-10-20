@@ -1764,7 +1764,7 @@ mod tests {
                 .unwrap()
                 .1;
             let mut replayed = replay(&row);
-            let events = std::mem::take(replayed.sim.sound_events_mut_for_test());
+            let events = replayed.sim.take_sound_events_for_test();
             let mut asked = Vec::new();
             let mut output = SoundEventQueue::new();
             dispatch_sim_sound_events(

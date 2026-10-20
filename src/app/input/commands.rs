@@ -127,8 +127,6 @@ fn visible_object_under_point(state: &AppState, world_x: f32, world_y: f32) -> O
         &owner,
         state.match_state.sandbox_full_visibility,
         state.rules(),
-        state.height_map(),
-        crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
     )
     .map(|hover| hover.stable_id)
 }

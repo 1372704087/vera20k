@@ -1675,9 +1675,6 @@ fn computer_capture_building(sim: &Simulation, id: u64, rules: &RuleSet) -> Opti
     .then_some(building)
 }
 
-/// Archive the raw physical Map565730 Cell receiver, never Foot's HeadTo.
-/// Real map cells retain their canonical coordinates. The tagged Cell adapter
-/// does not yet preserve a retained Dummy pointer across subsequent stamps.
 /// `FootClass::Mission_AreaGuard`'s building-post arm (`0x004D6B8D..0x004D6D1A`),
 /// after the navigation-list head. A computer Foot (`0x0050B730`), other than
 /// a harvester Unit, whose post (ArchiveTarget `+0x218`) is a Cell under an own
@@ -1754,6 +1751,9 @@ fn area_guard_post_off_building(sim: &mut Simulation, id: u64) {
     }
 }
 
+/// Archive the raw physical Map565730 Cell receiver, never Foot's HeadTo.
+/// Real map cells retain their canonical coordinates. The tagged Cell adapter
+/// does not yet preserve a retained Dummy pointer across subsequent stamps.
 fn foot_physical_cell_target(sim: &Simulation, id: u64) -> Option<crate::sim::combat::TargetKind> {
     let actor = sim.substrate.entities.get(id)?;
     let coord = crate::sim::movement::ground_pose::position_world_coord(&actor.position);

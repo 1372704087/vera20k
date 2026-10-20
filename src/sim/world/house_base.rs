@@ -1097,7 +1097,7 @@ mod tests {
             for cell in cells {
                 let x = cell["xy"][0].as_u64().unwrap() as u16;
                 let y = cell["xy"][1].as_u64().unwrap() as u16;
-                let target = terrain.cell_mut(x, y).unwrap();
+                let target = terrain.cell_mut_for_test(x, y).unwrap();
                 if let Some(level) = cell["level"].as_i64() {
                     target.level = level as u8;
                 }

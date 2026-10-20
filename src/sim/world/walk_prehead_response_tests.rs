@@ -99,12 +99,13 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
     // map-node row is cluster0->1, except zone_rejected's candidate cluster1->2.
     let terrain = sim.resolved_terrain.as_mut().unwrap();
     for (x, y) in [(9, 10), (10, 10), (11, 10)] {
-        let cell = terrain.cell_mut(x, y).unwrap();
+        let cell = terrain.cell_mut_for_test(x, y).unwrap();
         cell.level = 2;
         cell.slope_type = 1;
     }
-    terrain.cell_mut(9, 10).unwrap().land_type = input["current_land"].as_u64().unwrap_or(0) as u8;
-    let candidate = terrain.cell_mut(10, 10).unwrap();
+    terrain.cell_mut_for_test(9, 10).unwrap().land_type =
+        input["current_land"].as_u64().unwrap_or(0) as u8;
+    let candidate = terrain.cell_mut_for_test(10, 10).unwrap();
     candidate.level = input["candidate_level"].as_i64().unwrap_or(2) as u8;
     candidate.bridge_facts.raw_flags = input["candidate_flags"].as_u64().unwrap_or(0) as u32;
     if input["current_missing"] == true {

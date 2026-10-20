@@ -1366,7 +1366,7 @@ mod tests {
                 .resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(10, 10)
+                .cell_mut_for_test(10, 10)
                 .unwrap();
             cell.land_type = input["land"].as_u64().unwrap_or(2) as u8;
             let mut entity = GameEntity::test_default(1, "ROBO", "Americans", 10, 10);

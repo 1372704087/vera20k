@@ -563,7 +563,7 @@ mod tests {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(64, 64)
+            .cell_mut_for_test(64, 64)
             .unwrap();
         cell.level = input["level"].as_u64().unwrap_or(0) as u8;
         cell.slope_type = input["slope"].as_u64().unwrap_or(0) as u8;
@@ -852,7 +852,7 @@ mod tests {
                 .speed_costs;
             let terrain = sim.resolved_terrain.as_mut().unwrap();
             terrain.set_land_speed_rules_for_test(&rules.terrain_rules);
-            for cell in &mut terrain.cells {
+            for cell in terrain.cells_mut_for_test() {
                 cell.speed_costs = clear;
                 cell.base_speed_costs = clear;
             }

@@ -202,7 +202,7 @@ fn whole_unit_fixture(
         crate::sim::world::lifecycle_tests::common_raw_terrain_cell(rx, ry, level, false);
     represented.final_tile_index = signed(&cell["tile_index"]);
     represented.land_type = u8::try_from(signed(&cell["land"])).unwrap();
-    *terrain.cell_mut(rx, ry).unwrap() = represented;
+    *terrain.cell_mut_for_test(rx, ry).unwrap() = represented;
     let identity = terrain.native_cell_identity((rx as i16, ry as i16));
     terrain.write_native_cell_flags(identity, cell["flags"].as_u64().unwrap() as u32);
     fixture.sim.install_resolved_terrain_for_new_map(terrain);

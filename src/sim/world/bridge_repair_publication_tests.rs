@@ -11,7 +11,7 @@ fn broken_strip(sim: &mut Simulation) {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(x, y)
+            .cell_mut_for_test(x, y)
             .unwrap();
         c.bridge_facts.overlay_id = Some(231);
         sim.overlay_grid
@@ -358,7 +358,7 @@ fn production_fresh_head_and_raw_history_match_original_walk_producer() {
                 .resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(x, 10)
+                .cell_mut_for_test(x, 10)
                 .unwrap();
             c.level = 2;
             c.slope_type = 1;
@@ -457,7 +457,7 @@ pub(in crate::sim::world) fn ready_repair_fixture(
             sim.resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(x, y)
+                .cell_mut_for_test(x, y)
                 .unwrap()
                 .bridge_facts
                 .overlay_id = Some(overlay);
@@ -1635,7 +1635,7 @@ fn failed_jumpjet_stop_stock_fatal_receiver_precedes_cache_retirement() {
                 sim.resolved_terrain
                     .as_mut()
                     .unwrap()
-                    .cell_mut(x, y)
+                    .cell_mut_for_test(x, y)
                     .unwrap()
                     .speed_costs
                     .hover = Some(0);

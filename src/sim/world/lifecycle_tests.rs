@@ -542,7 +542,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
     // reads the cells' speed rows.
     let terrain = sim.resolved_terrain.as_mut().unwrap();
     for (rx, ry) in (0..16u16).flat_map(|ry| (0..16u16).map(move |rx| (rx, ry))) {
-        let cell = terrain.cell_mut(rx, ry).unwrap();
+        let cell = terrain.cell_mut_for_test(rx, ry).unwrap();
         cell.speed_costs = crate::map::resolved_terrain::TEST_OPEN_SPEED_COSTS;
         cell.base_speed_costs = cell.speed_costs;
     }
@@ -824,7 +824,7 @@ fn grounded_ramp_reveal_commits_native_height_before_occupation() {
             sim.resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(2, 2)
+                .cell_mut_for_test(2, 2)
                 .unwrap()
                 .slope_type = 1;
             insert_entity(&mut sim, 1, category);
@@ -872,7 +872,7 @@ fn a_revealed_building_takes_the_floor_at_its_location_as_its_z() {
         sim.resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(2, 2)
+            .cell_mut_for_test(2, 2)
             .unwrap()
             .slope_type = 1;
         insert_entity(&mut sim, 1, EntityCategory::Structure);
@@ -918,7 +918,7 @@ fn every_unit_locomotor_takes_the_floor_clamp_at_unlimbo() {
         sim.resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(2, 2)
+            .cell_mut_for_test(2, 2)
             .unwrap()
             .slope_type = 1;
         insert_entity(&mut sim, 1, EntityCategory::Unit);
@@ -995,7 +995,7 @@ fn grounded_ramp_position_survives_snapshot_and_idle_continuation() {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(2, 2)
+        .cell_mut_for_test(2, 2)
         .unwrap()
         .slope_type = 1;
     insert_entity(&mut sim, 1, EntityCategory::Unit);
@@ -1018,7 +1018,7 @@ fn grounded_ramp_position_survives_snapshot_and_idle_continuation() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(2, 2)
+        .cell_mut_for_test(2, 2)
         .unwrap()
         .slope_type = 1;
     assert_eq!(
@@ -1070,7 +1070,7 @@ fn drive_ship_slope_production_spawn_unlimbo_snaps_without_manual_rocking_state(
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(cell.0, cell.1)
+            .cell_mut_for_test(cell.0, cell.1)
             .unwrap();
         terrain_cell.slope_type = slope;
         terrain_cell.speed_costs = SpeedCostProfile {
@@ -1130,7 +1130,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(cell.0, cell.1)
+            .cell_mut_for_test(cell.0, cell.1)
             .unwrap();
         terrain_cell.slope_type = slope;
         terrain_cell.speed_costs = SpeedCostProfile {
@@ -1239,7 +1239,7 @@ fn drive_ship_slope_failed_reveal_does_not_snap_or_consume_rng() {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(3, 4)
+        .cell_mut_for_test(3, 4)
         .unwrap()
         .slope_type = 8;
     insert_entity(&mut sim, 1, EntityCategory::Unit);
@@ -2158,7 +2158,7 @@ fn gsi_05_05_object_raw_occupation_uses_exact_sloped_ground_z_for_put_and_remove
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(3, 4)
+        .cell_mut_for_test(3, 4)
         .unwrap()
         .slope_type = 1;
     install_fly_aircraft(&mut sim, 1, SimFixed::from_num(0));
@@ -6395,7 +6395,7 @@ fn gsi_04_01_cell_target_uses_live_structural_bit() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(6, 7)
+            .cell_mut_for_test(6, 7)
             .unwrap();
         cell.level = 2;
         cell.slope_type = 1;
@@ -8392,7 +8392,7 @@ fn wave_cliff_collapse_consumes_exact_body_rng_and_spawns_row_major_anims() {
         (true, true)
     );
     let restored_terrain = restored.resolved_terrain.as_ref().unwrap();
-    for (&(rx, ry), expected) in &expected_dynamic_terrain {
+    for (&(rx, ry), expected) in expected_dynamic_terrain.iter() {
         assert_eq!(
             crate::map::resolved_terrain::DynamicTerrainCellState::capture(
                 restored_terrain.cell(rx, ry).unwrap(),
@@ -9129,7 +9129,7 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         sim.resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(2, 2)
+            .cell_mut_for_test(2, 2)
             .unwrap()
             .level = destination_level;
         install_fly_aircraft(&mut sim, 1, SimFixed::from_num(600));
@@ -9598,7 +9598,7 @@ fn unlimbo_levels_then_aims_the_barrel_elevation() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(4, 4)
+            .cell_mut_for_test(4, 4)
             .unwrap();
         cell.speed_costs.track = Some(100);
         cell.speed_costs.wheel = Some(100);

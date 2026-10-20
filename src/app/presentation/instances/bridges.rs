@@ -576,7 +576,7 @@ mod tests {
             8,
             crate::map::resolved_terrain::test_flat_cell,
         );
-        let high = terrain.cell_mut(5, 5).unwrap();
+        let high = terrain.cell_mut_for_test(5, 5).unwrap();
         high.bridge_facts.overlay_id = Some(0x18);
         high.bridge_facts.state_byte = 9;
         let mut grid = crate::sim::overlay_grid::OverlayGrid::new(8, 8);
@@ -662,7 +662,7 @@ mod tests {
             let ry = input["coords"][1].as_u64().unwrap() as u16;
             let mut terrain =
                 test_bridge_grid(&[((rx, ry), 0x18, input["state"].as_u64().unwrap() as u8)]);
-            let cell = terrain.cell_mut(rx, ry).unwrap();
+            let cell = terrain.cell_mut_for_test(rx, ry).unwrap();
             cell.level = input["level"].as_i64().unwrap() as u8;
             cell.bridge_facts.raw_flags = flags;
             // Deliberately stale derived deck height must never own body geometry.
@@ -718,7 +718,7 @@ mod tests {
             crate::map::resolved_terrain::test_flat_cell,
         );
         for &((x, y), overlay, state) in cells {
-            let cell = terrain.cell_mut(x, y).unwrap();
+            let cell = terrain.cell_mut_for_test(x, y).unwrap();
             cell.bridge_facts.raw_flags = crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL
                 | crate::map::bridge_facts::BRIDGE_FLAG_ANCHOR_SELF;
             cell.bridge_facts.overlay_id = Some(overlay);

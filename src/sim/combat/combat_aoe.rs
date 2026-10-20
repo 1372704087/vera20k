@@ -2767,7 +2767,7 @@ mod tests {
             for (above, expected) in [(208, ListLayer::Ground), (209, ListLayer::Bridge)] {
                 let (mut entities, occupancy, mut terrain, rules, warhead, mut interner) =
                     bridge_layer_test_fixture();
-                let cell = terrain.cell_mut(5, 5).unwrap();
+                let cell = terrain.cell_mut_for_test(5, 5).unwrap();
                 cell.level = level;
                 cell.slope_type = 1;
                 let z = floor + above;
@@ -2819,7 +2819,7 @@ mod tests {
                     self.visited = true;
                     terrain
                         .unwrap()
-                        .cell_mut(5, 5)
+                        .cell_mut_for_test(5, 5)
                         .unwrap()
                         .bridge_facts
                         .raw_flags = self.flags;
@@ -2829,7 +2829,11 @@ mod tests {
         for initial_bridge in [false, true] {
             let (mut entities, occupancy, mut terrain, rules, warhead, interner) =
                 bridge_layer_test_fixture();
-            terrain.cell_mut(5, 5).unwrap().bridge_facts.raw_flags = if initial_bridge {
+            terrain
+                .cell_mut_for_test(5, 5)
+                .unwrap()
+                .bridge_facts
+                .raw_flags = if initial_bridge {
                 BRIDGE_FLAG_STRUCTURAL
             } else {
                 0
@@ -3765,12 +3769,16 @@ mod tests {
                 .collect();
             let mut terrain = ResolvedTerrainGrid::from_cells(10, 10, cells);
             if fixture.first_bridge {
-                terrain.cell_mut(6, 4).unwrap().bridge_facts.raw_flags = 0x100;
+                terrain
+                    .cell_mut_for_test(6, 4)
+                    .unwrap()
+                    .bridge_facts
+                    .raw_flags = 0x100;
             }
             if fixture.all_bridges {
                 for (dx, dy) in crate::util::direction::DIRECTION_DELTAS {
                     terrain
-                        .cell_mut((5 + dx) as u16, (5 + dy) as u16)
+                        .cell_mut_for_test((5 + dx) as u16, (5 + dy) as u16)
                         .unwrap()
                         .bridge_facts
                         .raw_flags = 0x100;
@@ -3788,17 +3796,18 @@ mod tests {
                 };
                 for cell in case["cells"].as_array().into_iter().flatten() {
                     let (x, y) = xy(cell);
-                    let out = terrain.cell_mut(x, y).unwrap();
+                    let out = terrain.cell_mut_for_test(x, y).unwrap();
                     out.level = cell[2].as_i64().unwrap() as u8;
                     out.bridge_facts.raw_flags = cell[3].as_u64().unwrap() as u32;
                 }
                 for cell in case["slopes"].as_array().into_iter().flatten() {
                     let (x, y) = xy(cell);
-                    terrain.cell_mut(x, y).unwrap().slope_type = cell[2].as_u64().unwrap() as u8;
+                    terrain.cell_mut_for_test(x, y).unwrap().slope_type =
+                        cell[2].as_u64().unwrap() as u8;
                 }
                 for cell in case["blocked_terrain"].as_array().into_iter().flatten() {
                     let (x, y) = xy(cell);
-                    terrain.cell_mut(x, y).unwrap().speed_costs.foot = Some(0);
+                    terrain.cell_mut_for_test(x, y).unwrap().speed_costs.foot = Some(0);
                 }
                 for cell in case["raw"].as_array().into_iter().flatten() {
                     let (x, y) = xy(cell);

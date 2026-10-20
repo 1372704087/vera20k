@@ -1266,10 +1266,13 @@ impl ApplicationHandler for App {
             } else if state.platform.window_hidden {
                 if Self::match_runs_while_hidden(state) {
                     // Minimised or fully covered, but the match is not frozen:
-                    // keep the world and its audio moving without drawing
-                    // frames no one can see. macOS stops presenting to an
-                    // occluded layer, so this loop cannot ride on redraws;
-                    // it wakes at half the pacer bucket to hold the cadence.
+                    // keep the world and the audio service advancing without
+                    // drawing frames no one can see. The service is not the
+                    // output gate: the `WM_ACTIVATEAPP` silence comes from
+                    // `set_window_active`, which the minimise's deactivation
+                    // edge reaches first. macOS stops presenting to an occluded
+                    // layer, so this loop cannot ride on redraws; it wakes at
+                    // half the pacer bucket to hold the cadence.
                     if Self::service_match_runtime(state, event_loop, true) {
                         return;
                     }

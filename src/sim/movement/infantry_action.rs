@@ -621,6 +621,7 @@ impl Simulation {
         {
             log::debug!("infantry {id} Paradrop completion: {cause}");
         }
+        self.infantry_sequence_sounds(id, rules);
         // Health zero is a retained death sequence, not UnInit. Keep its
         // native count boundary distinct from ordinary AI eligibility.
         uninitialized
@@ -629,6 +630,53 @@ impl Simulation {
                 .entities
                 .get(id)
                 .is_none_or(|actor| !actor.lifecycle.object_alive())
+    }
+
+    /// The sequencer's sound tail (`0x00520E75..0x00520EF2`), after any
+    /// completion action: each sound of the current Doing's record plays
+    /// through PlayAt (`0x007509E0`, Location `+0x9C`, context 0) when this
+    /// frame's stage step passed (`+0xFC`) and the stage modulo the record's
+    /// count (at least 1) is its frame. It runs after UnInit too while the
+    /// infantryman's state remains.
+    fn infantry_sequence_sounds(&mut self, id: u64, rules: &RuleSet) {
+        let Some(actor) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(doing) = actor.mission_leaf.as_infantry().map(|leaf| leaf.doing()) else {
+            return;
+        };
+        if doing == -1 || !actor.native_stage().changed() {
+            return;
+        }
+        let type_id = self.interner.resolve(actor.type_ref());
+        let Some(object) = rules.object(type_id) else {
+            return;
+        };
+        let count = rules
+            .animation_sequence(type_id)
+            .and_then(|set| set.infantry_action(doing))
+            .map_or(0, |record| record.frames_per_facing);
+        let frame = actor.native_stage().value() % count.max(1);
+        let mut sounds = object
+            .sequence_sounds(doing)
+            .filter(|sound| sound.frame == frame)
+            .peekable();
+        if sounds.peek().is_none() {
+            return;
+        }
+        let location = super::ground_pose::object_location(actor, self.resolved_terrain.as_ref());
+        for sound in sounds {
+            self.sound_events
+                .emit(crate::sim::world::SimSoundEvent::VocAt {
+                    sound_id: sound.sound_id.clone(),
+                    audible_to: None,
+                    rx: actor.position.rx(),
+                    ry: actor.position.ry(),
+                    sub_x: actor.position.sub_x(),
+                    sub_y: actor.position.sub_y(),
+                    world_z_leptons: location.z,
+                });
+        }
     }
 
     /// The Infantry `INoticeSink` answer to the Jumpjet crash impact

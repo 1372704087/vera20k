@@ -5175,7 +5175,7 @@ ConditionRedSparkingProbability={red_prob}\nConditionYellowSparkingProbability={
     /// gate keys off the TYPE's `emits_damage_spark`, so this exercises the draw
     /// path. Live CYB Strength100 and the supplied actual HP set the health band.
     fn insert_cyborg_unit(sim: &mut Simulation, id: u64, current: i32) {
-        assert_eq!(sim.allocate_stable_id(), id);
+        assert_eq!(sim.substrate.allocate_stable_id(), id);
         let e = interned_entity(
             sim,
             id,

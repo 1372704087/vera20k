@@ -81,7 +81,7 @@ fn retail_parachute_canopy_uses_each_attached_house_remap_in_gpu_pixels() {
     let positions = [(10, 10), (14, 14)];
     let mut body_ids = Vec::with_capacity(2);
     for (owner, (rx, ry)) in owner_ids.iter().copied().zip(positions) {
-        let id = sim.allocate_stable_id();
+        let id = sim.substrate_mut_for_test().allocate_stable_id();
         let mut entity = GameEntity::new_at_frame_zero_for_test(
             id,
             rx,
@@ -129,7 +129,10 @@ fn retail_parachute_canopy_uses_each_attached_house_remap_in_gpu_pixels() {
         let anim_id = sim
             .spawn_anim_at_world(&rules, descriptor, canopy_coord)
             .expect("retail canopy anim");
-        assert!(sim.set_anim_house_remap(anim_id, owner));
+        assert!(
+            sim.anims_mut_for_test()
+                .set_anim_house_remap(anim_id, owner)
+        );
         anim_ids.push(anim_id);
     }
     for ((&anim_id, &owner), &color) in anim_ids.iter().zip(&owner_ids).zip(&scheme_colors) {

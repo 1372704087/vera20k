@@ -2276,7 +2276,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     sim.houses
         .register(HouseState::new(owner, 0, None, false, 0, 10));
     let type_id = sim.interner.intern(&authored.type_id);
-    assert_eq!(sim.allocate_stable_id(), 1);
+    assert_eq!(sim.substrate.allocate_stable_id(), 1);
     let mut entity = GameEntity::new_at_frame_zero_for_test(
         1,
         10,
@@ -2971,7 +2971,7 @@ fn restored_live_owner_rejects_dangling_definitions_instances_and_attachments() 
     ));
     let house = supplied_house(&mut sim, input);
     let tag = sim.shared_trigger_tag(0);
-    let object = sim.allocate_stable_id();
+    let object = sim.substrate.allocate_stable_id();
     let type_id = sim.interner.intern("E1");
     let mut entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
         object,
@@ -4104,7 +4104,7 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                             // lifetime. The shared drain's family admission,
                             // ordering and physical removal are compared; no
                             // concrete Unit destructor parity is claimed.
-                            let id = sim.allocate_stable_id();
+                            let id = sim.substrate.allocate_stable_id();
                             let type_id = sim.interner.intern("E1");
                             let mut object =
                                 crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
@@ -4194,11 +4194,16 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                         )));
                     }
                     "global" | "local" => {
-                        returned = Some(i32::from(sim.set_trigger_variable(
-                            args[0] == "global",
-                            integer(&args[1]),
-                            integer(&args[2]) != 0,
-                        )))
+                        returned = Some(i32::from(
+                            crate::sim::world::Simulation::set_trigger_variable(
+                                &sim.session,
+                                &mut sim.scenario_rng,
+                                &mut sim.trigger_runtime,
+                                args[0] == "global",
+                                integer(&args[1]),
+                                integer(&args[2]) != 0,
+                            ),
+                        ))
                     }
                     "action" => {
                         let action = RuntimeAction {
@@ -4400,7 +4405,7 @@ fn native_trigger_reveal_initial_event48_tags_receive_neutral_discovery_dispatch
             None,
         );
         let typ = sim.interner.intern("GTGCAN");
-        let id = sim.allocate_stable_id();
+        let id = sim.substrate.allocate_stable_id();
         let mut entity = GameEntity::new_at_frame_for_test(
             id,
             integer(&lead["cell"][0]) as u16,

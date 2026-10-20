@@ -272,7 +272,7 @@ fn building_discovery_updates_last_type_only_after_admission_outside_init() {
         ObjectCategory::Building,
         integer(&source["input"]["initial_house26c"]),
     );
-    let id = sim.allocate_stable_id();
+    let id = sim.substrate.allocate_stable_id();
     let mut entity =
         GameEntity::test_default_of_category(id, &name, "Owner", 10, 10, EntityCategory::Structure);
     entity.set_type_ref_for_test(sim.interner.intern(&name));

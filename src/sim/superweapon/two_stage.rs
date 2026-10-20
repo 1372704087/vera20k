@@ -49,6 +49,15 @@ pub(super) fn destination_for_source(
     })
 }
 
+impl SuperWeapons {
+    /// `owner`'s paid selection sequence, if one of its supers holds one.
+    pub(crate) fn paid_selection(&self, owner: InternedId) -> Option<PaidSuperWeaponSelection> {
+        self.get(&owner)?
+            .values()
+            .find_map(|instance| instance.paid_selection)
+    }
+}
+
 impl Simulation {
     pub(crate) fn validate_paid_super_weapon_selections(&self) -> Result<(), &'static str> {
         for (owner, weapons) in self.super_weapons.iter() {
@@ -85,10 +94,7 @@ impl Simulation {
         &self,
         owner: InternedId,
     ) -> Option<PaidSuperWeaponSelection> {
-        self.super_weapons
-            .get(&owner)?
-            .values()
-            .find_map(|instance| instance.paid_selection)
+        self.super_weapons.paid_selection(owner)
     }
 
     pub fn next_paid_super_weapon_selection(

@@ -114,15 +114,6 @@ impl Simulation {
         });
     }
 
-    fn airstrike_manager(&self, owner: u64) -> Option<&AirstrikeManager> {
-        self.substrate
-            .entities
-            .get(owner)?
-            .airstrike
-            .manager
-            .as_ref()
-    }
-
     /// Bullet469705..469789 admits any Techno target through the firer's link.
     /// Refusal still consumes the special-impact arm; no damage is substituted.
     pub(crate) fn airstrike_detonation(
@@ -143,7 +134,7 @@ impl Simulation {
         else {
             return;
         };
-        let Some(m) = self.airstrike_manager(owner) else {
+        let Some(m) = self.substrate.airstrike_manager(owner) else {
             return;
         };
         let elite = self
@@ -243,7 +234,7 @@ impl Simulation {
         rules: &RuleSet,
         effects: FrameEffects<'_>,
     ) {
-        let m = self.airstrike_manager(owner).unwrap();
+        let m = self.substrate.airstrike_manager(owner).unwrap();
         let aircraft = m.aircraft.clone();
         let old_target = m.target;
         let remaining = m.remaining.max(0) as usize;
@@ -305,7 +296,7 @@ impl Simulation {
         rules: Option<&RuleSet>,
         effects: FrameEffects<'_>,
     ) {
-        let Some(m) = self.airstrike_manager(owner) else {
+        let Some(m) = self.substrate.airstrike_manager(owner) else {
             return;
         };
         let aircraft = m.aircraft.clone();
@@ -422,7 +413,7 @@ impl Simulation {
         rules: Option<&RuleSet>,
         effects: FrameEffects<'_>,
     ) {
-        let Some(m) = self.airstrike_manager(owner) else {
+        let Some(m) = self.substrate.airstrike_manager(owner) else {
             return;
         };
         if self
@@ -488,7 +479,7 @@ impl Simulation {
             .entities
             .get(listener)
             .and_then(GameEntity::airstrike_link)
-            .and_then(|id| self.airstrike_manager(id))
+            .and_then(|id| self.substrate.airstrike_manager(id))
             .is_some_and(|m| m.target == Some(target))
             && self
                 .substrate
@@ -544,17 +535,25 @@ impl Simulation {
     }
 
     pub fn airstrike_tint_active(&self, target: u64) -> bool {
-        self.substrate
-            .entities
+        self.substrate.airstrike_tint_active(target)
+    }
+}
+
+impl crate::sim::world::ObjectSubstrate {
+    fn airstrike_manager(&self, owner: u64) -> Option<&AirstrikeManager> {
+        self.entities.get(owner)?.airstrike.manager.as_ref()
+    }
+
+    /// Whether `target` is a Structure whose strike owner's manager targets it.
+    pub(crate) fn airstrike_tint_active(&self, target: u64) -> bool {
+        self.entities
             .get(target)
             .filter(|e| e.category() == EntityCategory::Structure)
             .and_then(GameEntity::airstrike_link)
             .and_then(|id| self.airstrike_manager(id))
             .is_some_and(|m| m.target == Some(target))
     }
-}
 
-impl crate::sim::world::ObjectSubstrate {
     pub(crate) fn link_airstrike_aircraft(&mut self, owner: u64, aircraft: u64) {
         self.airstrike_manager_mut(owner)
             .expect("strike owner")

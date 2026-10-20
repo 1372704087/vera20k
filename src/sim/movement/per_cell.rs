@@ -740,20 +740,31 @@ impl Simulation {
     /// or a spy's infiltration, `0x00519948..0x0051A06E`), Enter arm
     /// (`0x0051A0D4..0x0051A4BF`, [`Self::infantry_per_cell_enter`]), C4 plant
     /// (`0x0051A4BF..0x0051A664`, [`Self::infantry_per_cell_c4`]), tethered
-    /// radio8 release (`0x0051A7F8..0x0051A812`), then the Foot body for a
+    /// radio8 release and full-cell scatter (`0x0051A7F8..0x0051A886`), the
+    /// idle entry and Commence (`0x0051A88B..0x0051A8C5`,
+    /// [`Self::infantry_per_cell_idle_commence`]), then the Foot body for a
     /// live owner (`0x0051A9EB` tests only IsAlive, `+0x90`). Each arm asks
     /// for its own missions, so their order among themselves is native.
     ///
     /// The Enter arm runs before C4 and the Teleport caller's NULL
     /// destination, despite warp-in.
     /// Eaten51973C runs after the occupier arm and before ordinary Capture.
-    /// RESIDUAL: other Capture branches and the C4 cell
-    /// arm (`0x0051973C..0x0051A9E8`) are not dispatched from here. Some have
-    /// ports with their own owners (`capture_manager`, `passenger`); native
-    /// runs them before the Foot body, with some early returns, which also
-    /// skip the reveal (`0x0051A8D7`). Trigger: an infantry arriving on a
-    /// mission cell. Risk: same-frame receiver ordering, and one more
-    /// revealed footprint for an infantryman such an arm takes in.
+    /// RESIDUALS:
+    /// - the NavCom-building arms of ordinary Capture (`0x00519979..
+    ///   0x00519B14`) and the C4 cell arm (`0x0051A667..0x0051A7F2`) are not
+    ///   dispatched from here. Some have ports with their own owners
+    ///   (`capture_manager`, `passenger`); native runs them before the Foot
+    ///   body, with some early returns, which also skip the reveal
+    ///   (`0x0051A8D7`). Trigger: an infantry arriving on a mission cell.
+    ///   Risk: same-frame receiver ordering, and one more revealed footprint
+    ///   for an infantryman such an arm takes in.
+    /// - the water and rock death (`0x0051A94F..0x0051A9E8`) is not ported:
+    ///   a stationary infantryman whose type is not `C4=` and who has no C4
+    ///   ability, off a bridge on Water or Rock, takes ReceiveDamage of his
+    ///   current Health (`+0x6C`) with `C4Warhead=`, ignoring defenses.
+    ///   Trigger: a paratrooper landing (`0x005F3F8D`) on water or rock; a
+    ///   walking arrival is still moving and skips it. Effect: VERA's
+    ///   paratroopers live on there, where retail's die.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,
@@ -762,6 +773,12 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> Result<bool, FrameAdvanceError> {
+        // 0x0051965F: the cell of Location at entry, which the full-cell
+        // scatter below reads after every earlier arm.
+        let entry_cell = self.substrate.entities.get(id).map(|entity| {
+            let at = position_world_coord(&entity.position);
+            ((at.x / 256) as i16 as u16, (at.y / 256) as i16 as u16)
+        });
         if reason == PerCellReason::Arrival
             && let Some(rules) = rules
             && self.infantry_per_cell_occupy(id, rules, registry, effects)?
@@ -801,6 +818,7 @@ impl Simulation {
             //No new alive gate precedes it;51A9EB gates only the Foot tail.
             //P2 human GAPILE output observes the original nested25/3 release,
             //with all three RNG streams unchanged by this transaction.
+            let mut bridge_state_changed = entry.bridge_state_changed;
             if reason == PerCellReason::Arrival
                 && self
                     .substrate
@@ -815,17 +833,115 @@ impl Simulation {
                     rules,
                     effects,
                 );
+                // 0x0051A812..0x0051A84A plays VoiceComment's second sound;
+                // retail rules give no type one.
+                if let (Some(rules), Some(cell)) = (rules, entry_cell) {
+                    bridge_state_changed |=
+                        self.infantry_full_cell_scatter(id, cell, rules, registry, effects)?;
+                }
             }
-            // 0x0051A8CB..0x0051A8EB: ReReveal then UpdateReveal, before the
-            // water and rock check.
+            if reason == PerCellReason::Arrival {
+                self.infantry_per_cell_idle_commence(id, rules, registry, effects);
+            }
+            // 0x0051A8CB..0x0051A925: ReReveal, UpdateReveal and the
+            // current-XYZ/cached-radius+3 Map567DA0 border, before the water
+            // and rock check.
             if reason == PerCellReason::Arrival && self.per_cell_owner_alive(id) {
                 self.refresh_object_sight(id, rules, 0);
+                self.refresh_object_sight_border(id, UninitContext::new(rules, registry));
             }
             if self.per_cell_owner_alive(id) {
                 self.foot_per_cell_process(id, reason, rules, registry, effects);
             }
+            return Ok(bridge_state_changed);
         }
         Ok(entry.bridge_state_changed)
+    }
+
+    /// `0x0051A84F..0x0051A886`, inside the tether gate after radio 8: when
+    /// all three infantry spots of the entry `cell` are taken (the deck byte
+    /// `+0x128` on a bridge, else the ground byte `+0x124`; `& 0x1C ==
+    /// 0x1C`), `CellClass::Scatter_Objects(null, 1, 1, OnBridge)`
+    /// (`0x00481670`, [`Self::scatter_cell_objects`]) scatters that list. A
+    /// Walk arriver's raw spot counts (FindSubCellDest re-marks it,
+    /// `0x0075BE18`), but he is lifted from the list until his Mark after
+    /// this call, so only the men already there scatter. A barracks product
+    /// is tethered until its first arrival, so the third man reaching a door
+    /// cell clears it. Each admitted infantryman takes his own Scenario draw
+    /// in Scatter's null arm.
+    /// Answers whether a Scatter's immediate Process changed bridge state.
+    fn infantry_full_cell_scatter(
+        &mut self,
+        id: u64,
+        cell: (u16, u16),
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> Result<bool, FrameAdvanceError> {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return Ok(false);
+        };
+        let layer = if entity.on_bridge() {
+            MovementLayer::Bridge
+        } else {
+            MovementLayer::Ground
+        };
+        let key = self.resolved_terrain.as_ref().map_or(
+            crate::sim::occupancy::RawCellKey::Real(cell.0, cell.1),
+            |terrain| {
+                crate::sim::occupancy::RawCellKey::from_native(
+                    terrain,
+                    terrain.native_cell_identity((cell.0 as i16, cell.1 as i16)),
+                )
+            },
+        );
+        if self.substrate.raw_cell_occupation.bits_at(key, layer) & 0x1C != 0x1C {
+            return Ok(false);
+        }
+        self.scatter_cell_objects(
+            cell,
+            layer,
+            None,
+            super::ScatterFlags::new(true, true),
+            rules,
+            registry,
+            effects,
+        )
+        .map_err(|cause| FrameAdvanceError {
+            tick: self.session.tick(),
+            binary_frame: self.session.binary_frame(),
+            entity_id: id,
+            cause,
+        })
+    }
+
+    /// `0x0051A88B..0x0051A8C5`, for every arrival that reaches it: with no
+    /// queued mission (`+0xB4`), NavCom, Target or radio contact
+    /// (`RadioClass::In_Radio_Contact @ 0x0065AE30`), `Enter_Idle_Mode(0, 1)`
+    /// ([`Self::infantry_enter_idle_mode`], whose second argument only gates
+    /// the Formation arm); then `MissionClass::Commence @ 0x005B3570`
+    /// (vt+0x1EC) with no Ready_To_Commence, so whatever is queued becomes
+    /// current at the arrival, before the next AI's Ready check
+    /// (`0x0051BC51`).
+    fn infantry_per_cell_idle_commence(
+        &mut self,
+        id: u64,
+        rules: Option<&RuleSet>,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let idle = entity.mission.queued() == MissionId::NONE
+            && entity.navigation.nav_com().is_none()
+            && entity.attack_target.target().is_none()
+            && entity.radio_contacts.is_empty();
+        if idle && let Some(rules) = rules {
+            self.infantry_enter_idle_mode(id, rules, registry, effects);
+        }
+        let now = self.session.binary_frame();
+        let _ = self.substrate.mission_commence_exact(id, now);
     }
 
     /// What an Enter arrival finds in a cell: the first Building of its
@@ -1465,6 +1581,10 @@ mod exit_tests;
 #[cfg(test)]
 #[path = "per_cell_crush_tests.rs"]
 mod crush_tests;
+
+#[cfg(test)]
+#[path = "per_cell_infantry_tail_tests.rs"]
+mod infantry_tail_tests;
 
 #[cfg(test)]
 mod discovery_tests {

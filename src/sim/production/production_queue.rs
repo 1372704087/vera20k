@@ -21,9 +21,9 @@ use super::production_types::*;
 /// `owner`'s Available_Money, by house name; 0 for a house that does not
 /// exist.
 pub fn credits_for_owner(sim: &Simulation, owner: &str) -> i32 {
-    sim.interner
-        .get(owner)
-        .map_or(0, |id| crate::sim::credit_income::available_money(sim, id))
+    sim.interner.get(owner).map_or(0, |id| {
+        crate::sim::credit_income::available_money(&sim.houses, id)
+    })
 }
 
 /// `owner`'s house, created as a human house holding [`STARTING_CREDITS`]
@@ -254,7 +254,16 @@ pub(in crate::sim) fn exit_produced_object(
     {
         return BuildingExit::TryLater;
     }
-    ai_base_building::economy_state_machine(sim, rules, owner_id, false);
+    ai_base_building::economy_state_machine(
+        &sim.interner,
+        &sim.session,
+        &mut sim.scenario_rng,
+        &mut sim.houses,
+        &sim.power_states,
+        rules,
+        owner_id,
+        false,
+    );
     if let Some(house) = sim.houses.get_mut(&owner_id) {
         house.ai_unit_choices_mut().clear(kind);
     }

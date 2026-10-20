@@ -11,6 +11,7 @@ use crate::map::playfield::local_to_packed_cell;
 use crate::rules::object_type::ObjectCategory;
 use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::economy::Economy;
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
@@ -2546,10 +2547,10 @@ impl crate::sim::world::Simulation {
     /// internal House identity. Only fully initialized scenario Houses take
     /// this path; generated preconsumed and partial diagnostic rows retain
     /// their explicit internal-key projection in the map constructor owner.
-    pub(crate) fn scenario_house_named(&self, requested: &str) -> Option<InternedId> {
+    pub(crate) fn scenario_house_named(houses: &Houses, requested: &str) -> Option<InternedId> {
         let index = crate::map::houses::find_house_index(
-            self.houses.order().iter().map(|owner| {
-                self.houses
+            houses.order().iter().map(|owner| {
+                houses
                     .get(owner)
                     .expect("registered House array entry")
                     .native_scenario_name()
@@ -2557,7 +2558,7 @@ impl crate::sim::world::Simulation {
             }),
             requested,
         )?;
-        Some(self.houses.order()[index])
+        Some(houses.order()[index])
     }
 }
 

@@ -158,7 +158,9 @@ fn record_and_both_lifetime_limit_queries_match_original_retained_histories() {
                             &sim, product,
                         );
                     crate::sim::production::factory_lifecycle::record_last_built(
-                        &mut sim,
+                        &sim.interner,
+                        &mut sim.sound_events,
+                        &mut sim.houses,
                         &rules,
                         target,
                         product_view,

@@ -1918,7 +1918,7 @@ fn waypoint_map(index: u32, (rx, ry): (u16, u16)) -> HashMap<u32, Waypoint> {
 }
 
 fn spawn_type(sim: &mut Simulation, type_id: &str) -> u64 {
-    let sid = sim.allocate_stable_id();
+    let sid = sim.substrate.allocate_stable_id();
     let owner_id = sim.interner.intern("Neutral");
     let type_id_interned = sim.interner.intern(type_id);
     let ge = GameEntity::new_at_frame_zero_for_test(
@@ -2715,7 +2715,7 @@ fn master_frame_save_load_continues_trigger_projectile_and_delete_state() {
     ordinary_master_frame(&mut original, None, None, true);
     assert!(original.trigger_runtime.globals_set.contains(&13));
 
-    let projectile_id = original.allocate_stable_id();
+    let projectile_id = original.substrate.allocate_stable_id();
     original.admit_projectile(
         projectile_id,
         ProjectileSpawn {

@@ -98,7 +98,7 @@ fn all_to_hunt_action_matches_original_selector_mode_timer_and_ordinary_foot() {
             .unwrap()
             .iter()
             .map(|actor| {
-                let id = sim.allocate_stable_id();
+                let id = sim.substrate.allocate_stable_id();
                 let owner = houses[actor["owner"].as_u64().unwrap() as usize];
                 let foot = actor["foot"].as_bool().unwrap();
                 let ty = sim.interner.get(if foot { "U" } else { "B" }).unwrap();

@@ -324,7 +324,7 @@ impl Particle {
         F: FnMut(&Simulation, i32, i32) -> Result<Option<i32>, E>,
     {
         let native_unique_id = sim.next_native_runtime_id();
-        let stable_id = sim.allocate_stable_id();
+        let stable_id = sim.substrate.allocate_stable_id();
         let divisor = if pt.behaves_like == ParticleBehavesLike::Railgun {
             10
         } else {

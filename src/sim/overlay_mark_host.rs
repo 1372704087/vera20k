@@ -472,7 +472,9 @@ impl Simulation {
             .map(crate::rules::house_colors::HouseColorIndex);
         let z_adjust = crate::map::lighting::cell_ground_z_adjust(lighting_profile, ground.level);
         assert!(
-            self.set_cell_anim_draw_authority(anim_id, remap_color, z_adjust),
+            self.substrate
+                .anims
+                .set_cell_anim_draw_authority(anim_id, remap_color, z_adjust),
             "Overlay CellAnim {anim_id} disappeared before OverlayClass post-constructor writes"
         );
         Ok(anim_id)

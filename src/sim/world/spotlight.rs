@@ -316,7 +316,7 @@ impl Simulation {
             }
         }
         let pivot = initial_endpoint(p, facing, params.movement_radius.wrapping_neg());
-        let id = self.allocate_stable_id();
+        let id = self.substrate.allocate_stable_id();
         let native_id = self.next_native_runtime_id();
         let light = Spotlight {
             stable_id: id,

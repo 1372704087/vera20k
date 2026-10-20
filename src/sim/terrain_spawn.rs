@@ -534,7 +534,7 @@ fn construct_terrain_objects_inner(
         // TerrainClass construction reaches AbstractClass::Create_ID
         // @ 0x00410230, which draws from ScenarioClass::NextUniqueID
         // @ 0x0068BCB0 just like every other modeled runtime object.
-        let stable_id = sim.allocate_stable_id();
+        let stable_id = sim.substrate.allocate_stable_id();
         let native_unique_id = authored_overlay_registry
             .map(|_| sim.next_native_load_id())
             .transpose()?;
@@ -945,7 +945,7 @@ mod tests {
         assert_eq!((terrain_objects[0].rx, terrain_objects[0].ry), (10, 5));
 
         let mut sim = Simulation::new();
-        let attacker_id = sim.allocate_stable_id();
+        let attacker_id = sim.substrate.allocate_stable_id();
         let mut attacker = GameEntity::test_default(attacker_id, "MTNK", "Americans", 5, 5);
         attacker.health = Health::new(300);
         let owner_id = attacker.owner();

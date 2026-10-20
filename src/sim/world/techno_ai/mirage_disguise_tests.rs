@@ -214,7 +214,7 @@ fn whole_unit_fixture(
     ] {
         let before = &actors[role];
         assert_eq!(before["pointer"], roles[role]);
-        let id = fixture.sim.allocate_stable_id();
+        let id = fixture.sim.substrate.allocate_stable_id();
         pointers.insert(roles[role].as_str().unwrap().to_owned(), id);
         let object = rules.object(before["type_name"].as_str().unwrap()).unwrap();
         let [x, y, z] = xyz(&before["xyz"]);

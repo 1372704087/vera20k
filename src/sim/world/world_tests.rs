@@ -512,7 +512,7 @@ fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
 
     let mut sim = Simulation::with_seed(0xEFFE_C705);
     sim.hash_state_every(std::num::NonZeroU64::MIN);
-    let stable_id = sim.allocate_stable_id();
+    let stable_id = sim.substrate.allocate_stable_id();
     let particle = Particle::new(
         ParticleTypeId(0),
         IVec3::ZERO,
@@ -3250,8 +3250,8 @@ fn sonic_fire_event(
 fn sonic_constructor_dead_pointer_link_lives_until_deferred_delete_at_239() {
     let rules = sonic_wave_test_rules(6);
     let mut sim = Simulation::new();
-    let firer_id = sim.allocate_stable_id();
-    let target_id = sim.allocate_stable_id();
+    let firer_id = sim.substrate.allocate_stable_id();
+    let target_id = sim.substrate.allocate_stable_id();
     let owner = sim.interner.intern("Americans");
     let firer_type = sim.interner.intern("DLPH");
     let target_type = sim.interner.intern("TARGET");
@@ -3327,8 +3327,8 @@ fn target_coord_offset_moves_initial_wave_endpoint_but_not_tracking() {
 fn sonic_constructor_at_240_registers_then_runs_at_same_pass_tail() {
     let rules = sonic_wave_test_rules(6);
     let mut sim = Simulation::new();
-    let firer_id = sim.allocate_stable_id();
-    let target_id = sim.allocate_stable_id();
+    let firer_id = sim.substrate.allocate_stable_id();
+    let target_id = sim.substrate.allocate_stable_id();
     let owner = sim.interner.intern("Americans");
     let firer_type = sim.interner.intern("DLPH");
     let target_type = sim.interner.intern("TARGET");
@@ -3391,7 +3391,7 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
         "the Wave lookup must retain the map's process-global dummy identity",
     );
 
-    let firer_id = sim.allocate_stable_id();
+    let firer_id = sim.substrate.allocate_stable_id();
     let owner = sim.interner.intern("Americans");
     let firer_type = sim.interner.intern("DLPH");
     let mut firer = GameEntity::test_default(firer_id, "DLPH", "Americans", 0, 0);

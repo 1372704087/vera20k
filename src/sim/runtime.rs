@@ -1220,7 +1220,7 @@ pub fn finalize_constructed_scenario(
             skirmish_session,
             campaign_new_game_map,
         });
-    sim.discard_lighting_events();
+    sim.lighting_sources.discard_pending();
     output
 }
 #[test]

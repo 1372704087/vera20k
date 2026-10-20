@@ -1972,7 +1972,7 @@ impl Simulation {
                     self.kill_passengers(stable_id, attacker, uninit_context);
                 }
                 //44264C precedes the recursive destruction effects.
-                self.set_building_light_active(stable_id, false);
+                self.lighting_sources.set_building_light_active(stable_id, false);
             }
             crate::sim::combat::FatalLifecycleStage::AfterDeathEffects => {
                 if !matches!(category, EntityCategory::Unit | EntityCategory::Structure) {
@@ -2236,7 +2236,7 @@ impl Simulation {
         mut wave: crate::sim::wave::Wave,
         rules: &RuleSet,
     ) {
-        let stable_id = self.allocate_stable_id();
+        let stable_id = self.substrate.allocate_stable_id();
         if !wave.constructor_distance_is_live() {
             // Constructor UnInit precedes registration and unique identity,
             // but FireAt stores the returned dead pointer. The stable id only
@@ -3440,6 +3440,16 @@ impl Simulation {
         );
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn pause_scenario_for_test(&mut self, duration: i32) -> Vec<TriggerEffect> {
+        self.session.pause_scenario(duration)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn expire_scenario_pause_for_test(&mut self) -> Vec<TriggerEffect> {
+        self.session.expire_scenario_pause()
+    }
+
     // Client-crate fixtures; in-crate tests use the fields.
 
     #[cfg(any(test, feature = "test-support"))]
@@ -3450,6 +3460,11 @@ impl Simulation {
     #[cfg(any(test, feature = "test-support"))]
     pub fn fog_mut_for_test(&mut self) -> &mut FogState {
         &mut self.fog
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn substrate_mut_for_test(&mut self) -> &mut ObjectSubstrate {
+        &mut self.substrate
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -4533,7 +4548,7 @@ impl Simulation {
         receipts: impl IntoIterator<Item = OverlayConstructionReceipt>,
     ) {
         for receipt in receipts {
-            let stable_id = self.allocate_stable_id();
+            let stable_id = self.substrate.allocate_stable_id();
             let handle = self
                 .load_objects
                 .construct_overlay(stable_id, receipt.cell(), || {
@@ -4750,17 +4765,6 @@ impl Simulation {
         self.house_ai_activation_order_test_trace.push(event);
     }
 
-    /// Shared identity source for every modeled runtime `AbstractClass` analogue.
-    ///
-    /// `AbstractClass::Create_ID @ 0x00410230` delegates to
-    /// `ScenarioClass::NextUniqueID @ 0x0068BCB0`; individual stores therefore
-    /// must not own independent counters.
-    pub fn allocate_stable_id(&mut self) -> u64 {
-        self.substrate
-            .next_stable_object_id
-            .allocate(&self.substrate.entities)
-    }
-
     /// CreateBullet46B050 without Fire: consumes one native constructor ID,
     /// retains the independent construction fields and joins Object expiry
     /// listeners through the existing store, but not Logic or Display.
@@ -4774,7 +4778,7 @@ impl Simulation {
         let native_id = crate::sim::native_identity::NativeUniqueIdCursor::assign_runtime(
             &mut self.native_unique_ids,
         );
-        let id = self.allocate_stable_id();
+        let id = self.substrate.allocate_stable_id();
         self.projectiles.construct(
             id,
             native_id,
@@ -4883,7 +4887,7 @@ impl Simulation {
         rules: &RuleSet,
     ) {
         for projectile in spawns {
-            let stable_id = self.allocate_stable_id();
+            let stable_id = self.substrate.allocate_stable_id();
             let inviso = projectile
                 .payload
                 .projectile_type()
@@ -5247,7 +5251,7 @@ impl Simulation {
         admit_inline: bool,
         packets: &mut Vec<crate::sim::voxel_anim::VoxelDebrisSpawn>,
     ) -> Result<(), crate::util::native_x87::NativeX87Error> {
-        let stable_id = self.allocate_stable_id();
+        let stable_id = self.substrate.allocate_stable_id();
         let native_unique_id = self.next_native_runtime_id();
         let object = crate::sim::voxel_anim::spawn_debris_piece(
             stable_id,

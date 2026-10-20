@@ -3221,7 +3221,7 @@ mod tests {
     fn simulation_hash_and_save_preserve_pending_projectile() {
         let mut empty = crate::sim::world::Simulation::new();
         let mut sim = crate::sim::world::Simulation::new();
-        let stable_id = sim.allocate_stable_id();
+        let stable_id = sim.substrate.allocate_stable_id();
         sim.admit_projectile(stable_id, spawn(ProjectileTarget::Cell { rx: 1, ry: 0 }));
         // Native in-scenario load restarts Scenario RNG from Seed0. Normalize
         // both controls so this fixture isolates projectile persistence/hash.

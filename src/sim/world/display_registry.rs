@@ -493,7 +493,7 @@ mod tests {
         let spark = sim.interner.intern("SPARK");
         let mut units = Vec::new();
         for index in 0..5u16 {
-            let id = sim.allocate_stable_id();
+            let id = sim.substrate.allocate_stable_id();
             let (category, type_ref) = if index == 4 {
                 (EntityCategory::Structure, gate_type)
             } else {

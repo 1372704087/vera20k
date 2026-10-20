@@ -6067,7 +6067,7 @@ impl Simulation {
         {
             self.destroy_anim_with_context(anim, context.rules());
         }
-        self.destroy_building_light(stable_id);
+        self.lighting_sources.destroy_building_light(stable_id);
         if self.substrate.anims.contains_key(stable_id) {
             self.notify_anim_pointer_expired(stable_id);
             self.substrate.clear_damage_fire_anim_reference(stable_id);

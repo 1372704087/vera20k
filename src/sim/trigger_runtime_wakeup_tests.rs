@@ -74,7 +74,7 @@ fn wakeup_selection_and_deferred_mission_state_match_original_controls() {
         let mut ids = vec![0; actors.len()];
         for index in construction {
             let input = &actors[index];
-            let id = sim.allocate_stable_id();
+            let id = sim.substrate.allocate_stable_id();
             ids[index] = id;
             let category = match input["category"].as_str().unwrap() {
                 "infantry" => EntityCategory::Infantry,

@@ -1446,6 +1446,22 @@ fn advance_one_simulation_frame(
         }
 
         for message in hud_messages {
+            // MPlayer_Defeated's local branch sets the chat mask
+            // (0x004FC23E) before it posts its line (0x004FC271).
+            if let crate::app::input::messages::HudMessage::PlayerDefeated(house) = message
+                && state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .and_then(|runtime| runtime.simulation.session().current_house())
+                    == Some(house)
+            {
+                state
+                    .match_state
+                    .match_presentation
+                    .chat
+                    .local_player_defeated();
+            }
             crate::app::input::messages::post_hud_message(state, message);
         }
 

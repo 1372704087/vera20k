@@ -94,6 +94,7 @@ const SKIRMISH: DiplomacyRules = DiplomacyRules {
     quick_coop: false,
     local_inactive: false,
     game_mode_nonzero: true,
+    listeners: [true; 8],
 };
 
 fn rows(fixture: &Fixture, switches: DiplomacyRules) -> ResolvedRows {
@@ -276,6 +277,35 @@ fn human_rows_enable_allies_until_the_local_player_is_inactive() {
     let row = inactive.rows[2].as_ref().unwrap();
     assert!(!row.allies.unwrap().enabled);
     assert!(!row.chat.unwrap().enabled);
+    // The box shows the chat-mask byte of the row's House, and stays
+    // checked once the local player is out (0x00657F8E..0x00657FCC).
+    let index = fixture.sim.houses().index_of(first_ai).unwrap();
+    let mut listeners = [true; 8];
+    listeners[index] = false;
+    let muted = DiplomacyRules {
+        listeners,
+        ..SKIRMISH
+    };
+    assert!(
+        !rows(&fixture, muted).rows[2]
+            .as_ref()
+            .unwrap()
+            .chat
+            .unwrap()
+            .checked
+    );
+    let muted_inactive = DiplomacyRules {
+        local_inactive: true,
+        ..muted
+    };
+    assert!(
+        rows(&fixture, muted_inactive).rows[2]
+            .as_ref()
+            .unwrap()
+            .chat
+            .unwrap()
+            .checked
+    );
 }
 
 /// Retail layering through the production reader: RULESMD says

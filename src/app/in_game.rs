@@ -26,6 +26,18 @@ impl App {
         }
     }
 
+    /// Main_Game's post-scenario write `0x00699450` (`0x0048CF79`): the
+    /// TauntsOn and ScrollText switches persist after a LAN or WOL scenario
+    /// returns. Skirmish and campaign never write them.
+    pub(super) fn persist_returned_session_toggles(state: &mut AppState) {
+        if state.match_state.session.mode().is_network() {
+            state
+                .frontend
+                .multiplayer_shell_runtime
+                .persist_session_toggles();
+        }
+    }
+
     pub(super) fn return_to_main_menu(state: &mut AppState) {
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
             // Main55D283 calls BattleControlTerminated686570 on shell return;
@@ -73,6 +85,7 @@ impl App {
         // Runtime and presentation resources remain retained in the shell.
         crate::app::match_runtime::sim_tick::flush_replay_log(state);
         Self::capture_returned_multiplayer_scenario(state);
+        Self::persist_returned_session_toggles(state);
         state.match_state.startup.clear();
         state.match_state.scenario_elapsed_clock.reset();
         state.audio.stop_theme();

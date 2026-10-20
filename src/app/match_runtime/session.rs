@@ -143,6 +143,12 @@ pub(crate) enum NetworkLoadingRequest {
         recipients: Vec<usize>,
         text: String,
     },
+    /// The taunt packet `0x1D` (`0x00536350`) to these participants; `byte`
+    /// is `(country << 4) | n` at packet `+0x30`.
+    Taunt {
+        recipients: Vec<usize>,
+        byte: u8,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1418,6 +1424,16 @@ impl MatchSession {
             network
                 .loading_requests
                 .push(NetworkLoadingRequest::Chat { recipients, text });
+        }
+    }
+
+    pub(crate) fn request_taunt(&mut self, recipients: Vec<usize>, byte: u8) {
+        if let Some(network) = self.network.as_mut()
+            && matches!(network.phase, NetworkPhase::Frozen { .. })
+        {
+            network
+                .loading_requests
+                .push(NetworkLoadingRequest::Taunt { recipients, byte });
         }
     }
 

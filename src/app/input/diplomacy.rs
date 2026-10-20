@@ -291,9 +291,10 @@ pub(crate) fn view(state: &AppState) -> DiplomacyView {
             .map(|mode| {
                 crate::app::frontend::shell_pass::resolve_csf(state, &mode.ui_name_key).into_owned()
             });
-        // RESIDUAL: TauntsOn 0x730 shows only here, from [0xA8D110]/[0xA8D111],
-        // which have no VERA owner; the box stays hidden.
     }
+    // 0x006580E0..0x0065810C: TauntsOn shows in LAN/WOL with LANTaunts /
+    // WOLTaunts; the 250 ms refresh never touches it.
+    view.taunts = state.frontend.multiplayer_shell_runtime.taunts_on(mode);
     view.map_name = if mode.is_network() {
         crate::app::shell_network_setup::map_display_name(state)
     } else {
@@ -352,6 +353,7 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
         match over {
             Some(DiplomacyControl::Chat(row)) => toggle_chat_box(state, row),
             Some(DiplomacyControl::Allies(row)) => press_allies_box(state, row),
+            Some(DiplomacyControl::Taunts) => toggle_taunts_box(state),
             _ => {}
         }
     } else if state
@@ -489,6 +491,36 @@ fn toggle_chat_box(state: &mut AppState, row: usize) {
         .match_presentation
         .chat
         .set_listens(index, !chat.checked);
+    let sound = state
+        .rules()
+        .and_then(|rules| rules.general.gui_checkbox_sound.clone());
+    App::play_shell_ui_sound_by_id(state, sound.as_deref());
+}
+
+/// A press on the TauntsOn box: the checkbox proc flips it only for a press
+/// on its 18x18 icon (client x and y below `0x12`, `0x00616700..0x00616708`),
+/// plays GUICheckboxSound and notifies with the new state; 0x73 writes it to
+/// the mode's byte (`0x006582F9` LANTaunts, `0x00658313` WOLTaunts), live
+/// for both send and receive. It is never disabled.
+fn toggle_taunts_box(state: &mut AppState) {
+    let Some(layout) = layout(state) else {
+        return;
+    };
+    let (x, y) = crate::app::frontend::skirmish_shell_render::in_game_shell_cursor(state);
+    if !crate::ui::skirmish_shell::checkbox_icon_rect(
+        layout.taunts,
+        crate::ui::shell::geom::ShellScale::RETAIL,
+    )
+    .contains(x, y)
+    {
+        return;
+    }
+    let mode = state.match_state.session.mode();
+    let runtime = &mut state.frontend.multiplayer_shell_runtime;
+    let Some(on) = runtime.taunts_on(mode) else {
+        return;
+    };
+    runtime.set_taunts_on(mode, !on);
     let sound = state
         .rules()
         .and_then(|rules| rules.general.gui_checkbox_sound.clone());

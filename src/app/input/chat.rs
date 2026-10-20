@@ -266,6 +266,14 @@ fn route(state: &AppState, local: InternedId, target: ChatTarget) -> Option<(Vec
     ))
 }
 
+/// The taunt recipients (`0x0053645A..0x0053652B`): the connected peers of
+/// the Multiplay Houses whose chat-mask byte is set. The taunt command has
+/// already refused a local player who is out, so the observer gate never
+/// refuses here.
+pub(crate) fn listener_peers(state: &AppState, local: InternedId) -> Vec<usize> {
+    route(state, local, ChatTarget::Listeners).map_or_else(Vec::new, |(recipients, _)| recipients)
+}
+
 /// One Multiplay House as the send block sees it.
 #[derive(Debug, Clone, Copy)]
 struct ChatHouse {

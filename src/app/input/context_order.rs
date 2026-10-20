@@ -819,7 +819,10 @@ fn order_voice_key(command: &Command) -> Option<&'static str> {
             Some("VoiceMove")
         }
         Command::Attack { .. } | Command::ForceAttackCell { .. } => Some("VoiceAttack"),
-        Command::HarvestCell { .. } => Some("VoiceHarvest"),
+        Command::MegaMission {
+            mission: crate::sim::mission::MissionType::Harvest,
+            ..
+        } => Some("VoiceHarvest"),
         Command::MegaMission {
             mission: crate::sim::mission::MissionType::Enter,
             ..
@@ -830,10 +833,6 @@ fn order_voice_key(command: &Command) -> Option<&'static str> {
             ..
         } => Some("VoiceSpecialAttack"),
         Command::CaptureBuilding { .. } => Some("VoiceCapture"),
-        Command::MinerReturn { .. }
-        | Command::EnterTransport { .. }
-        | Command::RepairAtDepot { .. }
-        | Command::EnterBunker { .. } => Some("VoiceEnter"),
         // Sabotage and area guard have no dedicated slot, so retail takes the
         // default branch and speaks a VoiceSpecialAttack line.
         Command::PlantC4 { .. } | Command::Guard { .. } => Some("VoiceSpecialAttack"),
@@ -860,9 +859,6 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         | Command::MoveToObject { entity_id, .. }
         | Command::AttackMove { entity_id, .. }
         | Command::Guard { entity_id, .. }
-        | Command::HarvestCell { entity_id, .. }
-        | Command::MinerReturn { entity_id, .. }
-        | Command::RepairAtDepot { entity_id, .. }
         | Command::ToggleInfantryDeploy { entity_id }
         | Command::DeployMcv { entity_id }
         | Command::UndeployBuilding { entity_id }
@@ -870,8 +866,6 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         Command::Attack { attacker_id, .. }
         | Command::ForceAttackCell { attacker_id, .. }
         | Command::PlantC4 { attacker_id, .. } => Some(*attacker_id),
-        Command::EnterTransport { passenger_id, .. } => Some(*passenger_id),
-        Command::EnterBunker { unit_id, .. } => Some(*unit_id),
         Command::CaptureBuilding { engineer_id, .. } => Some(*engineer_id),
         Command::UnloadPassengers { transport_id } => Some(*transport_id),
         Command::EjectBunker { bunker_id } => Some(*bunker_id),
@@ -1927,18 +1921,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         }
 
         if clicked_ore && !selected_miner_ids.is_empty() {
-            // Direct miners to harvest the clicked ore cell.
-            for &stable_id in &selected_miner_ids {
-                queued.push(CommandEnvelope::new(
+            queued.extend(
+                harvest_click_orders(
+                    sim,
+                    &resources.rules,
+                    Some(&resources.overlay_registry),
                     owner_id,
-                    execute_tick,
-                    Command::HarvestCell {
-                        entity_id: stable_id,
-                        target_rx,
-                        target_ry,
-                    },
-                ));
-            }
+                    &selected_miner_ids,
+                    (target_rx, target_ry),
+                    shift_click,
+                )
+                .into_iter()
+                .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
+            );
             // The harvest order commits mission Harvest, so its ack is the
             // VoiceHarvest slot (e.g. CMIN ChronoMinerHarvest); a non-miner in
             // the same selection commits Move and would speak VoiceMove.
@@ -2426,6 +2421,42 @@ pub(crate) fn try_queue_context_order_at_screen_point(
 /// receiver loop (`0x004ABF94`), so they flash too; a plan's execution clears
 /// the latch around its own ClickedAction (`0x004DC96F..0x004DC984`).
 #[allow(clippy::too_many_arguments)]
+/// The ore click's orders. Each miner asks its own What_Action on the Cell
+/// again with mouse-over 0 (`FootClass::ClickedAction` `0x004D7DA1`), and
+/// UnitClass gives Harvest only where that base action is Move
+/// (`0x007405F5..0x007406C3`): a miner the player cannot order answers None.
+/// Case 6 then sends ClickedMission Harvest with the Cell as Destination and
+/// no Target (`0x004D7D50`). The MEGAMISSION event itself tests no owner.
+fn harvest_click_orders(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    viewer: InternedId,
+    miners: &[u64],
+    cell: (u16, u16),
+    shift: bool,
+) -> Vec<Command> {
+    let query = crate::sim::world::CellActionQuery {
+        mouse_over: false,
+        shift,
+    };
+    miners
+        .iter()
+        .copied()
+        .filter(|&miner| {
+            sim.cell_move_action(viewer, miner, cell, query, rules, registry)
+                == Ok(crate::sim::world::MoveAction::Move)
+        })
+        .map(|miner| {
+            Command::clicked_mission(
+                miner,
+                crate::sim::mission::MissionType::Harvest,
+                TargetKind::Cell(cell.0, cell.1),
+            )
+        })
+        .collect()
+}
+
 fn push_move_flash(
     queued: &mut Vec<CommandEnvelope>,
     sim: &crate::sim::world::Simulation,
@@ -3816,6 +3847,67 @@ mod tests {
         assert!(!in_range(art, far), "beyond Range");
     }
 
+    /// The ore click asks each selected miner's own What_Action on the Cell.
+    /// The player's War Miner sends MEGAMISSION Harvest with the Cell as
+    /// Destination. Another player's War Miner, though selected, answers None
+    /// and sends nothing: the event itself would run it, testing no owner.
+    #[test]
+    fn retail_ore_click_orders_only_the_miners_the_player_controls() {
+        use crate::sim::house_state::HouseState;
+
+        let Some(battle) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        else {
+            return;
+        };
+        let rules = &battle.rules;
+        let mut sim = Simulation::with_seed(0);
+        sim.intern_rule_type_ids(rules);
+        sim.resolve_type_handles(rules);
+        sim.session_mut_for_test().set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
+        for name in ["Americans", "Russians"] {
+            let owner = sim.intern(name);
+            let side = rules
+                .country_side_index(name)
+                .expect("stock country Side")
+                .0;
+            sim.houses_mut_for_test().register(HouseState::new(
+                owner,
+                side,
+                Some(owner),
+                true,
+                0,
+                10,
+            ));
+        }
+        let owner = sim.interner().get("Americans").unwrap();
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(owner));
+        crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+        let own = sim
+            .spawn_object("HARV", "Americans", 10, 10, 0, rules)
+            .expect("the player's War Miner");
+        let other = sim
+            .spawn_object("HARV", "Russians", 14, 10, 0, rules)
+            .expect("another player's War Miner");
+        assert!(
+            [own, other]
+                .iter()
+                .all(|&id| sim.entities().get(id).unwrap().miner.is_some())
+        );
+
+        assert_eq!(
+            harvest_click_orders(&sim, rules, None, owner, &[own, other], (12, 14), false),
+            vec![Command::clicked_mission(
+                own,
+                crate::sim::mission::MissionType::Harvest,
+                TargetKind::Cell(12, 14),
+            )]
+        );
+    }
+
     /// The native selection dispatcher clamps its shared Cell before asking
     /// receivers' What_Action and ClickedAction (`0x004AE77E`), then each Foot
     /// resolves from that same Cell (`0x004AE8BA`, `0x004AE921`, `0x004AE976`).
@@ -5049,18 +5141,19 @@ mod tests {
             Some("VoiceAttack")
         );
         assert_eq!(
-            order_voice_key(&Command::HarvestCell {
-                entity_id: 1,
-                target_rx: 0,
-                target_ry: 0,
-            }),
+            order_voice_key(&Command::clicked_mission(
+                1,
+                crate::sim::mission::MissionType::Harvest,
+                TargetKind::Cell(0, 0)
+            )),
             Some("VoiceHarvest")
         );
         assert_eq!(
-            order_voice_key(&Command::EnterTransport {
-                passenger_id: 1,
-                transport_id: 2,
-            }),
+            order_voice_key(&Command::clicked_mission(
+                1,
+                crate::sim::mission::MissionType::Enter,
+                TargetKind::Entity(2)
+            )),
             Some("VoiceEnter")
         );
         assert_eq!(

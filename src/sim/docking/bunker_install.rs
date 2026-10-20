@@ -667,10 +667,11 @@ mod tests {
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick() + 1,
-            Command::EnterBunker {
-                unit_id: tank,
-                bunker_id: bunker,
-            },
+            Command::clicked_mission(
+                tank,
+                crate::sim::mission::MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
         ));
         (sim, bunker, tank)
     }
@@ -845,10 +846,11 @@ mod tests {
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick() + 1,
-            Command::EnterBunker {
-                unit_id: tank,
-                bunker_id: bunker,
-            },
+            Command::clicked_mission(
+                tank,
+                crate::sim::mission::MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
         ));
         let mut trace = Vec::new();
         let mut previous = None;
@@ -976,10 +978,11 @@ mod tests {
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick() + 1,
-            Command::EnterBunker {
-                unit_id: tank,
-                bunker_id: bunker,
-            },
+            Command::clicked_mission(
+                tank,
+                crate::sim::mission::MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
         ));
         let mut trace = Vec::new();
         let mut previous = None;
@@ -1145,10 +1148,11 @@ mod tests {
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick() + 1,
-            Command::EnterBunker {
-                unit_id: tank,
-                bunker_id: bunker,
-            },
+            Command::clicked_mission(
+                tank,
+                MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
         ));
 
         let repair = MissionId::from_known(MissionType::Repair);
@@ -1264,10 +1268,11 @@ mod tests {
         sim.queue_command(CommandEnvelope::new(
             owner,
             sim.session.tick() + 1,
-            Command::EnterBunker {
-                unit_id: tank,
-                bunker_id: bunker,
-            },
+            Command::clicked_mission(
+                tank,
+                crate::sim::mission::MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
         ));
         for _ in 0..600 {
             let commands = sim.take_due_commands();

@@ -596,8 +596,7 @@ impl PassengerRole {
     }
 }
 
-/// The admission of a garrison order and of the typed
-/// [`crate::sim::command::Command::EnterTransport`] (#2242): a
+/// The admission of a garrison order: a
 /// `CanBeOccupied=` building asks its CanBeOccupiedBy owner; any other
 /// carrier needs `Passengers=` above 0, the passenger's house allied with the
 /// carrier's, and the carrier's CAN_LOAD

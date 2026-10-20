@@ -122,6 +122,10 @@ pub enum LanTarget {
     /// one refused by the 5 s clock, a received taunt played, then 0x73's
     /// TauntsOn box cleared and a received taunt refused.
     IngameTaunt,
+    /// The host's Choose Map creates a random map (Generate, Use Map); BC
+    /// publishes `RandMap.Sed` with the generator's option digest, and the
+    /// two-player match loads the generated map.
+    HostRandomMap,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -199,6 +203,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-ingame-chat", LanTarget::IngameChat),
     ("lan-ingame-ally", LanTarget::IngameAlly),
     ("lan-ingame-taunt", LanTarget::IngameTaunt),
+    ("lan-host-random-map", LanTarget::HostRandomMap),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -313,6 +318,14 @@ enum LanPhase {
     Ally(u8),
     /// Taunt step `n` (one per frame).
     Taunt(u8),
+    /// The host's chooser is opening for Create Random Map.
+    RandomMapChooser,
+    /// `0x105` over BC: Generate, then Use Map once generated.
+    RandomMapDialog {
+        generate_pressed: bool,
+    },
+    /// Use Map pressed: waiting for BC to settle with the random map.
+    RandomMapReturn,
     /// The peer resumed at `tick`: waiting for 0xEA to close and a frame.
     Resumed {
         tick: u64,
@@ -342,6 +355,8 @@ pub(super) struct LanCapture {
     /// Offline 0x102 mode/map before LAN Choose Map; the LAN chooser must not
     /// write the Skirmish dialog's retained selection.
     offline_selection: Option<(i32, usize)>,
+    /// The random-map route has committed `RandMap.Sed` to BC.
+    random_map_committed: bool,
 }
 impl LanCapture {
     pub(super) fn new(target: LanTarget) -> Self {
@@ -358,6 +373,7 @@ impl LanCapture {
             join_requested_at: None,
             loading_wait_reported_at: None,
             offline_selection: None,
+            random_map_committed: false,
             inputs: super::native_corpus("tools/storage_oracle/lan_shell_controls.json")
                 .expect("native LAN corpus"),
         }
@@ -749,10 +765,13 @@ impl LanCapture {
             && state.frontend.screen == GameScreen::Loading
         {
             let requests = state.match_state.session.take_network_loading_requests();
-            if requests
-                .iter()
-                .any(|request| matches!(request, NetworkLoadingRequest::ReportProgress(100)))
-            {
+            // The local terminal report is raw 100, or 200 for a random map,
+            // whose milestones are halved for display; the peer, loading the
+            // same map, reports the same terminal value.
+            if let Some(terminal) = requests.iter().find_map(|request| match request {
+                NetworkLoadingRequest::ReportProgress(percent) if *percent >= 100 => Some(*percent),
+                _ => None,
+            }) {
                 let local = state
                     .match_state
                     .session
@@ -770,14 +789,14 @@ impl LanCapture {
                 for index in &peers {
                     ensure!(
                         crate::app::loading::pump::accept_network_loading_progress(
-                            state, *index, 100,
+                            state, *index, terminal,
                         ),
                         "controlled peer completion was refused"
                     );
                 }
                 self.route.push(json!({"frame":frame,
                     "action":"controlled remote loading completion after actual local report",
-                    "sources":peers,"percent":100,"requests":requests.iter().map(|r|format!("{r:?}")).collect::<Vec<_>>()}));
+                    "sources":peers,"percent":terminal,"requests":requests.iter().map(|r|format!("{r:?}")).collect::<Vec<_>>()}));
             }
         }
         if self.target == LanTarget::LoadingTimeoutReturn
@@ -1097,6 +1116,10 @@ impl LanCapture {
                     LanTarget::HostBack => {
                         setup_button(state, crate::ui::multiplayer_setup::BACK)?;
                         self.phase = LanPhase::Returned;
+                    }
+                    LanTarget::HostRandomMap if !self.random_map_committed => {
+                        setup_button(state, crate::ui::multiplayer_setup::CHOOSE_MAP)?;
+                        self.phase = LanPhase::RandomMapChooser;
                     }
                     LanTarget::ChooseMap | LanTarget::ChooseMapCancel => {
                         self.offline_selection = Some(offline_selection(state));
@@ -2257,6 +2280,23 @@ impl LanCapture {
                     };
                     return Ok(());
                 }
+                if self.target == LanTarget::HostRandomMap {
+                    let runtime = state
+                        .match_state
+                        .sim_runtime
+                        .as_ref()
+                        .context("installed LAN runtime")?;
+                    let map = runtime.simulation.session().map_name().to_string();
+                    ensure!(
+                        map.eq_ignore_ascii_case(crate::map::skirmish_scenarios::RANDMAP_SED),
+                        "the LAN match did not load the random map: {map}"
+                    );
+                    self.route
+                        .push(json!({"frame":frame,"action":"random map loaded",
+                        "map":map,"tick":runtime.simulation.session().tick()}));
+                    self.phase = LanPhase::Settle(SETTLE_FRAMES);
+                    return Ok(());
+                }
                 if self.target == LanTarget::IngameChat {
                     self.phase = LanPhase::Chat(0);
                     return self.chat_step(state, frame, 0);
@@ -2865,6 +2905,116 @@ impl LanCapture {
                     self.phase = LanPhase::Returned;
                 }
             }
+            LanPhase::RandomMapChooser
+                if rendered == PresentedShell::NetworkSetup
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::ChooseMap)
+                    && state
+                        .frontend
+                        .skirmish_shell_state
+                        .choose_map_modal
+                        .as_ref()
+                        .is_some_and(|modal| modal.statics.is_terminal()) =>
+            {
+                let point = super::super::skirmish::CREATE_RANDOM_MAP_POINT;
+                random_map_click(state, point, true);
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "Create Random Map did not start the chooser's teardown slide"
+                );
+                self.event(frame, "chooser Create Random Map");
+                self.phase = LanPhase::RandomMapDialog {
+                    generate_pressed: false,
+                };
+            }
+            LanPhase::RandomMapDialog { generate_pressed }
+                if state.frontend.shell_first_paint_slide.is_none()
+                    && state.frontend.shell_exit.is_none()
+                    && state.frontend.shell_slide_active_shell
+                        == Some(ShellSlideKind::RandomMap)
+                    && state
+                        .frontend
+                        .skirmish_shell_state
+                        .random_map_setup_modal
+                        .as_ref()
+                        .is_some_and(|setup| setup.statics.is_terminal()) =>
+            {
+                let generated = state
+                    .frontend
+                    .skirmish_shell_state
+                    .random_map_setup_modal
+                    .as_ref()
+                    .is_some_and(|setup| setup.generated && !setup.generating);
+                if !generate_pressed {
+                    random_map_click(
+                        state,
+                        super::super::skirmish::RANDOM_MAP_GENERATE_POINT,
+                        false,
+                    );
+                    self.event(frame, "0x105 Generate Map");
+                    self.phase = LanPhase::RandomMapDialog {
+                        generate_pressed: true,
+                    };
+                } else if generated {
+                    random_map_click(
+                        state,
+                        super::super::skirmish::RANDOM_MAP_USE_MAP_POINT,
+                        false,
+                    );
+                    self.event(frame, "0x105 Use Map");
+                    self.phase = LanPhase::RandomMapReturn;
+                }
+            }
+            LanPhase::RandomMapReturn
+                if rendered == PresentedShell::NetworkSetup
+                    && setup_settled(state, true)
+                    && state
+                        .frontend
+                        .skirmish_shell_state
+                        .random_map_setup_modal
+                        .is_none() =>
+            {
+                let launch = state.match_state.session.network_setup().context("BC")?;
+                ensure!(
+                    launch.selected_map_file.as_deref().is_some_and(|file| {
+                        file.eq_ignore_ascii_case(crate::map::skirmish_scenarios::RANDMAP_SED)
+                    }),
+                    "Use Map did not select RandMap.Sed: {:?}",
+                    launch.selected_map_file
+                );
+                let metadata = state
+                    .match_state
+                    .session
+                    .network_map_metadata()
+                    .context("published map metadata")?
+                    .clone();
+                let root = &state
+                    .platform
+                    .game_config
+                    .as_ref()
+                    .context("retail root")?
+                    .paths
+                    .ra2_dir;
+                let sed = std::fs::read(root.join(crate::map::skirmish_scenarios::RANDMAP_SED))?;
+                let mut options = crate::map::rmg::RmgOptions::default();
+                options.apply_sed(&crate::rules::ini_parser::IniFile::from_bytes(&sed)?);
+                ensure!(
+                    metadata.digest == options.native_digest()
+                        && metadata.official
+                        && metadata.byte_length == sed.len() as i32,
+                    "published random-map metadata {metadata:?} is not the record's"
+                );
+                ensure!(
+                    self.drain_requests(state)
+                        .contains(&NetworkSetupRequest::PublishOptions),
+                    "the random map was not published"
+                );
+                self.route
+                    .push(json!({"frame":frame,"action":"random map committed to BC",
+                    "digest":metadata.digest,"name":metadata.display_name,
+                    "sed_bytes":sed.len(),"seed":options.seed}));
+                self.random_map_committed = true;
+                self.phase = LanPhase::Host;
+            }
             LanPhase::Chat(step) => self.chat_step(state, frame, step)?,
             LanPhase::Ally(step) => self.ally_step(state, frame, step)?,
             LanPhase::Taunt(step) => self.taunt_step(state, frame, step)?,
@@ -3328,6 +3478,7 @@ impl LanCapture {
                 | LanTarget::IngameChat
                 | LanTarget::IngameTaunt
                 | LanTarget::IngameAlly
+                | LanTarget::HostRandomMap
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn
@@ -3413,6 +3564,21 @@ fn lobby_settled(state: &AppState) -> bool {
     MoviesCapture::slide_settled(state, ShellSlideKind::LanLobby)
         && state.frontend.shell_page_title.is_terminal()
 }
+/// A press and release at `point` through the chooser's (or `0x105`'s)
+/// production handlers, with the pointer moved there first.
+fn random_map_click(state: &mut AppState, point: (i32, i32), chooser: bool) {
+    state.match_state.input.cursor_x = point.0 as f32;
+    state.match_state.input.cursor_y = point.1 as f32;
+    App::handle_skirmish_shell_mouse_move(state);
+    if chooser {
+        App::handle_choose_map_modal_mouse_down(state);
+        App::handle_choose_map_modal_mouse_up(state);
+    } else {
+        App::handle_random_map_setup_mouse_down(state);
+        App::handle_random_map_setup_mouse_up(state);
+    }
+}
+
 fn setup_settled(state: &AppState, host: bool) -> bool {
     MoviesCapture::slide_settled(
         state,

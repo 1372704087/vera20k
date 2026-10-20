@@ -6,6 +6,10 @@
 //! use an isolated RA2_DIR.
 
 use super::*;
+use crate::app::match_runtime::session::SessionMode;
+use crate::app::shell_network_setup::{
+    self as setup, NetworkSetupEvent, NetworkSetupRequest, WolStartUser,
+};
 use crate::app::shell_wol::lobby::WolJoined;
 use crate::app::shell_wol::{
     WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList, WolServiceEvent,
@@ -55,6 +59,21 @@ pub enum WolTarget {
     CreateAccepted,
     /// C2 Back: the chat lobby rejoined and `0x113` settled again.
     SetupBack,
+    /// C2 with a joined guest: its row, ping icon and the join's requests.
+    SetupGuestJoined,
+    /// C2 Start with an unready guest: RequestAcceptance and the host line.
+    SetupStartNotReady,
+    /// C2 chat: a page echo and an emote.
+    SetupChat,
+    /// C2 Start with a ready guest (an option edit cleared it once):
+    /// StartGame, OnGameStart, the slide, then the first loading frame.
+    SetupStart,
+    /// C9 Accept: Ready(true) and Accept disabled.
+    GuestAccept,
+    /// C9 Back: Leave, then the channel-left event rejoins the chat lobby.
+    GuestBack,
+    /// A started WOL match left through B5/B6: the chat lobby rejoined.
+    AbortReturn,
     /// `0x113` Back: the channel left and a fresh `0x10E` settled.
     LobbyBack,
 }
@@ -72,6 +91,26 @@ impl WolTarget {
                 | Self::ServerListFailure
                 | Self::LoginRejected
                 | Self::LoginRejectedReturn
+        )
+    }
+
+    /// The chat lobby's Join leads to C9 instead of Create to C2.
+    fn guest(self) -> bool {
+        matches!(
+            self,
+            Self::JoinAccepted | Self::GuestAccept | Self::GuestBack
+        )
+    }
+
+    /// C2 with the controlled guest joined.
+    fn guest_joined(self) -> bool {
+        matches!(
+            self,
+            Self::SetupGuestJoined
+                | Self::SetupStartNotReady
+                | Self::SetupChat
+                | Self::SetupStart
+                | Self::AbortReturn
         )
     }
 }
@@ -95,7 +134,17 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-c2-create-accepted", WolTarget::CreateAccepted),
     ("wol-c2-back", WolTarget::SetupBack),
     ("wol-0x113-back", WolTarget::LobbyBack),
+    ("wol-c2-guest-joined", WolTarget::SetupGuestJoined),
+    ("wol-c2-start-not-ready", WolTarget::SetupStartNotReady),
+    ("wol-c2-chat", WolTarget::SetupChat),
+    ("wol-c2-start-loading", WolTarget::SetupStart),
+    ("wol-c9-accept", WolTarget::GuestAccept),
+    ("wol-c9-back", WolTarget::GuestBack),
+    ("wol-abort-return", WolTarget::AbortReturn),
 ];
+
+/// The controlled guest of the C2 targets, the host of the C9 targets.
+const PEER: &str = "Alpha";
 
 const NICKNAME: &str = "Tester";
 const PASSWORD: &str = "secret12";
@@ -129,8 +178,14 @@ enum WolPhase {
     Creating,
     /// C2/C9 opening.
     Setup,
-    /// C2 Back: the lobby rejoins.
+    /// C2/C9 Back: the lobby rejoins.
     Rejoin,
+    /// OnGameStart accepted: the slide, then the network loading screen.
+    Loading,
+    /// The started match runs: B5/B6 input until EXIT is queued.
+    AbortInput,
+    /// EXIT queued: the match returns to the chat lobby.
+    MatchLeaving,
     Settle(u32),
 }
 
@@ -138,8 +193,10 @@ pub(super) struct WolCapture {
     target: WolTarget,
     phase: WolPhase,
     route: Vec<Value>,
-    /// C2 Back rejoined the chat lobby.
+    /// Setup Back or the match return rejoined the chat lobby.
     rejoined: bool,
+    abort_input: Option<abort_return::AbortReturnInput>,
+    exit_consumed: bool,
 }
 
 impl WolCapture {
@@ -149,11 +206,18 @@ impl WolCapture {
             phase: WolPhase::Main,
             route: Vec::new(),
             rejoined: false,
+            abort_input: None,
+            exit_consumed: false,
         }
     }
 
     pub(super) fn timeout(&self) -> Duration {
-        Duration::from_secs(60)
+        // The abort return loads and runs a retail map first.
+        Duration::from_secs(if self.target == WolTarget::AbortReturn {
+            120
+        } else {
+            60
+        })
     }
 
     fn event(&mut self, frame: u32, action: impl Into<Value>) {
@@ -193,6 +257,12 @@ impl WolCapture {
             state.frontend.main_menu_shell_error.is_none(),
             "WOL capture encountered the shell fallback"
         );
+        if self.target == WolTarget::AbortReturn
+            && self.phase == WolPhase::Loading
+            && state.frontend.screen == GameScreen::Loading
+        {
+            self.complete_peer_loading(state, frame)?;
+        }
         match self.phase {
             WolPhase::Main
                 if rendered == PresentedShell::MainMenu
@@ -452,11 +522,7 @@ impl WolCapture {
                 }
                 // 0x00789B60 calls API+0x24 once unconditionally and once
                 // more while joined; 0x00788800 only while joined.
-                let leaves = if self.target == WolTarget::JoinAccepted {
-                    1
-                } else {
-                    2
-                };
+                let leaves = if self.target.guest() { 1 } else { 2 };
                 ensure!(
                     requests == vec![WolServiceRequest::LeaveChannel; leaves],
                     "Join/Create did not leave the chat lobby first: {requests:?}"
@@ -464,7 +530,7 @@ impl WolCapture {
                 service_event(state, WolServiceEvent::ChannelLeft);
                 self.event(frame, "controlled channel left");
                 let requests = self.requests(state, frame)?;
-                if self.target == WolTarget::JoinAccepted {
+                if self.target.guest() {
                     ensure!(
                         requests
                             == [WolServiceRequest::JoinChannel {
@@ -523,39 +589,12 @@ impl WolCapture {
                 self.phase = WolPhase::Setup;
             }
             WolPhase::Setup => {
-                let host = self.target != WolTarget::JoinAccepted;
+                let host = !self.target.guest();
                 if !(rendered == PresentedShell::NetworkSetup && wol_setup_settled(state, host)) {
                     return Ok(());
                 }
                 self.event(frame, if host { "C2 settled" } else { "C9 settled" });
-                if self.target == WolTarget::SetupBack {
-                    let rect = crate::app::input::multiplayer_setup::layout(state)
-                        .page
-                        .buttons
-                        .into_iter()
-                        .find(|button| button.id == crate::ui::multiplayer_setup::BACK)
-                        .context("C2 Back")?
-                        .rect;
-                    set_window_pointer_to_rect_center(state, rect);
-                    crate::app::input::multiplayer_setup::cursor_moved(state);
-                    crate::app::input::multiplayer_setup::mouse(
-                        state,
-                        winit::event::MouseButton::Left,
-                        true,
-                    );
-                    crate::app::input::multiplayer_setup::mouse(
-                        state,
-                        winit::event::MouseButton::Left,
-                        false,
-                    );
-                    MoviesCapture::restore_neutral_pointer(state);
-                    self.event(frame, "C2 Back");
-                    self.phase = WolPhase::Rejoin;
-                    return Ok(());
-                }
-                MoviesCapture::restore_neutral_pointer(state);
-                crate::app::input::multiplayer_setup::cursor_moved(state);
-                self.settle();
+                self.setup_settled(state, frame)?;
             }
             WolPhase::Rejoin
                 if state.frontend.shell_exit.is_none()
@@ -584,11 +623,320 @@ impl WolCapture {
             {
                 self.lobby_settled(state, frame)?;
             }
+            WolPhase::Loading
+                if self.target == WolTarget::AbortReturn
+                    && state.frontend.screen == GameScreen::InGame =>
+            {
+                let sim = &state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .context("installed WOL runtime")?
+                    .simulation;
+                ensure!(
+                    state.match_state.session.mode() == SessionMode::Wol
+                        && sim.session.started()
+                        && sim.session.game_mode_nonzero(),
+                    "the WOL runtime was not admitted"
+                );
+                self.event(frame, "WOL match installed");
+                self.abort_input = Some(abort_return::AbortReturnInput::begin(
+                    state,
+                    &mut self.route,
+                    frame,
+                )?);
+                self.phase = WolPhase::AbortInput;
+            }
+            WolPhase::AbortInput => {
+                if self
+                    .abort_input
+                    .as_mut()
+                    .context("WOL abort input")?
+                    .after_present(state, &mut self.route, frame)?
+                {
+                    self.phase = WolPhase::MatchLeaving;
+                }
+            }
+            WolPhase::MatchLeaving => {
+                if state.match_state.scenario_exit.is_some() && !self.exit_consumed {
+                    let sim = &state
+                        .match_state
+                        .sim_runtime
+                        .as_ref()
+                        .context("EXIT runtime")?
+                        .simulation;
+                    ensure!(sim.quit_requested, "the return began before EXIT ran");
+                    self.event(frame, "EXIT consumed");
+                    self.exit_consumed = true;
+                }
+                if state.frontend.shell_route.wol_lobby() && state.frontend.shell_exit.is_none() {
+                    ensure!(
+                        self.exit_consumed
+                            && state.match_state.session.mode() == SessionMode::Wol
+                            && state.frontend.loading_session.is_none()
+                            && state.match_state.scenario_exit.is_none()
+                            && state.frontend.multiplayer_setup.is_none()
+                            && state.frontend.network_setup_protocol.is_none(),
+                        "the WOL match return cleanup is incomplete"
+                    );
+                    // A fresh runner, not the resumed one: lobby_entry
+                    // requires it hidden behind its wait box.
+                    self.event(frame, "post-match 0x113 opened");
+                    self.rejoined = true;
+                    self.phase = WolPhase::Lobby;
+                }
+            }
             WolPhase::Settle(remaining) if remaining > 0 => {
                 self.phase = WolPhase::Settle(remaining - 1);
             }
             _ => {}
         }
+        Ok(())
+    }
+
+    /// C2/C9 shown and settled: drive the target's interaction.
+    fn setup_settled(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::ui::multiplayer_setup as setup_ui;
+        match self.target {
+            WolTarget::SetupBack => {
+                setup_button(state, setup_ui::BACK)?;
+                self.event(frame, "C2 Back");
+                self.phase = WolPhase::Rejoin;
+                return Ok(());
+            }
+            WolTarget::GuestAccept => {
+                setup_button(state, setup_ui::ACCEPT)?;
+                let requests = setup_requests(state);
+                ensure!(
+                    requests.contains(&NetworkSetupRequest::Ready(true))
+                        && !setup_view(state)?.enabled(setup_ui::ACCEPT),
+                    "C9 Accept did not report readiness: {requests:?}"
+                );
+                self.event(frame, "C9 Accept");
+            }
+            WolTarget::GuestBack => {
+                setup_button(state, setup_ui::BACK)?;
+                let requests = setup_requests(state);
+                ensure!(
+                    requests == [NetworkSetupRequest::Leave] && state.frontend.shell_exit.is_none(),
+                    "C9 Back must leave the channel and wait: {requests:?}"
+                );
+                setup::service_event(state, NetworkSetupEvent::ChannelLeft)?;
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "the channel-left event did not slide C9 out"
+                );
+                self.event(frame, "C9 Back, then controlled channel left");
+                self.phase = WolPhase::Rejoin;
+                return Ok(());
+            }
+            target if target.guest_joined() => {
+                self.join_guest(state, frame)?;
+                match target {
+                    WolTarget::SetupStartNotReady => {
+                        setup_button(state, setup_ui::START)?;
+                        let requests = setup_requests(state);
+                        let line =
+                            App::csf_label(state, "GUI:HostGameStartHost", "GUI:HostGameStartHost");
+                        ensure!(
+                            requests == [NetworkSetupRequest::RequestAcceptance]
+                                && setup_chat_has(state, &line)?,
+                            "Start with an unready guest: {requests:?}"
+                        );
+                        self.event(frame, "C2 Start refused: guest not ready");
+                    }
+                    WolTarget::SetupChat => self.setup_chat(state, frame)?,
+                    WolTarget::SetupStart | WolTarget::AbortReturn => {
+                        self.start(state, frame)?;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        MoviesCapture::restore_neutral_pointer(state);
+        crate::app::input::multiplayer_setup::cursor_moved(state);
+        self.settle();
+        Ok(())
+    }
+
+    /// The host's join sink for the controlled guest, its ping and its
+    /// map status.
+    fn join_guest(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let launch = state
+            .match_state
+            .session
+            .network_setup()
+            .context("C2 setup")?;
+        let mut slot = launch.local_slot().clone();
+        slot.color_index = (slot.color_index + 1) % 8;
+        let row = state
+            .match_state
+            .session
+            .network_observer_row()
+            .unwrap_or(8);
+        let opened = setup_requests(state);
+        self.route.push(json!({"frame": frame,
+            "c2_open_requests": opened.iter().map(|r| format!("{r:?}")).collect::<Vec<_>>()}));
+        setup::service_event(
+            state,
+            NetworkSetupEvent::ParticipantJoined(crate::skirmish_launch::SkirmishHumanSlot {
+                raw_slot_index: Some(1),
+                name: PEER.into(),
+                role: Default::default(),
+                slot,
+            }),
+        )?;
+        let requests = setup_requests(state);
+        ensure!(
+            requests
+                == [
+                    NetworkSetupRequest::ObserverSlot {
+                        name: PEER.into(),
+                        row
+                    },
+                    NetworkSetupRequest::PublishRoster,
+                    NetworkSetupRequest::PublishOptions,
+                    NetworkSetupRequest::RequestPings,
+                    NetworkSetupRequest::Advertise,
+                ],
+            "the host join sink's requests: {requests:?}"
+        );
+        setup::service_event(
+            state,
+            NetworkSetupEvent::Ping {
+                name: PEER.into(),
+                ping: 120,
+            },
+        )?;
+        setup::service_event(
+            state,
+            NetworkSetupEvent::MapStatus {
+                index: 1,
+                status: 1,
+            },
+        )?;
+        let view = setup_view(state)?;
+        ensure!(
+            view.ping_icons[1] == crate::ui::multiplayer_setup::ping_icon(120)
+                && view.ping_icons[1].is_some()
+                && !state.match_state.session.network_player_ready(1),
+            "the guest's row, ping icon or readiness: {:?}",
+            view.ping_icons
+        );
+        self.event(frame, "controlled guest joined, ping 120, map present");
+        Ok(())
+    }
+
+    /// C2 chat: a page through the CSF command, then an emote.
+    fn setup_chat(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let page = App::csf_label(state, "TXT_PAGE_COMMAND", "TXT_PAGE_COMMAND");
+        let layout = crate::app::input::multiplayer_setup::layout(state);
+        setup_click(state, layout.chat);
+        crate::app::input::multiplayer_setup::key_press(
+            state,
+            None,
+            Some(&format!("{page} {PEER} ready?")),
+        );
+        crate::app::input::multiplayer_setup::key_press(
+            state,
+            Some(winit::keyboard::KeyCode::Enter),
+            None,
+        );
+        let requests = setup_requests(state);
+        ensure!(
+            requests
+                == [NetworkSetupRequest::WolChat(WolChatLine::Page {
+                    name: PEER.encode_utf16().collect(),
+                    text: "ready?".encode_utf16().collect(),
+                })],
+            "the page line was not sent: {requests:?}"
+        );
+        ensure!(
+            setup_chat_has(state, &format!("[{NICKNAME} > {PEER}] ready?"))?,
+            "the page echo did not show"
+        );
+        crate::app::input::multiplayer_setup::key_press(state, None, Some("waves"));
+        setup_click(state, layout.emote.context("C2 emote")?);
+        let requests = setup_requests(state);
+        ensure!(
+            requests
+                == [NetworkSetupRequest::WolEmote(
+                    "waves".encode_utf16().collect()
+                )]
+                && setup_chat_has(state, &format!("{NICKNAME} waves"))?
+                && state
+                    .frontend
+                    .multiplayer_setup
+                    .as_ref()
+                    .is_some_and(|ui| ui.chat.edit.units.is_empty()),
+            "the emote was not sent or echoed: {requests:?}"
+        );
+        self.event(frame, "C2 page and emote");
+        Ok(())
+    }
+
+    /// The guest accepts, an option edit clears it, it accepts again; Start
+    /// then requests StartGame and the server's OnGameStart completes it.
+    fn start(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::ui::multiplayer_setup as setup_ui;
+        let ready = || NetworkSetupEvent::PlayerReady {
+            index: 1,
+            accepted: true,
+        };
+        setup::service_event(state, ready())?;
+        let layout = crate::app::input::multiplayer_setup::layout(state);
+        setup_click(
+            state,
+            crate::ui::skirmish_shell::checkbox_icon_rect(layout.checkboxes[0], layout.page.scale),
+        );
+        ensure!(
+            !state.match_state.session.network_player_ready(1),
+            "a C2 option edit kept the guest's acceptance"
+        );
+        setup_requests(state);
+        setup::service_event(state, ready())?;
+        setup_button(state, setup_ui::START)?;
+        let requests = setup_requests(state);
+        ensure!(
+            requests
+                == [
+                    NetworkSetupRequest::PublishRoster,
+                    NetworkSetupRequest::PublishOptions,
+                    NetworkSetupRequest::StartGame {
+                        users: vec![NICKNAME.into(), PEER.into()]
+                    },
+                ],
+            "C2 Start did not commit: {requests:?}"
+        );
+        // Back is refused while the start is pending.
+        setup_button(state, setup_ui::BACK)?;
+        ensure!(
+            setup_requests(state).is_empty() && state.frontend.shell_exit.is_none(),
+            "Back left a pending start"
+        );
+        let user = |name: &str, flags| WolStartUser {
+            name: name.into(),
+            flags,
+        };
+        let mut pings = [-1; 8];
+        pings[1] = 120;
+        setup::service_event(
+            state,
+            NetworkSetupEvent::GameStarted {
+                users: vec![user(NICKNAME, 1), user(PEER, 0)],
+                pings,
+            },
+        )?;
+        let requests = setup_requests(state);
+        ensure!(
+            requests == [NetworkSetupRequest::Leave] && state.frontend.shell_exit.is_some(),
+            "OnGameStart did not leave the channel and slide C2 out: {requests:?}"
+        );
+        MoviesCapture::restore_neutral_pointer(state);
+        self.event(frame, "C2 Start, then controlled OnGameStart");
+        self.phase = WolPhase::Loading;
         Ok(())
     }
 
@@ -809,14 +1157,19 @@ impl WolCapture {
                 );
                 self.event(frame, "0xE1 opened");
             }
-            WolTarget::JoinAccepted => {
+            WolTarget::JoinAccepted | WolTarget::GuestAccept | WolTarget::GuestBack => {
                 game_row_click(state, 0)?;
                 lobby_button(state, &layout, lobby_ui::JOIN)?;
                 self.event(frame, "Join on Alpha's_game");
                 self.phase = WolPhase::Leaving;
                 return Ok(());
             }
-            WolTarget::CreatePopup | WolTarget::CreateAccepted | WolTarget::SetupBack => {
+            target
+                if matches!(
+                    target,
+                    WolTarget::CreatePopup | WolTarget::CreateAccepted | WolTarget::SetupBack
+                ) || target.guest_joined() =>
+            {
                 lobby_button(state, &layout, lobby_ui::CREATE)?;
                 ensure!(
                     Self::lobby(state)?
@@ -858,7 +1211,45 @@ impl WolCapture {
         self.settle();
     }
 
+    /// Once the local loader reports 100, the controlled guest finishes too.
+    fn complete_peer_loading(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::app::match_runtime::session::NetworkLoadingRequest;
+        let requests = state.match_state.session.take_network_loading_requests();
+        if !requests
+            .iter()
+            .any(|request| matches!(request, NetworkLoadingRequest::ReportProgress(100)))
+        {
+            return Ok(());
+        }
+        ensure!(
+            crate::app::loading::pump::accept_network_loading_progress(state, 1, 100),
+            "controlled guest completion was refused"
+        );
+        self.route.push(json!({"frame": frame,
+            "action": "controlled guest loading completion after the local report",
+            "requests": requests.iter().map(|r| format!("{r:?}")).collect::<Vec<_>>()}));
+        Ok(())
+    }
+
+    pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
+        self.target == WolTarget::AbortReturn
+            && self.phase == WolPhase::Loading
+            && state.frontend.screen == GameScreen::InGame
+    }
+
     pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
+        if self.phase == WolPhase::Loading {
+            if self.target == WolTarget::AbortReturn {
+                return Ok(false);
+            }
+            ensure!(
+                state.match_state.session.mode() == SessionMode::Wol,
+                "the WOL handoff became offline"
+            );
+            return Ok(state.frontend.screen == GameScreen::Loading
+                && crate::app::loading::pump::next_native_loading_frame(state)
+                    == Some(crate::app::loading::pump::NextLoadingFrame::First));
+        }
         // Behind a box `0x10E`/`0x10F` is gone, and with it the status line;
         // a hidden or covered `0x113` paints none either, nor does C2/C9's
         // family line belong to this check.
@@ -1034,4 +1425,48 @@ fn login_click(state: &mut AppState, rect: RectPx) {
     // The combo face's left part is its NewEdit, clear of the arrow.
     let rect = RectPx::new(rect.x, rect.y, rect.w / 2, rect.h);
     welcome_click(state, rect);
+}
+
+fn setup_view(state: &AppState) -> Result<crate::ui::multiplayer_setup::SetupView> {
+    setup::view(state).context("C2/C9 view")
+}
+
+fn setup_requests(state: &mut AppState) -> Vec<NetworkSetupRequest> {
+    state
+        .frontend
+        .network_setup_protocol
+        .as_mut()
+        .map(|protocol| protocol.take_service_requests())
+        .unwrap_or_default()
+}
+
+fn setup_chat_has(state: &AppState, text: &str) -> Result<bool> {
+    Ok(state
+        .frontend
+        .multiplayer_setup
+        .as_ref()
+        .context("C2/C9")?
+        .chat
+        .lines
+        .iter()
+        .any(|line| String::from_utf16_lossy(&line.text) == text))
+}
+
+fn setup_click(state: &mut AppState, rect: RectPx) {
+    set_window_pointer_to_rect_center(state, rect);
+    crate::app::input::multiplayer_setup::cursor_moved(state);
+    crate::app::input::multiplayer_setup::mouse(state, winit::event::MouseButton::Left, true);
+    crate::app::input::multiplayer_setup::mouse(state, winit::event::MouseButton::Left, false);
+}
+
+fn setup_button(state: &mut AppState, id: u16) -> Result<()> {
+    let rect = crate::app::input::multiplayer_setup::layout(state)
+        .page
+        .buttons
+        .into_iter()
+        .find(|button| button.id == id)
+        .context("setup button")?
+        .rect;
+    setup_click(state, rect);
+    Ok(())
 }

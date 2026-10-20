@@ -1435,6 +1435,9 @@ impl MoviesCapture {
         if let Some(lan) = self.lan.as_ref() {
             return lan.owns_simulation_steps(state);
         }
+        if let Some(wol) = self.wol.as_ref() {
+            return wol.owns_simulation_steps(state);
+        }
 
         matches!(
             self.target,

@@ -397,7 +397,7 @@ impl RetailBridgeFixture {
             );
             if first["clear_rubble_type"] != true {
                 let type_id = interner.intern(input["building_type"].as_str().unwrap());
-                grid.cell_mut(rx, ry).rubble_building_type = Some(type_id);
+                grid.cell_mut_for_test(rx, ry).rubble_building_type = Some(type_id);
             }
             if first["overlay_id"].as_i64() == Some(-1) {
                 // Preserve the published anchors while the real overlay owner

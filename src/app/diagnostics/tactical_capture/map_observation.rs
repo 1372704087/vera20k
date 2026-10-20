@@ -2453,14 +2453,14 @@ impl MapEffectObservation {
     ) -> Result<Self> {
         let projectiles = (profile.observe_projectiles == Some(true)).then(|| {
             sim.projectiles.iter().take(MAX_OBSERVATION_SAMPLES + 1).map(|(&id, bullet)| {
-                let weapon = bullet.payload.installed_weapon().map(|id| sim.interner.resolve(id));
-                let type_id = bullet.payload.projectile_type().map(|id| sim.interner.resolve(id));
-                json!({"stable_id": id, "native_id": bullet.native_unique_id,
-                    "weapon": weapon, "type_id": type_id, "source_id": bullet.source_id,
-                    "physical_leptons": [bullet.position.x, bullet.position.y, bullet.position.z],
-                    "in_logic_vector": bullet.in_logic_vector, "awaiting_anim": bullet.awaiting_anim(),
-                    "visual_frame": bullet.visual.runtime_frame,
-                    "visual_countdown": bullet.visual.runtime_countdown})
+                let weapon = bullet.payload().installed_weapon().map(|id| sim.interner.resolve(id));
+                let type_id = bullet.payload().projectile_type().map(|id| sim.interner.resolve(id));
+                json!({"stable_id": id, "native_id": bullet.native_unique_id(),
+                    "weapon": weapon, "type_id": type_id, "source_id": bullet.source_id(),
+                    "physical_leptons": [bullet.position().x, bullet.position().y, bullet.position().z],
+                    "in_logic_vector": bullet.in_logic_vector(), "awaiting_anim": bullet.awaiting_anim(),
+                    "visual_frame": bullet.visual().runtime_frame,
+                    "visual_countdown": bullet.visual().runtime_countdown})
             }).collect::<Vec<_>>()
         });
         let animations = profile.observe_anim_types.as_ref().map(|types| {
@@ -4577,14 +4577,14 @@ mod tests {
     #[test]
     fn crate_observation_preserves_occupied_slot_identity_without_mutating_simulation() {
         let mut sim = crate::sim::world::Simulation::new();
-        *sim.crate_authority.slot_mut(3) = crate::sim::crates::CrateSlot {
+        *sim.crate_authority.slot_mut_for_test(3) = crate::sim::crates::CrateSlot {
             start_frame: 50,
             aux: 777,
             duration: 100,
             cell_x: 10,
             cell_y: 12,
         };
-        *sim.crate_authority.slot_mut(7) = crate::sim::crates::CrateSlot {
+        *sim.crate_authority.slot_mut_for_test(7) = crate::sim::crates::CrateSlot {
             cell_x: -1,
             cell_y: 4,
             ..Default::default()

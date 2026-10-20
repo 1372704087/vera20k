@@ -46,7 +46,7 @@ fn fixture() -> (Simulation, RuleSet) {
     // duration. Active TrackProcess4B0F20 does not mutate that timer.
     entity
         .navigation
-        .path_runtime
+        .path_runtime_mut()
         .set_blocked_timer_for_test(crate::sim::timer::CdTimer::started(10, 9));
     sim.substrate.entities.insert(entity);
     sim.substrate.occupancy =
@@ -189,7 +189,9 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
     assert!(selection.entry_index > 0);
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.body_facing.snap(0x2000, 0);
-    entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
+    entity
+        .navigation
+        .set_path_replay_for_test(FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10))));
     assert!(entity.locomotor.as_mut().unwrap().store_track_progress(
         crate::sim::movement::track_process::TrackFamily::Drive,
         TrackProgress::for_test(
@@ -221,7 +223,7 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
             .track_valid()
     );
     assert!(track.cursor() > i32::from(selection.entry_index));
-    assert_eq!(entity.navigation.path_replay.cursor(), 1);
+    assert_eq!(entity.navigation.path_replay().cursor(), 1);
     // Retail RawTrack[3]7E7A58 -> point37 at7E66B4=(-136,136,32).
     // TurnTrack[1]7E7B34 flags8 leaves XY unchanged in Transform4B4780.
     // With head(2688,2432), PerCell4B1CFD runs in signed cell(9,10).
@@ -234,13 +236,13 @@ fn accepted_chain_runs_sensor_callback_and_consumes_more_paid_points_in_same_obj
     assert_eq!(
         entity
             .navigation
-            .path_runtime
+            .path_runtime()
             .blocked_timer()
             .remaining(sim.session.binary_frame() as i32),
         9
     );
     assert_eq!(
-        entity.navigation.path_runtime.blocked_timer(),
+        entity.navigation.path_runtime().blocked_timer(),
         crate::sim::timer::CdTimer::started(10, 9),
         "chain callbacks and additional paid points do not rewrite the timer"
     );
@@ -473,7 +475,9 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
         crate::sim::movement::track_process::TrackFamily::Drive,
         TrackProgress::for_test(1, 37, false, 0)
     ));
-    entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
+    entity
+        .navigation
+        .set_path_replay_for_test(FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10))));
     sim.advance_live_object_turn(1, Some(&rules), techno_ai::ObjectAiCtx::default())
         .expect("fixture object turn must complete");
     let entity = sim.substrate.entities.get(1).unwrap();
@@ -488,5 +492,5 @@ fn ordinary_default_passive_false_does_not_accept_a_chain() {
             .turn_index(),
         1
     );
-    assert_eq!(entity.navigation.path_replay.cursor(), 0);
+    assert_eq!(entity.navigation.path_replay().cursor(), 0);
 }

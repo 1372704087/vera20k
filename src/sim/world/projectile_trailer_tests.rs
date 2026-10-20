@@ -282,7 +282,7 @@ fn scalable_unit_shots_emit_a_real_trailer_on_the_shared_eighth_member_cadence()
     let kind = sim.interner.get("Cannon").unwrap();
     assert_eq!(sim.projectiles.scaled_spawn_delay(kind), 4);
     let (&bullet, projectile) = sim.projectiles.iter().next().unwrap();
-    let origin = projectile.position;
+    let origin = projectile.position();
     sim.session.set_binary_frame_for_test(4);
     sim.object_ai_visit_one_with_effects(bullet, Some(&rules), ObjectAiCtx::default());
     let bubble = only_bubble(&sim);
@@ -293,7 +293,7 @@ fn scalable_unit_shots_emit_a_real_trailer_on_the_shared_eighth_member_cadence()
         "the real Anim constructor receives pre-flight Location"
     );
     assert!(sim.substrate.logic.as_slice().contains(&bubble));
-    assert_ne!(sim.projectiles.get(bullet).unwrap().position, origin);
+    assert_ne!(sim.projectiles.get(bullet).unwrap().position(), origin);
 }
 
 #[test]
@@ -319,7 +319,7 @@ fn projectile_trailer_retail_constructor_rng_and_complete_lifetime_match_native(
             row["after_native_id"].as_u64().unwrap() as u32
         );
         assert_ne!(
-            sim.projectiles.get(bullet).unwrap().position,
+            sim.projectiles.get(bullet).unwrap().position(),
             coord(&row["emissions"][0]["position"]),
             "trail stands at pre-flight Location"
         );
@@ -569,7 +569,7 @@ fn scalable_uninit_self_callback_removes_before_drain_and_keeps_type_override() 
         .projectiles
         .get(id)
         .unwrap()
-        .payload
+        .payload()
         .projectile_type()
         .unwrap();
     let corpus = native();

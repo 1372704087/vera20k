@@ -1364,16 +1364,21 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
             man.mission_leaf.set_infantry_doing_verified(0).unwrap();
             man.mission_leaf.set_foot_firing_sequence(1);
             man.navigation
-                .path_replay
+                .path_replay_mut()
                 .set_directions_for_test(vec![0, 1, 2]);
-            man.navigation.path_replay.set_cursor(0);
+            man.navigation.path_replay_mut().set_cursor(0);
         },
     );
     let man = sim.substrate.entities.get(ids[0]).unwrap();
     assert!(man.berserk.is_active());
     assert!(man.attack_target.target().is_none());
     assert_eq!(man.mission_leaf.foot_firing_sequence_latch(), 0);
-    assert!(man.navigation.path_replay.remaining_directions().is_empty());
+    assert!(
+        man.navigation
+            .path_replay()
+            .remaining_directions()
+            .is_empty()
+    );
 }
 
 /// Through the frame's object AI: a berserk computer GI's time runs down one
@@ -7792,7 +7797,7 @@ fn irradiate(
         sim.session.theater(),
         &rules.radiation,
         sim.resolved_terrain.as_ref(),
-        &mut sim.lighting_sources.pending,
+        &mut sim.lighting_sources,
     );
 }
 
@@ -8318,12 +8323,8 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
     // Decay the site below RadLevel/3 (= 166): effective = remaining×500/500
     // drops below 166 once remaining < 167.
     for frame in 3..=340 {
-        sim.radiation.tick_decay(
-            frame,
-            &rules.radiation,
-            None,
-            &mut sim.lighting_sources.pending,
-        );
+        sim.radiation
+            .tick_decay(frame, &rules.radiation, None, &mut sim.lighting_sources);
     }
     let site = sim.radiation.site_at((10, 10)).expect("site still alive");
     assert!(crate::sim::radiation::RadiationState::current_site_level(site) < 500 / 3);
@@ -9037,7 +9038,7 @@ fn projectile_shrapnel_reads_the_bullets_location_not_its_impact() {
             collision: ProjectileCollisionPolicy::NONE,
         },
     );
-    assert_eq!(sim.projectiles.get(id).unwrap().position, location);
+    assert_eq!(sim.projectiles.get(id).unwrap().position(), location);
     let mut expected = sim.scenario_rng.clone();
     let cell = projectile_random_shrapnel_cell(5, 5, &mut expected);
 
@@ -9052,9 +9053,9 @@ fn projectile_shrapnel_reads_the_bullets_location_not_its_impact() {
 
     assert_eq!(fragments.len(), 1);
     let fragment = &fragments[0];
-    assert_eq!(fragment.launch_origin, location);
+    assert_eq!(fragment.launch_origin(), location);
     assert_eq!(
-        fragment.target,
+        fragment.target(),
         ProjectileTarget::Cell {
             rx: cell.0 as u16,
             ry: cell.1 as u16,
@@ -9137,7 +9138,7 @@ fn projectile_shrapnel_count_zero_takes_every_hostile_ring_head() {
     let before = sim.scenario_rng.logical_state();
     let mut targets = commit_shrapnel_at_5_5(&mut sim, &rules)
         .into_iter()
-        .map(|fragment| fragment.target)
+        .map(|fragment| fragment.target())
         .collect::<Vec<_>>();
     targets.sort_by_key(|target| match target {
         ProjectileTarget::Entity(id) => *id,
@@ -9167,7 +9168,7 @@ fn an_inviso_fragment_is_admitted_standing_on_its_target() {
     );
     let fragments = commit_shrapnel_at_5_5(&mut sim, &rules);
     assert_eq!(fragments.len(), 1);
-    assert_eq!(fragments[0].target, ProjectileTarget::Entity(3));
+    assert_eq!(fragments[0].target(), ProjectileTarget::Entity(3));
     let aim = crate::sim::movement::ground_pose::object_get_coords(
         sim.substrate.entities.get(3).unwrap(),
         None,
@@ -9175,10 +9176,13 @@ fn an_inviso_fragment_is_admitted_standing_on_its_target() {
 
     let fragment = sim
         .projectiles
-        .get(fragments[0].id)
+        .get(fragments[0].id())
         .expect("the admitted fragment");
-    assert_eq!(fragment.position, ProjectileCoord::new(aim.x, aim.y, aim.z));
-    assert_eq!(fragment.speed_leptons_per_frame, 0);
+    assert_eq!(
+        fragment.position(),
+        ProjectileCoord::new(aim.x, aim.y, aim.z)
+    );
+    assert_eq!(fragment.speed_leptons_per_frame(), 0);
 }
 
 #[test]
@@ -9276,18 +9280,18 @@ fn gsi_04_01_projectile_shrapnel_captures_each_shared_dummy_lookup() {
     );
     assert_eq!(children.len(), 3);
     assert_eq!(
-        children[0].target,
+        children[0].target(),
         ProjectileTarget::Cell {
             rx: expected_cells[0].0 as u16,
             ry: expected_cells[0].1 as u16,
         }
     );
-    assert_eq!(children[1].target, ProjectileTarget::DummyCell);
-    assert_eq!(children[2].target, ProjectileTarget::DummyCell);
+    assert_eq!(children[1].target(), ProjectileTarget::DummyCell);
+    assert_eq!(children[2].target(), ProjectileTarget::DummyCell);
     for (index, child) in children.iter().enumerate() {
-        assert_eq!(child.launch_target, expected_positions[index]);
+        assert_eq!(child.launch_target(), expected_positions[index]);
         assert_eq!(
-            child.velocity,
+            child.velocity(),
             crate::sim::projectile::launch::shrapnel_launch_velocity(
                 detonation.impact,
                 expected_positions[index],
@@ -9296,7 +9300,7 @@ fn gsi_04_01_projectile_shrapnel_captures_each_shared_dummy_lookup() {
             )
         );
     }
-    assert_ne!(children[1].launch_target, children[2].launch_target);
+    assert_ne!(children[1].launch_target(), children[2].launch_target());
 
     let final_snapshot = dummy.snapshot();
     assert_eq!(final_snapshot.coord, expected_cells[2]);
@@ -9318,11 +9322,11 @@ fn gsi_04_01_projectile_shrapnel_captures_each_shared_dummy_lookup() {
     assert_eq!(later_target.x, 9 * 256 + 128);
     assert_eq!(later_target.y, 10 * 256 + 128);
     assert_eq!(later_target.z, 2 * 104 + BRIDGE_DECK_HEIGHT_LEPTONS);
-    assert_ne!(later_target, children[2].launch_target);
+    assert_ne!(later_target, children[2].launch_target());
     assert_eq!(
         children
             .iter()
-            .map(|spawn| spawn.launch_target)
+            .map(|spawn| spawn.launch_target())
             .collect::<Vec<_>>(),
         expected_positions
     );

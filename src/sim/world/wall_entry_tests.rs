@@ -979,7 +979,7 @@ fn assert_retail_wall_history(native_path: &'static str, wall_name: &str, direct
             .entities
             .values()
             .filter_map(|entity| {
-                let source = entity.navigation.neighbor_state.cell();
+                let source = entity.navigation.neighbor_state().cell();
                 ((45..=47).contains(&source.0)
                     && (79..=81).contains(&source.1)
                     && source != (46, 80))

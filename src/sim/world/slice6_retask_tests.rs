@@ -582,7 +582,7 @@ fn replay_hash_stable_through_slice6() {
             // 741C4F..741C78): the stale suffix behind it is never read.
             assert!(
                 tank.navigation
-                    .path_replay
+                    .path_replay()
                     .remaining_directions()
                     .is_empty(),
                 "Stop clears the live path head"

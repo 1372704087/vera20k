@@ -253,7 +253,7 @@ mod tests {
                 let shell = sim
                     .projectiles
                     .iter()
-                    .find(|(id, projectile)| projectile.source_id == gun && !before.contains(id))
+                    .find(|(id, projectile)| projectile.source_id() == gun && !before.contains(id))
                     .unwrap_or_else(|| panic!(
                         "a real Grand Cannon shell: frame={} shot={event:?} live_bullets={:?} target_health={:?}",
                         sim.session.binary_frame(),
@@ -261,7 +261,7 @@ mod tests {
                         sim.substrate.entities.get(target).map(|entity| entity.health)
                     ))
                     .1;
-                assert_eq!(shell.launch_origin, event.fire_coord);
+                assert_eq!(shell.launch_origin(), event.fire_coord);
                 let flash_type = event.muzzle_anim.expect("stock weapon selects a flash");
                 let (flash_id, flash) = sim
                     .substrate

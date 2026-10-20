@@ -186,3 +186,57 @@ fn a_human_attacker_never_rolls_against_a_blinking_mirage() {
     );
     assert_eq!(sim.scenario_rng.logical_state(), before);
 }
+
+/// A Hunt's flat walk over 256 or more objects is scored side by side
+/// ([`flat_scores`]); the blinking Mirage's roll is drawn again on the shared
+/// stream, so the pick and the stream equal the one-by-one walk's.
+#[test]
+fn a_side_by_side_hunt_walk_rolls_like_the_one_by_one_walk() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let run = |serial: bool| {
+        let mut sim = crate::sim::arena_fixture::rival_arena_with_size(rules, 1, 64);
+        sim.intern_rule_type_ids(rules);
+        sim.resolve_type_handles(rules);
+        let mirage = sim
+            .spawn_object("MGTK", "Americans", 16, 16, 64, rules)
+            .expect("mirage");
+        let rhino = sim
+            .spawn_object("HTNK", "Russians", 18, 16, 64, rules)
+            .expect("rhino");
+        for index in 0..300u16 {
+            sim.spawn_object(
+                "E1",
+                "Americans",
+                20 + index % 30,
+                30 + index / 30,
+                64,
+                rules,
+            )
+            .expect("rifleman");
+        }
+        sim.session.set_binary_frame_for_test(100);
+        sim.update_unit_disguise(mirage, rules).unwrap();
+        blink(&mut sim, mirage, 15);
+        sim.scenario_rng = SimRng::answering(0, 99, 0);
+        SERIAL_FLAT_SCORES.set(serial);
+        let walks = FLAT_WALKS_SIDE_BY_SIDE.get();
+        let pick = sim.greatest_threat_represented(rules, None, rhino, ScanMission::Hunt, None);
+        SERIAL_FLAT_SCORES.set(false);
+        (
+            pick,
+            sim.scenario_rng.logical_state(),
+            FLAT_WALKS_SIDE_BY_SIDE.get() != walks,
+        )
+    };
+    let one_by_one = run(true);
+    let side_by_side = run(false);
+    assert!(!one_by_one.2 && side_by_side.2, "the walks took both paths");
+    assert_eq!(side_by_side.0, one_by_one.0);
+    assert_eq!(side_by_side.1, one_by_one.1);
+    let mut once = SimRng::answering(0, 99, 0);
+    once.next_range_i32_inclusive(0, 99);
+    assert_eq!(one_by_one.1, once.logical_state(), "exactly one roll");
+}

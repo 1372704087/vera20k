@@ -708,6 +708,8 @@ struct ScanContext<'a> {
     /// VERA-only: the draws so far, so side-by-side scoring can tell which
     /// candidate drew ([`flat_scores`]).
     scenario_draws: std::cell::Cell<u32>,
+    /// VERA-only: [`ThreatScanOutcome`]'s `met_idle_disguise`.
+    met_idle_disguise: std::cell::Cell<bool>,
 }
 
 impl ScanContext<'_> {
@@ -1096,6 +1098,9 @@ pub(crate) struct ThreatScanOutcome {
     /// The Scenario stream after the scan's draws, `None` when it drew
     /// nothing ([`ScanContext::computer_detects_disguise`]).
     scenario_rng: Option<SimRng>,
+    /// The scan refused a disguised candidate only because it was not
+    /// blinking: a blink starting later would have it roll.
+    met_idle_disguise: bool,
 }
 
 impl ThreatScanOutcome {
@@ -1111,6 +1116,11 @@ impl ThreatScanOutcome {
     /// The scan drew from the Scenario stream.
     pub(crate) const fn drew_scenario_rng(&self) -> bool {
         self.scenario_rng.is_some()
+    }
+
+    /// See [`Self::met_idle_disguise`]'s field.
+    pub(crate) const fn met_idle_disguise(&self) -> bool {
+        self.met_idle_disguise
     }
 
     pub(crate) const fn target(&self) -> Option<u64> {
@@ -1240,14 +1250,16 @@ pub(crate) fn greatest_threat(
                 foot_wrapper_entered: false,
                 collected: None,
                 scenario_rng: None,
+                met_idle_disguise: false,
             };
         }
     };
-    let result = |target, collected, scenario_rng| ThreatScanOutcome {
+    let result = |target, collected, ctx: &ScanContext<'_>| ThreatScanOutcome {
         target,
         foot_wrapper_entered,
         collected,
-        scenario_rng,
+        scenario_rng: ctx.scenario_rng.take(),
+        met_idle_disguise: ctx.met_idle_disguise.get(),
     };
     // Base GreatestThreat6F8F80..6F8FA5 clears these two lists, retaining
     // history. Class returns before the base must preserve the prior lists.
@@ -1361,20 +1373,17 @@ pub(crate) fn greatest_threat(
         },
         scenario_rng: Default::default(),
         scenario_draws: Default::default(),
+        met_idle_disguise: Default::default(),
     };
 
     if flat {
-        return result(
-            global_list_scan(&ctx, flags, scanner_zone),
-            collected,
-            ctx.scenario_rng.take(),
-        );
+        return result(global_list_scan(&ctx, flags, scanner_zone), collected, &ctx);
     }
 
     let radius = scan_radius_cells(scanner, attacker_obj, rules, range, weapon_ranges);
     if radius <= 0 {
         // `for (r = 0; r < radius; r++)` never executes.
-        return result(None, collected, ctx.scenario_rng.take());
+        return result(None, collected, &ctx);
     }
 
     //6F9148..6F9179: arg2 is converted with signed /256 then packed to
@@ -1473,7 +1482,7 @@ pub(crate) fn greatest_threat(
         walk.flags |= 4;
     }
     if mask == 5 {
-        return result(best, collected, ctx.scenario_rng.take());
+        return result(best, collected, &ctx);
     }
 
     for ring in 0..radius {
@@ -1513,10 +1522,10 @@ pub(crate) fn greatest_threat(
             }
         }
         if best.is_some() && is_early_return_ring(ring, radius) {
-            return result(best, collected, ctx.scenario_rng.take());
+            return result(best, collected, &ctx);
         }
     }
-    result(best, collected, ctx.scenario_rng.take())
+    result(best, collected, &ctx)
 }
 
 /// `Greatest_Threat`'s mask: the caller's literal through the scanner's
@@ -1722,9 +1731,10 @@ thread_local! {
 /// reads nothing the walk changes except the shared Dummy, which a
 /// candidate's cell lookups can stamp and a later candidate's read, and the
 /// Scenario stream a computer's disguise detection draws from. Each
-/// candidate is therefore scored on a private copy of both, and when any of
-/// them stamped the Dummy or drew, the list is scored again one by one on
-/// the shared Dummy and stream, as natively.
+/// candidate is therefore scored on a private copy of both. When any of them
+/// stamped the Dummy the list is scored again one by one on the shared
+/// Dummy, as natively; otherwise only the candidates that drew are, in list
+/// order on the shared stream.
 fn flat_scores(
     ctx: &ScanContext<'_>,
     walk: WalkArgs,
@@ -1742,12 +1752,29 @@ fn flat_scores(
         let scored = crate::sim::parallel::map_with(candidates, ctx.clone(), |ctx, candidate| {
             let draws = ctx.scenario_draws.get();
             let (score, stamped) = dummy.detached_stamps(|| flat_score(ctx, walk, candidate));
-            (score, stamped || ctx.scenario_draws.get() != draws)
+            let drew = ctx.scenario_draws.get() != draws;
+            (score, stamped, drew, ctx.met_idle_disguise.replace(false))
         });
-        if scored.iter().all(|&(_, stamped)| !stamped) {
+        if scored.iter().all(|&(_, stamped, _, _)| !stamped) {
             #[cfg(any(test, feature = "test-support"))]
             FLAT_WALKS_SIDE_BY_SIDE.set(FLAT_WALKS_SIDE_BY_SIDE.get() + 1);
-            return scored.into_iter().map(|(score, _)| score).collect();
+            // Whether a candidate draws does not depend on the stream: the
+            // ones that drew are scored again, in list order, on the shared
+            // stream.
+            return scored
+                .into_iter()
+                .zip(candidates)
+                .map(|((score, _, drew, met_idle_disguise), candidate)| {
+                    if met_idle_disguise {
+                        ctx.met_idle_disguise.set(true);
+                    }
+                    if drew {
+                        flat_score(ctx, walk, candidate)
+                    } else {
+                        score
+                    }
+                })
+                .collect();
         }
     }
     candidates
@@ -2245,7 +2272,16 @@ fn evaluate_candidate(
         ctx.standing.human,
     ) {
         crate::sim::cloak_disguise::DisguiseGateOutcome::Accept => {}
-        crate::sim::cloak_disguise::DisguiseGateOutcome::Reject => return None,
+        crate::sim::cloak_disguise::DisguiseGateOutcome::Reject => {
+            if candidate_disguised_to_attacker
+                && !ctx.attacker_obj.detect_disguise
+                && blink == 0
+                && !ctx.standing.human
+            {
+                ctx.met_idle_disguise.set(true);
+            }
+            return None;
+        }
         crate::sim::cloak_disguise::DisguiseGateOutcome::AiDetectionRoll => {
             if !ctx.computer_detects_disguise() {
                 return None;

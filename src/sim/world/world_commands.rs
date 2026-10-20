@@ -112,7 +112,7 @@ impl MegaMissionExecution {
 }
 
 impl Simulation {
-    /// HouseClass::Cheer50C8C0, original1cdd1180. Trigger113 and Event2D
+    /// HouseClass::Cheer50C8C0, original gamemd. Trigger113 and Event2D
     /// share this owner. Capture the initial Techno count; re-read each live
     /// ordinal and delegate admission to virtual388/Infantry522C00. There is
     /// no House-level selected, alive, limbo, health or local-player test.
@@ -1858,7 +1858,7 @@ impl Simulation {
                 }
                 // Infantry51F190 -> Foot4D76F8 ->6FFBE0 carries the clicked
                 // object as Destination for Enter7, as Unit738902 does
-                // (Steam3e81a617): Enter7, NULL Target. Event4C747C hands it
+                // (Steam gamemd): Enter7, NULL Target. Event4C747C hands it
                 // to the class setter, which samples its live +4C through the
                 // shared coordinate owner after its prelude
                 // (foot_navigation_coordinate corpus). An object without that
@@ -2448,7 +2448,7 @@ impl Simulation {
     }
 
     /// Commit an input-admitted Techno selection through Object5F4520, then
-    /// its successful Techno6FBFD0..6FBFE4 Event33 callback (Steam3e81a617..08600).
+    /// its successful Techno6FBFD0..6FBFE4 Event33 callback (Steam gamemd).
     /// The app's picking/navigation owner admits discovery+41B and House50B6F0
     /// before emitting the ordered Select command. Keep the graphical-client
     /// B73550 gate there: replaying this command must not depend on a renderer.

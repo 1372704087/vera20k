@@ -929,7 +929,7 @@ impl Simulation {
         });
         let mut destination = Some(requested);
         let mut depot_fast_return = false;
-        // Steam gamemd3e81a617,741C4F..741CCC: an Enter Unit target
+        // Steam gamemd,741C4F..741CCC: an Enter Unit target
         // without a radio contact goes into Foot+500, not straight into
         // NavCom. Foot70D7E0 owns HELLO/CanEnter on the next object turn.
         // Reuse that pending-entry owner for vehicles as well as depots.

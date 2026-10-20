@@ -1327,7 +1327,7 @@ impl Simulation {
         }
     }
 
-    /// Execute58 MeteorShower6E2C40..6E2E12 (Steam3e81a617). Literal types
+    /// Execute58 MeteorShower6E2C40..6E2E12 (Steam gamemd). Literal types
     /// are find-only; raw signed XY remainders precede each constructor, whose
     /// launch/Start draws are visible to the following selection. 842AFC holds
     /// [1,5,9,15]. No House, SuperWeapon, no-effects flag or per-piece delay.

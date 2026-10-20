@@ -125,7 +125,7 @@ impl Simulation {
     /// not DoAction's interruption gate: both paths call51D6F0(32,0,0).
     /// House50C8C0 passes0; SlaveManager6B0BD1 passes1. GetMission5B3040
     /// reads the current selector, falling back to the queued selector.
-    /// Steam3e81a617..08600; tools/spatial_oracle/infantry_action_callback
+    /// Steam gamemd; tools/spatial_oracle/infantry_action_callback
     /// --cheer records admission, retained Doing/Stage and RNG boundaries.
     pub(crate) fn infantry_cheer(
         &mut self,

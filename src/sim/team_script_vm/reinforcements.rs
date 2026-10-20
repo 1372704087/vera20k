@@ -1,6 +1,5 @@
 //! Action4/7 Team creation, with the existing VM, Techno constructor, class
-//! Unlimbo, admission and destructor owners. Original YR1.001 SHA256
-//! 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c:
+//! Unlimbo, admission and destructor owners. Original YR1.001:
 //! CreateTeam6F09C0, SpawnReinforcements65D8E0, CreateMembers65DD30 and
 //! PlaceMembers65E010. Executable controls: tools/spatial_oracle/team_creation.
 //!
@@ -175,7 +174,7 @@ impl Simulation {
     }
 
     /// Chrono reinforcement65EC30, called by Action107. Original active-YR
-    /// Steam3e81a617..08600; executable controls are maintained by
+    /// Steam gamemd; executable controls are maintained by
     /// tools.spatial_oracle.trigger_action_values --chrono-reinforcement.
     /// This shares65DD30's
     /// member constructor and the existing placement, ammo, COM/piggyback and
@@ -418,7 +417,7 @@ impl Simulation {
     /// not replace their locomotors or manufacture another set of infantry.
     /// Constructor then edge pick then mission/target then scoped Unlimbo
     /// then whole cargo attach and direct Commence preserve the native order.
-    /// Steam3e81a617..08600, original literals/slots/reader packet in the
+    /// Steam gamemd, original literals/slots/reader packet in the
     /// ALL01 handoff; aircraft/paradrop owners carry the subsequent lifecycle.
     fn place_paradrop_reinforcement_members(
         &mut self,

@@ -1373,7 +1373,7 @@ impl Simulation {
     /// removes overlays, temporarily Limbos ground Technos, and restores them
     /// in reverse after the new Building's ordinary +D8 placement returns.
     /// Original body/vtables: ALL01 time-warp-restore-placement-native packet,
-    /// Steam SHA2563e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600.
+    /// Steam gamemd.
     pub(crate) fn place_building_with_cleared_foundation(
         &mut self,
         stable_id: u64,
@@ -1456,7 +1456,7 @@ impl Simulation {
         placed
     }
 
-    /// Foot4DF510 (all three Foot-class vtables' +490), Steam3e81a617..08600.
+    /// Foot4DF510 (all three Foot-class vtables' +490), Steam gamemd.
     /// Temporarily Limbo non-Building Technos on the target ground Cell,
     /// then call the concrete ordinary Unlimbo. Refusal restores old Locations;
     /// success restores old objects nearby, with allowBridge=false (4DF732).
@@ -1661,7 +1661,7 @@ impl Simulation {
     /// usable-area placement takes the requested quadrant without a draw.
     /// Native frontend/FootXYZ/three-stream controls:
     /// tools/spatial_oracle/_factory_infantry_output, Infantry51DFF0 and
-    /// Cell481180 on gamemd SHA1cdd1180; infantry_unlimbo_gate_native.json.
+    /// Cell481180 on gamemd; infantry_unlimbo_gate_native.json.
     pub(crate) fn infantry_unlimbo_position(
         &mut self,
         mut position: RevealPosition,

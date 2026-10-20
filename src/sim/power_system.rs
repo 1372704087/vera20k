@@ -54,7 +54,7 @@ impl PowerHealthSample {
 }
 
 /// Per-House power totals retained until native House+5778 is invalidated.
-/// Original gamemd.exe (SHA2561cdd1180e490...) exposes these same retained
+/// Original gamemd.exe exposes these same retained
 /// values through its IHouse interface, rather than reassessing on a query.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PowerState {

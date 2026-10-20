@@ -1,5 +1,5 @@
 //! Scenario cargo switches and Unit73838A's production fatal-receiver consumer.
-//! Native control flow: Steam gamemd SHA2563e81a617..08600, Execute97
+//! Native control flow: Steam gamemd, Execute97
 //! 6DD8EE, Execute87 6DDBD5, Basic68A217/68A235/68A5A7 and Unit73838A.
 //! Existing crate/FNPC oracles own numeric values and RNG; these tests do
 //! not substitute a hand-computed placement or timer golden.

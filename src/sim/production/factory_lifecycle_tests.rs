@@ -61,7 +61,7 @@ fn refused_begin_still_publishes_the_local_prediction_gate_transition() {
 /// completed buildings, running Idle animation and wallet are scene priors; payment, held identity,
 /// PLACE, producer missions and animation retirement all use the frame API.
 /// Original House4FB563 -> Building443C60/444187 and Unload44D880 ->
-/// Production8 expiry44E8F0 establish this lifecycle (gamemd SHA2561cdd).
+/// Production8 expiry44E8F0 establish this lifecycle (gamemd).
 #[test]
 fn paid_destroyer_runs_shipyard_production_animation_through_idle_recovery() {
     use crate::sim::command::{Command, CommandEnvelope};
@@ -308,10 +308,6 @@ fn record_last_built_matches_native_class_slots_score_gate_and_rng() {
     ))
     .expect("original built-type controls");
     let native = &corpus["record_last_built"];
-    assert_eq!(
-        native["native_sha256"],
-        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
-    );
     let rows = native["controls"].as_array().unwrap();
     assert_eq!(rows.len(), 8);
     let categories = [
@@ -1114,14 +1110,6 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
         "tools/sidebar_oracle/factory_sale_queue.json",
     ))
     .unwrap();
-    let metadata: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-        "tools/sidebar_oracle/factory_sale_queue.meta.json",
-    ))
-    .unwrap();
-    assert_eq!(
-        metadata["native_sha256"],
-        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
-    );
     let rows = native["controls"].as_array().unwrap();
     assert_eq!(rows.len(), 3);
     for row in rows {
@@ -1302,7 +1290,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
 /// armed by the test. Original4FB4B7 ->4FB6B0 ->4FB7FF reads the delivered
 /// object's Location after successor promotion, and ignores the local-house
 /// notification gate. Reader/resource evidence: House creation-cue audit,
-/// original gamemd SHA2561cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c.
+/// original gamemd.
 #[test]
 fn paid_boris_delivery_requests_its_creation_cue_once_at_the_delivered_location() {
     use crate::rules::object_type::ObjectCategory;

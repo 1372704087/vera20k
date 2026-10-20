@@ -1093,7 +1093,7 @@ impl Simulation {
                 // Infantry51BB81..51BBC0 runs the ordinary Teleport's extra
                 // Process even in Limbo. Its71930C..719322 early arm calls the
                 // existing TimerCheck owner; FootAI's later Limbo gate remains.
-                // Native execution: infantry_teleport_prologue.json (Steam3e81a617).
+                // Native execution: infantry_teleport_prologue.json (Steam gamemd).
                 self.process_teleport(id, Some(rules), ctx);
             }
             if self

@@ -29,10 +29,6 @@ fn all03_inputs() -> Option<(RuleSet, MapFile)> {
     let raw = assets.get_ref("ALL03UMD.MAP").expect("retail ALL03");
     let map = MapFile::from_bytes(raw).unwrap();
     let data = corpus();
-    assert_eq!(
-        data["retail_inputs"]["native_sha256"],
-        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
-    );
     for source in data["retail_inputs"]["sources"].as_array().unwrap() {
         let name = source["file"].as_str().unwrap();
         assert_eq!(

@@ -2,8 +2,7 @@
 //!
 //! Native: constructor41D380, ShouldUpdateTarget41D7E0, SetTarget41D830,
 //! Start41D860, Reset41DA20, Clear41DB40, PointerExpired41D540, Remove41DC80.
-//! Source: original gamemd.exe SHA256
-//! 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c.
+//! Source: original gamemd.exe.
 //! These control-flow bodies draw no RNG. Aircraft construction/placement and
 //! tint stepping use their shared owners. The manager has no per-frame AI.
 

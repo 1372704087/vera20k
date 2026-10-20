@@ -123,7 +123,7 @@ impl Simulation {
     /// the immediate whole-map update independently of the Trigger House.
     /// The signed half-level and bridge100/400 receiver match Action17,
     /// while conceal geometry and the complete two-pass sweep stay shared
-    /// with their own owners. Steam3e81a617, executed13 empty-resident
+    /// with their own owners. Steam gamemd, executed13 empty-resident
     /// controls in tools/spatial_oracle/trigger_conceal_area.json. No own
     /// RNG draw, timer or detach; resident callbacks use5865F0's owner.
     pub(crate) fn trigger_conceal_at_waypoint(
@@ -998,7 +998,7 @@ impl Simulation {
     /// Execute51 -> Map577C90. Its nonnull House loses241 even when it is
     /// not PlayerPtr; only null/current Player changes the local map. The
     /// allocated-cell receiver leaves487690 counters rather than overwriting
-    /// them as577AB0 does. Steam3e81a617..08600,577C90..577D89.
+    /// them as577AB0 does. Steam gamemd,577C90..577D89.
     pub(crate) fn trigger_reshroud_map(
         &mut self,
         incoming: Option<crate::sim::intern::InternedId>,

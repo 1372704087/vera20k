@@ -491,7 +491,7 @@ pub(crate) fn init_capture_manager(
 
 impl Simulation {
     /// House50D290 /50D2D0, reached by active TAction123/124 through
-    /// 6E0CA0/6E0D00 (Steam gamemd3e81a617..08600). Walk the current House
+    /// 6E0CA0/6E0D00 (Steam gamemd). Walk the current House
     /// building list backwards; ChangeOwner callbacks mutate that same list.
     /// No health/limbo/type filter and no independent ownership copy.
     pub(crate) fn control_house_buildings(

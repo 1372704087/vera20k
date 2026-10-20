@@ -1,5 +1,5 @@
 //! House50D6D0, called by TAction128/6E1A40: all owned ground Foots to a
-//! waypoint's placement sweep. Original Steam gamemd SHA3e81a617..08600;
+//! waypoint's placement sweep. Original Steam gamemd;
 //! instruction bodies via tools.native_inspect. Existing cell/entry/sub-cell
 //! and Chrono owners retain their arithmetic, RNG, occupancy and cleanup.
 

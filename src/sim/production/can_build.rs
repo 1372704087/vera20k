@@ -479,8 +479,7 @@ pub(crate) fn initialize_factory_primary(sim: &mut Simulation, id: u64, rules: &
 /// Building WhatAction447210's ordinary factory self arm4472EC..447348.
 /// Techno7000B9..7000E8 owns the separate lone-selected/current-player gate.
 /// A current primary or InvisibleInGame factory answers Action0, not Action4.
-/// Source: original gamemd.exe SHA256
-/// 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c.
+/// Source: original gamemd.exe.
 pub fn can_select_factory_primary(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
     sim.substrate.entities.get(id).is_some_and(|building| {
         building.category() == EntityCategory::Structure
@@ -497,8 +496,7 @@ pub fn can_select_factory_primary(sim: &Simulation, rules: &RuleSet, id: u64) ->
 /// The receiver owns its live-Building gate. There is no owner, limbo, online,
 /// Selling or health admission in this native body. Returns control admission;
 /// the resulting native+3D3 value is the existing owner's per-ID query.
-/// Source: original gamemd.exe SHA256
-/// 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c;
+/// Source: original gamemd.exe;
 /// consumed controls: tools/spatial_oracle/building_manual_primary.json.
 pub(crate) fn toggle_factory_primary(sim: &mut Simulation, rules: &RuleSet, id: u64) -> bool {
     let Some((owner, factory, naval, category)) =

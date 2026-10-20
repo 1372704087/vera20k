@@ -17,10 +17,6 @@ fn capture_accounting_corpus() -> &'static Value {
         corpus["kind"],
         "bounded-original-engineer-capture-accounting"
     );
-    assert_eq!(
-        corpus["native_sha256"],
-        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
-    );
     corpus
 }
 

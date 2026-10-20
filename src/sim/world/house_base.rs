@@ -1253,10 +1253,6 @@ mod tests {
             "tools/spatial_oracle/house_base_return.meta.json",
         ))
         .unwrap();
-        assert_eq!(
-            meta["native_sha256"].as_str(),
-            Some("1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c")
-        );
         assert_eq!(meta["entry_points"]["ordinary_return"], "0x00500200");
         let rows = corpus["home_return"].as_array().unwrap();
         assert_eq!(rows.len(), 28);

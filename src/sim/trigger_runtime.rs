@@ -1262,7 +1262,7 @@ impl Simulation {
     /// The caller supplies its existing anti-diagonal final cell iterator.
     /// Horizontal25 wins over vertical26 for a Tag carrying both. Flags
     /// remain on cells after a later Tag detach, as the native writer does.
-    /// Steam3e81a617..08600; tools/spatial_oracle/tag_lifecycle --line-events.
+    /// Steam gamemd; tools/spatial_oracle/tag_lifecycle --line-events.
     pub(crate) fn initialize_cell_trigger_lines(
         &self,
         terrain: &mut crate::map::resolved_terrain::ResolvedTerrainGrid,
@@ -1535,11 +1535,11 @@ impl Simulation {
             // not normal/target ambient: signed inclusive comparisons with
             // Event+34. Both return directly, without House/raised-kind or
             // A8ED6B admission, persistence, timer, RNG or detach writes.
-            // Original Steam gamemd3e81a617..08600, instruction reading.
+            // Original Steam gamemd, instruction reading.
             45 => self.session.lighting().current_ambient() <= condition.value,
             46 => self.session.lighting().current_ambient() >= condition.value,
             17 => {
-                // Steam3e81a617..08600:71EE82 takes the incoming House;
+                // Steam gamemd:71EE82 takes the incoming House;
                 // 71EF3F..71EF89 reads tracked+2F0, then its ordered+68 list.
                 // Only null/limbo entries are skipped: neither Health nor
                 // Alive gates this leaf. Factory is the raw nonzero RTTI,
@@ -1568,7 +1568,7 @@ impl Simulation {
                 })
             }
             19..=22 => {
-                // Steam3e81a617: HasOccurred71EFEB..71F03D reads incoming
+                // Steam gamemd: HasOccurred71EFEB..71F03D reads incoming
                 // House+26C/+274/+270/+278, not a Country or built count.
                 // Match sets persistence; mismatch leaves it alone. The null
                 // House takes the generic true tail without that write.
@@ -1594,7 +1594,7 @@ impl Simulation {
                 matched
             }
             12 | 52 => {
-                // Steam3e81a617..08600: HasOccurred71EF01/71EF20 calls
+                // Steam gamemd: HasOccurred71EF01/71EF20 calls
                 // IHouse::AvailableMoney4F6990 on Register7264C0's incoming
                 // House, then compares the literal signed threshold inclusively.
                 // No raised-kind gate, persistence, retained-House or timer write.
@@ -1682,7 +1682,7 @@ impl Simulation {
                 // House+5488/+5434 loss counters with Event+34 using >=.
                 // The null-House tail is true; neither arm latches, writes
                 // the timer/retained House, draws RNG or detaches anything.
-                // Steam3e81a617..08600; tag_lifecycle --loss-threshold-events.
+                // Steam gamemd; tag_lifecycle --loss-threshold-events.
                 let Some(owner) = incoming_house else {
                     return true;
                 };
@@ -1697,7 +1697,7 @@ impl Simulation {
                 (losses as i32) >= condition.value
             }
             3 | 5 | 9 | 10 | 11 | 55 | 56 => {
-                // Steam3e81a617..08600,71EC9A/71F0E1/71F0FB:3 requires
+                // Steam gamemd,71EC9A/71F0E1/71F0FB:3 requires
                 // its own raised kind and clear A8ED6B before reading244;
                 // 5 skips that gate and reads1F4. Both use the existing
                 // House notifications. In particular, do not invent a3
@@ -1713,8 +1713,8 @@ impl Simulation {
                 //Unit/Infantry totals and the tracked Building scalar.
                 //10's71F115..71F12E tests tracked buildings <=0, including
                 //constructor-complete Limbo until actual destruction. Steam
-                //3e81a617..08600; tag_lifecycle --building-loss-events.
-                //55/56: Steam3e81a617..08600, 71F159 /71F16F..71F187;
+                //gamemd; tag_lifecycle --building-loss-events.
+                //55/56: Steam gamemd, 71F159 /71F16F..71F187;
                 //tools/spatial_oracle/tag_lifecycle.py --naval-land-events.
                 //56's TEST after SUB observes wrapping subtraction, not a
                 //signed comparison of the two source counts. These events
@@ -1791,13 +1791,13 @@ impl Simulation {
             //71EC83/71F284 routes these discrete events through71EC9A:
             //matching raised kind and clear A8ED6B, then71F1B1 AL1.
             //All secondary switch entries are the generic true tail; no
-            //House-retention or persistence write. Original Steam identity:
-            //3e81a617..08600; RecordKill702D40 publishes4/6/7/48/29 here.
+            //House-retention or persistence write. Original Steam gamemd;
+            //RecordKill702D40 publishes4/6/7/48/29 here.
             //Object5F55EA..5F573F raises38..43 through this same gate. The
             //original bodies ignore value/incoming House/actor/source here;
             //tag_lifecycle.py --damage-events / trigger_damage_events.json
             //execute30 controls, including prior persistence and NULL House.
-            //49/50 use the same gate. Steam3e81a617,71EC9A/71F1B1;
+            //49/50 use the same gate. Steam gamemd,71EC9A/71F1B1;
             //trigger_action_values --crate records their original predicates.
             //31: bridge575EE0 raises it on each tagged span cell. After this
             //gate,71EE91 routes it to71F069, whose Country502D30 lookup
@@ -2110,7 +2110,7 @@ impl Simulation {
     /// each raise re-reads the actor's packed Location cell. Bridge100/400
     /// requires OnBridge8C. This does not invent a Fly per-cell producer.
     /// Source: tools/spatial_oracle/tag_lifecycle.py --entered-cell-events;
-    /// original Steam3e81a617..08600. No own RNG/timer/detach.
+    /// original Steam gamemd. No own RNG/timer/detach.
     pub(crate) fn dispatch_foot_cell_tag_events(
         &mut self,
         actor: u64,
@@ -2617,7 +2617,7 @@ impl Simulation {
     /// Shared country selection in6E0AA0/6E0B60/6E3120/6E3180..6E32A0.
     ///0x2325 (8997) invokes original726910's retained live+2C getter, not Spring's
     ///incoming authored House. The special/Country lookup has one world owner.
-    /// Executed controls: trigger_all_change_house.json (Steam3e81a617..08600).
+    /// Executed controls: trigger_all_change_house.json (Steam gamemd).
     fn live_action_house(
         &self,
         live: usize,
@@ -2633,7 +2633,7 @@ impl Simulation {
         }
     }
 
-    /// Action36/6E0B60..6E0C91, Steam3e81a617..08600. Two forward mutable
+    /// Action36/6E0B60..6E0C91, Steam gamemd. Two forward mutable
     /// Techno-array passes put Powered/PoweredSpecial Buildings last, then
     /// run their original4549B0 dispatcher even for a same-owner callback.
     /// No own RNG, timer or detach; ChangeOwner and operational consumers
@@ -2782,7 +2782,7 @@ impl Simulation {
         let action = &action.entry;
         match action.kind {
             6 => {
-                // Steam3e81a617..08600, Execute6DEBF9..6DEC3B:
+                // Steam gamemd, Execute6DEBF9..6DEC3B:
                 // shared6E45E0 selects the House, then IHouse vt+38 is
                 // AllToHunt501400. A NULL Trigger/House is rejected.
                 // Native evidence: trigger_action_values --all-to-hunt.
@@ -2802,7 +2802,7 @@ impl Simulation {
                 );
             }
             74 | 75 => {
-                // Steam3e81a617:6DF2D1/6DF310 -> existing6E45E0 selector,
+                // Steam gamemd:6DF2D1/6DF310 -> existing6E45E0 selector,
                 // then only House+1F2=1/0 at6DF2FA/6DF339. No immediate
                 // timer, Team, sibling-latch or RNG change belongs here.
                 // Native actions/consumer streams: --ai-activation corpus.
@@ -2823,7 +2823,7 @@ impl Simulation {
                 // writes only House+250=4. No immediate FireSale/Hunt and
                 // no strategy timer reset. Those remain with house_strategy.
                 // The shared6E45E0 selector rejects a null Trigger.
-                // Steam3e81a617..08600, --no-factories-events Action9 controls.
+                // Steam gamemd, --no-factories-events Action9 controls.
                 let (Some(live), Some(value), Some(rules)) = (context.live_index, value, rules)
                 else {
                     return false;
@@ -2837,7 +2837,7 @@ impl Simulation {
                 house.strategy_emergency_mut().set_state_four();
             }
             12 => {
-                // Steam3e81a617..08600, Execute6DF051..6DF08F: reverse
+                // Steam gamemd, Execute6DF051..6DF08F: reverse
                 // live Trigger array, then726720's deferred marker. No
                 // immediate detach, RNG or timer write belongs to this action.
                 if let Some(DefinitionReference::Trigger(target)) = reference {
@@ -2908,7 +2908,7 @@ impl Simulation {
             }
             103 => self.session.set_scenario_timer_caption(action.csf_label()),
             20 => {
-                // Steam3e81a617..08600: Execute6DE8E4..6DE903 passes +90
+                // Steam gamemd: Execute6DE8E4..6DE903 passes +90
                 // to Theme720B20 and returns AL1, even when audio is gated.
                 // Type8 is an untrimmed section key, not Sound= or an ordinal.
                 // The process catalog is immutable, so its existing owner can
@@ -3086,7 +3086,7 @@ impl Simulation {
                 return matched;
             }
             91 => {
-                // Steam gamemd3e81a617..08600:6DDAF9..6DDB5A walks
+                // Steam gamemd:6DDAF9..6DDB5A walks
                 // Infantry A83DEC/A83DF8, NOT Foot. Only Alive90,
                 // Marked74,!Limbo81 and TagContains6E5380 of this live
                 // Trigger gate virtual514/5220F0. Health/House/value do not.
@@ -3121,7 +3121,7 @@ impl Simulation {
                 use crate::map::entities::EntityCategory;
                 use crate::sim::mission::{MissionId, MissionType};
 
-                // Steam3e81a617..08600: Execute6DDB67 ->6E01C0 (81),
+                // Steam gamemd: Execute6DDB67 ->6E01C0 (81),
                 //6DDBF6 (82),6DDC71 (83). Original execution, including
                 //Tag6E5380/GetMission5B3040/Queue5B35E0/41BA90:
                 //tools/spatial_oracle/trigger_action_values.py --wakeup.
@@ -3582,7 +3582,7 @@ impl Simulation {
                 );
             }
             108 => {
-                //Steam3e81a617: active Execute6DF69B..6DF6CD ->68BCC0
+                //Steam gamemd: active Execute6DF69B..6DF6CD ->68BCC0
                 //->56BEC0. Unset valid waypoints supply(0,0) to FNPC; the
                 //Place AL is returned. Compare the full scalar with20 before
                 //the fixed choice's low-byte store, including276 -> byte20.
@@ -3699,7 +3699,7 @@ impl Simulation {
                 // Execute6DFCE3 -> TAction6E3B40 uses the incoming House,
                 // not Action.value as a selector. House50BCD0 owns the raw
                 // frame-duration timer and5779 dirty flag; reuse that port.
-                // Native Steam3e81a617..08600; timer/availability goldens:
+                // Native Steam gamemd; timer/availability goldens:
                 // tools/superweapon_oracle.json::radar_outage.
                 let Some(owner) = context.incoming_house else {
                     return false;
@@ -3787,7 +3787,7 @@ impl Simulation {
                 effects.extend(self.session.pause_scenario(value.unwrap_or(0)));
             }
             87 => {
-                // Steam3e81a617..08600, Execute6DDBD5..6DDBF3.
+                // Steam gamemd, Execute6DDBD5..6DDBF3.
                 // This is the retained ice flag; never run the ore grower.
                 let Some(value) = value else {
                     return false;
@@ -4258,7 +4258,7 @@ impl Simulation {
                 // 140 calls House50DA20: cell+54F4 and current frame+54FC.
                 // 141 calls50DA50: clear cell and restore frame-100.
                 // 135/136 controls: trigger_superweapon_state.meta.json.
-                // 140/141: original Steam gamemd3e81a617..08600 instructions.
+                // 140/141: original Steam gamemd instructions.
                 let Some(owner) = context.incoming_house else {
                     return false;
                 };
@@ -4290,7 +4290,7 @@ impl Simulation {
                 }
             }
             90 => {
-                // Steam3e81a617, Execute6DF51B..6DF537: GetWaypoint68BCC0's
+                // Steam gamemd, Execute6DF51B..6DF537: GetWaypoint68BCC0's
                 // packed cell (an unset slot is (0,0)) goes straight to
                 // LightningStorm::CreateCloudBolt53A140; the action succeeds.
                 let (Some(rules), Some(waypoint)) = (rules, action.waypoint_index) else {
@@ -4439,7 +4439,7 @@ impl TriggerRuntime {
         tag.is_some()
     }
     /// Physical Object storage disappears without a SetTag5F5B50 call.
-    /// Steam3e81a617 Object5F3B80, including actual scalar/drain controls in
+    /// Steam gamemd Object5F3B80, including actual scalar/drain controls in
     /// tag_lifecycle --damage-events, leaves Tag+2C and the Tag itself intact.
     /// Remove only the Rust index whose source object no longer exists; no
     /// counter write, pending ticket, RNG draw or timer change belongs here.
@@ -4509,7 +4509,7 @@ impl TriggerRuntime {
     }
     /// Pickup481AC1 writes Scenario+34BE only after its optional Tag callback
     /// survives. Logic55AFB0 consumes and clears this existing serialized flag.
-    /// Steam3e81a617; tools/spatial_oracle/trigger_crate.json.
+    /// Steam gamemd; tools/spatial_oracle/trigger_crate.json.
     pub(crate) fn mark_crate_pickup_event(&mut self) {
         self.dirty[3] = true;
     }

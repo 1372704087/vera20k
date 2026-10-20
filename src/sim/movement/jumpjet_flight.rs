@@ -1,7 +1,7 @@
 //! Jumpjet flight kernel: the per-frame altitude and translation body shared by
 //! every moving Jumpjet state, and the cruise state that steers it.
 //!
-//! gamemd-derived (disassembly read 2026-09-15; YR 1.001, SHA-256 `1cdd1180…4298c`):
+//! gamemd-derived (disassembly read 2026-09-15; YR 1.001):
 //!
 //! - `JumpjetLocomotionClass::Update_Coordinates_And_Altitude @ 0x0054D0F0`,
 //!   called from `Process @ 0x0054AEC0` whenever the locomotor reports moving.

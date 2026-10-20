@@ -1129,7 +1129,7 @@ pub(crate) fn tick_active_superweapon_effects(
         sim.update_lighting();
     }
     let dominator = psychic_dominator::process(sim, rules, overlay_registry, frame_effects);
-    let chrono = sim.process_chrono_screen_effect();
+    let chrono = sim.session.process_chrono_screen_effect();
     sim.publish_trigger_effects(chrono);
     let storm = lightning_storm::process(sim, rules, overlay_registry, frame_effects);
     unit_delivery::tick(sim, rules, overlay_registry, frame_effects);
@@ -1306,7 +1306,7 @@ pub(crate) fn update_owned_supers(sim: &mut Simulation, rules: &RuleSet, owner: 
             }
         };
         if changed {
-            sim.request_house_tech_tree_recheck(owner);
+            sim.houses.request_house_tech_tree_recheck(owner);
             sim.sound_events
                 .push(SimSoundEvent::SuperWeaponStatusChanged {
                     owner,

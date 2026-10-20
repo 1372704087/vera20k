@@ -188,9 +188,9 @@ pub fn raging(sim: &Simulation) -> bool {
 /// `LightningStorm::Stop @ 0x0053A090` (Steam gamemd3e81a617..08600):
 /// only a raging storm sets TimeToEnd. Countdown, clouds, timers, owner and
 /// lighting stay untouched until Process53A6C0 consumes the request.
-pub(crate) fn request_end(sim: &mut Simulation) {
-    if sim.lightning_storm.active {
-        sim.lightning_storm.time_to_end = true;
+pub(crate) fn request_end(lightning_storm: &mut LightningStorm) {
+    if lightning_storm.active {
+        lightning_storm.time_to_end = true;
     }
 }
 

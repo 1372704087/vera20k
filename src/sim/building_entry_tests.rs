@@ -893,12 +893,13 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
         )),
         "entry sound uses the arriving Foot's GetCoords"
     );
-    sim.mission_assign_exact(
-        reactor,
-        MissionId::from_known(MissionType::Unload),
-        sim.session.binary_frame(),
-    )
-    .unwrap();
+    sim.substrate
+        .mission_assign_exact(
+            reactor,
+            MissionId::from_known(MissionType::Unload),
+            sim.session.binary_frame(),
+        )
+        .unwrap();
 
     // Mission_Unload's scan uses the building Location (`vt+0x1B8`),
     // distinct from GetCoords' foundation center used by its sound tail.
@@ -1619,7 +1620,8 @@ fn a_full_bio_reactor_takes_an_arriving_contact() {
     let (mut sim, _) = arena(&rules);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "YuriCountry", 16, 10);
     let foot = spawn(&mut sim, &rules, "INIT", "YuriCountry", 13, 10);
-    sim.mission_assign_exact(foot, MissionId::from_known(MissionType::Enter), 0)
+    sim.substrate
+        .mission_assign_exact(foot, MissionId::from_known(MissionType::Enter), 0)
         .unwrap();
     let _ = sim.assign_destination_represented(
         foot,
@@ -2095,7 +2097,8 @@ fn the_guard_head_garrison_seek_answers_captures_rate() {
     let infantry = spawn(&mut sim, &rules, "E1", "YuriCountry", 10, 10);
     set_should_enter_occupiable_for_test(sim.substrate.entities.get_mut(infantry).unwrap(), true);
     let now = sim.session.binary_frame();
-    sim.mission_assign_exact(infantry, MissionId::from_known(MissionType::Guard), now)
+    sim.substrate
+        .mission_assign_exact(infantry, MissionId::from_known(MissionType::Guard), now)
         .unwrap();
     let before_rng = sim.scenario_rng.logical_state();
 
@@ -2606,12 +2609,13 @@ fn nearest_occupiable_production_matches_native_controls() {
             })
             .collect();
         let now = sim.session.binary_frame();
-        sim.mission_assign_exact(
-            foot,
-            MissionId::from_raw(row["mission"].as_i64().unwrap() as i32),
-            now,
-        )
-        .unwrap();
+        sim.substrate
+            .mission_assign_exact(
+                foot,
+                MissionId::from_raw(row["mission"].as_i64().unwrap() as i32),
+                now,
+            )
+            .unwrap();
         let nav = row["nav"].as_u64().map(|index| buildings[index as usize]);
         sim.substrate
             .entities
@@ -2740,7 +2744,8 @@ fn guard_and_area_guard_retry_script64_without_a_scenario_draw() {
             true,
         );
         let now = sim.session.binary_frame();
-        sim.mission_assign_exact(occupier, MissionId::from_known(mission), now)
+        sim.substrate
+            .mission_assign_exact(occupier, MissionId::from_known(mission), now)
             .unwrap();
         let rng = sim.scenario_rng.logical_state();
 

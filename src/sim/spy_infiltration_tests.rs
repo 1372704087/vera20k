@@ -517,7 +517,8 @@ fn a_computer_spy_attacking_a_power_plant_goes_in() {
         sim.interner.get("Russians").unwrap(),
     );
     let now = sim.session.binary_frame();
-    sim.mission_assign_exact(spy, MissionId::from_known(MissionType::Attack), now)
+    sim.substrate
+        .mission_assign_exact(spy, MissionId::from_known(MissionType::Attack), now)
         .unwrap();
     sim.assign_target_represented(
         spy,

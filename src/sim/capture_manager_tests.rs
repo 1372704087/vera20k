@@ -283,7 +283,7 @@ fn native_mirage_ring_tail_uses_current_house_or_campaign_control_flags() {
         // Both input values ensure this is a write, not an accidentally
         // correct constructor default. Native used a nonzero poison byte.
         for initial_hidden in [false, true] {
-            sim.set_anim_hidden(ring, initial_hidden);
+            sim.substrate.set_anim_hidden(ring, initial_hidden);
             sim.update_disguise_ring_visibility(target);
             assert_eq!(
                 u8::from(sim.anim(ring).unwrap().draw_runtime().hidden),
@@ -380,7 +380,9 @@ fn a_captured_buildings_ring_sits_height_levels_above_its_centre() {
     let plant = spawn(&mut sim, &rules, "GAPOWR", "Americans", 14, 10);
     // Built: CanCapture refuses a building still in Construction.
     let now = sim.session.binary_frame();
-    let _ = sim.mission_assign_exact(plant, MissionId::from_known(MissionType::Guard), now);
+    let _ =
+        sim.substrate
+            .mission_assign_exact(plant, MissionId::from_known(MissionType::Guard), now);
     assert!(sim.capture_unit(
         yuri,
         plant,
@@ -531,7 +533,11 @@ fn can_capture_gates() {
 
     let seller = spawn(&mut sim, &rules, "E1", "Americans", 19, 12);
     let now = sim.session.binary_frame();
-    let _ = sim.mission_assign_exact(seller, MissionId::from_known(MissionType::Selling), now);
+    let _ = sim.substrate.mission_assign_exact(
+        seller,
+        MissionId::from_known(MissionType::Selling),
+        now,
+    );
     assert!(!sim.can_capture(yuri, seller, &rules), "Selling");
 }
 
@@ -1758,7 +1764,11 @@ fn a_controlled_mcv_cannot_deploy_and_a_controlled_yard_cannot_repack() {
     let own = spawn(&mut sim, &rules, "GACNST", "Americans", 22, 26);
     for yard in [stolen, own] {
         let now = sim.session.binary_frame();
-        let _ = sim.mission_assign_exact(yard, MissionId::from_known(MissionType::Guard), now);
+        let _ = sim.substrate.mission_assign_exact(
+            yard,
+            MissionId::from_known(MissionType::Guard),
+            now,
+        );
     }
     assert!(sim.capture_unit(
         prime,
@@ -1838,7 +1848,9 @@ fn a_building_mid_construction_cannot_be_captured() {
     let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
     let plant = spawn(&mut sim, &rules, "GAPOWR", "Americans", 14, 10);
     let now = sim.session.binary_frame();
-    let _ = sim.mission_assign_exact(plant, MissionId::from_known(MissionType::Guard), now);
+    let _ =
+        sim.substrate
+            .mission_assign_exact(plant, MissionId::from_known(MissionType::Guard), now);
     sim.substrate
         .entities
         .get_mut(plant)

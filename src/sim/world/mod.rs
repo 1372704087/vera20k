@@ -1221,12 +1221,14 @@ pub struct Simulation {
     /// destruction removes it.
     #[serde(default)]
     object_custom_sounds: BTreeMap<u64, String>,
-    /// Bale deposit events emitted during refinery dock unloading and consumed
-    /// by the authoritative frame tail for SpecialAnim and particle creation.
+    /// Test observation of each refinery unload gate. The dock commits the
+    /// gate's smoke and SpecialAnim itself; the frame tail drops these.
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     pub(crate) bale_events: Vec<crate::sim::components::BaleDepositEvent>,
-    /// Tank-bunker wall-anim events — walls rising on install / falling on
-    /// teardown. Consumed by the authoritative frame tail before hashing.
+    /// Test observation of each tank-bunker wall rise or fall. The bunker link
+    /// sets the wall anim slots itself; the frame tail drops these.
+    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     pub(crate) bunker_wall_events: Vec<crate::sim::components::BunkerWallAnimEvent>,
     /// Resolved TeamClass/ScriptType runtime; scenario INI parsing remains a
@@ -3879,7 +3881,9 @@ impl Simulation {
             waves: crate::sim::wave::WaveStore::new(),
             active_wave_links: BTreeMap::new(),
             object_custom_sounds: BTreeMap::new(),
+            #[cfg(any(test, feature = "test-support"))]
             bale_events: Vec::new(),
+            #[cfg(any(test, feature = "test-support"))]
             bunker_wall_events: Vec::new(),
             team_script_vm: TeamScriptVm::default(),
             houses: crate::sim::houses::Houses::default(),

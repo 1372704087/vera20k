@@ -143,9 +143,9 @@ fn busy_factory_exit_product(
     )
     .unwrap();
     let factory = sim.production.factories_mut().test_first_mut().unwrap();
-    factory.progress = super::PRODUCTION_STEPS;
-    factory.balance = 0;
-    factory.suspended = true;
+    factory.set_progress_for_test(super::PRODUCTION_STEPS);
+    factory.set_balance_for_test(0);
+    factory.set_suspended_for_test(true);
     product
 }
 
@@ -352,7 +352,7 @@ fn busy_factory_exit_attachment_owner_preserves_identity_and_rejects_occupied_ta
         source.as_ref(),
         "reattachment retains the existing Factory and its held object"
     );
-    assert_eq!(source.unwrap().object.unwrap().entity_id, Some(product));
+    assert_eq!(source.unwrap().object().unwrap().entity_id, Some(product));
     assert!(
         sim.production
             .factories_mut()
@@ -2363,13 +2363,13 @@ fn a_held_build_at_its_build_limit_resumes_on_produce() {
         .factories_mut()
         .test_factory_mut(owner, ProductionCategory::Vehicle)
         .unwrap();
-    assert!(!factory.suspended);
-    assert!(factory.step_rate_frames > 0);
+    assert!(!factory.suspended());
+    assert!(factory.step_rate_frames() > 0);
     assert_eq!(
-        factory.step_timer,
-        CdTimer::started(300, i32::from(factory.step_rate_frames))
+        *factory.step_timer(),
+        CdTimer::started(300, i32::from(factory.step_rate_frames()))
     );
-    assert!(factory.queue.is_empty(), "a resume queues nothing");
+    assert!(factory.queue().is_empty(), "a resume queues nothing");
     assert_eq!(
         queue_view_for_owner(&sim, &rules, "Americans")[0].state,
         BuildQueueState::Building

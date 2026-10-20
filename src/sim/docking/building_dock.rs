@@ -3303,9 +3303,9 @@ mod tests {
         let factory = sim.production.factories_mut().test_first_mut().unwrap();
         // The kernel fixture supplies an already-running head. StartProduction
         // itself now correctly leaves +70 stopped until the separate Resume.
-        factory.suspended = false;
-        factory.step_rate_frames = 1;
-        factory.step_timer = CdTimer::from_raw(0, 0);
+        factory.set_suspended_for_test(false);
+        factory.set_step_rate_frames_for_test(1);
+        factory.set_step_timer_for_test(CdTimer::from_raw(0, 0));
         for id in [DEPOT, 1, 501] {
             assert!(sim.register_live_object(id));
         }
@@ -3314,9 +3314,9 @@ mod tests {
         assert_eq!(sim.houses[&owner].economy().credits(), 0);
         assert_eq!(sim.houses[&owner].economy().spent_credits(), 2);
         let factory = sim.production.factories_mut().test_first_mut().unwrap();
-        assert_eq!(factory.progress, 0);
-        assert_eq!(factory.balance, 108);
-        assert!(factory.on_hold);
+        assert_eq!(factory.progress(), 0);
+        assert_eq!(factory.balance(), 108);
+        assert!(factory.on_hold());
     }
 
     /// A repaired (full-HP) linked waiter that is a Harvester=yes unit takes

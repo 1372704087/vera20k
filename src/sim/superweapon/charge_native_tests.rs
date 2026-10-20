@@ -152,7 +152,10 @@ fn grant_percentage_hold_release_and_ai_match_original_histories() {
         );
         sim.spawn_object("YAPPET", "Confederation", 10, 10, 0, &rules)
             .unwrap();
-        sim.power_states.entry(owner).or_default().is_low_power = low_power;
+        sim.power_states
+            .entry(owner)
+            .or_default()
+            .set_is_low_power_for_test(low_power);
         // Admit the harness's incoming stream states after the supplied
         // Building fixture; construction draws are outside this history.
         let seeds = &data["rng_seed_states"];
@@ -280,9 +283,9 @@ fn house_hold_pass_matches_original_retained_power_histories() {
             // low branch is observed in native control flow, not recomputed
             // by a second ratio implementation in this comparison fixture.
             let power = sim.power_states.entry(owner).or_default();
-            power.total_output = int(row, "retained_output");
-            power.total_drain = int(row, "retained_drain");
-            power.is_low_power = row["low_power_before_call"].as_bool().unwrap();
+            power.set_total_output_for_test(int(row, "retained_output"));
+            power.set_total_drain_for_test(int(row, "retained_drain"));
+            power.set_is_low_power_for_test(row["low_power_before_call"].as_bool().unwrap());
             sim.houses.get_mut(&owner).unwrap().take_tech_recheck();
             update_owned_supers(&mut sim, &rules, owner);
             assert_state(&sim.super_weapons[&owner][&type_id], &row["output"], &label);
@@ -373,10 +376,10 @@ fn house_power_edge_holds_after_reactor_sample_in_the_same_frame() {
         .set_for_test(health_before);
     sim.advance_tick(&[], Some(&rules), None, None, 67);
     assert_eq!(
-        sim.power_states[&owner].total_output,
+        sim.power_states[&owner].total_output(),
         int(&receiver["power_consumer"], "initial_power")
     );
-    assert_eq!(sim.power_states[&owner].total_drain, 1000);
+    assert_eq!(sim.power_states[&owner].total_drain(), 1000);
     assert!(sim.super_weapons[&owner][&type_id].is_active);
     assert!(!sim.super_weapons[&owner][&type_id].is_suspended);
 
@@ -398,15 +401,15 @@ fn house_power_edge_holds_after_reactor_sample_in_the_same_frame() {
         .health
         .set_for_test(health_after);
     assert_eq!(
-        sim.power_states[&owner].total_output,
+        sim.power_states[&owner].total_output(),
         int(&receiver["power_consumer"]["before_sample"], "house_power")
     );
     sim.advance_tick(&[], Some(&rules), None, None, 67);
     assert_eq!(
-        sim.power_states[&owner].total_output,
+        sim.power_states[&owner].total_output(),
         int(&receiver["power_consumer"]["after_power"], "house_power")
     );
-    assert!(sim.power_states[&owner].is_low_power);
+    assert!(sim.power_states[&owner].is_low_power());
     let instance = &sim.super_weapons[&owner][&type_id];
     let charge_data = corpus();
     let charged_then_held = &charge_data["sequence_controls"][0]["rows"][3]["state"];

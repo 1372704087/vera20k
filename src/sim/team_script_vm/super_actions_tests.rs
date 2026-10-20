@@ -151,16 +151,16 @@ fn replay(row: &Value, plant: bool) -> Replay {
     sim.session
         .set_binary_frame_for_test(u32::try_from(int(&row["frame"])).unwrap());
     let mut power = PowerState::default();
-    power.total_output = int(&row["output"]);
-    power.total_drain = int(&row["drain"]);
+    power.set_total_output_for_test(int(&row["output"]));
+    power.set_total_drain_for_test(int(&row["drain"]));
     sim.power_states.insert(owner, power);
     for (index, sw) in row["supers"].as_array().unwrap().iter().enumerate() {
         let id = sim.interner.intern(&format!("SW{index}"));
         let mut instance = SuperWeaponInstance::new(id, owner, 0);
-        instance.is_ready = flag(&sw["charged"]);
-        instance.is_active = flag(&sw["granted"]);
-        instance.charge_start_tick = int(&sw["start"]);
-        instance.charge_duration = int(&sw["left"]);
+        instance.set_is_ready_for_test(flag(&sw["charged"]));
+        instance.set_is_active_for_test(flag(&sw["granted"]));
+        instance.set_charge_start_tick_for_test(int(&sw["start"]));
+        instance.set_charge_duration_for_test(int(&sw["left"]));
         sim.super_weapons
             .entry(owner)
             .or_default()

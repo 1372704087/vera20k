@@ -568,10 +568,11 @@ fn super_team_fixture(script: &str) -> (Simulation, RuleSet, u64, [u64; 2], [u64
     for name in ["IronCurtainSpecial", "ChronoSphereSpecial"] {
         let id = sim.interner.intern(name);
         let mut instance = crate::sim::superweapon::SuperWeaponInstance::new(id, owner, 0);
-        instance.is_active = true;
-        instance.charge_start_tick = sim.session.binary_frame() as i32;
-        instance.charge_duration = rules.super_weapon(name).unwrap().recharge_time_frames;
-        instance.is_ready = true;
+        instance.set_is_active_for_test(true);
+        instance.set_charge_start_tick_for_test(sim.session.binary_frame() as i32);
+        instance
+            .set_charge_duration_for_test(rules.super_weapon(name).unwrap().recharge_time_frames);
+        instance.set_is_ready_for_test(true);
         sim.super_weapons
             .entry(owner)
             .or_default()
@@ -618,9 +619,9 @@ fn a_computer_team_waits_on_its_charging_iron_curtain() {
         .get_mut(&owner)
         .and_then(|weapons| weapons.get_mut(&curtain))
         .unwrap();
-    instance.is_ready = false;
-    instance.charge_start_tick = frame;
-    instance.charge_duration = 30;
+    instance.set_is_ready_for_test(false);
+    instance.set_charge_start_tick_for_test(frame);
+    instance.set_charge_duration_for_test(30);
     AI_FIRE_LOG.set(Some(Vec::new()));
     let (mut waited, mut charged, mut fired) = (false, None, None);
     for tick in 0..60 {
@@ -635,7 +636,7 @@ fn a_computer_team_waits_on_its_charging_iron_curtain() {
             fired = Some(tick);
             break;
         }
-        let ready = sim.super_weapons[&owner][&curtain].is_ready;
+        let ready = sim.super_weapons[&owner][&curtain].is_ready();
         let team = sim.team_script_vm.team(team_id).expect("the team waits");
         waited |= !ready && team.formed() && team.cursor() == 0 && !team.advance_pending();
         if ready && charged.is_none() {
@@ -675,7 +676,10 @@ fn a_computer_team_chronoshifts_onto_the_enemy_power_plant() {
     );
     let owner = sim.interner.get("Computer").unwrap();
     let sphere = sim.interner.get("ChronoSphereSpecial").unwrap();
-    assert!(!sim.super_weapons[&owner][&sphere].is_ready, "it recharges");
+    assert!(
+        !sim.super_weapons[&owner][&sphere].is_ready(),
+        "it recharges"
+    );
     for _ in 0..200 {
         sim.advance_tick(&[], Some(&rules), None, None, 67);
     }

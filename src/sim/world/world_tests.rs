@@ -6590,7 +6590,7 @@ fn sale_death_is_ignored_before_ordinary_tail_drain() {
     // Tick 1: power registers both plants.
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 100);
     assert_eq!(
-        sim.power_states.get(&owner_id).map(|s| s.total_output),
+        sim.power_states.get(&owner_id).map(|s| s.total_output()),
         Some(200),
         "two power plants should produce 200 before sale",
     );
@@ -6629,7 +6629,7 @@ fn sale_death_is_ignored_before_ordinary_tail_drain() {
         "sale-death queue drained"
     );
     assert_eq!(
-        sim.power_states.get(&owner_id).map(|s| s.total_output),
+        sim.power_states.get(&owner_id).map(|s| s.total_output()),
         Some(100),
         "power skips the dead-limbo plant the tail has not yet drained",
     );

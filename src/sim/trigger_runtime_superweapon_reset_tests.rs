@@ -13,8 +13,8 @@ fn runtime_state(sim: &Simulation, rules: &RuleSet, owner: InternedId, id: Inter
     let instance = &sim.super_weapons[&owner][&id];
     let sw = rules.super_weapon(sim.interner.resolve(id)).unwrap();
     result["effective_recharge"] = json!(instance.recharge_time(sw));
-    result["ready_tick"] = json!(instance.ready_tick);
-    result["charge_drain_state"] = json!(instance.charge_drain_state);
+    result["ready_tick"] = json!(instance.ready_tick());
+    result["charge_drain_state"] = json!(instance.charge_drain_state());
     result
 }
 
@@ -49,13 +49,13 @@ fn reset_world(
         .get_mut(&id)
         .unwrap();
     instance.set_recharge_time(int(&input["custom_recharge"]));
-    instance.charge_start_tick = int(&input["start"]);
-    instance.charge_duration = int(&input["duration"]);
-    instance.is_active = input["granted"].as_bool().unwrap();
-    instance.is_ready = input["ready"].as_bool().unwrap();
-    instance.is_suspended = input["held"].as_bool().unwrap();
-    instance.ready_tick = int(&input["ready_tick"]);
-    instance.charge_drain_state = int(&input["charge_drain_state"]);
+    instance.set_charge_start_tick_for_test(int(&input["start"]));
+    instance.set_charge_duration_for_test(int(&input["duration"]));
+    instance.set_is_active_for_test(input["granted"].as_bool().unwrap());
+    instance.set_is_ready_for_test(input["ready"].as_bool().unwrap());
+    instance.set_is_suspended_for_test(input["held"].as_bool().unwrap());
+    instance.set_ready_tick_for_test(int(&input["ready_tick"]));
+    instance.set_charge_drain_state_for_test(int(&input["charge_drain_state"]));
     sim.houses
         .get_mut(&owner)
         .unwrap()
@@ -246,8 +246,8 @@ fn superweapon_reset_releases_a_production_chrono_placement_without_destroying_i
         .unwrap()
         .get_mut(&id)
         .unwrap();
-    instance.is_active = true;
-    instance.is_ready = true;
+    instance.set_is_active_for_test(true);
+    instance.set_is_ready_for_test(true);
     instance.set_recharge_time(4500);
     assert!(sim.fire_super_weapon(
         &rules,
@@ -324,5 +324,5 @@ fn superweapon_reset_releases_a_production_chrono_placement_without_destroying_i
         ),
         expected["output"]["animation_loops"]
     );
-    assert!(!sim.super_weapons[&owner][&id].is_ready);
+    assert!(!sim.super_weapons[&owner][&id].is_ready());
 }

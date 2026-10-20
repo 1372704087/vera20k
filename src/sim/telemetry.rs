@@ -680,15 +680,15 @@ impl Simulation {
                 power_output: self
                     .power_states
                     .get(owner)
-                    .map_or(0, |power| power.total_output),
+                    .map_or(0, |power| power.total_output()),
                 power_drain: self
                     .power_states
                     .get(owner)
-                    .map_or(0, |power| power.total_drain),
+                    .map_or(0, |power| power.total_drain()),
                 low_power: self
                     .power_states
                     .get(owner)
-                    .is_some_and(|power| power.is_low_power),
+                    .is_some_and(|power| power.is_low_power()),
                 spent: house.economy().spent_credits(),
                 score: house.economy().score(),
                 defeated: house.is_defeated(),
@@ -729,7 +729,7 @@ impl Simulation {
         }
 
         for factory in self.production.factories().iter_insertion_ordered() {
-            let Some(&index) = owner_index.get(&factory.owner) else {
+            let Some(&index) = owner_index.get(&factory.owner()) else {
                 continue;
             };
             let rows = &mut houses[index].production;
@@ -737,21 +737,21 @@ impl Simulation {
                 continue;
             }
             let type_name = |id| bounded_name(self.interner.resolve(id));
-            let (active_type, ready_to_place) = match factory.object.as_ref() {
-                Some(object) if factory.progress >= PRODUCTION_STEPS => {
+            let (active_type, ready_to_place) = match factory.object() {
+                Some(object) if factory.progress() >= PRODUCTION_STEPS => {
                     (None, vec![type_name(object.type_id)])
                 }
                 Some(object) => (Some(type_name(object.type_id)), Vec::new()),
                 None => (None, Vec::new()),
             };
             rows.push(ProductionLine {
-                category: factory.category.label().to_owned(),
+                category: factory.category().label().to_owned(),
                 active_type,
-                progress: factory.progress,
-                on_hold: factory.on_hold,
-                suspended: factory.suspended,
+                progress: factory.progress(),
+                on_hold: factory.on_hold(),
+                suspended: factory.suspended(),
                 queue: factory
-                    .queue
+                    .queue()
                     .iter()
                     .take(TELEMETRY_MAX_QUEUE)
                     .map(|entry| type_name(entry.type_id))

@@ -265,15 +265,15 @@ fn balance_owed(
         .holders_insertion_ordered()
         .into_iter()
         .map(|(_, factory)| factory)
-        .filter(|factory| factory.owner == owner)
+        .filter(|factory| factory.owner() == owner)
         .find(|factory| {
             factory
-                .object
+                .object()
                 .as_ref()
                 .and_then(|object| sim.object_type(object.type_id, rules))
                 .is_some_and(&holds)
         })
-        .map(|factory| factory.balance)
+        .map(|factory| factory.balance())
 }
 
 /// What Manage_Build_Queue rebuilds (`0x004FDD3F..0x004FDE96`).

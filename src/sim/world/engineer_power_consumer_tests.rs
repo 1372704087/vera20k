@@ -170,12 +170,12 @@ fn assert_rng(sim: &Simulation, native: &Value, boundary: &str) {
 fn assert_power(sim: &Simulation, owner: InternedId, native: &Value, boundary: &str) {
     let state = &sim.power_states[&owner];
     assert_eq!(
-        state.total_output,
+        state.total_output(),
         int(&native["output"]),
         "{boundary}: output"
     );
     assert_eq!(
-        state.total_drain,
+        state.total_drain(),
         int(&native["drain"]),
         "{boundary}: drain"
     );
@@ -227,37 +227,37 @@ fn assert_joined(sim: &Simulation, rules: &RuleSet, owner: InternedId, native: &
     let factory = sim.production.factories().iter_insertion_ordered()[0];
     let expected = &native["factory"];
     assert_eq!(
-        i32::from(factory.progress),
+        i32::from(factory.progress()),
         int(&expected["stage"]),
         "{boundary}: stage"
     );
     assert_eq!(
-        i32::from(factory.step_rate_frames),
+        i32::from(factory.step_rate_frames()),
         int(&expected["rate"]),
         "{boundary}: rate"
     );
     assert_eq!(
-        factory.step_timer.start_frame(),
+        factory.step_timer().start_frame(),
         int(&expected["timer_start"]),
         "{boundary}: timer start"
     );
     assert_eq!(
-        factory.step_timer.duration(),
+        factory.step_timer().duration(),
         int(&expected["timer_duration"]),
         "{boundary}: armed duration"
     );
     assert_eq!(
-        factory.balance,
+        factory.balance(),
         int(&expected["balance"]),
         "{boundary}: balance"
     );
     assert_eq!(
-        factory.on_hold,
+        factory.on_hold(),
         expected["on_hold"] == true,
         "{boundary}: cash hold"
     );
     assert_eq!(
-        factory.suspended,
+        factory.suspended(),
         expected["suspended"] == true,
         "{boundary}: suspended"
     );
@@ -304,15 +304,15 @@ fn settled_repair_native_health_sample_factory_cadence_radar_and_later_advice() 
         // Exact native-produced frame195 prior, not a Rust-derived start.
         let pending = &prior["factory"];
         let factory = sim.production.factories_mut().test_first_mut().unwrap();
-        factory.progress = int(&pending["stage"]) as u16;
-        factory.step_rate_frames = int(&pending["rate"]) as u16;
-        factory.step_timer = CdTimer::from_raw(
+        factory.set_progress_for_test(int(&pending["stage"]) as u16);
+        factory.set_step_rate_frames_for_test(int(&pending["rate"]) as u16);
+        factory.set_step_timer_for_test(CdTimer::from_raw(
             int(&pending["timer_start"]),
             int(&pending["timer_duration"]),
-        );
-        factory.balance = int(&pending["balance"]);
-        factory.on_hold = pending["on_hold"] == true;
-        factory.suspended = pending["suspended"] == true;
+        ));
+        factory.set_balance_for_test(int(&pending["balance"]));
+        factory.set_on_hold_for_test(pending["on_hold"] == true);
+        factory.set_suspended_for_test(pending["suspended"] == true);
         sim.houses
             .get_mut(&owner)
             .unwrap()
@@ -481,9 +481,9 @@ fn native_local_radar_projection_uses_represented_provider_predicates_and_house_
             .set_in_limbo_for_test(flag(input, "limbo", false));
         let power = input["power"].as_array();
         let mut state = PowerState::default();
-        state.total_output = power.map_or(101, |v| int(&v[0]));
-        state.total_drain = power.map_or(100, |v| int(&v[1]));
-        state.is_low_power = state.total_output < state.total_drain;
+        state.set_total_output_for_test(power.map_or(101, |v| int(&v[0])));
+        state.set_total_drain_for_test(power.map_or(100, |v| int(&v[1])));
+        state.set_is_low_power_for_test(state.total_output() < state.total_drain());
         // House+2B0's timer (start, an unused dword, duration) at the row's
         // frame.
         sim.session
@@ -553,9 +553,9 @@ fn native_local_low_power_advice_guard_and_eight_speed_delay_values() {
                 input["count"].as_i64().unwrap_or(1) as i32,
             );
         let mut state = PowerState::default();
-        state.total_output = int(&input["power"][0]);
-        state.total_drain = int(&input["power"][1]);
-        state.is_low_power = state.total_output < state.total_drain;
+        state.set_total_output_for_test(int(&input["power"][0]));
+        state.set_total_drain_for_test(int(&input["power"][1]));
+        state.set_is_low_power_for_test(state.total_output() < state.total_drain());
         sim.power_states.insert(owner, state);
         house_eva::update_house_eva(&mut sim, &rules, owner);
         assert_eq!(

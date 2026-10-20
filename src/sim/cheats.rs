@@ -185,7 +185,7 @@ impl Simulation {
                 .debug_tools
                 .owner
                 .and_then(|owner| self.power_states.get(&owner))
-                .is_some_and(|power| power.is_low_power)
+                .is_some_and(|power| power.is_low_power())
     }
 
     pub fn debug_reveal_map(&self) -> bool {
@@ -288,14 +288,8 @@ impl Simulation {
         {
             let frame = self.session.binary_frame();
             for (type_id, instance) in weapons {
-                if !instance.is_active || instance.is_suspended {
-                    continue;
-                }
-                if let Some(sw) = rules.super_weapon(self.interner.resolve(*type_id))
-                    && instance.set_charge_percentage(100, sw, frame)
-                {
-                    instance.is_ready = true;
-                    instance.ready_tick = frame as i32;
+                if let Some(sw) = rules.super_weapon(self.interner.resolve(*type_id)) {
+                    instance.debug_charge_full(sw, frame);
                 }
             }
         }
@@ -389,7 +383,7 @@ mod tests {
         let owner = sim.interner.intern("Allies");
         sim.houses
             .register(HouseState::new(owner, 0, None, true, 500, 10));
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         (sim, owner)
     }
 
@@ -423,7 +417,7 @@ mod tests {
             );
         }
         let (mut sim, _) = offline();
-        sim.session.current_house = None;
+        sim.session.set_current_house_for_test(None);
         assert_eq!(
             sim.set_cheat_flags(flags),
             Err(DebugToolsError::NoLocalHouse)
@@ -444,18 +438,25 @@ mod tests {
         assert_eq!(sim.cheat_flags().money_target, MAX_MONEY_TARGET);
         assert_eq!(sim.cheat_flags().damage_scale, MAX_DAMAGE_SCALE);
         sim.apply_debug_tools(None);
-        assert_eq!(sim.houses[&owner].economy.credits(), MAX_MONEY_TARGET);
-        sim.houses.get_mut(&owner).unwrap().economy.add_credits(100);
+        assert_eq!(sim.houses[&owner].economy().credits(), MAX_MONEY_TARGET);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut()
+            .add_credits(100);
         sim.apply_debug_tools(None);
-        assert_eq!(sim.houses[&owner].economy.credits(), MAX_MONEY_TARGET + 100);
+        assert_eq!(
+            sim.houses[&owner].economy().credits(),
+            MAX_MONEY_TARGET + 100
+        );
         sim.set_cheat_flags(CheatFlags::default()).unwrap();
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .spend_money(MAX_MONEY_TARGET);
         sim.apply_debug_tools(None);
-        assert_eq!(sim.houses[&owner].economy.credits(), 100);
+        assert_eq!(sim.houses[&owner].economy().credits(), 100);
         assert!(
             sim.trainer_modified(),
             "turning switches off cannot resume deterministic recording"
@@ -466,9 +467,9 @@ mod tests {
     fn context_change_drops_pending_actions_and_power_without_corrupting_totals() {
         let (mut sim, owner) = offline();
         let power = sim.power_states.entry(owner).or_default();
-        power.total_output = 100;
-        power.total_drain = 200;
-        power.is_low_power = true;
+        power.set_total_output_for_test(100);
+        power.set_total_drain_for_test(200);
+        power.set_is_low_power_for_test(true);
         sim.set_cheat_flags(CheatFlags {
             infinite_power: true,
             infinite_money: true,
@@ -481,8 +482,8 @@ mod tests {
         assert!(!sim.power_states[&owner].low_power());
         assert_eq!(
             (
-                sim.power_states[&owner].total_output,
-                sim.power_states[&owner].total_drain
+                sim.power_states[&owner].total_output(),
+                sim.power_states[&owner].total_drain()
             ),
             (100, 200)
         );
@@ -492,7 +493,7 @@ mod tests {
         assert!(sim.power_states[&owner].low_power());
         assert_eq!(sim.power_states[&owner].effective_totals(), (100, 200));
         sim.apply_debug_tools(None);
-        assert_eq!(sim.houses[&owner].economy.credits(), 500);
+        assert_eq!(sim.houses[&owner].economy().credits(), 500);
     }
 
     #[test]
@@ -584,7 +585,7 @@ mod tests {
         let _ = sim.take_due_replay_commands([]);
         assert!(!sim.trainer_available());
         sim.apply_debug_tools(None);
-        assert_eq!(sim.houses[&owner].economy.credits(), 500);
+        assert_eq!(sim.houses[&owner].economy().credits(), 500);
     }
 
     #[test]
@@ -726,7 +727,7 @@ mod tests {
         let (mut sim, owner) = offline();
         let ty = sim.interner.intern("TestSpecial");
         let mut instance = crate::sim::superweapon::SuperWeaponInstance::new(ty, owner, 0);
-        instance.is_active = true;
+        instance.set_is_active_for_test(true);
         sim.super_weapons
             .entry(owner)
             .or_default()
@@ -734,19 +735,19 @@ mod tests {
         sim.request_trainer_action(TrainerAction::SuperweaponsReady)
             .unwrap();
         sim.apply_debug_tools(Some(&rules));
-        assert!(sim.super_weapons[&owner][&ty].is_ready);
+        assert!(sim.super_weapons[&owner][&ty].is_ready());
         let instance = sim
             .super_weapons
             .get_mut(&owner)
             .unwrap()
             .get_mut(&ty)
             .unwrap();
-        instance.is_ready = false;
-        instance.is_suspended = true;
+        instance.set_is_ready_for_test(false);
+        instance.set_is_suspended_for_test(true);
         sim.request_trainer_action(TrainerAction::SuperweaponsReady)
             .unwrap();
         sim.apply_debug_tools(Some(&rules));
-        assert!(!sim.super_weapons[&owner][&ty].is_ready);
+        assert!(!sim.super_weapons[&owner][&ty].is_ready());
     }
     #[test]
     fn healing_a_structure_requests_power_and_radar_refresh_once() {

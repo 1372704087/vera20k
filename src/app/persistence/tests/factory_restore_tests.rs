@@ -60,7 +60,7 @@ fn factory_fixture(
         .factories_mut_for_test()
         .test_factory_mut(owner, category)
         .unwrap()
-        .object
+        .object_mut_for_test()
         .as_mut()
         .unwrap()
         .entity_id = Some(parent);
@@ -490,7 +490,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_factory_mut(invalid_owner, category)
                     .unwrap()
-                    .object = None;
+                    .set_object_for_test(None);
             }
             "tail-unknown-type" | "tail-type-index" | "tail-category" => {
                 let queued_type = match label {
@@ -511,7 +511,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .type_id = saved.interner.get("E1").unwrap()
@@ -526,7 +526,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_factory_mut(foreign, category)
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .entity_id = Some(parent);
@@ -549,34 +549,30 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .entity_id = Some(u64::MAX)
             }
-            "key-owner" => {
-                saved
-                    .production
-                    .factories_mut_for_test()
-                    .test_first_mut()
-                    .unwrap()
-                    .owner = foreign
-            }
-            "key-category" => {
-                saved
-                    .production
-                    .factories_mut_for_test()
-                    .test_first_mut()
-                    .unwrap()
-                    .category = ProductionCategory::Infantry
-            }
+            "key-owner" => saved
+                .production
+                .factories_mut_for_test()
+                .test_first_mut()
+                .unwrap()
+                .set_owner_for_test(foreign),
+            "key-category" => saved
+                .production
+                .factories_mut_for_test()
+                .test_first_mut()
+                .unwrap()
+                .set_category_for_test(ProductionCategory::Infantry),
             "no-identity" => {
                 saved
                     .production
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .entity_id = None
@@ -587,7 +583,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .type_id = missing
@@ -638,7 +634,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object = None;
+                    .set_object_for_test(None);
             }
             "early-accounting" => {
                 saved
@@ -646,7 +642,7 @@ fn factory_restore_rejects_inconsistent_roots() {
                     .factories_mut_for_test()
                     .test_first_mut()
                     .unwrap()
-                    .object
+                    .object_mut_for_test()
                     .as_mut()
                     .unwrap()
                     .completion_accounted = true

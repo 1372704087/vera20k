@@ -70,13 +70,13 @@ fn production_authoritative_hash_includes_factory_fields() {
 
     type FMut = fn(&mut crate::sim::production::Factory);
     let factory_muts: [FMut; 7] = [
-        |f| f.progress += 1,
-        |f| f.balance += 1,
-        |f| f.step_timer = CdTimer::started(123, f.step_timer.duration()),
-        |f| f.step_timer = CdTimer::from_raw(f.step_timer.start_frame(), 5),
-        |f| f.on_hold = !f.on_hold,
-        |f| f.suspended = !f.suspended,
-        |f| f.step_rate_frames += 1,
+        |f| f.set_progress_for_test(f.progress() + 1),
+        |f| f.set_balance_for_test(f.balance() + 1),
+        |f| f.set_step_timer_for_test(CdTimer::started(123, f.step_timer().duration())),
+        |f| f.set_step_timer_for_test(CdTimer::from_raw(f.step_timer().start_frame(), 5)),
+        |f| f.set_on_hold_for_test(!f.on_hold()),
+        |f| f.set_suspended_for_test(!f.suspended()),
+        |f| f.set_step_rate_frames_for_test(f.step_rate_frames() + 1),
     ];
     for m in factory_muts {
         let mut sim = mid_build();
@@ -129,9 +129,9 @@ fn snapshot_roundtrip_factory_registry() {
     // Give the build non-trivial authoritative progress/balance/stats to round-trip.
     {
         let f = sim.production.factories_mut().test_first_mut().unwrap();
-        f.progress = 20;
-        f.balance = 300;
-        f.step_timer = CdTimer::started(90, 12);
+        f.set_progress_for_test(20);
+        f.set_balance_for_test(300);
+        f.set_step_timer_for_test(CdTimer::started(90, 12));
     }
     sim.houses
         .get_mut(&owner)

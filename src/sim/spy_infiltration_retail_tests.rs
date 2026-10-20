@@ -17,9 +17,9 @@ fn paid_building_head(sim: &Simulation, owner: crate::sim::intern::InternedId) -
         .iter_insertion_ordered()
         .into_iter()
         .find(|factory| {
-            factory.owner == owner
-                && factory.category == crate::sim::production::ProductionCategory::Building
-                && factory.object.is_some()
+            factory.owner() == owner
+                && factory.category() == crate::sim::production::ProductionCategory::Building
+                && factory.object().is_some()
         })
         .cloned()
 }
@@ -29,7 +29,7 @@ fn paid_building_head(sim: &Simulation, owner: crate::sim::intern::InternedId) -
 /// including private latch/identity fields, must survive those frames.
 fn assert_rate_only(before: &Factory, after: &Factory) {
     let mut expected = before.clone();
-    expected.step_rate_frames = after.step_rate_frames;
+    expected.set_step_rate_frames_for_test(after.step_rate_frames());
     assert_eq!(*after, expected);
 }
 
@@ -119,18 +119,18 @@ fn stock_spy_blackout_preserves_paid_building_timers_through_recovery() {
             let before_power = sim.power_states[&computer].blackout_remaining(native_frame);
             if first_product.is_none()
                 && let Some(factory) = before.as_ref()
-                && factory.progress > 0
-                && factory.progress < crate::sim::production::PRODUCTION_STEPS
+                && factory.progress() > 0
+                && factory.progress() < crate::sim::production::PRODUCTION_STEPS
             {
-                let object = factory.object.as_ref().unwrap();
+                let object = factory.object().unwrap();
                 assert_eq!(sim.interner.resolve(object.type_id), "NAPOWR");
                 let id = object
                     .entity_id
                     .expect("AI constructed the actual paid head");
                 assert!(sim.entities().get(id).unwrap().in_limbo());
-                assert!(!factory.on_hold && !factory.suspended);
+                assert!(!factory.on_hold() && !factory.suspended());
                 assert!(sim.houses[&computer].economy().spent_credits() > 0);
-                assert!(factory.balance > 0 && factory.balance < plant_cost);
+                assert!(factory.balance() > 0 && factory.balance() < plant_cost);
                 first_product = Some(id);
                 if infiltrate {
                     let execute_tick = sim.session.tick() + 1;
@@ -168,9 +168,9 @@ fn stock_spy_blackout_preserves_paid_building_timers_through_recovery() {
                 let after = after.as_ref().expect("same paid head remains after entry");
                 // This fixture's real arrival is not due; no copied charge
                 // algorithm or manually seeded countdown supplies this prior.
-                assert!(before.step_timer.remaining(native_frame as i32) > 0);
+                assert!(before.step_timer().remaining(native_frame as i32) > 0);
                 assert_rate_only(before, after);
-                assert!(after.step_rate_frames > before.step_rate_frames);
+                assert!(after.step_rate_frames() > before.step_rate_frames());
                 let timer = power.blackout_timer_for_test();
                 assert_eq!(timer.start_frame(), native_frame as i32);
                 assert_eq!(timer.duration(), 1000);
@@ -179,22 +179,22 @@ fn stock_spy_blackout_preserves_paid_building_timers_through_recovery() {
             }
             if entry.is_some() && recovery.is_none() {
                 if remaining > 0 {
-                    assert_eq!(power.total_output, 0);
-                    assert!(power.is_low_power);
+                    assert_eq!(power.total_output(), 0);
+                    assert!(power.is_low_power());
                 } else {
                     assert_eq!(before_power, 1, "House expiry occurs at remaining one");
                     let before = before.as_ref().expect("real paid successor spans expiry");
                     let after = after.as_ref().expect("same successor remains after expiry");
-                    assert!(before.progress > 0 && before.balance > 0);
-                    assert!(before.step_timer.remaining(native_frame as i32) > 0);
+                    assert!(before.progress() > 0 && before.balance() > 0);
+                    assert!(before.step_timer().remaining(native_frame as i32) > 0);
                     assert_rate_only(before, after);
-                    assert!(after.step_rate_frames < before.step_rate_frames);
+                    assert!(after.step_rate_frames() < before.step_rate_frames());
                     let timer = power.blackout_timer_for_test();
                     assert_eq!(
                         (timer.start_frame(), timer.duration()),
                         (native_frame as i32, 0)
                     );
-                    recovery_product = after.object.as_ref().unwrap().entity_id;
+                    recovery_product = after.object().unwrap().entity_id;
                     assert!(recovery_product.is_some());
                     recovery = Some(sim.session.binary_frame());
                 }
@@ -234,7 +234,7 @@ fn stock_spy_blackout_preserves_paid_building_timers_through_recovery() {
         }
         let sim = scene.sim();
         let power = &sim.power_states[&computer];
-        assert!(power.total_output > power.total_drain && !power.is_low_power);
+        assert!(power.total_output() > power.total_drain() && !power.is_low_power());
         assert_eq!(sim.entities().get(spy).is_none(), infiltrate);
         let plant = sim.entities().get(plant).unwrap();
         assert_eq!((plant.owner(), plant.health), (computer, plant_health));

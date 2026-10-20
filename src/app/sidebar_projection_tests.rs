@@ -76,8 +76,8 @@ fn superweapon_money_cameo_refresh_tracks_wallet_without_membership_rebuild() {
     let (mut sim, owner) = world(&rules, &[]);
     let id = sim.interner.get("Paid").unwrap();
     let mut instance = crate::sim::superweapon::SuperWeaponInstance::new(id, owner, 0);
-    instance.is_active = true;
-    instance.is_ready = true;
+    instance.set_is_active_for_test(true);
+    instance.set_is_ready_for_test(true);
     sim.super_weapons
         .entry(owner)
         .or_default()
@@ -1319,8 +1319,8 @@ fn superweapon_retained_cameo_keeps_identity_through_hold_and_recovery() {
         .register(HouseState::new(owner, 0, None, true, 0, 10));
     let sw_type = sim.interner.intern("NukeSpecial");
     let mut instance = SuperWeaponInstance::new(sw_type, owner, 0);
-    instance.is_active = true;
-    instance.is_ready = true;
+    instance.set_is_active_for_test(true);
+    instance.set_is_ready_for_test(true);
     sim.super_weapons
         .entry(owner)
         .or_default()
@@ -1340,7 +1340,7 @@ fn superweapon_retained_cameo_keeps_identity_through_hold_and_recovery() {
         .unwrap()
         .get_mut(&sw_type)
         .unwrap()
-        .is_suspended = true;
+        .set_is_suspended_for_test(true);
     let (held, change) = sw_cameo(&sim, &rules, owner, &mut projection, None);
     assert_eq!(
         change,
@@ -1415,7 +1415,7 @@ fn superweapon_retained_cameo_keeps_identity_through_hold_and_recovery() {
         .unwrap()
         .get_mut(&sw_type)
         .unwrap()
-        .is_suspended = false;
+        .set_is_suspended_for_test(false);
     let (recovered, change) = sw_cameo(&sim, &rules, owner, &mut projection, None);
     assert_eq!(
         change,
@@ -1439,7 +1439,7 @@ fn superweapon_retained_cameo_keeps_identity_through_hold_and_recovery() {
         .unwrap()
         .get_mut(&sw_type)
         .unwrap()
-        .is_ready = false;
+        .set_is_ready_for_test(false);
     let (charging, change) = sw_cameo(&sim, &rules, owner, &mut projection, None);
     assert_eq!(
         change,

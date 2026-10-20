@@ -219,7 +219,7 @@ fn the_need_waits_for_the_refinery_the_yard_is_building() {
             .factories_mut()
             .test_building_factory_mut(yard)
             .unwrap()
-            .balance = owed;
+            .set_balance_for_test(owed);
         assert_eq!(check_build_need(&sim, &rules, owner), need, "{owed}");
     }
 }
@@ -247,7 +247,7 @@ fn the_need_waits_for_the_harvester_the_war_factory_is_building() {
             .factories_mut()
             .test_building_factory_mut(factory)
             .expect("the war factory builds the harvester")
-            .balance = owed;
+            .set_balance_for_test(owed);
         assert_eq!(check_build_need(&sim, &rules, owner), need, "{owed}");
     }
 }
@@ -324,7 +324,7 @@ fn the_rebuild_sells_from_the_last_node_until_it_can_pay() {
         .production
         .factories()
         .building_factory(ids[0])
-        .and_then(|factory| factory.object.as_ref())
+        .and_then(|factory| factory.object())
         .and_then(|object| object.entity_id)
         .unwrap();
     assert!(check_build_need(&sim, &rules, owner));

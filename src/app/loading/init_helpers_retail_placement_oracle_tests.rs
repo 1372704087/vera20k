@@ -553,9 +553,9 @@ fn retail_dustbowl_gapowr_blocked_then_valid_placement_oracle() {
         .power_states
         .get(&owner_id)
         .expect("placed GAPOWR contributes live power");
-    assert_eq!(power.total_output, 200);
-    assert_eq!(power.total_drain, 0);
-    assert!(!power.is_low_power);
+    assert_eq!(power.total_output(), 200);
+    assert_eq!(power.total_drain(), 0);
+    assert!(!power.is_low_power());
     assert!(
         sim.substrate
             .entities

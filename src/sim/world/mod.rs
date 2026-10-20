@@ -4596,22 +4596,22 @@ impl Simulation {
         for f in &ordered {
             if let Some(p) = prev_seq {
                 debug_assert!(
-                    f.insertion_seq > p,
+                    f.insertion_seq() > p,
                     "P5d (A): tick {}: insertion_seq must be strictly increasing across the sweep ({} after {})",
                     self.session.tick(),
-                    f.insertion_seq,
+                    f.insertion_seq(),
                     p,
                 );
             }
-            prev_seq = Some(f.insertion_seq);
-            let mut tail_prev = f.insertion_seq;
-            for e in &f.queue {
+            prev_seq = Some(f.insertion_seq());
+            let mut tail_prev = f.insertion_seq();
+            for e in f.queue() {
                 debug_assert!(
                     e.enqueue_order > tail_prev,
                     "P5d (A): tick {} {:?}/{:?}: tail enqueue_order must strictly exceed the active build + prior tail ({} after {})",
                     self.session.tick(),
-                    f.owner,
-                    f.category,
+                    f.owner(),
+                    f.category(),
                     e.enqueue_order,
                     tail_prev,
                 );
@@ -4623,21 +4623,21 @@ impl Simulation {
         // per-step ladder only decrements it, and cancel resets it to 0).
         for f in self.production.factories().iter_insertion_ordered() {
             debug_assert!(
-                f.progress <= PRODUCTION_STEPS,
+                f.progress() <= PRODUCTION_STEPS,
                 "P5b (B): tick {} {:?}/{:?}: progress {} exceeds {}",
                 self.session.tick(),
-                f.owner,
-                f.category,
-                f.progress,
+                f.owner(),
+                f.category(),
+                f.progress(),
                 PRODUCTION_STEPS,
             );
             debug_assert!(
-                f.balance >= 0,
+                f.balance() >= 0,
                 "P5b (B): tick {} {:?}/{:?}: balance {} is negative",
                 self.session.tick(),
-                f.owner,
-                f.category,
-                f.balance,
+                f.owner(),
+                f.category(),
+                f.balance(),
             );
         }
     }

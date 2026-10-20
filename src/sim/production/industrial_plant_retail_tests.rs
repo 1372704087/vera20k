@@ -201,10 +201,10 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
             }
             let cancel = matches!(step, 12100 | 12600).then(|| {
                 let factory = tank_factory(sim, owner);
-                assert!(factory.suspended && factory.progress > 0);
+                assert!(factory.suspended() && factory.progress() > 0);
                 (
-                    factory.object.as_ref().unwrap().entity_id.unwrap(),
-                    factory.balance,
+                    factory.object().unwrap().entity_id.unwrap(),
+                    factory.balance(),
                     sim.cost_of(owner, rules.object("HTNK").unwrap(), rules),
                 )
             });
@@ -252,8 +252,8 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                     675
                 };
                 let factory = tank_factory(sim, owner);
-                assert_eq!((factory.progress, factory.balance), (0, price));
-                let id = factory.object.as_ref().unwrap().entity_id.unwrap();
+                assert_eq!((factory.progress(), factory.balance()), (0, price));
+                let id = factory.object().unwrap().entity_id.unwrap();
                 assert!(sim.entities().get(id).unwrap().lifecycle.in_limbo());
                 if step == 12700 {
                     delivered = Some(id);
@@ -261,14 +261,14 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
             }
             if matches!(step, 11890 | 12300) {
                 let factory = tank_factory(sim, owner);
-                assert!(factory.suspended && factory.progress > 0);
-                let id = factory.object.as_ref().unwrap().entity_id.unwrap();
+                assert!(factory.suspended() && factory.progress() > 0);
+                let id = factory.object().unwrap().entity_id.unwrap();
                 if step == 11890 {
-                    assert!((675..900).contains(&factory.balance));
-                    first = Some((id, factory.balance));
+                    assert!((675..900).contains(&factory.balance()));
+                    first = Some((id, factory.balance()));
                 } else {
-                    assert!((0..675).contains(&factory.balance));
-                    second = Some((id, factory.balance));
+                    assert!((0..675).contains(&factory.balance()));
+                    second = Some((id, factory.balance()));
                 }
             }
             if step == 12000 {
@@ -284,19 +284,13 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
             }
             if (11890..12100).contains(&step) {
                 let factory = tank_factory(sim, owner);
-                assert_eq!(
-                    factory.object.as_ref().unwrap().entity_id,
-                    Some(first.unwrap().0)
-                );
-                assert_eq!(factory.balance, first.unwrap().1);
+                assert_eq!(factory.object().unwrap().entity_id, Some(first.unwrap().0));
+                assert_eq!(factory.balance(), first.unwrap().1);
             }
             if (12300..12600).contains(&step) {
                 let factory = tank_factory(sim, owner);
-                assert_eq!(
-                    factory.object.as_ref().unwrap().entity_id,
-                    Some(second.unwrap().0)
-                );
-                assert_eq!(factory.balance, second.unwrap().1);
+                assert_eq!(factory.object().unwrap().entity_id, Some(second.unwrap().0));
+                assert_eq!(factory.balance(), second.unwrap().1);
             }
             if let Some((id, balance, price)) = cancel {
                 assert_eq!(wallet.credits(), money_before.0 + price - balance);

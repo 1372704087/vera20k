@@ -586,8 +586,8 @@ fn native_building_status_labels(fixture: &'static str) {
                     // slots. Drawing must not recompute them from the actors.
                     let house = sim.interner.get(name).unwrap();
                     let mut power = crate::sim::power_system::PowerState::default();
-                    power.total_output = values["output"].as_i64().unwrap() as i32;
-                    power.total_drain = values["drain"].as_i64().unwrap() as i32;
+                    power.set_total_output_for_test(values["output"].as_i64().unwrap() as i32);
+                    power.set_total_drain_for_test(values["drain"].as_i64().unwrap() as i32);
                     sim.power_states.insert(house, power);
                 }
             }

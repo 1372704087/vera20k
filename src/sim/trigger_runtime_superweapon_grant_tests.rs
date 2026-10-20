@@ -67,18 +67,18 @@ fn super_grant_actions_reach_retained_instances_and_immediate_one_time_readiness
         spring(&mut sim, &rules);
         let instance = &sim.super_weapons[&owner][&id];
         assert!(
-            instance.is_active,
+            instance.is_active(),
             "Execute{kind} must grant the retained slot1"
         );
-        assert_eq!(instance.is_ready, kind == 33);
-        assert_eq!(instance.charge_start_tick, 1000);
-        assert_eq!(instance.charge_duration, if kind == 33 { 0 } else { 900 });
-        assert_eq!(instance.ready_tick, if kind == 33 { 1000 } else { -100 });
-        assert!(!instance.is_suspended);
+        assert_eq!(instance.is_ready(), kind == 33);
+        assert_eq!(instance.charge_start_tick(), 1000);
+        assert_eq!(instance.charge_duration(), if kind == 33 { 0 } else { 900 });
+        assert_eq!(instance.ready_tick(), if kind == 33 { 1000 } else { -100 });
+        assert!(!instance.is_suspended());
         let unused = sim.interner.get("UnusedNuke").unwrap();
         let other = sim.interner.get("Russians").unwrap();
-        assert!(!sim.super_weapons[&owner][&unused].is_active);
-        assert!(!sim.super_weapons[&other][&id].is_active);
+        assert!(!sim.super_weapons[&owner][&unused].is_active());
+        assert!(!sim.super_weapons[&other][&id].is_active());
         assert_eq!(sim.rng_state(), rng, "grant does not draw from any stream");
         assert_eq!(superweapon::super_timer_views(&sim, &rules).len(), 1);
         assert_eq!(
@@ -94,10 +94,13 @@ fn super_grant_actions_survive_provider_loss_power_and_shell_until_house_defeat(
         let (mut sim, rules, _, owner, id) = scene(kind);
         spring(&mut sim, &rules);
         sim.session.game_options_mut_for_test().super_weapons = false;
-        sim.power_states.entry(owner).or_default().is_low_power = true;
+        sim.power_states
+            .entry(owner)
+            .or_default()
+            .set_is_low_power_for_test(true);
         let before = serde_json::to_value(&sim.super_weapons[&owner][&id]).unwrap();
         superweapon::update_owned_supers(&mut sim, &rules, owner);
-        assert!(sim.super_weapons[&owner][&id].is_active);
+        assert!(sim.super_weapons[&owner][&id].is_active());
         assert_eq!(
             serde_json::to_value(&sim.super_weapons[&owner][&id]).unwrap(),
             before
@@ -107,8 +110,8 @@ fn super_grant_actions_survive_provider_loss_power_and_shell_until_house_defeat(
             .unwrap()
             .set_is_defeated_for_test(true);
         superweapon::update_owned_supers(&mut sim, &rules, owner);
-        assert!(!sim.super_weapons[&owner][&id].is_active);
-        assert!(!sim.super_weapons[&owner][&id].is_ready);
+        assert!(!sim.super_weapons[&owner][&id].is_active());
+        assert!(!sim.super_weapons[&owner][&id].is_ready());
         assert!(superweapon::super_timer_views(&sim, &rules).is_empty());
     }
 }
@@ -122,7 +125,7 @@ fn super_grant_one_time_click_consumes_and_repeating_click_recharges() {
             sim.session.set_binary_frame_for_test(1900);
             superweapon::tick_house_superweapon_instances(&mut sim, &rules, owner);
         }
-        assert!(sim.super_weapons[&owner][&id].is_ready);
+        assert!(sim.super_weapons[&owner][&id].is_ready());
         assert!(sim.fire_super_weapon(
             &rules,
             owner,
@@ -133,13 +136,13 @@ fn super_grant_one_time_click_consumes_and_repeating_click_recharges() {
             false
         ));
         let instance = &sim.super_weapons[&owner][&id];
-        assert_eq!(instance.is_active, kind == 34);
-        assert!(!instance.is_ready);
+        assert_eq!(instance.is_active(), kind == 34);
+        assert!(!instance.is_ready());
         assert_eq!(
-            instance.charge_start_tick,
+            instance.charge_start_tick(),
             if kind == 33 { 1000 } else { 1900 }
         );
-        assert_eq!(instance.charge_duration, if kind == 33 { 0 } else { 900 });
+        assert_eq!(instance.charge_duration(), if kind == 33 { 0 } else { 900 });
         assert_eq!(
             superweapon::superweapon_views_for_owner(&sim, &rules, &owner).len(),
             usize::from(kind == 34)
@@ -222,11 +225,15 @@ fn super_grant_retained_histories_preserve_original_flags_and_old_hold() {
         assert_eq!(value["one_time"], json!(expected_once));
         assert_eq!(value["can_lose"], json!(expected_lose));
         assert_eq!(
-            (instance.is_active, instance.is_ready, instance.is_suspended),
+            (
+                instance.is_active(),
+                instance.is_ready(),
+                instance.is_suspended()
+            ),
             (true, ready, held)
         );
         assert_eq!(
-            (instance.charge_start_tick, instance.charge_duration),
+            (instance.charge_start_tick(), instance.charge_duration()),
             (start, duration)
         );
     }
@@ -274,7 +281,7 @@ fn super_grant_repeat_after_once_saves_both_flags_and_still_fires_once() {
         FrameEffects::default(),
         false
     ));
-    assert!(!restored.super_weapons[&owner][&id].is_active);
+    assert!(!restored.super_weapons[&owner][&id].is_active());
     assert_eq!(
         serde_json::to_value(&restored.super_weapons[&owner][&id]).unwrap()["one_time"],
         json!(false)
@@ -349,7 +356,7 @@ fn super_grant_one_time_nuke_uses_payload_speed_and_ground_warning_without_silo(
             FrameEffects::default(),
             false
         ));
-        assert!(!sim.super_weapons[&owner][&id].is_active);
+        assert!(!sim.super_weapons[&owner][&id].is_active());
         let (&bullet_id, bullet) = sim
             .projectiles
             .iter()
@@ -439,7 +446,7 @@ fn super_grant_retail_one_time_nuke_reaches_wait_damage_radiation_and_cleanup() 
         FrameEffects::default(),
         false
     ));
-    assert!(!sim.super_weapons[&owner][&id].is_active);
+    assert!(!sim.super_weapons[&owner][&id].is_active());
     let bullet_id = *sim.projectiles.iter().next().unwrap().0;
     let warning_id = sim
         .substrate
@@ -466,7 +473,7 @@ fn super_grant_retail_one_time_nuke_reaches_wait_damage_radiation_and_cleanup() 
     );
     assert!(sim.radiation.site_at(target).is_some());
     assert!(
-        !sim.super_weapons[&owner][&id].is_active,
+        !sim.super_weapons[&owner][&id].is_active(),
         "ordinary House passes must not regrant a consumed one-time instance without a provider"
     );
 }

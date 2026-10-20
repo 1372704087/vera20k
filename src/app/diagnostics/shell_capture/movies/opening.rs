@@ -464,8 +464,8 @@ fn opening_observation(state: &AppState) -> Result<Value> {
                             "paused": anim.runtime.paused}))
                     }).collect::<Vec<_>>(),
                 "house_power": sim.power_states.get(&entity.owner()).map(|power| json!({
-                    "output": power.total_output, "drain": power.total_drain,
-                    "low_power": power.is_low_power,
+                    "output": power.total_output(), "drain": power.total_drain(),
+                    "low_power": power.is_low_power(),
                 })),
             }));
         }

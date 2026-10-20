@@ -68,7 +68,10 @@ fn charged_super_held_by_low_power_stays_charged_but_cannot_fire() {
     // The power edge holds the charged Super: the view keeps the charge
     // (and the timer/flash readers), drops online, and drops the fire
     // admission — 0x006CC360 reads the hold before the charge.
-    sim.power_states.get_mut(&owner).unwrap().is_low_power = true;
+    sim.power_states
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_low_power_for_test(true);
     update_owned_supers(&mut sim, &rules, owner);
     assert!(sim.super_weapons[&owner][&type_id].is_suspended);
     let view = nuke_view(&sim, &rules, owner);
@@ -80,7 +83,10 @@ fn charged_super_held_by_low_power_stays_charged_but_cannot_fire() {
     );
 
     // Restoring power releases the hold; the admission returns.
-    sim.power_states.get_mut(&owner).unwrap().is_low_power = false;
+    sim.power_states
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_low_power_for_test(false);
     update_owned_supers(&mut sim, &rules, owner);
     assert!(!sim.super_weapons[&owner][&type_id].is_suspended);
     assert!(nuke_view(&sim, &rules, owner).can_fire);

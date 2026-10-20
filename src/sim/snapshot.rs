@@ -2721,11 +2721,11 @@ fn restore_object_references(
     }
 
     for factory in sim.production.factories().iter_insertion_ordered() {
-        if let Some(object_id) = factory.object.as_ref().and_then(|object| object.entity_id) {
+        if let Some(object_id) = factory.object().and_then(|object| object.entity_id) {
             require_resolved_reference(
                 entity_ids.contains(&object_id),
                 "FactoryRegistry",
-                u64::from(factory.owner.index()),
+                u64::from(factory.owner().index()),
                 "object.entity_id",
                 "EntityStore",
                 object_id,

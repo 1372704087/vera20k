@@ -89,37 +89,37 @@ pub struct QueueEntry {
 /// `FactoryRegistry`. The factory retains its unpaid obligation; Economy owns cash.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Factory {
-    pub owner: InternedId,
-    pub category: ProductionCategory,
+    owner: InternedId,
+    category: ProductionCategory,
     /// `0..=54`; completion at `PRODUCTION_STEPS`.
-    pub progress: u16,
+    progress: u16,
     /// Frames per step, `clamp(Time_To_Build / 54, 1, 255)` (Factory `+0x38`);
     /// `0` before the build starts and after Suspend/completion, until the
     /// House's rate-only reassessment may rewrite it independently of +70.
-    pub step_rate_frames: u16,
+    step_rate_frames: u16,
     /// The step timer (Factory `+0x2C`), anchored to the native frame: a step
     /// comes once `step_rate_frames` frames have passed since the last one.
-    pub step_timer: CdTimer,
+    step_timer: CdTimer,
     /// Remaining cost still owed (Factory `+0x60`), charged down per step:
     /// StartProduction seeds it with the type's Cost_Of for the owner
     /// (`0x004C9DE1..0x004C9DEA`).
-    pub balance: i32,
-    pub object: Option<PendingObject>,
+    balance: i32,
+    object: Option<PendingObject>,
     /// The last step could not be afforded (Factory `+0x5C`); the step was
     /// rewound and the next one retries at the same rate.
-    pub on_hold: bool,
+    on_hold: bool,
     /// Factory `+0x70`, shared by Suspend4C9E60 and completion4C9C06.
     /// The rate-only House power pass4CA6E0 preserves this authority even
     /// when it restores a nonzero rate on a user-held or completed factory.
     /// Native evidence: tools/sidebar_oracle/factory_hold_resume.md.
-    pub suspended: bool,
+    suspended: bool,
     /// Factory+71: blocks House50927C's automatic recovery while +70 is set.
     /// Constructor4C98F7 and affordable Resume4C9F6C set it; accepted
     /// Suspend4C9E71 writes its argument. It is not a second pause flag.
     /// Only this owner mutates it; save/hash retain the distinction.
     auto_resume_blocked: bool,
     /// FIFO queue-of-record waiting behind the active object (Factory `+0x40`).
-    pub queue: VecDeque<QueueEntry>,
+    queue: VecDeque<QueueEntry>,
     /// The factory's construction order: gamemd appends each new FactoryClass
     /// to the global Factories vector (ctor `0x004C9974..0x004C9989`), and
     /// `LogicClass` runs `FactoryClass::AI` in that order (`0x0055B66A..`).
@@ -127,7 +127,7 @@ pub struct Factory {
     /// promotion or NULL-product rearm keeps this identity and charge order:
     /// original Begin4FA350 reuses the live Factory after PointerExpired.
     /// Source: cameo_order.md, same-category rearm history.
-    pub insertion_seq: u64,
+    insertion_seq: u64,
     /// Factory+5D. StartProduction/Abandon/CompletedProduction and an actual
     /// stage advance set this; StripAI consumes it through4C9C60, even when
     /// the object is unfinished. Completion accounting and +71 are separate.
@@ -157,6 +157,101 @@ impl Default for Factory {
 }
 
 impl Factory {
+    /// The owning house (Factory `+0x6C`).
+    pub fn owner(&self) -> InternedId {
+        self.owner
+    }
+
+    pub fn category(&self) -> ProductionCategory {
+        self.category
+    }
+
+    pub fn progress(&self) -> u16 {
+        self.progress
+    }
+
+    pub fn step_rate_frames(&self) -> u16 {
+        self.step_rate_frames
+    }
+
+    pub fn step_timer(&self) -> &CdTimer {
+        &self.step_timer
+    }
+
+    pub fn balance(&self) -> i32 {
+        self.balance
+    }
+
+    pub fn object(&self) -> Option<&PendingObject> {
+        self.object.as_ref()
+    }
+
+    pub fn on_hold(&self) -> bool {
+        self.on_hold
+    }
+
+    pub fn suspended(&self) -> bool {
+        self.suspended
+    }
+
+    pub fn queue(&self) -> &VecDeque<QueueEntry> {
+        &self.queue
+    }
+
+    pub fn insertion_seq(&self) -> u64 {
+        self.insertion_seq
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_owner_for_test(&mut self, value: InternedId) {
+        self.owner = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_category_for_test(&mut self, value: ProductionCategory) {
+        self.category = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_object_for_test(&mut self, value: Option<PendingObject>) {
+        self.object = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_balance_for_test(&mut self, value: i32) {
+        self.balance = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_on_hold_for_test(&mut self, value: bool) {
+        self.on_hold = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_progress_for_test(&mut self, value: u16) {
+        self.progress = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_step_rate_frames_for_test(&mut self, value: u16) {
+        self.step_rate_frames = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_step_timer_for_test(&mut self, value: CdTimer) {
+        self.step_timer = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_suspended_for_test(&mut self, value: bool) {
+        self.suspended = value;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn object_mut_for_test(&mut self) -> &mut Option<PendingObject> {
+        &mut self.object
+    }
+
     /// The world chooses registry holder order;
     /// this owner folds the complete Factory state, including private latches.
     pub(crate) fn hash_state(&self, hasher: &mut impl Hasher) {
@@ -215,7 +310,7 @@ impl Factory {
     /// label `FactoryClass__SetRate`; it also resumes a suspended build)
     /// computes it at `0x004C9EEF..0x004C9F28`; the house power pass
     /// (`0x004CA6E0`, from `0x00508D88`) rewrites only this rate.
-    pub fn set_rate(&mut self, time_to_build: i32) {
+    fn set_rate(&mut self, time_to_build: i32) {
         self.step_rate_frames = build_step_rate(time_to_build);
     }
 
@@ -1840,8 +1935,8 @@ mod tests {
                 tracking.increment_factory_count(entity)
             });
             let mut power = PowerState::default();
-            power.total_output = input["power_output"].as_i64().unwrap() as i32;
-            power.total_drain = input["power_drain"].as_i64().unwrap() as i32;
+            power.set_total_output_for_test(input["power_output"].as_i64().unwrap() as i32);
+            power.set_total_drain_for_test(input["power_drain"].as_i64().unwrap() as i32);
             sim.power_states.insert(owner, power);
             let type_id = sim.interner.intern("PENDING");
             let inputs =
@@ -2641,7 +2736,7 @@ mod tests {
     fn debug_completion_preserves_payment_and_explicit_hold() {
         let owner = InternedId::from_index(1);
         let mut reg = reg_with(owner, ProductionCategory::Infantry, armed_factory(540));
-        let mut houses = BTreeMap::new();
+        let mut houses = crate::sim::houses::Houses::default();
         houses.register(crate::sim::house_state::HouseState::new(
             owner, 0, None, true, 540, 10,
         ));
@@ -2656,7 +2751,7 @@ mod tests {
                 .progress,
             PRODUCTION_STEPS
         );
-        assert_eq!(houses[&owner].economy.credits(), 0);
+        assert_eq!(houses[&owner].economy().credits(), 0);
         assert!(
             reg.view(owner, ProductionCategory::Infantry)
                 .unwrap()

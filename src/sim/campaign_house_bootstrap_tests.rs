@@ -238,16 +238,19 @@ fn assert_houses(
                 Some(i32_at(expected, "id").wrapping_add(id_offset))
             );
             assert_eq!(
-                actual.charge_start_tick,
+                actual.charge_start_tick(),
                 i32_at(&expected["charge_timer"], "start")
             );
             assert_eq!(
-                actual.charge_duration,
+                actual.charge_duration(),
                 i32_at(&expected["charge_timer"], "duration")
             );
-            assert_eq!(actual.is_active, expected["granted"].as_bool().unwrap());
-            assert_eq!(actual.is_ready, expected["charged"].as_bool().unwrap());
-            assert_eq!(actual.is_suspended, expected["on_hold"].as_bool().unwrap());
+            assert_eq!(actual.is_active(), expected["granted"].as_bool().unwrap());
+            assert_eq!(actual.is_ready(), expected["charged"].as_bool().unwrap());
+            assert_eq!(
+                actual.is_suspended(),
+                expected["on_hold"].as_bool().unwrap()
+            );
         }
     }
 }

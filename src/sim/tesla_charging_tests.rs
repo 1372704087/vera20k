@@ -103,8 +103,8 @@ impl Fixture {
     fn set_power(&mut self, output: i32, drain: i32) {
         let owner = self.sim.substrate.entities.get(self.coil).unwrap().owner();
         let power = self.sim.power_states.get_mut(&owner).unwrap();
-        power.total_output = output;
-        power.total_drain = drain;
+        power.set_total_output_for_test(output);
+        power.set_total_drain_for_test(drain);
     }
 
     fn dispatch(&mut self, source: u64, mission: MissionType) {
@@ -292,7 +292,7 @@ fn operational_power_and_overpowered_weapon_use_different_thresholds() {
         );
         let owner = f.sim.substrate.entities.get(f.coil).unwrap().owner();
         let power = &f.sim.power_states[&owner];
-        assert_eq!((power.total_output, power.total_drain), (output, drain));
+        assert_eq!((power.total_output(), power.total_drain()), (output, drain));
     }
 }
 

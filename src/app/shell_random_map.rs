@@ -119,6 +119,23 @@ pub(crate) struct AcceptedRmgStartStaging {
 }
 
 impl AcceptedRmgStartStaging {
+    /// A guest's staging: Full_Init copies the host's `'W'` cells into
+    /// waypoints 0..7 for a random map (`0x006873E6..0x0068740E`).
+    pub(crate) fn from_scenario_staging(
+        staging: &crate::map::preview::ScenarioStartStaging,
+    ) -> Self {
+        Self {
+            starts: staging
+                .defined_cells()
+                .map(|(slot, (rx, ry))| crate::map::waypoints::Waypoint {
+                    index: slot as u32,
+                    rx: rx as u16,
+                    ry: ry as u16,
+                })
+                .collect(),
+        }
+    }
+
     fn from_generated(generated: &crate::map::rmg::GeneratedMap) -> Self {
         let mut slots = [None; crate::skirmish_launch::SKIRMISH_PLAYER_SLOT_COUNT];
         for &(slot, rx, ry) in &generated.start_waypoints {
@@ -454,6 +471,10 @@ pub(super) fn finish_random_map_generation_owners(
     let continuation = generated.take_mapgen_continuation();
     retention.publish_mapgen_continuation(resident_simulation, continuation);
     runtime.replay_random_map_preview_construction(&generated.construction_trace);
+    runtime.stage_generated_starts(crate::app::loading::composition::scenario_start_staging(
+        &generated.map_file,
+        &generated.start_waypoints,
+    ));
     retention.finish_generation(generated);
     modal.finish_generate(preview);
     accept_on_finish

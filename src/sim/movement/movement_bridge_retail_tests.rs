@@ -322,7 +322,7 @@ fn prepare_commanding_house(scenario: &mut crate::headless_scenario::HeadlessSce
             name
         });
     for house in sim.houses.values_mut() {
-        house.multiplay_passive = true;
+        house.set_multiplay_passive_for_test(true);
     }
     name
 }

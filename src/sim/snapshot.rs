@@ -1722,7 +1722,7 @@ impl GameSnapshot {
             sim,
             map_hash,
             rules_hash,
-            &sim.session.map_name(),
+            sim.session.map_name(),
             description,
             save_timestamp,
             (
@@ -5572,9 +5572,9 @@ mod tests {
         let country = sim.interner.intern("Americans");
         let mut house =
             crate::sim::house_state::HouseState::new(owner, 0, Some(country), false, 0, 10);
-        house.base_center = Some((40, 50));
-        house.alternate_base_center = (93, 106);
-        house.base_plan_center = (19, 21);
+        house.set_base_center_for_test(Some((40, 50)));
+        house.set_alternate_base_center_for_test((93, 106));
+        house.set_base_plan_center_for_test((19, 21));
         sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
@@ -5586,9 +5586,9 @@ mod tests {
         );
         let restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
 
-        assert_eq!(restored.houses[&owner].base_center, Some((40, 50)));
-        assert_eq!(restored.houses[&owner].alternate_base_center, (93, 106));
-        assert_eq!(restored.houses[&owner].base_plan_center, (19, 21));
+        assert_eq!(restored.houses[&owner].base_center(), Some((40, 50)));
+        assert_eq!(restored.houses[&owner].alternate_base_center(), (93, 106));
+        assert_eq!(restored.houses[&owner].base_plan_center(), (19, 21));
         assert_eq!(restored.state_hash(), expected_hash);
     }
 
@@ -5619,7 +5619,10 @@ mod tests {
 
         let default_hash = sim.state_hash();
 
-        sim.houses.get_mut(&owner).unwrap().build_const_order = vec![9, 3];
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_build_const_order_for_test(vec![9, 3]);
         sim.substrate
             .entities
             .get_mut(9)
@@ -5632,7 +5635,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .build_const_order
+            .build_const_order_mut_for_test()
             .swap(0, 1);
         assert_ne!(
             sim.state_hash(),
@@ -5642,7 +5645,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .build_const_order
+            .build_const_order_mut_for_test()
             .swap(0, 1);
 
         sim.substrate
@@ -5671,7 +5674,7 @@ mod tests {
         );
         let restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
 
-        assert_eq!(restored.houses[&owner].build_const_order, vec![9, 3]);
+        assert_eq!(restored.houses[&owner].build_const_order(), vec![9, 3]);
         assert!(
             restored
                 .substrate
@@ -5690,8 +5693,8 @@ mod tests {
         let owner = sim.interner.intern("Computer1");
         let type_ref = sim.interner.intern("GAPOWR");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
-        house.base_plan.percent_built = -17;
-        house.base_plan.nodes = vec![
+        house.base_plan_mut().set_percent_built_for_test(-17);
+        house.base_plan_mut().set_nodes_for_test(vec![
             crate::sim::base_plan::BasePlanNode {
                 type_or_control: 2,
                 packed_cell: crate::sim::base_plan::pack_base_plan_cell(-4, 9),
@@ -5704,7 +5707,7 @@ mod tests {
                 filled: false,
                 retry_count: 6,
             },
-        ];
+        ]);
         sim.houses.register(house);
         let mut entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
             1,
@@ -5735,9 +5738,12 @@ mod tests {
             super::SNAPSHOT_VERSION
         );
         let restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
-        assert_eq!(restored.houses[&owner].base_plan.percent_built, -17);
-        assert_eq!(restored.houses[&owner].base_plan.nodes.len(), 2);
-        assert_eq!(restored.houses[&owner].base_plan.nodes[0].retry_count, -8);
+        assert_eq!(restored.houses[&owner].base_plan().percent_built(), -17);
+        assert_eq!(restored.houses[&owner].base_plan().nodes().len(), 2);
+        assert_eq!(
+            restored.houses[&owner].base_plan().nodes()[0].retry_count,
+            -8
+        );
         let restored_entity = restored.substrate.entities.get(1).unwrap();
         assert_eq!(restored_entity.type_facts.base_plan_type_index(), 2);
         assert!(restored_entity.type_facts.base_plan_is_defense());
@@ -5750,11 +5756,11 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Computer1");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 10_000, 10);
-        house.strategy_emergency.set_state_four();
-        house.strategy_emergency.set_all_to_hunt_bias();
-        house.strategy_emergency.note_building_attack(-17);
-        house.strategy_emergency.note_building_attacker(3);
-        house.strategy_timer.start(12, 106);
+        house.strategy_emergency_mut().set_state_four();
+        house.strategy_emergency_mut().set_all_to_hunt_bias();
+        house.strategy_emergency_mut().note_building_attack(-17);
+        house.strategy_emergency_mut().note_building_attacker(3);
+        house.restart_strategy_timer(12, 106);
         sim.houses.register(house);
         let mut responder =
             crate::sim::game_entity::GameEntity::test_default(1, "E1", "Computer1", 4, 5);
@@ -5865,13 +5871,13 @@ mod tests {
             super::SNAPSHOT_VERSION
         );
         let restored = GameSnapshot::load(&bytes).expect("v102 snapshot").sim;
-        let emergency = &restored.houses[&owner].strategy_emergency;
+        let emergency = restored.houses[&owner].strategy_emergency();
         assert_eq!(emergency.mode(), 4);
         assert!(emergency.all_to_hunt_bias());
         assert_eq!(emergency.last_building_attack_frame(), -17);
         assert_eq!(emergency.last_attacker_house_index(), 3);
         assert_eq!(
-            restored.houses[&owner].strategy_timer,
+            *restored.houses[&owner].strategy_timer(),
             crate::sim::timer::CdTimer::started(12, 106)
         );
         let restored_responder = restored.substrate.entities.get(1).unwrap();
@@ -6738,12 +6744,12 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         let mut house = HouseState::new(owner, 0, None, false, 10_000, 10);
-        house.is_defeated = true;
+        house.set_is_defeated_for_test(true);
         sim.houses.register(house);
         let bytes = GameSnapshot::save(&sim, 11, 22, "", 33);
         let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
         assert_eq!(restored.restore_after_snapshot_load(), Ok(()));
-        assert!(restored.houses[&owner].is_defeated);
+        assert!(restored.houses[&owner].is_defeated());
         assert!(restored.houses[&owner].outcome().is_none());
     }
 
@@ -6812,7 +6818,7 @@ mod tests {
         let mut sim = Simulation::with_seed(0x242);
         let owner = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 5_000, 10);
-        house.harvester_no_ore = true;
+        house.set_harvester_no_ore_for_test(true);
         sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
@@ -6825,7 +6831,7 @@ mod tests {
         let restored = GameSnapshot::load(&bytes)
             .expect("v132 house latch snapshot")
             .sim;
-        assert!(restored.houses[&owner].harvester_no_ore);
+        assert!(restored.houses[&owner].harvester_no_ore());
         assert_eq!(restored.state_hash(), expected_hash);
     }
 
@@ -6837,8 +6843,8 @@ mod tests {
         let mut sim = Simulation::with_seed(0x57D4);
         let owner = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 5_000, 10);
-        house.eva_funds_timer = crate::sim::timer::CdTimer::started(1_234, 2_880);
-        house.eva_low_power_guard = true;
+        house.set_eva_funds_timer_for_test(crate::sim::timer::CdTimer::started(1_234, 2_880));
+        house.set_eva_low_power_guard_for_test(true);
         sim.houses.register(house);
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
@@ -6852,10 +6858,10 @@ mod tests {
             .expect("v133 house EVA snapshot")
             .sim;
         assert_eq!(
-            restored.houses[&owner].eva_funds_timer,
+            *restored.houses[&owner].eva_funds_timer(),
             crate::sim::timer::CdTimer::started(1_234, 2_880)
         );
-        assert!(restored.houses[&owner].eva_low_power_guard);
+        assert!(restored.houses[&owner].eva_low_power_guard());
         assert_eq!(restored.state_hash(), expected_hash);
     }
 
@@ -6867,8 +6873,8 @@ mod tests {
         let owner = sim.interner.intern("Soviet");
         let gapper = sim.interner.intern("Americans");
         let mut house = crate::sim::house_state::HouseState::new(owner, 1, None, true, 10_000, 10);
-        house.spy_sat_active = true;
-        house.map_is_clear = true;
+        house.set_spy_sat_active_for_test(true);
+        house.set_map_is_clear_for_test(true);
         sim.houses.register(house);
         sim.fog.reveal_all_for_owner(owner);
         crate::sim::vision::apply_gap_generators(
@@ -6891,8 +6897,8 @@ mod tests {
         );
         let restored = GameSnapshot::load(&bytes).expect("v65 SpySat snapshot").sim;
 
-        assert!(restored.houses[&owner].spy_sat_active);
-        assert!(restored.houses[&owner].map_is_clear);
+        assert!(restored.houses[&owner].spy_sat_active());
+        assert!(restored.houses[&owner].map_is_clear());
         assert!(restored.fog.is_cell_revealed(owner, 0, 0));
         assert!(!restored.fog.is_cell_revealed(owner, 6, 6));
         assert_eq!(restored.state_hash(), expected_hash);
@@ -6979,7 +6985,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Receiver");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 10);
-        house.player_control = true;
+        house.set_player_control_for_test(true);
         sim.houses.register(house);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
@@ -6993,9 +6999,15 @@ mod tests {
         // pending-command/house-mode persistence on that post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
-        sim.houses.get_mut(&owner).unwrap().player_control = false;
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_player_control_for_test(false);
         assert_ne!(sim.state_hash(), expected_hash);
-        sim.houses.get_mut(&owner).unwrap().player_control = true;
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_player_control_for_test(true);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false),
         );
@@ -7012,7 +7024,7 @@ mod tests {
             restored.pending_command_snapshot(),
             sim.pending_command_snapshot()
         );
-        assert!(restored.houses.get(&owner).unwrap().player_control);
+        assert!(restored.houses.get(&owner).unwrap().player_control());
         assert!(restored.session.game_mode_nonzero());
         assert_eq!(restored.state_hash(), expected_hash);
     }
@@ -7086,10 +7098,10 @@ mod tests {
         sim.substrate.next_stable_object_id = 5;
         let owner = sim.interner.intern("ComputerIQ");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 51);
-        house.current_iq = 2;
+        house.set_current_iq_for_test(2);
         let threat_peer = sim.interner.intern("ThreatPeer");
-        house.grudge_scores.insert(threat_peer, 350);
-        house.enemy_house = Some(threat_peer);
+        house.grudge_scores_mut_for_test().insert(threat_peer, 350);
+        house.set_enemy_house_for_test(Some(threat_peer));
         sim.houses.register(house);
         sim.houses
             .register(crate::sim::house_state::HouseState::new(
@@ -7181,26 +7193,35 @@ mod tests {
             .unwrap()
             .ai_sell_repair
             .set_was_attacked_by_enemy_for_test(true);
-        sim.houses.get_mut(&owner).unwrap().current_iq = 1;
-        assert_ne!(sim.state_hash(), expected_hash, "CurrentIQ is hashed");
-        sim.houses.get_mut(&owner).unwrap().current_iq = 2;
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .grudge_scores
+            .set_current_iq_for_test(1);
+        assert_ne!(sim.state_hash(), expected_hash, "CurrentIQ is hashed");
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_current_iq_for_test(2);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .grudge_scores_mut_for_test()
             .insert(threat_peer, 351);
         assert_ne!(sim.state_hash(), expected_hash, "anger score is hashed");
         {
             let house = sim.houses.get_mut(&owner).unwrap();
-            house.grudge_scores.insert(threat_peer, 350);
-            house.enemy_house = None;
+            house.grudge_scores_mut_for_test().insert(threat_peer, 350);
+            house.set_enemy_house_for_test(None);
         }
         assert_ne!(
             sim.state_hash(),
             expected_hash,
             "selected enemy identity is hashed"
         );
-        sim.houses.get_mut(&owner).unwrap().enemy_house = Some(threat_peer);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_enemy_house_for_test(Some(threat_peer));
         sim.substrate
             .entities
             .get_mut(entity_id)
@@ -7267,12 +7288,12 @@ mod tests {
                 .map(|manager| manager.victims().collect::<Vec<_>>()),
             Some(vec![3, 4])
         );
-        assert_eq!(restored.houses.get(&owner).unwrap().current_iq, 2);
+        assert_eq!(restored.houses.get(&owner).unwrap().current_iq(), 2);
         assert_eq!(
-            restored.houses[&owner].grudge_scores.get(&threat_peer),
+            restored.houses[&owner].grudge_scores().get(&threat_peer),
             Some(&350)
         );
-        assert_eq!(restored.houses[&owner].enemy_house, Some(threat_peer));
+        assert_eq!(restored.houses[&owner].enemy_house(), Some(threat_peer));
         assert_eq!(restored.state_hash(), expected_hash);
     }
 
@@ -7785,9 +7806,9 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("AMERICANS");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
-        house.base_reservation.update_bounds(3, 4, 5, 6);
+        house.base_reservation_mut().update_bounds(3, 4, 5, 6);
         house
-            .base_reservation
+            .base_reservation_mut()
             .append_perimeter_cell_if_absent(u32::from(3u16) | (u32::from(4u16) << 16));
         sim.houses.register(house);
         let entity_id = sim.allocate_stable_id();
@@ -7881,9 +7902,9 @@ mod tests {
         assert_eq!(restored.substrate.base_reservations.raw_mask(None, 3, 4), 1);
         assert_eq!(restored.substrate.base_reservations.dummy_mask(), 0);
         let restored_house = restored.houses.get(&owner).expect("restored owner");
-        assert_eq!(restored_house.base_reservation.bounds(), (3, 4, 5, 6));
+        assert_eq!(restored_house.base_reservation().bounds(), (3, 4, 5, 6));
         assert_eq!(
-            restored_house.base_reservation.perimeter_cells(),
+            restored_house.base_reservation().perimeter_cells(),
             &[u32::from(3u16) | (u32::from(4u16) << 16)]
         );
         assert_eq!(
@@ -9417,7 +9438,7 @@ mod tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Computer1");
         let mut house = HouseState::new(owner, 0, None, false, 0, 10);
-        house.difficulty = HouseDifficulty::Easy;
+        house.set_difficulty_for_test(HouseDifficulty::Easy);
         sim.houses.register(house);
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // house-difficulty persistence on that same post-load cursor.
@@ -9428,7 +9449,11 @@ mod tests {
         let loaded = GameSnapshot::load(&bytes).expect("load should succeed");
 
         assert_eq!(
-            loaded.sim.houses.get(&owner).map(|house| house.difficulty),
+            loaded
+                .sim
+                .houses
+                .get(&owner)
+                .map(|house| house.difficulty()),
             Some(HouseDifficulty::Easy),
         );
         assert_eq!(loaded.sim.state_hash(), expected_hash);

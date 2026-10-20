@@ -741,12 +741,14 @@ fn install_base_building_house(sim: &mut Simulation, human: bool) {
         auto_base_building: true,
         ..house.ai_activation()
     });
-    house.base_plan.nodes = vec![crate::sim::base_plan::BasePlanNode {
-        type_or_control: 0,
-        packed_cell: 0,
-        filled: true,
-        retry_count: 0,
-    }];
+    house
+        .base_plan_mut()
+        .set_nodes_for_test(vec![crate::sim::base_plan::BasePlanNode {
+            type_or_control: 0,
+            packed_cell: 0,
+            filled: true,
+            retry_count: 0,
+        }]);
     sim.houses.register(house);
 }
 
@@ -991,7 +993,7 @@ fn a_computer_mcv_on_guard_unloads_when_its_house_has_a_yard() {
     sim.spawn_object("YARD", "Americans", 4, 4, 0, &rules)
         .unwrap();
     let owner = sim.interner.get("Americans").unwrap();
-    assert_eq!(sim.houses[&owner].build_const_order.len(), 1);
+    assert_eq!(sim.houses[&owner].build_const_order().len(), 1);
     assert!(guard_queues_unload(&sim, id, &rules));
     for _ in 0..8 {
         tick(&mut sim, &rules, None);
@@ -1032,7 +1034,7 @@ fn retail_dustbowl_computer_mcv() -> (
     let owner = sim.interner.intern("Russians");
     let mut house =
         crate::sim::house_state::HouseState::new(owner, 1, Some(owner), false, 10_000, 10);
-    house.current_iq = rules.general.max_iq_levels;
+    house.set_current_iq_for_test(rules.general.max_iq_levels);
     sim.houses.register(house);
 
     let (width, height) = crate::rules::foundation::foundation_dimensions(
@@ -1131,7 +1133,7 @@ fn retail_dustbowl_a_computer_mcv_deploys_where_it_stands() {
             .get(mcv)
             .is_none_or(|e| e.death.is_dying())
     );
-    assert_eq!(sim.houses[&owner].base_center, Some((x - 1, y - 1)));
+    assert_eq!(sim.houses[&owner].base_center(), Some((x - 1, y - 1)));
 }
 
 /// The deployed yard then builds from its House's BasePlan
@@ -1193,8 +1195,8 @@ fn retail_dustbowl_the_computer_yard_places_its_planned_buildings() {
             );
             assert!(
                 house
-                    .base_plan
-                    .nodes
+                    .base_plan()
+                    .nodes()
                     .iter()
                     .any(|node| node.type_or_control == index && node.packed_cell == node_cell),
                 "frame {frames}: {building:?} stands on a node of its type"
@@ -1262,8 +1264,8 @@ fn retail_dustbowl_the_computer_yard_places_a_base_defense() {
         crate::sim::base_plan::pack_base_plan_cell(i32::from(cell.0), i32::from(cell.1));
     assert!(
         sim.houses[&owner]
-            .base_plan
-            .nodes
+            .base_plan()
+            .nodes()
             .iter()
             .any(|node| node.type_or_control == index && node.packed_cell == node_cell),
         "{name} at {cell:?} stands on a node of its type"
@@ -1285,7 +1287,7 @@ fn retail_dustbowl_a_hard_computer_walls_its_yard() {
         .houses
         .get_mut(&owner)
         .expect("the computer house")
-        .difficulty = crate::sim::house_state::HouseDifficulty::Hard;
+        .set_difficulty_for_test(crate::sim::house_state::HouseDifficulty::Hard);
     let mut frames = 0;
     while retail_yard_at(&scenario).is_none() && frames < 600 {
         retail_frame(&mut scenario);
@@ -1319,7 +1321,7 @@ fn retail_dustbowl_a_hard_computer_walls_its_yard() {
     };
     ring.sort_unstable();
     let walls = |scenario: &crate::headless_scenario::HeadlessScenario| {
-        let nodes = &scenario.sim().houses[&owner].base_plan.nodes;
+        let nodes = scenario.sim().houses[&owner].base_plan().nodes();
         let first = nodes.iter().position(|node| node.type_or_control == wall)?;
         let cells: Vec<u32> = nodes[first..]
             .iter()
@@ -1394,7 +1396,7 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
         tank
     };
     let timer = |scenario: &crate::headless_scenario::HeadlessScenario| {
-        scenario.sim().houses[&owner].strategy_timer
+        *scenario.sim().houses[&owner].strategy_timer()
     };
     let mut ticks = Vec::new();
     let mut frames = 0;
@@ -1412,7 +1414,7 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
     // The yard stands and builds on.
     let owned_buildings = |scenario: &crate::headless_scenario::HeadlessScenario| {
         scenario.sim().houses[&owner]
-            .base_projection
+            .base_projection()
             .buildings()
             .len()
     };
@@ -1425,7 +1427,7 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
         "no building after {frames} frames"
     );
     let sim = scenario.sim();
-    assert!(!sim.houses[&owner].strategy_emergency.all_to_hunt_bias);
+    assert!(!sim.houses[&owner].strategy_emergency().all_to_hunt_bias());
     let yard = sim
         .substrate
         .entities
@@ -1469,8 +1471,8 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
     let lost = scenario.sim().session.binary_frame() as i32;
     let start = frames;
     while !scenario.sim().houses[&owner]
-        .strategy_emergency
-        .all_to_hunt_bias
+        .strategy_emergency()
+        .all_to_hunt_bias()
         && frames < start + 2000
     {
         step(&mut scenario);
@@ -1478,14 +1480,14 @@ fn retail_dustbowl_a_computer_without_its_yard_sells_off_and_hunts() {
     }
     let sim = scenario.sim();
     assert!(
-        sim.houses[&owner].strategy_emergency.all_to_hunt_bias,
+        sim.houses[&owner].strategy_emergency().all_to_hunt_bias(),
         "no sell-off {} frames after the yard's loss at frame {lost}",
         frames - start
     );
     let sold_at = *ticks.last().unwrap();
     assert!(sold_at > 900 && sold_at >= lost, "sold at frame {sold_at}");
     let left: Vec<u64> = sim.houses[&owner]
-        .base_projection
+        .base_projection()
         .buildings()
         .iter()
         .copied()

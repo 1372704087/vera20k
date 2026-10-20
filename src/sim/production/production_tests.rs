@@ -1162,7 +1162,7 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
         0,
         "refusal destroys the held Unit without alternate delivery"
     );
-    assert_eq!(sim.houses[&americans].stats.built(), 0);
+    assert_eq!(sim.houses[&americans].stats().built(), 0);
 }
 
 #[test]
@@ -1274,7 +1274,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(sim.substrate.entities.len(), entity_count);
     assert_eq!(sim.owned_object_counts(americans).1, owned_units);
     assert_eq!(credits_for_owner(&sim, "Americans"), credits + 1000);
-    assert_eq!(sim.houses[&americans].stats.built(), 0);
+    assert_eq!(sim.houses[&americans].stats().built(), 0);
 
     let bytes = save_codec::serialize(&sim.production.factories)
         .expect("serialize the fresh active factory");
@@ -1294,7 +1294,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
             .next(),
         Some(1)
     );
-    assert_eq!(sim.houses[&americans].stats.built(), 0);
+    assert_eq!(sim.houses[&americans].stats().built(), 0);
     for cell in &mut sim.resolved_terrain.as_mut().unwrap().cells {
         cell.speed_costs.float = Some(100);
         cell.base_speed_costs.float = Some(100);
@@ -1312,7 +1312,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     let delivered = sim.substrate.entities.get(successor).unwrap();
     assert!(delivered.lifecycle.cell_marked() && !delivered.lifecycle.in_limbo());
     assert_eq!(
-        sim.houses[&americans].stats.built(),
+        sim.houses[&americans].stats().built(),
         1,
         "Record_Last_Built4FB4B7 follows only the successor's successful exit"
     );
@@ -1734,7 +1734,7 @@ fn owner_credits_are_isolated() {
     let mut sim = Simulation::new();
     super::house_for_test(&mut sim, "Soviet");
     super::house_for_test(&mut sim, "Americans")
-        .economy
+        .economy_mut()
         .add_credits(-750);
     assert_eq!(credits_for_owner(&sim, "Americans"), STARTING_CREDITS - 750);
     assert_eq!(credits_for_owner(&sim, "Soviet"), STARTING_CREDITS);

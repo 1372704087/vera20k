@@ -221,18 +221,18 @@ pub(super) fn scene_with(input: &Value, rules: RuleSet, ini: &IniFile) -> Scene 
     let mut sim = world(&rules, ini);
     let owner = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
-    house.is_human = input["human"].as_bool().unwrap_or(true);
-    house.player_control = house.is_human;
-    house.difficulty = match input["difficulty"].as_u64().unwrap_or(0) {
+    house.set_is_human_for_test(input["human"].as_bool().unwrap_or(true));
+    house.set_player_control_for_test(house.is_human());
+    house.set_difficulty_for_test(match input["difficulty"].as_u64().unwrap_or(0) {
         0 => crate::sim::house_state::HouseDifficulty::Hard,
         1 => crate::sim::house_state::HouseDifficulty::Normal,
         _ => crate::sim::house_state::HouseDifficulty::Easy,
-    };
+    });
     house
-        .economy
+        .economy_mut()
         .set_credits_for_test(input["balance"].as_i64().unwrap_or(0) as i32);
     if input["income_mult"].is_number() {
-        house.country = Some(owner);
+        house.set_country_for_test(Some(owner));
     }
     sim.houses.register(house);
     sim.session.set_game_mode(
@@ -633,8 +633,8 @@ fn compare_unload(s: &Scene, row: &Value, context: &str) {
         .get(&s.sim.interner.get("Americans").unwrap())
         .unwrap();
     let (balance, score) = (
-        i64::from(house.economy.credits()),
-        i64::from(house.economy.score()),
+        i64::from(house.economy().credits()),
+        i64::from(house.economy().score()),
     );
     if row["input"]["name"] == "unload_gate_income_mult" {
         // RESIDUAL (documented on `refinery_dock`): native 0.9f pays

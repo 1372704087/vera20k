@@ -148,7 +148,8 @@ fn scene_for_rules(
         0,
         10,
     );
-    other_house.player_control = input["other_player_control"].as_bool().unwrap_or(false);
+    other_house
+        .set_player_control_for_test(input["other_player_control"].as_bool().unwrap_or(false));
     sim.houses.register(other_house);
     let id = 1;
     sim.entities_mut()

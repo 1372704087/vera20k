@@ -30,7 +30,7 @@ pub fn construction_options_for_owner(
     };
     let selling =
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
-    for &id in house.base_projection.buildings() {
+    for &id in house.base_projection().buildings() {
         let Some(building) = sim.entities().get(id) else {
             continue;
         };

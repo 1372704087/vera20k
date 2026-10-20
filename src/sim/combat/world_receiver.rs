@@ -110,7 +110,7 @@ fn respond_to_base_attack(
             .get(victim_id)
             .expect("response victim represented");
         let last_attacker_house_index = world.houses.get(&victim.owner()).map_or(-1, |house| {
-            house.strategy_emergency.last_attacker_house_index()
+            house.strategy_emergency().last_attacker_house_index()
         });
         fixture
             .trace
@@ -702,7 +702,7 @@ pub(crate) fn commit_entities(
                         .map_or(-1, |index| index as i32);
                     if let Some(owner) = world.houses.get_mut(&victim_owner) {
                         owner
-                            .strategy_emergency
+                            .strategy_emergency_mut()
                             .note_building_attacker(attacker_house_index);
                     }
                 }
@@ -1471,7 +1471,10 @@ pub(crate) fn handle_death(
                     obj,
                     category,
                     rules.general.building_die_sound.as_deref(),
-                    world.houses.get(&owner).is_some_and(|house| house.is_human),
+                    world
+                        .houses
+                        .get(&owner)
+                        .is_some_and(|house| house.is_human()),
                     &world.main_rng,
                     rx,
                     ry,

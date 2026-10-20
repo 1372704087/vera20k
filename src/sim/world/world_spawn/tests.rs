@@ -1193,7 +1193,7 @@ fn infantry_owner_discovery_leaves_building_power_radar_and_spysat_inputs_unchan
         sim.power_states[&owner].total_output,
         sim.power_states[&owner].total_drain,
         crate::sim::radar::has_radar_for_owner(&sim, &rules, "Americans"),
-        sim.houses[&owner].spy_sat_active,
+        sim.houses[&owner].spy_sat_active(),
     );
     let id = sim
         .spawn_object("E1", "Americans", 7, 5, 0, &rules)
@@ -1211,7 +1211,7 @@ fn infantry_owner_discovery_leaves_building_power_radar_and_spysat_inputs_unchan
         sim.power_states[&owner].total_output,
         sim.power_states[&owner].total_drain,
         crate::sim::radar::has_radar_for_owner(&sim, &rules, "Americans"),
-        sim.houses[&owner].spy_sat_active,
+        sim.houses[&owner].spy_sat_active(),
     );
     assert_eq!(before, (100, 0, true, true));
     assert_eq!(after, before);
@@ -2663,8 +2663,8 @@ fn a_building_s_ai_repair_byte_follows_its_map_line_or_its_computer_owner() {
         ] {
             let id = sim.interner.intern(name);
             let mut house = crate::sim::house_state::HouseState::new(id, 0, None, human, 0, 10);
-            house.player_control = human;
-            house.multiplay_passive = passive;
+            house.set_player_control_for_test(human);
+            house.set_multiplay_passive_for_test(passive);
             sim.houses.register(house);
         }
         let mut line = map_entity("UP1", EntityCategory::Structure, (6, 5));

@@ -86,7 +86,7 @@ impl GuardScene {
         }
         assert_eq!(sim.substrate.entities.airborne().count(), 2);
         let source = sim.substrate.entities.get(aegis).unwrap();
-        assert!(sim.houses.get(&source.owner()).unwrap().is_human);
+        assert!(sim.houses.get(&source.owner()).unwrap().is_human());
         assert_eq!(
             source.mission.current(),
             MissionId::from_known(MissionType::Guard)

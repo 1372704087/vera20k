@@ -77,7 +77,7 @@ fn assert_state(sim: &Simulation, owner: InternedId, expected: &Value, context: 
             u32::try_from(expected["produced_totals"][family].as_u64().unwrap()).unwrap(),
         );
     }
-    assert_eq!(house.stats.built(), total, "{context}: score Built");
+    assert_eq!(house.stats().built(), total, "{context}: score Built");
     house.validate_production_history().unwrap();
 }
 
@@ -211,7 +211,7 @@ fn record_and_both_lifetime_limit_queries_match_original_retained_histories() {
                     sim.houses
                         .get_mut(&owner)
                         .unwrap()
-                        .tracking
+                        .tracking_mut()
                         .set_owned_for_test(
                             EntityCategory::from(category(family)),
                             query,

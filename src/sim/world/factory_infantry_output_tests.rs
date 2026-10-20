@@ -211,9 +211,9 @@ fn ground_command_fixture(
         assert_eq!(human, context["human"] != 0);
         assert_eq!(state["house"]["pointer"], context["actor_owner"]);
         assert_eq!(state["house"]["current"], context["current_house"]);
-        house.player_control = context["player_control"] != 0;
+        house.set_player_control_for_test(context["player_control"] != 0);
     }
-    house.difficulty = HouseDifficulty::Hard;
+    house.set_difficulty_for_test(HouseDifficulty::Hard);
     house.project_country_mults(&rules, &sim.interner);
     sim.houses.register(house);
     sim.session.set_current_house_for_test(
@@ -1908,7 +1908,7 @@ fn joined_two_paid_gi(route: OutputRoute) {
     // Human/currentHouse/difficulty0 and cash10000 are retained native priors.
     // TechLevel10 is explicit structural eligibility, not a measured P2 field.
     let mut house = HouseState::new(owner, 0, Some(owner), true, 10_000, 10);
-    house.difficulty = HouseDifficulty::Hard;
+    house.set_difficulty_for_test(HouseDifficulty::Hard);
     house.project_country_mults(&rules, &sim.interner);
     sim.houses.register(house);
     sim.session.set_current_house_for_test(Some(owner));
@@ -2340,11 +2340,11 @@ fn joined_two_paid_gi(route: OutputRoute) {
     assert!(factory.is_none_or(|view| view.object.is_none() && view.queue.is_empty()));
     assert!(sim.pending_command_snapshot().is_empty());
     assert_eq!(
-        json!(sim.houses[&owner].economy.credits()),
+        json!(sim.houses[&owner].economy().credits()),
         native["final_wallet"]["credits"]
     );
     assert_eq!(
-        json!(sim.houses[&owner].economy.spent_credits()),
+        json!(sim.houses[&owner].economy().spent_credits()),
         native["final_wallet"]["spent"]
     );
 }

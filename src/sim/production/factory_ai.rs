@@ -169,7 +169,7 @@ fn exit_finished_object(
                 .object_type(object.type_id, rules)
                 .is_some_and(|ty| ty.category == ObjectCategory::Building && ty.naval);
             if naval_building && let Some(house) = sim.houses.get_mut(&owner) {
-                house.ai_production.forbid_naval();
+                house.ai_production_mut().forbid_naval();
             }
             abandon_production(
                 sim,

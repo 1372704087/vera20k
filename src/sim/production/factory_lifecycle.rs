@@ -313,8 +313,8 @@ pub(super) fn settle_abandoned(
         && !house.is_controlled_by_human(game_mode_nonzero)
     {
         match UnitChoiceKind::of(category) {
-            Some(kind) => house.ai_unit_choices.clear(kind),
-            None => house.ai_production.clear_building_choice(),
+            Some(kind) => house.ai_unit_choices_mut().clear(kind),
+            None => house.ai_production_mut().clear_building_choice(),
         }
     }
     //4CA0E3..4CA109 brackets the scalar destructor AND final held=NULL.
@@ -1069,7 +1069,7 @@ pub(in crate::sim) fn recalculate_strips(
     owner: InternedId,
 ) -> Vec<crate::sim::command::CommandEnvelope> {
     use crate::sim::command::{Command, CommandEnvelope};
-    if !sim.houses.get(&owner).is_some_and(|house| house.is_human) {
+    if !sim.houses.get(&owner).is_some_and(|house| house.is_human()) {
         return Vec::new();
     }
     let mut abandons = Vec::new();

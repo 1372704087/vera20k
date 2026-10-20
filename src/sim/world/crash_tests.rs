@@ -574,7 +574,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
         None,
         crate::sim::world::FrameEffects::default()
     ));
-    assert_eq!(sim.houses[&owner].stats.units_lost(), callbacks);
+    assert_eq!(sim.houses[&owner].stats().units_lost(), callbacks);
 
     let mut reached_impact = false;
     for _ in 0..128 {
@@ -601,7 +601,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
     );
     assert!(!sim.substrate.entities.get(1).unwrap().is_active());
     assert_eq!(
-        sim.houses[&owner].stats.units_lost(),
+        sim.houses[&owner].stats().units_lost(),
         callbacks,
         "impact UnInit does not add a second loss"
     );
@@ -613,7 +613,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
         false,
     );
     assert!(!sim.substrate.entities.contains(1));
-    assert_eq!(sim.houses[&owner].stats.units_lost(), callbacks);
+    assert_eq!(sim.houses[&owner].stats().units_lost(), callbacks);
 }
 
 /// The whole fall of a dead crashing aircraft, frame by frame, through the
@@ -1337,7 +1337,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
             .all(|call| call["call"] != "record_kill")
     );
     assert_eq!(
-        sim.houses[&soviets].stats.units_killed(),
+        sim.houses[&soviets].stats().units_killed(),
         3,
         "the transport and both riders are credited before the wreck falls"
     );
@@ -1389,7 +1389,7 @@ fn a_shot_down_jumpjet_crashes_through_the_production_receiver() {
         "an Explosion= anim deals no damage"
     );
     assert_eq!(
-        sim.houses[&soviets].stats.units_killed(),
+        sim.houses[&soviets].stats().units_killed(),
         3,
         "impact UnInit does not repeat the transport's fatal callback"
     );
@@ -2023,7 +2023,7 @@ fn retail_dustbowl_flak_shoots_down_a_nighthawk_and_a_kirov() {
                 assert_eq!(entity.health.current(), 0);
                 assert_eq!(entity.kill_record.killer(), Some(russians));
                 if id == nighthawk {
-                    riders_killed_by_crash = Some(sim.houses[&russians].stats.units_killed());
+                    riders_killed_by_crash = Some(sim.houses[&russians].stats().units_killed());
                     assert!(
                         entity
                             .passenger_role

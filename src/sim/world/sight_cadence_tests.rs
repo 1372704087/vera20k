@@ -281,7 +281,9 @@ fn unlimbo_keeps_its_single_alive_admission_across_sight_callbacks() {
     let type_id = sim.substrate.entities.get(id).unwrap().type_ref();
     let category = crate::map::entities::EntityCategory::Unit;
     sim.techno_limbo_with_rules(id, &rules, None);
-    let before = sim.houses[&owner].tracking.active_count(category, type_id);
+    let before = sim.houses[&owner]
+        .tracking()
+        .active_count(category, type_id);
     sim.fog = vision::FogState::new(32, 32);
     with_first_cell_receiver(
         move |sim| {
@@ -302,7 +304,9 @@ fn unlimbo_keeps_its_single_alive_admission_across_sight_callbacks() {
     let source = sim.substrate.entities.get(id).unwrap();
     assert!(!source.lifecycle.object_alive());
     assert_eq!(
-        sim.houses[&owner].tracking.active_count(category, type_id),
+        sim.houses[&owner]
+            .tracking()
+            .active_count(category, type_id),
         before + 1,
         "6F6D8F Added_To_Game follows the pre-callback alive admission"
     );

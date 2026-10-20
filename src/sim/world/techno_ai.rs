@@ -606,7 +606,7 @@ impl Simulation {
                     .get_mut(id)
                     .expect("dying object remained present"),
                 sequence_set,
-                &self.session.game_options(),
+                self.session.game_options(),
                 self.session.binary_frame(),
             );
             if finished {
@@ -1464,7 +1464,7 @@ fn berserk_step(
     }
     let owner = entity.owner();
     let _ = sim.assign_target_represented(id, None, Some(rules), overlay_registry, effects);
-    let mission = if sim.houses.get(&owner).is_some_and(|house| house.is_human) {
+    let mission = if sim.houses.get(&owner).is_some_and(|house| house.is_human()) {
         MissionType::Guard
     } else {
         MissionType::Hunt
@@ -3613,7 +3613,10 @@ mod tests {
         assert!(!held(&sim), "a computer house drops it");
 
         aim(&mut sim);
-        sim.houses.get_mut(&soviet).unwrap().is_human = true;
+        sim.houses
+            .get_mut(&soviet)
+            .unwrap()
+            .set_is_human_for_test(true);
         allied_target_drop_step(&mut sim, 1, &rules);
         assert!(held(&sim), "a human house keeps it");
     }

@@ -337,7 +337,7 @@ pub(super) fn compare_state(s: &Scene, row: &Value, context: &str) {
     );
     let owner = s.sim.interner.get("Americans").unwrap();
     assert_eq!(
-        u64::from(s.sim.houses[&owner].harvester_no_ore),
+        u64::from(s.sim.houses[&owner].harvester_no_ore()),
         native["house_no_ore"].as_u64().unwrap(),
         "{context}: House+0x242"
     );

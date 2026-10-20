@@ -1936,8 +1936,8 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.health.current(), 300);
         assert_eq!(unit.estimated_health.get(), -20);
-        assert_eq!(sim.houses[&owner].economy.credits(), 10_000);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().credits(), 10_000);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
         assert_eq!(sim.scenario_rng.state(), rng);
     }
 
@@ -1955,8 +1955,8 @@ mod tests {
         ));
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Negatory);
         assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 100);
-        assert_eq!(sim.houses[&owner].economy.credits(), 10_000);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().credits(), 10_000);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
     }
 
     /// Techno6F4D35 replies32 without side effects; repeated requests do not
@@ -1968,7 +1968,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(1);
         let rng = sim.scenario_rng.state();
         let estimate = sim
@@ -1987,8 +1987,8 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.health.current(), 100);
         assert_eq!(unit.estimated_health.get(), estimate);
-        assert_eq!(sim.houses[&owner].economy.credits(), 1);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
         assert_eq!(sim.scenario_rng.state(), rng);
     }
 
@@ -2185,7 +2185,7 @@ mod tests {
             use crate::sim::house_state::HouseState;
             let owner_id = sim.interner.intern("Americans");
             let mut house = HouseState::new(owner_id, 0, None, false, 0, 10);
-            house.economy.set_credits_for_test(10_000);
+            house.economy_mut().set_credits_for_test(10_000);
             sim.houses.register(house);
         }
         spawn_depot(&mut sim);
@@ -2224,8 +2224,8 @@ mod tests {
         let tank = sim.substrate.entities.get(1).unwrap();
         assert_eq!(tank.health.current(), 108);
         let house = sim.houses.get(&owner).unwrap();
-        assert_eq!(house.economy.credits(), 9_998);
-        assert_eq!(house.economy.spent_credits(), 2);
+        assert_eq!(house.economy().credits(), 9_998);
+        assert_eq!(house.economy().spent_credits(), 2);
         assert_eq!(sim.scenario_rng.state(), rng);
     }
 
@@ -3334,7 +3334,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(2);
         spawn_entity(
             &mut sim,
@@ -3385,8 +3385,8 @@ mod tests {
         }
         sim.advance_tick(&[], Some(&rules), None, None, 66);
         assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 108);
-        assert_eq!(sim.houses[&owner].economy.credits(), 0);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 2);
+        assert_eq!(sim.houses[&owner].economy().credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 2);
         let factory = sim.production.factories.test_first_mut().unwrap();
         assert_eq!(factory.progress, 0);
         assert_eq!(factory.balance, 108);
@@ -3408,7 +3408,10 @@ mod tests {
             let (mut sim, rules) = setup(0);
             if human {
                 let owner_id = sim.interner.intern("Americans");
-                sim.houses.get_mut(&owner_id).unwrap().is_human = true;
+                sim.houses
+                    .get_mut(&owner_id)
+                    .unwrap()
+                    .set_is_human_for_test(true);
             }
             spawn_entity(&mut sim, 1, "HARV", EntityCategory::Unit, 14, 11, 600);
             {

@@ -296,10 +296,10 @@ mod tests {
         .expect("staged map-roster construction");
         let selected = sim.interner.get("Alpha").unwrap();
         assert_eq!(sim.session.current_house(), Some(selected));
-        assert!(sim.houses[&selected].is_human && sim.houses[&selected].player_control);
+        assert!(sim.houses[&selected].is_human() && sim.houses[&selected].player_control());
         let first = sim.interner.get("Zulu").unwrap();
         assert_eq!(sim.houses.order(), [first, selected]);
-        assert!(!sim.houses[&first].is_human && !sim.houses[&first].player_control);
+        assert!(!sim.houses[&first].is_human() && !sim.houses[&first].player_control());
     }
 
     /// F07 matrix: the runtime always uses bound navigation and resources —
@@ -1160,7 +1160,7 @@ pub fn finalize_constructed_scenario(
                 let country = sim
                     .houses
                     .get(&entity.owner())
-                    .and_then(|house| house.country)
+                    .and_then(|house| house.country())
                     .map(|country| sim.interner.resolve(country));
                 map_wall_owner_candidate_from_building(
                     entity,

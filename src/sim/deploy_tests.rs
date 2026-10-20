@@ -660,7 +660,7 @@ fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
     let player = sim.interner.get("Player").unwrap();
     for computer in ["Americans", "Computer2"] {
         let id = sim.interner.get(computer).unwrap();
-        assert_eq!(sim.houses[&id].enemy_house, Some(player), "{computer}");
+        assert_eq!(sim.houses[&id].enemy_house(), Some(player), "{computer}");
     }
 }
 
@@ -716,12 +716,12 @@ fn base_plan_recalc_deploy_generates_and_anchors_nonhuman_conyard() {
     );
     let owner = sim.interner.get("Americans").unwrap();
     let house = &sim.houses[&owner];
-    assert_eq!(house.base_center, Some((19, 21)));
-    assert_eq!(house.base_plan_center, (19, 21));
+    assert_eq!(house.base_center(), Some((19, 21)));
+    assert_eq!(house.base_plan_center(), (19, 21));
     assert_eq!(house.ai_activation(), ENABLED_AI_ACTIVATION);
-    assert!(!house.base_plan.nodes.is_empty());
+    assert!(!house.base_plan().nodes().is_empty());
     assert_eq!(
-        house.base_plan.nodes[0].packed_cell,
+        house.base_plan().nodes()[0].packed_cell,
         pack_base_plan_cell(19, 21)
     );
     assert_eq!(
@@ -749,7 +749,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
     let owner = sim.interner.get("Americans").unwrap();
     let game_mode_nonzero = sim.session.game_mode_nonzero();
     let house = sim.houses.get_mut(&owner).unwrap();
-    house.current_iq = 5;
+    house.set_current_iq_for_test(5);
     // Scenario setup's SetDifficulty supplies the RepairDelay the latch timer
     // draws from; the House update releases the latch once that expires.
     house.set_difficulty(
@@ -788,7 +788,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
             frame,
             entity.building_up(),
             entity.repairing.is_on(),
-            house.repair_start_latch,
+            house.repair_start_latch(),
         ));
     }
     // A deploy's 3x2 build-up completes at D + 1 + (3 - 1) * 2 (the
@@ -798,7 +798,7 @@ fn a_damaged_computer_yard_starts_its_repair_as_its_build_up_completes() {
         .collect();
     assert_eq!(frames, expected);
     assert_eq!(
-        sim.houses[&owner].repair_latch_timer.start_frame(),
+        sim.houses[&owner].repair_latch_timer().start_frame(),
         (deployed_at + 5) as i32,
         "the latch timer starts on the completion frame"
     );
@@ -840,9 +840,9 @@ fn base_plan_recalc_deploy_skips_human_campaign_and_non_conyard_targets() {
             !is_human
         );
         let house = &sim.houses[&owner];
-        assert_eq!(house.base_center, None);
-        assert_eq!(house.base_plan_center, (0, 0));
-        assert!(house.base_plan.nodes.is_empty());
+        assert_eq!(house.base_center(), None);
+        assert_eq!(house.base_plan_center(), (0, 0));
+        assert!(house.base_plan().nodes().is_empty());
         assert_eq!(house.ai_activation(), SPLIT_AI_ACTIVATION);
         assert_eq!(
             sim.scenario_rng.logical_state(),
@@ -875,9 +875,9 @@ fn base_plan_recalc_deploy_skips_human_campaign_and_non_conyard_targets() {
     ));
     assert!(deployed_type(&sim, "YAREFN").building_up());
     assert!(deployed_type(&sim, "YAREFN").ai_sell_repair.ai_repairable());
-    assert_eq!(sim.houses[&owner].base_center, None);
-    assert_eq!(sim.houses[&owner].base_plan_center, (0, 0));
-    assert!(sim.houses[&owner].base_plan.nodes.is_empty());
+    assert_eq!(sim.houses[&owner].base_center(), None);
+    assert_eq!(sim.houses[&owner].base_plan_center(), (0, 0));
+    assert!(sim.houses[&owner].base_plan().nodes().is_empty());
     assert_eq!(sim.houses[&owner].ai_activation(), SPLIT_AI_ACTIVATION);
     assert_eq!(
         sim.scenario_rng.logical_state(),
@@ -915,7 +915,7 @@ fn a_human_deploy_empties_the_base_cell_until_the_next_building_counts_the_yard(
         crate::sim::world::FrameEffects::default()
     ));
     assert!(deployed_type(&sim, "GACNST").building_up());
-    assert_eq!(sim.houses[&owner].base_center, None);
+    assert_eq!(sim.houses[&owner].base_center(), None);
     assert_eq!(sim.houses[&owner].base_origin(), (0, 0));
 
     // Far from the yard (4x3 at (19,21)): were it counted, the centre would
@@ -923,7 +923,7 @@ fn a_human_deploy_empties_the_base_cell_until_the_next_building_counts_the_yard(
     sim.spawn_object("GAPOWR", "Americans", 28, 8, 0, &rules)
         .expect("spawn power plant");
     let (x, y) = sim.houses[&owner]
-        .base_center
+        .base_center()
         .expect("the yard gives a base cell");
     assert!(
         (18..=23).contains(&x) && (20..=24).contains(&y),
@@ -942,14 +942,14 @@ fn base_plan_recalc_deploy_countryless_nonempty_plan_only_reanchors_node_zero() 
     sim.scenario_rng = crate::sim::rng::SimRng::new(0x1357_2468);
     let owner = sim.interner.get("Americans").unwrap();
     let house = sim.houses.get_mut(&owner).unwrap();
-    house.country = None;
+    house.set_country_for_test(None);
     house.set_ai_activation_for_test(SPLIT_AI_ACTIVATION);
-    house.base_plan.nodes = vec![BasePlanNode {
+    house.base_plan_mut().set_nodes_for_test(vec![BasePlanNode {
         type_or_control: 4,
         packed_cell: 0xAABB_CCDD,
         filled: true,
         retry_count: -7,
-    }];
+    }]);
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
@@ -964,17 +964,17 @@ fn base_plan_recalc_deploy_countryless_nonempty_plan_only_reanchors_node_zero() 
     ));
     assert!(deployed_type(&sim, "GACNST").building_up());
     let house = &sim.houses[&owner];
-    assert_eq!(house.base_center, Some((19, 21)));
-    assert_eq!(house.base_plan_center, (19, 21));
+    assert_eq!(house.base_center(), Some((19, 21)));
+    assert_eq!(house.base_plan_center(), (19, 21));
     assert_eq!(house.ai_activation(), ENABLED_AI_ACTIVATION);
-    assert_eq!(house.base_plan.nodes.len(), 1);
-    assert_eq!(house.base_plan.nodes[0].type_or_control, 4);
+    assert_eq!(house.base_plan().nodes().len(), 1);
+    assert_eq!(house.base_plan().nodes()[0].type_or_control, 4);
     assert_eq!(
-        house.base_plan.nodes[0].packed_cell,
+        house.base_plan().nodes()[0].packed_cell,
         pack_base_plan_cell(19, 21)
     );
-    assert!(house.base_plan.nodes[0].filled);
-    assert_eq!(house.base_plan.nodes[0].retry_count, -7);
+    assert!(house.base_plan().nodes()[0].filled);
+    assert_eq!(house.base_plan().nodes()[0].retry_count, -7);
     assert_eq!(
         sim.scenario_rng.logical_state(),
         expected_rng.logical_state()
@@ -993,7 +993,7 @@ fn base_plan_recalc_deploy_countryless_empty_plan_fails_before_removal() {
     sim.scenario_rng = crate::sim::rng::SimRng::new(0x2468_1357);
     let owner = sim.interner.get("Americans").unwrap();
     let house = sim.houses.get_mut(&owner).unwrap();
-    house.country = None;
+    house.set_country_for_test(None);
     house.set_ai_activation_for_test(SPLIT_AI_ACTIVATION);
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
@@ -1009,9 +1009,9 @@ fn base_plan_recalc_deploy_countryless_empty_plan_fails_before_removal() {
 
     assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
     let house = &sim.houses[&owner];
-    assert_eq!(house.base_center, None);
-    assert_eq!(house.base_plan_center, (0, 0));
-    assert!(house.base_plan.nodes.is_empty());
+    assert_eq!(house.base_center(), None);
+    assert_eq!(house.base_plan_center(), (0, 0));
+    assert!(house.base_plan().nodes().is_empty());
     assert_eq!(house.ai_activation(), SPLIT_AI_ACTIVATION);
     assert_eq!(sim.scenario_rng.state(), rng_before);
 }
@@ -1046,9 +1046,9 @@ fn base_plan_recalc_deploy_failures_preserve_source_rng_plan_and_centers() {
         assert!(!sim.deploy_mcv(mcv, rules, None, crate::sim::world::FrameEffects::default()));
         assert!(!sim.substrate.entities.get(mcv).unwrap().death.is_dying());
         let house = &sim.houses[&owner];
-        assert_eq!(house.base_center, None);
-        assert_eq!(house.base_plan_center, (0, 0));
-        assert!(house.base_plan.nodes.is_empty());
+        assert_eq!(house.base_center(), None);
+        assert_eq!(house.base_plan_center(), (0, 0));
+        assert!(house.base_plan().nodes().is_empty());
         assert_eq!(house.ai_activation(), SPLIT_AI_ACTIVATION);
         assert_eq!(sim.scenario_rng.state(), rng_before);
     }

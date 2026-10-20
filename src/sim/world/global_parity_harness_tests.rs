@@ -91,13 +91,13 @@ pub(super) fn record_replay_diagnostic(
             "house_order":sim.houses.order().iter().map(|owner|sim.resolve(*owner)).collect::<Vec<_>>(),
             "current_house":sim.session.current_house().map(|owner|sim.resolve(owner)),
             "houses":sim.houses.iter().map(|(owner,house)|serde_json::json!({
-                "owner":sim.resolve(*owner),"stats":house.stats,"economy":house.economy,
+                "owner":sim.resolve(*owner),"stats":house.stats(),"economy":house.economy(),
                 "capture_notified":house.building_capture_notified(),
                 "discovered_by_current_house":house.discovered_by_current_house(),
-                "building_order":house.base_projection.buildings(),
-                "eva_funds_timer":house.eva_funds_timer,"eva_low_power_guard":house.eva_low_power_guard,
+                "building_order":house.base_projection().buildings(),
+                "eva_funds_timer":house.eva_funds_timer(),"eva_low_power_guard":house.eva_low_power_guard(),
                 "repair_delay_bits":house.repair_delay().to_bits(),
-                "repair_start_latch":house.repair_start_latch,"repair_latch_timer":house.repair_latch_timer,
+                "repair_start_latch":house.repair_start_latch(),"repair_latch_timer":house.repair_latch_timer(),
             })).collect::<Vec<_>>(),
             "power_states":sim.power_states.iter().map(|(owner,state)|serde_json::json!({
                 "owner":sim.resolve(*owner),"state":state,

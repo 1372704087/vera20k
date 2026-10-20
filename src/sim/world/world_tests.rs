@@ -1268,7 +1268,7 @@ pub(crate) fn gsi_04_07_wall_sell_seed_houses(
     let receiver = sim.interner.intern("Receiver");
     let mut owner_house =
         crate::sim::house_state::HouseState::new(wall_owner, 0, None, false, 0, 10);
-    owner_house.player_control = true;
+    owner_house.set_player_control_for_test(true);
     sim.houses.register(owner_house);
     sim.houses
         .register(crate::sim::house_state::HouseState::new(
@@ -1370,7 +1370,7 @@ fn gsi_04_07_wall_sell_ordered_cleanup_detach_navigation_and_zero_refund_rng() {
     assert!(!rules.object("FIRSTWALL").unwrap().click_repairable);
     let mut sim = Simulation::with_seed(77);
     let (wall_owner, receiver) = gsi_04_07_wall_sell_seed_houses(&mut sim);
-    let credits_before = sim.houses.get(&wall_owner).unwrap().economy.credits();
+    let credits_before = sim.houses.get(&wall_owner).unwrap().economy().credits();
     let rng_before = sim.scenario_rng.state();
 
     let terrain = gsi_04_10_clear_terrain(8, 8);
@@ -1622,7 +1622,7 @@ fn gsi_04_07_wall_sell_ordered_cleanup_detach_navigation_and_zero_refund_rng() {
         );
     }
     assert_eq!(
-        sim.houses.get(&wall_owner).unwrap().economy.credits(),
+        sim.houses.get(&wall_owner).unwrap().economy().credits(),
         credits_before
     );
     assert_eq!(sim.scenario_rng.state(), rng_before);
@@ -1892,7 +1892,10 @@ fn gsi_04_07_wall_sell_first_match_and_split_human_gate_are_exact() {
         Some(&overlays),
         crate::sim::world::FrameEffects::default(),
     ));
-    sim.houses.get_mut(&wall_owner).unwrap().is_human = true;
+    sim.houses
+        .get_mut(&wall_owner)
+        .unwrap()
+        .set_is_human_for_test(true);
     assert!(sim.apply_command_with_overlays(
         "Receiver",
         &Command::SellWallAtCell { x: 0, y: 2 },
@@ -2376,8 +2379,8 @@ fn insert_house_with_counts(
 ) -> crate::sim::intern::InternedId {
     let owner = sim.interner.intern(name);
     let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, true, 0, 10);
-    house.tracking.set_buildings_for_test(buildings);
-    house.tracking.set_active_units_for_test(units);
+    house.tracking_mut().set_buildings_for_test(buildings);
+    house.tracking_mut().set_active_units_for_test(units);
     sim.houses.register(house);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
@@ -3897,12 +3900,12 @@ fn short_game_counts_a_dying_base_unit_until_it_is_deleted() {
         .set_dying_for_test(true);
 
     check_defeat_now(&mut sim, Some(&rules));
-    assert!(!sim.houses[&owner].is_defeated, "still tracked");
+    assert!(!sim.houses[&owner].is_defeated(), "still tracked");
 
     sim.uninit(1);
     sim.flush_pending_delete();
     check_defeat_now(&mut sim, Some(&rules));
-    assert!(sim.houses[&owner].is_defeated);
+    assert!(sim.houses[&owner].is_defeated());
 }
 
 /// Pending destruction4F87C2 runs before the frame-zero defeat gate;
@@ -3928,7 +3931,7 @@ fn flag_to_die_destroys_owned_objects_at_frame_zero_before_defeat_gate() {
     assert!(generated.is_empty());
     assert!(!sim.houses[&owner].is_to_die());
     assert!(
-        !sim.houses[&owner].is_defeated,
+        !sim.houses[&owner].is_defeated(),
         "frame-zero defeat gate is separate"
     );
     assert_eq!(sim.entities().get(1).unwrap().health.current(), 0);
@@ -3963,7 +3966,7 @@ fn defeated_house_is_flagged_has_lost_and_its_stragglers_die() {
 
         // Original4FC5AA..4FC6B7 flags only PlayerPtr's result. Defeated
         // membership is shared, while each process owns its local result timer.
-        assert!(sim.houses[&defeated].is_defeated);
+        assert!(sim.houses[&defeated].is_defeated());
         assert_eq!(sim.houses[&defeated].has_lost(), local_loser);
         assert!(!sim.houses[&survivor].has_lost());
         assert_eq!(sim.houses[&survivor].has_won(), !local_loser);
@@ -3982,7 +3985,7 @@ fn defeated_house_is_flagged_has_lost_and_its_stragglers_die() {
             straggler.kill_record.killer().is_none(),
             "no house is credited"
         );
-        assert_eq!(sim.houses[&survivor].stats.units_killed(), 0);
+        assert_eq!(sim.houses[&survivor].stats().units_killed(), 0);
     }
 }
 
@@ -4032,7 +4035,7 @@ fn gsi_01_04_house_rung_owns_savour_deadline_and_emits_one_transition_edge() {
     sim.session.set_binary_frame_for_test(36);
     check_defeat_now(&mut sim, Some(&rules));
     assert!(sim.houses[&winner].outcome().unwrap().exit_ready);
-    assert!(sim.houses[&loser].is_defeated);
+    assert!(sim.houses[&loser].is_defeated());
     assert!(
         sim.houses[&loser].outcome().is_none(),
         "remote defeat has no local result timer"
@@ -4073,8 +4076,8 @@ fn gsi_05_16_a_captured_insignificant_garrison_does_not_keep_its_house_alive() {
     sim.change_owner(1, player);
     check_defeat_now(&mut sim, Some(&rules));
 
-    assert_eq!(sim.houses[&player].tracking.buildings(), 0);
-    assert!(sim.houses[&player].is_defeated);
+    assert_eq!(sim.houses[&player].tracking().buildings(), 0);
+    assert!(sim.houses[&player].is_defeated());
     assert!(sim.houses[&enemy].has_won());
     assert_eq!(sim.entities().get(1).unwrap().health.current(), 0);
 }
@@ -4090,9 +4093,9 @@ fn insert_passive_house_with_counts(
 ) -> crate::sim::intern::InternedId {
     let owner = insert_house_with_counts(sim, name, buildings, units);
     let house = sim.houses.get_mut(&owner).expect("house just inserted");
-    house.multiplay_passive = true;
+    house.set_multiplay_passive_for_test(true);
     // Stock Civilian/JP are never player-controlled.
-    house.is_human = false;
+    house.set_is_human_for_test(false);
     owner
 }
 
@@ -4124,7 +4127,7 @@ fn passive_house_owning_buildings_does_not_block_last_player_victory() {
 
     check_defeat_now(&mut sim, Some(&rules));
 
-    assert!(sim.houses[&loser].is_defeated);
+    assert!(sim.houses[&loser].is_defeated());
     assert!(
         sim.houses[&survivor].has_won(),
         "last non-passive house standing must win despite the Civilian house owning buildings"
@@ -4187,10 +4190,10 @@ fn one_way_alliance_does_not_end_the_game() {
         sim.houses
             .get_mut(&opponent)
             .unwrap()
-            .tracking
+            .tracking_mut()
             .set_buildings_for_test(0);
         check_defeat_now(&mut sim, Some(&rules));
-        assert!(sim.houses[&opponent].is_defeated);
+        assert!(sim.houses[&opponent].is_defeated());
         assert_eq!(
             sim.houses[&a].has_won(),
             mutual,
@@ -6700,7 +6703,7 @@ fn combat_death_after_its_repair_visit_is_freed_at_end_of_tick() {
     // before this tick's Phase 5 combat: frame 0 takes one step (Cost 1000 over
     // 150 steps at 25% costs 1) while the building lives, and none after.
     assert_eq!(
-        sim.houses.get(&russia).map(|h| h.economy.credits()),
+        sim.houses.get(&russia).map(|h| h.economy().credits()),
         Some(999),
         "one repair step in the building's visit, none after its death",
     );
@@ -6818,7 +6821,7 @@ fn crusher_does_not_freeze_in_front_of_infantry() {
             .get(infantry_owner)
             .and_then(|id| sim.houses.get_mut(&id))
         {
-            house.is_human = true;
+            house.set_is_human_for_test(true);
         }
 
         let mut series: Vec<(bool, (u16, u16))> = Vec::new();
@@ -8769,7 +8772,10 @@ fn engineer_capture_of_an_ordinary_building_requests_the_radar_event() {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     let player = insert_house_with_counts(&mut sim, "Americans", 0, 0);
     let enemy = insert_house_with_counts(&mut sim, "Russians", 2, 0);
-    sim.houses.get_mut(&enemy).expect("enemy").is_human = false;
+    sim.houses
+        .get_mut(&enemy)
+        .expect("enemy")
+        .set_is_human_for_test(false);
     insert_test_entity_for_owner(&mut sim, 1, enemy, "GAPOWR", EntityCategory::Structure);
     insert_test_entity_for_owner(&mut sim, 2, enemy, "GAPOWR", EntityCategory::Structure);
     sim.substrate
@@ -8835,8 +8841,8 @@ fn engineer_capture_is_silent_without_a_human_side_or_into_a_passive_house() {
     let player = insert_house_with_counts(&mut sim, "Americans", 1, 0);
     for ai in [ai_a, ai_b] {
         let house = sim.houses.get_mut(&ai).expect("ai house");
-        house.is_human = false;
-        house.player_control = false;
+        house.set_is_human_for_test(false);
+        house.set_player_control_for_test(false);
     }
     insert_test_entity_for_owner(&mut sim, 1, ai_a, "GAPOWR", EntityCategory::Structure);
     insert_test_entity_for_owner(&mut sim, 2, player, "GAPOWR", EntityCategory::Structure);
@@ -8874,9 +8880,9 @@ fn defeat_of_a_non_passive_house_emits_player_defeated() {
         })
         .collect();
     assert_eq!(defeated, vec![enemy]);
-    assert!(!sim.houses[&player].is_defeated);
+    assert!(!sim.houses[&player].is_defeated());
     assert!(
-        !sim.houses[&civilian].is_defeated,
+        !sim.houses[&civilian].is_defeated(),
         "passive houses are never evaluated"
     );
 

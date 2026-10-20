@@ -113,13 +113,21 @@ fn superweapon_money_cameo_refresh_tracks_wallet_without_membership_rebuild() {
     assert_eq!(view.items.len(), 1);
     assert!(!view.items[0].enabled);
     let order = projection.cameo_strips().saved_identities();
-    sim.houses.get_mut(&owner).unwrap().economy.add_credits(1);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .economy_mut_for_test()
+        .add_credits(1);
     let before = sim.state_hash();
     projection.apply_cameo_draw_state(&mut view, &sim, &rules, owner, None);
     assert!(view.items[0].enabled);
     assert!(view.items[0].is_ready);
     assert_eq!(sim.state_hash(), before);
-    sim.houses.get_mut(&owner).unwrap().economy.add_credits(-1);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .economy_mut_for_test()
+        .add_credits(-1);
     projection.apply_cameo_draw_state(&mut view, &sim, &rules, owner, None);
     assert!(!view.items[0].enabled);
     assert!(view.items[0].is_ready);

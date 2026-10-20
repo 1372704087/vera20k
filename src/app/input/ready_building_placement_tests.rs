@@ -204,7 +204,7 @@ fn paid_ready_fixture() -> Option<Fixture> {
         starting_credits - total_cost,
         "the completed objects must have been paid through the House economy"
     );
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), total_cost);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), total_cost);
 
     Some(Fixture {
         sim,
@@ -1143,7 +1143,7 @@ fn retail_spy_stolen_soviet_tech_admits_and_delivers_chrono_ivan() {
     );
     assert_eq!(click.order, Some(CameoOrder::Produce));
     let credits_before = production::credits_for_owner(&fixture.sim, "Americans");
-    let spent_before = fixture.sim.houses[&owner].economy.spent_credits();
+    let spent_before = fixture.sim.houses[&owner].economy().spent_credits();
     let cost = fixture.sim.cost_of(
         owner,
         fixture.rules.object("CIVAN").unwrap(),
@@ -1200,7 +1200,7 @@ fn retail_spy_stolen_soviet_tech_admits_and_delivers_chrono_ivan() {
         credits_before - cost
     );
     assert_eq!(
-        fixture.sim.houses[&owner].economy.spent_credits(),
+        fixture.sim.houses[&owner].economy().spent_credits(),
         spent_before + cost
     );
 }
@@ -1273,7 +1273,7 @@ fn selling_barracks_retains_paid_clock_and_queued_dark_cameo_until_house_recheck
         .unwrap();
     assert!(head.progress > 0.0 && head.progress < 1.0);
     assert_eq!(head.queued_count, 2);
-    assert!(fixture.sim.houses[&owner].economy.spent_credits() > 0);
+    assert!(fixture.sim.houses[&owner].economy().spent_credits() > 0);
     let identities = fixture.projection.cameo_strips().saved_identities();
     let sale = CommandEnvelope::new(
         owner,
@@ -1478,7 +1478,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         .view(owner, ProductionCategory::Infantry)
         .unwrap()
         .progress;
-    let spent = fixture.sim.houses[&owner].economy.spent_credits();
+    let spent = fixture.sim.houses[&owner].economy().spent_credits();
     assert!(spent > 0);
     let power = fixture
         .sim
@@ -1504,7 +1504,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         assert_eq!(factory.progress, progress);
         assert_eq!(factory.construction_order(), order);
         assert_eq!(factory.object.unwrap().entity_id, Some(held_id));
-        assert_eq!(fixture.sim.houses[&owner].economy.spent_credits(), spent);
+        assert_eq!(fixture.sim.houses[&owner].economy().spent_credits(), spent);
         let view = refresh_fixture_sidebar(&mut fixture, SidebarTab::Infantry);
         let head = view.items.iter().find(|item| item.type_id == "E2").unwrap();
         assert!(
@@ -1529,14 +1529,15 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         .set_map_name_for_test("HOLD-RESUME.MAP".into());
     fixture.sim.session.set_started(true);
     let before_factories = fixture.sim.production.factories.clone();
-    let before_wallet = fixture.sim.houses[&owner].economy.clone();
+    let before_wallet = fixture.sim.houses[&owner].economy().clone();
     roundtrip_fixture_save(&mut fixture, "paid-user-hold");
     assert_eq!(
         fixture.sim.production.factories, before_factories,
         "saved Factory authorities"
     );
     assert_eq!(
-        fixture.sim.houses[&owner].economy, before_wallet,
+        *fixture.sim.houses[&owner].economy(),
+        before_wallet,
         "saved paid wallet"
     );
     // Whole pre/post-load hash equality is not a load invariant: native load
@@ -1607,7 +1608,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
     let queued = production::queue_view_for_owner(&fixture.sim, &fixture.rules, "Russians");
     assert_eq!(queued.len(), 1, "resume did not append a third E2");
     assert_eq!(
-        fixture.sim.houses[&owner].economy.spent_credits(),
+        fixture.sim.houses[&owner].economy().spent_credits(),
         fixture
             .sim
             .cost_of(owner, fixture.rules.object("E2").unwrap(), &fixture.rules)
@@ -1980,7 +1981,7 @@ fn assert_pending_repeat(name: &str, tab: SidebarTab) {
         .into_iter()
         .collect();
     let credits_before = production::credits_for_owner(&fixture.sim, "Americans");
-    let spent_before = fixture.sim.houses[&fixture.owner].economy.spent_credits();
+    let spent_before = fixture.sim.houses[&fixture.owner].economy().spent_credits();
     let hash_before = fixture.sim.state_hash();
     let rng_before = (
         fixture.sim.main_rng.logical_state(),
@@ -2029,7 +2030,7 @@ fn assert_pending_repeat(name: &str, tab: SidebarTab) {
         credits_before
     );
     assert_eq!(
-        fixture.sim.houses[&fixture.owner].economy.spent_credits(),
+        fixture.sim.houses[&fixture.owner].economy().spent_credits(),
         spent_before
     );
     assert_eq!(fixture.sim.state_hash(), hash_before);
@@ -2087,7 +2088,7 @@ fn own_ready_cameo_right_clears_other_category_pending_before_abandon() {
         arm_gapowr_with_preview(&mut fixture);
         let identities_before = ready_identities(&fixture);
         let credits_before = production::credits_for_owner(&fixture.sim, "Americans");
-        let spent_before = fixture.sim.houses[&fixture.owner].economy.spent_credits();
+        let spent_before = fixture.sim.houses[&fixture.owner].economy().spent_credits();
         let hash_before = fixture.sim.state_hash();
         let click = press_cameo(
             &mut fixture,
@@ -2108,7 +2109,7 @@ fn own_ready_cameo_right_clears_other_category_pending_before_abandon() {
             credits_before
         );
         assert_eq!(
-            fixture.sim.houses[&fixture.owner].economy.spent_credits(),
+            fixture.sim.houses[&fixture.owner].economy().spent_credits(),
             spent_before
         );
         assert_eq!(
@@ -3451,7 +3452,7 @@ fn sentinel_placement_keeps_human_factories_and_current_without_retry_or_eva() {
     production::object_find_factory(&fixture.sim, &fixture.rules, product, false, true)
         .expect("the sentinel's alternate ObjectFindFactory(0,1) finds the actual healthy yard");
     let credits = production::credits_for_owner(&fixture.sim, "Americans");
-    let spent = fixture.sim.houses[&fixture.owner].economy.spent_credits();
+    let spent = fixture.sim.houses[&fixture.owner].economy().spent_credits();
     for (occurrence, cell) in [(0, 0), (u16::MAX, u16::MAX)].into_iter().enumerate() {
         let command = CommandEnvelope::new(
             fixture.owner,
@@ -3485,7 +3486,7 @@ fn sentinel_placement_keeps_human_factories_and_current_without_retry_or_eva() {
             credits
         );
         assert_eq!(
-            fixture.sim.houses[&fixture.owner].economy.spent_credits(),
+            fixture.sim.houses[&fixture.owner].economy().spent_credits(),
             spent
         );
         let native = native_placement_after(

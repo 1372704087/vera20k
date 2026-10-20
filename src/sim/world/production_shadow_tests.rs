@@ -1,7 +1,8 @@
 //! Factory registry (`ProductionState.factories`) tests from the `world` level,
 //! where `Simulation::new`, `advance_tick`, `state_hash`, `set_logic_order_for_test`
 //! and the snapshot API are reachable: sweep order, the state-hash fold, snapshot
-//! round trips, the per-step charge against the house wallet and cancel refunds.
+//! round trips, the per-step charge against the house wallet, cancel refunds and
+//! the delivery-gated queue advance.
 
 use super::Simulation;
 use crate::rules::ini_parser::IniFile;
@@ -95,7 +96,7 @@ fn production_authoritative_hash_includes_factory_fields() {
     for m in econ_muts {
         let mut sim = mid_build();
         let owner = sim.interner.intern("Americans");
-        m(&mut sim.houses.get_mut(&owner).unwrap().economy);
+        m(sim.houses.get_mut(&owner).unwrap().economy_mut());
         assert_ne!(
             base,
             sim.state_hash(),
@@ -135,7 +136,7 @@ fn snapshot_roundtrip_factory_registry() {
     sim.houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .set_score_for_test(12_345);
     // Native in-scenario load resets Scenario RNG; isolate factory persistence
     // by comparing against that same post-load baseline.
@@ -152,6 +153,10 @@ fn snapshot_roundtrip_factory_registry() {
         "registry + economy stats round-trip bit-identically"
     );
 }
+
+// ===== P4 — FIFO queue =====
+
+// ===== P5a — flip-prep (pure producers + temporal mint + inversion-readiness, hash-neutral) =====
 
 // ===== P5b — the authority flip: real-wallet charge guards (end-to-end via advance_tick) =====
 

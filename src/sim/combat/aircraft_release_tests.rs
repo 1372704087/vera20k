@@ -673,7 +673,7 @@ fn an_aircraft_strike_scatters_the_target_cell_away_from_the_aircraft() {
     crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
     let russians = sim.interner.intern("Russians");
     let mut house = crate::sim::house_state::HouseState::new(russians, 0, None, false, 0, 10);
-    house.current_iq = 5;
+    house.set_current_iq_for_test(5);
     sim.houses.register(house);
     let tank = sim
         .spawn_object("MTNK", "Russians", 10, 9, 0, &rules)

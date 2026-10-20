@@ -484,8 +484,10 @@ fn native_action51_keeps_null_house241_and_gates_foreign_map_changes() {
             local_height: width,
         });
         for (name, owner) in [("player", player), ("foreign", foreign)] {
-            sim.houses.get_mut(&owner).unwrap().map_is_clear =
-                row["houses_before"][name]["clear"] == 1;
+            sim.houses
+                .get_mut(&owner)
+                .unwrap()
+                .set_map_is_clear_for_test(row["houses_before"][name]["clear"] == 1);
             assert_eq!(row["houses_before"][name]["revealed"], 1);
             sim.fog.admit_whole_map_reveal(owner);
         }
@@ -503,7 +505,7 @@ fn native_action51_keeps_null_house241_and_gates_foreign_map_changes() {
         sim.trigger_reshroud_map(incoming, &rules);
         for (name, owner) in [("player", player), ("foreign", foreign)] {
             assert_eq!(
-                sim.houses[&owner].map_is_clear,
+                sim.houses[&owner].map_is_clear(),
                 row["houses"][name]["clear"] == 1,
                 "{} {name}241",
                 row["name"]

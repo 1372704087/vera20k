@@ -77,7 +77,7 @@ impl Fixture {
     fn held_object(&self) -> Option<u64> {
         self.sim
             .production
-            .factories
+            .factories()
             .building_factory(self.yard)
             .and_then(|factory| factory.object.as_ref())
             .and_then(|object| object.entity_id)

@@ -3367,14 +3367,14 @@ mod tests {
             .unwrap()
             .power_off();
         let pending = sim.interner.intern("PENDING");
-        assert!(sim.production.factories.test_enqueue_kernel(
+        assert!(sim.production.factories_mut().test_enqueue_kernel(
             owner,
             ProductionCategory::Vehicle,
             pending,
             1,
             108,
         ));
-        let factory = sim.production.factories.test_first_mut().unwrap();
+        let factory = sim.production.factories_mut().test_first_mut().unwrap();
         // The kernel fixture supplies an already-running head. StartProduction
         // itself now correctly leaves +70 stopped until the separate Resume.
         factory.suspended = false;
@@ -3387,7 +3387,7 @@ mod tests {
         assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 108);
         assert_eq!(sim.houses[&owner].economy().credits(), 0);
         assert_eq!(sim.houses[&owner].economy().spent_credits(), 2);
-        let factory = sim.production.factories.test_first_mut().unwrap();
+        let factory = sim.production.factories_mut().test_first_mut().unwrap();
         assert_eq!(factory.progress, 0);
         assert_eq!(factory.balance, 108);
         assert!(factory.on_hold);

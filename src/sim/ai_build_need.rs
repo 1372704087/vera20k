@@ -261,7 +261,7 @@ fn balance_owed(
     holds: impl Fn(&ObjectType) -> bool,
 ) -> Option<i32> {
     sim.production
-        .factories
+        .factories()
         .holders_insertion_ordered()
         .into_iter()
         .map(|(_, factory)| factory)

@@ -2399,7 +2399,7 @@ fn gsi_04_11_bullet_ore_reduction_precedes_outer_crater_anim_start() {
     }
     sim.resolved_terrain = Some(terrain);
     sim.smudge_grid = Some(crate::sim::smudge_grid::SmudgeGrid::new(10, 10));
-    sim.production.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
+    sim.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
     let mut overlay = crate::sim::overlay_grid::OverlayGrid::new(10, 10);
     overlay.place_overlay(5, 5, ore_id, 9);
     sim.overlay_grid = Some(overlay);
@@ -2499,7 +2499,7 @@ fn gsi_04_11_missile_outer_anim_precedes_per_cell_ore_reduction() {
     }
     sim.resolved_terrain = Some(terrain);
     sim.smudge_grid = Some(crate::sim::smudge_grid::SmudgeGrid::new(10, 10));
-    sim.production.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
+    sim.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
     let mut overlay = crate::sim::overlay_grid::OverlayGrid::new(10, 10);
     overlay.place_overlay(5, 5, ore_id, 9);
     sim.overlay_grid = Some(overlay);
@@ -3019,9 +3019,9 @@ fn gsi_04_10_terrain_object(
             cell.0,
             cell.1,
         );
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain.occupation_bits = occupation_bits;
+        terrain.set_health_for_test(10);
+        terrain.set_max_health_for_test(10);
+        terrain.set_occupation_bits_for_test(occupation_bits);
         terrain
     }
 }

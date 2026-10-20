@@ -164,11 +164,13 @@ fn action_99_with_minus_one_clears_the_custom_sound_and_detaches_its_handle() {
 
 fn insert_tree(sim: &mut Simulation, id: u64, cell: (u16, u16)) {
     let type_ref = sim.interner.intern("TREE01");
-    sim.production.terrain_objects.insert(
+    sim.terrain_objects.objects_mut_for_test().insert(
         id,
         TerrainObjectState::for_test(id, type_ref, cell.0, cell.1),
     );
-    sim.production.terrain_object_cells.insert(cell, id);
+    sim.terrain_objects
+        .cell_index_mut_for_test()
+        .insert(cell, id);
 }
 
 #[test]

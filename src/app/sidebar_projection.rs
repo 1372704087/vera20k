@@ -448,7 +448,7 @@ impl SidebarProjectionState {
                     .any(|id| *id == CameoId::Object(*type_id))
                 && sim
                     .production
-                    .factories
+                    .factories()
                     .view(owner, link.category)
                     .is_some_and(|factory| factory.construction_order() == link.construction_order)
         });
@@ -460,7 +460,7 @@ impl SidebarProjectionState {
             ProductionCategory::Aircraft,
             ProductionCategory::Ship,
         ] {
-            let Some(factory) = sim.production.factories.view(owner, category) else {
+            let Some(factory) = sim.production.factories().view(owner, category) else {
                 continue;
             };
             if let Some(object) = factory.object
@@ -492,7 +492,7 @@ impl SidebarProjectionState {
             .factory_links
             .get(&type_id)
             .filter(|link| link.owner == owner)?;
-        let factory = sim.production.factories.view(owner, link.category)?;
+        let factory = sim.production.factories().view(owner, link.category)?;
         (factory.construction_order() == link.construction_order).then_some(factory)
     }
 
@@ -653,15 +653,15 @@ impl SidebarProjectionState {
                         i32::from(factory.build_step_rate(sim, rules)) + 1,
                     ))
                 } else {
-                    let busy =
-                        sim.production
-                            .factories
-                            .view(owner, category)
-                            .is_some_and(|factory| {
-                                factory.is_running()
-                                    || factory.object.is_some()
-                                    || !factory.queue.is_empty()
-                            });
+                    let busy = sim
+                        .production
+                        .factories()
+                        .view(owner, category)
+                        .is_some_and(|factory| {
+                            factory.is_running()
+                                || factory.object.is_some()
+                                || !factory.queue.is_empty()
+                        });
                     if busy || self.prediction_categories.contains(&category) {
                         return;
                     }

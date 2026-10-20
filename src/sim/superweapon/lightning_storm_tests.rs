@@ -1139,7 +1139,7 @@ fn a_strikes_explosion_precedes_its_area_damage_on_ore() {
         ..crate::map::resolved_terrain::test_flat_cell(rx, ry)
     }));
     sim.smudge_grid = Some(crate::sim::smudge_grid::SmudgeGrid::new(10, 10));
-    sim.production.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
+    sim.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
     let mut overlay = OverlayGrid::new(10, 10);
     // Raw data 9 is ten density units. The crater reduces six and stays
     // blocked by the surviving overlay; Damage=100 then clears the four left.

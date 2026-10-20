@@ -63,12 +63,12 @@ pub(super) fn apply(
                 }
             }
             CellObjectMember::Terrain(stable_id) => {
-                if let Some(terrain) = sim.production.terrain_objects.get(&stable_id) {
+                if let Some(terrain) = sim.terrain_objects.objects().get(&stable_id) {
                     let event = TerrainDamageEvent {
                         stable_id,
                         rx,
                         ry,
-                        damage: terrain.health,
+                        damage: terrain.health(),
                         distance_leptons: 0,
                         warhead_ref,
                         near_center_ic_isolation_eligible: false,
@@ -465,7 +465,7 @@ mod tests {
                 &rules,
                 false,
             );
-            let id = sim.production.terrain_object_cells[&(4, 4)];
+            let id = sim.terrain_objects.cell_index()[&(4, 4)];
             assert_eq!(
                 members(&sim, 4, 4).collect::<Vec<_>>(),
                 vec![CellObjectMember::Terrain(id)]
@@ -478,17 +478,17 @@ mod tests {
                 4,
                 crate::sim::world::FrameEffects::default(),
             );
-            let tree = &sim.production.terrain_objects[&id];
+            let tree = &sim.terrain_objects.objects()[&id];
             if wood {
-                assert_eq!(tree.health, 0);
-                assert_eq!(tree.lifecycle, TerrainObjectLifecycle::Destroyed);
-                assert!(!tree.in_logic_vector);
+                assert_eq!(tree.health(), 0);
+                assert_eq!(tree.lifecycle(), TerrainObjectLifecycle::Destroyed);
+                assert!(!tree.in_logic_vector());
                 assert!(members(&sim, 4, 4).next().is_none());
                 assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(4, 4), 0);
             } else {
-                assert_eq!(tree.health, 100);
+                assert_eq!(tree.health(), 100);
                 assert!(tree.is_live());
-                assert_eq!(sim.production.terrain_object_cells[&(4, 4)], id);
+                assert_eq!(sim.terrain_objects.cell_index()[&(4, 4)], id);
             }
         }
     }

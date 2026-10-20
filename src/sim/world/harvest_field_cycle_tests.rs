@@ -48,7 +48,7 @@ fn field(at: (u16, u16), ore: serde_json::Value) -> Scene {
         "unlimbo_at_cell": true,
         "ore": ore,
     }));
-    s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+    s.sim.ore_growth_config = OreGrowthConfig::disabled();
     s
 }
 
@@ -357,7 +357,7 @@ fn retail_war_miner_area_guard_returns_to_harvesting() {
             retail.rules.clone(),
             &retail.processed_rules,
         );
-        s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        s.sim.ore_growth_config = OreGrowthConfig::disabled();
         let owner = s.sim.entities().get(s.miner).unwrap().owner();
         s.sim.session.set_current_house_for_test(Some(owner));
         s.sim.houses.reorder_for_test(&[owner]);
@@ -431,7 +431,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             retail.rules,
             &retail.processed_rules,
         );
-        s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        s.sim.ore_growth_config = OreGrowthConfig::disabled();
         let retail_order = |s: &mut Scene, command: Command| {
             assert!(s.sim.apply_command_with_overlays(
                 "Americans",

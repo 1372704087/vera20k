@@ -674,14 +674,14 @@ fn a_completed_building_waits_in_its_factory_for_placement() {
     );
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Building)
     );
 
     publish_production_changes(&mut sim, &rules);
     let held = sim
         .production
-        .factories
+        .factories()
         .view(americans, ProductionCategory::Building)
         .expect("completed building remains held by its Factory");
     assert!(held.complete_object().is_some());
@@ -757,12 +757,12 @@ fn an_unfinished_building_is_refused_until_its_factory_completes() {
 
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Building)
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Building)
             .and_then(|factory| factory.object)
             .is_some_and(|object| !object.completion_accounted),
@@ -802,7 +802,7 @@ fn a_place_executing_in_the_completion_frame_is_admitted() {
     let frame = sim.session.binary_frame() as i32;
     let factory = sim
         .production
-        .factories
+        .factories_mut()
         .test_factory_mut(americans, ProductionCategory::Building)
         .expect("armed Buildings factory");
     factory.progress = super::PRODUCTION_STEPS - 1;
@@ -835,7 +835,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
     let built_before = sim.houses[&americans].stats().built();
     let held_id = sim
         .production
-        .factories
+        .factories()
         .view(americans, ProductionCategory::Building)
         .and_then(|view| view.object.and_then(|object| object.entity_id))
         .expect("Factory+0x58 identity exists before placement");
@@ -901,7 +901,7 @@ fn place_ready_building_spawns_and_consumes_ready_item() {
     );
     assert_eq!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Building)
             .unwrap()
             .progress,
@@ -1820,7 +1820,7 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
     let factory_before = {
         let view = overlay_sim
             .production
-            .factories
+            .factories()
             .view(owner, category)
             .expect("completed wall factory");
         (
@@ -1882,7 +1882,7 @@ fn empty_cell_wall_placement_still_works_but_wall_on_overlay_rejects() {
     let factory_after = {
         let view = overlay_sim
             .production
-            .factories
+            .factories()
             .view(owner, category)
             .expect("rejected placement retains completed wall factory");
         (
@@ -1957,7 +1957,7 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
     let cost = rules.object("GAWALL").unwrap().cost.max(0);
     assert!(
         !sim.production
-            .factories
+            .factories_mut()
             .test_enqueue_kernel(owner, category, type_id, 1, cost)
     );
     // This fixture deliberately leaves BuildCat at native default0. After
@@ -2064,13 +2064,13 @@ fn gsi_04_07_command_places_authoritative_owned_wall_without_entity() {
         )],
         "consumed original wall still owns one raw-zero cue"
     );
-    let retained = sim.production.factories.view(owner, category).unwrap();
+    let retained = sim.production.factories().view(owner, category).unwrap();
     assert!(retained.object.is_none() && retained.queue.is_empty());
     assert!(!retained.is_running());
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert_eq!(
         sim.production
-            .factories
+            .factories()
             .view(owner, category)
             .unwrap()
             .progress,
@@ -2097,7 +2097,7 @@ fn gsi_04_07_regular_wall_autofill_is_cardinal_ordered_bounded_and_consumes_once
     let category = super::production_tech::production_category_for_object(wall);
     let held_id = sim
         .production
-        .factories
+        .factories()
         .view(owner, category)
         .and_then(|view| view.object)
         .filter(|object| object.type_id == wall_type)
@@ -2166,7 +2166,7 @@ fn gsi_04_07_regular_wall_autofill_is_cardinal_ordered_bounded_and_consumes_once
         ready_buildings_for_owner(&sim, &rules, "Americans").is_empty(),
         "the primary plus all fillers consume the one ready product"
     );
-    let retained = sim.production.factories.view(owner, category).unwrap();
+    let retained = sim.production.factories().view(owner, category).unwrap();
     assert!(retained.object.is_none() && retained.queue.is_empty());
     assert_eq!(retained.progress, 0);
     assert!(!retained.is_running());
@@ -3099,7 +3099,7 @@ fn blocked_active_war_factory_does_not_spawn_from_second_factory() {
     let held = super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Vehicle);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Vehicle)
     );
     assert!(place_production_with_overlays(
@@ -3145,7 +3145,7 @@ fn stock_war_factory_initial_exit_has_no_nearest_cell_fallback() {
     let held = super::lifecycle_tests::held_id(&sim, owner, ProductionCategory::Vehicle);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Vehicle)
     );
     assert!(place_production_with_overlays(
@@ -3751,7 +3751,11 @@ fn stock_infantry_fallback_unit_ready_uses_producer_getcoords() {
         "the wallet covers the build"
     );
     economy.spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
     // The focused publisher helper increments both clocks before applying
     // due PLACE, so159 ->160 reaches the measured native fallback call frame.
     // No actor/House turns or native completion cadence are asserted here.
@@ -3948,7 +3952,11 @@ fn stock_yuri_cloning_vat_duplicates_a_successfully_placed_infantry() {
         .unwrap()
         .economy_mut()
         .spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
     let mut low_power = crate::sim::power_system::PowerState::default();
     low_power.is_low_power = true;
     sim.power_states.insert(owner, low_power);
@@ -4056,7 +4064,11 @@ fn cloning_vat_keeps_a_refused_copy_in_limbo() {
         .unwrap()
         .economy_mut()
         .spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
 
     assert!(super::dispatch_production_changes_for_tests(
         &mut sim,
@@ -4136,7 +4148,11 @@ fn cloning_vats_do_not_duplicate_yuri_vehicle_factory_output() {
         .unwrap()
         .economy_mut()
         .spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
 
     assert!(super::dispatch_production_changes_for_tests(
         &mut sim,
@@ -4205,7 +4221,11 @@ fn cloning_vat_copies_wait_for_the_source_dock_cell() {
         .unwrap()
         .economy_mut()
         .spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
 
     // Keep the producer's registration and contacts intact while making all
     // cells around its stored Location fail the existing Map::In_Bounds gate.
@@ -4340,7 +4360,7 @@ fn an_airfield_puts_each_aircraft_it_builds_on_its_own_pad() {
             .spend_money(cost);
         assert!(
             sim.production
-                .factories
+                .factories_mut()
                 .test_arm_ready(owner, ProductionCategory::Aircraft)
         );
         assert!(super::dispatch_production_changes_for_tests(

@@ -389,8 +389,7 @@ impl Simulation {
         // One stable id allocator numbers every store, so an entity is no
         // terrain object: its hashed lookup spares the commonest turn the
         // terrain map's.
-        if !self.substrate.entities.contains(id)
-            && self.production.terrain_objects.contains_key(&id)
+        if !self.substrate.entities.contains(id) && self.terrain_objects.objects().contains_key(&id)
         {
             // TerrainClass::AI @ 0x0071C730 calls ObjectClass::AI first
             // (`0x0071C738`).
@@ -477,7 +476,7 @@ impl Simulation {
                 dummy: &shared_cell_dummy,
                 occupancy,
                 entities,
-                terrain_objects: &self.production.terrain_objects,
+                terrain_objects: self.terrain_objects.objects(),
                 interner,
                 alliances: house_alliances,
                 overlays: overlay_grid,
@@ -2477,7 +2476,7 @@ mod tests {
         let tree_type = sim.interner.intern("TREE01");
         let tree = TerrainObjectState::for_test(2, tree_type, 7, 5);
         let retained = tree.world_coord();
-        sim.production.terrain_objects.insert(2, tree);
+        sim.terrain_objects.objects_mut_for_test().insert(2, tree);
         sim.waves.spawn(
             3,
             Wave::new_owned(
@@ -2493,9 +2492,13 @@ mod tests {
                 .target_position,
             Some(retained)
         );
-        let tree = sim.production.terrain_objects.get_mut(&2).unwrap();
-        tree.health = 0;
-        tree.lifecycle = TerrainObjectLifecycle::Limbo;
+        let tree = sim
+            .terrain_objects
+            .objects_mut_for_test()
+            .get_mut(&2)
+            .unwrap();
+        tree.set_health_for_test(0);
+        tree.set_lifecycle_for_test(TerrainObjectLifecycle::Limbo);
         assert_eq!(
             sim.wave_update_context(sim.waves.get(3).unwrap(), None)
                 .target_position,

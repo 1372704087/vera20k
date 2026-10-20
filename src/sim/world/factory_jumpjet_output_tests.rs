@@ -120,7 +120,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
     sim.advance_tick(&commands, Some(&rules), None, Some(&registry), TICK_MS);
     let first = sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .and_then(|view| view.object)
         .and_then(|object| object.entity_id)
@@ -147,7 +147,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
         let log = radio::take_transmit_log();
         if let Some(held) = sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .and_then(|view| view.object)
             .and_then(|object| object.entity_id)
@@ -322,7 +322,7 @@ fn two_paid_rocketeers(rally: Option<(u16, u16)>) {
     );
     let factory = sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry);
     assert!(factory.is_none_or(|view| view.object.is_none() && view.queue.is_empty()));
 }

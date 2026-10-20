@@ -34,9 +34,9 @@ use super::helpers::{
 fn terrain_object_is_render_visible(
     object: &crate::map::overlay::TerrainObject,
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    authority: Option<&crate::sim::production::ProductionState>,
+    authority: Option<&crate::sim::terrain_object::TerrainObjectStore>,
 ) -> bool {
-    let (Some(rules), Some(production)) = (rules, authority) else {
+    let (Some(rules), Some(terrain_objects)) = (rules, authority) else {
         return true;
     };
     if rules
@@ -45,11 +45,10 @@ fn terrain_object_is_render_visible(
     {
         return true;
     }
-    let Some(stable_id) = production.terrain_object_cells.get(&(object.rx, object.ry)) else {
+    let Some(stable_id) = terrain_objects.id_at((object.rx, object.ry)) else {
         return false;
     };
-    production
-        .terrain_objects
+    terrain_objects
         .get(stable_id)
         .is_some_and(|terrain| terrain.is_live() && terrain.cell() == (object.rx, object.ry))
 }
@@ -902,11 +901,11 @@ pub(crate) fn build_overlay_instances(
     else {
         return;
     };
-    for obj in sim.production.terrain_objects.values() {
-        if !obj.is_live() || !obj.in_logic_vector {
+    for obj in sim.terrain_objects().objects().values() {
+        if !obj.is_live() || !obj.in_logic_vector() {
             continue;
         }
-        let name = sim.interner.resolve(obj.type_ref);
+        let name = sim.interner.resolve(obj.type_ref());
         // Ordinary native Ground6D97D0 -> Terrain71CC50/71C1B0 admits live
         // static art independently of anchor exploration; ABuffer clips pixels.
 
@@ -928,8 +927,8 @@ pub(crate) fn build_overlay_instances(
         // Terrain DrawIt71C208 selects the Stage written by Terrain AI.
         // Wall-clock presentation cannot advance or restart a spawner.
         let frame = sim
-            .production
-            .terrain_animations
+            .terrain_objects()
+            .animations()
             .get(&obj.cell())
             .map_or(Some(0), |animation| {
                 u8::try_from(animation.current_frame()).ok()
@@ -957,7 +956,7 @@ pub(crate) fn build_overlay_instances(
             .match_presentation
             .lighting
             .grid()
-            .terrain_object_tint_for_type((obj.rx, obj.ry), spawns_tiberium);
+            .terrain_object_tint_for_type(obj.cell(), spawns_tiberium);
         // Terrain DrawIt 0071C286..0071C304: SpawnsTiberium selects the
         // global ordinary Convert/top; ordinary trees select cell Convert/common.
         let light_grid = state.match_state.match_presentation.lighting.grid();
@@ -965,14 +964,15 @@ pub(crate) fn build_overlay_instances(
             crate::render::palette_light::PaletteLight::plain(
                 53,
                 light_grid
-                    .cell_light_at((obj.rx, obj.ry))
+                    .cell_light_at(obj.cell())
                     .map_or(1000, |l| l.top_scalar),
             )
         } else {
-            crate::render::palette_light::PaletteLight::cell(light_grid, (obj.rx, obj.ry), false)
+            crate::render::palette_light::PaletteLight::cell(light_grid, obj.cell(), false)
         };
 
-        let Some(parent) = ground_order.object_draw(obj.stable_id, SpriteEncoding::Terrain) else {
+        let Some(parent) = ground_order.object_draw(obj.stable_id(), SpriteEncoding::Terrain)
+        else {
             continue;
         };
         if let Some((body, shadow)) = atlas.native_terrain_pair(name, frame) {
@@ -991,7 +991,7 @@ pub(crate) fn build_overlay_instances(
             let [body_instance, shadow_instance] =
                 native_terrain_instances(body, shadow, point, lift_px, depth, tint, palette_light);
             let mut parent = parent;
-            let render_z = if sim.production.terrain_animations.contains_key(&obj.cell()) {
+            let render_z = if sim.terrain_objects().animations().contains_key(&obj.cell()) {
                 RenderZPolicy::ReadOnly
             } else {
                 RenderZPolicy::ReadWrite
@@ -1379,8 +1379,9 @@ mod tests {
     use crate::rules::tiberium_type::TiberiumTypeRegistry;
     use crate::sim::intern::StringInterner;
     use crate::sim::overlay_grid::OverlayCell;
-    use crate::sim::production::ProductionState;
-    use crate::sim::terrain_object::{TerrainObjectLifecycle, TerrainObjectState};
+    use crate::sim::terrain_object::{
+        TerrainObjectLifecycle, TerrainObjectState, TerrainObjectStore,
+    };
 
     /// The two identities 0047F6A0 never draws, read from retail through the
     /// production registry.
@@ -1432,46 +1433,48 @@ mod tests {
             ry: 9,
             name: "MAPONLY".to_string(),
         };
-        let mut production = ProductionState::default();
+        let mut terrain_objects = TerrainObjectStore::default();
 
         assert!(terrain_object_is_render_visible(&registered, None, None));
         assert!(terrain_object_is_render_visible(
             &unregistered,
             Some(&rules),
-            Some(&production),
+            Some(&terrain_objects),
         ));
         assert!(!terrain_object_is_render_visible(
             &registered,
             Some(&rules),
-            Some(&production),
+            Some(&terrain_objects),
         ));
 
         let mut interner = StringInterner::default();
         let stable_id = 1;
-        production.terrain_object_cells.insert((4, 7), stable_id);
-        production.terrain_objects.insert(stable_id, {
+        terrain_objects
+            .cell_index_mut_for_test()
+            .insert((4, 7), stable_id);
+        terrain_objects.objects_mut_for_test().insert(stable_id, {
             let mut terrain =
                 TerrainObjectState::for_test(stable_id, interner.intern("TREE01"), 4, 7);
-            terrain.health = 10;
-            terrain.max_health = 10;
-            terrain.occupation_bits = 7;
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(7);
             terrain
         });
         assert!(terrain_object_is_render_visible(
             &registered,
             Some(&rules),
-            Some(&production),
+            Some(&terrain_objects),
         ));
 
-        production
-            .terrain_objects
+        terrain_objects
+            .objects_mut_for_test()
             .get_mut(&stable_id)
             .unwrap()
-            .lifecycle = TerrainObjectLifecycle::Destroyed;
+            .set_lifecycle_for_test(TerrainObjectLifecycle::Destroyed);
         assert!(!terrain_object_is_render_visible(
             &registered,
             Some(&rules),
-            Some(&production),
+            Some(&terrain_objects),
         ));
     }
 

@@ -54,7 +54,7 @@ fn stock_scene(root: &std::path::Path) -> HeadlessScenario {
 
 fn tank_factory(sim: &Simulation, owner: InternedId) -> &Factory {
     sim.production
-        .factories
+        .factories()
         .factory(FactoryHolder::House(owner, CATEGORY))
         .expect("the actual paid tank Factory")
 }
@@ -306,7 +306,9 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                 );
                 assert!(sim.entities().get(id).is_none());
                 assert_eq!(
-                    sim.production.factories.count_total(owner, CATEGORY, tank),
+                    sim.production
+                        .factories()
+                        .count_total(owner, CATEGORY, tank),
                     0
                 );
                 if step == 12100 {

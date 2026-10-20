@@ -82,7 +82,7 @@ fn pending_first_e2_right_holds_one_real_head_then_resumes_its_paid_exit() {
             fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .is_none()
         );
@@ -135,7 +135,7 @@ fn pending_first_e2_right_holds_one_real_head_then_resumes_its_paid_exit() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         let order = factory.construction_order();
@@ -173,7 +173,7 @@ fn pending_first_e2_right_holds_one_real_head_then_resumes_its_paid_exit() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert_eq!(factory.progress, 0);
@@ -208,7 +208,7 @@ fn pending_first_e2_right_holds_one_real_head_then_resumes_its_paid_exit() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert_eq!(factory.construction_order(), order);
@@ -347,7 +347,7 @@ fn busy_infantry_left_and_queued_right_do_not_hold_the_current_head() {
     let held = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap()
         .object
@@ -379,7 +379,7 @@ fn busy_infantry_left_and_queued_right_do_not_hold_the_current_head() {
     let factory = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap();
     assert_eq!(factory.object.unwrap().entity_id, held);
@@ -405,7 +405,7 @@ fn resumed_clock_queries_live_held_duration_even_with_a_zero_stored_rate() {
     ];
     let frame = advance_commands(&mut fixture, &commands);
     consume_frame_outputs(&mut fixture, &frame, Some(owner));
-    let factories = fixture.sim.production.factories.clone();
+    let factories = fixture.sim.production.factories().clone();
     let wallet = fixture.sim.houses[&owner].economy().clone();
     let corpus = crate::test_fixture::json("tools/sidebar_oracle/pending_production.json");
     let mut compared = 0;
@@ -427,7 +427,7 @@ fn resumed_clock_queries_live_held_duration_even_with_a_zero_stored_rate() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert!(factory.suspended && !factory.is_running());
@@ -440,6 +440,6 @@ fn resumed_clock_queries_live_held_duration_even_with_a_zero_stored_rate() {
         compared += 1;
     }
     assert_eq!(compared, 3);
-    assert_eq!(fixture.sim.production.factories, factories);
+    assert_eq!(*fixture.sim.production.factories(), factories);
     assert_eq!(*fixture.sim.houses[&owner].economy(), wallet);
 }

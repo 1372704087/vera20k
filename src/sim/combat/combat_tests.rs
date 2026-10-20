@@ -9532,7 +9532,9 @@ fn projectile_shrapnel_is_admitted_by_a_tree_heading_the_bullets_cell() {
         vec![make_entity_owned(1, "MTNK", 2, 2, 100, "Soviet")],
     );
     assert!(commit_shrapnel_at_5_5(&mut sim, &rules).is_empty());
-    sim.production.terrain_object_cells.insert((5, 5), 900);
+    sim.terrain_objects
+        .cell_index_mut_for_test()
+        .insert((5, 5), 900);
     assert_eq!(commit_shrapnel_at_5_5(&mut sim, &rules).len(), 1);
 }
 
@@ -9821,13 +9823,15 @@ fn gsi_04_10_near_center_iron_curtain_isolates_earlier_terrain_receiver() {
 
         let terrain_id = 700;
         let terrain_ref = sim.interner.intern("TREE01");
-        sim.production.terrain_objects.insert(terrain_id, {
-            let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
-            terrain.occupation_bits = 4;
-            terrain
-        });
-        sim.production
-            .terrain_object_cells
+        sim.terrain_objects
+            .objects_mut_for_test()
+            .insert(terrain_id, {
+                let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
+                terrain.set_occupation_bits_for_test(4);
+                terrain
+            });
+        sim.terrain_objects
+            .cell_index_mut_for_test()
             .insert((5, 5), terrain_id);
 
         let warhead_ref = sim.interner.intern("WOODWH");
@@ -9858,7 +9862,7 @@ fn gsi_04_10_near_center_iron_curtain_isolates_earlier_terrain_receiver() {
             &receivers,
             crate::sim::world::FrameEffects::default(),
         );
-        sim.production.terrain_objects[&terrain_id].health
+        sim.terrain_objects.objects()[&terrain_id].health()
     }
 
     assert_eq!(
@@ -9905,15 +9909,17 @@ fn gsi_04_10_entity_fatal_hook_and_later_terrain_share_raw_occupation() {
         .expect("fatal vehicle spawns");
     let terrain_id = 701;
     let terrain_ref = sim.interner.intern("TREE01");
-    sim.production.terrain_objects.insert(terrain_id, {
-        let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain.occupation_bits = 4;
-        terrain
-    });
-    sim.production
-        .terrain_object_cells
+    sim.terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_ref, 5, 5);
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(4);
+            terrain
+        });
+    sim.terrain_objects
+        .cell_index_mut_for_test()
         .insert((5, 5), terrain_id);
     mark_terrain_raw_occupation(&mut sim.substrate.raw_cell_occupation, (5, 5), 4);
     assert_ne!(sim.substrate.raw_cell_occupation.ground_bits(4, 5), 0);
@@ -9957,7 +9963,7 @@ fn gsi_04_10_entity_fatal_hook_and_later_terrain_share_raw_occupation() {
         "the later Terrain finalize observes and mutates that same grid"
     );
     assert_eq!(
-        sim.production.terrain_objects[&terrain_id].lifecycle,
+        sim.terrain_objects.objects()[&terrain_id].lifecycle(),
         TerrainObjectLifecycle::Destroyed
     );
 }

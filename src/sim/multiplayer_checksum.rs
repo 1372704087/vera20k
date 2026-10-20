@@ -343,11 +343,11 @@ impl Simulation {
             }
             ObjectKind::Terrain => {
                 let terrain = self
-                    .production
                     .terrain_objects
+                    .objects()
                     .get(&stable_id)
                     .ok_or(missing)?;
-                let (world_x, world_y) = terrain_world_xy(terrain.rx, terrain.ry);
+                let (world_x, world_y) = terrain_world_xy(terrain.cell().0, terrain.cell().1);
                 ChecksumObject::new(world_x, world_y, RTTI_TERRAIN, 0)
             }
             ObjectKind::Projectile => {
@@ -466,13 +466,15 @@ mod tests {
         });
 
         let terrain_id = sim.allocate_stable_id();
-        sim.production.terrain_objects.insert(terrain_id, {
-            let mut terrain =
-                TerrainObjectState::for_test(terrain_id, InternedId::from_index(0), 7, 9);
-            terrain.health = 10;
-            terrain.max_health = 10;
-            terrain
-        });
+        sim.terrain_objects
+            .objects_mut_for_test()
+            .insert(terrain_id, {
+                let mut terrain =
+                    TerrainObjectState::for_test(terrain_id, InternedId::from_index(0), 7, 9);
+                terrain.set_health_for_test(10);
+                terrain.set_max_health_for_test(10);
+                terrain
+            });
 
         let bullet_id = sim.allocate_stable_id();
         sim.projectiles.spawn(

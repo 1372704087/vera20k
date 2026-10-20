@@ -211,7 +211,11 @@ fn retail_ready_buildings_flash_retained_tabs_and_stop_after_cancel() {
     projection.reconcile_factory_links(&sim, owner);
     assert_eq!(projection.ready_building_tabs(&sim, owner), [false; 2]);
     for category in [ProductionCategory::Building, ProductionCategory::Defense] {
-        assert!(sim.production.factories.test_arm_ready(owner, category));
+        assert!(
+            sim.production
+                .factories_mut_for_test()
+                .test_arm_ready(owner, category)
+        );
     }
     let ready = projection.ready_building_tabs(&sim, owner);
     assert_eq!(ready, [true; 2]);

@@ -453,7 +453,7 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     assert_eq!(query(&sim), FireError::Illegal, "native target+3CD6FCBCD");
     assert!(!assign_target_commits(
         &sim.substrate.entities,
-        &sim.production.terrain_objects,
+        sim.terrain_objects.objects(),
         Some(TargetKind::Entity(target_id))
     ));
     sim.substrate
@@ -469,7 +469,7 @@ fn retained_health_one_ship_is_illegal_as_firer_and_target() {
     );
     assert!(assign_target_commits(
         &sim.substrate.entities,
-        &sim.production.terrain_objects,
+        sim.terrain_objects.objects(),
         Some(TargetKind::Entity(target_id))
     ));
     sim.substrate

@@ -620,7 +620,7 @@ pub(super) fn arm_build_via(
     let cost = sim.object_type(tid, rules).map_or(0, |o| o.cost.max(0));
     let started =
         sim.production
-            .factories
+            .factories_mut()
             .test_enqueue_kernel(oid, queue_category, tid, order, cost);
     if started {
         super::construct_active_factory_fixture(sim, rules, oid, queue_category, tid)
@@ -975,12 +975,12 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     );
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Vehicle)
             .and_then(|view| view.object)
             .is_some(),
@@ -988,7 +988,7 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Ship)
             .and_then(|view| view.object)
             .is_some()
@@ -1021,14 +1021,14 @@ fn mixed_land_and_naval_factories_bind_independent_vehicle_and_ship_slots() {
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Ship)
             .is_none(),
         "successful Ship delivery advances only the Ship queue"
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Vehicle)
             .and_then(|view| view.object)
             .is_some(),
@@ -1103,7 +1103,7 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
     let americans = sim.interner.intern("Americans");
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
 
@@ -1132,7 +1132,7 @@ fn naval_delivery_nonzero_canenter_refunds_without_trying_second_producer() {
     assert!(!sim.substrate.entities.contains(held));
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Ship)
             .is_none_or(|factory| factory.object.is_none())
     );
@@ -1234,7 +1234,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     );
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
     let refused = super::lifecycle_tests::held_id(&sim, americans, ProductionCategory::Ship);
@@ -1263,7 +1263,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     );
     let factory = sim
         .production
-        .factories
+        .factories()
         .view(americans, ProductionCategory::Ship)
         .unwrap();
     assert_eq!(factory.progress, 0);
@@ -1276,9 +1276,9 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(credits_for_owner(&sim, "Americans"), credits + 1000);
     assert_eq!(sim.houses[&americans].stats().built(), 0);
 
-    let bytes = save_codec::serialize(&sim.production.factories)
+    let bytes = save_codec::serialize(sim.production.factories())
         .expect("serialize the fresh active factory");
-    sim.production.factories = save_codec::deserialize(&bytes).unwrap();
+    *sim.production.factories_mut() = save_codec::deserialize(&bytes).unwrap();
     // Publishing alone does not invent another PLACE for an unfinished successor.
     assert!(!super::dispatch_production_changes_for_tests(
         &mut sim, &rules, None
@@ -1303,7 +1303,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     sim.path_grid = Some(std::sync::Arc::new(grid));
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
     assert!(super::dispatch_production_changes_for_tests(
@@ -1320,7 +1320,7 @@ fn naval_empty_fnpc_refunds_then_a_fresh_successor_records_delivery_once() {
     assert_eq!(sim.owned_object_counts(americans).1, owned_units);
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Ship)
             .is_none_or(|factory| factory.object.is_none())
     );
@@ -1363,7 +1363,7 @@ fn deliver_naval_yard_ship(sim: &mut Simulation, rules: &RuleSet) -> (u16, u16) 
     let americans = sim.interner.intern("Americans");
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
     assert!(super::dispatch_production_changes_for_tests(
@@ -1438,7 +1438,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
     let americans = sim.interner.intern("Americans");
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
 
@@ -1535,7 +1535,7 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
     assert!(removed < cleared && cleared < linked && linked < marked);
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(americans, ProductionCategory::Ship)
             .is_none(),
         "successful delivery advances and prunes the completed queue"
@@ -1578,7 +1578,7 @@ fn naval_rally_destination_and_move_survive_without_path_grid() {
     let americans = sim.interner.intern("Americans");
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
 
@@ -1658,7 +1658,7 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
     let americans = sim.interner.intern("Americans");
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(americans, ProductionCategory::Ship)
     );
 

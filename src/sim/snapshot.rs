@@ -1195,7 +1195,9 @@ use crate::util::save_codec;
 // the merged-INI float light projection, so v444 cannot use this schema.
 // 445 -> 446: the House array saves its registration order beside the House
 // states; the session no longer carries a separate copy of that order.
-const SNAPSHOT_VERSION: u32 = 446;
+// 446 -> 447: terrain objects and ore growth leave the production state for
+// their own owners (the terrain object store, the ore growth config/state).
+const SNAPSHOT_VERSION: u32 = 447;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1983,12 +1985,12 @@ impl RestoredObjectIndex {
             )?;
             highest_id = highest_id.max(registry_id);
         }
-        for (&registry_id, terrain) in &sim.production.terrain_objects {
+        for (&registry_id, terrain) in sim.terrain_objects.objects() {
             Self::register(
                 &mut identities,
                 "TerrainObjectStore",
                 registry_id,
-                terrain.stable_id,
+                terrain.stable_id(),
             )?;
             highest_id = highest_id.max(registry_id);
         }
@@ -2322,7 +2324,7 @@ fn restore_object_references(
             if let Some(TargetKind::Entity(target_id)) = manager.current_target() {
                 require_object_reference(
                     &entity_ids,
-                    &sim.production.terrain_objects,
+                    sim.terrain_objects.objects(),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.current_target",
@@ -2332,7 +2334,7 @@ fn restore_object_references(
             if let Some(TargetKind::Entity(target_id)) = manager.queued_target() {
                 require_object_reference(
                     &entity_ids,
-                    &sim.production.terrain_objects,
+                    sim.terrain_objects.objects(),
                     "EntityStore",
                     entity_id,
                     "spawn_manager.queued_target",
@@ -2371,7 +2373,7 @@ fn restore_object_references(
         if let Some(TargetKind::Entity(target_id)) = entity.attack_target.target() {
             require_object_reference(
                 &entity_ids,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 "EntityStore",
                 entity_id,
                 "attack_target",
@@ -2381,7 +2383,7 @@ fn restore_object_references(
         if let Some(TargetKind::Entity(target_id)) = entity.suspended_attack_target.target() {
             require_object_reference(
                 &entity_ids,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 "EntityStore",
                 entity_id,
                 "suspended_attack_target",
@@ -2403,7 +2405,7 @@ fn restore_object_references(
             for target_id in targets.iter().filter_map(|target| target.object_id()) {
                 require_object_reference(
                     &entity_ids,
-                    &sim.production.terrain_objects,
+                    sim.terrain_objects.objects(),
                     "EntityStore",
                     entity_id,
                     field,
@@ -2586,7 +2588,7 @@ fn restore_object_references(
         if let Some(owner_id) = system.owner_entity {
             require_object_reference(
                 &entity_ids,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 "ParticleSystemStore",
                 system_id,
                 "owner_entity",
@@ -2596,7 +2598,7 @@ fn restore_object_references(
         if let Some(crate::sim::combat::TargetKind::Entity(attached_id)) = system.target_ref {
             require_object_reference(
                 &entity_ids,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 "ParticleSystemStore",
                 system_id,
                 "target_ref",
@@ -2636,7 +2638,7 @@ fn restore_object_references(
             ProjectileTarget::Terrain(id) => Some((
                 id,
                 "TerrainObjectStore",
-                sim.production.terrain_objects.contains_key(&id),
+                sim.terrain_objects.objects().contains_key(&id),
             )),
             ProjectileTarget::Cell { .. }
             | ProjectileTarget::DummyCell
@@ -2668,7 +2670,7 @@ fn restore_object_references(
         if let Some(TargetKind::Entity(target_id)) = wave.target_ref {
             require_object_reference(
                 &entity_ids,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 "WaveStore",
                 wave_id,
                 "target_ref",
@@ -2699,7 +2701,7 @@ fn restore_object_references(
     for &object_id in sim.object_custom_sounds.keys() {
         require_object_reference(
             &entity_ids,
-            &sim.production.terrain_objects,
+            sim.terrain_objects.objects(),
             "ObjectCustomSounds",
             object_id,
             "object",
@@ -2718,7 +2720,7 @@ fn restore_object_references(
         )?;
     }
 
-    for factory in sim.production.factories.iter_insertion_ordered() {
+    for factory in sim.production.factories().iter_insertion_ordered() {
         if let Some(object_id) = factory.object.as_ref().and_then(|object| object.entity_id) {
             require_resolved_reference(
                 entity_ids.contains(&object_id),
@@ -2952,31 +2954,31 @@ impl Simulation {
                 }
             }
         }
-        for terrain in self.production.terrain_objects.values() {
-            let in_logic = seen_logic.contains(&terrain.stable_id);
-            let pending_delete = pending_delete_ids.contains(&terrain.stable_id);
+        for terrain in self.terrain_objects.objects().values() {
+            let in_logic = seen_logic.contains(&terrain.stable_id());
+            let pending_delete = pending_delete_ids.contains(&terrain.stable_id());
             if terrain.is_live() && !in_logic {
                 return Err(SnapshotRestoreError::MissingRequiredLogicIdentity {
                     registry: "TerrainObjectStore",
-                    object_id: terrain.stable_id,
+                    object_id: terrain.stable_id(),
                 });
             }
             if !terrain.is_live() && in_logic {
                 return Err(SnapshotRestoreError::InactiveLogicIdentity {
                     registry: "TerrainObjectStore",
-                    object_id: terrain.stable_id,
+                    object_id: terrain.stable_id(),
                 });
             }
             if terrain.is_live() && pending_delete {
                 return Err(SnapshotRestoreError::DeferredDeleteLogicIdentity {
                     registry: "TerrainObjectStore",
-                    object_id: terrain.stable_id,
+                    object_id: terrain.stable_id(),
                 });
             }
             if !terrain.is_live() && !pending_delete {
                 return Err(SnapshotRestoreError::MissingDeferredDeleteIdentity {
                     registry: "TerrainObjectStore",
-                    object_id: terrain.stable_id,
+                    object_id: terrain.stable_id(),
                 });
             }
         }
@@ -3267,8 +3269,8 @@ impl Simulation {
             },
         )?;
         let mut source_object_cells: BTreeSet<(u16, u16)> = self
-            .production
             .terrain_objects
+            .objects()
             .values()
             .filter(|terrain| terrain.is_live())
             .map(crate::sim::terrain_object::TerrainObjectState::cell)
@@ -3279,14 +3281,14 @@ impl Simulation {
                 .occupied_cells_on_layer(crate::sim::movement::locomotor::MovementLayer::Ground),
         );
 
-        let grows = self.production.ore_growth_config.grows;
-        let spreads = self.production.ore_growth_config.spreads;
+        let grows = self.ore_growth_config.grows();
+        let spreads = self.ore_growth_config.spreads();
         let current_frame = self.session.binary_frame();
         // The stores are sized and walked from the native `MapRect` (`[Map]
         // Size`), never the cell-array extent in `session.map_*`. The rect the
         // fresh load rebuilt with is serialized; a zero rect (no rebuild ever
         // ran) falls back to the retained MapClass Size dimensions.
-        let mut native_rect = self.production.ore_growth_state.native_rect();
+        let mut native_rect = self.ore_growth_state.native_rect();
         if native_rect == (0, 0)
             && let (Some(bounds), Some(height)) =
                 (self.playfield_bounds, self.playfield_size_height)
@@ -3297,7 +3299,6 @@ impl Simulation {
             );
         }
         Ok(self
-            .production
             .ore_growth_state
             .rebuild_native_tiberium_queues_from_overlays(
                 overlay_grid,
@@ -3393,12 +3394,8 @@ mod tests {
             sim.session.set_binary_frame_for_test(91);
             sim.session.set_map_width_for_test(size);
             sim.session.set_map_height_for_test(size);
-            sim.production.ore_growth_config = OreGrowthConfig {
-                grows: true,
-                spreads: true,
-                tiberium_grows_flag: false,
-            };
-            sim.production.ore_growth_state = OreGrowthState::new(size, size);
+            sim.ore_growth_config = OreGrowthConfig::for_test(true, true, false);
+            sim.ore_growth_state = OreGrowthState::new(size, size);
             let mut overlays = OverlayGrid::new(size, size);
             for &(rx, ry) in cells {
                 overlays.place_overlay(rx, ry, ore_id, 5);
@@ -3454,13 +3451,18 @@ mod tests {
         fn add_live_terrain_object(sim: &mut Simulation, cell: (u16, u16)) {
             let stable_id = sim.allocate_stable_id();
             let type_ref = sim.interner.intern("TREE01");
-            sim.production.terrain_objects.insert(stable_id, {
-                let mut terrain = TerrainObjectState::for_test(stable_id, type_ref, cell.0, cell.1);
-                terrain.in_logic_vector = true;
-                terrain.occupation_bits = 7;
-                terrain
-            });
-            sim.production.terrain_object_cells.insert(cell, stable_id);
+            sim.terrain_objects
+                .objects_mut_for_test()
+                .insert(stable_id, {
+                    let mut terrain =
+                        TerrainObjectState::for_test(stable_id, type_ref, cell.0, cell.1);
+                    terrain.set_in_logic_vector_for_test(true);
+                    terrain.set_occupation_bits_for_test(7);
+                    terrain
+                });
+            sim.terrain_objects
+                .cell_index_mut_for_test()
+                .insert(cell, stable_id);
             sim.substrate
                 .logic
                 .try_push(stable_id)
@@ -3473,15 +3475,13 @@ mod tests {
             registry: &OverlayTypeRegistry,
             ore_cell: (u16, u16),
         ) {
-            sim.production
-                .ore_growth_state
+            sim.ore_growth_state
                 .reset_native_tiberium_classes(rules.tiberium_types.len(), 7);
             let overlay = sim.overlay_grid.as_ref().expect("fixture overlay grid");
             let resolved = sim.resolved_terrain.as_ref();
             let mut throwaway_rng = SimRng::new(13);
             assert!(
-                sim.production
-                    .ore_growth_state
+                sim.ore_growth_state
                     .add_native_growth_queue_cell(
                         overlay,
                         registry,
@@ -3502,8 +3502,7 @@ mod tests {
                     .is_some()
             );
             assert!(
-                sim.production
-                    .ore_growth_state
+                sim.ore_growth_state
                     .add_native_spread_queue_cell(
                         registry
                             .tiberium_type_for_overlay(
@@ -3555,11 +3554,7 @@ mod tests {
             seed_serialized_queue_state(&mut sim, &rules, &registry, (4, 5));
 
             let mut restored = restore_before_map_authority(&sim);
-            let saved_class = &restored
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let saved_class = &restored.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(saved_class.growth_timer.start_frame(), 7);
             assert_ne!(
                 saved_class.growth.heap_entry(0).unwrap().priority_bits,
@@ -3592,11 +3587,7 @@ mod tests {
             assert_eq!(restore_output.native_tiberium_stats.growth_entries, 4);
             assert_eq!(restore_output.native_tiberium_stats.spread_entries, 2);
 
-            let class = &restored
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let class = &restored.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(
                 (
                     class.growth_timer.start_frame(),
@@ -3655,7 +3646,6 @@ mod tests {
             {
                 let overlay = sim.overlay_grid.as_ref().expect("fixture overlay grid");
                 let fresh = sim
-                    .production
                     .ore_growth_state
                     .rebuild_native_tiberium_queues_from_overlays(
                         overlay,
@@ -3670,11 +3660,11 @@ mod tests {
                     );
                 assert_eq!(fresh.growth_entries, 2);
             }
-            assert_eq!(sim.production.ore_growth_state.native_rect(), (8, 8));
+            assert_eq!(sim.ore_growth_state.native_rect(), (8, 8));
 
             let mut restored = restore_before_map_authority(&sim);
             assert_eq!(
-                restored.production.ore_growth_state.native_rect(),
+                restored.ore_growth_state.native_rect(),
                 (8, 8),
                 "the rect survives the snapshot"
             );
@@ -3684,11 +3674,7 @@ mod tests {
                 .expect("all map-authority rebuild dependencies");
             assert_eq!(output.native_tiberium_stats.growth_entries, 2);
             assert_eq!(output.native_tiberium_stats.spread_entries, 2);
-            let class = &restored
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let class = &restored.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(class.growth_bitmap, BTreeSet::from([(5, 5), (7, 7)]));
             assert_eq!(
                 class.growth.capacity(),
@@ -3705,17 +3691,15 @@ mod tests {
             let (rules, registry, ore_id) = tiberium_fixture();
             let mut sim = base_sim_sized(ore_id, 12, &[(5, 5), (7, 7)]);
             sim.install_playfield_from_map_header(&map_header(8, 8));
-            sim.production
-                .ore_growth_state
-                .set_native_rect_for_tests((0, 0));
+            sim.ore_growth_state.set_native_rect_for_tests((0, 0));
 
             let mut restored = restore_before_map_authority(&sim);
-            assert_eq!(restored.production.ore_growth_state.native_rect(), (0, 0));
+            assert_eq!(restored.ore_growth_state.native_rect(), (0, 0));
             let output = restored
                 .restore_map_authority_after_snapshot_load(&rules, &registry, None)
                 .expect("all map-authority rebuild dependencies");
             assert_eq!(output.native_tiberium_stats.growth_entries, 2);
-            assert_eq!(restored.production.ore_growth_state.native_rect(), (8, 8));
+            assert_eq!(restored.ore_growth_state.native_rect(), (8, 8));
         }
 
         /// Fresh-load `InitGrowthQueues_All @ 0x00722D00` /
@@ -3730,9 +3714,7 @@ mod tests {
             let mut sim = base_sim(ore_id, &[(4, 5), (5, 5)]);
             add_live_terrain_object(&mut sim, (5, 5));
             assert!(
-                !sim.production
-                    .tiberium_spawning_terrain_cells
-                    .contains(&(5, 5)),
+                !sim.terrain_objects.spawning_cells().contains(&(5, 5)),
                 "the tree is not an ore spawner"
             );
 
@@ -3751,11 +3733,7 @@ mod tests {
 
             assert_eq!(stats.growth_entries, 2);
             assert_eq!(stats.spread_entries, 1);
-            let class = &sim
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let class = &sim.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(class.growth_bitmap, BTreeSet::from([(4, 5), (5, 5)]));
             assert_eq!(class.spread_bitmap, BTreeSet::from([(4, 5)]));
         }
@@ -3771,23 +3749,15 @@ mod tests {
                 .expect("all map-authority rebuild dependencies");
             restored.resolve_type_handles(&rules);
 
-            let timer_before = restored
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0]
-                .growth_timer;
+            let timer_before =
+                restored.ore_growth_state.native_tiberium_state().classes[0].growth_timer;
             assert_eq!(
                 (timer_before.start_frame(), timer_before.duration()),
                 (91, 0)
             );
             restored.advance_tick(&[], Some(&rules), None, Some(&registry), 67);
 
-            let class = &restored
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let class = &restored.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(
                 (
                     class.growth_timer.start_frame(),
@@ -3809,8 +3779,7 @@ mod tests {
         fn gsi_17_04_missing_dependency_rejects_postload_queue_admission() {
             let (rules, registry, ore_id) = tiberium_fixture();
             let mut sim = base_sim(ore_id, &[(4, 5)]);
-            sim.production
-                .ore_growth_state
+            sim.ore_growth_state
                 .reset_native_tiberium_classes(rules.tiberium_types.len(), 7);
 
             let overlays = sim.overlay_grid.take();
@@ -3828,11 +3797,7 @@ mod tests {
                     component: "ResolvedTerrainGrid",
                 })
             ));
-            let class = &sim
-                .production
-                .ore_growth_state
-                .native_tiberium_state()
-                .classes[0];
+            let class = &sim.ore_growth_state.native_tiberium_state().classes[0];
             assert_eq!(
                 (
                     class.growth_timer.start_frame(),
@@ -4919,7 +4884,8 @@ mod tests {
         // 443 -> 444: retained TechnoType ShadowIndex.
         // 444 -> 445: retained per-pass BuildingType light integers.
         // 445 -> 446: the House array's registration order.
-        assert_eq!(super::SNAPSHOT_VERSION, 446);
+        // 446 -> 447: terrain objects and ore growth have their own owners.
+        assert_eq!(super::SNAPSHOT_VERSION, 447);
     }
 
     #[test]
@@ -8367,12 +8333,14 @@ mod tests {
         mark_terrain_raw_occupation(
             &mut sim.substrate.raw_cell_occupation,
             tree.cell(),
-            tree.occupation_bits,
+            tree.occupation_bits(),
         );
-        sim.production
-            .terrain_object_cells
+        sim.terrain_objects
+            .cell_index_mut_for_test()
             .insert(tree.cell(), tree_id);
-        sim.production.terrain_objects.insert(tree_id, tree);
+        sim.terrain_objects
+            .objects_mut_for_test()
+            .insert(tree_id, tree);
         sim.resolved_terrain = Some(terrain);
         assert!(sim.register_terrain_object(tree_id, Some(&rules)));
 
@@ -8441,7 +8409,7 @@ mod tests {
     fn terrain_projectile_target_roundtrip_preserves_identity_coordinate_and_hash_kind() {
         use crate::sim::projectile::ProjectileTarget;
         let (mut sim, _, tree_id, projectile_id) = terrain_target_snapshot_fixture();
-        let coordinate = sim.production.terrain_objects[&tree_id].world_coord();
+        let coordinate = sim.terrain_objects.objects()[&tree_id].world_coord();
         let terrain_hash = sim.state_hash();
         sim.projectiles.get_mut(projectile_id).unwrap().target = ProjectileTarget::Entity(tree_id);
         assert_ne!(
@@ -8459,7 +8427,7 @@ mod tests {
             ProjectileTarget::Terrain(tree_id)
         );
         assert_eq!(
-            restored.production.terrain_objects[&tree_id].world_coord(),
+            restored.terrain_objects.objects()[&tree_id].world_coord(),
             coordinate
         );
         assert_eq!(
@@ -8471,7 +8439,7 @@ mod tests {
             coordinate
         );
         assert_eq!(
-            restored.production.terrain_object_cells.get(&(1, 1)),
+            restored.terrain_objects.cell_index().get(&(1, 1)),
             Some(&tree_id)
         );
     }
@@ -8574,7 +8542,7 @@ mod tests {
         use crate::sim::combat::RAD_NO_ATTACKER;
         use crate::sim::projectile::ProjectileTarget;
         let (mut sim, rules, tree_id, projectile_id) = terrain_target_snapshot_fixture();
-        let coordinate = sim.production.terrain_objects[&tree_id].world_coord();
+        let coordinate = sim.terrain_objects.objects()[&tree_id].world_coord();
         let warhead_id = sim.interner.intern("WH");
         crate::sim::combat::world_receiver::apply_area_damage(
             &mut sim,
@@ -8592,7 +8560,7 @@ mod tests {
             cell_target
         );
         assert!(sim.substrate.pending_delete.contains_object(&tree_id));
-        assert!(!sim.production.terrain_object_cells.contains_key(&(1, 1)));
+        assert!(!sim.terrain_objects.cell_index().contains_key(&(1, 1)));
         let bytes = GameSnapshot::save(&sim, 0, 0, "retired-terrain-target", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
         restored.restore_after_snapshot_load().unwrap();
@@ -8601,14 +8569,9 @@ mod tests {
             cell_target
         );
         assert!(restored.substrate.pending_delete.contains_object(&tree_id));
-        assert!(
-            !restored
-                .production
-                .terrain_object_cells
-                .contains_key(&(1, 1))
-        );
+        assert!(!restored.terrain_objects.cell_index().contains_key(&(1, 1)));
         restored.flush_pending_delete();
-        assert!(!restored.production.terrain_objects.contains_key(&tree_id));
+        assert!(!restored.terrain_objects.objects().contains_key(&tree_id));
         assert_eq!(
             restored.projectiles.get(projectile_id).unwrap().target,
             cell_target
@@ -9840,9 +9803,9 @@ mod tests {
         let damaged = {
             let mut terrain =
                 TerrainObjectState::for_test(damaged_id, tree_type, damaged_cell.0, damaged_cell.1);
-            terrain.health = 6;
-            terrain.max_health = 10;
-            terrain.occupation_bits = 7;
+            terrain.set_health_for_test(6);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(7);
             terrain
         };
         let destroyed = {
@@ -9852,9 +9815,9 @@ mod tests {
                 destroyed_cell.0,
                 destroyed_cell.1,
             );
-            terrain.health = 10;
-            terrain.max_health = 10;
-            terrain.occupation_bits = 7;
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(7);
             terrain
         };
         let spawner = {
@@ -9864,27 +9827,27 @@ mod tests {
                 spawner_cell.0,
                 spawner_cell.1,
             );
-            terrain.health = 10;
-            terrain.max_health = 10;
-            terrain.occupation_bits = 7;
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(7);
             terrain
         };
         for terrain in [&damaged, &destroyed, &spawner] {
-            sim.production
-                .terrain_objects
-                .insert(terrain.stable_id, terrain.clone());
-            assert!(sim.register_terrain_object(terrain.stable_id, None));
-            sim.production
-                .terrain_object_cells
-                .insert(terrain.cell(), terrain.stable_id);
+            sim.terrain_objects
+                .objects_mut_for_test()
+                .insert(terrain.stable_id(), terrain.clone());
+            assert!(sim.register_terrain_object(terrain.stable_id(), None));
+            sim.terrain_objects
+                .cell_index_mut_for_test()
+                .insert(terrain.cell(), terrain.stable_id());
             mark_terrain_raw_occupation(
                 &mut sim.substrate.raw_cell_occupation,
                 terrain.cell(),
-                terrain.occupation_bits,
+                terrain.occupation_bits(),
             );
         }
         sim.substrate.next_stable_object_id = spawner_id + 1;
-        sim.production.terrain_animations.insert(
+        sim.terrain_objects.animations_mut_for_test().insert(
             spawner_cell,
             TerrainAnimationState::new(
                 spawner_type,
@@ -9894,8 +9857,8 @@ mod tests {
                 sim.session.binary_frame(),
             ),
         );
-        sim.production
-            .tiberium_spawning_terrain_cells
+        sim.terrain_objects
+            .spawning_cells_mut_for_test()
             .insert(spawner_cell);
 
         let mut original_occupied_grid = flat_terrain(3, 3);
@@ -9910,7 +9873,7 @@ mod tests {
         sim.resolved_terrain = Some(original_occupied_grid);
 
         let result = damage_terrain_object_at_cell(
-            &mut sim.production,
+            &mut sim.terrain_objects,
             &mut sim.substrate.raw_cell_occupation,
             &rules,
             &sim.interner,
@@ -9942,39 +9905,39 @@ mod tests {
         );
 
         assert_eq!(
-            restored.production.terrain_objects[&destroyed_id].lifecycle,
+            restored.terrain_objects.objects()[&destroyed_id].lifecycle(),
             TerrainObjectLifecycle::Destroyed
         );
         assert!(
             !restored
-                .production
-                .terrain_object_cells
+                .terrain_objects
+                .cell_index()
                 .contains_key(&destroyed_cell)
         );
-        let restored_damaged = &restored.production.terrain_objects[&damaged_id];
-        assert_eq!(restored_damaged.health, 6);
-        assert_eq!(restored_damaged.lifecycle, TerrainObjectLifecycle::Live);
+        let restored_damaged = &restored.terrain_objects.objects()[&damaged_id];
+        assert_eq!(restored_damaged.health(), 6);
+        assert_eq!(restored_damaged.lifecycle(), TerrainObjectLifecycle::Live);
         assert_eq!(restored_damaged.cell(), damaged_cell);
         assert_eq!(
-            restored.production.terrain_object_cells[&damaged_cell],
+            restored.terrain_objects.cell_index()[&damaged_cell],
             damaged_id
         );
-        let restored_spawner = &restored.production.terrain_objects[&spawner_id];
-        assert_eq!(restored_spawner.health, 10);
-        assert_eq!(restored_spawner.lifecycle, TerrainObjectLifecycle::Live);
+        let restored_spawner = &restored.terrain_objects.objects()[&spawner_id];
+        assert_eq!(restored_spawner.health(), 10);
+        assert_eq!(restored_spawner.lifecycle(), TerrainObjectLifecycle::Live);
         assert_eq!(restored_spawner.cell(), spawner_cell);
         assert_eq!(
-            restored.production.terrain_object_cells[&spawner_cell],
+            restored.terrain_objects.cell_index()[&spawner_cell],
             spawner_id
         );
         assert_eq!(
-            restored.production.terrain_animations[&spawner_cell].type_ref(),
+            restored.terrain_objects.animations()[&spawner_cell].type_ref(),
             spawner_type
         );
         assert!(
             restored
-                .production
-                .tiberium_spawning_terrain_cells
+                .terrain_objects
+                .spawning_cells()
                 .contains(&spawner_cell)
         );
         assert_eq!(restored.substrate.next_stable_object_id, spawner_id + 1);
@@ -10010,7 +9973,7 @@ mod tests {
                 .raw_cell_occupation
                 .ground_bits(destroyed_cell.0, destroyed_cell.1)
                 & crate::sim::terrain_object::terrain_raw_occupation_mask(
-                    destroyed.occupation_bits,
+                    destroyed.occupation_bits(),
                 ),
             0
         );
@@ -10035,22 +9998,22 @@ mod tests {
             .expect("health-mutation control snapshot")
             .sim;
         changed_health
-            .production
             .terrain_objects
+            .objects_mut_for_test()
             .get_mut(&damaged_id)
             .expect("damaged Terrain authority")
-            .health = 5;
+            .set_health_for_test(5);
         assert_ne!(changed_health.state_hash(), authoritative_hash);
 
         let mut changed_lifecycle = GameSnapshot::load(&bytes)
             .expect("lifecycle-mutation control snapshot")
             .sim;
         changed_lifecycle
-            .production
             .terrain_objects
+            .objects_mut_for_test()
             .get_mut(&spawner_id)
             .expect("spawning Terrain authority")
-            .lifecycle = TerrainObjectLifecycle::Limbo;
+            .set_lifecycle_for_test(TerrainObjectLifecycle::Limbo);
         assert_ne!(changed_lifecycle.state_hash(), authoritative_hash);
     }
 

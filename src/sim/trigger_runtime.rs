@@ -3902,9 +3902,7 @@ impl Simulation {
                 let Some(value) = value else {
                     return false;
                 };
-                self.production
-                    .ore_growth_config
-                    .set_enabled_from_trigger(value);
+                self.ore_growth_config.set_enabled_from_trigger(value);
             }
             88 => {
                 let (Some(rules), Some(index), Some(waypoint)) =

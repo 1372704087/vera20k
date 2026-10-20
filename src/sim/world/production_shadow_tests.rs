@@ -50,7 +50,7 @@ fn arm(
 ) {
     let cost = sim.object_type(ty, rules).map_or(0, |o| o.cost.max(0));
     sim.production
-        .factories
+        .factories_mut()
         .test_enqueue_kernel(owner, cat, ty, order, cost);
 }
 
@@ -85,7 +85,7 @@ fn production_authoritative_hash_includes_factory_fields() {
     ];
     for m in factory_muts {
         let mut sim = mid_build();
-        m(sim.production.factories.test_first_mut().unwrap());
+        m(sim.production.factories_mut().test_first_mut().unwrap());
         assert_ne!(
             base,
             sim.state_hash(),
@@ -133,7 +133,7 @@ fn snapshot_roundtrip_factory_registry() {
     ); // a tail entry to round-trip
     // Give the build non-trivial authoritative progress/balance/stats to round-trip.
     {
-        let f = sim.production.factories.test_first_mut().unwrap();
+        let f = sim.production.factories_mut().test_first_mut().unwrap();
         f.progress = 20;
         f.balance = 300;
         f.step_timer = CdTimer::started(90, 12);
@@ -213,7 +213,7 @@ fn queue_advances_only_after_delivery() {
     );
 
     let before = sim.state_hash();
-    let mut f = sim.production.factories.iter_insertion_ordered()[0].clone();
+    let mut f = sim.production.factories().iter_insertion_ordered()[0].clone();
     assert_eq!(
         f.object.as_ref().map(|o| o.type_id),
         Some(active),
@@ -302,7 +302,7 @@ fn factory_flip_determinism_over_scripted_commands() {
         arm(&mut sim, &rules, a, ProductionCategory::Aircraft, beag, 2);
         // Owner B: a Vehicle build (order 3).
         arm(&mut sim, &rules, b, ProductionCategory::Vehicle, griz, 3);
-        sim.production.next_enqueue_order = 4;
+        sim.production.set_next_enqueue_order_for_test(4);
 
         (0..160)
             .map(|i| {

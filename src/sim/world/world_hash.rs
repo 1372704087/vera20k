@@ -1173,7 +1173,9 @@ impl Simulation {
         }
     }
 
-    /// Hash all production-related state: queues, held objects, resources.
+    /// Hash production (primary flags, the enqueue stamp, the factory
+    /// registry), then ore growth and the terrain objects; the fold order is
+    /// part of the hash contract.
     fn hash_production(&self, hasher: &mut impl Hasher) {
         let retired_tiberium_fold = false;
         // The queue-of-record lives in the factory registry (active build = `Factory`
@@ -1183,33 +1185,16 @@ impl Simulation {
         // the sidebar ETA derives it from `progress` at view time and it is
         // intentionally NOT hashed (the 18->19 shape change).
         self.production.hash_primary_factories(hasher);
-        self.production.next_enqueue_order.hash(hasher);
+        self.production.next_enqueue_order().hash(hasher);
         self.hash_factory_registry(hasher); // P5b: the authoritative factory registry
 
         // Live ore/gem identity and quantity are folded by `hash_overlay_grid`.
-        self.production.ore_growth_config.hash_enabled(hasher);
-        self.production
-            .ore_growth_state
+        self.ore_growth_config.hash_enabled(hasher);
+        self.ore_growth_state
             .hash_state(hasher, retired_tiberium_fold);
-        // Hash retained terrain animations, including TIBTRE ore generators.
-        for (&(rx, ry), spawner) in &self.production.terrain_animations {
-            rx.hash(hasher);
-            ry.hash(hasher);
-            spawner.hash(hasher);
-        }
-        for (&stable_id, terrain) in &self.production.terrain_objects {
-            stable_id.hash(hasher);
-            terrain.hash(hasher);
-        }
-        for (&(rx, ry), &stable_id) in &self.production.terrain_object_cells {
-            rx.hash(hasher);
-            ry.hash(hasher);
-            stable_id.hash(hasher);
-        }
-        for &(rx, ry) in &self.production.tiberium_spawning_terrain_cells {
-            rx.hash(hasher);
-            ry.hash(hasher);
-        }
+        // Retained terrain animations (TIBTRE ore generators among them),
+        // the objects and their cell and spawner indexes.
+        self.terrain_objects.hash_state(hasher);
         if retired_tiberium_fold {
             // The fallback ore overlay id: `None` unless terrain spawners were
             // seeded from a registry, which the pinned fixtures never did.
@@ -1223,7 +1208,7 @@ impl Simulation {
     /// contract. Explicit-field folding (NOT `#[derive(Hash)]`) so the Option
     /// presence tags fold distinctly, consistent with the rest of this file.
     fn hash_factory_registry(&self, hasher: &mut impl Hasher) {
-        for (holder, f) in self.production.factories.holders_insertion_ordered() {
+        for (holder, f) in self.production.factories().holders_insertion_ordered() {
             // The building that holds a computer's factory (`BuildingClass+0x524`);
             // a House's factory folds as earlier schemas did.
             if let crate::sim::production::FactoryHolder::Building(building) = holder {
@@ -3630,7 +3615,7 @@ mod particle_hash_tests {
         let mut sim_a = Simulation::new();
         let sim_b = Simulation::new();
         let type_ref = sim_a.interner.intern("TIBTRE01");
-        sim_a.production.terrain_animations.insert(
+        sim_a.terrain_objects.animations_mut_for_test().insert(
             (10, 10),
             TerrainAnimationState::new(
                 type_ref,
@@ -3663,15 +3648,18 @@ mod particle_hash_tests {
             0,
         );
         sim_a
-            .production
-            .terrain_animations
+            .terrain_objects
+            .animations_mut_for_test()
             .insert((10, 10), state.clone());
-        sim_b.production.terrain_animations.insert((10, 10), state);
+        sim_b
+            .terrain_objects
+            .animations_mut_for_test()
+            .insert((10, 10), state);
         assert_eq!(sim_a.state_hash(), sim_b.state_hash());
 
         let spawner_b = sim_b
-            .production
-            .terrain_animations
+            .terrain_objects
+            .animations_mut_for_test()
             .get_mut(&(10, 10))
             .unwrap();
         spawner_b.advance_for_test(0, &mut crate::sim::rng::SimRng::new(0));

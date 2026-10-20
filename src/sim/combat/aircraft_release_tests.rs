@@ -153,7 +153,7 @@ fn shared_fireat_refuses_positive_health_limbo_objects_before_emission() {
             }
             "terrain" => {
                 let type_ref = sim.interner.intern("TREE01");
-                sim.production.terrain_objects.insert(
+                sim.terrain_objects.objects_mut_for_test().insert(
                     2,
                     crate::sim::terrain_object::TerrainObjectState::for_test(2, type_ref, 11, 10),
                 );
@@ -180,9 +180,15 @@ fn shared_fireat_refuses_positive_health_limbo_objects_before_emission() {
                 target.lifecycle.set_in_limbo_for_test(true);
                 assert!(target.lifecycle.object_alive() && target.health.current() > 0);
             } else {
-                let target = sim.production.terrain_objects.get_mut(&2).unwrap();
-                target.lifecycle = crate::sim::terrain_object::TerrainObjectLifecycle::Limbo;
-                assert!(target.object_alive() && target.health > 0);
+                let target = sim
+                    .terrain_objects
+                    .objects_mut_for_test()
+                    .get_mut(&2)
+                    .unwrap();
+                target.set_lifecycle_for_test(
+                    crate::sim::terrain_object::TerrainObjectLifecycle::Limbo,
+                );
+                assert!(target.object_alive() && target.health() > 0);
             }
         }
         let before = sim.state_hash();

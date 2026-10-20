@@ -231,7 +231,7 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
         if let Some(product) = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(local, ProductionCategory::Infantry)
             .and_then(|factory| factory.object)
         {
@@ -293,7 +293,7 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(local, ProductionCategory::Infantry)
             .is_none_or(|factory| factory.object.is_none()),
         "delivery clears the Factory's held object"

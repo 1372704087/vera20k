@@ -270,7 +270,7 @@ fn scene(input: &Value) -> Scene {
             // A target to drop: Assign_Target(NULL) is the only writer here.
             let stored = crate::sim::mission::concrete_effects::assign_target_stored(
                 &sim.substrate.entities,
-                &sim.production.terrain_objects,
+                sim.terrain_objects.objects(),
                 id,
                 Some(TargetKind::Entity(attacker)),
                 None,

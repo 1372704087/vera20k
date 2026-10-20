@@ -177,6 +177,141 @@ fn game_speed_transition_applies_at_ingress_before_triggers_and_hash() {
     ]));
 }
 
+#[test]
+fn live_game_speed_event_decodes_and_applies_within_its_frame() {
+    // Native opcode 0x0D (EventClass::Execute type 13 @ 0x004C794B): the payload
+    // dword at Event+7 is the new GameSpeed setting (0x00A8EB60). Unlike the
+    // offline SetGameSpeed it applies at the EventClass tail of its frame.
+    let (mut sim, owner) = game_speed_command_sim();
+    let (mut control, _) = game_speed_command_sim();
+
+    // A native 0x0D record for header house 0 (== owner) carrying speed 5.
+    let record = crate::sim::command::GameSpeedRecord {
+        house_id: 0,
+        frame: 1,
+        speed: 5,
+    }
+    .encode()
+    .expect("encode 0x0D notice");
+    let decoded = sim
+        .decode_native_command_record(&record, 1)
+        .expect("a 0x0D record decodes");
+    assert_eq!(decoded.owner, owner);
+    assert_eq!(decoded.payload, Command::LiveGameSpeed { speed: 5 });
+
+    let command = CommandEnvelope::new(owner, 1, Command::LiveGameSpeed { speed: 5 });
+    let result = sim
+        .advance_master_frame(
+            &[command],
+            None,
+            None,
+            67,
+            TickLane::Ordinary,
+            false,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .expect("fixture frame must complete")
+        .into_tick();
+    let control_result = control
+        .advance_master_frame(
+            &[],
+            None,
+            None,
+            67,
+            TickLane::Ordinary,
+            false,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .expect("fixture frame must complete")
+        .into_tick();
+
+    assert!(result.frame_committed);
+    assert_eq!(result.executed_commands, 1);
+    assert_eq!(sim.session.game_options().game_speed, 5);
+    assert_eq!(control.session.game_options().game_speed, 1);
+    assert_ne!(result.state_hash, control_result.state_hash);
+}
+
+#[test]
+fn building_on_off_line_opcodes_decode_direction_and_target() {
+    // Native opcodes 0x01/0x02 (EventClass::Execute branches 0x004C6CF0 /
+    // 0x004C6D4D) drive the Building+660 latch via GoOnline 0x00452260 /
+    // GoOffline 0x00452360; the direction is the opcode, the target the
+    // Abstract token at payload[0..4] (kind 0x34).
+    let (mut sim, owner) = game_speed_command_sim();
+    let mut building = GameEntity::test_default(7, "GAPOWR", "Local", 30, 40);
+    building.set_owner_for_test(owner);
+    sim.substrate.entities.insert(building);
+
+    let on = crate::sim::command::BuildingOnLineRecord {
+        house_id: 0,
+        frame: 1,
+        entity_id: 7,
+        on: true,
+    }
+    .encode()
+    .expect("encode 0x01 On Line");
+    let off = crate::sim::command::BuildingOnLineRecord {
+        house_id: 0,
+        frame: 1,
+        entity_id: 7,
+        on: false,
+    }
+    .encode()
+    .expect("encode 0x02 Off Line");
+
+    let decoded_on = sim
+        .decode_native_command_record(&on, 1)
+        .expect("0x01 decodes");
+    let decoded_off = sim
+        .decode_native_command_record(&off, 1)
+        .expect("0x02 decodes");
+    assert_eq!(decoded_on.owner, owner);
+    assert_eq!(
+        decoded_on.payload,
+        Command::SetBuildingOnLine {
+            entity_id: 7,
+            on: true
+        }
+    );
+    assert_eq!(
+        decoded_off.payload,
+        Command::SetBuildingOnLine {
+            entity_id: 7,
+            on: false
+        }
+    );
+
+    // 0x004C6CF0/0x004C6D4D drop a dead or limboed target before GoOffline.
+    let rules = crate::rules::ruleset::RuleSet::from_ini(
+        &crate::rules::ini_parser::IniFile::from_str(
+            "[BuildingTypes]\n1=GAPOWR\n[GAPOWR]\nPower=-20\n",
+        ),
+    )
+    .unwrap();
+    {
+        let building = sim.substrate.entities.get_mut(7).unwrap();
+        building.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
+        building.set_category_for_test(EntityCategory::Structure);
+        building.lifecycle.set_object_alive_for_test(true);
+        building.lifecycle.set_in_limbo_for_test(true);
+    }
+    let off = Command::SetBuildingOnLine {
+        entity_id: 7,
+        on: false,
+    };
+    assert!(!sim.apply_command("Local", &off, Some(&rules)));
+    assert!(sim.substrate.entities.get(7).unwrap().building_online());
+    sim.substrate
+        .entities
+        .get_mut(7)
+        .unwrap()
+        .lifecycle
+        .set_in_limbo_for_test(false);
+    assert!(sim.apply_command("Local", &off, Some(&rules)));
+    assert!(!sim.substrate.entities.get(7).unwrap().building_online());
+}
+
 /// A launch hashes every frame and a test world none until the caller asks.
 /// Then only a frame whose tick is a multiple of the interval hashes, and its
 /// hash is the state's.

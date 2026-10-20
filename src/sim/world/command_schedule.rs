@@ -126,7 +126,9 @@ impl Simulation {
                 if !self.houses.contains_key(&owner) {
                     continue;
                 }
-                let Command::SetGameSpeed { speed } = &command.payload else {
+                let (Command::SetGameSpeed { speed } | Command::LiveGameSpeed { speed }) =
+                    &command.payload
+                else {
                     continue;
                 };
                 if *speed <= crate::sim::game_options::IN_GAME_OPTIONS_MAX_SPEED {

@@ -771,6 +771,7 @@ impl App {
                 load_saved_game: None,
                 wol: None,
                 wol_account: Default::default(),
+                wol_test_credentials: Vec::new(),
                 network_options: None,
                 lan: None,
                 multiplayer_setup: None,

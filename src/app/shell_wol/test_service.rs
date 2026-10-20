@@ -22,6 +22,7 @@ use crate::ui::wol_chat::WolChatLine;
 use crate::ui::wol_lobby::{
     EX_INFO_VERSION, GAME_CHANNEL, MEMBER_OPERATOR, MEMBER_VOICE, WolChannel, WolMember,
 };
+use crate::ui::wol_login::WolCredential;
 use std::time::Instant;
 
 /// Event 9's status that completes the server-list wait.
@@ -112,7 +113,22 @@ fn answer_setup(state: &mut AppState, request: NetworkSetupRequest) {
 fn answer(state: &mut AppState, request: WolServiceRequest) {
     let event = match request {
         WolServiceRequest::EnsureApi => WolServiceEvent::Api(WolApiStatus::Available),
-        WolServiceRequest::ListCredentials => WolServiceEvent::Credentials(Vec::new()),
+        WolServiceRequest::ListCredentials => {
+            WolServiceEvent::Credentials(state.frontend.wol_test_credentials.clone())
+        }
+        WolServiceRequest::StoreCredential {
+            nickname, password, ..
+        } => {
+            store_credential(&mut state.frontend.wol_test_credentials, nickname, password);
+            return;
+        }
+        WolServiceRequest::ForgetCredential { slot } => {
+            state
+                .frontend
+                .wol_test_credentials
+                .retain(|stored| stored.slot != slot);
+            return;
+        }
         WolServiceRequest::FetchServers { .. } => {
             service_event(state, WolServiceEvent::NetStatus(SERVER_STATUS_READY));
             WolServiceEvent::ServerList(Ok(servers()))
@@ -198,12 +214,10 @@ fn answer(state: &mut AppState, request: WolServiceRequest) {
         }
         // Every WOL:Locale00..37 the retail CSF holds.
         WolServiceRequest::LocaleCount => WolServiceEvent::LocaleCount(38),
-        // Nothing to cancel, remember, forget or deliver: nobody is online.
+        // Nothing to cancel or deliver: nobody is online.
         WolServiceRequest::SetLocale(_)
         | WolServiceRequest::LeaveChannel
         | WolServiceRequest::CancelWait
-        | WolServiceRequest::ForgetCredential { .. }
-        | WolServiceRequest::StoreCredential { .. }
         | WolServiceRequest::Chat { .. }
         | WolServiceRequest::Emote { .. }
         // Server-side page/find/language enforcement is not simulated.
@@ -349,9 +363,46 @@ fn host_of(channel: &str) -> &str {
     channel.strip_suffix("'s_game").unwrap_or("Host")
 }
 
+/// Remember after a login: the same nickname keeps its slot with the new
+/// password, a new one takes the first free slot of 1..32; with none free
+/// it is dropped. The stores' real slot policy is WOLAPI's and unknown.
+fn store_credential(stored: &mut Vec<WolCredential>, nickname: String, password: String) {
+    if let Some(existing) = stored
+        .iter_mut()
+        .find(|stored| stored.nickname.eq_ignore_ascii_case(&nickname))
+    {
+        existing.password = password;
+        return;
+    }
+    let Some(slot) = (1..=32).find(|slot| stored.iter().all(|stored| stored.slot != *slot)) else {
+        return;
+    };
+    stored.push(WolCredential {
+        slot,
+        nickname,
+        password,
+    });
+    stored.sort_by_key(|stored| stored.slot);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_accounts_keep_their_slot_and_fill_the_first_free_one() {
+        let mut stored = Vec::new();
+        store_credential(&mut stored, "Tester".into(), "aaaaaaaa".into());
+        store_credential(&mut stored, "Alpha".into(), "bbbbbbbb".into());
+        stored.retain(|stored| stored.slot != 1);
+        store_credential(&mut stored, "Omega".into(), "cccccccc".into());
+        store_credential(&mut stored, "alpha".into(), "dddddddd".into());
+        let slots: Vec<(u32, &str, &str)> = stored
+            .iter()
+            .map(|s| (s.slot, s.nickname.as_str(), s.password.as_str()))
+            .collect();
+        assert_eq!(slots, [(1, "Omega", "cccccccc"), (2, "Alpha", "dddddddd")]);
+    }
 
     #[test]
     fn stand_in_games_admit_a_join_and_name_their_hosts() {

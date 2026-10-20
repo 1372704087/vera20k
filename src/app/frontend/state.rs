@@ -115,6 +115,9 @@ pub(crate) struct FrontendState {
     /// The login chain's process globals (nickname, password, Remember,
     /// changed byte); they outlive every WOL visit.
     pub(crate) wol_account: crate::ui::wol_login::WolAccountGlobals,
+    /// The offline WOL test service's credential store, standing in for the
+    /// WOLAPI one for the process.
+    pub(crate) wol_test_credentials: Vec<crate::ui::wol_login::WolCredential>,
     /// LAN lobby interaction/discovery; admitted participants belong to MatchSession.
     pub(crate) lan: Option<crate::app::shell_lan::LanShellRuntime>,
     pub(crate) network_setup_protocol:

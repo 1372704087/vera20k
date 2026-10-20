@@ -128,6 +128,11 @@ pub enum DeathAnimFollowUp {
     /// type (`0x00441D2F..0x00441D61`): GetRemapColour's scheme from the
     /// extra building palette as the remap (`+0xD4`); the palette name it
     /// copies to `+0xDC` is the scenario's one.
+    ///
+    /// RESIDUAL: AnimClass::Save (`0x004253B0`) finds no global index for
+    /// this scheme, so Load (`0x00425280`) regenerates the palette by name and
+    /// takes its scheme 0; a restored VERA anim keeps the owner's. Retail's
+    /// only such anim, CANY04DM, has no 16..31 pixels and draws at full light.
     ExtraBuildingRemap(InternedId),
 }
 

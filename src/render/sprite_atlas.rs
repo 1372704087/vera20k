@@ -970,11 +970,6 @@ pub(crate) fn sprite_palette_choice(
     }
 }
 
-/// `extra_palette_type_ids` holds the custom-palette TechnoTypes, `None` when
-/// the extra building palette did not load. TechnoClass::DrawSHP tests TerrainPalette first (`0x00705EC7`),
-/// then draws from GetRemapColour (`0x00705F81`), whose `+0xDF0` arm
-/// (`0x00705D82..0x00705D9A`) picks the house's scheme from the type's
-/// generated palette.
 /// The extra building palette for the active theater, or `None` without one.
 /// ColorScheme__GeneratePalette (`0x006263D0`, `0x00627590`) loads it as
 /// `<name><theater suffix>.PAL` (the suffix at `+0x4E` of the theater rows
@@ -991,6 +986,11 @@ fn load_extra_building_palette(
     Palette::from_bytes(data).ok()
 }
 
+/// `extra_palette_type_ids` holds the custom-palette TechnoTypes, `None` when
+/// the extra building palette did not load. TechnoClass::DrawSHP tests
+/// TerrainPalette first (`0x00705EC7`), then draws from GetRemapColour
+/// (`0x00705F81`), whose `+0xDF0` arm (`0x00705D82..0x00705D9A`) picks the
+/// house's scheme from the type's generated palette.
 fn sprite_palette_for_key(
     key: &ShpSpriteKey,
     art: Option<&ArtRegistry>,
@@ -1017,6 +1017,9 @@ fn sprite_palette_for_key(
         ShpPaletteContext::ExtraScheme if extra_palette_type_ids.is_some() => {
             SpritePaletteChoice::ExtraBuilding
         }
+        // RESIDUAL: without the file gamemd leaves +0xD4 unset (0x00441D2F),
+        // so the anim draws AltPalette's scheme 0 in cell light; this draws
+        // the owner's ramp. Retail ships every LIB*.PAL.
         ShpPaletteContext::ExtraScheme => SpritePaletteChoice::Unit,
         ShpPaletteContext::Legacy => {
             let upper = key.type_id.to_ascii_uppercase();

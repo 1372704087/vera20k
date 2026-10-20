@@ -1199,7 +1199,10 @@ use crate::util::save_codec;
 // their own owners (the terrain object store, the ore growth config/state).
 // 447 -> 448: GameEntity retains UnitClass's signed firing counter across
 // LimboLaunch/parasite release. Its positional entity payload grows by a dword.
-const SNAPSHOT_VERSION: u32 = 448;
+// 448 -> 449: the Techno disguise state retains the firing blink timer
+// (+1EC/+1F4); WeaponType retains DisguiseFakeBlinkTime= and [General]
+// DisabledDisguiseDetectionPercent=.
+const SNAPSHOT_VERSION: u32 = 449;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1949,7 +1952,7 @@ impl RestoredObjectIndex {
                 &mut identities,
                 "SpotlightStore",
                 registry_id,
-                light.stable_id,
+                light.stable_id(),
             )?;
             highest_id = highest_id.max(registry_id);
         }
@@ -2001,7 +2004,7 @@ impl RestoredObjectIndex {
                 &mut identities,
                 "ProjectileStore",
                 registry_id,
-                projectile.id,
+                projectile.id(),
             )?;
             highest_id = highest_id.max(registry_id);
         }
@@ -2625,17 +2628,17 @@ fn restore_object_references(
                 anim_id,
             )?;
         }
-        if projectile.source_id != crate::sim::combat::RAD_NO_ATTACKER {
+        if projectile.source_id() != crate::sim::combat::RAD_NO_ATTACKER {
             require_resolved_reference(
-                entity_ids.contains(&projectile.source_id),
+                entity_ids.contains(&projectile.source_id()),
                 "ProjectileStore",
                 projectile_id,
                 "source_id",
                 "EntityStore",
-                projectile.source_id,
+                projectile.source_id(),
             )?;
         }
-        if let Some((target_id, target_registry, present)) = match projectile.target {
+        if let Some((target_id, target_registry, present)) = match projectile.target() {
             ProjectileTarget::Entity(id) => Some((id, "EntityStore", entity_ids.contains(&id))),
             ProjectileTarget::Terrain(id) => Some((
                 id,
@@ -3036,14 +3039,8 @@ impl Simulation {
         // Continue with Logic slots (including ParticleSystem). Actual CellClass
         // list heads/order were serialized, like483C10/4839F0: validate references
         // without requerying geometry before map authority is reattached.
-        // Bullet Load 46AE9C..46AEB0 starts both embedded timers at the
-        // already-restored global frame with duration zero. Only C4/CC gates
-        // AI through Check (4E11F0); retain the saved reference/watermark.
-        for (_, projectile) in self.projectiles.iter_mut() {
-            projectile
-                .arm_timer
-                .start(self.session.binary_frame() as i32, 0);
-        }
+        self.projectiles
+            .restart_arm_timers_after_load(self.session.binary_frame() as i32);
         self.projectiles.restore_scalable_after_load();
         // ParasiteClass Load 6295DB..6295F3 does the same for its suppression
         // and bite timers: a bite is due at once and suppression is dropped.
@@ -7844,7 +7841,7 @@ mod tests {
     fn bullet_constructor_fields_roundtrip_and_hash_independently() {
         use crate::sim::projectile::ProjectilePayload;
         let (mut sim, _, _, projectile_id) = terrain_target_snapshot_fixture();
-        let base = sim.projectiles.get(projectile_id).unwrap().payload;
+        let base = sim.projectiles.get(projectile_id).unwrap().payload();
         let baseline_hash = sim.state_hash();
         let baseline_bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
         let mut restored_baseline = GameSnapshot::load(&baseline_bytes).unwrap().sim;
@@ -7861,19 +7858,25 @@ mod tests {
                     let payload =
                         ProjectilePayload::new(base.base_damage, base.warhead, kind, bright)
                             .with_installed_weapon(installed);
-                    sim.projectiles.get_mut(projectile_id).unwrap().payload = payload;
+                    sim.projectiles
+                        .get_mut(projectile_id)
+                        .unwrap()
+                        .set_payload_for_test(payload);
                     assert!(hashes.insert(sim.state_hash()));
                     let bytes = GameSnapshot::save(&sim, 0, 0, "bullet-constructor-state", 0);
                     let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
                     restored.restore_after_snapshot_load().unwrap();
                     assert_eq!(
-                        restored.projectiles.get(projectile_id).unwrap().payload,
+                        restored.projectiles.get(projectile_id).unwrap().payload(),
                         payload
                     );
                     let restored_hash = restored.state_hash();
                     assert!(restored_hashes.insert(restored_hash));
                     assert_eq!(restored_hash == restored_baseline_hash, payload == base);
-                    sim.projectiles.get_mut(projectile_id).unwrap().payload = base;
+                    sim.projectiles
+                        .get_mut(projectile_id)
+                        .unwrap()
+                        .set_payload_for_test(base);
                     assert_eq!(sim.state_hash(), baseline_hash);
                 }
             }
@@ -7888,19 +7891,25 @@ mod tests {
         let (mut sim, _, tree_id, projectile_id) = terrain_target_snapshot_fixture();
         let coordinate = sim.terrain_objects.objects()[&tree_id].world_coord();
         let terrain_hash = sim.state_hash();
-        sim.projectiles.get_mut(projectile_id).unwrap().target = ProjectileTarget::Entity(tree_id);
+        sim.projectiles
+            .get_mut(projectile_id)
+            .unwrap()
+            .set_target_for_test(ProjectileTarget::Entity(tree_id));
         assert_ne!(
             terrain_hash,
             sim.state_hash(),
             "pointer kinds cannot hash alike"
         );
-        sim.projectiles.get_mut(projectile_id).unwrap().target = ProjectileTarget::Terrain(tree_id);
+        sim.projectiles
+            .get_mut(projectile_id)
+            .unwrap()
+            .set_target_for_test(ProjectileTarget::Terrain(tree_id));
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "terrain-target", 0);
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(
-            restored.projectiles.get(projectile_id).unwrap().target,
+            restored.projectiles.get(projectile_id).unwrap().target(),
             ProjectileTarget::Terrain(tree_id)
         );
         assert_eq!(
@@ -7912,7 +7921,7 @@ mod tests {
                 .projectiles
                 .get(projectile_id)
                 .unwrap()
-                .last_target_position,
+                .last_target_position(),
             coordinate
         );
         assert_eq!(
@@ -7941,8 +7950,10 @@ mod tests {
             } else {
                 9_999
             };
-            sim.projectiles.get_mut(projectile_id).unwrap().target =
-                ProjectileTarget::Terrain(target_id);
+            sim.projectiles
+                .get_mut(projectile_id)
+                .unwrap()
+                .set_target_for_test(ProjectileTarget::Terrain(target_id));
             let bytes = GameSnapshot::save(&sim, 0, 0, "bad-terrain-target", 0);
             let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
             assert_eq!(
@@ -7957,7 +7968,7 @@ mod tests {
                 "wrong kind={wrong_kind}"
             );
             assert_eq!(
-                restored.projectiles.get(projectile_id).unwrap().target,
+                restored.projectiles.get(projectile_id).unwrap().target(),
                 ProjectileTarget::Terrain(target_id)
             );
         }
@@ -8033,7 +8044,7 @@ mod tests {
         );
         let cell_target = ProjectileTarget::Cell { rx: 1, ry: 1 };
         assert_eq!(
-            sim.projectiles.get(projectile_id).unwrap().target,
+            sim.projectiles.get(projectile_id).unwrap().target(),
             cell_target
         );
         assert!(sim.substrate.pending_delete.contains_object(&tree_id));
@@ -8042,7 +8053,7 @@ mod tests {
         let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
         restored.restore_after_snapshot_load().unwrap();
         assert_eq!(
-            restored.projectiles.get(projectile_id).unwrap().target,
+            restored.projectiles.get(projectile_id).unwrap().target(),
             cell_target
         );
         assert!(restored.substrate.pending_delete.contains_object(&tree_id));
@@ -8050,7 +8061,7 @@ mod tests {
         restored.flush_pending_delete();
         assert!(!restored.terrain_objects.objects().contains_key(&tree_id));
         assert_eq!(
-            restored.projectiles.get(projectile_id).unwrap().target,
+            restored.projectiles.get(projectile_id).unwrap().target(),
             cell_target
         );
         let bytes = GameSnapshot::save(&restored, 0, 0, "deleted-terrain-target", 0);
@@ -8206,12 +8217,19 @@ mod tests {
                     ("EntityStore", ids.child, "spawn_owner_id")
                 }
                 MissingRole::ProjectileSource => {
-                    sim.projectiles.get_mut(ids.projectile).unwrap().source_id = 9_999;
+                    sim.projectiles
+                        .get_mut(ids.projectile)
+                        .unwrap()
+                        .set_source_id_for_test(9_999);
                     ("ProjectileStore", ids.projectile, "source_id")
                 }
                 MissingRole::ProjectileTarget => {
-                    sim.projectiles.get_mut(ids.projectile).unwrap().target =
-                        crate::sim::projectile::ProjectileTarget::Entity(9_999);
+                    sim.projectiles
+                        .get_mut(ids.projectile)
+                        .unwrap()
+                        .set_target_for_test(crate::sim::projectile::ProjectileTarget::Entity(
+                            9_999,
+                        ));
                     ("ProjectileStore", ids.projectile, "target")
                 }
             };
@@ -8274,8 +8292,8 @@ mod tests {
             .spawn_owner_id
             .set_for_test(None);
         let projectile = sim.projectiles.get_mut(ids.projectile).unwrap();
-        projectile.source_id = RAD_NO_ATTACKER;
-        projectile.target = ProjectileTarget::Cell { rx: 11, ry: 12 };
+        projectile.set_source_id_for_test(RAD_NO_ATTACKER);
+        projectile.set_target_for_test(ProjectileTarget::Cell { rx: 11, ry: 12 });
 
         let null_target_projectile = sim.allocate_stable_id();
         sim.admit_projectile(
@@ -8349,7 +8367,7 @@ mod tests {
             "process-global occupation is not saved Scenario payload"
         );
         assert_eq!(
-            cold.projectiles.get(projectile_id).unwrap().target,
+            cold.projectiles.get(projectile_id).unwrap().target(),
             ProjectileTarget::DummyCell
         );
         assert_eq!(
@@ -10037,6 +10055,7 @@ mod tests {
         // 445 -> 446: the House array's registration order.
         // 446 -> 447: terrain objects and ore growth have their own owners.
         // 447 -> 448: retained Unit firing counter through parasite release.
-        assert_eq!(super::SNAPSHOT_VERSION, 448);
+        // 448 -> 449: the disguise firing blink and its rules keys.
+        assert_eq!(super::SNAPSHOT_VERSION, 449);
     }
 }

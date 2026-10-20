@@ -2453,14 +2453,14 @@ impl MapEffectObservation {
     ) -> Result<Self> {
         let projectiles = (profile.observe_projectiles == Some(true)).then(|| {
             sim.projectiles.iter().take(MAX_OBSERVATION_SAMPLES + 1).map(|(&id, bullet)| {
-                let weapon = bullet.payload.installed_weapon().map(|id| sim.interner.resolve(id));
-                let type_id = bullet.payload.projectile_type().map(|id| sim.interner.resolve(id));
-                json!({"stable_id": id, "native_id": bullet.native_unique_id,
-                    "weapon": weapon, "type_id": type_id, "source_id": bullet.source_id,
-                    "physical_leptons": [bullet.position.x, bullet.position.y, bullet.position.z],
-                    "in_logic_vector": bullet.in_logic_vector, "awaiting_anim": bullet.awaiting_anim(),
-                    "visual_frame": bullet.visual.runtime_frame,
-                    "visual_countdown": bullet.visual.runtime_countdown})
+                let weapon = bullet.payload().installed_weapon().map(|id| sim.interner.resolve(id));
+                let type_id = bullet.payload().projectile_type().map(|id| sim.interner.resolve(id));
+                json!({"stable_id": id, "native_id": bullet.native_unique_id(),
+                    "weapon": weapon, "type_id": type_id, "source_id": bullet.source_id(),
+                    "physical_leptons": [bullet.position().x, bullet.position().y, bullet.position().z],
+                    "in_logic_vector": bullet.in_logic_vector(), "awaiting_anim": bullet.awaiting_anim(),
+                    "visual_frame": bullet.visual().runtime_frame,
+                    "visual_countdown": bullet.visual().runtime_countdown})
             }).collect::<Vec<_>>()
         });
         let animations = profile.observe_anim_types.as_ref().map(|types| {

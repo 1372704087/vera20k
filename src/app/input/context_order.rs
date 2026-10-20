@@ -1506,6 +1506,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         {
             return false;
         }
+        // Selection__DispatchMultiUnitOrder clamps the shared Cell first
+        // (`0x004AE77E`, `Clamp_To_Playfield @ 0x00586E50`); every later
+        // receiver's What_Action and ClickedAction see it. Object hit-testing
+        // above keeps the raw screen-derived world point.
+        let (target_rx, target_ry) = sim.clamped_click_cell((target_rx, target_ry));
         let cell_is_shrouded = crate::app::presentation::instances::cell_visibility_for_local_owner(
             Some(owner_id),
             Some(&sim.fog),
@@ -3361,6 +3366,49 @@ mod tests {
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
+
+    /// The native selection dispatcher clamps its shared Cell before asking
+    /// receivers' What_Action and ClickedAction (`0x004AE77E`), then each Foot
+    /// resolves from that same Cell (`0x004AE8BA`, `0x004AE921`, `0x004AE976`).
+    /// At these retail edge clicks the raw Cell answers NoMove while the
+    /// clamped one answers the receiver's real action; an interior Cell is
+    /// unchanged. The click path's call site itself is not driven here.
+    #[test]
+    fn mobile_cell_dispatch_clamps_before_action_and_goal_resolution() {
+        use crate::sim::world::{CellActionQuery, MoveAction};
+
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        let owner = sim.interner.get("Local").unwrap();
+        let tank = sim
+            .spawn_object("MTNK", "Local", 12, 4, 0, &rules)
+            .expect("retail tank spawns");
+        sim.resolve_type_handles(&rules);
+        let action = |cell| {
+            sim.cell_move_action(
+                owner,
+                tank,
+                cell,
+                CellActionQuery {
+                    mouse_over: false,
+                    shift: false,
+                },
+                &rules,
+                None,
+            )
+            .unwrap()
+        };
+
+        for (raw, expected_action) in [((7, 0), MoveAction::NoMove), ((16, 0), MoveAction::Move)] {
+            let clamped = sim.clamped_click_cell(raw);
+            assert_ne!(clamped, raw, "fixed edge input {raw:?} must clamp");
+            assert_eq!(action(raw), MoveAction::NoMove, "raw edge {raw:?}");
+            assert_eq!(action(clamped), expected_action, "clamped edge {raw:?}");
+        }
+        assert_eq!(sim.clamped_click_cell((9, 5)), (9, 5));
+    }
 
     /// An all-berserk selection's left release follows the best object's
     /// class rung: Infantry NoMove (`0x0051F05E`, cell `0x0051FAAB`), Unit

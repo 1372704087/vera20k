@@ -664,7 +664,7 @@ fn compare_native_smashing_tail(retired: bool, typed: bool) {
         // applies Unlimbo's floor+1; Fire's existing Inviso placement owner
         // then overwrites it (4688B7..468A39). Keep the native input unchanged.
         world.projectiles.fire_inviso(id, live, false);
-        assert_eq!(world.projectiles.get(id).unwrap().position, live);
+        assert_eq!(world.projectiles.get(id).unwrap().position(), live);
         if retired {
             // Production retirement clears live membership and queues late
             // deletion; retained store presence must not resurrect the tail.

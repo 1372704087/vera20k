@@ -1050,7 +1050,7 @@ impl Fixture {
                     .get(id)
                     .map(|a| a.native_unique_id())
             })
-            .or_else(|| self.sim.projectiles.get(id).map(|p| p.native_unique_id))
+            .or_else(|| self.sim.projectiles.get(id).map(|p| p.native_unique_id()))
             .or_else(|| {
                 self.sim
                     .smudge_grid
@@ -1600,12 +1600,12 @@ fn assert_ready_fatal_routes(corpus: &Value) {
             .map(|(_, p)| p)
             .next()
             .unwrap();
-        assert_eq!(bullet.native_unique_id, int(&route["shot"]["bullet_id"]));
+        assert_eq!(bullet.native_unique_id(), int(&route["shot"]["bullet_id"]));
         assert_eq!(
             [
-                bullet.launch_origin.x,
-                bullet.launch_origin.y,
-                bullet.launch_origin.z
+                bullet.launch_origin().x,
+                bullet.launch_origin().y,
+                bullet.launch_origin().z
             ],
             [
                 int(&route["shot"]["launch_position"][0]),

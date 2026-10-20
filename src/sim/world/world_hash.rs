@@ -747,7 +747,7 @@ impl Simulation {
         if bridge_keeps_dummy
             || cells_or_entities_retain_dummy
             || self.projectiles.iter().any(|(_, projectile)| {
-                projectile.target == crate::sim::projectile::ProjectileTarget::DummyCell
+                projectile.target() == crate::sim::projectile::ProjectileTarget::DummyCell
             })
         {
             // Retained Cell pointers make the live coordinate affect
@@ -860,64 +860,64 @@ impl Simulation {
         self.projectiles.len().hash(hasher);
         for (&id, projectile) in self.projectiles.iter() {
             id.hash(hasher);
-            projectile.id.hash(hasher);
-            projectile.native_unique_id.hash(hasher);
-            projectile.source_id.hash(hasher);
-            projectile.position.x.hash(hasher);
-            projectile.position.y.hash(hasher);
-            projectile.position.z.hash(hasher);
-            projectile.launch_origin.hash(hasher);
-            projectile.launch_target.hash(hasher);
-            projectile.previous_cell.hash(hasher);
-            hash_projectile_target(projectile.target, hasher);
-            projectile.last_target_position.x.hash(hasher);
-            projectile.last_target_position.y.hash(hasher);
-            projectile.last_target_position.z.hash(hasher);
-            projectile.payload.base_damage.hash(hasher);
-            projectile.payload.warhead.index().hash(hasher);
+            projectile.id().hash(hasher);
+            projectile.native_unique_id().hash(hasher);
+            projectile.source_id().hash(hasher);
+            projectile.position().x.hash(hasher);
+            projectile.position().y.hash(hasher);
+            projectile.position().z.hash(hasher);
+            projectile.launch_origin().hash(hasher);
+            projectile.launch_target().hash(hasher);
+            projectile.previous_cell().hash(hasher);
+            hash_projectile_target(projectile.target(), hasher);
+            projectile.last_target_position().x.hash(hasher);
+            projectile.last_target_position().y.hash(hasher);
+            projectile.last_target_position().z.hash(hasher);
+            projectile.payload().base_damage.hash(hasher);
+            projectile.payload().warhead.index().hash(hasher);
             projectile
-                .payload
+                .payload()
                 .projectile_type()
                 .map(|id| id.index())
                 .hash(hasher);
-            projectile.payload.bright().hash(hasher);
+            projectile.payload().bright().hash(hasher);
             projectile
-                .payload
+                .payload()
                 .installed_weapon()
                 .map(|id| id.index())
                 .hash(hasher);
-            if projectile.payload.damage_multiplier()
+            if projectile.payload().damage_multiplier()
                 != crate::sim::projectile::ProjectilePayload::UNSCALED
             {
                 b"prism-damage-multiplier-v1".hash(hasher);
-                projectile.payload.damage_multiplier().hash(hasher);
+                projectile.payload().damage_multiplier().hash(hasher);
             }
 
-            projectile.speed_leptons_per_frame.hash(hasher);
-            projectile.velocity.hash(hasher);
-            projectile.trajectory.hash(hasher);
-            projectile.guidance.hash(hasher);
-            projectile.visual.hash(hasher);
-            projectile.arm_timer.hash(hasher);
-            projectile.fuse_frames_remaining.hash(hasher);
-            projectile.ranged_fuse.hash(hasher);
-            projectile.proximity_reference.hash(hasher);
-            projectile.last_distance_half.hash(hasher);
-            projectile.tracks_target.hash(hasher);
-            projectile.target_expiry.hash(hasher);
-            projectile.collision.level.hash(hasher);
-            projectile.collision.subject_to_walls.hash(hasher);
-            projectile.collision.native_cell_collision.hash(hasher);
-            projectile.collision.dropping.hash(hasher);
-            projectile.collision.subject_to_cliffs.hash(hasher);
-            projectile.collision.flak_scatter.hash(hasher);
-            projectile.collision.anti_air.hash(hasher);
-            projectile.collision.airburst.hash(hasher);
-            projectile.collision.inaccurate.hash(hasher);
-            projectile.collision.floater.hash(hasher);
-            projectile.collision.elasticity_bits.hash(hasher);
-            projectile.on_bridge.hash(hasher);
-            projectile.collision.arcing.hash(hasher);
+            projectile.speed_leptons_per_frame().hash(hasher);
+            projectile.velocity().hash(hasher);
+            projectile.trajectory().hash(hasher);
+            projectile.guidance().hash(hasher);
+            projectile.visual().hash(hasher);
+            projectile.arm_timer().hash(hasher);
+            projectile.fuse_frames_remaining().hash(hasher);
+            projectile.ranged_fuse().hash(hasher);
+            projectile.proximity_reference().hash(hasher);
+            projectile.last_distance_half().hash(hasher);
+            projectile.tracks_target().hash(hasher);
+            projectile.target_expiry().hash(hasher);
+            projectile.collision().level.hash(hasher);
+            projectile.collision().subject_to_walls.hash(hasher);
+            projectile.collision().native_cell_collision.hash(hasher);
+            projectile.collision().dropping.hash(hasher);
+            projectile.collision().subject_to_cliffs.hash(hasher);
+            projectile.collision().flak_scatter.hash(hasher);
+            projectile.collision().anti_air.hash(hasher);
+            projectile.collision().airburst.hash(hasher);
+            projectile.collision().inaccurate.hash(hasher);
+            projectile.collision().floater.hash(hasher);
+            projectile.collision().elasticity_bits.hash(hasher);
+            projectile.on_bridge().hash(hasher);
+            projectile.collision().arcing.hash(hasher);
             if let Some(house) = projectile.firer_house() {
                 b"bullet-firer-scheme-v1".hash(hasher);
                 house.index().hash(hasher);

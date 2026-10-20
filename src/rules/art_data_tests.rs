@@ -873,3 +873,18 @@ fn retail_use_buffer_types_are_the_four_helicopters() {
     flagged.sort_unstable();
     assert_eq!(flagged, ["HIND", "SCHD", "SCHP", "SHAD"]);
 }
+
+/// ReadINI reads `CanBeHidden=` from the type ID's ART section with ReadBool
+/// (`0x007121EB`); without that section or key the constructor's true stays.
+#[test]
+fn can_be_hidden_reads_the_type_id_section() {
+    let ini = IniFile::from_str(
+        "[GAPOWR]\nCanBeHidden=False\n[ALIAS]\nImage=GAPOWR\n[YAREFN]\nCanBeHidden=True\n[ODD]\nCanBeHidden=off\n",
+    );
+    let reg = ArtRegistry::from_ini(&ini);
+    assert!(!reg.can_be_hidden("GAPOWR"));
+    assert!(reg.can_be_hidden("ALIAS"), "the Image= section is not read");
+    assert!(reg.can_be_hidden("YAREFN"));
+    assert!(reg.can_be_hidden("ODD"), "ReadBool's default for 'o'");
+    assert!(reg.can_be_hidden("MISSING"));
+}

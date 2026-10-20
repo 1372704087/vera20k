@@ -5731,14 +5731,14 @@ impl RuleSet {
     }
 
     /// Compatibility identity for processed rules plus the resolved animation,
-    /// effect-frame, terrain-spawner frame, smudge-selection and projectile
-    /// launch ART inputs bound to this ruleset.
+    /// effect-frame, terrain-spawner frame, smudge-selection, projectile
+    /// launch and TechnoType `CanBeHidden=` ART inputs bound to this ruleset.
     /// Other asset-derived simulation inputs are added by later ownership
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // v30: retained ObjectType armor identities and independent Ares WH records.
-        b"rules-simulation-config-v30".hash(&mut hasher);
+        // v31: CanBeHidden comes from ART.
+        b"rules-simulation-config-v31".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         self.object_list
             .iter()
@@ -5854,6 +5854,13 @@ impl RuleSet {
             b"behind-anim-v1".hash(&mut hasher);
             self.general.behind.hash(&mut hasher);
         }
+        // CanBeHidden is read from ART (0x007121EB), outside the source INI
+        // hash; it decides which objects construct the Behind anim.
+        self.object_list
+            .iter()
+            .map(|o| (&o.id, o.can_be_hidden))
+            .collect::<Vec<_>>()
+            .hash(&mut hasher);
         self.general.default_mirage_disguises.hash(&mut hasher);
         self.general.infantry_disguises.hash(&mut hasher);
         if self
@@ -6920,6 +6927,9 @@ impl RuleSet {
             // otherwise fall back to the object ID itself.
             let art_key: &str = &obj.image;
             let entry = art.get(art_key).or_else(|| art.get(&obj.id));
+            // Every TechnoType's ReadINI reads CanBeHidden from the ART
+            // section of its own ID (0x007121EB); art is not layered.
+            obj.can_be_hidden = art.can_be_hidden(&obj.id);
             if obj.category == crate::rules::object_type::ObjectCategory::Infantry {
                 infantry_checked += 1;
                 if let Some(entry) = entry {

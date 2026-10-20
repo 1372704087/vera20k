@@ -377,8 +377,8 @@ fn score_title_key(mode: SessionMode) -> &'static str {
 ///
 /// Simulation owns contender admission, raw statistics, displayed-score bonus
 /// calculation, and its Scenario RNG draws. This app helper resolves names,
-/// colours, the local side, elapsed wall time, and display order. Exact native
-/// score-dialog traversal remains UNCHECKED.
+/// colours, the local side, the title, elapsed wall time, and display order;
+/// the traversal itself is `sim::score`'s.
 fn build_score_screen_model(
     state: &AppState,
     elapsed_seconds: i32,

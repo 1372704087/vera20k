@@ -366,7 +366,7 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
             .bunker
             .set_bunker_link_for_test(crate::sim::docking::bunker_link::BunkerLink::Installed(2));
     }
-    let path = &mut entity.navigation.path_runtime;
+    let path = entity.navigation.path_runtime_mut();
     path.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(7, 23));
     path.set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(9, 29));
     path.set_retries_left(19);
@@ -401,7 +401,7 @@ pub(super) fn assert_reengagement(sim: &mut Simulation, row: &Value) {
     };
     let fly = entity.locomotor.as_ref().unwrap().fly_runtime().unwrap();
     let point = fly.destination();
-    let path = &entity.navigation.path_runtime;
+    let path = entity.navigation.path_runtime();
     let fields = json!({
         "state": sub_state,
         "delay": entity.mission.dispatch_timer().delay(),

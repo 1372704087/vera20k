@@ -275,7 +275,7 @@ fn supplied_world(
                 let at = cell(&state["aux_cell"]);
                 NavTargetRef::cell(at.0, at.1)
             }));
-        actor.navigation.path_replay.set_directions_for_test(
+        actor.navigation.path_replay_mut().set_directions_for_test(
             state["path"]
                 .as_array()
                 .unwrap()
@@ -290,23 +290,23 @@ fn supplied_world(
         let reference = cell(&state["reference_cell"]);
         actor
             .navigation
-            .path_replay
+            .path_replay_mut()
             .set_reference_cell(Some((reference.0 as i16, reference.1 as i16)));
         actor
             .navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_movement_timer_for_test(native_timer(&state["movement_timer"]));
         actor
             .navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_blocked_timer_for_test(native_timer(&state["blocked_timer"]));
         actor
             .navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_path_blocked(state["blocked"].as_bool().unwrap());
         actor
             .navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_retries_left(state["retries"].as_u64().unwrap() as u32);
         actor.body_facing.snap(
             signed(&state["body_facing"]["destination_word"]) as u16,
@@ -405,12 +405,12 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
     };
     assert_eq!(nav_cell, state["nav_cell"], "{label}: live NavCom");
     assert_eq!(
-        timer_fields(actor.navigation.path_runtime.movement_timer()),
+        timer_fields(actor.navigation.path_runtime().movement_timer()),
         state["movement_timer"],
         "{label}: accepted movement timer",
     );
     assert_eq!(
-        timer_fields(actor.navigation.path_runtime.blocked_timer()),
+        timer_fields(actor.navigation.path_runtime().blocked_timer()),
         state["blocked_timer"],
         "{label}: accepted blocked timer",
     );
@@ -466,7 +466,7 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
         signed(&state["mission_status"]) as u32,
         "{label}: Mission status"
     );
-    let path = &actor.navigation.path_replay;
+    let path = actor.navigation.path_replay();
     let backing_words: Vec<i32> = path
         .directions()
         .iter()
@@ -486,12 +486,12 @@ fn assert_motion_boundary(sim: &Simulation, id: u64, control: &Value, boundary: 
         "{label}: reference Cell"
     );
     assert_eq!(
-        actor.navigation.path_runtime.path_blocked(),
+        actor.navigation.path_runtime().path_blocked(),
         state["blocked"].as_bool().unwrap(),
         "{label}: blocked"
     );
     assert_eq!(
-        actor.navigation.path_runtime.retries_left(),
+        actor.navigation.path_runtime().retries_left(),
         state["retries"].as_u64().unwrap() as u32,
         "{label}: retries"
     );

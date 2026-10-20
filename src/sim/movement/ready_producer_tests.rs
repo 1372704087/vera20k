@@ -183,11 +183,11 @@ fn retained_motion_and_walk_readiness_match_original_queries() {
         }
         // A Foot+5E0 route must not affect any represented query.
         for has_order in [false, true] {
-            entity.navigation.path_replay = if has_order {
+            entity.navigation.set_path_replay_for_test(if has_order {
                 order_route()
             } else {
                 Default::default()
-            };
+            });
             entity.navigation.set_nav_com_for_test(
                 has_order.then(|| crate::sim::components::NavTargetRef::cell(6, 5)),
             );

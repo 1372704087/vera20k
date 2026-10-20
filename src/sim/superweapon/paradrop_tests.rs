@@ -855,7 +855,7 @@ fn drop_payload_matches_native() {
                     .get(id)
                     .unwrap()
                     .navigation
-                    .neighbor_state
+                    .neighbor_state()
                     .cell()
             })
             .collect();
@@ -987,7 +987,7 @@ fn drop_payload_matches_native() {
                 .get(id)
                 .unwrap()
                 .navigation
-                .neighbor_state
+                .neighbor_state()
                 .cell();
             assert_eq!(cell, expected, "{row}");
         }

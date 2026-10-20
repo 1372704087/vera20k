@@ -351,7 +351,7 @@ pub(super) fn consume_walk_path_replay(queue: &mut FootPathQueue) {
 fn remaining_path_from_entity(
     entity: &crate::sim::game_entity::GameEntity,
 ) -> ((i16, i16), Vec<u8>) {
-    let queue = &entity.navigation.path_replay;
+    let queue = entity.navigation.path_replay();
     // Foot+558 and its retained direction queue are the native source.
     let reference = queue
         .reference_cell()

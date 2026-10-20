@@ -5481,7 +5481,12 @@ fn persistent_bullet_logic_slot_publishes_native_wall_dirty_visits() {
                 ..ObjectAiCtx::default()
             },
         ));
-        assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+        assert!(
+            !sim.projectiles
+                .get(projectile_id)
+                .unwrap()
+                .in_logic_vector()
+        );
         sim
     };
 
@@ -5659,17 +5664,23 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
         sim.admit_projectile(id, shot);
         // The native control supplies an in-flight OLD-height boundary.
         // Restore it after admission's independent 46C4F0 launch-floor fixup.
-        sim.projectiles.get_mut(id).unwrap().position = origin;
+        sim.projectiles
+            .get_mut(id)
+            .unwrap()
+            .set_position_for_test(origin);
         if with_source {
             let bullet = sim.projectiles.get_mut(id).unwrap();
-            bullet.proximity_reference =
-                ProjectileCoord::new(origin.x + 104, origin.y, origin.z - 2);
-            bullet.last_distance_half = 0;
+            bullet.set_proximity_reference_for_test(ProjectileCoord::new(
+                origin.x + 104,
+                origin.y,
+                origin.z - 2,
+            ));
+            bullet.set_last_distance_half_for_test(0);
         }
         if expire_source {
             sim.uninit(source_id.unwrap());
             assert_eq!(
-                sim.projectiles.get(id).unwrap().source_id,
+                sim.projectiles.get(id).unwrap().source_id(),
                 crate::sim::combat::RAD_NO_ATTACKER
             );
         }
@@ -5690,13 +5701,13 @@ fn homing_ground_impact_reaches_damage_and_cleanup_through_runtime_frame() {
             let bullet = runtime.simulation.projectiles.get(id).expect(
                 "crossing below ground does not trigger the OLD-height predicate until next visit",
             );
-            assert!(bullet.in_logic_vector);
+            assert!(bullet.in_logic_vector());
             // Native ground_old1 uses level6; this fixture uses level2.
             let row = &native["rows"][0];
             assert_eq!(row["input"]["name"], "ground_old1_level_no_acceleration");
             let native_relative_z = row["candidate"][2].as_i64().unwrap()
                 - row["prepared"]["level"].as_i64().unwrap() * 104;
-            assert_eq!(i64::from(bullet.position.z), 208 + native_relative_z);
+            assert_eq!(i64::from(bullet.position().z), 208 + native_relative_z);
             assert_eq!(
                 runtime
                     .simulation
@@ -5750,7 +5761,10 @@ fn homing_mode_one_fuse_snaps_to_cell_location_below_bridge_aim_point() {
     let origin = shot.origin;
     let id = sim.allocate_stable_id();
     sim.admit_projectile(id, shot);
-    sim.projectiles.get_mut(id).unwrap().proximity_reference = origin;
+    sim.projectiles
+        .get_mut(id)
+        .unwrap()
+        .set_proximity_reference_for_test(origin);
     let result = sim.projectiles.advance(
         0,
         &BTreeMap::new(),
@@ -5867,7 +5881,13 @@ fn gsi_05_02_mixed_six_family_order_roundtrips_and_dispatches_every_slot() {
             .unwrap()
             .in_logic_vector()
     );
-    assert!(restored.projectiles.get(mixed[4]).unwrap().in_logic_vector);
+    assert!(
+        restored
+            .projectiles
+            .get(mixed[4])
+            .unwrap()
+            .in_logic_vector()
+    );
     assert!(
         restored
             .substrate
@@ -5942,7 +5962,12 @@ fn substrate_registration_and_removal_dispatch_is_order_identical() {
             .is_member()
     );
     assert!(sim.substrate.anims.get(anim_id).unwrap().in_logic_vector());
-    assert!(sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
     assert!(
         sim.substrate
             .particle_systems
@@ -6009,7 +6034,7 @@ fn gsi_05_02_tail_appends_run_same_pass_and_terminal_current_skips_successor() {
     let (projectile_id, wave_id) = appended.expect("tail objects appended");
     assert_eq!(visited, vec![entity_id, projectile_id, wave_id]);
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().position,
+        sim.projectiles.get(projectile_id).unwrap().position(),
         // CellClass target coordinates resolve from the live cell center on
         // every visit, so Cell(16, 0) contributes a small positive Y step.
         // BulletType 46C4F0 places this ground-level launch at floor + 1.
@@ -6214,7 +6239,12 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert!(sim.waves.get(wave_id).is_some());
     assert!(!sim.terrain_objects.objects()[&terrain_id].in_logic_vector());
-    assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        !sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
     assert!(!sim.waves.get(wave_id).unwrap().in_logic_vector());
     assert_eq!(
         sim.substrate.pending_delete.object_ids(),
@@ -6280,9 +6310,9 @@ fn gsi_05_04_ground_source_and_target_retarget_before_removal_without_expiry() {
         .projectiles
         .get(projectile_id)
         .expect("Bullet remains stored throughout pointer cleanup");
-    assert_eq!(projectile.source_id, crate::sim::combat::RAD_NO_ATTACKER);
-    assert_eq!(projectile.target, cell_target);
-    assert!(projectile.in_logic_vector);
+    assert_eq!(projectile.source_id(), crate::sim::combat::RAD_NO_ATTACKER);
+    assert_eq!(projectile.target(), cell_target);
+    assert!(projectile.in_logic_vector());
     assert!(sim.substrate.entities.contains(target_id));
     assert!(sim.lifecycle_test_events.iter().any(|event| {
         *event
@@ -6300,7 +6330,7 @@ fn gsi_05_04_ground_source_and_target_retarget_before_removal_without_expiry() {
     assert!(sim.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().target,
+        sim.projectiles.get(projectile_id).unwrap().target(),
         cell_target
     );
     assert!(
@@ -6308,7 +6338,7 @@ fn gsi_05_04_ground_source_and_target_retarget_before_removal_without_expiry() {
             sim.projectiles
                 .get(projectile_id)
                 .unwrap()
-                .velocity
+                .velocity()
                 .y
                 .bits()
         ) > 0.0,
@@ -6348,7 +6378,7 @@ fn gsi_05_04_building_get_coords_uses_foundation_center_cell() {
     sim.uninit(target_id);
 
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().target,
+        sim.projectiles.get(projectile_id).unwrap().target(),
         ProjectileTarget::Cell { rx: 10, ry: 12 },
         "BuildingClass GetCoords shifts GAPOWR's NW anchor by 128 leptons per 2x2 axis before truncation"
     );
@@ -6396,7 +6426,7 @@ fn gsi_04_01_cell_target_uses_live_structural_bit() {
 
     sim.uninit(target_id);
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().target,
+        sim.projectiles.get(projectile_id).unwrap().target(),
         ProjectileTarget::Cell { rx: 6, ry: 7 }
     );
     assert_eq!(
@@ -6408,7 +6438,10 @@ fn gsi_04_01_cell_target_uses_live_structural_bit() {
     // The actual Bullet visit consumes the live Cell target coordinate. Being
     // stationary at that target is not an admission: old height is 416, above
     // both native tail gates (4677D3: <208; 467B68: <10).
-    assert_eq!(sim.projectiles.get(projectile_id).unwrap().position, center);
+    assert_eq!(
+        sim.projectiles.get(projectile_id).unwrap().position(),
+        center
+    );
 }
 
 #[test]
@@ -6481,7 +6514,7 @@ fn gsi_05_04_combat_fatal_expiry_keeps_authoritative_cell_target() {
     assert!(victim.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&victim_id));
     assert_eq!(
-        sim.projectiles.get(listener_id).unwrap().target,
+        sim.projectiles.get(listener_id).unwrap().target(),
         ProjectileTarget::Cell { rx: 5, ry: 6 },
         "the synchronous fatal UnInit must read the same allocated CellClass terrain authority as combat before late deletion"
     );
@@ -6616,7 +6649,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
     assert!(passenger.lifecycle.in_limbo());
     assert!(sim.substrate.pending_delete.contains_object(&passenger_id));
     assert_eq!(
-        sim.projectiles.get(listener_id).unwrap().target,
+        sim.projectiles.get(listener_id).unwrap().target(),
         ProjectileTarget::Cell { rx: 2, ry: 3 },
         "recursive no-exit passenger UnInit inherits combat's allocated CellClass authority"
     );
@@ -6671,12 +6704,17 @@ fn assert_unallocated_expiry_retains_live_dummy_identity(through_receiver: bool)
     }
 
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().target,
+        sim.projectiles.get(projectile_id).unwrap().target(),
         ProjectileTarget::DummyCell,
         "MapClass::Get_CellClass @ 0x005657A0 answers an unallocated slot with \
          the shared dummy CellClass carrying the requested coord, never NULL"
     );
-    assert!(sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
     let dummy = sim.effective_shared_cell_dummy();
     assert_eq!(dummy.snapshot().coord, (8, 8));
 
@@ -6694,7 +6732,7 @@ fn assert_unallocated_expiry_retains_live_dummy_identity(through_receiver: bool)
             sim.projectiles
                 .get(projectile_id)
                 .unwrap()
-                .velocity
+                .velocity()
                 .y
                 .bits()
         ) < 0.0,
@@ -6739,12 +6777,17 @@ fn gsi_05_04_sentinel_origin_cell_target_becomes_explicit_null() {
     sim.uninit(target_id);
 
     assert_eq!(
-        sim.projectiles.get(projectile_id).unwrap().target,
+        sim.projectiles.get(projectile_id).unwrap().target(),
         ProjectileTarget::None,
         "cell (0, 0) is the native sentinel, so the target is cleared rather \
          than retained as a Cell"
     );
-    assert!(sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
 }
 
 #[test]
@@ -6803,9 +6846,9 @@ fn gsi_05_04_high_flying_source_and_target_become_explicit_null() {
     sim.uninit(target_id);
 
     let projectile = sim.projectiles.get(projectile_id).unwrap();
-    assert_eq!(projectile.source_id, crate::sim::combat::RAD_NO_ATTACKER);
-    assert_eq!(projectile.target, ProjectileTarget::None);
-    assert!(projectile.in_logic_vector);
+    assert_eq!(projectile.source_id(), crate::sim::combat::RAD_NO_ATTACKER);
+    assert_eq!(projectile.target(), ProjectileTarget::None);
+    assert!(projectile.in_logic_vector());
     assert!(sim.lifecycle_test_events.iter().any(|event| {
         *event
             == LifecycleTestEvent::ProjectilePointerExpiredVisited {
@@ -6826,20 +6869,20 @@ fn gsi_05_04_high_flying_source_and_target_become_explicit_null() {
         .restore_after_snapshot_load()
         .expect("null Bullet target remains valid on restore");
     assert_eq!(
-        restored.projectiles.get(projectile_id).unwrap().target,
+        restored.projectiles.get(projectile_id).unwrap().target(),
         ProjectileTarget::None
     );
     assert!(restored.object_ai_visit_one(projectile_id, None, ObjectAiCtx::default()));
     let advanced = restored.projectiles.get(projectile_id).unwrap();
-    assert_eq!(advanced.target, ProjectileTarget::None);
+    assert_eq!(advanced.target(), ProjectileTarget::None);
     let expected_velocity: [u64; 3] = std::array::from_fn(|i| {
         u64::from_str_radix(control["velocity"]["bits"][i].as_str().unwrap(), 16).unwrap()
     });
     assert_eq!(
         [
-            advanced.velocity.x.bits(),
-            advanced.velocity.y.bits(),
-            advanced.velocity.z.bits()
+            advanced.velocity().x.bits(),
+            advanced.velocity().y.bits(),
+            advanced.velocity().z.bits()
         ],
         expected_velocity,
         "native null-target tracking preserves yaw and pitches upward, rather than tracking the cached target"
@@ -6872,7 +6915,10 @@ fn gsi_05_04_cell_target_cleanup_is_idempotent_across_duplicate_uninit() {
 
     sim.uninit(target_id);
     let after_first = sim.projectiles.get(projectile_id).unwrap().clone();
-    assert_eq!(after_first.target, ProjectileTarget::Cell { rx: 9, ry: 9 });
+    assert_eq!(
+        after_first.target(),
+        ProjectileTarget::Cell { rx: 9, ry: 9 }
+    );
     sim.lifecycle_test_events.clear();
 
     sim.uninit(target_id);
@@ -6970,7 +7016,12 @@ fn gsi_05_04_projectile_listener_keeps_mixed_object_construction_order() {
         } if *expired_id == target_id && *visited_id == projectile_id
     )));
     assert!(sim.projectiles.get(projectile_id).is_some());
-    assert!(sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
 }
 
 fn gsi_01_05_damage_rules() -> crate::rules::ruleset::RuleSet {
@@ -7235,7 +7286,10 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
     sim.admit_projectile(projectile_id, spawn);
     // Supply an already-arrived impact boundary for the lethal transaction;
     // native launch-floor placement is covered by projectile_trailer tests.
-    sim.projectiles.get_mut(projectile_id).unwrap().position = impact;
+    sim.projectiles
+        .get_mut(projectile_id)
+        .unwrap()
+        .set_position_for_test(impact);
     sim.set_logic_order_for_test(vec![projectile_id, victim_id, successor_id]);
     sim.lifecycle_test_events.clear();
 
@@ -7270,7 +7324,12 @@ fn gsi_01_05_lethal_bullet_commits_receiver_before_retirement_and_double_compact
         vec![victim_id, projectile_id]
     );
     assert!(sim.projectiles.get(projectile_id).is_some());
-    assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
+    assert!(
+        !sim.projectiles
+            .get(projectile_id)
+            .unwrap()
+            .in_logic_vector()
+    );
 
     let queued = sim
         .lifecycle_test_events

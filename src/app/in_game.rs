@@ -66,6 +66,7 @@ impl App {
         state.match_state.match_presentation.in_game_options_anchor = None;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
         state.match_state.match_presentation.saved_game_browser = None;
         // Persist the deterministic diagnostic log before leaving the scenario.
@@ -297,6 +298,9 @@ impl App {
         if previous == next {
             return;
         }
+        if !previous.is_open() && next.is_open() && !Self::state_machine_admits_modal(state) {
+            return;
+        }
         let was_open = previous.is_open();
         let will_be_open = next.is_open();
         if was_open != will_be_open {
@@ -326,6 +330,7 @@ impl App {
         state.match_state.match_presentation.in_game_menu = next;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
         if will_be_open {
             // Deactivate683EB0/4AEAD0 tears down drag/capture on the way into
@@ -378,6 +383,50 @@ impl App {
         state.platform.window.request_redraw();
     }
 
+    /// `State_Machine @ 0x0048C8B0`'s admission of a requested modal
+    /// (`0x0048C8C6..0x0048C918`), before `EnterPause`; see
+    /// [`Self::state_machine_admission`]. Writes the relatched value.
+    fn state_machine_admits_modal(state: &mut AppState) -> bool {
+        let sim = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|runtime| &runtime.simulation);
+        let latch = Self::state_machine_admission(
+            state.match_state.session.mode().is_nonzero(),
+            state.match_state.match_presentation.modal_latch,
+            sim.and_then(|sim| {
+                sim.session
+                    .current_house()
+                    .and_then(|house| sim.houses.get(&house))
+            }),
+        );
+        if let Some(latch) = latch {
+            state.match_state.match_presentation.modal_latch = latch;
+        }
+        latch.is_some()
+    }
+
+    /// Outside campaign (GameMode 0 skips the test) a requested modal is
+    /// cleared without opening while the local House has won (`+0x1F7`),
+    /// lost (`+0x1F8`) or is flagged to die (`+0x1F6`), and while the latch
+    /// `[0x822CFC]` is clear unless the House is defeated (`+0x1F5`), which
+    /// sets the latch again (`0x0048C911`). `None` refuses; `Some` admits
+    /// with the latch's new value.
+    pub(crate) fn state_machine_admission(
+        game_mode_nonzero: bool,
+        latch: bool,
+        local: Option<&crate::sim::house_state::HouseState>,
+    ) -> Option<bool> {
+        let Some(house) = local.filter(|_| game_mode_nonzero) else {
+            return Some(latch);
+        };
+        if house.has_won() || house.has_lost() || house.is_to_die() {
+            return None;
+        }
+        (latch || house.is_defeated()).then_some(true)
+    }
+
     /// Every physical or fallback modal commits through the same state/exit owner.
     pub(crate) fn apply_in_game_modal_outcome(
         state: &mut AppState,
@@ -410,6 +459,10 @@ impl App {
     /// event; teardown begins after the event-tail dispatcher executes it.
     fn exit_match_to_shell(state: &mut AppState) {
         log::info!("Abort Mission confirmed — queueing EXIT event");
+        // 0x0048CAA1 clears the admission latch after queueing EXIT, even
+        // when the event ring is full: until EXIT runs, State_Machine opens
+        // no modal for a player who is not defeated.
+        state.match_state.match_presentation.modal_latch = false;
         if state.match_state.scenario_exit.is_some() {
             return;
         }

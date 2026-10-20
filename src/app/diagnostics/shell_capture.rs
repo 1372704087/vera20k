@@ -165,6 +165,7 @@ const CHECKPOINT_SKIRMISH_0X6B_EJECT_BOX: &str = "skirmish-0x6b-eject-box";
 const CHECKPOINT_SKIRMISH_AFTER_QUIT: &str = "skirmish-after-quit";
 const CHECKPOINT_SKIRMISH_DEFEAT_SCORE: &str = "skirmish-defeat-score";
 const CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE: &str = "skirmish-defeat-continue";
+const CHECKPOINT_SKIRMISH_DIPLOMACY: &str = "skirmish-diplomacy";
 const CHECKPOINT_SCORE_0X108_STEADY: &str = "score-0x108-steady";
 const CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY: &str = "campaign-score-0x103-steady";
 const CHECKPOINT_CAMPAIGN_SCORE_0X103_ANIMATION_SEQUENCE: &str =
@@ -337,6 +338,7 @@ pub enum ShellCaptureCheckpoint {
     SkirmishDefeatScore,
     /// The same, then Continue: the new `0x102`, settled.
     SkirmishDefeatContinue,
+    SkirmishDiplomacy,
     /// The score dialog `0x108` with the retail comparison game's values,
     /// settled.
     Score0x108Steady,
@@ -507,6 +509,7 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_SKIRMISH_AFTER_QUIT => Ok(Self::SkirmishAfterQuit),
             CHECKPOINT_SKIRMISH_DEFEAT_SCORE => Ok(Self::SkirmishDefeatScore),
             CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE => Ok(Self::SkirmishDefeatContinue),
+            CHECKPOINT_SKIRMISH_DIPLOMACY => Ok(Self::SkirmishDiplomacy),
             CHECKPOINT_SCORE_0X108_STEADY => Ok(Self::Score0x108Steady),
             CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY => Ok(Self::CampaignScore0x103Steady),
             CHECKPOINT_CAMPAIGN_SCORE_0X103_ANIMATION_SEQUENCE => {
@@ -749,6 +752,7 @@ impl ShellCaptureCheckpoint {
             Self::SkirmishAfterQuit => CHECKPOINT_SKIRMISH_AFTER_QUIT,
             Self::SkirmishDefeatScore => CHECKPOINT_SKIRMISH_DEFEAT_SCORE,
             Self::SkirmishDefeatContinue => CHECKPOINT_SKIRMISH_DEFEAT_CONTINUE,
+            Self::SkirmishDiplomacy => CHECKPOINT_SKIRMISH_DIPLOMACY,
             Self::Score0x108Steady => CHECKPOINT_SCORE_0X108_STEADY,
             Self::CampaignScore0x103Steady => CHECKPOINT_CAMPAIGN_SCORE_0X103_STEADY,
             Self::CampaignScore0x103AnimationSequence => {
@@ -1310,6 +1314,9 @@ impl ShellCaptureSession {
             ShellCaptureCheckpoint::SkirmishDefeatContinue => Some(
                 skirmish::SkirmishCapture::loading(skirmish::LoadingTarget::DefeatContinue),
             ),
+            ShellCaptureCheckpoint::SkirmishDiplomacy => Some(skirmish::SkirmishCapture::loading(
+                skirmish::LoadingTarget::Diplomacy,
+            )),
             ShellCaptureCheckpoint::Skirmish0x102Entry(tick) => {
                 Some(skirmish::SkirmishCapture::entry(tick))
             }

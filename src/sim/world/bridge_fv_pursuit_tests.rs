@@ -100,7 +100,7 @@ fn paid_diagnostic(
         "next_native_id":sim.native_unique_ids.as_ref().unwrap().current_raw(),
         "mission":mission_state(actor),
         "passive_scan":passive_scan_state(actor),
-        "bullets":sim.projectiles.iter().filter(|(_,b)|b.source_id == id)
+        "bullets":sim.projectiles.iter().filter(|(_,b)|b.source_id() == id)
             .map(|(_,b)|b).collect::<Vec<_>>(),
         "anims":sim.substrate.anims.iter().filter(|(id, _)| !ambient_anims.contains(id))
             .map(|(_, anim)|anim).collect::<Vec<_>>(),
@@ -136,7 +136,7 @@ fn paid_snapshot(
         .and_then(|l| l.selected_drive_runtime())
         .and_then(|r| r.retained())
         .unwrap_or(&constructor_drive);
-    let path = &actor.navigation.path_runtime;
+    let path = actor.navigation.path_runtime();
     let track_state = json!({
         "movement_timer":[path.movement_timer().start_frame(), path.movement_timer().duration()],
         "blocked_timer":[path.blocked_timer().start_frame(), path.blocked_timer().duration()],
@@ -147,13 +147,13 @@ fn paid_snapshot(
     let bullets: Vec<_> = sim
         .projectiles
         .iter()
-        .filter(|(_, b)| b.source_id == id)
+        .filter(|(_, b)| b.source_id() == id)
         .map(|(_, b)| {
-            let guidance = b.guidance.as_ref().expect("physical FV guided missile");
-            json!({"native_id":b.native_unique_id,"alive":1,
-            "position":[b.position.x,b.position.y,b.position.z],
-            "velocity":[b.velocity.x.bits(),b.velocity.y.bits(),b.velocity.z.bits()],
-            "arm_timer":[b.arm_timer.start_frame(),b.arm_timer.duration()],
+            let guidance = b.guidance().expect("physical FV guided missile");
+            json!({"native_id":b.native_unique_id(),"alive":1,
+            "position":[b.position().x,b.position().y,b.position().z],
+            "velocity":[b.velocity().x.bits(),b.velocity().y.bits(),b.velocity().z.bits()],
+            "arm_timer":[b.arm_timer().start_frame(),b.arm_timer().duration()],
             "course_locked":guidance.course_locked,"course_frames":guidance.course_frames,
             "closing_frames":guidance.closing_frames,
             "closing_accumulator_bits":guidance.closing_accumulator_bits})
@@ -647,7 +647,7 @@ fn retail_fv_approach_matches_native_candidates_admission_and_queue() {
                 row["drive_head"],
                 "{name} paid head"
             );
-            let timing = actor.navigation.path_runtime;
+            let timing = actor.navigation.path_runtime();
             assert_eq!(
                 json!([
                     timing.movement_timer().start_frame(),

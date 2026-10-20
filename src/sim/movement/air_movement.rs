@@ -550,7 +550,7 @@ pub(crate) mod tests {
             (destination.x, destination.y),
             (20 * 256 + 128, 15 * 256 + 128)
         );
-        assert!(e.navigation.path_replay.remaining_directions().is_empty());
+        assert!(e.navigation.path_replay().remaining_directions().is_empty());
 
         // Should trigger ascending.
         let loco = e.locomotor.as_ref().expect("has loco");

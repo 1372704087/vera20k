@@ -183,15 +183,17 @@ fn prepare(row: &Value) -> Scene {
     entity
         .foot_speed
         .set_speed_fraction(fraction(&native["applied_speed_bits"]));
-    entity.navigation.path_replay = FootPathQueue::for_test(
-        path(&native["path"]),
-        0,
-        Some((
-            i16::try_from(integer(&native["reference_cell"][0])).unwrap(),
-            i16::try_from(integer(&native["reference_cell"][1])).unwrap(),
-        )),
-    );
-    let runtime = &mut entity.navigation.path_runtime;
+    entity
+        .navigation
+        .set_path_replay_for_test(FootPathQueue::for_test(
+            path(&native["path"]),
+            0,
+            Some((
+                i16::try_from(integer(&native["reference_cell"][0])).unwrap(),
+                i16::try_from(integer(&native["reference_cell"][1])).unwrap(),
+            )),
+        ));
+    let runtime = entity.navigation.path_runtime_mut();
     runtime.set_movement_timer_for_test(CdTimer::from_raw(
         integer(&native["movement_timer"][0]),
         integer(&native["movement_timer"][2]),
@@ -267,19 +269,19 @@ fn assert_boundary(scene: &Scene, row: &Value, expected: &Value, context: &str) 
         "{context}: aux"
     );
     assert_eq!(
-        entity.navigation.path_replay.remaining_directions(),
+        entity.navigation.path_replay().remaining_directions(),
         path(&foot["path"]),
         "{context}: Foot queue"
     );
     assert_eq!(
-        entity.navigation.path_replay.reference_cell(),
+        entity.navigation.path_replay().reference_cell(),
         Some((
             i16::try_from(integer(&foot["reference_cell"][0])).unwrap(),
             i16::try_from(integer(&foot["reference_cell"][1])).unwrap(),
         )),
         "{context}: Foot reference cell"
     );
-    let runtime = entity.navigation.path_runtime;
+    let runtime = entity.navigation.path_runtime();
     assert_eq!(
         runtime.movement_timer(),
         CdTimer::from_raw(

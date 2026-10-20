@@ -384,7 +384,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     assert!(
         engineer
             .navigation
-            .path_replay
+            .path_replay()
             .remaining_directions()
             .is_empty(),
         "Walk searches during Process, after order admission"
@@ -490,7 +490,7 @@ fn gsi_04_12_interaction_order_entry_threads_exact_blocker_counts() {
     // boundary. This Rust route check does not claim full native AStar parity.
     // The installed Foot+5E0 route runs from the start Cell to the building
     // Cell; its words carry no layer.
-    let route = &engineer.navigation.path_replay;
+    let route = engineer.navigation.path_replay();
     assert_eq!(route.reference_cell(), Some((1, 0)));
     assert_eq!(
         route

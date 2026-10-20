@@ -258,7 +258,7 @@ fn teleport_target_loss_and_pointer_expiry_match_native_controls() {
             shot.target = ProjectileTarget::Entity(1);
             sim.admit_projectile(99, shot);
             let mut expected = sim.projectiles.get(99).unwrap().clone();
-            expected.target = match row["target"]["kind"].as_str().unwrap() {
+            expected.set_target_for_test(match row["target"]["kind"].as_str().unwrap() {
                 "none" => ProjectileTarget::None,
                 "dummy" => ProjectileTarget::DummyCell,
                 "cell" => ProjectileTarget::Cell {
@@ -266,7 +266,7 @@ fn teleport_target_loss_and_pointer_expiry_match_native_controls() {
                     ry: row["target"]["cell"][1].as_u64().unwrap() as u16,
                 },
                 other => panic!("unexpected native target {other}"),
-            };
+            });
             let repair = |sim: &mut Simulation| {
                 if expire {
                     sim.detach_all_pointer_expired(1, &rules, None, FrameEffects::default());
@@ -281,7 +281,7 @@ fn teleport_target_loss_and_pointer_expiry_match_native_controls() {
             }
             if expire {
                 assert_eq!(row["expiry_source_cleared"], true);
-                expected.source_id = crate::sim::combat::RAD_NO_ATTACKER;
+                expected.set_source_id_for_test(crate::sim::combat::RAD_NO_ATTACKER);
             } else {
                 assert_eq!(row["source_preserved"], true);
             }
@@ -356,14 +356,20 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
         .unwrap();
 
     let mut expected = original;
-    expected.target = ProjectileTarget::Cell { rx: 5, ry: 5 };
+    expected.set_target_for_test(ProjectileTarget::Cell { rx: 5, ry: 5 });
     assert_eq!(sim.projectiles.get(bullet_id), Some(&expected));
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!((mover.position.rx(), mover.position.ry()), (9, 8));
     let repaired_hash = sim.state_hash();
-    sim.projectiles.get_mut(bullet_id).unwrap().target = ProjectileTarget::Entity(1);
+    sim.projectiles
+        .get_mut(bullet_id)
+        .unwrap()
+        .set_target_for_test(ProjectileTarget::Entity(1));
     assert_ne!(repaired_hash, sim.state_hash());
-    sim.projectiles.get_mut(bullet_id).unwrap().target = expected.target;
+    sim.projectiles
+        .get_mut(bullet_id)
+        .unwrap()
+        .set_target_for_test(expected.target());
 
     // Native load resets the Scenario stream; keep that independent policy
     // equal while checking the repaired target and its next flight step.
@@ -378,7 +384,7 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
     sim.projectiles
         .get_mut(bullet_id)
         .unwrap()
-        .arm_timer
+        .arm_timer_mut_for_test()
         .start(sim.session.binary_frame() as i32, 0);
     assert_eq!(
         restored.projectiles.get(bullet_id),
@@ -391,13 +397,13 @@ fn retail_cmin_teleport_preserves_departure_cell_through_guidance_and_snapshot()
             techno_ai::ObjectAiCtx::default()
         ));
         let advanced = world.projectiles.get(bullet_id).unwrap();
-        assert_eq!(advanced.position, translated(&flight["candidate"]));
+        assert_eq!(advanced.position(), translated(&flight["candidate"]));
         assert_eq!(
-            advanced.last_target_position,
+            advanced.last_target_position(),
             translated(&flight["homing_targets"][0])
         );
         let actual = advanced
-            .velocity
+            .velocity()
             .native()
             .map(|v| format!("{:016x}", v.bits()));
         let expected: Vec<_> = flight["velocity"]["bits"]

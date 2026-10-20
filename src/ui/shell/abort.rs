@@ -4,7 +4,7 @@
 //! The ordinary question uses60B7A0.
 
 use super::geom::{self, RectPx};
-use super::in_game_shell::InGameShellLayout;
+use super::in_game_shell::{self, InGameShellLayout};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AbortButton {
@@ -26,7 +26,10 @@ impl AbortButton {
     pub fn help(self) -> (&'static str, &'static str) {
         match self {
             Self::Leave => ("STT:ConfirmExitButtonLeave", "Abort and leave the game."),
-            Self::Restart => ("STT:ConfirmExitButtonRestart", "Restart the campaign mission."),
+            Self::Restart => (
+                "STT:ConfirmExitButtonRestart",
+                "Restart the campaign mission.",
+            ),
             Self::Resume => ("STT:ConfirmExitButtonResume", "Resume mission."),
         }
     }
@@ -92,26 +95,15 @@ pub fn abort_layout(
         // Resource control712 (431,149,108,23) is the next sidebar row.
         restart: (secondary == AbortSecondary::Restart)
             .then(|| shell.button_rect(geom::dlu_rect(431, 149, 108, 23), button_size)),
-        resume: RectPx::new(
-            width - 147,
-            shell.side3.y - button_size[1],
-            button_size[0],
-            button_size[1],
-        ),
+        resume: shell.lower_button_rect(width, button_size),
         // 60C3D1 selects complete60B7A0. Signed halves truncate toward zero.
         question: question_rect(width, height),
-        footer: RectPx::new(10, height - 21, 455, 20),
+        footer: in_game_shell::status_line_rect(height),
     }
 }
 
 fn question_rect(width: i32, height: i32) -> RectPx {
-    let raw = geom::dlu_rect(99, 165, 230, 19);
-    RectPx::new(
-        (raw.x + (width - 800) / 2).max(0),
-        (raw.y + (height - 600) / 2).max(0),
-        raw.w,
-        raw.h,
-    )
+    in_game_shell::ordinary_child_rect(geom::dlu_rect(99, 165, 230, 19), width, height)
 }
 
 #[cfg(test)]

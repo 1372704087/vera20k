@@ -94,7 +94,7 @@ impl ZoneBatchHost for LivePublication<'_> {
             .ok_or("zone batch has no live zone owner")?;
         let (base, hierarchy) = zones.base_and_hierarchy_mut();
         hierarchy.levels_mut()[0]
-            .set_native_zone_at(coord, base.native_bridge_source_size, 0)
+            .set_native_zone_at(coord, base.native_bridge_source_size(), 0)
             .ok_or_else(|| "zone batch coordinate has no native zone storage".into())
     }
 

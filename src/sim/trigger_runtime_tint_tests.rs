@@ -94,7 +94,7 @@ fn tint_actions_match_all_thirty_original_reader_and_wrapping_call_controls() {
             let mut expected_call = [1230, 870, 650];
             expected_call[(kind - 142) as usize] = milli;
             assert!(
-                matches!(sim.lighting_sources.pending.as_slice(), [LightingEvent::Global { palette: PaletteUpdate::Normal(rgb), .. }] if *rgb == expected_call)
+                matches!(sim.lighting_sources.pending(), [LightingEvent::Global { palette: PaletteUpdate::Normal(rgb), .. }] if *rgb == expected_call)
             );
             let mut unchanged = *sim.session.lighting();
             unchanged.normal_mut_for_test().red_percent = previous.normal().red_percent;
@@ -182,7 +182,7 @@ fn raw_tint_fields_roundtrip_without_serializing_palette_caches() {
         [i32::MIN, i32::MAX, 89]
     );
     assert_eq!(restored.state_hash(), hash);
-    assert!(restored.lighting_sources.pending.is_empty());
+    assert!(restored.lighting_sources.pending().is_empty());
 }
 
 #[test]

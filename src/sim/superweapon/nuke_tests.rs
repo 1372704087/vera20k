@@ -155,7 +155,10 @@ fn impact_matches_native() {
                 None,
             ),
         );
-        store.get_mut(id).unwrap().on_bridge = row["on_bridge"].as_bool().unwrap();
+        store
+            .get_mut(id)
+            .unwrap()
+            .set_on_bridge_for_test(row["on_bridge"].as_bool().unwrap());
         let nuke_ball = || super::nuke::nuke_ball_type(&rules);
         let context = NukeImpactContext::new(&interner, &nuke_ball);
 
@@ -178,12 +181,12 @@ fn impact_matches_native() {
         assert_eq!(bullet.awaiting_anim(), waits, "{row}");
         assert_eq!(bullet.awaited_anim(), None);
         if location.x >= 0 && location.y >= 0 {
-            assert_eq!(bullet.position, coord(&row["location_after"]), "{row}");
+            assert_eq!(bullet.position(), coord(&row["location_after"]), "{row}");
         }
         if waits {
             let cell = ints(&row["cell"]);
             assert_eq!(
-                bullet.previous_cell,
+                bullet.previous_cell(),
                 (cell[0] as i16, cell[1] as i16),
                 "{row}"
             );
@@ -222,7 +225,7 @@ fn impact_effects_match_native() {
         sim.session.set_binary_frame_for_test(4000);
         sim.session
             .set_lighting_for_test(ScenarioLightingState::default());
-        sim.lighting_sources.pending.clear();
+        sim.lighting_sources.take_pending();
         sim.sound_events.clear();
         let anims_before: Vec<AnimId> = sim.substrate.anims.iter().map(|(&id, _)| id).collect();
         let waits = int(&row["waits"]) != 0;
@@ -237,7 +240,7 @@ fn impact_effects_match_native() {
             .unwrap()
             .nuke_impact(&context, None, &dummy, location)
             .unwrap();
-        assert_eq!(sim.projectiles.get(id).unwrap().position, location);
+        assert_eq!(sim.projectiles.get(id).unwrap().position(), location);
 
         super::nuke::impact(&mut sim, &rules, impact);
 
@@ -246,7 +249,7 @@ fn impact_effects_match_native() {
         assert_eq!(lighting.selected_profile(), ScenarioLightingProfile::Nuke);
         assert!(
             sim.lighting_sources
-                .pending
+                .pending()
                 .iter()
                 .any(|event| matches!(event, LightingEvent::Global { .. }))
         );
@@ -379,7 +382,7 @@ fn wait_matches_native() {
             "returns" => {
                 assert!(result.detonations.is_empty(), "{row}");
                 assert!(bullet.awaiting_anim());
-                assert_eq!(bullet.position, at);
+                assert_eq!(bullet.position(), at);
             }
             "detonated" => {
                 assert!(has_event(row, "uninit"));
@@ -395,7 +398,7 @@ fn wait_matches_native() {
             "flies" => {
                 assert!(result.detonations.is_empty(), "{row}");
                 assert!(result.nuke_impacts().is_empty(), "{row}");
-                assert_ne!(bullet.position, at, "the flight ran");
+                assert_ne!(bullet.position(), at, "the flight ran");
             }
             other => panic!("{other}"),
         }
@@ -679,7 +682,7 @@ fn bullets_of<'a>(sim: &'a Simulation, weapon: &str) -> Vec<(u64, &'a Projectile
         .iter()
         .filter(|(_, bullet)| {
             bullet
-                .payload
+                .payload()
                 .installed_weapon()
                 .is_some_and(|id| sim.interner.resolve(id) == weapon)
         })
@@ -821,7 +824,7 @@ fn retail_nuclear_missile_rises_falls_and_strikes_its_target() {
     // The computer house near the target took up the defence of its base.
     assert_eq!(sim.houses[&americans].super_weapon_defense().0, (42, 42));
     let (missile, _) = bullets_of(&sim, "NukeCarrier")[0];
-    assert_eq!(sim.projectiles.get(missile).unwrap().source_id, silo);
+    assert_eq!(sim.projectiles.get(missile).unwrap().source_id(), silo);
     // `FirersPalette=yes` (GiantNukeUp): Construct kept the silo's House for
     // the draw's colour scheme (Bullet+0x114).
     assert_eq!(
@@ -866,19 +869,19 @@ fn retail_nuclear_missile_rises_falls_and_strikes_its_target() {
     assert_eq!(falling.len(), 1);
     let (warhead, bullet) = falling[0];
     assert_eq!(
-        bullet.target,
+        bullet.target(),
         ProjectileTarget::Cell {
             rx: TARGET.0,
             ry: TARGET.1
         }
     );
-    assert_eq!(bullet.source_id, silo);
+    assert_eq!(bullet.source_id(), silo);
     assert_eq!(bullet.firer_house(), Some(russians), "GiantNukeDown");
     assert_eq!(
         [
-            bullet.launch_origin.x,
-            bullet.launch_origin.y,
-            bullet.launch_origin.z
+            bullet.launch_origin().x,
+            bullet.launch_origin().y,
+            bullet.launch_origin().z
         ],
         [40 * 256 + 128, 40 * 256 + 128, 20000]
     );
@@ -1005,9 +1008,9 @@ fn impact_waiting_nuke(sim: &mut Simulation, rules: &RuleSet) -> (u64, AnimId) {
     // Fire's placement owner (BulletType46C4F0) may raise the original
     // coordinate above the floor. Preserve its admitted Location; FireCoord
     // and the proximity reference remain the supplied ground coordinate.
-    let admitted = sim.projectiles.get(id).unwrap().position;
+    let admitted = sim.projectiles.get(id).unwrap().position();
     assert_eq!((admitted.x, admitted.y), (at.x, at.y));
-    assert_eq!(sim.projectiles.get(id).unwrap().launch_origin, at);
+    assert_eq!(sim.projectiles.get(id).unwrap().launch_origin(), at);
     let context = NukeImpactContext::new(&sim.interner, &|| true);
     let impact = sim
         .projectiles
@@ -1022,13 +1025,15 @@ fn impact_waiting_nuke(sim: &mut Simulation, rules: &RuleSet) -> (u64, AnimId) {
         .unwrap();
     super::nuke::impact(sim, rules, impact);
     let bullet = sim.projectiles.get(id).unwrap();
-    assert_eq!(bullet.target, ProjectileTarget::Cell { rx: 8, ry: 8 });
+    assert_eq!(bullet.target(), ProjectileTarget::Cell { rx: 8, ry: 8 });
     assert_eq!(
-        bullet.proximity_reference, at,
+        bullet.proximity_reference(),
+        at,
         "the continuation's strike input"
     );
     assert_eq!(
-        bullet.position, admitted,
+        bullet.position(),
+        admitted,
         "the impact retains its admitted Location"
     );
     assert!(bullet.awaiting_anim());
@@ -1164,8 +1169,8 @@ fn nuke_awaited_anim_retirement_routes_release_before_next_bullet_visit() {
             .expect("expiry alone never detonates");
         assert!(bullet.awaiting_anim(), "{route}");
         assert_eq!(bullet.awaited_anim(), None, "{route}");
-        assert_eq!(bullet.position, before.position);
-        assert_eq!(bullet.arm_timer, before.arm_timer);
+        assert_eq!(bullet.position(), before.position());
+        assert_eq!(bullet.arm_timer(), before.arm_timer());
         assert_eq!(
             sim.substrate
                 .entities
@@ -1424,9 +1429,7 @@ fn nuke_natural_retirement_boundary_snapshot_continues_once() {
     // Same native load normalization as the live-wait save test below.
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     let frame = sim.session.binary_frame() as i32;
-    for (_, bullet) in sim.projectiles.iter_mut() {
-        bullet.arm_timer.start(frame, 0);
-    }
+    sim.projectiles.restart_arm_timers_after_load(frame);
     assert_eq!(restored.state_hash(), sim.state_hash());
     for _ in 0..3 {
         step(&mut sim, &rules);
@@ -1483,15 +1486,13 @@ fn retail_nuke_wait_and_flash_survive_save_and_load() {
     // arm timer at the load frame (`0x0046AE9C..0x0046AEB0`).
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     let frame = sim.session.binary_frame() as i32;
-    for (_, bullet) in sim.projectiles.iter_mut() {
-        bullet.arm_timer.start(frame, 0);
-    }
+    sim.projectiles.restart_arm_timers_after_load(frame);
     let wait = |sim: &Simulation| {
         let bullet = sim.projectiles.get(id).unwrap();
         (
             bullet.awaiting_anim(),
             bullet.awaited_anim(),
-            bullet.position,
+            bullet.position(),
         )
     };
     assert_eq!(wait(&restored), wait(&sim));

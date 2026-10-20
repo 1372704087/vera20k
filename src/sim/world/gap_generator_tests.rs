@@ -593,7 +593,8 @@ pub fn nontransitive_source_gap_views() -> Vec<(vision::FogState, InternedId, In
 /// CreateGap centres its circle on the Location shifted for its height
 /// (`0x006FB1CB..0x006FB254`), as does DestroyGap: four levels up, the disc
 /// sits two Cells north of the generator's own Cell. The view rebuild keeps
-/// that disc, and taking the generator offline removes it.
+/// that disc for the hostile viewer and the owner's friendly gap fog alike,
+/// and taking the generator offline removes it.
 #[test]
 fn a_raised_gap_generator_centres_its_circle_by_its_height() {
     let (mut sim, rules, a, b, _) = fixture();
@@ -622,6 +623,14 @@ fn a_raised_gap_generator_centres_its_circle_by_its_height() {
     );
     refresh(&mut sim, &rules);
     assert_eq!(disc(&sim), (true, true, false, true));
+    assert_eq!(
+        (
+            sim.fog.is_cell_gap_fog(a, 4, 14),
+            sim.fog.is_cell_gap_fog(a, 26, 16)
+        ),
+        (true, false),
+        "the owner's friendly gap fog takes the same disc"
+    );
     assert!(sim.go_building_offline(1, &rules, FrameEffects::default()));
     assert_eq!(disc(&sim), (false, false, false, false));
 }

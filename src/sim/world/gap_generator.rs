@@ -236,7 +236,7 @@ impl Simulation {
         }
         deposit.active = active;
         let radius = deposit.radius;
-        let source = building_gap_source(entity, radius);
+        let source = building_gap_source(entity, radius, self.resolved_terrain.as_ref());
         self.fog.ensure_viewer(viewer);
         let spy_sat_active = self
             .houses
@@ -329,7 +329,11 @@ impl Simulation {
                     self.interner.resolve(viewer),
                 )
             {
-                reentry.push(building_gap_source(entity, radius));
+                reentry.push(building_gap_source(
+                    entity,
+                    radius,
+                    self.resolved_terrain.as_ref(),
+                ));
             }
         }
         (reentry, admitted)
@@ -342,8 +346,9 @@ impl Simulation {
 pub(super) fn building_gap_source(
     entity: &crate::sim::game_entity::GameEntity,
     radius: i32,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
 ) -> vision::GapGeneratorSource {
-    let location = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+    let location = crate::sim::movement::ground_pose::object_location(entity, terrain);
     let (rx, ry) = vision::conceal_area_centre([location.x, location.y, location.z]);
     vision::GapGeneratorSource {
         stable_id: entity.stable_id(),

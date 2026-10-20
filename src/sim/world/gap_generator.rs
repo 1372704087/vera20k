@@ -236,13 +236,7 @@ impl Simulation {
         }
         deposit.active = active;
         let radius = deposit.radius;
-        let source = vision::GapGeneratorSource {
-            stable_id: id,
-            owner: entity.owner(),
-            rx: entity.position.rx(),
-            ry: entity.position.ry(),
-            radius,
-        };
+        let source = building_gap_source(entity, radius);
         self.fog.ensure_viewer(viewer);
         let spy_sat_active = self
             .houses
@@ -335,15 +329,27 @@ impl Simulation {
                     self.interner.resolve(viewer),
                 )
             {
-                reentry.push(vision::GapGeneratorSource {
-                    stable_id: id,
-                    owner: entity.owner(),
-                    rx: entity.position.rx(),
-                    ry: entity.position.ry(),
-                    radius,
-                });
+                reentry.push(building_gap_source(entity, radius));
             }
         }
         (reentry, admitted)
+    }
+}
+
+/// The gap source of `entity` with `radius`: CreateGap and DestroyGap
+/// centre the circle on its Location (`+0x9C`) shifted for its height
+/// ([`vision::conceal_area_centre`]).
+pub(super) fn building_gap_source(
+    entity: &crate::sim::game_entity::GameEntity,
+    radius: i32,
+) -> vision::GapGeneratorSource {
+    let location = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+    let (rx, ry) = vision::conceal_area_centre([location.x, location.y, location.z]);
+    vision::GapGeneratorSource {
+        stable_id: entity.stable_id(),
+        owner: entity.owner(),
+        rx: rx as u16,
+        ry: ry as u16,
+        radius,
     }
 }

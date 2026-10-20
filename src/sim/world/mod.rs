@@ -6716,15 +6716,11 @@ impl Simulation {
                 if !deposit.active() {
                     continue;
                 }
-                effects.gap_generators.entry(viewer).or_default().push(
-                    vision::GapGeneratorSource {
-                        stable_id: entity.stable_id(),
-                        owner: entity.owner(),
-                        rx: entity.position.rx(),
-                        ry: entity.position.ry(),
-                        radius: deposit.radius(),
-                    },
-                );
+                effects
+                    .gap_generators
+                    .entry(viewer)
+                    .or_default()
+                    .push(gap_generator::building_gap_source(entity, deposit.radius()));
             }
         }
         effects

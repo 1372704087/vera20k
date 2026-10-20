@@ -35,8 +35,12 @@ use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
 use crate::sim::house_tracking::HouseTracking;
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::production::ProductionState;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
 /// `HouseClass::CanBuild`'s answer.
@@ -431,14 +435,21 @@ pub fn find_factory(
 /// serialized ProductionCategory index represents recognized Type factories
 /// only; other raw Factory RTTIs still need their lifecycle/state migration.
 /// See https://github.com/YuriPlanet/vera20k/issues/1709.
-pub(crate) fn initialize_factory_primary(sim: &mut Simulation, id: u64, rules: &RuleSet) {
-    let Some(building) = sim.substrate.entities.get(id) else {
+pub(crate) fn initialize_factory_primary(
+    interner: &StringInterner,
+    production: &mut ProductionState,
+    substrate: &ObjectSubstrate,
+    houses: &Houses,
+    id: u64,
+    rules: &RuleSet,
+) {
+    let Some(building) = substrate.entities.get(id) else {
         return;
     };
     if building.category() != EntityCategory::Structure || building.lifecycle.in_limbo() {
         return;
     }
-    let Some(ty) = sim.object_type(building.type_ref(), rules) else {
+    let Some(ty) = interner.object_type(building.type_ref(), rules) else {
         return;
     };
     let Some(factory) = ty.factory_type() else {
@@ -450,29 +461,29 @@ pub(crate) fn initialize_factory_primary(sim: &mut Simulation, id: u64, rules: &
     let owner = building.owner();
     //4480B8..448114 walks House+6C, rather than choosing one retained ID.
     // A limbo primary does not prevent this admitted building becoming primary.
-    let keep = sim.houses.get(&owner).is_some_and(|house| {
+    let keep = houses.get(&owner).is_some_and(|house| {
         house
             .base_projection()
             .buildings()
             .iter()
             .any(|&candidate_id| {
-                sim.substrate
+                substrate
                     .entities
                     .get(candidate_id)
                     .is_some_and(|candidate| {
                         !candidate.lifecycle.in_limbo()
-                            && sim.production.is_primary_factory(candidate_id)
-                            && sim.object_type(candidate.type_ref(), rules).is_some_and(
-                                |candidate_type| {
+                            && production.is_primary_factory(candidate_id)
+                            && interner
+                                .object_type(candidate.type_ref(), rules)
+                                .is_some_and(|candidate_type| {
                                     candidate_type.factory_type() == Some(factory)
                                         && candidate_type.naval == ty.naval
-                                },
-                            )
+                                })
                     })
             })
     });
     if !keep {
-        sim.production.set_primary_factory(owner, category, id);
+        production.set_primary_factory(owner, category, id);
     }
 }
 

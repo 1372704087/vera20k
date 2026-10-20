@@ -106,7 +106,8 @@ fn authored_team_fire_sale_waits_for_strategy_then_sells_and_hunts() {
         assert!(rules.object("NAHAND").unwrap().has_factory());
         assert!(rules.has_buildup("NAHAND") && rules.has_buildup("NAPOWR"));
         let sim = scene.sim();
-        let computer = sim.scenario_house_named("Computer").unwrap();
+        let computer =
+            crate::sim::world::Simulation::scenario_house_named(&sim.houses, "Computer").unwrap();
         let local = sim.session.current_house().unwrap();
         let team_type = sim.interner.get("F0520001").unwrap();
         let script = sim.interner.get("F0520002").unwrap();

@@ -162,7 +162,8 @@ fn ordered_less(a: f64, b: f64) -> bool {
 /// The promotion anim and EVA follow from the next `AI_Update` sample, as for
 /// a kill promotion.
 pub(super) fn apply_veteran_crate(
-    sim: &mut Simulation,
+    interner: &StringInterner,
+    substrate: &mut ObjectSubstrate,
     rules: &RuleSet,
     center: DriveCoord,
     radius: i32,
@@ -174,8 +175,8 @@ pub(super) fn apply_veteran_crate(
     if !ordered_less(0.0, magnitude) {
         return;
     }
-    for id in ground_members_in_radius(&sim.substrate, center, radius) {
-        let Some(entity) = sim.substrate.entities.get(id) else {
+    for id in ground_members_in_radius(&*substrate, center, radius) {
+        let Some(entity) = substrate.entities.get(id) else {
             continue;
         };
         // `Object+0x74`: ObjectClass::Mark sets it on PUT and clears it on
@@ -184,13 +185,13 @@ pub(super) fn apply_veteran_crate(
         if !entity.lifecycle.cell_marked() {
             continue;
         }
-        if !sim
+        if !interner
             .object_type(entity.type_ref(), rules)
             .is_some_and(|object| object.trainable)
         {
             continue;
         }
-        let entity = sim.substrate.entities.get_mut(id).expect("checked above");
+        let entity = substrate.entities.get_mut(id).expect("checked above");
         let mut level = 0_i32;
         loop {
             if veterancy::raw_is_veteran(entity.veterancy.raw()) {

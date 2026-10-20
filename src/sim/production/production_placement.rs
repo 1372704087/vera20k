@@ -415,7 +415,14 @@ pub(crate) fn place_production_with_overlays(
         );
         // A consumed wall skips selection, but still reaches BuildingSlam
         // (4FB2E6 ->4FB2FD..4FB314) and BREAK before Record4FB4B7.
-        super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
+        super::factory_lifecycle::record_last_built(
+            &sim.interner,
+            &mut sim.sound_events,
+            &mut sim.houses,
+            rules,
+            owner_id,
+            object,
+        );
         return true;
     }
     let foundation_str: String = rules
@@ -516,7 +523,14 @@ pub(crate) fn place_production_with_overlays(
     // Original4FB4B7 records the successful build after FirstContact BREAK,
     // not during CompletedProduction4FB2A1 or its C message4FB2AD.
     let object = super::factory_lifecycle::BuiltObject::capture(sim, new_sid);
-    super::factory_lifecycle::record_last_built(sim, rules, owner_id, object);
+    super::factory_lifecycle::record_last_built(
+        &sim.interner,
+        &mut sim.sound_events,
+        &mut sim.houses,
+        rules,
+        owner_id,
+        object,
+    );
     true
 }
 

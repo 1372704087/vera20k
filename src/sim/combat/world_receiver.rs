@@ -1195,7 +1195,10 @@ pub(crate) fn commit_entities(
             .get(target_id)
             .is_some_and(|target| target.category() != EntityCategory::Structure)
         {
-            world.team_took_damage(
+            Simulation::team_took_damage(
+                &world.interner,
+                &world.substrate,
+                &mut world.team_script_vm,
                 target_id,
                 (attacker_id != RAD_NO_ATTACKER).then_some(attacker_id),
                 rules,
@@ -1776,7 +1779,7 @@ fn finish_concrete_death(
     if category == EntityCategory::Infantry {
         // `InfantryClass::ReceiveDamage` on result 4 (`0x00518077..0x0051808E`):
         // a dying slave leaves its master's node (RemoveSlave).
-        world.remove_slave(dead_id);
+        Simulation::remove_slave(&world.session, &mut world.substrate, dead_id);
         // The house InfDeath 8 and 9 give their anim (`0x0051887B`,
         // `0x00518A96`): the source's owner (`+0x21C`), else the house
         // argument.

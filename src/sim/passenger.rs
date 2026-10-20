@@ -85,6 +85,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::houses::Houses;
 use crate::sim::intern::{InternedId, StringInterner};
+use crate::sim::power_system::PowerStates;
 use crate::sim::rng::SimRng;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::ObjectSubstrate;
@@ -1124,7 +1125,7 @@ pub fn add_garrison_occupant(
     }
     sim.refresh_spatial_threat(building_id, rules, None);
     if count == 1 {
-        let _ = sim.mark_entity_refresh(building_id);
+        let _ = Simulation::mark_entity_refresh(&sim.substrate, building_id);
         sim.sound_events
             .emit(SimSoundEvent::StructureGarrisoned { owner });
         sim.sound_events
@@ -1198,11 +1199,21 @@ fn receive_gunner(
 
 /// Gunner caller dispatch to UnitClass +4D8 (7464E0). RemoveGunner always
 /// selects mode0 after optional temporal return/LetGo, even with no gunner.
-fn remove_gunner(sim: &mut Simulation, rules: &RuleSet, transport_id: u64, pax_id: Option<u64>) {
-    let Some(transport) = sim.substrate.entities.get(transport_id) else {
+fn remove_gunner(
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    scenario_rng: &mut SimRng,
+    substrate: &mut ObjectSubstrate,
+    houses: &mut Houses,
+    power_states: &mut PowerStates,
+    rules: &RuleSet,
+    transport_id: u64,
+    pax_id: Option<u64>,
+) {
+    let Some(transport) = substrate.entities.get(transport_id) else {
         return;
     };
-    let Some(object) = sim.interner.object_type(transport.type_ref(), rules) else {
+    let Some(object) = interner.object_type(transport.type_ref(), rules) else {
         return;
     };
     // Aircraft/Foot bind this virtual slot to the 4DE760 stub.
@@ -1213,24 +1224,24 @@ fn remove_gunner(sim: &mut Simulation, rules: &RuleSet, transport_id: u64, pax_i
     // passenger's current burst/rank/House are read after LetGo below.
     let donor_rearming = transport
         .rearm_timer
-        .remaining(sim.session.binary_frame() as i32)
+        .remaining(session.binary_frame() as i32)
         != 0;
     if let Some(pax_id) = pax_id
-        && sim.temporal_remove_gunner(transport_id, pax_id)
+        && Simulation::temporal_remove_gunner(substrate, houses, power_states, transport_id, pax_id)
         && donor_rearming
     {
         rearm_transferred_gunner(
-            &sim.interner,
-            &sim.session,
-            &mut sim.scenario_rng,
-            &mut sim.substrate,
-            &sim.houses,
+            interner,
+            session,
+            scenario_rng,
+            substrate,
+            &*houses,
             rules,
             pax_id,
             0,
         );
     }
-    if let Some(transport) = sim.substrate.entities.get_mut(transport_id) {
+    if let Some(transport) = substrate.entities.get_mut(transport_id) {
         transport.set_gunner_weapon(0, object);
     }
 }

@@ -151,8 +151,8 @@ pub(crate) fn spend_money(houses: &mut Houses, owner: InternedId, amount: i32) {
 /// [`Economy::available_money`](crate::sim::economy::Economy::available_money)
 /// of `owner`'s wallet (the money interface's slot `+0x18`,
 /// `Available_Money @ 0x004F6990`); 0 for a house that does not exist.
-pub(crate) fn available_money(sim: &Simulation, owner: InternedId) -> i32 {
-    sim.houses
+pub(crate) fn available_money(houses: &Houses, owner: InternedId) -> i32 {
+    houses
         .get(&owner)
         .map_or(0, |house| house.economy().available_money())
 }
@@ -206,17 +206,22 @@ pub(crate) fn produce_cash_on_owner_change(
 
 ///445FA5..445FC8: every admitted Grand_Opening rearms a nonzero delay,
 /// including the already-placed capture arm. Zero leaves the prior timer.
-pub(crate) fn produce_cash_on_grand_opening(sim: &mut Simulation, id: u64, rules: &RuleSet) {
-    let delay = sim
-        .substrate
+pub(crate) fn produce_cash_on_grand_opening(
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    id: u64,
+    rules: &RuleSet,
+) {
+    let delay = substrate
         .entities
         .get(id)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .and_then(|entity| interner.object_type(entity.type_ref(), rules))
         .map_or(0, |object| object.produce_cash_delay);
     if delay != 0
-        && let Some(entity) = sim.substrate.entities.get_mut(id)
+        && let Some(entity) = substrate.entities.get_mut(id)
     {
-        entity.produce_cash.arm(sim.session.binary_frame(), delay);
+        entity.produce_cash.arm(session.binary_frame(), delay);
     }
 }
 
@@ -515,7 +520,7 @@ pub(crate) fn drain_common_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
                 .map(|drainer| drainer.owner())
         {
             let mut amount = rules.general.drain_money_amount;
-            let available = available_money(sim, victim_owner);
+            let available = available_money(&sim.houses, victim_owner);
             if available < amount {
                 amount = available;
             }

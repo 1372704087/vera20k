@@ -1127,18 +1127,23 @@ impl Simulation {
     /// the alive gate that also guards its Added_To_Game (`0x006F6D04`).
     /// The parent retains that one pre-callback admission through its suffix;
     /// this writer only checks that the admitted object still exists.
-    pub(crate) fn unlimbo_barrel_elevation(&mut self, stable_id: u64, rules: &RuleSet) {
-        let Some(fire_angle) = self
-            .substrate
+    pub(crate) fn unlimbo_barrel_elevation(
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        stable_id: u64,
+        rules: &RuleSet,
+    ) {
+        let Some(fire_angle) = substrate
             .entities
             .get(stable_id)
-            .and_then(|entity| self.object_type(entity.type_ref(), rules))
+            .and_then(|entity| interner.object_type(entity.type_ref(), rules))
             .map(|object| object.fire_angle)
         else {
             return;
         };
-        let frame = self.session.binary_frame();
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+        let frame = session.binary_frame();
+        if let Some(entity) = substrate.entities.get_mut(stable_id) {
             entity.unlimbo_barrel_elevation(fire_angle, frame);
         }
     }
@@ -1278,7 +1283,13 @@ impl Simulation {
         }
         // The barrel elevation writes follow the body snap (`0x006F6DC3`).
         if techno_alive_on_entry && let Some(rules) = context.rules {
-            self.unlimbo_barrel_elevation(stable_id, rules);
+            Self::unlimbo_barrel_elevation(
+                &self.interner,
+                &self.session,
+                &mut self.substrate,
+                stable_id,
+                rules,
+            );
         }
         // TechnoClass::Unlimbo 0x006F6E2A..0x006F6E4F: Enter_Idle_Mode(1, 1),
         // Ready_To_Commence and Commence, ahead of its second mode-one query
@@ -1561,7 +1572,14 @@ impl Simulation {
                 // Unlimbo44119C clears this object's retained primary before
                 //448070 asks the owning house for another live primary.
                 self.production.clear_primary_factory(stable_id);
-                crate::sim::production::initialize_factory_primary(self, stable_id, rules);
+                crate::sim::production::initialize_factory_primary(
+                    &self.interner,
+                    &mut self.production,
+                    &self.substrate,
+                    &self.houses,
+                    stable_id,
+                    rules,
+                );
             }
             //440E76's virtual discovery precedes the successful BasePlan
             // tail at44159D..4415B3, including a reached first opening.
@@ -3643,7 +3661,12 @@ impl Simulation {
             .is_some_and(|entity| {
                 entity.category() != EntityCategory::Structure && !entity.lifecycle.in_limbo
             });
-        self.foot_neighbors_before_limbo(stable_id);
+        Self::foot_neighbors_before_limbo(
+            &self.substrate,
+            &self.resolved_terrain,
+            &mut self.overlay_grid,
+            stable_id,
+        );
         // Foot4DB260 dispatches vt+0x500 on the first Limbo (0x004DB2FB,
         // while A8E7AC is zero) before +9C(0): the same class receiver as
         //FindPath/FireAt. Infantry51DAF0 clears Doing/Walk moving state;
@@ -6114,7 +6137,13 @@ impl Simulation {
         self.reset_parasite_grapple(stable_id, context.rules());
         // The Building destructor's Release406060 on its +0x6B4 working-sound
         // handle (43BD1A), the same most-derived destructor slot.
-        self.release_building_working_sound(stable_id, context.rules());
+        Self::release_building_working_sound(
+            &self.interner,
+            &self.substrate,
+            &mut self.sound_events,
+            stable_id,
+            context.rules(),
+        );
         // Foot4D3701 delegates to Techno6F4500 only after its own sound
         // tail. Techno6F4607 destroys the distinct voice handle via405C00,
         // before its attached/deploy Anims6F468B. Keep the disposal marker in

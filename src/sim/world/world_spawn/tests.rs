@@ -1250,7 +1250,13 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
     authored
         .lighting_sources
         .set_building_light_active(authored_id, false);
-    authored.allocate_building_light(authored_id, &rules);
+    Simulation::allocate_building_light(
+        &authored.interner,
+        &authored.substrate,
+        &mut authored.lighting_sources,
+        authored_id,
+        &rules,
+    );
     assert!(
         !authored.lighting_sources.buildings()[&authored_id].active,
         "a repeated construction callback must not activate an existing614"

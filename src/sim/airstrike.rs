@@ -13,6 +13,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::VeterancyRank;
 use crate::sim::game_entity::GameEntity;
+use crate::sim::intern::StringInterner;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::ObjectSubstrate;
@@ -90,18 +91,22 @@ impl GameEntity {
 
 impl Simulation {
     /// InitManagers6F41C0: only positive normal team count creates a manager.
-    pub(crate) fn initialize_airstrike(&mut self, owner: u64, rules: &RuleSet) {
-        let Some(settings) = self
-            .substrate
+    pub(crate) fn initialize_airstrike(
+        interner: &StringInterner,
+        substrate: &mut ObjectSubstrate,
+        owner: u64,
+        rules: &RuleSet,
+    ) {
+        let Some(settings) = substrate
             .entities
             .get(owner)
-            .and_then(|e| self.object_type(e.type_ref(), rules))
+            .and_then(|e| interner.object_type(e.type_ref(), rules))
             .map(|o| o.airstrike.clone())
             .filter(|s| s.normal_count > 0)
         else {
             return;
         };
-        let e = self.substrate.entities.get_mut(owner).unwrap();
+        let e = substrate.entities.get_mut(owner).unwrap();
         e.airstrike.link = Some(owner);
         e.airstrike.manager = Some(AirstrikeManager {
             settings,

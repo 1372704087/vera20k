@@ -955,7 +955,12 @@ impl Simulation {
             self.leave_team(unit_id, false, Some(rules), frame_effects);
         }
         // 0x004723E4..0x004723F3: a unit holding a Temporal target lets go.
-        self.temporal_release_if_warping(unit_id);
+        Self::temporal_release_if_warping(
+            &mut self.substrate,
+            &mut self.houses,
+            &mut self.power_states,
+            unit_id,
+        );
         let Some(unit) = self.substrate.entities.get(unit_id) else {
             return;
         };
@@ -1059,7 +1064,7 @@ impl Simulation {
         rules: &RuleSet,
     ) -> CaptureReason {
         let mind_control = &rules.mind_control;
-        if crate::sim::credit_income::available_money(self, controller_owner)
+        if crate::sim::credit_income::available_money(&self.houses, controller_owner)
             < mind_control.ai_capture_low_money_mark
         {
             return CaptureReason::LowMoney;

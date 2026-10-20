@@ -129,7 +129,7 @@ fn building_strategy(
 
     // Available_Money (IHouse vt+0x18) is a pure read; the block's second
     // query sees the same value.
-    let money = crate::sim::credit_income::available_money(sim, owner);
+    let money = crate::sim::credit_income::available_money(&sim.houses, owner);
     let frame = sim.session.binary_frame() as i32;
     let emergency = sim
         .houses

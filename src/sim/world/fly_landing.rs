@@ -238,7 +238,12 @@ impl Simulation {
         fly.finish_landing();
         fly.halt();
         entity.foot_speed.set_speed_fraction(SIM_ZERO);
-        self.foot_neighbors_after_fly_landing(id);
+        Self::foot_neighbors_after_fly_landing(
+            &mut self.substrate,
+            &self.resolved_terrain,
+            &mut self.overlay_grid,
+            id,
+        );
         let entity = self.substrate.entities.get(id).unwrap();
         let destination = entity
             .locomotor

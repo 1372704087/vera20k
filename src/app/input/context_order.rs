@@ -5776,8 +5776,8 @@ mod tests {
 
         sim.bomb_attach_for_test(ivan, Some(own_tank), &rules);
         sim.bomb_attach_for_test(enemy_ivan, Some(far_tank), &rules);
-        sim.bomb_list_update(&rules);
-        sim.bomb_list_update(&rules);
+        sim.bomb_list_update_for_test(&rules);
+        sim.bomb_list_update_for_test(&rules);
 
         assert_eq!(
             disarm_bomb_engineers(&sim, &rules, &selected, own_tank, americans),
@@ -5800,8 +5800,8 @@ mod tests {
 
         // The Engineer carrying a bomb itself is no target of its own click.
         sim.bomb_attach_for_test(ivan, Some(engineer), &rules);
-        sim.bomb_list_update(&rules);
-        sim.bomb_list_update(&rules);
+        sim.bomb_list_update_for_test(&rules);
+        sim.bomb_list_update_for_test(&rules);
         assert!(disarm_bomb_engineers(&sim, &rules, &[engineer], engineer, americans).is_empty());
     }
     /// Supplies the ordinary object-route prerequisites, through production

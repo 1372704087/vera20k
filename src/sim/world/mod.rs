@@ -2887,13 +2887,17 @@ impl Simulation {
     /// unless the victim's country is `MultiplayPassive=` in a non-campaign
     /// mode (`0x004F945D..0x004F9472`). Native has no other rate limit.
     pub(crate) fn dispatch_under_attack_events(
-        &mut self,
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        house_alliances: &HouseAlliances,
+        sound_events: &mut FrameChannel<SimSoundEvent>,
+        houses: &Houses,
         events: &[crate::sim::combat::UnderAttackEvent],
         rules: &RuleSet,
     ) {
-        let game_mode_nonzero = self.session.game_mode_nonzero();
+        let game_mode_nonzero = session.game_mode_nonzero();
         for event in events {
-            let Some(object) = self.object_type(event.victim_type, rules) else {
+            let Some(object) = interner.object_type(event.victim_type, rules) else {
                 continue;
             };
             let structure = object.category == crate::rules::object_type::ObjectCategory::Building;
@@ -2906,7 +2910,7 @@ impl Simulation {
             } else {
                 RadarEventType::BaseUnderAttack
             };
-            self.sound_events.emit(SimSoundEvent::UnderAttack {
+            sound_events.emit(SimSoundEvent::UnderAttack {
                 rx: event.rx,
                 ry: event.ry,
                 owner: event.owner,
@@ -2916,34 +2920,29 @@ impl Simulation {
             if !structure {
                 continue;
             }
-            let victim_passive = self
-                .houses
+            let victim_passive = houses
                 .get(&event.owner)
                 .is_some_and(|house| house.multiplay_passive());
             if game_mode_nonzero && victim_passive {
                 continue;
             }
-            let victim_name = self.interner.resolve(event.owner).to_string();
-            let listeners: Vec<InternedId> = self
-                .houses
+            let victim_name = interner.resolve(event.owner).to_string();
+            let listeners: Vec<InternedId> = houses
                 .order()
                 .iter()
                 .copied()
                 .filter(|&listener| {
                     listener != event.owner
-                        && self
-                            .houses
-                            .get(&listener)
-                            .is_some_and(|house| house.is_human())
+                        && houses.get(&listener).is_some_and(|house| house.is_human())
                         && crate::map::houses::is_allied_with(
-                            self.house_alliances.as_map(),
+                            house_alliances.as_map(),
                             &victim_name,
-                            self.interner.resolve(listener),
+                            interner.resolve(listener),
                         )
                 })
                 .collect();
             for listener in listeners {
-                self.sound_events.emit(SimSoundEvent::AllyUnderAttack {
+                sound_events.emit(SimSoundEvent::AllyUnderAttack {
                     owner: listener,
                     radar: RadarEventRequest::new(
                         RadarEventType::AllyUnderAttack,
@@ -3394,6 +3393,41 @@ impl Simulation {
             &mut self.substrate,
             &mut self.projectiles,
             &mut self.waves,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn bomb_list_update_for_test(&mut self, rules: &RuleSet) {
+        Self::bomb_list_update(
+            &self.interner,
+            &mut self.substrate,
+            &self.houses,
+            &self.resolved_terrain,
+            &mut self.bombs,
+            rules,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn allocate_building_light_for_test(&mut self, id: u64, rules: &RuleSet) {
+        Self::allocate_building_light(
+            &self.interner,
+            &self.substrate,
+            &mut self.lighting_sources,
+            id,
+            rules,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn initialize_campaign_current_house_for_test(
+        &mut self,
+        ini: &crate::rules::ini_parser::IniFile,
+    ) {
+        crate::sim::scenario_bootstrap::initialize_campaign_current_house(
+            &mut self.session,
+            &mut self.houses,
+            ini,
         );
     }
 
@@ -6071,7 +6105,14 @@ impl Simulation {
         if let Some(rules) = rules
             && category == EntityCategory::Structure
         {
-            crate::sim::production::initialize_factory_primary(self, stable_id, rules);
+            crate::sim::production::initialize_factory_primary(
+                &self.interner,
+                &mut self.production,
+                &self.substrate,
+                &self.houses,
+                stable_id,
+                rules,
+            );
             //448CEF: Grand_Opening(1) also runs on an already placed
             //building; its6E4 gate prevents repeating first-opening slots.
             self.grand_opening(stable_id, true, false, rules, None, effects);
@@ -7636,7 +7677,14 @@ impl Simulation {
             self.tick_ore_growth_rungs(rules, overlay_registry);
             profile_phase!(ORE_GROWTH);
             // `BombListClass::UpdateAll` follows growth and spread (0x0055B4E1).
-            self.bomb_list_update(rules);
+            Self::bomb_list_update(
+                &self.interner,
+                &mut self.substrate,
+                &self.houses,
+                &self.resolved_terrain,
+                &mut self.bombs,
+                rules,
+            );
             // `Kamikaze__Update` follows it (0x0055B4F0). `LightningStorm::
             // Process` runs whatever the superweapons option (0x0055B5C8): a
             // map's NUKE weapon starts the nuke flash without a Super.

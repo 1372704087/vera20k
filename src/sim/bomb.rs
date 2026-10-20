@@ -82,6 +82,7 @@ use crate::sim::combat::world_receiver::{
 };
 use crate::sim::combat::{DeathEffects, UnderAttackEvent};
 use crate::sim::components::DriveCoord;
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
 use crate::sim::intern::StringInterner;
 use crate::sim::movement::ground_pose::{object_get_coords, object_location};
@@ -275,8 +276,8 @@ impl Simulation {
     }
 
     /// The objects carrying a bomb, by stable id.
-    fn carried_bombs(&self) -> impl Iterator<Item = u64> + '_ {
-        self.substrate
+    fn carried_bombs(substrate: &ObjectSubstrate) -> impl Iterator<Item = u64> + '_ {
+        substrate
             .entities
             .iter_sorted()
             .filter(|(_, entity)| entity.bomb.is_some())
@@ -284,8 +285,8 @@ impl Simulation {
     }
 
     /// Rebuild the carrier index from the carried records after a load.
-    pub(crate) fn rebuild_bomb_carriers(&mut self) {
-        self.bombs.carriers = self.carried_bombs().collect();
+    pub(crate) fn rebuild_bomb_carriers(substrate: &ObjectSubstrate, bombs: &mut BombList) {
+        bombs.carriers = Self::carried_bombs(substrate).collect();
     }
 
     /// Whether the player owning `house` sees the carrier's bomb: its
@@ -312,48 +313,55 @@ impl Simulation {
     /// which VERA drops as they go off or are defused; its second drives the
     /// ticking loop, which the app derives from the carriers. What is left is
     /// the BombVisible refresh (`0x00438D04..0x00438E4C`).
-    pub fn bomb_list_update(&mut self, rules: &RuleSet) {
-        if self.bombs.visibility_countdown > 0 {
-            self.bombs.visibility_countdown -= 1;
+    pub(crate) fn bomb_list_update(
+        interner: &StringInterner,
+        substrate: &mut ObjectSubstrate,
+        houses: &Houses,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        bombs: &mut BombList,
+        rules: &RuleSet,
+    ) {
+        if bombs.visibility_countdown > 0 {
+            bombs.visibility_countdown -= 1;
             return;
         }
-        self.bombs.visibility_countdown = CLEARED_VISIBILITY_COUNTDOWN;
+        bombs.visibility_countdown = CLEARED_VISIBILITY_COUNTDOWN;
         debug_assert!(
-            self.carried_bombs().eq(self.bombs.carriers.iter().copied()),
+            Self::carried_bombs(substrate).eq(bombs.carriers.iter().copied()),
             "the carrier index disagrees with the carried bombs"
         );
-        if self.bombs.carriers.is_empty() {
+        if bombs.carriers.is_empty() {
             return;
         }
-        let order = &self.houses.order();
+        let order = &houses.order();
         // The detectors (`BombList+0x1C`): `TechnoClass::Unlimbo` adds an
         // object whose type has a nonzero BombSight (`0x006F6D70`), `Limbo`
         // takes it out (`0x006F6B7A`). Coordinates are GetCoords (`vt+0x48`).
         let mut detectors = Vec::new();
-        for entity in self.substrate.entities.values() {
+        for entity in substrate.entities.values() {
             if entity.lifecycle.in_limbo() || !entity.lifecycle.object_alive() {
                 continue;
             }
-            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+            let Some(object) = interner.object_type(entity.type_ref(), rules) else {
                 continue;
             };
             if object.bomb_sight != 0 {
                 detectors.push((
                     house_bit(order, entity.owner()),
-                    object_get_coords(entity, self.resolved_terrain.as_ref()),
+                    object_get_coords(entity, resolved_terrain.as_ref()),
                     object.bomb_sight.wrapping_shl(8),
                 ));
             }
         }
-        let mut refreshed = Vec::with_capacity(self.bombs.carriers.len());
-        for &carrier in &self.bombs.carriers {
-            let Some(entity) = self.substrate.entities.get(carrier) else {
+        let mut refreshed = Vec::with_capacity(bombs.carriers.len());
+        for &carrier in &bombs.carriers {
+            let Some(entity) = substrate.entities.get(carrier) else {
                 continue;
             };
             let Some(bomb) = entity.bomb else {
                 continue;
             };
-            let center = object_get_coords(entity, self.resolved_terrain.as_ref());
+            let center = object_get_coords(entity, resolved_terrain.as_ref());
             let mut seen_by = house_bit(order, bomb.planter_house);
             for &(house, detector, range) in &detectors {
                 if seen_by & house == 0 && within_bomb_sight(detector, center, range) {
@@ -363,8 +371,7 @@ impl Simulation {
             refreshed.push((carrier, seen_by));
         }
         for (carrier, seen_by) in refreshed {
-            if let Some(bomb) = self
-                .substrate
+            if let Some(bomb) = substrate
                 .entities
                 .get_mut(carrier)
                 .and_then(|entity| entity.bomb.as_mut())

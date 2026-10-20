@@ -3079,7 +3079,7 @@ impl Simulation {
             &mut self.waves,
         );
         self.substrate.rebuild_building_anim_slot_indices();
-        self.rebuild_bomb_carriers();
+        Self::rebuild_bomb_carriers(&self.substrate, &mut self.bombs);
         // The kamikaze tracker's Load (`0x0054E7B0`) follows its Clear.
         self.kamikaze
             .restart_after_load(self.session.binary_frame());
@@ -8974,7 +8974,10 @@ mod tests {
         restored
             .restore_after_snapshot_load()
             .expect("mixed admitted and additionally registered Houses restore");
-        assert_eq!(restored.scenario_house_named("Russians"), Some(hostile));
+        assert_eq!(
+            Simulation::scenario_house_named(&restored.houses, "Russians"),
+            Some(hostile)
+        );
         assert_eq!(
             restored.houses[&hostile].native_scenario_name(),
             Some("Russians")

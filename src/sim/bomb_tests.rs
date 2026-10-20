@@ -662,7 +662,14 @@ fn native_update_all_corpus() {
             houses,
         } = native_world(input, &rules);
         sim.bombs.visibility_countdown = input["countdown"].as_i64().unwrap() as i32;
-        sim.bomb_list_update(&rules);
+        crate::sim::world::Simulation::bomb_list_update(
+            &sim.interner,
+            &mut sim.substrate,
+            &sim.houses,
+            &sim.resolved_terrain,
+            &mut sim.bombs,
+            &rules,
+        );
         let list = case.list.as_ref().unwrap();
         assert_eq!(
             i64::from(sim.bombs.visibility_countdown),
@@ -1119,8 +1126,22 @@ fn a_bomb_survives_a_snapshot() {
     sim.bomb_attach_for_test(ivan, Some(tank), &rules);
     assert_ne!(sim.state_hash(), unbombed, "the bomb is hashed");
     // Two UpdateAll calls after the attach: the planter's house sees it.
-    sim.bomb_list_update(&rules);
-    sim.bomb_list_update(&rules);
+    crate::sim::world::Simulation::bomb_list_update(
+        &sim.interner,
+        &mut sim.substrate,
+        &sim.houses,
+        &sim.resolved_terrain,
+        &mut sim.bombs,
+        &rules,
+    );
+    crate::sim::world::Simulation::bomb_list_update(
+        &sim.interner,
+        &mut sim.substrate,
+        &sim.houses,
+        &sim.resolved_terrain,
+        &mut sim.bombs,
+        &rules,
+    );
     let russians = sim.interner.get("Russians").unwrap();
     assert!(sim.bomb_seen_by(tank, russians));
     let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "bomb", 0);
@@ -1208,7 +1229,14 @@ fn who_sees_a_bomb_follows_the_native_refresh() {
     {
         bomb.seen_by = 0;
     }
-    sim.bomb_list_update(&rules);
+    crate::sim::world::Simulation::bomb_list_update(
+        &sim.interner,
+        &mut sim.substrate,
+        &sim.houses,
+        &sim.resolved_terrain,
+        &mut sim.bombs,
+        &rules,
+    );
     assert!(sim.bomb_seen_by(tank, americans));
     assert_eq!(sim.state_hash(), before, "BombVisible is presentation");
 }

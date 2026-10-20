@@ -189,12 +189,24 @@ impl Simulation {
             } else {
                 super::money::valid_target(self, sw, cell)
             }) || !click_fire_admission(self, owner, sw_type_id, sw)
-                || !super::money::admit(self, owner, payment.0, payment.1))
+                || !super::money::admit(
+                    &mut self.sound_events,
+                    &self.houses,
+                    owner,
+                    payment.0,
+                    payment.1,
+                ))
         {
             return false;
         }
         if paid_source.is_some() {
-            self.retire_paid_selections(rules, owner);
+            Self::retire_paid_selections(
+                &mut self.substrate,
+                &mut self.sound_events,
+                &mut self.super_weapons,
+                rules,
+                owner,
+            );
         }
         if let Some((pre_type, _)) = paired {
             let Some(pre) = super_instance(self, owner, pre_type) else {
@@ -252,7 +264,13 @@ impl Simulation {
                 .stop_preclick(pre_sw, frame);
         }
         if called_launch && paid_source.is_none() && paid_final.is_none() {
-            self.retire_paid_selections(rules, owner);
+            Self::retire_paid_selections(
+                &mut self.substrate,
+                &mut self.sound_events,
+                &mut self.super_weapons,
+                rules,
+                owner,
+            );
         }
         // `0x004FAEC6..0x004FAEF2`: every house, last to first.
         let houses: Vec<InternedId> = self.houses.order().iter().rev().copied().collect();
@@ -305,7 +323,13 @@ fn click_fire(
     }
     if let Some((money_type, money_sw)) = payment
         && money_sw.money_amount != 0
-        && !super::money::transact(sim, owner, money_type, money_sw)
+        && !super::money::transact(
+            &mut sim.sound_events,
+            &mut sim.houses,
+            owner,
+            money_type,
+            money_sw,
+        )
     {
         return false;
     }

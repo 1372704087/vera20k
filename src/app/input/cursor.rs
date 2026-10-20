@@ -3348,8 +3348,8 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         sim.bomb_attach_for_test(ivan, Some(enemy_tank), &rules);
         sim.bomb_attach_for_test(ivan, Some(own_tank), &rules);
         sim.bomb_attach_for_test(enemy_ivan, Some(far_tank), &rules);
-        sim.bomb_list_update(&rules);
-        sim.bomb_list_update(&rules);
+        sim.bomb_list_update_for_test(&rules);
+        sim.bomb_list_update_for_test(&rules);
 
         assert_eq!(
             bomb_hover(&sim, &rules, ivan, EnemyUnit, enemy_tank),

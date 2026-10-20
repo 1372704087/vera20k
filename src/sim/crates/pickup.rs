@@ -608,7 +608,14 @@ pub(crate) fn pickup_crate(
                 );
             }
             POWERUP_VETERAN => {
-                effects::apply_veteran_crate(sim, rules, center, radius, magnitude);
+                effects::apply_veteran_crate(
+                    &sim.interner,
+                    &mut sim.substrate,
+                    rules,
+                    center,
+                    radius,
+                    magnitude,
+                );
                 play_crate_sound(
                     &mut sim.sound_events,
                     general.crate_promote_sound.as_deref(),

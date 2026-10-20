@@ -13,6 +13,7 @@ use crate::map::actions::{ActionDefinitionReference, ActionEntry, DefinitionSele
 use crate::map::cell_index::NativeCellIdentity;
 use crate::map::events::EventCondition;
 use crate::map::resolved_terrain::NativeCellQuery;
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::rng::SimRng;
@@ -1177,7 +1178,7 @@ impl Simulation {
             let packed = crt_atoi(key);
             let stride = if format < 4 { 128 } else { 1000 };
             let cell = ((packed % stride) as i16, (packed / stride) as i16);
-            let identity = self.trigger_cell_identity(cell);
+            let identity = Self::trigger_cell_identity(&self.resolved_terrain, cell);
             if self.trigger_runtime.cell_tags.contains_key(&identity) {
                 continue;
             }
@@ -1188,7 +1189,7 @@ impl Simulation {
                 .attached_cell = cell;
             //4AD2C9 repeats5657A0 after live construction; a miss stamps the
             // same retained Dummy a second time before CellReplace485250.
-            let identity = self.trigger_cell_identity(cell);
+            let identity = Self::trigger_cell_identity(&self.resolved_terrain, cell);
             self.trigger_runtime
                 .replace_cell_trigger_tag(identity, Some(tag));
         }
@@ -1250,9 +1251,11 @@ impl Simulation {
         self.trigger_runtime.classified = true;
     }
 
-    fn trigger_cell_identity(&self, cell: (i16, i16)) -> NativeCellIdentity {
-        let terrain = self
-            .resolved_terrain
+    fn trigger_cell_identity(
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        cell: (i16, i16),
+    ) -> NativeCellIdentity {
+        let terrain = resolved_terrain
             .as_ref()
             .expect("live CellTags require installed native map cell storage");
         NativeCellQuery::canonical(terrain).lookup(cell)
@@ -1603,7 +1606,7 @@ impl Simulation {
                 let Some(owner) = incoming_house else {
                     return true;
                 };
-                let funds = crate::sim::credit_income::available_money(self, owner);
+                let funds = crate::sim::credit_income::available_money(&self.houses, owner);
                 if condition.kind == 12 {
                     funds >= condition.value
                 } else {
@@ -2428,7 +2431,7 @@ impl Simulation {
                     .replace_trigger_tag_attachment(TagAttachment::Object(object), None);
             }
             if cell != (0, 0) {
-                let identity = self.trigger_cell_identity(cell);
+                let identity = Self::trigger_cell_identity(&self.resolved_terrain, cell);
                 self.trigger_runtime
                     .replace_cell_trigger_tag(identity, None);
             }
@@ -4242,7 +4245,11 @@ impl Simulation {
                 match action.kind {
                     33 | 34 => {
                         return crate::sim::superweapon::trigger_grant_super(
-                            self,
+                            &self.interner,
+                            &self.session,
+                            &mut self.substrate,
+                            &self.houses,
+                            &mut self.super_weapons,
                             rules,
                             owner,
                             type_id,
@@ -4251,7 +4258,16 @@ impl Simulation {
                     }
                     132 => instance.set_recharge_time(action.auxiliary_value()),
                     133 => instance.reset_recharge_time(),
-                    134 => crate::sim::superweapon::reset_super(self, rules, owner, name),
+                    134 => crate::sim::superweapon::reset_super(
+                        &self.interner,
+                        &self.session,
+                        &mut self.substrate,
+                        &mut self.sound_events,
+                        &mut self.super_weapons,
+                        rules,
+                        owner,
+                        name,
+                    ),
                     _ => {
                         let Some(sw) = rules.super_weapon(name) else {
                             return false;

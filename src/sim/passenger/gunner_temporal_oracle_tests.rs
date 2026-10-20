@@ -491,10 +491,28 @@ fn native_temporal_gunner_callbacks_match_retained_histories() {
                             actors.transport,
                             actors.passenger,
                         ),
-                        "remove" => {
-                            remove_gunner(&mut sim, rules, actors.transport, Some(actors.passenger))
-                        }
-                        "remove_null" => remove_gunner(&mut sim, rules, actors.transport, None),
+                        "remove" => remove_gunner(
+                            &sim.interner,
+                            &sim.session,
+                            &mut sim.scenario_rng,
+                            &mut sim.substrate,
+                            &mut sim.houses,
+                            &mut sim.power_states,
+                            rules,
+                            actors.transport,
+                            Some(actors.passenger),
+                        ),
+                        "remove_null" => remove_gunner(
+                            &sim.interner,
+                            &sim.session,
+                            &mut sim.scenario_rng,
+                            &mut sim.substrate,
+                            &mut sim.houses,
+                            &mut sim.power_states,
+                            rules,
+                            actors.transport,
+                            None,
+                        ),
                         other => panic!("unknown native operation {other}"),
                     });
                     let native_draws = operation["raw_draws"].as_array().unwrap();

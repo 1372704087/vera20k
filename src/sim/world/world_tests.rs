@@ -1233,7 +1233,17 @@ fn idle_squid_body_counter_starts_move_sound() {
             .get(),
         1
     );
-    sim.tick_move_sound_after_process(1, before, Some(&rules));
+    Simulation::tick_move_sound_after_process(
+        &sim.interner,
+        &sim.session,
+        &sim.main_rng,
+        &mut sim.substrate,
+        &mut sim.sound_events,
+        &sim.houses,
+        1,
+        before,
+        Some(&rules),
+    );
     assert!(
         sim.substrate
             .entities
@@ -1287,7 +1297,17 @@ fn trigger_move_sound_tail(sim: &mut Simulation, rules: &RuleSet) {
     entity
         .body_frame_counter
         .set_for_test(before.wrapping_add(1));
-    sim.tick_move_sound_after_process(1, before, Some(rules));
+    Simulation::tick_move_sound_after_process(
+        &sim.interner,
+        &sim.session,
+        &sim.main_rng,
+        &mut sim.substrate,
+        &mut sim.sound_events,
+        &sim.houses,
+        1,
+        before,
+        Some(rules),
+    );
 }
 
 #[test]
@@ -1336,7 +1356,17 @@ fn move_sound_start_consumes_exactly_one_main_draw() {
     let entity = sim.substrate.entities.get_mut(1).unwrap();
     entity.set_falling_down_for_test(true);
     let before = entity.body_frame_counter.get();
-    sim.tick_move_sound_after_process(1, before, Some(&configured_rules));
+    Simulation::tick_move_sound_after_process(
+        &sim.interner,
+        &sim.session,
+        &sim.main_rng,
+        &mut sim.substrate,
+        &mut sim.sound_events,
+        &sim.houses,
+        1,
+        before,
+        Some(&configured_rules),
+    );
     sim.substrate
         .entities
         .get_mut(1)

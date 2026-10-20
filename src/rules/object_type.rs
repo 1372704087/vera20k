@@ -1564,6 +1564,14 @@ pub struct ObjectType {
     /// Immutable projection of the retained InfantryType Pip/OccupyPip state.
     infantry_pips: InfantryPips,
 
+    /// ReadSequenceData's sound pairs from every reached rules pass,
+    /// projected from the native type registry; bound by
+    /// [`Self::bind_sequence_sounds`].
+    sequence_sound_reads: Vec<crate::rules::infantry_sequence::SequenceSoundRead>,
+
+    /// The bound record sounds: at most two per DoType (record `+0x10`).
+    sequence_sounds: Vec<crate::rules::infantry_sequence::SequenceSound>,
+
     /// What pip display to render below the health bar (PipScale= in rules.ini).
     /// `Tiberium` shows per-bale cargo pips for harvesters using pips2.shp.
     pub pip_scale: PipScale,
@@ -2191,6 +2199,29 @@ impl ObjectType {
 
     pub(crate) fn project_infantry_pips(&mut self, pips: InfantryPips) {
         self.infantry_pips = pips;
+    }
+
+    pub(crate) fn project_sequence_sound_reads(
+        &mut self,
+        reads: &[crate::rules::infantry_sequence::SequenceSoundRead],
+    ) {
+        self.sequence_sound_reads = reads.to_vec();
+    }
+
+    /// Resolve the projected pairs through `find` (VocClass::FindByName).
+    pub(crate) fn bind_sequence_sounds(&mut self, find: impl FnMut(&str) -> Option<String>) {
+        self.sequence_sounds =
+            crate::rules::infantry_sequence::bind_sequence_sounds(&self.sequence_sound_reads, find);
+    }
+
+    /// The sounds of DoType `action`'s record, in slot order.
+    pub fn sequence_sounds(
+        &self,
+        action: i32,
+    ) -> impl Iterator<Item = &crate::rules::infantry_sequence::SequenceSound> {
+        self.sequence_sounds
+            .iter()
+            .filter(move |sound| i32::from(sound.action) == action)
     }
 
     pub(crate) fn project_infantry_infiltration(&mut self, flags: InfantryInfiltration) {
@@ -3172,6 +3203,8 @@ impl ObjectType {
             elite_occupy_weapon: None,
             // Constructor values; only the ordered Process owner reads them.
             infantry_pips: InfantryPips::default(),
+            sequence_sound_reads: Vec::new(),
+            sequence_sounds: Vec::new(),
             pip_scale: section
                 .read_name("PipScale", 0x20)
                 .map(PipScale::from_ini)

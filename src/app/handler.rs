@@ -546,6 +546,23 @@ impl ApplicationHandler for App {
                 // not; see the `Resized` arm above.
                 Self::set_window_hidden(state, occluded);
             }
+            WindowEvent::CursorEntered { .. } => {
+                // The pointer is back over the drawable region: mouse.shp owns it
+                // again and the OS arrow goes. Redraw so the cursor decision and the
+                // clip both follow the edge.
+                state.platform.pointer_in_client = true;
+                state.platform.window.request_redraw();
+            }
+            WindowEvent::CursorLeft { .. } => {
+                // winit raises this from `WM_MOUSELEAVE`, which it arms on the
+                // matching enter and which fires when the pointer crosses onto the
+                // title bar or resize border, not only off the window. There the
+                // system owns the arrow (`DefWindowProc` answers the non-client
+                // `WM_SETCURSOR` with it), so VERA stops drawing mouse.shp rather
+                // than fighting it for the same pixel.
+                state.platform.pointer_in_client = false;
+                state.platform.window.request_redraw();
+            }
             WindowEvent::ModifiersChanged(_) => {
                 // Deliberately not a modifier source: winit re-derives this
                 // event from each mouse event's flags, which drop a held
@@ -580,6 +597,19 @@ impl ApplicationHandler for App {
                 {
                     crate::app::input::cursor::toggle_cursor_confinement(state);
                     state.platform.window.request_redraw();
+                    return;
+                }
+                // VERA's FPS readout toggle. Like the cursor lock it works on
+                // every screen and is consumed before retail key dispatch.
+                if let PhysicalKey::Code(KeyCode::KeyF) = event.physical_key
+                    && state.platform.live_modifiers.control_key()
+                    && state.platform.live_modifiers.alt_key()
+                {
+                    if event.state.is_pressed() && !event.repeat {
+                        let shown = state.renderer.fps_overlay.toggle();
+                        log::info!("FPS overlay: {}", if shown { "shown" } else { "hidden" });
+                        state.platform.window.request_redraw();
+                    }
                     return;
                 }
                 // The wait loop pumps 0xEA without IsDialogMessage and polls
@@ -1266,10 +1296,13 @@ impl ApplicationHandler for App {
             } else if state.platform.window_hidden {
                 if Self::match_runs_while_hidden(state) {
                     // Minimised or fully covered, but the match is not frozen:
-                    // keep the world and its audio moving without drawing
-                    // frames no one can see. macOS stops presenting to an
-                    // occluded layer, so this loop cannot ride on redraws;
-                    // it wakes at half the pacer bucket to hold the cadence.
+                    // keep the world and the audio service advancing without
+                    // drawing frames no one can see. The service is not the
+                    // output gate: the `WM_ACTIVATEAPP` silence comes from
+                    // `set_window_active`, which the minimise's deactivation
+                    // edge reaches first. macOS stops presenting to an occluded
+                    // layer, so this loop cannot ride on redraws; it wakes at
+                    // half the pacer bucket to hold the cadence.
                     if Self::service_match_runtime(state, event_loop, true) {
                         return;
                     }

@@ -4807,6 +4807,7 @@ impl RuleSet {
         self.general.scold_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
+        #[cfg(feature = "ares")]
         for sw in self.super_weapons.values_mut() {
             if let Some(delivery) = sw.unit_delivery.as_mut() {
                 // Ares NullableIdx<VocClass>: unknown retains the previous
@@ -4893,6 +4894,9 @@ impl RuleSet {
         ini: &IniFile,
         eva: &crate::rules::sound_ini::EvaRegistry,
     ) {
+        #[cfg(not(feature = "ares"))]
+        let _ = (ini, eva);
+        #[cfg(feature = "ares")]
         for sw in self.super_weapons.values_mut() {
             sw.insufficient_funds_eva = eva.read_rules_reference(
                 ini.section(&sw.id),
@@ -5751,6 +5755,11 @@ impl RuleSet {
             .map(|object| (object.id.to_ascii_uppercase(), object.building_upgrade()))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        // The process registry is admitted only when its retained capability
+        // matches this binary. Include that immutable build identity even if
+        // the selected INIs contain no extension keys.
+        b"rules-build-compatibility-v1".hash(&mut hasher);
+        crate::rules::ARES_ENABLED.hash(&mut hasher);
         // UnitType747734 retains CarriesCrate across later absent/invalid
         // keys; equal current source text can still mean different cargo.
         self.object_list
@@ -7959,6 +7968,7 @@ SpawnCount=3
         );
     }
 
+    #[cfg(feature = "ares")]
     #[test]
     fn unit_delivery_negative_deferment_keeps_the_twenty_frame_fallback() {
         let mut layers = RulesLayerStack::new(IniFile::from_str(
@@ -7981,6 +7991,7 @@ SpawnCount=3
         );
     }
 
+    #[cfg(feature = "ares")]
     #[test]
     fn unit_delivery_activation_sound_binding_keeps_known_values_across_unknown_layers() {
         let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(&IniFile::from_str(

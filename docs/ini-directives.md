@@ -1,8 +1,10 @@
 # INI file directives
 
 I adapted Include and inheritance processing from my ra2-mono implementation
-into VERA's existing INI source-selection path. The authored directives opt a
-document into this extension. Files without directives keep their native parsed
+into VERA's existing INI source-selection path. Gameplay expands these directives
+only in builds with `--features ares`. The default build treats them as ordinary,
+unused INI content. These file and section composition directives are extension
+syntax, not native YR directives. Files without directives keep their native parsed
 representation, duplicate-section behavior, content hash and saved encoding.
 The raw `IniFile` byte parser and deserializer never load other files.
 
@@ -22,8 +24,14 @@ Strength=250
   their lists are not concatenated.
 - Include keys sort by signed decimal integer, then ordinal key for ties.
   Nonnumeric or out-of-range keys sort as `i32::MAX`.
-- Nested includes expand first. Later includes override earlier ones, and the
-  current document overrides all included content through the existing INI merge.
+- For Ares `[#include]`, the current document is applied before its included
+  files. Descendants override their including document, and later includes
+  override earlier ones. This follows the [official Ares example](https://ares-developers.github.io/Ares-docs/new/misc/include.html):
+  root `[E1] Strength=200` plus included `Strength=300` results in `300`.
+- `[$Include]` retains mono's separate current-document-wins policy: expand
+  descendants first, then apply the current document. I have not established
+  executable Phobos equivalence for that policy. Ares evidence does not define
+  the semantics of this other directive or of `$Inherits`.
 - Inheritance runs after the complete Include expansion. `$Inherits=A,B` copies
   only missing keys: child-authored values win, then the first supplying parent.
   Parent section names remain case-sensitive. Directive keys are not inherited.
@@ -50,8 +58,8 @@ expansion work. Opaque resource aliases are not a filesystem/symlink sandbox.
 
 ## Production integration
 
-`rules::retail_sources::select_ini` expands directives before transferring the
-selected physical snapshots to the existing ordered Rules owner. That shared
+With the `ares` feature, `rules::retail_sources::select_ini` expands directives
+before transferring the selected physical snapshots to the existing ordered Rules owner. That shared
 entry serves Rules, fixed Art, AI, mode/campaign definitions, sound and EVA.
 The theme catalog uses the same entry while retaining its separate YR/RA2
 playlist handling. Asset-backed map gameplay and metadata expand the decoded
@@ -62,8 +70,9 @@ The root `IniSourceIdentity` still hashes the exact root bytes. `SelectedIni`
 additionally exposes the included physical sources, in traversal order, and
 structured diagnostics. Included values enter the existing effective INI/rules
 hash and stored processed INI. Loading a snapshot reads that stored content; it
-does not open Include files again. No new simulation authority, registry, wallet,
-save-layout field or snapshot version is introduced.
+does not open Include files again. The saved Rules owner and snapshot header retain
+the build capability; a build with a different capability rejects the save before
+admitting its simulation.
 
 The change does not select `rulesmo.ini`/`artmo.ini`/`aimo.ini` as game roots,
 configure an arbitrary archive stack, port other Ares/Phobos gameplay tags, or
@@ -83,7 +92,10 @@ section counts, newly supplied sections and the effective INI hash. `--strict`
 rejects reference errors; normal mode reports them without hiding the valid
 branches. `--all-mixes` is the pre-existing tooling-only wider search: a successful
 probe with it does not mean the game's normal archive stack finds those files.
-Neither probe success nor a passing regression is an in-game MO acceptance test.
+The explicit read-only `asset ini-expand` probe remains available without the
+`ares` feature. It uses the same parser, provider and traversal as enabled
+gameplay. Neither probe success nor a passing regression is an in-game MO
+acceptance test.
 
 `--source-only` creates an explicit INI-tool resource root without the normal
 game's required archive bootstrap (for example a MOD directory without
@@ -111,3 +123,9 @@ discarding their owned candidate. Mono's separate multi-root catalog selection
 and whole-definition AI replacement policy are not copied over VERA's existing
 native AI readers. The reference and authored Rust tests establish a bounded
 implementation contract, not executable Ares/Phobos equivalence.
+
+I corrected Ares `[#include]` conflict precedence against its official
+documentation instead of copying mono's current-file-wins policy. The other
+directive policies, bounded traversal, root-relative lookup and raw metadata
+reader boundaries are unchanged. The documented example and nested-conflict
+regressions are Rust checks against that specification, not an Ares DLL run.

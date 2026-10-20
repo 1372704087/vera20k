@@ -281,6 +281,26 @@ impl UnitFacingUpdate {
     }
 }
 
+/// TechnoClass vt+0x80, whether an object counts as a vehicle, by its class:
+/// a Unit that is not `NonVehicle=` (`0x00746400`, UnitType `+0xE1B`), a
+/// building that is a 1x1 `UndeploysInto=` (`0x00457620` → `0x00465D40`,
+/// [`ObjectType::is_1x1_with_undeploy`]), an aircraft its vt+0x50 calls low
+/// (`0x0041B910`), never an infantryman (`0x004263B0`). `low_flying` is that
+/// vt+0x50 in the caller's own map lookup, asked only for an aircraft.
+pub(crate) fn vehicle_like(
+    class: EntityCategory,
+    non_vehicle: bool,
+    is_1x1_with_undeploy: bool,
+    low_flying: impl FnOnce() -> bool,
+) -> bool {
+    match class {
+        EntityCategory::Unit => !non_vehicle,
+        EntityCategory::Structure => is_1x1_with_undeploy,
+        EntityCategory::Aircraft => low_flying(),
+        EntityCategory::Infantry => false,
+    }
+}
+
 /// Armor type name → Verses index mapping.
 /// Matches the order defined in warhead_type.rs: none(0), flak(1), plate(2),
 /// light(3), medium(4), heavy(5), wood(6), steel(7), concrete(8),

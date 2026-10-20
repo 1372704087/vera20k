@@ -65,14 +65,79 @@ pub(crate) struct WolPageDialog {
     pub(crate) focus_at: Option<std::time::Instant>,
 }
 
+/// The page reply window `{start [0xB76478], duration [0xB76480]}` in
+/// `timeGetTime() >> 4` ticks (`0x006C8C40`). Its writers: the static
+/// initializer `0x0077D160` and the game-start sink `0x007A7B82` (now, 0),
+/// the ANSI page sink in a match `0x007A93B9` (now, 300 = 4800 ms), and the
+/// `0xCF` prefill that uses it up (now, 0).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct PageReplyWindow {
+    start: i32,
+    duration: i32,
+}
+
+/// The ANSI page sink's window in a match (`0x007A93C9`).
+pub(crate) const REPLY_WINDOW_TICKS: i32 = 300;
+
+impl PageReplyWindow {
+    pub(crate) fn arm(&mut self, now: i32, duration: i32) {
+        *self = Self {
+            start: now,
+            duration,
+        };
+    }
+
+    /// `0x0078D8A1..0x0078D8CD`: the ticks left. `start` is never -1 after
+    /// the static initializer, so the elapsed branch always runs.
+    fn remaining(self, now: i32) -> i32 {
+        let elapsed = now.wrapping_sub(self.start);
+        if elapsed >= self.duration {
+            0
+        } else {
+            self.duration - elapsed
+        }
+    }
+}
+
+/// The observer gate `0x0078D52A..0x0078D566`: with `[0xA8B538]` set, a
+/// name `_stricmp`-equal (`0x007C8D20`) to any connection node's.
+pub(crate) fn observer_refuses(out: bool, nodes: &[String], name: &str) -> bool {
+    out && nodes.iter().any(|node| node.eq_ignore_ascii_case(name))
+}
+
+/// `timeGetTime() >> 4` (`0x006C8C40`).
+pub(crate) fn reply_window_now(time_get_time_ms: u64) -> i32 {
+    ((time_get_time_ms as u32) >> 4) as i32
+}
+
 impl WolPageDialog {
-    /// `0x497`: the name edit limited to 9 byte characters (`0x4D1(1)`) and
-    /// emptied with `0x4B4`, which notifies nothing. Focus stays on the
-    /// dialog (`0x00622B50`'s `SetFocus(hDialog)`).
-    /// RESIDUAL: the reply prefill (`[0xB76478]` window) belongs to the
-    /// in-match page; a window is only armed there.
+    /// `0x497` without a pending reply window.
     pub(crate) fn new() -> Self {
         Self::default()
+    }
+
+    /// `0x497` (`0x0078D855..0x0078D91B`): the name edit limited to 9 byte
+    /// characters (`0x4D1(1)`) and emptied with `0x4B4`, which notifies
+    /// nothing. Focus stays on the dialog (`0x00622B50`'s
+    /// `SetFocus(hDialog)`) unless the reply window has time left: then the
+    /// name is the last pager `[0xB77E30]` (again `0x4B4`), the text edit
+    /// takes the focus, whose notification runs the text handler, and the
+    /// window restarts with no time.
+    pub(crate) fn open(
+        window: &mut PageReplyWindow,
+        now: i32,
+        last_pager: Option<&str>,
+        last: &mut u16,
+    ) -> (Self, Vec<WolPageAction>) {
+        let mut page = Self::new();
+        let mut actions = Vec::new();
+        if window.remaining(now) > 0 {
+            page.name
+                .set_units_limited(last_pager.unwrap_or_default().encode_utf16(), 0);
+            page.focus_to(Some(TEXT), last, &mut actions);
+            window.arm(now, 0);
+        }
+        (page, actions)
     }
 
     fn name_text(&self) -> String {
@@ -434,6 +499,37 @@ mod tests {
         // Tab back from the text field only moves the focus.
         assert!(page.key(LanEditKey::Tab, &mut last).is_empty());
         assert_eq!(page.focus, Some(NAME));
+    }
+
+    #[test]
+    fn an_open_inside_the_reply_window_prefills_the_pager_once() {
+        let mut window = PageReplyWindow::default();
+        let mut last = NAME;
+        // The static initializer's window has no time.
+        let (page, actions) = WolPageDialog::open(&mut window, 50, Some("Tanya"), &mut last);
+        assert!(actions.is_empty() && page.focus.is_none() && page.name.units.is_empty());
+        window.arm(1_000, REPLY_WINDOW_TICKS);
+        let (page, actions) = WolPageDialog::open(&mut window, 1_299, Some("Tanya"), &mut last);
+        assert_eq!(page.name_text(), "Tanya");
+        assert_eq!(page.focus, Some(TEXT));
+        // The text edit's focus notification sees `last == 0x5C1`.
+        assert_eq!(actions, vec![WolPageAction::Locate("Tanya".into())]);
+        assert_eq!(last, TEXT);
+        assert!(!page.send_enabled);
+        // The prefill used the window up.
+        let (page, _) = WolPageDialog::open(&mut window, 1_300, Some("Tanya"), &mut last);
+        assert!(page.focus.is_none());
+        window.arm(1_000, REPLY_WINDOW_TICKS);
+        let (page, _) = WolPageDialog::open(&mut window, 1_300, Some("Tanya"), &mut last);
+        assert!(page.focus.is_none(), "300 ticks elapsed: no time left");
+    }
+
+    #[test]
+    fn an_observer_cannot_page_a_player_in_the_game() {
+        let nodes = ["Tester".to_owned(), "Hotel".to_owned()];
+        assert!(observer_refuses(true, &nodes, "hOTEL"));
+        assert!(!observer_refuses(true, &nodes, "Tanya"), "outsiders pass");
+        assert!(!observer_refuses(false, &nodes, "Hotel"), "players pass");
     }
 
     #[test]

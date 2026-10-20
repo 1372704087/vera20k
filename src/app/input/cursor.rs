@@ -79,6 +79,12 @@ impl CursorVisibility {
 }
 
 pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFeedbackKind> {
+    // State_Machine entry (`StateMachine__EnterPause` 0x00683EB0) sets the
+    // normal arrow (`SetCursor(0)`) for the whole modal; the in-match 0xCF
+    // shows it over the battlefield.
+    if state.match_state.match_presentation.in_game_menu.is_open() {
+        return None;
+    }
     // A right-drag pan owns the cursor for as long as it owns the camera, and it
     // is tested first because native gates the cursor write and the edge-scroll
     // block inside the same `capture == 0` else-arm of

@@ -109,7 +109,7 @@ pub(super) fn clear_guest_acceptance(state: &mut AppState) -> anyhow::Result<()>
     Ok(())
 }
 
-/// `CChatEventSink+0x5C` OnGameStart (`0x7A7C80`) for host and guest. A
+/// `CChatEventSink+0x5C` OnGameStart (`0x7A7B60`) for host and guest. A
 /// user list that differs from the local one clears the pending start (the
 /// host may Start again); a match closes the setup and runs Start Game Now
 /// (`0x794BA0`), whose timing block decides MaxAhead.
@@ -118,6 +118,15 @@ pub(super) fn game_started(
     users: Vec<WolStartUser>,
     pings: [i32; 8],
 ) -> anyhow::Result<()> {
+    // 0x7A7B82..0x7A7B9E: the page reply window restarts with no time.
+    let now = crate::ui::wol_page::reply_window_now(
+        crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+    );
+    state
+        .frontend
+        .wol_lobby_globals
+        .page_reply_window
+        .arm(now, 0);
     let launch = state
         .match_state
         .session
@@ -137,6 +146,9 @@ pub(super) fn game_started(
         }
         return Ok(());
     }
+    // 0x7A7CEE..0x7A7CFC: an open 0xCF closes. (0x117 closes first in the
+    // Quick Match modes 1-3.)
+    crate::app::shell_wol::page::close_page_dialog(state);
     // 0x794F6F..: the first user row with flag bit0 is the channel owner.
     let channel_owner = users
         .iter()

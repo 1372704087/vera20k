@@ -838,6 +838,25 @@ impl ApplicationHandler for App {
                         return;
                     }
                     if in_game
+                        && state.match_state.match_presentation.in_game_menu
+                            == crate::ui::pause_menu::InGameMenuState::Page
+                    {
+                        // 0xCF's loop takes every key; Escape names nothing.
+                        // A release still drops its held key: the loop's
+                        // KeyboardClear (0x0077D861) leaves nothing latched.
+                        if event.state.is_pressed() {
+                            crate::app::shell_wol::page::key_press(
+                                state,
+                                Some(code),
+                                event.text.as_deref(),
+                            );
+                        } else {
+                            state.match_state.input.keys_held.remove(&code);
+                        }
+                        state.platform.window.request_redraw();
+                        return;
+                    }
+                    if in_game
                         && matches!(
                             state.match_state.match_presentation.in_game_menu,
                             crate::ui::pause_menu::InGameMenuState::Sound

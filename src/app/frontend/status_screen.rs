@@ -84,6 +84,7 @@ impl Buttons {
             }
             GameScreen::InGame
                 if state.match_state.match_presentation.in_game_menu.is_open()
+                    && !state.match_state.match_presentation.in_game_menu.draws_over_battlefield()
                     && !crate::app::frontend::skirmish_shell_render::native_in_game_shell_active(state) =>
             {
                 Some(if state.match_state.match_presentation.in_game_menu == InGameMenuState::AbortConfirm {

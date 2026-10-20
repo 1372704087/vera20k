@@ -589,7 +589,10 @@ impl App {
                     )?;
                 }
             }
-            GameScreen::InGame if state.match_state.match_presentation.in_game_menu.is_open() => {
+            GameScreen::InGame
+                if state.match_state.match_presentation.in_game_menu.is_open()
+                    && !state.match_state.match_presentation.in_game_menu.draws_over_battlefield() =>
+            {
                 let abort = state.match_state.match_presentation.in_game_menu
                     == crate::ui::pause_menu::InGameMenuState::AbortConfirm;
                 crate::app::frontend::status_screen::render(

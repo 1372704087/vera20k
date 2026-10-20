@@ -2011,7 +2011,7 @@ pub(crate) use lan_lobby::render_lan_lobby;
 pub(crate) use wol_lobby::{WolLobbyPaint, paint_wol_lobby_children, paint_wol_lobby_popup};
 pub(crate) use wol_login::{paint_wol_login_children, wol_button_label_rgb};
 pub(crate) use wol_options::{paint_shell_sound_children, paint_wol_options_children};
-pub(crate) use wol_page::{paint_wol_page_dialog, paint_wol_page_received};
+pub(crate) use wol_page::{in_match_page_draw, paint_wol_page_dialog, paint_wol_page_received};
 pub(crate) use wol_persona::{paint_wol_auto_login_children, paint_wol_locale_children};
 mod multiplayer_setup;
 pub(crate) use keyboard::render_keyboard_shell;

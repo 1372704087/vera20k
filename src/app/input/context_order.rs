@@ -1790,6 +1790,41 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 _ => false,
             };
 
+        // Each selected building answers its own What_Action in the click
+        // loops (`0x004AE829..0x004AE85A` over an object, `0x004AE95B..0x004AE990`
+        // on a Cell). Beside mobile receivers, theirs decide the release below.
+        let clicked_object = hover
+            .as_ref()
+            .filter(|target| target.kind != HoverTargetKind::HiddenEnemy)
+            .map(|target| target.stable_id);
+        let guard_area_over_ally = modifier == OrderModifier::GuardArea
+            && hover.as_ref().is_some_and(|target| {
+                matches!(
+                    target.kind,
+                    HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
+                )
+            });
+        if structure_selected && mobile_count > 0 {
+            let (orders, announce) = building_click_orders(
+                sim,
+                &resources.rules,
+                Some(&resources.overlay_registry),
+                &selected_ids,
+                owner_id,
+                clicked_object,
+                (target_rx, target_ry),
+                shift_click,
+                force_move_key,
+                guard_area_over_ally,
+            );
+            queued.extend(
+                orders
+                    .into_iter()
+                    .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
+            );
+            rally_announce |= announce;
+        }
+
         if clicked_friendly_refinery && only_miners_selected {
             for stable_id in entering_miners {
                 queued.push(CommandEnvelope::new(
@@ -1846,7 +1881,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     ));
                 }
             }
-        } else if structure_selected {
+        } else if structure_selected && mobile_count == 0 {
             let clicked_friendly = hover.as_ref().is_some_and(|target| {
                 matches!(
                     target.kind,
@@ -1872,50 +1907,40 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     false
                 };
             }
-            {
-                let (orders, announce) = building_cell_orders(
+            if let Some(target_id) = clicked_object {
+                match building_object_release(
                     sim,
                     &resources.rules,
+                    &resources.overlay_registry,
+                    &current_objects,
                     &selected_ids,
-                    owner_id,
-                    (target_rx, target_ry),
-                );
-                queued.extend(
-                    orders
-                        .into_iter()
-                        .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
-                );
-                rally_announce |= announce;
-                // Also issue Move commands for any mobile units in the
-                // selection — RA2 moves units AND sets rally when both
-                // are selected.
-                if mobile_count > 0 {
-                    for &stable_id in &selected_units {
-                        // Each mobile resolves the clicked cell through its
-                        // own 4DE1D0 receiver, as for an ordinary Move click.
-                        let Some(goal) = crate::app::input::commands::ordinary_cell_move_goal(
-                            sim,
-                            &resources.rules,
-                            Some(&resources.overlay_registry),
-                            owner_id,
-                            stable_id,
-                            (target_rx, target_ry),
-                            shift_click,
-                        ) else {
-                            continue;
-                        };
-                        queued.push(CommandEnvelope::new(
-                            owner_id,
-                            execute_tick,
-                            Command::Move {
-                                entity_id: stable_id,
-                                target_rx: goal.0,
-                                target_ry: goal.1,
-                            },
-                        ));
-                    }
+                    target_id,
+                    force_fire,
+                    force_move_key,
+                ) {
+                    LeftRelease::Select => return false,
+                    LeftRelease::Nothing => return true,
+                    LeftRelease::Dispatch => {}
                 }
             }
+            let (orders, announce) = building_click_orders(
+                sim,
+                &resources.rules,
+                Some(&resources.overlay_registry),
+                &selected_ids,
+                owner_id,
+                clicked_object,
+                (target_rx, target_ry),
+                shift_click,
+                force_move_key,
+                guard_area_over_ally,
+            );
+            queued.extend(
+                orders
+                    .into_iter()
+                    .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
+            );
+            rally_announce |= announce;
         } else {
             // Unforced late infiltration follows the garrison/C4 prefixes.
             // Forced Attack uses the same suffix in attack_branch_orders.
@@ -2176,11 +2201,13 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     modifier,
                     OrderModifier::Normal | OrderModifier::AttackMove | OrderModifier::ForceFire
                 ) {
+                    // A selected building is a receiver as well: when it
+                    // owns the cursor, its own answer decides the release.
                     match object_click_release(
                         sim,
                         &resources.rules,
                         &current_objects,
-                        &selected_units,
+                        &selected_ids,
                         target_id,
                         &resources.overlay_registry,
                         modifier == OrderModifier::ForceFire,
@@ -2962,12 +2989,21 @@ fn shot_is_illegal(
 /// Building4436F0(1/6, cell): prepare archive event1E, then SELL16 for an
 /// UndeploysInto type. A failed FNPC emits no archive but still queues SELL,
 /// retaining an earlier archive. A factory announces only its queued rally.
+/// Each building's own What_Action on the Cell decides first
+/// ([`crate::sim::world::Simulation::building_cell_move_action`], asked by
+/// the click loop `0x004AE974`): Active_Click_With_Cell has no arm for its
+/// NoMove (`0x0044372F..0x00443737`), so a Construction Yard over a Cell it
+/// may not stand on neither archives nor packs up. A query the sim cannot
+/// answer (no map cells) keeps Move: VERA-internal, as a live gamemd session
+/// always has a map.
 fn building_cell_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     selected: &[u64],
     owner: InternedId,
     cell: (u16, u16),
+    shift: bool,
 ) -> (Vec<Command>, bool) {
     let mut orders = Vec::new();
     let mut announce = false;
@@ -2979,6 +3015,12 @@ fn building_cell_orders(
         else {
             continue;
         };
+        let action = sim
+            .building_cell_move_action(owner, id, cell, shift, rules, registry)
+            .unwrap_or(crate::sim::world::MoveAction::Move);
+        if action != crate::sim::world::MoveAction::Move {
+            continue;
+        }
         match sim.factory_rally_cell_input(id, cell, rules) {
             Ok(Some((rx, ry))) => {
                 orders.push(Command::SetRally {
@@ -2993,6 +3035,159 @@ fn building_cell_orders(
         }
         if object.undeploys_into.is_some() {
             orders.push(Command::SellBuilding { entity_id: id });
+        }
+    }
+    (orders, announce)
+}
+
+/// The selected buildings' own orders for a left click: over an object
+/// ([`building_object_orders`]) or on a Cell ([`building_cell_orders`]).
+#[allow(clippy::too_many_arguments)]
+fn building_click_orders(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    selected: &[u64],
+    owner: InternedId,
+    clicked_object: Option<u64>,
+    cell: (u16, u16),
+    shift: bool,
+    force_move_key: bool,
+    guard_area_over_ally: bool,
+) -> (Vec<Command>, bool) {
+    match clicked_object {
+        // Ctrl+Alt's 0x1A has no Building ClickedAction arm.
+        Some(_) if guard_area_over_ally => (Vec::new(), false),
+        Some(target) => building_object_orders(sim, rules, selected, target, force_move_key),
+        None => building_cell_orders(sim, rules, registry, selected, owner, cell, shift),
+    }
+}
+
+/// Whether Techno What_Action over an object (`0x006FFEC0`) answers on its
+/// force-move rungs for the selected building `id`: the force-move key held
+/// (`0x0070000E..0x0070003D`), a human player's building, and one the player
+/// may order (vt+0xA0). Over the player's own or an allied object Ctrl+Alt
+/// answers 0x1A (`0x00700191..0x007001E7`), otherwise Move
+/// (`0x007001E9..0x00700217`). Without them Building What_Action_OnObject
+/// (`0x00447210`) is left with the attack rung or the Techno tail's Select
+/// or 0 ([`attack_action`]), so a plain click over an object never rallies
+/// or packs a building up: Building ClickedAction_Object (`0x00443410`)
+/// sends neither for those.
+fn building_moves_over_object(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    id: u64,
+    force_move_key: bool,
+) -> bool {
+    force_move_key
+        && sim
+            .entities()
+            .get(id)
+            .is_some_and(|building| sim.house_is_human_player(building.owner()))
+        && sim.techno_player_controllable(id, rules)
+}
+
+/// The left release over an object for a selection of buildings only: the
+/// action of the object that owns the cursor ([`cursor_owner`]). A force-move
+/// rung dispatches ([`building_moves_over_object`]); any other answer is
+/// [`object_click_release`]'s, so an unarmed factory or Construction Yard
+/// selects the object as DisplayClass does for Select (`0x004ABDD3`).
+#[allow(clippy::too_many_arguments)]
+fn building_object_release(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
+    current_objects: &[u64],
+    receivers: &[u64],
+    target_id: u64,
+    forced: bool,
+    force_move_key: bool,
+) -> LeftRelease {
+    if cursor_owner(sim, rules, current_objects, target_id).is_some_and(|best| {
+        receivers.contains(&best) && building_moves_over_object(sim, rules, best, force_move_key)
+    }) {
+        return LeftRelease::Dispatch;
+    }
+    object_click_release(
+        sim,
+        rules,
+        current_objects,
+        receivers,
+        target_id,
+        overlay_registry,
+        forced,
+    )
+}
+
+/// Building ClickedAction_Object (`0x00443410`) for each selected building
+/// whose action over `target` is Move ([`building_moves_over_object`]). An
+/// Infantry, Unit or Aircraft factory (Type+0xEB8, `0x0044361B..0x0044363A`)
+/// sets its rally point from the Cell under the object's GetCoords
+/// (`0x0044368D..0x004436D8`, Building443860, [`Simulation::factory_rally_cell_input`]).
+/// Any other building, a Construction Yard among them, archives the object
+/// (event 0x1E, `0x0044363C..0x00443688`) and never packs up.
+///
+/// RESIDUAL: Building What_Action_OnObject's NoMove rungs for a ground
+/// factory (`0x0044748E..0x0044750B`) are not asked: IsInSameZoneAsCoords
+/// (vt+0x2CC, `0x00707F60`) toward the object's Cell, then that Cell's zone
+/// type (`+0x4C`) when it has no high bridge (`+0x140 & 0x100`). Trigger:
+/// Alt+click over an object with a war factory or barracks selected. Effect:
+/// VERA sets a rally native refuses (an object on a building or across
+/// water), and the cursor shows Move for native's NoMove. Rare.
+///
+/// RESIDUAL: the non-factory's archive of the object is not sent. A later
+/// ground click archives its Cell first (`0x004436F0`), so the object is read
+/// only if that click's rally search finds no Cell. Not player-visible
+/// otherwise.
+///
+/// [`Simulation::factory_rally_cell_input`]: crate::sim::world::Simulation::factory_rally_cell_input
+fn building_object_orders(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    selected: &[u64],
+    target: u64,
+    force_move_key: bool,
+) -> (Vec<Command>, bool) {
+    use crate::rules::object_type::FactoryType;
+    let Some(cell) = sim.entities().get(target).map(|object| {
+        let coords = crate::sim::movement::ground_pose::object_get_coords(
+            object,
+            sim.resolved_terrain.as_ref(),
+        );
+        ((coords.x / 256) as u16, (coords.y / 256) as u16)
+    }) else {
+        return (Vec::new(), false);
+    };
+    let mut orders = Vec::new();
+    let mut announce = false;
+    for &id in selected {
+        let Some(object) = sim
+            .entities()
+            .get(id)
+            .filter(|building| building.category() == EntityCategory::Structure)
+            .and_then(|building| sim.interner.object_type(building.type_ref(), rules))
+        else {
+            continue;
+        };
+        if !building_moves_over_object(sim, rules, id, force_move_key)
+            || !matches!(
+                object.factory_type(),
+                Some(FactoryType::InfantryType | FactoryType::UnitType | FactoryType::AircraftType)
+            )
+        {
+            continue;
+        }
+        match sim.factory_rally_cell_input(id, cell, rules) {
+            Ok(Some((rx, ry))) => {
+                orders.push(Command::SetRally {
+                    rx,
+                    ry,
+                    producer_ids: vec![id],
+                });
+                announce |= crate::app::match_runtime::eva_producers::rally_point_announces(object);
+            }
+            Ok(None) => {}
+            Err(error) => log::warn!("building object input: {error}"),
         }
     }
     (orders, announce)
@@ -3767,8 +3962,15 @@ mod tests {
             .spawn_object("REFN", "Russians", 17, 15, 0, &rules)
             .unwrap();
         let owner = sim.interner.get("Americans").unwrap();
-        let (orders, announce) =
-            building_cell_orders(&sim, &rules, &[refinery, enemy, refinery], owner, (17, 16));
+        let (orders, announce) = building_cell_orders(
+            &sim,
+            &rules,
+            None,
+            &[refinery, enemy, refinery],
+            owner,
+            (17, 16),
+            false,
+        );
         assert!(
             matches!(orders.as_slice(), [Command::SetRally { producer_ids, .. },
             Command::SellBuilding { entity_id }] if producer_ids == &[refinery] && *entity_id == refinery)
@@ -3787,7 +3989,8 @@ mod tests {
         );
         // A missing input map cannot produce an archive;4437AD still queues SELL.
         sim.resolved_terrain = None;
-        let (orders, _) = building_cell_orders(&sim, &rules, &[refinery], owner, (17, 16));
+        let (orders, _) =
+            building_cell_orders(&sim, &rules, None, &[refinery], owner, (17, 16), false);
         assert_eq!(
             orders,
             [Command::SellBuilding {

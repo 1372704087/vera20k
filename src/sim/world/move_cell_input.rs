@@ -190,6 +190,85 @@ impl Simulation {
         Ok(action)
     }
 
+    /// What_Action on a Cell (vt+0x70) for a Building, in the rungs a Move
+    /// click reaches: `BuildingClass::What_Action_OnCell @ 0x00447540` around
+    /// Techno `0x00700600`. The cursor and the click both ask it.
+    ///
+    /// In order:
+    /// - a building [`Self::takes_rally_point`] refuses for `viewer` answers
+    ///   0: another House's, or one the player cannot order (Techno
+    ///   `0x00700ACE`, Building `0x00447617..0x0044762A`);
+    /// - a rally-line type (vt+0x284, `0x00455DA0`) answers Move, whatever
+    ///   rung Techno reached (`0x0044774B..0x00447768`);
+    /// - an UndeploysInto type asks Techno without the mouse-over argument
+    ///   (`0x004475A0`), so the cursor's query and the click's agree: NoMove
+    ///   outside the playfield (`0x00700AF6`), Move for `shift`
+    ///   (`0x00700B03`), then its own Can_Enter_Cell
+    ///   ([`Self::building_can_enter`], `0x00700B5F..0x00700B7E`). 0 answers
+    ///   Move. 7 answers NoMove, unless the unit it undeploys into is a
+    ///   `ResourceGatherer=` (TechnoType+0x5EC, `0x00700B84..0x00700BB4`): the
+    ///   Slave Miner's yard always answers Move. The Subterranean second probe
+    ///   (`0x00700BD1..0x00700C06`) repeats the answer, since Building's
+    ///   Can_Enter_Cell reads no other argument.
+    ///
+    /// Callers ask the attack rungs first ([`Self::cell_attack_rung_admits`]).
+    /// The cursor answers the Harvest 6 over mapped Tiberium
+    /// (`0x00447563..0x004475EE`), which the click treats as Move
+    /// (`0x004436F0`). InvisibleInGame's 0 (`0x0044754B`) is not modelled: no
+    /// retail type with a rally line or UndeploysInto sets it.
+    pub fn building_cell_move_action(
+        &self,
+        viewer: InternedId,
+        id: u64,
+        cell: (u16, u16),
+        shift: bool,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+    ) -> Result<MoveAction, String> {
+        if !self.takes_rally_point(id, self.interner.resolve(viewer), rules) {
+            return Ok(MoveAction::None);
+        }
+        let entity = self
+            .substrate
+            .entities
+            .get(id)
+            .ok_or("What_Action receiver disappeared")?;
+        let object = self
+            .interner
+            .object_type(entity.type_ref(), rules)
+            .ok_or("What_Action receiver lacks its type")?;
+        if object.has_rally_line() {
+            return Ok(MoveAction::Move);
+        }
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .ok_or("What_Action needs map cells")?;
+        let cells = NativeCellQuery::isolated(terrain);
+        let clicked = (cell.0 as i16, cell.1 as i16);
+        if !cell_is_in_playfield_height_aware_in_query(
+            (i32::from(clicked.0), i32::from(clicked.1)),
+            self.playfield_bounds,
+            Some(terrain),
+            Some(&cells),
+        ) {
+            return Ok(MoveAction::NoMove);
+        }
+        if shift || self.building_can_enter(id, clicked, rules, registry)? <= 1 {
+            return Ok(MoveAction::Move);
+        }
+        let gatherer = object
+            .undeploys_into
+            .as_deref()
+            .and_then(|unit| rules.object(unit))
+            .is_some_and(|unit| unit.resource_gatherer);
+        Ok(if gatherer {
+            MoveAction::Move
+        } else {
+            MoveAction::NoMove
+        })
+    }
+
     /// Whether Techno What_Action on a Cell (`0x00700600`) reaches its
     /// unforced Attack rung for `id` (`0x007008A6..0x007009F1`). The caller
     /// then resolves that rung's tail (vt+0xA0 or InRange, answering 5) the

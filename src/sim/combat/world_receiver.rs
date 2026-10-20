@@ -272,6 +272,7 @@ pub(crate) fn apply_area_damage_in_run(
         origin,
     );
     let mut effects = DeathEffects::default();
+    #[cfg(test)]
     append_fixture_tiberium(world, &mut effects.tiberium_reduction_requests);
     #[cfg(any(test, feature = "test-support"))]
     effects.wall_mutations.extend(area.aoe.wall_mutations);
@@ -2357,6 +2358,7 @@ fn emit_detonation_receivers<'r>(
                     detonation.payload.warhead,
                 ),
             );
+            #[cfg(test)]
             append_fixture_tiberium(world, &mut out.effects.tiberium_reduction_requests);
             #[cfg(any(test, feature = "test-support"))]
             out.effects.wall_mutations.extend(area.aoe.wall_mutations);
@@ -2840,11 +2842,10 @@ pub(super) fn radiation_enabled(_world: &Simulation) -> bool {
     true
 }
 
-#[inline]
-fn append_fixture_tiberium(_world: &mut Simulation, _out: &mut Vec<TiberiumReductionRequest>) {
-    #[cfg(test)]
-    if let Some(fixture) = _world.receiver_fixture.as_mut() {
-        _out.append(&mut fixture.deferred_tiberium);
+#[cfg(test)]
+fn append_fixture_tiberium(world: &mut Simulation, out: &mut Vec<TiberiumReductionRequest>) {
+    if let Some(fixture) = world.receiver_fixture.as_mut() {
+        out.append(&mut fixture.deferred_tiberium);
     }
 }
 

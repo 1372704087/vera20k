@@ -20,8 +20,8 @@ mod test_service;
 
 pub(crate) use login::{combo_popup, login_layout, open_login_art};
 pub(crate) use service::{
-    WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList, WolServiceEvent,
-    WolServiceRequest, service_event,
+    NET_STATUS_LOST, WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList,
+    WolServiceEvent, WolServiceRequest, service_event,
 };
 
 /// The wait box's reveal timer and the login drop list's scroll repeats;
@@ -158,6 +158,28 @@ pub(crate) struct WolVisit {
     motd: Option<String>,
     /// `[0xB77E30]`: the last user who paged us, the `/reply` target.
     last_pager: Option<String>,
+    /// `[0xB77DC1]`: a WOL match runs. Set when the runner hands over to
+    /// the match and cleared on runner entry (`0x00787973`); the chat sinks
+    /// show nothing while it is set.
+    in_game: bool,
+    /// `![0xB77DC0]`: connected to a server. A WOLAPI creation
+    /// (`0x00786485`) and a failed login clear it, a connect sets it, and a
+    /// lost connection outside a match clears it.
+    connected: bool,
+    /// `[0xB77DC2]`: the connection was lost. The next runner entry logs in
+    /// again (`0x007879B6`); a successful login clears it (`0x007A559D`).
+    disconnected: bool,
+    /// A re-login on runner entry is running; it continues that runner,
+    /// post-match or not. A failed login ends the runner instead.
+    relogin: Option<bool>,
+    /// `[0xB76E28]`: the name the last locate (`0x0078A470`) asked for; the
+    /// find sink formats its answer with it and clears it.
+    locate_name: Option<String>,
+    /// The ladder table `[0xB77E0C]` (`0xB77D80` outside mode 3) and the
+    /// locale table `0xB76530`, keyed by the ASCII-lowered name the tooltip
+    /// `0x00780A90` looks up with (`0x007B5B30`). `0x00780110` clears both.
+    ladder_ranks: std::collections::HashMap<String, i32>,
+    locales: std::collections::HashMap<String, i32>,
     /// The custom lobby runner; kept hidden while C2/C9 run over it.
     lobby: Option<Box<lobby::WolLobby>>,
     /// A chat lobby was joined earlier in this visit: the picker passes
@@ -184,6 +206,13 @@ impl WolVisit {
             last_login_result: None,
             motd: None,
             last_pager: None,
+            in_game: false,
+            connected: false,
+            disconnected: false,
+            relogin: None,
+            locate_name: None,
+            ladder_ranks: Default::default(),
+            locales: Default::default(),
             lobby: None,
             lobby_joined_before: false,
         }
@@ -258,6 +287,23 @@ impl WolVisit {
 /// `[0xB77E30]`, the `/reply` target of every WOL chat edit.
 pub(crate) fn last_pager(state: &AppState) -> Option<&str> {
     state.frontend.wol.as_ref()?.last_pager.as_deref()
+}
+
+/// A WOL chat edit sent `line`: a locate (`0x0078A470`) keeps its name in
+/// `[0xB76E28]` for the find sink.
+pub(crate) fn chat_sent(state: &mut AppState, line: &crate::ui::wol_chat::WolChatLine) {
+    if let crate::ui::wol_chat::WolChatLine::Locate { name } = line
+        && let Some(visit) = state.frontend.wol.as_mut()
+    {
+        visit.locate_name = Some(String::from_utf16_lossy(name));
+    }
+}
+
+/// The runner handed over to a WOL match (`[0xB77DC1]` set).
+pub(crate) fn match_started(state: &mut AppState) {
+    if let Some(visit) = state.frontend.wol.as_mut() {
+        visit.in_game = true;
+    }
 }
 
 /// The custom lobby runner `0x00787770` entered after a successful login or
@@ -589,6 +635,7 @@ impl App {
         };
         visit.mode = None;
         visit.status_help = None;
+        visit.relogin = None;
         visit.page = WolPage::Welcome;
         // The mode-loop pass (0x0077B402) before the welcome runs.
         apply_wol_preferences(state);

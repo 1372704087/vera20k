@@ -469,11 +469,6 @@ pub enum PlacementEvidence {
     RejectedEarly,
     MarkFailed,
     MarkSucceeded,
-    /// BuildingClass map-reader upgrade construction reaches virtual Unlimbo
-    /// at the host coordinate, but the distinct upgrade object attaches to its
-    /// parent rather than competing for the parent's footprint. Native:
-    /// `BuildingClass::ReadFromINI @ 0x0044F820`, call at `0x0044FDB9`.
-    AttachedUpgrade,
     /// Run the modeled `ObjectClass::Reveal @ 0x005F4EC0` playfield admission
     /// and Mark(PUT) transaction. Production Unit Unlimbo uses this after its
     /// class-specific exact-zero CanEnter admission; fixed/runtime constructors
@@ -588,7 +583,9 @@ const NULL_TARGET_CELL_SENTINEL: (i16, i16) = (0, 0);
 /// would overflow and return `None`. No retail map approaches that bound.
 /// Native's own guard against a bad coordinate is the (0, 0) sentinel, checked
 /// at the callback instead, so this arm is not the sentinel's analogue.
-fn object_get_coords_cell(entity: &crate::sim::game_entity::GameEntity) -> Option<(u16, u16)> {
+pub(super) fn object_get_coords_cell(
+    entity: &crate::sim::game_entity::GameEntity,
+) -> Option<(u16, u16)> {
     let [world_x, world_y] = crate::sim::movement::ground_pose::object_center_xy(entity);
     Some((
         u16::try_from(crate::util::lepton::lepton_to_cell(world_x)).ok()?,
@@ -740,6 +737,11 @@ pub enum LifecycleOutput {
     },
     /// ObjectDtor5F3D56 detaches; its fading registry entry remains alive.
     LineTrailDetached {
+        stable_id: u64,
+    },
+    /// ObjectDetachAll5F52EF..5F5306 hands the follow camera back when it
+    /// follows this object, whatever the argument and the Deselect gate.
+    FollowReleased {
         stable_id: u64,
     },
     /// DispatchPointerExpired7258D0 reaches navigation733160 at7259B1
@@ -1178,11 +1180,6 @@ impl Simulation {
         if entity.lifecycle.cell_marked || request.placement == PlacementEvidence::RejectedEarly {
             return RevealOutcome::Failed(RevealFailure::RejectedEarly);
         }
-        if request.placement == PlacementEvidence::AttachedUpgrade
-            && entity.structure_upgrade_link().is_none()
-        {
-            return RevealOutcome::Failed(RevealFailure::RejectedEarly);
-        }
         if request.placement == PlacementEvidence::EvaluateMark
             && !self.object_placement_scope_active()
             && !self.reveal_position_is_in_playfield(request.position, context)
@@ -1235,14 +1232,11 @@ impl Simulation {
             return RevealOutcome::Failed(RevealFailure::MarkFailed);
         }
 
-        let attached_upgrade = request.placement == PlacementEvidence::AttachedUpgrade;
-        if !attached_upgrade {
-            if !self.mark_entity_put(stable_id, context) {
-                if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                    entity.lifecycle.in_limbo = true;
-                }
-                return RevealOutcome::Failed(RevealFailure::MarkFailed);
+        if !self.mark_entity_put(stable_id, context) {
+            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                entity.lifecycle.in_limbo = true;
             }
+            return RevealOutcome::Failed(RevealFailure::MarkFailed);
         }
         // Techno6F6CB1 calls Object Unlimbo, and its failed return6F6CB8
         // precedes the +3D5 establishment at6F6CFE. Failed Mark retains the
@@ -1298,8 +1292,7 @@ impl Simulation {
         // idle mission, or a placed building's queued Construction. An
         // upgrade's Unlimbo attaches its type to the host and returns
         // (0x00440A1C..0x00440A2F) before TechnoClass::Unlimbo.
-        if !attached_upgrade
-            && let Some(rules) = context.rules
+        if let Some(rules) = context.rules
             && techno_alive_on_entry
         {
             #[cfg(any(test, feature = "test-support"))]
@@ -1522,69 +1515,67 @@ impl Simulation {
                 logic_registered: false,
             };
         }
-        if !attached_upgrade {
-            Self::mark_ai_repairable_at_unlimbo(
-                &self.session,
-                &mut self.substrate,
-                &self.houses,
-                stable_id,
-            );
-            // Building440D07: recompute from the PRE-append House+68. Failed
-            // Mark and the earlier dead/attached-upgrade arms never reach it.
-            if let Some(rules) = context.rules
-                && let Some(owner) = self
-                    .substrate
-                    .entities
-                    .get(stable_id)
-                    .filter(|entity| entity.category() == EntityCategory::Structure)
-                    .map(|entity| entity.owner())
-            {
-                self.recalculate_house_base_geometry(owner, rules);
-            }
-            // Building440D13: IncrementFactoryCount right after it.
-            Self::update_house_tracking(
-                &mut self.substrate,
-                &mut self.houses,
-                stable_id,
-                |tracking, entity| tracking.increment_factory_count(entity),
-            );
-            // Building440D1E, after IncrementFactoryCount and before +544.
-            if let Some(owner) = self
+        Self::mark_ai_repairable_at_unlimbo(
+            &self.session,
+            &mut self.substrate,
+            &self.houses,
+            stable_id,
+        );
+        // Building440D07: recompute from the PRE-append House+68. Failed
+        // Mark and the earlier dead arms never reach it.
+        if let Some(rules) = context.rules
+            && let Some(owner) = self
                 .substrate
                 .entities
                 .get(stable_id)
                 .filter(|entity| entity.category() == EntityCategory::Structure)
                 .map(|entity| entity.owner())
-            {
-                self.houses.request_house_tech_tree_recheck(owner);
-            }
-            self.append_live_build_const(stable_id);
-            Self::append_house_base_building(&self.substrate, &mut self.houses, stable_id);
-            if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
-                // Building440D2D, after native House building registration.
-                entity.reset_building_health_sample_at_unlimbo();
-            }
-            self.refresh_waypoint_edge_from_committed_structure(stable_id);
-            self.mark_building_base_reservation_with_arg(stable_id, false, context);
-            self.discover_building_owner_after_unlimbo(stable_id, context);
-            self.construct_spotlight(stable_id, context.rules());
-            if let Some(rules) = context.rules() {
-                // Unlimbo44119C clears this object's retained primary before
-                //448070 asks the owning house for another live primary.
-                self.production.clear_primary_factory(stable_id);
-                crate::sim::production::initialize_factory_primary(
-                    &self.interner,
-                    &mut self.production,
-                    &self.substrate,
-                    &self.houses,
-                    stable_id,
-                    rules,
-                );
-            }
-            //440E76's virtual discovery precedes the successful BasePlan
-            // tail at44159D..4415B3, including a reached first opening.
-            self.fill_base_plan_from_successful_building_unlimbo(stable_id);
+        {
+            self.recalculate_house_base_geometry(owner, rules);
         }
+        // Building440D13: IncrementFactoryCount right after it.
+        Self::update_house_tracking(
+            &mut self.substrate,
+            &mut self.houses,
+            stable_id,
+            |tracking, entity| tracking.increment_factory_count(entity),
+        );
+        // Building440D1E, after IncrementFactoryCount and before +544.
+        if let Some(owner) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .filter(|entity| entity.category() == EntityCategory::Structure)
+            .map(|entity| entity.owner())
+        {
+            self.houses.request_house_tech_tree_recheck(owner);
+        }
+        self.append_live_build_const(stable_id);
+        Self::append_house_base_building(&self.substrate, &mut self.houses, stable_id);
+        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+            // Building440D2D, after native House building registration.
+            entity.reset_building_health_sample_at_unlimbo();
+        }
+        self.refresh_waypoint_edge_from_committed_structure(stable_id);
+        self.mark_building_base_reservation_with_arg(stable_id, false, context);
+        self.discover_building_owner_after_unlimbo(stable_id, context);
+        self.construct_spotlight(stable_id, context.rules());
+        if let Some(rules) = context.rules() {
+            // Unlimbo44119C clears this object's retained primary before
+            //448070 asks the owning house for another live primary.
+            self.production.clear_primary_factory(stable_id);
+            crate::sim::production::initialize_factory_primary(
+                &self.interner,
+                &mut self.production,
+                &self.substrate,
+                &self.houses,
+                stable_id,
+                rules,
+            );
+        }
+        //440E76's virtual discovery precedes the successful BasePlan
+        // tail at44159D..4415B3, including a reached first opening.
+        self.fill_base_plan_from_successful_building_unlimbo(stable_id);
         Self::submit_entity_display(
             &self.interner,
             &self.terrain_objects,
@@ -1605,9 +1596,8 @@ impl Simulation {
             false
         };
         // Building4415D8: successful normal Unlimbo after opening/base-plan.
-        // The early dead/failed/attached-upgrade paths do not reach this call.
-        if !attached_upgrade
-            && let Some(rules) = context.rules()
+        // The early dead/failed paths do not reach this call.
+        if let Some(rules) = context.rules()
             && let Some((owner, category)) = self
                 .substrate
                 .entities
@@ -3902,25 +3892,70 @@ impl Simulation {
         }
     }
 
-    /// `ObjectClass::Detach_All(true)` (vtable `+0xDC`) as the exact-zero
-    /// Destroy callback of `ObjectClass::ReceiveDamage` (`0x005F5765..0x005F57AF`):
-    /// every killing hit runs it after the kill callback, before TechnoClass's
-    /// death arm. The class prelude comes first: `BuildingClass::Detach_All
-    /// @ 0x0044EBF0` sends RADIO OVER_OUT to every contact, and
-    /// `FootClass::Detach_All @ 0x004D9720` to contact 0. `ObjectClass::
-    /// Detach_All @ 0x005F5280` then deselects and announces the expiry
-    /// (`0x007258D0`), leaving Logic, occupancy and liveness intact.
+    /// `Detach_All(all)` (vtable `+0xDC`): the class prelude, then
+    /// `ObjectClass::Detach_All @ 0x005F5280`'s Deselect and its expiry
+    /// announcement (`DispatchPointerExpiredCleanup @ 0x007258D0` with `all`
+    /// as the control), leaving Logic, occupancy and liveness intact.
     ///
-    /// The Building production prelude shares the same44EBF0 owner as
-    /// Conceal: abandon the separate Building Factory, temporarily exclude
-    /// the building, and cancel the House product only without an alternative.
-    /// Foot removes the team at4D9744 before its radio contact.
-    pub(crate) fn object_destroy_callback(&mut self, stable_id: u64, context: UninitContext<'_>) {
-        let Some(category) = self.substrate.entities.get(stable_id).map(|e| e.category()) else {
+    /// Callers:
+    /// * `all`: the exact-zero Destroy callback of `ObjectClass::ReceiveDamage`
+    ///   (`0x005F5765..0x005F57AF`), after the kill callback and before
+    ///   TechnoClass's death arm, and the Stun of a living object.
+    /// * not `all`: `TechnoClass::StartCloaking @ 0x00703770` and the cloak's
+    ///   1 → 2 completion (`0x006FBA98`).
+    ///
+    /// The class prelude:
+    /// * `BuildingClass::Detach_All @ 0x0044EBF0`. With `all`, the production
+    ///   prelude it shares with Conceal: abandon the separate Building
+    ///   Factory, temporarily exclude the building, and cancel the House
+    ///   product only without an alternative. Then RADIO OVER_OUT to every
+    ///   contact. Without `all` (`0x0044EF29..0x0044EF69`), OVER_OUT to each
+    ///   contact its owner is not allied with (`HouseClass::Is_Ally_ByObject
+    ///   @ 0x004F9A90`), slot by slot.
+    /// * `FootClass::Detach_All @ 0x004D9720`. With `all`, the object leaves
+    ///   its team (`0x004D9744`) and sends OVER_OUT to contact 0. Without
+    ///   `all` (`0x004D9762..0x004D9785`), contact 0 gets OVER_OUT only when
+    ///   the owner is not allied with it.
+    ///
+    /// The Deselect (`0x005F52A8..0x005F52E9`) is unconditional with `all`.
+    /// Without it, the object stays selected when its owner is the player's
+    /// (`0x0050B6F0`, [`Self::house_is_human_player`]) or, for a Techno, the
+    /// player senses its cell (vt+0x328, [`sensor_visible_to_player`]). Then
+    /// the follow camera lets go of the object whatever the gate decided
+    /// (`0x005F52EF..0x005F5306`, [`LifecycleOutput::FollowReleased`]).
+    ///
+    /// Other `Detach_All(false)` callers, all dormant in retail: Infantry
+    /// PerCellProcess's one-cell UndeploysInto conversion (`0x00519A19`, on
+    /// the Building), the vehicle thief (`0x00520423`, `0x00741868`) and the
+    /// Tunnel locomotor (`0x00728F7B`, `0x00729465`). No retail building
+    /// undeploys into a one-cell infantryman, no type sets `VehicleThief=`
+    /// and none uses the Tunnel locomotor.
+    ///
+    /// The LineTrail teardown (`0x005F5284..0x005F529D`) has nothing to free:
+    /// VERA constructs LineTrails only for bullets (`admit_projectile`).
+    ///
+    /// [`sensor_visible_to_player`]: super::techno_ai_cloak::sensor_visible_to_player
+    pub(crate) fn detach_all(&mut self, stable_id: u64, all: bool, context: UninitContext<'_>) {
+        let Some((category, owner)) = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .map(|e| (e.category(), e.owner()))
+        else {
             return;
         };
+        let allied_with = |sim: &Self, contact: u64| {
+            sim.substrate.entities.get(contact).is_some_and(|contact| {
+                crate::sim::combat::combat_weapon::is_ally_by_object(
+                    Some(sim.house_alliances.as_map()),
+                    &sim.interner,
+                    owner,
+                    contact.owner(),
+                )
+            })
+        };
         match category {
-            EntityCategory::Structure => {
+            EntityCategory::Structure if all => {
                 // Shared BuildingDetach44EBF0 production prelude.
                 crate::sim::production::detach_building_production(
                     self,
@@ -3930,15 +3965,44 @@ impl Simulation {
                 );
                 crate::sim::radio::broadcast_break(self, stable_id, None, context.effects());
             }
+            EntityCategory::Structure => {
+                let capacity = self
+                    .substrate
+                    .entities
+                    .get(stable_id)
+                    .map_or(0, |entity| entity.radio_contacts.capacity());
+                for slot in 0..capacity {
+                    if let Some(contact) = self
+                        .substrate
+                        .entities
+                        .get(stable_id)
+                        .and_then(|entity| entity.radio_contacts.slot(slot))
+                        .filter(|&contact| !allied_with(self, contact))
+                    {
+                        crate::sim::radio::transmit(
+                            self,
+                            stable_id,
+                            contact,
+                            crate::sim::radio::RadioMessage::Break,
+                            crate::sim::radio::RadioPayload::default(),
+                            None,
+                            context.effects(),
+                        );
+                    }
+                }
+            }
             EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft => {
-                // `0x004D9744`: the Foot prelude leaves the object's team
-                // first.
-                self.leave_team(stable_id, false, context.rules(), context.effects());
+                if all {
+                    // `0x004D9744`: the Foot prelude leaves the object's team
+                    // first.
+                    self.leave_team(stable_id, false, context.rules(), context.effects());
+                }
                 if let Some(contact) = self
                     .substrate
                     .entities
                     .get(stable_id)
                     .and_then(|entity| entity.radio_contacts.slot(0))
+                    .filter(|&contact| all || !allied_with(self, contact))
                 {
                     crate::sim::radio::transmit(
                         self,
@@ -3955,15 +4019,30 @@ impl Simulation {
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyRadioBreakCompleted { stable_id });
 
-        if let Some(target) = self.substrate.entities.get_mut(stable_id) {
+        let keeps_selection = !all
+            && self
+                .substrate
+                .entities
+                .get(stable_id)
+                .is_some_and(|entity| {
+                    self.house_is_human_player(entity.owner())
+                        || super::techno_ai_cloak::sensor_visible_to_player(self, stable_id)
+                });
+        if !keeps_selection && let Some(target) = self.substrate.entities.get_mut(stable_id) {
             target.selection.deselect();
         }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyDeselected { stable_id });
+        self.lifecycle_outputs
+            .emit(LifecycleOutput::FollowReleased { stable_id });
 
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyNotifyBoundary { stable_id });
-        self.notify_pointer_expired(stable_id, context);
+        if all {
+            self.notify_pointer_expired(stable_id, context);
+        } else {
+            self.announce_detach_all(stable_id, context);
+        }
     }
 
     /// The Building NowDead contact loop (`BuildingClass::ReceiveDamage`,
@@ -4219,7 +4298,7 @@ impl Simulation {
             .get(stable_id)
             .is_some_and(|entity| entity.health.current() != 0)
         {
-            self.object_destroy_callback(stable_id, context);
+            self.detach_all(stable_id, true, context);
         }
         if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
             entity.selection.deselect();
@@ -4996,13 +5075,11 @@ impl Simulation {
         self.broadcast_pointer_expired(expired_id, PointerExpiryControl::Uninit, context);
     }
 
-    /// `ObjectClass::Detach_All(false)` — the vtable `+0xDC` call
-    /// `TechnoClass::StartCloaking @ 0x00703770` makes before it writes any
-    /// cloak state, and again from the `CloakState 1 -> 2` completion arm of
-    /// `TechnoClass::CloakingTick @ 0x006FB740` (`0x006FBA98`). Both reach
-    /// `DispatchPointerExpiredCleanup @ 0x007258D0` with control **0**, which
-    /// runs the same `TechnoClass::PointerExpired` body as the UnInit path over
-    /// the same registered-object roster. The detaching object survives, so no
+    /// `DispatchPointerExpiredCleanup @ 0x007258D0` with control **0**, as
+    /// `FootClass::Crash` calls it directly (`0x004DED4F`). `Detach_All(false)`
+    /// ([`Self::detach_all`]) ends with the same announcement. It runs the same
+    /// `TechnoClass::PointerExpired` body as the UnInit path over the same
+    /// registered-object roster. The detaching object survives, so no
     /// House-side BuildConst removal happens here.
     ///
     /// **The non-Techno listeners on that roster are control-INSENSITIVE**, read
@@ -5035,14 +5112,17 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
-        if !self.substrate.entities.contains(expired_id) {
-            return;
-        }
-        self.broadcast_pointer_expired(
+        self.announce_detach_all(
             expired_id,
-            PointerExpiryControl::DetachAll,
             UninitContext::new(Some(rules), registry).with_effects(effects),
         );
+    }
+
+    /// [`Self::detach_all_pointer_expired`] under a caller's context.
+    fn announce_detach_all(&mut self, expired_id: u64, context: UninitContext<'_>) {
+        if self.substrate.entities.contains(expired_id) {
+            self.broadcast_pointer_expired(expired_id, PointerExpiryControl::DetachAll, context);
+        }
     }
 
     /// Teleport Process7193CC..7193F4 calls Bullet::LoseTarget468430 on every

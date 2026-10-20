@@ -746,11 +746,15 @@ impl ReadyFactoryObject {
     }
 
     /// Factory::CompletedProduction4CA1A0 precedes the placed object's radio C.
-    pub(super) fn complete_placement(&self, sim: &mut Simulation) {
-        sim.production.factories_mut().complete_production(
+    pub(super) fn complete_placement(
+        &self,
+        production: &mut ProductionState,
+        session: &ScenarioSession,
+    ) {
+        production.factories_mut().complete_production(
             self.owner,
             self.category,
-            sim.session.binary_frame(),
+            session.binary_frame(),
         );
     }
 

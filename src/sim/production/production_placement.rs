@@ -490,7 +490,7 @@ pub(crate) fn place_production_with_overlays(
     // House4FB240..4FB252 tests RTTI, not the alive byte: the common
     // successful tail includes a temporary consumed by an upgrade or wall.
     sim.slave_manager_hand_off(new_sid, rules, effects);
-    held.complete_placement(sim);
+    held.complete_placement(&mut sim.production, &sim.session);
     crate::sim::radio::transmit(
         sim,
         new_sid,

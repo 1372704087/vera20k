@@ -914,7 +914,8 @@ impl Simulation {
                 {
                     old_house.notify_building_capture();
                 }
-                self.transfer_engineer_tag_to_building(engineer_id, building_id);
+                self.trigger_runtime
+                    .transfer_engineer_tag_to_building(engineer_id, building_id);
                 self.announce_engineer_capture(building_id, owner, rules);
                 self.change_owner_with_rules(building_id, owner, rules, registry, frame_effects);
                 if let Some(building) = self.substrate.entities.get_mut(building_id) {

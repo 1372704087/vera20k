@@ -385,7 +385,7 @@ fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
         rules.particle_type(ParticleTypeId(0)),
         &mut sim,
     );
-    sim.particle_systems_mut().insert({
+    sim.substrate.particle_systems_mut().insert({
         let mut system =
             ParticleSystem::test_fixture(stable_id, ParticleSystemTypeId(0), IVec3::ZERO);
         system.set_particles_for_test(vec![particle]);
@@ -3846,7 +3846,8 @@ fn native_frame_committed_late_gate_captures_pre_increment_frame() {
     let gate_id = sim
         .spawn_object("GAGATE_A", "Americans", 10, 10, 0, &rules)
         .expect("spawn gate");
-    sim.mission_assign_exact(gate_id, crate::sim::mission::MissionId::NONE, 0)
+    sim.substrate
+        .mission_assign_exact(gate_id, crate::sim::mission::MissionId::NONE, 0)
         .unwrap();
     sim.mission_queue_exact(
         gate_id,
@@ -3856,7 +3857,7 @@ fn native_frame_committed_late_gate_captures_pre_increment_frame() {
         &crate::sim::mission::authority::EntityReadyInputProvider,
     )
     .unwrap();
-    sim.mission_commence_exact(gate_id, 0).unwrap();
+    sim.substrate.mission_commence_exact(gate_id, 0).unwrap();
     assert_eq!(sim.session.binary_frame(), 0, "fresh sim starts at frame 0");
 
     let _ = sim.advance_tick(&[], Some(&rules), None, None, 1);
@@ -7152,7 +7153,8 @@ fn unit_route_beside_building(
         e.radio_contacts.insert(building_id);
     }
     let grid = PathGrid::clone(&sim.path_grid_snapshot().expect("navigation built"));
-    sim.mission_assign_exact(tank, MissionId::from_known(MissionType::Move), 0)
+    sim.substrate
+        .mission_assign_exact(tank, MissionId::from_known(MissionType::Move), 0)
         .unwrap();
     sim.assign_destination_represented(
         tank,

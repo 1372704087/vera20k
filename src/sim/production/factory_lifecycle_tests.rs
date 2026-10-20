@@ -720,7 +720,8 @@ fn offline_backup_preserves_paid_infantry_with_system_hold() {
         return;
     };
     let sim = &mut runtime.simulation;
-    sim.entities_mut()
+    sim.substrate
+        .entities_mut()
         .get_mut(backup)
         .unwrap()
         .set_temporal_for_test(TemporalState::warped_by_for_test(backup));
@@ -2917,7 +2918,7 @@ fn a_cancel_refunds_the_cost_of_at_cancel_time() {
         crate::sim::world::FrameEffects::default(),
         false,
     ));
-    crate::sim::credit_income::add_credits(&mut sim, owner, 1000);
+    crate::sim::credit_income::add_credits(&mut sim.houses, owner, 1000);
     let progress = |sim: &mut Simulation| {
         let factory = sim
             .production

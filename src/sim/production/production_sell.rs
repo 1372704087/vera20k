@@ -223,7 +223,7 @@ pub(crate) fn begin_selling(sim: &mut Simulation, rules: &RuleSet, id: u64, unde
     if sim
         .mission_queue_exact(id, selling, 0, now, &readiness)
         .is_err()
-        || sim.mission_commence_exact(id, now).is_err()
+        || sim.substrate.mission_commence_exact(id, now).is_err()
     {
         return;
     }
@@ -564,7 +564,7 @@ pub(crate) fn sell_complete(
         return false;
     };
     //449CB1 requests the House strip recheck before target/audio/conversion.
-    sim.request_house_tech_tree_recheck(owner);
+    sim.houses.request_house_tech_tree_recheck(owner);
     let _ = sim.assign_target_represented(id, None, Some(rules), registry, frame_effects);
     if !undeploys {
         sim.sound_events
@@ -578,7 +578,7 @@ pub(crate) fn sell_complete(
     sim.set_building_light_active(id, false);
     if let Some(refund) = refund {
         // Add_Credits (`0x0044A222`).
-        crate::sim::credit_income::add_credits(sim, owner, refund);
+        crate::sim::credit_income::add_credits(&mut sim.houses, owner, refund);
     }
     let context = UninitContext::new(Some(rules), registry).with_effects(frame_effects);
     //44A22C explicitly enters BuildingLimbo before44A28C UnInit. Its

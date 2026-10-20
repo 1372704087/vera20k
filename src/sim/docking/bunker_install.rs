@@ -16,6 +16,7 @@ use crate::sim::movement::ScatterFlags;
 use crate::sim::movement::ground_pose::object_get_coords;
 use crate::sim::occupancy::entity_occupancy_cells;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 use crate::util::direction_tables::facing16_between;
 use serde::{Deserialize, Serialize};
@@ -149,7 +150,7 @@ fn step_install(
         return;
     };
     let Some(unit_id) = candidate else {
-        set_state(sim, building_id, BunkerState::Idle, None);
+        set_state(&mut sim.substrate, building_id, BunkerState::Idle, None);
         return;
     };
     // Abort if the candidate vanished or stopped approaching THIS bunker.
@@ -159,14 +160,19 @@ fn step_install(
         .get(unit_id)
         .is_some_and(|u| u.bunker.link() == BunkerLink::Approaching(building_id));
     if !approaching {
-        set_state(sim, building_id, BunkerState::Idle, None);
+        set_state(&mut sim.substrate, building_id, BunkerState::Idle, None);
         return;
     }
 
     match state {
         BunkerState::ArriveWait => {
             if arrived_and_stopped(sim, building_id, unit_id) {
-                set_state(sim, building_id, BunkerState::ClearWait, Some(unit_id));
+                set_state(
+                    &mut sim.substrate,
+                    building_id,
+                    BunkerState::ClearWait,
+                    Some(unit_id),
+                );
             }
         }
         BunkerState::ClearWait => {
@@ -174,7 +180,12 @@ fn step_install(
                 if let Some(f) = install_facing(sim, building_id, unit_id) {
                     turn_unit(sim, unit_id, f);
                 }
-                set_state(sim, building_id, BunkerState::TurnToBuilding, Some(unit_id));
+                set_state(
+                    &mut sim.substrate,
+                    building_id,
+                    BunkerState::TurnToBuilding,
+                    Some(unit_id),
+                );
             } else {
                 // Shove the blockers off the footprint (gamemd Scatter()); wait.
                 shove_footprint_blockers(sim, rules, registry, building_id, unit_id, frame_effects);
@@ -192,7 +203,12 @@ fn step_install(
                 );
                 // Building4591AF..4591C4 ignores Force_Track's return and
                 // enters state3, including when both raw cells are equal.
-                set_state(sim, building_id, BunkerState::TrackStep, Some(unit_id));
+                set_state(
+                    &mut sim.substrate,
+                    building_id,
+                    BunkerState::TrackStep,
+                    Some(unit_id),
+                );
             }
         }
         BunkerState::TrackStep => {
@@ -206,7 +222,12 @@ fn step_install(
             );
             if arrived_and_stopped(sim, building_id, unit_id) {
                 turn_unit(sim, unit_id, SOUTH_FACING);
-                set_state(sim, building_id, BunkerState::TurnSouth, Some(unit_id));
+                set_state(
+                    &mut sim.substrate,
+                    building_id,
+                    BunkerState::TurnSouth,
+                    Some(unit_id),
+                );
             }
         }
         BunkerState::TurnSouth => {
@@ -271,8 +292,13 @@ fn settle_completed_install_track(
     }
 }
 
-fn set_state(sim: &mut Simulation, building_id: u64, state: BunkerState, unit: Option<u64>) {
-    if let Some(b) = sim.substrate.entities.get_mut(building_id)
+fn set_state(
+    substrate: &mut ObjectSubstrate,
+    building_id: u64,
+    state: BunkerState,
+    unit: Option<u64>,
+) {
+    if let Some(b) = substrate.entities.get_mut(building_id)
         && let Some(rt) = b.bunker_runtime.as_mut()
     {
         rt.state = state;
@@ -556,7 +582,7 @@ mod tests {
         loco.store_track_destination(TrackFamily::Drive, Some(centre));
         loco.store_track_head(TrackFamily::Drive, None);
         loco.store_track_progress(TrackFamily::Drive, TrackProgress::for_test(-1, 0, false, 0));
-        set_state(&mut sim, 2, BunkerState::TrackStep, Some(1));
+        set_state(&mut sim.substrate, 2, BunkerState::TrackStep, Some(1));
         assert_eq!(
             movement::motion_query::is_moving(sim.substrate.entities.get(1).unwrap()),
             Some(true)
@@ -579,7 +605,7 @@ mod tests {
 
         // A live segment must not be cut short even if its current sample
         // touches the centre. Keep the head/selector and the waiting state.
-        set_state(&mut sim, 2, BunkerState::TrackStep, Some(1));
+        set_state(&mut sim.substrate, 2, BunkerState::TrackStep, Some(1));
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.bunker
             .set_bunker_link_for_test(BunkerLink::Approaching(2));
@@ -795,7 +821,7 @@ mod tests {
             unit.bunker
                 .set_bunker_link_for_test(BunkerLink::Approaching(2));
             assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
-            set_state(&mut sim, 2, BunkerState::ClearWait, Some(1));
+            set_state(&mut sim.substrate, 2, BunkerState::ClearWait, Some(1));
             step_install(&mut sim, &rules, None, 2, FrameEffects::default());
             let unit = sim.substrate.entities.get(1).unwrap();
             assert_eq!(
@@ -978,7 +1004,7 @@ mod tests {
             .unwrap()
             .bunker
             .set_bunker_link_for_test(BunkerLink::Approaching(2));
-        set_state(&mut sim, 2, BunkerState::ArriveWait, Some(1));
+        set_state(&mut sim.substrate, 2, BunkerState::ArriveWait, Some(1));
 
         // ArriveWait -> ClearWait (in the bunker's cell, stopped).
         tick_bunker_install(
@@ -1109,7 +1135,7 @@ mod tests {
                 .unwrap()
                 .bunker
                 .set_bunker_link_for_test(BunkerLink::Approaching(2));
-            set_state(&mut sim, 2, waiting, Some(1));
+            set_state(&mut sim.substrate, 2, waiting, Some(1));
             let tick = |sim: &mut Simulation| {
                 tick_bunker_install(
                     sim,
@@ -1161,7 +1187,7 @@ mod tests {
         spawn_tank_on(&mut sim, 1, 10, 10);
         assert!(matches!(sim.reveal(1), RevealOutcome::Revealed { .. }));
         // No Approaching marker naming this bunker → machine resets.
-        set_state(&mut sim, 2, BunkerState::ArriveWait, Some(1));
+        set_state(&mut sim.substrate, 2, BunkerState::ArriveWait, Some(1));
         tick_bunker_install(
             &mut sim,
             &rules,
@@ -1190,7 +1216,7 @@ mod tests {
             .unwrap()
             .bunker
             .set_bunker_link_for_test(BunkerLink::Approaching(2));
-        set_state(&mut sim, 2, BunkerState::ArriveWait, Some(1));
+        set_state(&mut sim.substrate, 2, BunkerState::ArriveWait, Some(1));
 
         // ArriveWait -> ClearWait.
         tick_bunker_install(

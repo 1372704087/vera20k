@@ -34,7 +34,7 @@ use crate::sim::movement::ScatterFlags;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::world::LifecycleTestEvent;
-use crate::sim::world::{FrameEffects, Simulation};
+use crate::sim::world::{FrameEffects, ObjectSubstrate, Simulation};
 
 /// The hull facing a Unit turns to on PREPARE_TO_DOCK (`0x007376E6`): east.
 pub(crate) const DOCK_FACING: u16 = 0x4000;
@@ -95,7 +95,7 @@ fn building_receive(
     if is_bunker_building(sim, building)
         && matches!(msg, RadioMessage::CanEnter | RadioMessage::DockNow)
     {
-        return bunker_receive(sim, building, sender, msg);
+        return bunker_receive(&mut sim.substrate, building, sender, msg);
     }
     match msg {
         // Original43CD01: Begin_Mode(IDLE) precedes the common teardown.
@@ -414,7 +414,7 @@ pub(crate) fn can_load_query(
         }
     }
     if is_bunker_building(sim, carrier_id) {
-        return if bunker_admits(sim, carrier_id, from) {
+        return if bunker_admits(&sim.substrate, carrier_id, from) {
             RadioResponse::Roger
         } else {
             RadioResponse::Negatory
@@ -1201,7 +1201,7 @@ fn unit_run_away(
     if !latched_harvester {
         return;
     }
-    crate::sim::miner::clear_unload_latch(sim, unit);
+    crate::sim::miner::clear_unload_latch(&mut sim.substrate, unit);
     if let Err(cause) = sim.scatter(
         unit,
         None,
@@ -1412,7 +1412,7 @@ fn aircraft_move_here(
         &EntityReadyInputProvider,
     );
     sim.assign_aircraft_destination(aircraft, payload.target, rules, effects);
-    let _ = sim.mission_commence_exact(aircraft, now);
+    let _ = sim.substrate.mission_commence_exact(aircraft, now);
     RadioResponse::Roger
 }
 
@@ -1819,7 +1819,7 @@ fn techno_repair_tick(
         return RadioResponse::InsufficientFunds;
     }
     if cost != 0 {
-        crate::sim::credit_income::spend_money(sim, owner, cost);
+        crate::sim::credit_income::spend_money(&mut sim.houses, owner, cost);
     }
     let Some(entity) = sim.substrate.entities.get_mut(techno) else {
         return RadioResponse::None;
@@ -2080,7 +2080,7 @@ fn is_bunker_building(sim: &Simulation, sid: u64) -> bool {
 /// Native: `BuildingClass::Receive_Radio` (`0x0043C2D0`)'s Bunker arms, CanEnterBunker
 /// (`0x0043C512`) and the DOCK_NOW queue (`0x0043C75A..0x0043C773`).
 fn bunker_receive(
-    sim: &mut Simulation,
+    substrate: &mut ObjectSubstrate,
     bld: u64,
     sender: Option<u64>,
     msg: RadioMessage,
@@ -2090,7 +2090,7 @@ fn bunker_receive(
     };
     match msg {
         RadioMessage::CanEnter => {
-            if bunker_admits(sim, bld, unit) {
+            if bunker_admits(substrate, bld, unit) {
                 RadioResponse::Roger
             } else {
                 RadioResponse::Negatory
@@ -2098,8 +2098,7 @@ fn bunker_receive(
         }
         RadioMessage::DockNow => {
             // Commit: start the install machine if the bunker is idle.
-            if let Some(rt) = sim
-                .substrate
+            if let Some(rt) = substrate
                 .entities
                 .get_mut(bld)
                 .and_then(|b| b.bunker_runtime.as_mut())
@@ -2122,8 +2121,8 @@ fn bunker_receive(
 /// The rules-gated half (`bunker_link::can_auto_deploy_here`, `0x0070FB50`)
 /// runs before the adapter asks (the EnterBunker order and the tank bunker
 /// seek).
-fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
-    let Some(unit) = sim.substrate.entities.get(unit) else {
+fn bunker_admits(substrate: &ObjectSubstrate, bld: u64, unit: u64) -> bool {
+    let Some(unit) = substrate.entities.get(unit) else {
         return false;
     };
     // CanEnterBunker 0x0070FBAF..0x0070FBC3, called from this receiver at
@@ -2132,7 +2131,7 @@ fn bunker_admits(sim: &Simulation, bld: u64, unit: u64) -> bool {
         return false;
     }
     let unit_owner = unit.owner();
-    let Some(b) = sim.substrate.entities.get(bld) else {
+    let Some(b) = substrate.entities.get(bld) else {
         return false;
     };
     if b.death.is_dying() || b.health.current() == 0 {

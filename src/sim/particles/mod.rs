@@ -907,9 +907,11 @@ impl Simulation {
     pub fn particle_systems(&self) -> &ParticleSystemStore {
         &self.substrate.particle_systems
     }
+}
 
+impl crate::sim::world::ObjectSubstrate {
     pub(crate) fn particle_systems_mut(&mut self) -> &mut ParticleSystemStore {
-        &mut self.substrate.particle_systems
+        &mut self.particle_systems
     }
 }
 

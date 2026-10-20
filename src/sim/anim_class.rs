@@ -1044,10 +1044,6 @@ impl Simulation {
         Some((anim.runtime.current_frame, frames))
     }
 
-    fn anim_mut_by_id(&mut self, id: AnimId) -> Option<&mut AnimObject> {
-        self.substrate.anims.get_mut(id)
-    }
-
     /// `AnimClass::MarkCellOccupancy` (vt+0xF0 = `0x00426270`) at the anim's
     /// stored Location, called directly: InfantryClass::ReceiveDamage's
     /// InfDeath 9 arm marks its new InfantryMutate anim (`0x00518B26`),
@@ -1230,7 +1226,7 @@ impl Simulation {
         let Ok(id) = self.spawn_anim_at_world(rules, descriptor, world_coord) else {
             return false;
         };
-        self.set_anim_no_effects(id, true);
+        self.substrate.set_anim_no_effects(id, true);
         true
     }
 
@@ -1309,7 +1305,7 @@ impl Simulation {
         let Ok(id) = self.spawn_anim_at_world(rules, descriptor, world_coord) else {
             return false;
         };
-        self.set_anim_no_effects(id, true);
+        self.substrate.set_anim_no_effects(id, true);
         true
     }
 
@@ -1354,13 +1350,6 @@ impl Simulation {
                 crate::sim::vision::MapRevealProjection::Transient,
                 self.session.current_house(),
             );
-        }
-    }
-
-    /// Mutation of the retained Anim+198 byte belongs to its instance owner.
-    pub(crate) fn set_anim_no_effects(&mut self, id: AnimId, no_effects: bool) {
-        if let Some(anim) = self.anim_mut_by_id(id) {
-            anim.no_effects = no_effects;
         }
     }
 
@@ -1555,8 +1544,8 @@ impl Simulation {
                 .get(id)
                 .is_some_and(|anim| anim.start_sound_active);
             self.notify_anim_pointer_expired(id);
-            self.clear_damage_fire_anim_reference(id);
-            self.release_anim_owner_reference(id);
+            self.substrate.clear_damage_fire_anim_reference(id);
+            self.substrate.release_anim_owner_reference(id);
             if start_sound_active {
                 // `MapClass::InitCellAttributes @ 0x00568BB0` reaches the
                 // scalar destructor4228E0: Release406060, no StopSound.
@@ -1659,7 +1648,7 @@ impl Simulation {
             && let Some(overlay_registry) = overlay_registry
         {
             let hidden = self.anim_cell_tiberium_value(location, rules, overlay_registry) == 0;
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.draw_runtime.hidden = hidden;
             }
         }
@@ -1743,7 +1732,7 @@ impl Simulation {
                     .is_some()
             })
         {
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.runtime.inactive = true; //424358 writes+19B before UnInit.
             }
             self.destroy_anim(id, rules);
@@ -1751,7 +1740,7 @@ impl Simulation {
         }
 
         if first_guard {
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.runtime.first_ai_guard = false;
             }
             return false;
@@ -1762,7 +1751,7 @@ impl Simulation {
         // and returns. The field also holds the `RandomLoopDelay=` pause, so a
         // looping anim restarts, and replays its start sound, after each pause.
         {
-            let Some(anim) = self.anim_mut_by_id(id) else {
+            let Some(anim) = self.substrate.anim_mut_by_id(id) else {
                 return false;
             };
             if anim.runtime.delay_remaining > 0 {
@@ -1778,7 +1767,7 @@ impl Simulation {
         let mut random_loop_delay = None;
         let current_frame = self.session.binary_frame() as i32;
         let (middle, boundary) = {
-            let Some(anim) = self.anim_mut_by_id(id) else {
+            let Some(anim) = self.substrate.anim_mut_by_id(id) else {
                 return false;
             };
             //42449B: power pause follows first-AI/delay gates and precedes timer advance.
@@ -1832,14 +1821,14 @@ impl Simulation {
                 .scenario_rng
                 .next_range_u32_inclusive(u32::from(low), u32::from(high))
                 as u16;
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.runtime.delay_remaining = delay;
             }
         }
         match action {
             VisitAction::None => {}
             VisitAction::Destroy => {
-                if let Some(anim) = self.anim_mut_by_id(id) {
+                if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                     anim.completed = true;
                 }
                 self.destroy_anim(id, rules);
@@ -1852,7 +1841,7 @@ impl Simulation {
                     overlay_registry,
                     frame_effects,
                 ) {
-                    if let Some(anim) = self.anim_mut_by_id(id) {
+                    if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                         anim.completed = true;
                     }
                     self.destroy_anim(id, rules);
@@ -1929,7 +1918,7 @@ impl Simulation {
         let owner = if owner.is_none_or(|house| defeated(self, house)) {
             match self.civilian_side_house(rules) {
                 Some(civilian) => {
-                    self.set_anim_owner_house(id, civilian);
+                    self.substrate.set_anim_owner_house(id, civilian);
                     Some(civilian)
                 }
                 None => owner,
@@ -1969,7 +1958,7 @@ impl Simulation {
             frame_effects,
         );
         if placed.is_none() {
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.runtime.current_frame = anim.runtime.current_frame.wrapping_sub(1);
             }
             return false;
@@ -2047,14 +2036,15 @@ impl Simulation {
                     // changes Display (the expiry reaches Bullets and
                     // damage-fire slots only), so it is unobservable. An
                     // imminent physical owner retirement may have no Rules.
-                    self.release_anim_owner_reference(id);
-                    self.anim_mut_by_id(id)
+                    self.substrate.release_anim_owner_reference(id);
+                    self.substrate
+                        .anim_mut_by_id(id)
                         .expect("the retiring animation still exists")
                         .world_coord = world;
                 }
             }
         }
-        if let Some(anim) = self.anim_mut_by_id(id) {
+        if let Some(anim) = self.substrate.anim_mut_by_id(id) {
             anim.start_sound_active = false;
         }
         // Original4255B0..425628 never writes19B; ObjectUnInit5F6625 clears
@@ -2082,7 +2072,7 @@ impl Simulation {
         // Building44EA1A..44EA4F clears its matching damage-fire slot or
         // runs the building-slot transition before this Anim leaves Logic.
         self.notify_anim_pointer_expired(id);
-        self.clear_damage_fire_anim_reference(id);
+        self.substrate.clear_damage_fire_anim_reference(id);
         self.building_anim_pointer_expired(id, rules);
         // Limbo5F4D30→DetachAll5F4D61 announces again. The first callback
         // normally removed the reverse index; preserve the second visit for
@@ -2103,9 +2093,9 @@ impl Simulation {
         // cleared by the caller before these synchronous destructor effects.
         let sound_active = self.anim(id).is_some_and(|anim| anim.start_sound_active);
         self.notify_anim_pointer_expired(id);
-        self.clear_damage_fire_anim_reference(id);
-        self.release_anim_owner_reference(id);
-        self.clear_building_anim_reference(id);
+        self.substrate.clear_damage_fire_anim_reference(id);
+        self.substrate.release_anim_owner_reference(id);
+        self.substrate.clear_building_anim_reference(id);
         if sound_active {
             self.sound_events
                 .push(SimSoundEvent::ObjectSoundReleased { owner: id });
@@ -2113,18 +2103,6 @@ impl Simulation {
         self.conceal_anim(id);
         self.substrate.pending_delete.remove_object(id);
         self.substrate.anims.remove(id);
-    }
-
-    pub(crate) fn clear_damage_fire_anim_reference(&mut self, id: AnimId) {
-        let link = self
-            .anim_mut_by_id(id)
-            .and_then(|anim| anim.damage_fire_slot.take());
-        if let Some((owner, slot)) = link
-            && let Some(entity) = self.substrate.entities.get_mut(owner)
-            && entity.damage_fires.anim_ids[usize::from(slot)] == Some(id)
-        {
-            entity.damage_fires.anim_ids[usize::from(slot)] = None;
-        }
     }
 
     /// AnimClass::SetOwnerObject424B50. Normal detach preserves absolute
@@ -2147,7 +2125,7 @@ impl Simulation {
                 self.substrate.display.remove(id);
             }
             let absolute = self.anim_absolute_coord(id).expect("live Anim");
-            let anim = self.anim_mut_by_id(id).expect("live Anim");
+            let anim = self.substrate.anim_mut_by_id(id).expect("live Anim");
             anim.owner_entity = None;
             anim.world_coord = absolute;
             if marked {
@@ -2159,7 +2137,7 @@ impl Simulation {
                 return false;
             };
             self.substrate.display.remove(id);
-            let anim = self.anim_mut_by_id(id).expect("live Anim");
+            let anim = self.substrate.anim_mut_by_id(id).expect("live Anim");
             anim.world_coord = AnimWorldCoord {
                 x: anim.world_coord.x.wrapping_sub(owner_coord.x),
                 y: anim.world_coord.y.wrapping_sub(owner_coord.y),
@@ -2204,12 +2182,6 @@ impl Simulation {
             Some(AnimLayer::Other(index)) => {
                 u8::try_from(index).ok().and_then(DisplayLayer::from_index)
             }
-        }
-    }
-
-    pub(crate) fn mark_anim_display(&mut self, id: AnimId, marked: bool) {
-        if let Some(anim) = self.anim_mut_by_id(id) {
-            anim.display.marked_on_map = marked;
         }
     }
 
@@ -2262,18 +2234,6 @@ impl Simulation {
         Some(owner)
     }
 
-    /// Destruction/expiry clear the reference without SetOwner's coordinate
-    /// conversion or intermediate display submission (422961 / 425190).
-    pub(crate) fn release_anim_owner_reference(&mut self, id: AnimId) -> Option<u64> {
-        let owner = self.anim_mut_by_id(id)?.owner_entity.take()?;
-        if let Some(entity) = self.substrate.entities.get_mut(owner) {
-            entity.expire_behind_anim(id);
-            entity.drain.expire_anim(id);
-            entity.expire_deploy_anim(id);
-        }
-        Some(owner)
-    }
-
     /// Anim PointerExpired425150 removes Display, calls owner+60, clears +CC,
     /// sets +19B and Mark(REMOVE). Stored relative coordinates remain unchanged.
     /// Normal SetOwner(NULL) would instead convert and potentially resubmit.
@@ -2297,9 +2257,9 @@ impl Simulation {
             self.lifecycle_outputs
                 .push(LifecycleOutput::DisplayRemove { stable_id: id });
             self.substrate.display.remove(id);
-            self.release_anim_owner_reference(id);
-            self.mark_anim_display(id, false);
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            self.substrate.release_anim_owner_reference(id);
+            self.substrate.mark_anim_display(id, false);
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.runtime.inactive = true;
             }
             changed = true;
@@ -2322,17 +2282,10 @@ impl Simulation {
     /// The animation remains in Logic and must retain this rate on expiry.
     pub(crate) fn set_anim_manual_frame(&mut self, id: AnimId, frame: i32, duration: u16) {
         let current = self.session.binary_frame() as i32;
-        if let Some(anim) = self.anim_mut_by_id(id) {
+        if let Some(anim) = self.substrate.anim_mut_by_id(id) {
             anim.runtime.frame_timer = CdTimer::started(current, i32::from(duration));
             anim.runtime.rate_reload = duration;
             anim.runtime.current_frame = frame;
-        }
-    }
-
-    pub(crate) fn set_anim_frame_and_z_adjust(&mut self, id: AnimId, frame: i32, z_adjust: i32) {
-        if let Some(anim) = self.anim_mut_by_id(id) {
-            anim.runtime.current_frame = frame;
-            anim.z_adjust = z_adjust;
         }
     }
 
@@ -2345,7 +2298,7 @@ impl Simulation {
         remap_color: Option<HouseColorIndex>,
         z_adjust: i32,
     ) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
+        let Some(anim) = self.substrate.anim_mut_by_id(id) else {
             return false;
         };
         anim.remap = remap_color.map(AnimRemap::ColorScheme);
@@ -2361,62 +2314,11 @@ impl Simulation {
     /// the house's colour scheme's (`0x00518AB5..0x00518AC9`,
     /// `0x00518AE4..0x00518AF9`).
     pub fn set_anim_house_remap(&mut self, id: AnimId, house: InternedId) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
+        let Some(anim) = self.substrate.anim_mut_by_id(id) else {
             return false;
         };
         anim.remap = Some(AnimRemap::House(house));
         true
-    }
-
-    /// Apply CellClass's producer-owned `AnimClass +0x100` write after the
-    /// delay-zero constructor has already run `Middle`.
-    pub(crate) fn set_terrain_anim_z_adjust_after_construction(
-        &mut self,
-        id: AnimId,
-        z_adjust: i32,
-    ) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
-            return false;
-        };
-        if !anim.terrain_attached || anim.z_adjust != 0 {
-            return false;
-        }
-        anim.z_adjust = z_adjust;
-        true
-    }
-
-    /// A producer's plain post-construction `AnimClass +0x100` (ZAdjust)
-    /// write, such as CaptureUnit's building ring (`0x00471F66`).
-    pub(crate) fn set_anim_z_adjust(&mut self, id: AnimId, z_adjust: i32) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
-            return false;
-        };
-        anim.z_adjust = z_adjust;
-        true
-    }
-
-    /// A producer's plain Anim+19D store. Mirage's attached-ring tail
-    /// `746A9C..746B19` changes drawing without suspending the Anim AI.
-    pub(crate) fn set_anim_hidden(&mut self, id: AnimId, hidden: bool) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
-            return false;
-        };
-        anim.draw_runtime.hidden = hidden;
-        true
-    }
-
-    /// `AnimClass::SetOwnerHouse @ 0x00424CA0`: store `+0x180`.
-    pub(crate) fn set_anim_owner_house(&mut self, id: AnimId, house: InternedId) -> bool {
-        let Some(anim) = self.anim_mut_by_id(id) else {
-            return false;
-        };
-        anim.owner_house = Some(house);
-        true
-    }
-
-    /// `0x00424C90`: store `+0x17C`, the bullet whose expiry ends the anim.
-    pub(crate) fn set_anim_attached_bullet(&mut self, id: AnimId, bullet: Option<u64>) -> bool {
-        self.substrate.anims.set_attached_bullet(id, bullet)
     }
 
     /// Original43B5E0: caller supplies the target's GetCoords and the name;
@@ -2437,9 +2339,9 @@ impl Simulation {
             ..AnimClassSpawnDescriptor::new(type_name, rx, ry, sub_x, sub_y, z)
         };
         let id = self.spawn_anim_at_world(rules, descriptor, world).ok()?;
-        self.set_anim_attached_bullet(id, Some(bullet));
-        self.set_anim_owner_house(id, house);
-        self.set_anim_hidden(id, true);
+        self.substrate.set_anim_attached_bullet(id, Some(bullet));
+        self.substrate.set_anim_owner_house(id, house);
+        self.substrate.set_anim_hidden(id, true);
         Some(id)
     }
 
@@ -2592,7 +2494,8 @@ impl Simulation {
                 // Original43C0D0/43C1EB retains only the Building5C8 slot.
                 // The constructor leaves Anim+CC null: absolute coordinates
                 // and the expiry listener do not require Object attachment.
-                self.anim_mut_by_id(anim_id)
+                self.substrate
+                    .anim_mut_by_id(anim_id)
                     .expect("new damage fire")
                     .damage_fire_slot = Some((building_id, slot as u8));
                 if let Some(entity) = self.substrate.entities.get_mut(building_id) {
@@ -2616,7 +2519,8 @@ impl Simulation {
                 } else {
                     0
                 };
-                self.set_anim_frame_and_z_adjust(anim_id, frame, z_adjust);
+                self.substrate
+                    .set_anim_frame_and_z_adjust(anim_id, frame, z_adjust);
                 type_index += 1;
                 if type_index == type_count {
                     type_index = 0;
@@ -2710,7 +2614,7 @@ impl Simulation {
             return Some(false);
         }
         let position = body.position_leptons();
-        if let Some(anim) = self.anim_mut_by_id(id) {
+        if let Some(anim) = self.substrate.anim_mut_by_id(id) {
             anim.bounce = Some(body);
         }
         let mut bridge_state_changed = false;
@@ -2728,7 +2632,7 @@ impl Simulation {
             }
             BounceOutcome::Stopped => self.destroy_anim(id, rules),
         }
-        if let Some(anim) = self.anim_mut_by_id(id) {
+        if let Some(anim) = self.substrate.anim_mut_by_id(id) {
             anim.world_coord = AnimWorldCoord {
                 x: position.x,
                 y: position.y,
@@ -3116,7 +3020,7 @@ impl Simulation {
         if let Some(sound_name) = sound_name
             && let Some(world) = self.anim_absolute_coord(id)
         {
-            if let Some(anim) = self.anim_mut_by_id(id) {
+            if let Some(anim) = self.substrate.anim_mut_by_id(id) {
                 anim.start_sound_active = true;
             }
             self.sound_events.push(SimSoundEvent::AnimationStarted {
@@ -3135,7 +3039,8 @@ impl Simulation {
                     world,
                 });
             }
-            self.anim_mut_by_id(id)
+            self.substrate
+                .anim_mut_by_id(id)
                 .expect("restarting animation remains present")
                 .start_sound_active = false;
         }
@@ -3244,7 +3149,7 @@ impl Simulation {
             .anim(id)
             .is_some_and(|anim| anim.runtime.constructor_reverse);
         let reverse = constructor_reverse || config.reverse;
-        if let Some(anim) = self.anim_mut_by_id(id) {
+        if let Some(anim) = self.substrate.anim_mut_by_id(id) {
             anim.type_id = type_id;
             anim.effective_end = effective_end;
             anim.effective_loop_end = effective_loop_end;
@@ -3263,6 +3168,97 @@ impl Simulation {
             anim.runtime.inactive = false;
         }
         self.anim_start(id, &config, rules, overlay_registry);
+    }
+}
+
+impl crate::sim::world::ObjectSubstrate {
+    fn anim_mut_by_id(&mut self, id: AnimId) -> Option<&mut AnimObject> {
+        self.anims.get_mut(id)
+    }
+    /// Mutation of the retained Anim+198 byte belongs to its instance owner.
+    pub(crate) fn set_anim_no_effects(&mut self, id: AnimId, no_effects: bool) {
+        if let Some(anim) = self.anim_mut_by_id(id) {
+            anim.no_effects = no_effects;
+        }
+    }
+    pub(crate) fn clear_damage_fire_anim_reference(&mut self, id: AnimId) {
+        let link = self
+            .anim_mut_by_id(id)
+            .and_then(|anim| anim.damage_fire_slot.take());
+        if let Some((owner, slot)) = link
+            && let Some(entity) = self.entities.get_mut(owner)
+            && entity.damage_fires.anim_ids[usize::from(slot)] == Some(id)
+        {
+            entity.damage_fires.anim_ids[usize::from(slot)] = None;
+        }
+    }
+    pub(crate) fn mark_anim_display(&mut self, id: AnimId, marked: bool) {
+        if let Some(anim) = self.anim_mut_by_id(id) {
+            anim.display.marked_on_map = marked;
+        }
+    }
+    /// Destruction/expiry clear the reference without SetOwner's coordinate
+    /// conversion or intermediate display submission (422961 / 425190).
+    pub(crate) fn release_anim_owner_reference(&mut self, id: AnimId) -> Option<u64> {
+        let owner = self.anim_mut_by_id(id)?.owner_entity.take()?;
+        if let Some(entity) = self.entities.get_mut(owner) {
+            entity.expire_behind_anim(id);
+            entity.drain.expire_anim(id);
+            entity.expire_deploy_anim(id);
+        }
+        Some(owner)
+    }
+    pub(crate) fn set_anim_frame_and_z_adjust(&mut self, id: AnimId, frame: i32, z_adjust: i32) {
+        if let Some(anim) = self.anim_mut_by_id(id) {
+            anim.runtime.current_frame = frame;
+            anim.z_adjust = z_adjust;
+        }
+    }
+    /// Apply CellClass's producer-owned `AnimClass +0x100` write after the
+    /// delay-zero constructor has already run `Middle`.
+    pub(crate) fn set_terrain_anim_z_adjust_after_construction(
+        &mut self,
+        id: AnimId,
+        z_adjust: i32,
+    ) -> bool {
+        let Some(anim) = self.anim_mut_by_id(id) else {
+            return false;
+        };
+        if !anim.terrain_attached || anim.z_adjust != 0 {
+            return false;
+        }
+        anim.z_adjust = z_adjust;
+        true
+    }
+    /// A producer's plain post-construction `AnimClass +0x100` (ZAdjust)
+    /// write, such as CaptureUnit's building ring (`0x00471F66`).
+    pub(crate) fn set_anim_z_adjust(&mut self, id: AnimId, z_adjust: i32) -> bool {
+        let Some(anim) = self.anim_mut_by_id(id) else {
+            return false;
+        };
+        anim.z_adjust = z_adjust;
+        true
+    }
+    /// A producer's plain Anim+19D store. Mirage's attached-ring tail
+    /// `746A9C..746B19` changes drawing without suspending the Anim AI.
+    pub(crate) fn set_anim_hidden(&mut self, id: AnimId, hidden: bool) -> bool {
+        let Some(anim) = self.anim_mut_by_id(id) else {
+            return false;
+        };
+        anim.draw_runtime.hidden = hidden;
+        true
+    }
+    /// `AnimClass::SetOwnerHouse @ 0x00424CA0`: store `+0x180`.
+    pub(crate) fn set_anim_owner_house(&mut self, id: AnimId, house: InternedId) -> bool {
+        let Some(anim) = self.anim_mut_by_id(id) else {
+            return false;
+        };
+        anim.owner_house = Some(house);
+        true
+    }
+    /// `0x00424C90`: store `+0x17C`, the bullet whose expiry ends the anim.
+    pub(crate) fn set_anim_attached_bullet(&mut self, id: AnimId, bullet: Option<u64>) -> bool {
+        self.anims.set_attached_bullet(id, bullet)
     }
 }
 
@@ -3609,7 +3605,8 @@ mod tests {
                 .unwrap()
                 .damage_fires
                 .anim_ids[slot] = Some(id);
-            sim.anim_mut_by_id(id).unwrap().damage_fire_slot = Some((building_id, slot as u8));
+            sim.substrate.anim_mut_by_id(id).unwrap().damage_fire_slot =
+                Some((building_id, slot as u8));
             sim.detach_all_pointer_expired(
                 building_id,
                 &rules,
@@ -3796,7 +3793,8 @@ mod tests {
                 sim.anim(id).unwrap().display.y_sort_adjust,
                 input["adjust"].as_i64().unwrap() as i32
             );
-            sim.mark_anim_display(id, input["marked"].as_bool().unwrap());
+            sim.substrate
+                .mark_anim_display(id, input["marked"].as_bool().unwrap());
             for observation in row["observations"].as_array().unwrap() {
                 match observation["op"].as_str().unwrap() {
                     "submit" => sim.submit_anim_display(id, Some(&rules)),
@@ -4178,7 +4176,7 @@ mod tests {
                 let cleared = if detach_with_coords {
                     sim.detach_anim_from_owner(id, &rules)
                 } else {
-                    sim.release_anim_owner_reference(id)
+                    sim.substrate.release_anim_owner_reference(id)
                 };
                 assert_eq!(cleared, Some(owner_id));
                 assert_eq!(sim.anim(id).unwrap().owner_entity, None);
@@ -4653,7 +4651,7 @@ mod tests {
         assert!(restored.get(id).unwrap().terrain_attached);
 
         let before = sim.state_hash();
-        sim.anim_mut_by_id(id).unwrap().terrain_attached = false;
+        sim.substrate.anim_mut_by_id(id).unwrap().terrain_attached = false;
         assert_ne!(sim.state_hash(), before);
     }
 
@@ -5795,7 +5793,7 @@ mod tests {
             .spawn_anim_object(&rules, runtime_descriptor(fire_type, 0))
             .unwrap();
         sim.set_anim_owner_object(anim, Some(owner), &rules);
-        sim.set_anim_attached_bullet(anim, Some(owner));
+        sim.substrate.set_anim_attached_bullet(anim, Some(owner));
         // Pointer fields are independently compared at425164 and4251AD;
         // clearing the owner must not skip attached-Bullet UnInit.
         assert!(sim.anim_pointer_expired(anim, owner, Some(&rules)));
@@ -5818,14 +5816,14 @@ mod tests {
                 AnimWorldCoord { x: 0, y: 0, z: 0 },
             )
             .unwrap();
-        sim.anim_mut_by_id(anim_id).unwrap().owner_entity = Some(building_id);
+        sim.substrate.anim_mut_by_id(anim_id).unwrap().owner_entity = Some(building_id);
         sim.substrate
             .entities
             .get_mut(building_id)
             .unwrap()
             .damage_fires
             .anim_ids[0] = Some(anim_id);
-        sim.rebuild_building_anim_slot_indices();
+        sim.substrate.rebuild_building_anim_slot_indices();
         // Supply the common post-UnInit retirement state through its existing
         // membership owner;19B remains the independent native expiry byte.
         sim.conceal_anim(anim_id);

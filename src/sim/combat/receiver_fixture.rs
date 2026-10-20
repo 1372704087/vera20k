@@ -104,7 +104,7 @@ pub(crate) fn substitute_building_fire(
             return false;
         };
         let multiplier = if matches!(shot, BuildingShot::Delayed { .. }) {
-            world.take_support_bonus(id, rules)
+            world.substrate.take_support_bonus(id, rules)
         } else {
             crate::sim::projectile::ProjectilePayload::UNSCALED
         };

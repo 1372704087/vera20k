@@ -3017,9 +3017,76 @@ mod tests {
         }
     }
 
+    /// CAN_LOAD refuses a bunker under Construction or being sold
+    /// (`0x0043C326..0x0043C346`) before the adapter releases the tank's
+    /// current seek or sends DOCK_NOW, so the bunker's buildup is not cut
+    /// short by DOCK_NOW's ready latch and the tank keeps its seek.
+    #[test]
+    fn enter_bunker_refuses_a_bunker_building_up_or_being_sold() {
+        use crate::sim::docking::bunker_install::BunkerState;
+        use crate::sim::docking::bunker_link::BunkerLink;
+        let rules = bunker_rules();
+        for mission in [MissionType::Construction, MissionType::Selling] {
+            let mut sim = Simulation::new();
+            crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+            spawn_bunker_struct(&mut sim, 2, "Americans", 10, 10);
+            spawn_bunker_struct(&mut sim, 3, "Americans", 16, 10);
+            spawn_bunkerable(&mut sim, 1, "Americans", "TANK", 13, 14);
+            assert!(sim.apply_command(
+                "Americans",
+                &Command::EnterBunker {
+                    unit_id: 1,
+                    bunker_id: 3,
+                },
+                Some(&rules),
+            ));
+            sim.substrate
+                .entities
+                .get_mut(2)
+                .unwrap()
+                .mission
+                .set_current_for_test(MissionId::from_known(mission), 1);
+
+            let applied = sim.apply_command(
+                "Americans",
+                &Command::EnterBunker {
+                    unit_id: 1,
+                    bunker_id: 2,
+                },
+                Some(&rules),
+            );
+
+            assert!(!applied, "{mission:?}");
+            let building = sim.substrate.entities.get(2).unwrap();
+            assert_eq!(building.building_ready_latch(), 0, "{mission:?}");
+            assert_eq!(building.mission.queued(), MissionId::NONE, "{mission:?}");
+            assert_eq!(
+                building.bunker_runtime.unwrap().state(),
+                BunkerState::Idle,
+                "{mission:?}"
+            );
+            assert_eq!(
+                sim.substrate.entities.get(1).unwrap().bunker.link(),
+                BunkerLink::Approaching(3),
+                "{mission:?} keeps the current seek"
+            );
+            assert_eq!(
+                sim.substrate
+                    .entities
+                    .get(3)
+                    .unwrap()
+                    .bunker_runtime
+                    .unwrap()
+                    .installing_unit(),
+                Some(1),
+                "{mission:?}"
+            );
+        }
+    }
+
     #[test]
     fn bunker_full_lifecycle_enter_install_then_eject() {
-        use crate::sim::docking::bunker_install::{BunkerState, tick_bunker_install};
+        use crate::sim::docking::bunker_install::{BunkerState, update_bunker};
         use crate::sim::docking::bunker_link::BunkerLink;
         let rules = bunker_rules();
         let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -3056,9 +3123,8 @@ mod tests {
             sim.substrate.entities.get(2).unwrap(),
             sim.resolved_terrain.as_ref(),
         );
-        // Place the tank ON the bunker cell. The native destination setter
-        // still admits this same-cell order; Drive Process consumes it before
-        // the install machine can observe the stopped candidate.
+        // The tank stands in the bunker's cell, where it stops after its
+        // approach.
         spawn_bunkerable(&mut sim, 1, "Americans", "TANK", 10, 10);
         let unit = sim.substrate.entities.get_mut(1).unwrap();
         unit.body_facing
@@ -3080,20 +3146,29 @@ mod tests {
             crate::sim::world::RevealOutcome::Revealed { .. }
         ));
 
-        // 1) Enter: admission + install machine starts.
-        assert!(sim.apply_command(
-            "Americans",
-            &Command::EnterBunker {
-                unit_id: 1,
-                bunker_id: 2,
-            },
-            Some(&rules),
-        ));
+        // 1) Enter, after the approach: CAN_LOAD's IS_OCCUPIED (0x0043C526)
+        // refuses an order from inside the foundation, so the fixture starts
+        // where the adapter leaves an arrived tank. The bunker's production
+        // DOCK_NOW starts the install; the tank keeps its approach link.
         assert_eq!(
-            sim.substrate.entities.get(1).unwrap().bunker.link(),
-            BunkerLink::Approaching(2)
+            crate::sim::radio::transmit(
+                &mut sim,
+                1,
+                2,
+                crate::sim::radio::RadioMessage::DockNow,
+                crate::sim::radio::RadioPayload::default(),
+                Some(&rules),
+                crate::sim::world::FrameEffects::default(),
+            ),
+            crate::sim::radio::RadioResponse::Roger
         );
-        // Prepared same-cell admission, then the real production locomotor
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .bunker
+            .set_bunker_link_for_test(BunkerLink::Approaching(2));
+        // Prepared same-cell arrival, then the real production locomotor
         // corridor and installer, in their production order, one frame at a
         // time. No head/position writes or Facing::Snap complete the motion.
         // Object/Techno AI and a whole native match remain outside this test.
@@ -3104,10 +3179,11 @@ mod tests {
                 .process_ground_locomotor_stats_for_test(1, Some(&rules), None)
                 .expect("flat arena supplies every production movement receiver");
             moved += movement.moved_steps;
-            tick_bunker_install(
+            update_bunker(
                 &mut sim,
                 &rules,
                 None,
+                2,
                 crate::sim::world::FrameEffects::default(),
             );
             let state = sim
@@ -3226,12 +3302,6 @@ mod tests {
         for _ in 0..600 {
             sim.process_ground_locomotor_stats_for_test(1, Some(&rules), None)
                 .expect("normal release reaches the production movement corridor");
-            tick_bunker_install(
-                &mut sim,
-                &rules,
-                None,
-                crate::sim::world::FrameEffects::default(),
-            );
             sim.session
                 .set_binary_frame_for_test(sim.session.binary_frame() + 1);
             let unit = sim.substrate.entities.get(1).unwrap();

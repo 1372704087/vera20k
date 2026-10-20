@@ -576,9 +576,150 @@ fn a_building_over_another_selected_building_does_nothing() {
             (10, 14),
             OrderModifier::Normal,
             false,
-            true,
-            false,
         ),
         BuildingClick::Nothing
     );
+}
+
+/// Techno What_Action's self rung (`0x007000B9..0x007000DF`) answers before
+/// its attack rung for the lone selected object over itself, so a Crazy
+/// Ivan's friendly-bomb grant never applies there: his self arm leaves 0
+/// (`0x0051ECFC`), his tail makes it NoMove, and the click moves him near
+/// himself. A tank's NoMove over itself orders nothing (`0x007388D5`).
+#[test]
+fn a_lone_selected_ivan_clicking_himself_bombs_nothing() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let (sim, ivan, _) = object_pair(&battle.rules, "IVAN", "own");
+    let owner = sim.entities().get(ivan).unwrap().owner();
+    let hover = HoverTargetKindWithId {
+        kind: HoverTargetKind::FriendlyUnit,
+        stable_id: ivan,
+    };
+    assert!(
+        self_click_command(
+            &sim,
+            &battle.rules,
+            None,
+            owner,
+            &[ivan],
+            Some(&hover),
+            false
+        )
+        .is_none()
+    );
+    assert_eq!(
+        attack_action(
+            &sim,
+            &battle.rules,
+            ivan,
+            &TargetKind::Entity(ivan),
+            false,
+            None
+        ),
+        AttackAction::Attack,
+        "the attack rung alone would admit the self-bomb"
+    );
+    let release = lone_self_foot_release(
+        &sim,
+        &battle.rules,
+        owner,
+        &[ivan],
+        ivan,
+        OrderMode::Move,
+        false,
+    );
+    assert!(
+        matches!(
+            release,
+            Some((
+                LeftRelease::Dispatch,
+                Some(Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. })
+            )) if entity_id == ivan
+        ),
+        "{release:?}"
+    );
+    assert_eq!(
+        lone_self_foot_release(
+            &sim,
+            &battle.rules,
+            owner,
+            &[ivan, 99],
+            ivan,
+            OrderMode::Move,
+            false
+        ),
+        None,
+        "a group member is no lone self"
+    );
+    let (sim, tank, _) = object_pair(&battle.rules, "MTNK", "own");
+    assert_eq!(
+        lone_self_foot_release(
+            &sim,
+            &battle.rules,
+            owner,
+            &[tank],
+            tank,
+            OrderMode::Move,
+            false
+        ),
+        Some((LeftRelease::Dispatch, None))
+    );
+}
+
+/// The Unit and Infantry tails turn a NoMove over an object worn as Terrain
+/// with no worn house into Move (Unit `0x00740440..0x00740476`, Infantry
+/// `0x0051F114..0x0051F14F`), as the Aircraft's does: over an ally's tank
+/// wearing a tree, a GI and a tank show Move and move to it.
+#[test]
+fn a_ground_owner_moves_onto_an_ally_worn_as_a_tree() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &battle.processed_rules,
+        Some(&battle.fixed_art),
+    );
+    for kind in ["E1", "MTNK"] {
+        let (mut sim, actor, target) = object_pair(&battle.rules, kind, "ally");
+        let hover = picked_target(&sim, &battle.rules, target);
+        let tree = sim.intern("TREE01");
+        let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
+        disguise.acquire(0, Some(tree), None);
+        sim.entities_mut_for_test()
+            .get_mut(target)
+            .unwrap()
+            .disguise = Some(disguise);
+        assert_eq!(
+            attack_action(
+                &sim,
+                &battle.rules,
+                actor,
+                &TargetKind::Entity(target),
+                false,
+                Some(&overlays)
+            ),
+            AttackAction::Move,
+            "{kind}"
+        );
+        let feedback = crate::app::input::cursor::capability_cursor_for_hover(
+            &sim,
+            &[actor],
+            Some(actor),
+            &hover,
+            Some(&battle.rules),
+            Some(&overlays),
+            OrderModifier::Normal,
+            false,
+            false,
+        );
+        assert_eq!(
+            crate::app::input::cursor::cursor_id_for_feedback(feedback),
+            Some(CursorId::Move),
+            "{kind}"
+        );
+    }
 }

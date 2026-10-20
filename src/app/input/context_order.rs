@@ -1984,8 +1984,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 (target_rx, target_ry),
                 modifier,
                 force_move_key,
-                select_friendly_clicks,
-                consumed_attack_action,
             ) {
                 BuildingClick::Select => return false,
                 BuildingClick::Nothing => return true,
@@ -2119,6 +2117,28 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 })
             {
                 return finish_order(state, queued, speaker_id);
+            }
+            if context_actions_enabled
+                && let Some(target) = hover.as_ref()
+                && let Some(release) = lone_self_foot_release(
+                    sim,
+                    &resources.rules,
+                    owner_id,
+                    &current_objects,
+                    target.stable_id,
+                    order_mode,
+                    force_move_key,
+                )
+            {
+                return match release {
+                    (LeftRelease::Dispatch, order) => {
+                        queued.extend(
+                            order.map(|order| CommandEnvelope::new(owner_id, execute_tick, order)),
+                        );
+                        finish_order(state, queued, speaker_id)
+                    }
+                    _ => true,
+                };
             }
             // A Crazy Ivan bombs a friend by a plain click, when the object that
             // owns the cursor is one of the bombing Ivans.
@@ -2539,6 +2559,65 @@ pub(super) fn self_answers_no_deploy(
                             || is_simple_deploy_unit(entity, object)
                     })
         }))
+}
+
+/// The release of the lone selected Unit or Infantryman `target` clicked by
+/// its owner `owner`, once its self action has been neither sent
+/// ([`self_click_command`]) nor refused ([`self_answers_no_deploy`]); `None`
+/// for any other click. Techno What_Action's self rung
+/// (`0x007000B9..0x007000DF`) answers before the attack rung, so no attack
+/// grant applies: a Crazy Ivan clicking himself bombs nothing. What is left
+/// of the class's self arm is 0 (Unit `0x00740115`, Infantry `0x0051ECFC`),
+/// which the class tail turns into NoMove for an object the player may order
+/// ([`Simulation::foot_object_class_action`]). NoMove dispatches
+/// ([`LeftRelease::Dispatch`]): the receiver's ClickedAction asks the same and sends the
+/// order [`Simulation::object_move_click`] gives, which a Unit refuses over
+/// itself (`0x007388D5..0x007388E8`) and an Infantryman does not. A 0 over
+/// the selected object itself does nothing ([`LeftRelease::Nothing`]).
+///
+/// [`Simulation::foot_object_class_action`]: crate::sim::world::Simulation::foot_object_class_action
+/// [`Simulation::object_move_click`]: crate::sim::world::Simulation::object_move_click
+fn lone_self_foot_release(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    owner: InternedId,
+    selected_ids: &[u64],
+    target: u64,
+    order_mode: OrderMode,
+    force_move_key: bool,
+) -> Option<(LeftRelease, Option<Command>)> {
+    let entity = sim.entities().get(target).filter(|entity| {
+        selected_ids == [target]
+            && entity.owner() == owner
+            && matches!(
+                entity.category(),
+                EntityCategory::Unit | EntityCategory::Infantry
+            )
+    })?;
+    let action = sim.foot_object_class_action(
+        entity.owner(),
+        target,
+        target,
+        crate::sim::world::MoveAction::None,
+        rules,
+        None,
+    );
+    if action == crate::sim::world::MoveAction::None {
+        return Some((LeftRelease::Nothing, None));
+    }
+    Some((
+        LeftRelease::Dispatch,
+        crate::app::input::commands::object_move_destination(
+            sim,
+            rules,
+            owner,
+            target,
+            target,
+            action,
+            force_move_key,
+        )
+        .map(|destination| move_click_command(sim, rules, order_mode, target, destination)),
+    ))
 }
 
 /// Unit What_Action's NoDeploy answer (`0x0073FFF4`) for a self action its
@@ -3389,12 +3468,13 @@ enum BuildingClick {
 
 /// A left click for a selection of buildings only, after the attack
 /// receivers have been taken out of `receivers`: a lone building's self
-/// action, Shift's toggle on the player's own or an allied object, the
-/// release over an object ([`building_object_release`]), then each
-/// building's own orders ([`building_click_orders`]). Over the player's own
-/// or an allied object the cursor owner's What_Action decides the release
-/// too ([`object_action_answers_friendly`]): Select or 0 selects an object
-/// the player may select and has not, and nothing else happens.
+/// action, the release over an object ([`building_object_release`]), then
+/// each building's own orders ([`building_click_orders`]). Over the player's
+/// own or an allied object the cursor owner's What_Action decides the
+/// release too ([`object_action_answers_friendly`]): Select or 0 selects an
+/// object the player may select and has not, and nothing else happens.
+/// Shift over an object never reaches here: the caller hands it to the
+/// selection consumer first.
 #[allow(clippy::too_many_arguments)]
 fn building_selection_click(
     sim: &crate::sim::world::Simulation,
@@ -3407,8 +3487,6 @@ fn building_selection_click(
     cell: (u16, u16),
     modifier: OrderModifier,
     force_move_key: bool,
-    select_friendly_clicks: bool,
-    consumed_attack_action: bool,
 ) -> BuildingClick {
     let context_actions_enabled = matches!(
         modifier,
@@ -3427,23 +3505,6 @@ fn building_selection_click(
         )
     {
         return BuildingClick::Orders(vec![command], false);
-    }
-    let clicked_friendly = hover.is_some_and(|target| {
-        matches!(
-            target.kind,
-            HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
-        )
-    });
-    if select_friendly_clicks
-        && clicked_friendly
-        && context_actions_enabled
-        && (modifier == OrderModifier::Shift || consumed_attack_action)
-    {
-        return if consumed_attack_action {
-            BuildingClick::Orders(Vec::new(), false)
-        } else {
-            BuildingClick::Select
-        };
     }
     if let Some(target) = hover.filter(|target| target.kind != HoverTargetKind::HiddenEnemy) {
         match building_object_release(

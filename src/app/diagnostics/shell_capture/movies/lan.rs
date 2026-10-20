@@ -110,6 +110,10 @@ pub enum LanTarget {
     /// The kick-vote match won by the remaining human: the multiplayer
     /// score dialog 0x108 under `GUI:MultiplayerScore`.
     Score,
+    /// In-battle chat: a received line, the peer's Diplomacy chat box
+    /// cleared, an Enter line that goes nowhere, a `\` line to everyone and
+    /// a Backspace (allies) line left open on the frame.
+    IngameChat,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -184,6 +188,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-ingame-connection-resume", LanTarget::ConnectionResume),
     ("lan-ingame-outvoted", LanTarget::Outvoted),
     ("lan-score", LanTarget::Score),
+    ("lan-ingame-chat", LanTarget::IngameChat),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -292,6 +297,8 @@ enum LanPhase {
     ConnectionLeft,
     /// The match was won: waiting for the score dialog.
     ScoreWait,
+    /// In-battle chat step `n` (one per frame).
+    Chat(u8),
     /// The peer resumed at `tick`: waiting for 0xEA to close and a frame.
     Resumed {
         tick: u64,
@@ -2235,6 +2242,10 @@ impl LanCapture {
                     };
                     return Ok(());
                 }
+                if self.target == LanTarget::IngameChat {
+                    self.phase = LanPhase::Chat(0);
+                    return self.chat_step(state, frame, 0);
+                }
                 if self.target == LanTarget::HostDiplomacy {
                     super::super::skirmish::press_diplomacy_tab(state)?;
                     let view = crate::app::input::diplomacy::view(state);
@@ -2756,8 +2767,7 @@ impl LanCapture {
                 };
             }
             LanPhase::ScoreWait => {
-                if rendered != PresentedShell::Score
-                    || !super::super::score::reveals_settled(state)
+                if rendered != PresentedShell::Score || !super::super::score::reveals_settled(state)
                 {
                     return Ok(());
                 }
@@ -2832,7 +2842,153 @@ impl LanCapture {
                     self.phase = LanPhase::Returned;
                 }
             }
+            LanPhase::Chat(step) => self.chat_step(state, frame, step)?,
             LanPhase::Settle(n) if n > 0 => self.phase = LanPhase::Settle(n - 1),
+            _ => {}
+        }
+        Ok(())
+    }
+    /// One frame of the in-battle chat capture.
+    fn chat_step(&mut self, state: &mut AppState, frame: u32, step: u8) -> Result<()> {
+        use crate::app::input::diplomacy;
+        use crate::ui::shell::diplomacy::DiplomacyControl;
+        use winit::keyboard::{Key, NamedKey};
+        let host = self.inputs["host_name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let peer = self.inputs["peer_name"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let rows = |state: &AppState| -> Vec<String> {
+            state
+                .match_state
+                .match_presentation
+                .message_list
+                .messages()
+                .iter()
+                .map(|message| message.text.clone())
+                .collect()
+        };
+        let click = |state: &mut AppState, rect: RectPx| {
+            let point = set_window_pointer_to_rect_center(state, rect);
+            crate::app::input::dispatch::handle_cursor_moved_in_game(state);
+            for edge in [
+                winit::event::ElementState::Pressed,
+                winit::event::ElementState::Released,
+            ] {
+                crate::app::input::dispatch::handle_mouse_input(state, MouseButton::Left, edge);
+            }
+            point
+        };
+        match step {
+            0 => {
+                crate::app::match_runtime::network_match::service_event(
+                    state,
+                    crate::app::match_runtime::network_match::NetworkMatchEvent::Chat {
+                        source_index: 1,
+                        text: "gg".into(),
+                    },
+                )?;
+                let received = format!("{peer}:gg");
+                ensure!(
+                    rows(state).last() == Some(&received),
+                    "received line missing: {:?}",
+                    rows(state)
+                );
+                super::super::skirmish::press_diplomacy_tab(state)?;
+                self.route
+                    .push(json!({"frame":frame,"action":"chat packet received","row":received}));
+                self.phase = LanPhase::Chat(1);
+            }
+            1 => {
+                let layout = diplomacy::layout(state).context("0x73 has no hit geometry")?;
+                let checked = |state: &AppState| {
+                    diplomacy::view(state).rows[1]
+                        .as_ref()
+                        .and_then(|row| row.chat)
+                        .map(|chat| chat.checked)
+                };
+                ensure!(checked(state) == Some(true), "peer chat box not checked");
+                let point = click(state, layout.control_rect(DiplomacyControl::Chat(1)));
+                ensure!(
+                    checked(state) == Some(false),
+                    "the chat box click left it checked"
+                );
+                click(state, layout.control_rect(DiplomacyControl::Return));
+                self.route
+                    .push(json!({"frame":frame,"action":"peer chat box cleared","point":point}));
+                self.phase = LanPhase::Chat(2);
+            }
+            2 => {
+                ensure!(
+                    state.match_state.match_presentation.in_game_menu
+                        == crate::ui::pause_menu::InGameMenuState::Closed,
+                    "0x73 did not close"
+                );
+                let line = |state: &mut AppState, open: Key, text: &str, send: bool| {
+                    chat_key(state, KeyCode::Enter, &open, None);
+                    for ch in text.chars() {
+                        let unit = ch.to_string();
+                        chat_key(
+                            state,
+                            KeyCode::KeyA,
+                            &Key::Character(unit.as_str().into()),
+                            Some(&unit),
+                        );
+                    }
+                    if send {
+                        chat_key(state, KeyCode::Enter, &Key::Named(NamedKey::Enter), None);
+                    }
+                };
+                let prefix = crate::assets::csf_file::format_csf(
+                    &App::csf_label(state, "TXT_FROM", "TXT_FROM"),
+                    &[crate::assets::csf_file::CsfArg::Str(&host)],
+                );
+                // Enter: the chat-mask set, now empty of connected peers.
+                line(state, Key::Named(NamedKey::Enter), "hi", true);
+                let requests = state.match_state.session.take_network_loading_requests();
+                ensure!(
+                    !requests
+                        .iter()
+                        .any(|request| matches!(request, NetworkLoadingRequest::Chat { .. })),
+                    "a line went to a cleared listener: {requests:?}"
+                );
+                let echo = format!("{host}:hi ");
+                ensure!(
+                    rows(state).last() == Some(&echo),
+                    "local echo missing: {:?}",
+                    rows(state)
+                );
+                // `\`: everyone.
+                line(state, Key::Character("\\".into()), "all", true);
+                let requests = state.match_state.session.take_network_loading_requests();
+                ensure!(
+                    requests.contains(&NetworkLoadingRequest::Chat {
+                        recipients: vec![1],
+                        text: "all ".into(),
+                    }),
+                    "no chat packet to the peer: {requests:?}"
+                );
+                // Backspace: allies, left open for the frame.
+                line(state, Key::Named(NamedKey::Backspace), "typing", false);
+                let edit = state
+                    .match_state
+                    .match_presentation
+                    .message_list
+                    .edit_line()
+                    .context("no edit line")?;
+                ensure!(
+                    edit.text == format!("{prefix}typing"),
+                    "edit line {:?}",
+                    edit.text
+                );
+                self.route.push(json!({"frame":frame,"action":"chat lines",
+                    "rows":rows(state),"edit":edit.text}));
+                // The rows type in at one unit per 16 ms; show them whole.
+                self.phase = LanPhase::Settle(60);
+            }
             _ => {}
         }
         Ok(())
@@ -2857,6 +3013,7 @@ impl LanCapture {
                 | LanTarget::ConnectionResume
                 | LanTarget::Outvoted
                 | LanTarget::Score
+                | LanTarget::IngameChat
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn
@@ -3101,6 +3258,33 @@ fn since_tick(route: &[Value]) -> u64 {
         .find(|entry| entry["action"] == "controlled peer stall")
         .and_then(|entry| entry["tick"].as_u64())
         .unwrap_or_default()
+}
+
+/// One pressed and released key through the in-game key owner.
+fn chat_key(
+    state: &mut AppState,
+    physical: KeyCode,
+    logical: &winit::keyboard::Key,
+    text: Option<&str>,
+) {
+    for edge in [
+        winit::event::ElementState::Pressed,
+        winit::event::ElementState::Released,
+    ] {
+        crate::app::input::keyboard::in_game_key_edge(
+            state,
+            crate::app::input::keyboard::InGameKeyEdge {
+                physical,
+                logical,
+                unmodified: logical,
+                location: winit::keyboard::KeyLocation::Standard,
+                state: edge,
+                repeat: false,
+                text: text.filter(|_| edge.is_pressed()),
+            },
+            false,
+        );
+    }
 }
 
 fn sim_tick(state: &AppState) -> Result<u64> {

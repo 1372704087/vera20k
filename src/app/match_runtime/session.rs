@@ -137,6 +137,12 @@ pub(crate) enum NetworkLoadingRequest {
     ProposeKick {
         target_source: usize,
     },
+    /// The in-battle chat packet `0x0C` (`0x0055EDBF..0x0055F04E`) to these
+    /// participants. The packet's name and colour are the local player's.
+    Chat {
+        recipients: Vec<usize>,
+        text: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1401,6 +1407,17 @@ impl MatchSession {
             network
                 .loading_requests
                 .push(NetworkLoadingRequest::ProposeKick { target_source });
+        }
+    }
+
+    /// One in-battle chat packet to `recipients`.
+    pub(crate) fn request_chat(&mut self, recipients: Vec<usize>, text: String) {
+        if let Some(network) = self.network.as_mut()
+            && matches!(network.phase, NetworkPhase::Frozen { .. })
+        {
+            network
+                .loading_requests
+                .push(NetworkLoadingRequest::Chat { recipients, text });
         }
     }
 

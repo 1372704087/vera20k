@@ -53,7 +53,7 @@ pub(crate) struct ConnectionDestroyed {
 }
 
 /// What a controlled peer did during the match, decoded from its packets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NetworkMatchEvent {
     /// Participant `source_index` sent EXIT: its event executes at the
     /// current frame as if received.
@@ -66,6 +66,8 @@ pub(crate) enum NetworkMatchEvent {
     /// Kick proposal packet `0x1C` from `voter` against `target`, both
     /// participant indices; queued like `[0x00A8BB28]`.
     KickVote { voter: usize, target: usize },
+    /// Chat packet `0x0C` from participant `source_index`.
+    Chat { source_index: usize, text: String },
 }
 
 /// `Network__DestroyConnection 0x005DA750` for participant `source_index`.
@@ -230,6 +232,9 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkMatchEvent) -> a
                 .received_votes
                 .push_back((voter, target));
         }
+        NetworkMatchEvent::Chat { source_index, text } => {
+            crate::app::input::chat::receive(state, source_index, &text);
+        }
     }
     Ok(())
 }
@@ -352,7 +357,7 @@ pub(crate) enum WaitPass {
     Leave,
 }
 
-fn local_source(session: &MatchSession) -> Option<usize> {
+pub(crate) fn local_source(session: &MatchSession) -> Option<usize> {
     session
         .network_setup()
         .map(|launch| launch.local_player_index)
@@ -375,7 +380,7 @@ pub(crate) fn nodes(session: &MatchSession) -> Vec<usize> {
         .collect()
 }
 
-fn participant_name(session: &MatchSession, source_index: usize) -> String {
+pub(crate) fn participant_name(session: &MatchSession, source_index: usize) -> String {
     session
         .network_setup()
         .and_then(|launch| launch.humans.get(source_index))

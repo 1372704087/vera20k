@@ -706,6 +706,13 @@ impl LanCapture {
         // The peer's 0x1A completes the offer: Preview.bin is written from
         // the host's preview, halved and cut to 64 colours, and sent.
         let preview_path = Self::isolated_root(state)?.join("Preview.bin");
+        // Only the guests the offer went to count; the host's own index does
+        // not complete it.
+        setup::service_event(state, NetworkSetupEvent::PreviewAcknowledged { index: 0 })?;
+        ensure!(
+            self.drain_requests(state).is_empty(),
+            "the host's own index completed the offer"
+        );
         setup::service_event(state, NetworkSetupEvent::PreviewAcknowledged { index: 1 })?;
         ensure!(
             self.drain_requests(state) == vec![NetworkSetupRequest::SendPreviewFile],
@@ -900,6 +907,11 @@ impl LanCapture {
                     NetworkSetupRequest::RequestPreviewFile
                 ],
             "0x19 did not ack and request the file"
+        );
+        setup::service_event(state, NetworkSetupEvent::PreviewOffered)?;
+        ensure!(
+            self.drain_requests(state).is_empty(),
+            "a second 0x19 during the receive was answered"
         );
         let preview_bin = &self
             .random_map_host

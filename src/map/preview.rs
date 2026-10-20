@@ -130,7 +130,8 @@ impl ScenarioStartStaging {
     }
 
     /// The bounds `DrawStartPositions 0x00640710` projects the staged pairs
-    /// through: none unless `1 <= count <= 8` and both spans are positive.
+    /// through: none unless `1 <= count <= 8`. Native divides by the spans
+    /// unguarded; a span that is not positive draws no markers here.
     pub fn preview_source_bounds(&self) -> Option<PreviewSourceBounds> {
         let count = usize::try_from(self.count).ok()?;
         if !(1..=START_STAGING_SLOTS).contains(&count) || self.width <= 0 || self.height <= 0 {

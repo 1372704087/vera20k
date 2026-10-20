@@ -296,6 +296,9 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
                     .as_mut()
                     .expect("setup owns protocol");
                 protocol.received_preview = None;
+                // Native's receive blocks until it ends, so a file still in
+                // flight belongs to the map before this change.
+                protocol.awaiting_preview_file = false;
                 protocol.local_map_verified = local_map.is_some();
                 if local_map.is_none() && !dialog.host && !dialog.wol() {
                     protocol.requests.push(NetworkSetupRequest::RequestPreview);
@@ -457,12 +460,14 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
         NetworkSetupEvent::PreviewOffered => {
             // The receive loop answers 0x19 only on BD (0x005E0133), whether
             // or not this guest asked; 0x005E7920 acks, then receives.
-            if !dialog.host && !dialog.wol() {
-                let protocol = state
-                    .frontend
-                    .network_setup_protocol
-                    .as_mut()
-                    .expect("setup owns protocol");
+            let protocol = state
+                .frontend
+                .network_setup_protocol
+                .as_mut()
+                .expect("setup owns protocol");
+            // A receive in progress blocks native's loop; a second offer is
+            // not answered on top of it.
+            if !dialog.host && !dialog.wol() && !protocol.awaiting_preview_file {
                 protocol.awaiting_preview_file = true;
                 protocol.requests.extend([
                     NetworkSetupRequest::AcknowledgePreview,
@@ -685,9 +690,24 @@ fn preview_requested(state: &mut AppState) -> anyhow::Result<()> {
         return Ok(());
     }
     state.match_state.session.clear_guest_readiness()?;
-    if !(random_map && has_guests && host_preview(state).is_some()) {
+    if !(random_map && has_guests) {
         return Ok(());
     }
+    let Some(preview) = host_preview(state) else {
+        return Ok(());
+    };
+    let launch = state
+        .match_state
+        .session
+        .network_setup()
+        .ok_or_else(|| anyhow::anyhow!("no admitted setup"))?;
+    let guests = launch
+        .humans
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != launch.local_player_index)
+        .map(|(_, human)| human.name.clone())
+        .collect();
     let text = state
         .frontend
         .multiplayer_shell_runtime
@@ -703,7 +723,9 @@ fn preview_requested(state: &mut AppState) -> anyhow::Result<()> {
         NetworkSetupRequest::OfferPreview,
     ]);
     protocol.preview_offer = Some(super::PreviewOffer {
+        guests,
         acknowledged: Vec::new(),
+        preview,
         deadline: Instant::now() + PREVIEW_ACK_WAIT,
     });
     Ok(())
@@ -724,17 +746,23 @@ fn host_preview(state: &AppState) -> Option<crate::map::preview::DecodedPreview>
     crate::app::frontend::skirmish_shell_render::decode_network_map_preview(state, &file)
 }
 
-/// A `0x1A` from a guest the host has not counted yet; when every guest has
-/// answered, the host writes `Preview.bin` from its preview and sends it
-/// (`0x005E8336..0x005E847E`).
+/// A `0x1A` from a guest the offer went to and the host has not counted
+/// yet; when every one has answered, the host writes `Preview.bin` from the
+/// offered preview and sends it (`0x005E8336..0x005E847E`). Joins and leaves
+/// during the wait do not change who must answer: native's wait discards
+/// their packets.
 fn preview_acknowledged(state: &mut AppState, index: usize) -> anyhow::Result<()> {
-    let nodes = state
+    let Some(name) = state
         .match_state
         .session
         .network_setup()
         .ok_or_else(|| anyhow::anyhow!("no admitted setup"))?
         .humans
-        .len();
+        .get(index)
+        .map(|human| human.name.clone())
+    else {
+        return Ok(());
+    };
     let protocol = state
         .frontend
         .network_setup_protocol
@@ -743,19 +771,16 @@ fn preview_acknowledged(state: &mut AppState, index: usize) -> anyhow::Result<()
     let Some(offer) = protocol.preview_offer.as_mut() else {
         return Ok(());
     };
-    if index == 0 || index >= nodes || offer.acknowledged.contains(&index) {
+    if !offer.guests.contains(&name) || offer.acknowledged.contains(&name) {
         return Ok(());
     }
-    offer.acknowledged.push(index);
-    if offer.acknowledged.len() < nodes - 1 {
+    offer.acknowledged.push(name);
+    if offer.acknowledged.len() < offer.guests.len() {
         return Ok(());
     }
-    protocol.preview_offer = None;
-    let Some(preview) = host_preview(state) else {
-        return Ok(());
-    };
+    let offer = protocol.preview_offer.take().expect("offer completed");
     let blob = crate::map::preview::create_paletted_preview(
-        &preview,
+        &offer.preview,
         crate::map::preview::PALETTED_PREVIEW_COLORS,
     );
     let path = state
@@ -794,10 +819,10 @@ fn preview_file_received(
         .network_setup_protocol
         .as_mut()
         .expect("setup owns protocol");
-    anyhow::ensure!(
-        protocol.awaiting_preview_file,
-        "no preview receive is active"
-    );
+    if !protocol.awaiting_preview_file {
+        // The receive was for the map before a change; nothing installs it.
+        return Ok(());
+    }
     protocol.awaiting_preview_file = false;
     let Some(file) = transferred_file else {
         log::info!("LAN preview receive failed; BD keeps no preview");

@@ -125,8 +125,13 @@ pub(crate) struct NetworkSetupProtocol {
     requests: Vec<NetworkSetupRequest>,
 }
 
+/// The host's offer as sent: the guests it went to (the node count is fixed
+/// at the send, `0xA8DA84`, and acks match by sender, `0x005E82D0`), and the
+/// preview the `'W'` described.
 struct PreviewOffer {
-    acknowledged: Vec<usize>,
+    guests: Vec<String>,
+    acknowledged: Vec<String>,
+    preview: crate::map::preview::DecodedPreview,
     deadline: Instant,
 }
 
@@ -193,6 +198,10 @@ impl NetworkSetupProtocol {
 
     pub(crate) fn local_map_verified(&self) -> bool {
         self.local_map_verified
+    }
+
+    fn drop_preview_offer(&mut self) {
+        self.preview_offer = None;
     }
 }
 

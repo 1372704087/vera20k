@@ -871,10 +871,13 @@ fn handle_handoff(sim: &mut Simulation, snap: &MinerSnapshot) {
 /// (`Command::HarvestCell` / MEGAMISSION Enter, EventClass MEGAMISSION →
 /// `Queue_Mission(mission, 0)` at `0x004C73B9`). A human war miner therefore
 /// parks on Guard until re-ordered. State 4 tests no owner, so a computer
-/// house's miner parks too, and stays parked: Mission_Guard's AI arm
-/// (`0x00740881..0x00740942`) re-queues Harvest only while `House+0x242` is
-/// clear (`0x00740922`), and the miss that led here has just set it, with no
-/// clearing writer (`HouseState::harvester_no_ore`).
+/// house's miner parks too. Mission_Guard's AI arm (`0x00740881..
+/// 0x00740942`) re-queues Harvest only while `House+0x242` is clear
+/// (`0x00740922`), and the miss that led here has just set it, with no
+/// clearing writer (`HouseState::harvester_no_ore`). What still moves a
+/// parked computer miner back to Harvest is an arm without that test:
+/// Enter_Idle_Mode's harvester arm (`0x00738BD8`) after a later stop,
+/// AreaGuard (`0x004D6D26`) or RUN_AWAY (`0x00737A98`).
 ///
 /// Step 2 calls the existing `Simulation::techno_nearby_location` owner
 /// (703590), including its movement-zone/GetZone/FNPC arguments. Pending

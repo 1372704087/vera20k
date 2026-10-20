@@ -45,10 +45,10 @@ fn a_computer_miner_that_finds_no_ore_parks_on_guard() {
     };
     let guard = MissionId::from_known(MissionType::Guard);
 
-    // The first state 4 (frame 205) drives the miner off the pad. Still
-    // tethered to the refinery, its arrival asks for clearance and queues
-    // Harvest once more (Unit PerCellProcess `0x0073AAE9..0x0073AAEF`); that
-    // scan misses too, and the second state 4 parks it where it stands.
+    // The first state 4 (frame 205) drives the miner off the pad. Its stop
+    // there runs Enter_Idle_Mode, whose harvester arm (`0x00738BD8`) queues
+    // Harvest once more without the latch test; that scan misses too, and the
+    // second state 4 parks it where it stands.
     frames(&mut sim, 500);
     assert!(sim.houses[&russians].harvester_no_ore());
     assert_eq!(mission(&sim), guard);
@@ -69,10 +69,17 @@ fn a_computer_miner_that_finds_no_ore_parks_on_guard() {
         .get_mut(&russians)
         .unwrap()
         .set_harvester_no_ore_for_test(false);
-    frames(&mut sim, 200);
-    assert_eq!(
-        mission(&sim),
-        MissionId::from_known(MissionType::Harvest),
+    let mut harvested = false;
+    for _ in 0..400 {
+        frames(&mut sim, 1);
+        harvested |= mission(&sim) == MissionId::from_known(MissionType::Harvest);
+    }
+    assert!(
+        harvested,
         "with the latch clear, Guard re-queues Harvest (0x00740922)"
+    );
+    assert!(
+        bales_at(&sim, ore.0, ore.1) < 11,
+        "the miner harvests the ore"
     );
 }

@@ -1584,6 +1584,57 @@ pub fn build_sprite_atlas(
         }
     }
 
+    // Step 1c': a war factory's unload art (`ArtEntry::factory_door`), every
+    // frame of each SHP, shadows included. `BuildingClass::DrawIt @
+    // 0x0043D290` draws it through the building's own DrawSHP, like the bib.
+    if let Some(art_reg) = art {
+        for (type_id, color) in &new_objects {
+            if type_id.contains('_') {
+                continue;
+            }
+            let rules_image: String = rules
+                .and_then(|r| r.object(type_id))
+                .map(|o| o.image.clone())
+                .unwrap_or_else(|| type_id.clone());
+            let Some(entry) = art_reg.resolve_metadata_entry(type_id, &rules_image) else {
+                continue;
+            };
+            let palette_context = if entry.terrain_palette {
+                ShpPaletteContext::Cell
+            } else {
+                ShpPaletteContext::SelectedScheme
+            };
+            for name in entry.factory_door.names() {
+                let upper = name.to_ascii_uppercase();
+                let count = match object_shp_frame_counts.get(&upper) {
+                    Some(&count) => count,
+                    None => {
+                        let candidates = art_data::theater_shp_names(&upper, theater_name)
+                            .map(|name| format!("{name}.SHP"));
+                        let Some((file, data)) = find_shp(asset_manager, &candidates) else {
+                            continue;
+                        };
+                        let Ok(count) = ShpFile::frame_count_from_bytes(data) else {
+                            continue;
+                        };
+                        object_shp_frame_counts.insert(upper.clone(), count);
+                        shp_files.insert(upper.clone(), file.to_string());
+                        count
+                    }
+                };
+                for frame in 0..count {
+                    needed.insert(ShpSpriteKey {
+                        palette_context,
+                        type_id: upper.clone(),
+                        facing: 0,
+                        frame,
+                        house_color: *color,
+                    });
+                }
+            }
+        }
+    }
+
     // Step 1d: Pre-load world effect SHPs (warp animations, explosions, etc.)
     // once, at map load. Names come from rules.ini [General]
     // WarpIn=/WarpOut=/WarpAway= — NOT hardcoded. These use anim.pal (effect
@@ -2574,6 +2625,12 @@ impl SpriteAtlas {
     /// still provide actual pages through the existing device-backed owner.
     pub(crate) fn from_test_entries(entries: HashMap<ShpSpriteKey, ShpSpriteEntry>) -> Self {
         Self::new(Vec::new(), entries, ShpPalettes::default())
+    }
+
+    /// Record `type_id`'s physical SHP frame count, as an atlas build does.
+    pub(crate) fn set_object_shp_frame_count_for_test(&mut self, type_id: &str, count: u16) {
+        self.object_shp_frame_counts
+            .insert(type_id.to_ascii_uppercase(), count);
     }
 
     /// A one-page atlas whose page holds `indices` resolved through

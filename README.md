@@ -58,13 +58,10 @@ Arrows show data flow:
 
 ## System requirements
 
-- **Game:** Red Alert 2: Yuri's Revenge 1.001. VERA20K ships no game files; it reads the `.mix`
-  archives in your `ra2_dir`.
-- **Windows:** 10 or later, x64. ARM64 builds from source (tested in CI).
-- **Linux:** x86-64 with Vulkan, X11 or Wayland, and ALSA (libasound2); glibc 2.35 or later, as on
-  Ubuntu 22.04 and SteamOS (Steam Deck). ARM64 builds from source.
-- **macOS:** 11 or later on Apple Silicon. Intel builds from source, untested in CI.
-- **Graphics:** Vulkan, DirectX 12 or Metal. There is no OpenGL or DirectX 11 fallback.
+- **Game:** Red Alert 2: Yuri's Revenge 1.001.
+- **OS:** Windows 10+, Linux (glibc 2.35+, e.g. Ubuntu 22.04 or Steam Deck), or macOS 11+ on
+  Apple Silicon.
+- **Graphics:** Vulkan, DirectX 12 or Metal.
 
 ## Build and run
 

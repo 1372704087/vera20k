@@ -6882,6 +6882,9 @@ impl RuleSet {
             // otherwise fall back to the object ID itself.
             let art_key: &str = &obj.image;
             let entry = art.get(art_key).or_else(|| art.get(&obj.id));
+            // Every TechnoType's ReadINI reads CanBeHidden from the ART
+            // section of its own ID (0x007121EB); art is not layered.
+            obj.can_be_hidden = art.can_be_hidden(&obj.id);
             if obj.category == crate::rules::object_type::ObjectCategory::Infantry {
                 infantry_checked += 1;
                 if let Some(entry) = entry {

@@ -1867,9 +1867,11 @@ pub struct ObjectType {
     pub is_selectable_combatant: bool,
 
     /// `CanBeHidden=` (TechnoType `+0x724`): constructor `0x00711229` writes
-    /// true; ReadINI (`0x007121EB..0x00712202`) reads it with ReadBool, the
-    /// current byte as default. Gates the Behind indicator
-    /// (`TechnoClass::AI_Update @ 0x006FA2A2`).
+    /// true; ReadINI (`0x007121EB..0x00712202`) reads it with ReadBool from
+    /// the ART INI (`0x00887180`) under the type's own ID, never the rules
+    /// section. `RuleSet::project_art_data` sets it from
+    /// [`ArtRegistry::can_be_hidden`](crate::rules::art_data::ArtRegistry::can_be_hidden).
+    /// Gates the Behind indicator (`TechnoClass::AI_Update @ 0x006FA2A2`).
     pub can_be_hidden: bool,
 
     /// `RevealToAll=` (TechnoType `+0x5EE`): constructor `0x00710FFC` writes
@@ -3252,7 +3254,8 @@ impl ObjectType {
             // `Selectable=no` turn it off.
             selectable: section.read_bool("Selectable", true),
             is_selectable_combatant: section.read_bool("IsSelectableCombatant", false),
-            can_be_hidden: section.read_bool("CanBeHidden", true),
+            // The constructor's value; ART supplies the key (`project_art_data`).
+            can_be_hidden: true,
             reveal_to_all: section.read_bool("RevealToAll", false),
 
             // Naval flags

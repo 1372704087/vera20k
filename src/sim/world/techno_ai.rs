@@ -2311,7 +2311,8 @@ mod tests {
     /// retail rules: a tank on a hiding Cell takes one attached BEHIND anim
     /// and keeps it, and UnInits it once the Cell stops hiding it; an
     /// Aircraft never takes one; a Cell holding a building hides only from a
-    /// second contribution on.
+    /// second contribution on. A building takes one only when its ART leaves
+    /// `CanBeHidden=` true.
     #[test]
     fn a_tank_behind_a_building_takes_the_behind_anim_until_it_leaves() {
         use crate::rules::object_type::BuildingHiddenOccupancyProfile;
@@ -2405,6 +2406,34 @@ mod tests {
         assert!(!sim.substrate.cell_hides_objects(20, 10), "its own count");
         hide(&mut sim, true, (20, 10));
         assert!(sim.substrate.cell_hides_objects(20, 10));
+
+        // ReadINI reads CanBeHidden from the type's ART section (0x007121EB):
+        // retail artmd sets it False on GAPOWR, so the hidden power plant
+        // takes no anim. GAPILL's section leaves the constructor's true.
+        assert!(!rules.object("GAPOWR").unwrap().can_be_hidden);
+        behind_indicator_step(&mut sim, power, &rules);
+        assert_eq!(
+            sim.substrate.entities.get(power).unwrap().behind_anim(),
+            None
+        );
+        let pillbox = sim
+            .spawn_object("GAPILL", "Americans", 24, 10, 0, &rules)
+            .expect("retail GAPILL spawns");
+        while sim.substrate.hidden_occupation.count(24, 10) != 0 {
+            hide(&mut sim, false, (24, 10));
+        }
+        hide(&mut sim, true, (24, 10));
+        hide(&mut sim, true, (24, 10));
+        assert!(sim.substrate.cell_hides_objects(24, 10));
+        behind_indicator_step(&mut sim, pillbox, &rules);
+        assert!(
+            sim.substrate
+                .entities
+                .get(pillbox)
+                .unwrap()
+                .behind_anim()
+                .is_some()
+        );
     }
 
     /// TechnoClass::AI's healer drops (`0x006FA9D8..0x006FAAEF`) in

@@ -58,18 +58,10 @@ Oklar veri akışını gösterir:
 
 ## Sistem gereksinimleri
 
-- **Oyun:** Red Alert 2: Yuri's Revenge 1.001 sürümünün kendi kopyanız. VERA20K hiçbir oyun dosyası
-  içermez ve orijinal `.mix` arşivlerini `ra2_dir` olarak ayarladığınız klasörden okur.
-- **Windows:** x64 üzerinde Windows 10 veya üzeri. ARM64 üzerinde Windows kaynaktan derlenir; CI
-  onu derleyip test eder.
-- **Linux:** Vulkan, X11 ya da Wayland ve ALSA (libasound2) bulunan x86-64 veya ARM64. Resmi
-  derlemeler Ubuntu 22.04'te yapıldığı için glibc 2.35 veya üzeri gerekir; Steam Deck'teki SteamOS
-  bunu karşılar. ARM64 üzerinde Linux kaynaktan derlenir.
-- **macOS:** Apple Silicon üzerinde macOS 11 veya üzeri; yayınladığımız yapı bu. Intel Mac'ler
-  kaynaktan derlenir ve CI'da test edilmez.
-- **Grafik:** Vulkan, DirectX 12 ya da Metal destekleyen bir GPU. Görüntüleyici yalnızca bu üç API'yi
-  ister, OpenGL veya DirectX 11'e düşme yolu yoktur; bu yüzden hiçbirini sunmayan bir GPU oyunu
-  çalıştıramaz.
+- **Oyun:** Red Alert 2: Yuri's Revenge 1.001.
+- **İşletim sistemi:** Windows 10+, Linux (glibc 2.35+, ör. Ubuntu 22.04 veya Steam Deck) ya da
+  Apple Silicon üzerinde macOS 11+.
+- **Grafik:** Vulkan, DirectX 12 ya da Metal.
 
 ## Derleme ve çalıştırma
 

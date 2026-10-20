@@ -317,6 +317,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             state.overlay_registry(),
             modifier,
             force_move_key,
+            state.match_state.input.planning.active(),
         );
         return Some(promote_attack_move_feedback(
             kind,
@@ -588,6 +589,7 @@ pub(super) fn capability_cursor_for_hover(
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     modifier: super::context_order::OrderModifier,
     force_move_key: bool,
+    planning: bool,
 ) -> CursorFeedbackKind {
     use super::context_order::OrderModifier;
     use crate::map::entities::EntityCategory;
@@ -637,20 +639,28 @@ pub(super) fn capability_cursor_for_hover(
         if super::context_order::self_click_command(
             sim,
             rules,
+            overlay_registry,
             entity.owner(),
             selected,
             Some(hover),
+            planning,
         )
         .is_some()
         {
             return CursorFeedbackKind::Deploy;
         }
-        if super::context_order::self_deploy_is_refused(sim, rules, entity.owner(), selected, hover)
-            || hovered_obj.is_some_and(|obj| {
-                super::context_order::self_deploy_is_blocked(entity, obj)
-                    || super::context_order::is_simple_deploy_unit(entity, obj)
-            })
-        {
+        if super::context_order::self_deploy_is_refused(
+            sim,
+            rules,
+            overlay_registry,
+            entity.owner(),
+            selected,
+            hover,
+            planning,
+        ) || hovered_obj.is_some_and(|obj| {
+            super::context_order::self_deploy_is_blocked(entity, obj)
+                || super::context_order::is_simple_deploy_unit(entity, obj)
+        }) {
             return CursorFeedbackKind::NoDeploy;
         }
 
@@ -1896,6 +1906,7 @@ mod tests {
             None,
             crate::app::input::context_order::OrderModifier::Normal,
             false,
+            false,
         );
 
         // 7. Dump the gate inputs so we can see which condition fails
@@ -1957,6 +1968,7 @@ mod tests {
             Some(&rules),
             None,
             crate::app::input::context_order::OrderModifier::Normal,
+            false,
             false,
         );
         assert_eq!(
@@ -2777,6 +2789,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
                     false,
+                    false,
                 ),
                 CursorFeedbackKind::EnemyUnit,
             );
@@ -3143,6 +3156,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
                     false,
+                    false,
                 );
                 let row = native["actions"]
                     .as_array()
@@ -3260,6 +3274,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             Some(rules),
             None,
             crate::app::input::context_order::OrderModifier::Normal,
+            false,
             false,
         )
     }

@@ -1522,6 +1522,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
     // after the sim borrow below ends.
     let mut rally_announce = false;
     let mut consumed_attack_action = false;
+    let planning = state.match_state.input.planning.active();
 
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
         let resources = &rt.resources;
@@ -2095,9 +2096,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 && let Some(cmd) = self_click_command(
                     sim,
                     &resources.rules,
+                    Some(&resources.overlay_registry),
                     owner_id,
                     &current_objects,
                     hover.as_ref(),
+                    planning,
                 )
             {
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, cmd));
@@ -2462,51 +2465,81 @@ pub(super) fn self_deploy_is_blocked(
 /// factory primary and simple deployment keep their existing owners; the
 /// blocked Infantry/empty-transport suffix is self_deploy_is_blocked.
 ///
-/// A Unit's deploy or unload self action also needs CanDeploySlashUnload
-/// (`0x0073FFEA`); its refusal answers NoDeploy ([`self_deploy_is_refused`]).
-///
-/// RESIDUAL: Unit What_Action's other NoDeploy tests are not ported: a
-/// DeploysInto unit's placement check (`0x0073FEAD..0x0073FFA6`) and a
-/// loaded transport's first-passenger land-speed and height checks
-/// (`0x00740078..0x007400EB`). Trigger: hovering such a unit over itself on
-/// a site it cannot use. Effect: the cursor offers Deploy, the click speaks
-/// `VoiceDeploy=` (native NoDeploy never reaches ClickedMission, so it is
-/// silent), and the order is then refused by its receiver. Retail: only the
-/// Slave Miner has a `VoiceDeploy=`.
+/// A Unit's self action answers NoDeploy where Unit What_Action's site
+/// tests refuse it (`Simulation::unit_self_deploy_site_refused`: a
+/// DeploysInto unit's placement, a loaded transport's first-passenger land
+/// and height) or CanDeploySlashUnload does (`0x0073FFEA`)
+/// ([`self_deploy_is_refused`]). In Planning Mode (`0x00AC4CF4`) a Unit's or
+/// Infantryman's every self action answers NoDeploy
+/// (`Planning__AllowsAction 0x00637DB0`, called at `0x0073FEA0`,
+/// `0x0051EC1B`, `0x0051ECA4`); a building's or aircraft's is unaffected.
+/// NoDeploy orders nothing.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn self_click_command(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     local_owner: InternedId,
     selected_ids: &[u64],
     hover: Option<&HoverTargetKindWithId>,
+    planning: bool,
 ) -> Option<Command> {
     let target = hover?;
+    if planning_refuses_self(sim, local_owner, selected_ids, target, planning) {
+        return None;
+    }
     self_action(sim, rules, local_owner, selected_ids, target)
-        .filter(|_| !unit_refuses_deploy(sim, rules, target.stable_id))
+        .filter(|_| !unit_refuses_deploy(sim, rules, registry, target.stable_id))
 }
 
-/// Unit What_Action's NoDeploy answer (`0x0073FFF4`) for a self action that
-/// CanDeploySlashUnload refuses.
+/// Unit What_Action's NoDeploy answer (`0x0073FFF4`) for a self action its
+/// site tests or CanDeploySlashUnload refuse, and Planning Mode's for any
+/// Unit or Infantry self action.
 pub(super) fn self_deploy_is_refused(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     local_owner: InternedId,
     selected_ids: &[u64],
     target: &HoverTargetKindWithId,
+    planning: bool,
 ) -> bool {
-    unit_refuses_deploy(sim, rules, target.stable_id)
-        && self_action(sim, rules, local_owner, selected_ids, target).is_some()
+    planning_refuses_self(sim, local_owner, selected_ids, target, planning)
+        || (unit_refuses_deploy(sim, rules, registry, target.stable_id)
+            && self_action(sim, rules, local_owner, selected_ids, target).is_some())
+}
+
+/// `Planning__AllowsAction(4)` (`0x00637DB0`) refuses a Unit's or
+/// Infantryman's own Self action while Planning Mode is on.
+fn planning_refuses_self(
+    sim: &crate::sim::world::Simulation,
+    local_owner: InternedId,
+    selected_ids: &[u64],
+    target: &HoverTargetKindWithId,
+    planning: bool,
+) -> bool {
+    planning
+        && selected_ids == [target.stable_id]
+        && sim.entities().get(target.stable_id).is_some_and(|entity| {
+            entity.owner() == local_owner
+                && matches!(
+                    entity.category(),
+                    EntityCategory::Unit | EntityCategory::Infantry
+                )
+        })
 }
 
 fn unit_refuses_deploy(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     id: u64,
 ) -> bool {
     sim.entities()
         .get(id)
         .is_some_and(|entity| entity.category() == EntityCategory::Unit)
-        && !sim.can_deploy_slash_unload(id, rules)
+        && (sim.unit_self_deploy_site_refused(id, rules, registry)
+            || !sim.can_deploy_slash_unload(id, rules))
 }
 
 fn self_action(
@@ -3330,7 +3363,16 @@ fn building_selection_click(
         OrderModifier::Normal | OrderModifier::Shift | OrderModifier::AttackMove
     );
     if context_actions_enabled
-        && let Some(command) = self_click_command(sim, rules, owner, current_objects, hover)
+        // Building What_Action's self rows have no planning test.
+        && let Some(command) = self_click_command(
+            sim,
+            rules,
+            Some(overlay_registry),
+            owner,
+            current_objects,
+            hover,
+            false,
+        )
     {
         return BuildingClick::Orders(vec![command], false);
     }
@@ -3812,6 +3854,7 @@ mod tests {
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
                     false,
+                    false,
                 ),
                 expected_cursor
             );
@@ -3838,6 +3881,7 @@ mod tests {
                 Some(&rules),
                 None,
                 crate::app::input::context_order::OrderModifier::Normal,
+                false,
                 false,
             ),
             crate::app::types::CursorFeedbackKind::Enter
@@ -4066,6 +4110,7 @@ mod tests {
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
                     false,
+                    false,
                 ),
                 crate::app::types::CursorFeedbackKind::Invalid
             );
@@ -4172,6 +4217,7 @@ mod tests {
                 Some(&rules),
                 None,
                 crate::app::input::context_order::OrderModifier::Normal,
+                false,
                 false,
             )
         };
@@ -4320,6 +4366,7 @@ mod tests {
                 None,
                 OrderModifier::Normal,
                 false,
+                false,
             )
         };
         let click = |target| {
@@ -4391,6 +4438,7 @@ mod tests {
                 Some(&rules),
                 None,
                 OrderModifier::Normal,
+                false,
                 false,
             ),
             CursorFeedbackKind::Move
@@ -4545,7 +4593,7 @@ mod tests {
             stable_id: refinery,
         };
         assert_eq!(
-            self_click_command(&sim, &rules, owner, &[refinery], Some(&hover)),
+            self_click_command(&sim, &rules, None, owner, &[refinery], Some(&hover), false),
             None
         );
         // A missing input map cannot produce an archive;4437AD still queues SELL.
@@ -5008,11 +5056,14 @@ mod tests {
                  [BuildingTypes]\n0=GACNST\n\
                  [E1]\nStrength=125\nDeployFire=yes\nDeployer=yes\n\
                  [AMCV]\nStrength=1000\nDeploysInto=GACNST\n\
-                 [GACNST]\nStrength=1000\n",
+                 [GACNST]\nStrength=1000\n[Clear]\nBuildable=yes\n",
             ))
             .unwrap();
         let mut sim = Simulation::new();
         sim.resolve_type_handles(&rules);
+        // Ground the MCV's yard may stand on (Unit What_Action's placement
+        // test, `0x0073FF9C`).
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
         for house in ["Americans", "Soviets"] {
             let id = sim.intern(house);
             sim.houses_mut_for_test()
@@ -5033,7 +5084,15 @@ mod tests {
             stable_id,
         };
         let click = |selected: &[u64], target: u64| {
-            self_click_command(&sim, &rules, americans, selected, Some(&hover(target)))
+            self_click_command(
+                &sim,
+                &rules,
+                None,
+                americans,
+                selected,
+                Some(&hover(target)),
+                false,
+            )
         };
 
         assert_eq!(
@@ -5116,7 +5175,15 @@ mod tests {
             stable_id,
         };
         let click = |selected: &[u64], target| {
-            self_click_command(&sim, rules, owner, selected, Some(&hover(target)))
+            self_click_command(
+                &sim,
+                rules,
+                None,
+                owner,
+                selected,
+                Some(&hover(target)),
+                false,
+            )
         };
         assert_eq!(click(&[first], first), None, "already primary is Action0");
         assert_eq!(click(&[first, second], second), None, "a group selects");
@@ -5147,6 +5214,7 @@ mod tests {
                 Some(rules),
                 None,
                 crate::app::input::context_order::OrderModifier::Normal,
+                false,
                 false,
             )
         };
@@ -5208,7 +5276,8 @@ mod tests {
             stable_id: reactor,
         };
 
-        let command = self_click_command(&sim, &rules, owner, &[reactor], Some(&hover));
+        let command =
+            self_click_command(&sim, &rules, None, owner, &[reactor], Some(&hover), false);
         let cursor = crate::app::input::cursor::capability_cursor_for_hover(
             &sim,
             &[reactor],
@@ -5217,6 +5286,7 @@ mod tests {
             Some(&rules),
             None,
             crate::app::input::context_order::OrderModifier::Normal,
+            false,
             false,
         );
 
@@ -5259,7 +5329,7 @@ mod tests {
         };
         let probe = |sim: &Simulation| {
             (
-                self_click_command(sim, &rules, owner, &[ifv], Some(&hover)),
+                self_click_command(sim, &rules, None, owner, &[ifv], Some(&hover), false),
                 crate::app::input::cursor::capability_cursor_for_hover(
                     sim,
                     &[ifv],
@@ -5268,6 +5338,7 @@ mod tests {
                     Some(&rules),
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
+                    false,
                     false,
                 ),
             )
@@ -5324,7 +5395,7 @@ mod tests {
                 .unwrap()
                 .set_unit_simple_deploy_for_test(deployed, begin, reverse);
             assert_eq!(
-                self_click_command(&sim, rules, owner, &[id], Some(&hover)),
+                self_click_command(&sim, rules, None, owner, &[id], Some(&hover), false),
                 Some(Command::DeployMcv { entity_id: id }),
             );
             assert_eq!(
@@ -5337,12 +5408,13 @@ mod tests {
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
                     false,
+                    false,
                 ),
                 crate::app::types::CursorFeedbackKind::Deploy,
             );
         }
         assert_eq!(
-            self_click_command(&sim, rules, owner, &[id, id + 1], Some(&hover)),
+            self_click_command(&sim, rules, None, owner, &[id, id + 1], Some(&hover), false),
             None,
             "a group self-click remains selection"
         );
@@ -5357,7 +5429,7 @@ mod tests {
             ),
         );
         assert_eq!(
-            self_click_command(&sim, rules, owner, &[id], Some(&hover)),
+            self_click_command(&sim, rules, None, owner, &[id], Some(&hover), false),
             None
         );
         let feedback = crate::app::input::cursor::capability_cursor_for_hover(
@@ -5368,6 +5440,7 @@ mod tests {
             Some(rules),
             None,
             crate::app::input::context_order::OrderModifier::Normal,
+            false,
             false,
         );
         assert_eq!(feedback, crate::app::types::CursorFeedbackKind::NoDeploy);
@@ -5542,6 +5615,7 @@ mod tests {
                     Some(&rules),
                     None,
                     crate::app::input::context_order::OrderModifier::Normal,
+                    false,
                     false,
                 )
             };
@@ -6142,6 +6216,10 @@ mod retail_garrison_tests;
 #[cfg(test)]
 #[path = "context_order_retail_entry_tests.rs"]
 mod retail_entry_tests;
+
+#[cfg(test)]
+#[path = "context_order_retail_self_deploy_tests.rs"]
+mod retail_self_deploy_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_ifv_repair_tests.rs"]

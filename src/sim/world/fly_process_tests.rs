@@ -768,3 +768,86 @@ fn fly_death_stun_matches_native_rows() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// Horizontal_Step's tail (`0x004CF55D..0x004CF5EC`): a selected enemy
+/// aircraft drops out of the player's selection once it flies over the
+/// player's shroud (`MapClass::IsShrouded @ 0x00586360` at its Location);
+/// over mapped ground it stays selected, and the player's own aircraft is
+/// never deselected.
+#[test]
+fn a_selected_enemy_aircraft_is_deselected_over_the_players_shroud() {
+    use crate::sim::command::{Command, CommandEnvelope};
+    let (mut sim, rules, registry) = crate::sim::world::entry_test_fixture::fixture_with_rules("");
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
+    sim.session.game_options_mut_for_test().short_game = false;
+    for (side, name) in ["Americans", "Russians"].into_iter().enumerate() {
+        let house = sim.interner.intern(name);
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                house, side as u8, None, true, 0, 10,
+            ));
+    }
+    let player = sim.interner.get("Americans").unwrap();
+    let enemy_house = sim.interner.get("Russians").unwrap();
+    sim.session.set_current_house_for_test(Some(player));
+    let own = sim
+        .spawn_object_with_overlay_registry("HORNET", "Americans", 6, 12, 0, &rules, &registry)
+        .unwrap();
+    let enemy = sim
+        .spawn_object_with_overlay_registry("HORNET", "Russians", 8, 15, 0, &rules, &registry)
+        .unwrap();
+    // The player has mapped the west of the map only.
+    crate::sim::vision::reveal_radius(&mut sim.fog, player, 6, 12, 12);
+    for id in [own, enemy] {
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
+    }
+    let selected = |sim: &Simulation, id| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .selection
+            .is_selected()
+    };
+    let grid = sim.path_grid.clone();
+    sim.advance_tick(
+        &[CommandEnvelope::new(
+            enemy_house,
+            sim.session.tick(),
+            Command::Move {
+                entity_id: enemy,
+                target_rx: 30,
+                target_ry: 15,
+            },
+        )],
+        Some(&rules),
+        grid.as_deref(),
+        Some(&registry),
+        67,
+    );
+    assert!(
+        selected(&sim, enemy),
+        "over mapped ground it stays selected"
+    );
+    let mut east = false;
+    for _ in 0..600 {
+        let due = sim.take_due_commands();
+        sim.advance_tick(&due, Some(&rules), grid.as_deref(), Some(&registry), 67);
+        if sim.substrate.entities.get(enemy).unwrap().position.rx() >= 24 {
+            east = true;
+            break;
+        }
+    }
+    assert!(east, "the enemy aircraft flies east");
+    assert!(
+        !selected(&sim, enemy),
+        "over the player's shroud it leaves the selection"
+    );
+    assert!(selected(&sim, own));
+}

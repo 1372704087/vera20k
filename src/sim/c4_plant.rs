@@ -151,6 +151,27 @@ impl C4Detonation {
         }
     }
 
+    /// DestructionEffects' write (`0x00441C43..0x00441C8C`): the fuse
+    /// restarts at `frame` for `duration_frames`, 0 for an `Explodes=` type
+    /// or a building dying while Selling, else 8. C4AppliedBy (`+0x540`) is
+    /// kept for the survivors. The latch lives in the fuse here, so a building
+    /// with no plant gains one; the Health 0 it dies at keeps the C4 expiry
+    /// from firing it (`Simulation::tick_pending_building_detonation`).
+    pub(crate) fn arm_destruction(&mut self, frame: i32, duration_frames: i32) {
+        let retained_source = self.pending.and_then(|pending| pending.source_entity_id);
+        self.pending = Some(PendingC4Detonation::new(
+            CdTimer::started(frame, duration_frames),
+            retained_source,
+        ));
+    }
+
+    /// ReceiveDamage case 4's gate (`0x0044266B..0x00442690`): it UnInits a
+    /// building, and runs AfterDestruction, only while the fuse has time left.
+    pub(crate) fn has_time_left(self, frame: i32) -> bool {
+        self.pending
+            .is_some_and(|pending| pending.timer.remaining(frame) > 0)
+    }
+
     /// `BuildingClass::IronCurtain @ 0x00457C90` (IronCurtain and ForceShield
     /// entry) and the BridgeRepairHut's expiry branch
     /// (`0x00440213..0x00440331`) drop the latch and C4AppliedBy.

@@ -870,17 +870,23 @@ fn techno_ai_shell(
             // and BEFORE delayed fire/paid repair. Engineer701410 itself
             // deliberately does not invalidate the House.
             sim.sample_building_health_for_house_update(id);
-            // Building440072..4400F1 also retires a zero-HP map building that
-            // never entered ReceiveDamage (SOV01's collapsed CASANF10). Its
-            // constructor's shared C4 timer has duration0. Preserve an armed
-            // timer through its existing owner, then Limbo -> SpawnSurvivors
-            // -> UnInit -> AfterDestruction, without inventing a fatal hit.
+            // Building440072..4400F1 retires a building at Health 0 once its
+            // shared C4/death fuse has run out: one that outlived its killing
+            // blow (an `Explodes=` type or one dying while Selling, whose
+            // DestructionEffects armed a zero fuse, `0x00441C43`) and a zero-HP
+            // map building that never entered ReceiveDamage (SOV01's collapsed
+            // CASANF10; its constructor's fuse has duration0). An armed fuse
+            // with time left holds it. Then Limbo -> SpawnSurvivors (a second
+            // round for the former, under the NoSurvivor its killing blow
+            // left) -> UnInit -> AfterDestruction, without inventing a fatal
+            // hit. Its Logic visit reaches here: Update leaves earlier only
+            // for a warp (`0x0043FD14`) or a cleared IsAlive (`0x0043FE63`),
+            // and Techno AI's self-heal skips Health 0 (`0x0070BE80`).
             // Steam gamemd3e81a617..08600 control: object_health.py
             // --building-zero-health and building_zero_health.{json,meta.json}.
             // This caller draws no RNG and writes no timer. Anim retirement,
             // Limbo/detach, survivor draws/smudges and rubble stay with their
-            // existing owners. Damage-driven delayed destruction still follows
-            // the retained terminal-lifetime policy above.
+            // existing owners.
             if sim
                 .substrate
                 .entities
@@ -900,13 +906,11 @@ fn techno_ai_shell(
                     let context = super::UninitContext::new(Some(rules), ctx.overlay_registry)
                         .with_effects(ctx.effects);
                     sim.techno_limbo_with_context(id, context);
-                    // The no-survivor byte is constructor-clear on this entry;
-                    // damage-driven terminal objects were handled above.
+                    // `0x004400CB..0x004400D4`: SpawnSurvivors(C4AppliedBy).
                     sim.spawn_building_survivors(
                         rules,
                         ctx.overlay_registry,
                         id,
-                        false,
                         |sim, (cell_rx, cell_ry)| {
                             sim.commit_smudge_request_inline(
                                 rules,

@@ -179,9 +179,7 @@ fn prerequisite_on_map(
             let Some(type_id) = sim.interner.get(&building_type.id) else {
                 return false;
             };
-            // Steam gamemd SHA256
-            // 3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600:
-            //4F7DF8..4F7E4E walks House+6C backwards, skips only limbo,
+            // Steam gamemd:4F7DF8..4F7E4E walks House+6C backwards, skips only limbo,
             // offline and either Selling selector, then checks all three
             // Building+5EC types. A miss stops; count/host type/HP are unread.
             let selling = MissionId::from_known(MissionType::Selling);

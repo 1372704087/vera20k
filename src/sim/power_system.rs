@@ -518,8 +518,7 @@ fn recalculate_power_for_owner(
                     output_contribution.wrapping_add(obj.extra_power.wrapping_mul(occupants));
             }
         }
-        // Original44E826..44E84D and44E8B5..44E8DA (Steam SHA256
-        // 3e81a61775d2745d1dabe397325ef663cd994ffc194da4e998e3bf5d2d308600):
+        // Original44E826..44E84D and44E8B5..44E8DA (Steam gamemd):
         // a nonzero count admits all three installed Type slots, including
         // sparse slots beyond the count. Sum before scaling the host's HP;
         // installed upgrades do not own independent power contributors.

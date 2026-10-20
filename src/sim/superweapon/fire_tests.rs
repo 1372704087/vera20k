@@ -143,6 +143,8 @@ fn click_fire_matches_native() {
             (33, 44),
             None,
             crate::sim::world::FrameEffects::default(),
+            None,
+            false,
         );
         let events = row["events"].as_array().unwrap();
         let called = |name: &str| events.iter().any(|event| event[0] == name);

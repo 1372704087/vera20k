@@ -119,7 +119,7 @@ fn edit_keys(edge: &InGameKeyEdge<'_>) -> Vec<EditKey> {
 pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
     let list = &state.match_state.match_presentation.message_list;
     if !list.editing() {
-        if !edge.state.is_pressed() || edge.repeat || !state.match_state.session.mode().is_network()
+        if !edge.state.is_pressed() || edge.repeat || !state.match_state.session_mode().is_network()
         {
             return false;
         }
@@ -190,7 +190,7 @@ fn apply_input(state: &mut AppState, key: EditKey) {
 
 /// The send block `0x0055EDBF..0x0055F110` for results 3 and 4.
 fn send(state: &mut AppState, text: &str) {
-    if !state.match_state.session.mode().is_network() {
+    if !state.match_state.session_mode().is_network() {
         return;
     }
     let Some(local) = local_house(state) else {
@@ -264,6 +264,14 @@ fn route(state: &AppState, local: InternedId, target: ChatTarget) -> Option<(Vec
         &state.match_state.match_presentation.chat,
         &houses,
     ))
+}
+
+/// The taunt recipients (`0x0053645A..0x0053652B`): the connected peers of
+/// the Multiplay Houses whose chat-mask byte is set. The taunt command has
+/// already refused a local player who is out, so the observer gate never
+/// refuses here.
+pub(crate) fn listener_peers(state: &AppState, local: InternedId) -> Vec<usize> {
+    route(state, local, ChatTarget::Listeners).map_or_else(Vec::new, |(recipients, _)| recipients)
 }
 
 /// One Multiplay House as the send block sees it.

@@ -1213,7 +1213,10 @@ use crate::util::save_codec;
 // second SpawnSurvivors of a building that outlives its killing blow.
 // 453 -> 454: HouseState retains House+0x248, the executed-EXIT flag.
 // 454 -> 455: BunkerState gains WallsUp (UpdateBunker state 5) before Occupied.
-const SNAPSHOT_VERSION: u32 = 455;
+// 455 -> 456: retain paid two-stage selection sequences and one-use tickets
+// on Super instances, plus ticketed completion/cancellation command variants.
+// Positional bincode cannot default the new per-instance fields in v455 saves.
+const SNAPSHOT_VERSION: u32 = 456;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -1430,6 +1433,8 @@ pub enum SnapshotError {
 pub enum SnapshotRestoreError {
     #[error("invalid UnitDelivery snapshot state: {0}")]
     InvalidUnitDelivery(&'static str),
+    #[error("invalid paid two-stage selection: {0}")]
+    InvalidPaidSuperWeaponSelection(&'static str),
     #[error("invalid detached Particle {object_id}: {reason}")]
     InvalidDetachedParticleState {
         object_id: u64,
@@ -2779,6 +2784,8 @@ impl Simulation {
     /// weak/derived identities, and reconstructs skipped indexes in dependency
     /// order.
     pub fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
+        self.validate_paid_super_weapon_selections()
+            .map_err(SnapshotRestoreError::InvalidPaidSuperWeaponSelection)?;
         self.unit_deliveries
             .validate(self)
             .map_err(SnapshotRestoreError::InvalidUnitDelivery)?;
@@ -10073,6 +10080,7 @@ mod tests {
         // 452 -> 453: a building's NoSurvivor byte.
         // 453 -> 454: the House left-game flag.
         // 454 -> 455: BunkerState::WallsUp.
-        assert_eq!(super::SNAPSHOT_VERSION, 455);
+        // 455 -> 456: saved paid two-stage selections and ticketed commands.
+        assert_eq!(super::SNAPSHOT_VERSION, 456);
     }
 }

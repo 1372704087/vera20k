@@ -118,6 +118,10 @@ pub enum LanTarget {
     /// cleared, an Enter line that goes nowhere, a `\` line to everyone and
     /// a Backspace (allies) line left open on the frame.
     IngameChat,
+    /// Taunts: an F5 taunt sent to the peer and played locally, a second
+    /// one refused by the 5 s clock, a received taunt played, then 0x73's
+    /// TauntsOn box cleared and a received taunt refused.
+    IngameTaunt,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -194,6 +198,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-score", LanTarget::Score),
     ("lan-ingame-chat", LanTarget::IngameChat),
     ("lan-ingame-ally", LanTarget::IngameAlly),
+    ("lan-ingame-taunt", LanTarget::IngameTaunt),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -306,6 +311,8 @@ enum LanPhase {
     Chat(u8),
     /// Alliance step `n`; a step may wait several frames.
     Ally(u8),
+    /// Taunt step `n` (one per frame).
+    Taunt(u8),
     /// The peer resumed at `tick`: waiting for 0xEA to close and a frame.
     Resumed {
         tick: u64,
@@ -818,7 +825,7 @@ impl LanCapture {
             }
             LanPhase::Lobby if rendered == PresentedShell::LanLobby && lobby_settled(state) => {
                 ensure!(
-                    state.match_state.session.mode() == SessionMode::Lan
+                    state.match_state.session_mode() == SessionMode::Lan
                         && state.match_state.session.network_setup().is_none(),
                     "BB acquired a competing setup"
                 );
@@ -2061,7 +2068,7 @@ impl LanCapture {
             {
                 ensure!(
                     state.frontend.lan.is_none()
-                        && state.match_state.session.mode() != SessionMode::Lan,
+                        && state.match_state.session_mode() != SessionMode::Lan,
                     "LAN survived MainMenu return"
                 );
                 self.settle(state);
@@ -2092,7 +2099,7 @@ impl LanCapture {
                 if state.frontend.screen == GameScreen::InGame && self.abort_return() =>
             {
                 ensure!(
-                    state.match_state.session.mode() == SessionMode::Lan,
+                    state.match_state.session_mode() == SessionMode::Lan,
                     "installed LAN became offline"
                 );
                 if self.target == LanTarget::LoadingTimeoutReturn {
@@ -2257,6 +2264,10 @@ impl LanCapture {
                 if self.target == LanTarget::IngameAlly {
                     self.phase = LanPhase::Ally(0);
                     return self.ally_step(state, frame, 0);
+                }
+                if self.target == LanTarget::IngameTaunt {
+                    self.phase = LanPhase::Taunt(0);
+                    return self.taunt_step(state, frame, 0);
                 }
                 if self.target == LanTarget::HostDiplomacy {
                     super::super::skirmish::press_diplomacy_tab(state)?;
@@ -2651,7 +2662,7 @@ impl LanCapture {
                 }
                 if rendered == PresentedShell::LanLobby && lobby_settled(state) {
                     ensure!(
-                        state.match_state.session.mode() == SessionMode::Lan
+                        state.match_state.session_mode() == SessionMode::Lan
                             && state.frontend.loading_session.is_none()
                             && !state.match_state.network_wait.waiting(),
                         "0xEA leave cleanup incomplete"
@@ -2843,7 +2854,7 @@ impl LanCapture {
                         "LAN returned without executed EXIT cascade"
                     );
                     ensure!(
-                        state.match_state.session.mode() == SessionMode::Lan
+                        state.match_state.session_mode() == SessionMode::Lan
                             && state.frontend.loading_session.is_none()
                             && state.match_state.scenario_exit.is_none()
                             && state.match_state.match_presentation.in_game_menu
@@ -2856,6 +2867,7 @@ impl LanCapture {
             }
             LanPhase::Chat(step) => self.chat_step(state, frame, step)?,
             LanPhase::Ally(step) => self.ally_step(state, frame, step)?,
+            LanPhase::Taunt(step) => self.taunt_step(state, frame, step)?,
             LanPhase::Settle(n) if n > 0 => self.phase = LanPhase::Settle(n - 1),
             _ => {}
         }
@@ -3147,6 +3159,151 @@ impl LanCapture {
         }
         Ok(())
     }
+    /// One frame of the taunt capture.
+    fn taunt_step(&mut self, state: &mut AppState, frame: u32, step: u8) -> Result<()> {
+        use crate::app::input::diplomacy;
+        use crate::app::match_runtime::network_match::NetworkMatchEvent;
+        use crate::ui::shell::diplomacy::DiplomacyControl;
+        use winit::keyboard::{Key, NamedKey};
+        // Whether a taunt is sounding; `None` without an audio device.
+        let playing = |state: &AppState| {
+            state
+                .audio
+                .sfx_player
+                .as_ref()
+                .map(|sfx| sfx.taunt_stream_busy())
+        };
+        let taunts = |state: &mut AppState| {
+            state
+                .match_state
+                .session
+                .take_network_loading_requests()
+                .into_iter()
+                .filter(|request| matches!(request, NetworkLoadingRequest::Taunt { .. }))
+                .collect::<Vec<_>>()
+        };
+        match step {
+            0 => {
+                let country = {
+                    let runtime = state.match_state.sim_runtime.as_ref().context("match")?;
+                    let sim = &runtime.simulation;
+                    let local = sim.session().current_house().context("local House")?;
+                    let name = sim
+                        .houses()
+                        .get(&local)
+                        .and_then(|house| house.country())
+                        .map(|country| sim.interner().resolve(country).to_string())
+                        .context("local country")?;
+                    runtime
+                        .resources
+                        .rules
+                        .country_index(&name)
+                        .context("country index")?
+                        .0
+                };
+                // Taunt_1 is F5 (116) in the install's KeyboardMD.ini.
+                chat_key(state, KeyCode::F5, &Key::Named(NamedKey::F5), None);
+                let sent = taunts(state);
+                let byte = ((country as u8) << 4) | 1;
+                ensure!(
+                    sent == [NetworkLoadingRequest::Taunt {
+                        recipients: vec![1],
+                        byte
+                    }],
+                    "F5 sent {sent:?}"
+                );
+                let local = playing(state);
+                ensure!(local != Some(false), "the local taunt is not playing");
+                chat_key(state, KeyCode::F6, &Key::Named(NamedKey::F6), None);
+                let refused = taunts(state);
+                ensure!(refused.is_empty(), "the 5 s clock let {refused:?} through");
+                self.route
+                    .push(json!({"frame":frame,"action":"F5 taunt sent",
+                    "byte":byte,"local_playing":local,"second_refused":true}));
+                self.phase = LanPhase::Taunt(1);
+            }
+            1 => {
+                crate::app::match_runtime::network_match::service_event(
+                    state,
+                    NetworkMatchEvent::Taunt { byte: 0x82 },
+                )?;
+                let received = playing(state);
+                ensure!(received != Some(false), "the received taunt is not playing");
+                super::super::skirmish::press_diplomacy_tab(state)?;
+                self.route
+                    .push(json!({"frame":frame,"action":"taunt received",
+                    "byte":0x82,"playing":received}));
+                self.phase = LanPhase::Taunt(2);
+            }
+            2 => {
+                ensure!(
+                    diplomacy::view(state).taunts == Some(true),
+                    "TauntsOn is not shown checked"
+                );
+                let layout = diplomacy::layout(state).context("0x73 has no hit geometry")?;
+                let click = |state: &mut AppState, rect: RectPx| {
+                    let point = set_window_pointer_to_rect_center(state, rect);
+                    crate::app::input::dispatch::handle_cursor_moved_in_game(state);
+                    for edge in [
+                        winit::event::ElementState::Pressed,
+                        winit::event::ElementState::Released,
+                    ] {
+                        crate::app::input::dispatch::handle_mouse_input(
+                            state,
+                            MouseButton::Left,
+                            edge,
+                        );
+                    }
+                    point
+                };
+                // A press on the caption is outside the 18x18 icon.
+                let rect = layout.control_rect(DiplomacyControl::Taunts);
+                click(state, RectPx::new(rect.x + 40, rect.y, rect.w - 40, rect.h));
+                ensure!(
+                    diplomacy::view(state).taunts == Some(true),
+                    "a caption press toggled TauntsOn"
+                );
+                let point = click(
+                    state,
+                    crate::ui::skirmish_shell::checkbox_icon_rect(
+                        rect,
+                        crate::ui::shell::geom::ShellScale::RETAIL,
+                    ),
+                );
+                ensure!(
+                    diplomacy::view(state).taunts == Some(false),
+                    "the TauntsOn icon press left it checked"
+                );
+                if let Some(sfx) = state.audio.sfx_player.as_mut() {
+                    sfx.stop_all();
+                }
+                crate::app::match_runtime::network_match::service_event(
+                    state,
+                    NetworkMatchEvent::Taunt { byte: 0x83 },
+                )?;
+                ensure!(
+                    playing(state) != Some(true),
+                    "a taunt played with TauntsOn cleared"
+                );
+                // A send past the 5 s clock is refused by the player's own
+                // TauntsOn.
+                crate::app::input::taunt::execute(
+                    state,
+                    2,
+                    crate::app::match_runtime::frame_pacer::wall_clock_ms() + 60_000,
+                );
+                let blocked = taunts(state);
+                ensure!(blocked.is_empty(), "TauntsOn off sent {blocked:?}");
+                self.route.push(
+                    json!({"frame":frame,"action":"TauntsOn cleared","caption_press_ignored":true,"send_refused":true,
+                    "point":point,"received_refused":true}),
+                );
+                self.phase = LanPhase::Settle(2);
+            }
+            _ => {}
+        }
+        Ok(())
+    }
     /// The three-player captures: Observe and the alliance, which needs a
     /// House left to fight (Can_Ally 0x005015C2..0x00501638).
     fn observe(&self) -> bool {
@@ -3169,6 +3326,7 @@ impl LanCapture {
                 | LanTarget::Outvoted
                 | LanTarget::Score
                 | LanTarget::IngameChat
+                | LanTarget::IngameTaunt
                 | LanTarget::IngameAlly
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
@@ -3195,7 +3353,7 @@ impl LanCapture {
                 return Ok(false);
             }
             ensure!(
-                state.match_state.session.mode() == SessionMode::Lan,
+                state.match_state.session_mode() == SessionMode::Lan,
                 "network handoff became offline"
             );
             return Ok(state.frontend.screen == GameScreen::Loading
@@ -3245,7 +3403,7 @@ impl LanCapture {
     }
 }
 fn session_receipt(state: &AppState) -> Value {
-    json!({"mode":format!("{:?}",state.match_state.session.mode()),"host":state.match_state.session.host(),
+    json!({"mode":format!("{:?}",state.match_state.session_mode()),"host":state.match_state.session.host(),
         "setup":state.match_state.session.network_setup(),"seed":state.match_state.session.network_start_seed(),
         "max_ahead_frames":state.match_state.session.network_max_ahead_frames(),
         "setup_capacity":state.match_state.session.network_setup_capacity(),"observer_row":state.match_state.session.network_observer_row(),

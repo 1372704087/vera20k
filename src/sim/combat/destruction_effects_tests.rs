@@ -1444,8 +1444,18 @@ fn a_nuclear_reactor_outlives_its_killing_blow_and_sends_a_second_crew_round() {
         let Some((mut sim, rules, grid, reactor)) = retail_building("NANRCT", seed) else {
             return;
         };
+        let stage = sim
+            .substrate
+            .entities
+            .get(reactor)
+            .unwrap()
+            .native_stage()
+            .value();
         kill_retail(&mut sim, &rules, reactor, false);
         assert!(outlives(&sim, reactor), "seed {seed}: alive at Health 0");
+        // `0x00441C8F..0x00441CA9`: its StageClass clock stops, Value kept.
+        let clock = sim.substrate.entities.get(reactor).unwrap().native_stage();
+        assert_eq!((clock.value(), clock.rate()), (stage, 0));
         assert!(
             !sim.substrate
                 .entities

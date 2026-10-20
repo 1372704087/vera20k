@@ -880,8 +880,9 @@ fn techno_ai_shell(
             // round for the former, under the NoSurvivor its killing blow
             // left) -> UnInit -> AfterDestruction, without inventing a fatal
             // hit. Its Logic visit reaches here: Update leaves earlier only
-            // for a warp (`0x0043FD14`) or a cleared IsAlive (`0x0043FE63`),
-            // and Techno AI's self-heal skips Health 0 (`0x0070BE80`).
+            // for a warp (`0x0043FD14`, `0x0043FD26`) or a cleared IsAlive
+            // (`0x0043FE63`), and Techno AI's self-heal skips Health 0
+            // (`0x0070BE80`).
             // Steam gamemd3e81a617..08600 control: object_health.py
             // --building-zero-health and building_zero_health.{json,meta.json}.
             // This caller draws no RNG and writes no timer. Anim retirement,

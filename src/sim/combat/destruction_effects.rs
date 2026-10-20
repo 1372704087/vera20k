@@ -511,17 +511,24 @@ impl Simulation {
             }
         }
 
-        // 12. `0x00441C3D..0x00441C8C`: the fuse (`+0x528`) restarts at the
+        // 12. `0x00441C3D..0x00441CA9`: the fuse (`+0x528`) restarts at the
         // frame, 0 long for an `Explodes=` type (TechnoType `+0xD15`) or a
         // building whose Get_Mission (vt+0x184, current else queued) is
         // Selling (0x13), else 8. ReceiveDamage then UnInits only a building
         // whose fuse has time left (`0x0044266B..0x00442690`); the others stay
         // alive at Health 0 until their Update retires them
-        // (`0x00440072..0x004400F1`).
-        let fuse = if object.explodes || selling { 0 } else { 8 };
+        // (`0x00440072..0x004400F1`), their StageClass clock stopped: Rate 0
+        // and a zero timer from the frame, Value kept (`0x00441C8F..0x00441CA9`).
+        let outlives = object.explodes || selling;
         let frame = self.session.binary_frame() as i32;
         if let Some(building) = self.substrate.entities.get_mut(building_id) {
-            building.pending_c4_detonation.arm_destruction(frame, fuse);
+            building
+                .pending_c4_detonation
+                .arm_destruction(frame, if outlives { 0 } else { 8 });
+            if outlives {
+                let value = building.native_stage().value();
+                building.restart_native_stage(value, frame, 0);
+            }
         }
 
         // 13. `0x00441CAC..0x00441D64`: the pick is drawn even when the entry

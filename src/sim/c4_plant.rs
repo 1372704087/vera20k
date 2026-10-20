@@ -157,6 +157,12 @@ impl C4Detonation {
     /// kept for the survivors. The latch lives in the fuse here, so a building
     /// with no plant gains one; the Health 0 it dies at keeps the C4 expiry
     /// from firing it (`Simulation::tick_pending_building_detonation`).
+    /// RESIDUAL: native writes only the fuse and leaves the latch (`+0x6DF`)
+    /// clear. Trigger: a map trigger's sell order on an `Explodes=` or
+    /// selling building in the frame it waits at Health 0. Effect: VERA's
+    /// computer Sell_Back refuses it as C4-latched where native queues the
+    /// sale; the building leaves at that Update either way. Frequency: a
+    /// scripted sell landing in that one frame.
     pub(crate) fn arm_destruction(&mut self, frame: i32, duration_frames: i32) {
         let retained_source = self.pending.and_then(|pending| pending.source_entity_id);
         self.pending = Some(PendingC4Detonation::new(

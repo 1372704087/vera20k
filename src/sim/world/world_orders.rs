@@ -231,13 +231,13 @@ impl Simulation {
         ) {
             return Some(UnitRepairAction::Move);
         }
-        // Target vt+80: Unit746400, Building457620 ->465D40, and
-        // Aircraft41B910 -> Object's grounded predicate. Every GameEntity is
-        // a Techno (vt+7C); Infantry's vt+80 answers false.
-        let vehicle = match target.category() {
-            EntityCategory::Unit => !target_type.non_vehicle,
-            EntityCategory::Structure => target_type.is_1x1_with_undeploy(),
-            EntityCategory::Aircraft => {
+        // The target's vt+80 (`0x0073FDBD`); every GameEntity is a Techno
+        // (vt+7C).
+        let vehicle = crate::sim::combat::vehicle_like(
+            target.category(),
+            target_type.non_vehicle,
+            target_type.is_1x1_with_undeploy(),
+            || {
                 if let Some(terrain) = self.resolved_terrain.as_ref() {
                     let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
                     crate::sim::movement::air_movement::is_low_flying_in_query(
@@ -252,9 +252,8 @@ impl Simulation {
                         Some((rules, &self.interner)),
                     )
                 }
-            }
-            EntityCategory::Infantry => false,
-        };
+            },
+        );
         if !vehicle || target_id == actor_id {
             //73FE2F..73FE43 preserves the base action for a Building.
             return (target.category() != EntityCategory::Structure)

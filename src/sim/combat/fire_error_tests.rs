@@ -338,7 +338,7 @@ fn facts(input: &Value) -> FireFacts {
             is_simple_deployer: flag(&tt["is_simple_deployer"]),
             non_vehicle: flag(&tt["non_vehicle"]),
             // The fixture's BuildingType is not a 1x1 undeployer.
-            building_vehicle: false,
+            is_1x1_with_undeploy: false,
         },
     }
 }

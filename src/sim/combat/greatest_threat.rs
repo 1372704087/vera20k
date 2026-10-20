@@ -2289,11 +2289,9 @@ fn evaluate_candidate(
     }
 
     // The class gate, `0x006F821A..0x006F824A`.
-    if !threat_mask::admits_class(
-        walk.flags,
-        candidate.category(),
-        vehicle_like(ctx, candidate, candidate_obj),
-    ) {
+    if !threat_mask::admits_class(walk.flags, candidate.category(), || {
+        vehicle_like(ctx, candidate, candidate_obj)
+    }) {
         return None;
     }
 
@@ -2415,9 +2413,9 @@ fn evaluate_candidate(
     // building gate below, including from the human reject (6F85F0..85F6).
     if ctx.standing.team.is_none()
         && ctx.standing.human
+        && !vehicle_like(ctx, candidate, candidate_obj)
         && building
         && !ctx.engineer
-        && !candidate_obj.is_1x1_with_undeploy()
         && (!is_armed(candidate, candidate_obj)
             || super::threat_posed::live_threat_posed(
                 candidate,
@@ -2623,21 +2621,21 @@ fn quarry_terms(mask: u32, score: i32, all_to_hunt: bool, facts: QuarryFacts) ->
     Some(score)
 }
 
-/// The candidate's `vt+0x80`: a 1x1 building with `UndeploysInto=`
-/// (`0x00457620` → `0x00465D40`), an aircraft low enough to count as on the
-/// floor (`0x0041B910` → vt+0x50), or a Unit that is not `NonVehicle=`
-/// (`0x00746400`, UnitType `+0xE1B`). Infantry answer false (`0x004263B0`).
+/// The candidate's `vt+0x80` ([`super::vehicle_like`]), its vt+0x50 asked
+/// through the scan's map.
 fn vehicle_like(ctx: &ScanContext<'_>, candidate: &GameEntity, obj: &ObjectType) -> bool {
-    match candidate.category() {
-        EntityCategory::Structure => obj.is_1x1_with_undeploy(),
-        EntityCategory::Aircraft => crate::sim::movement::air_movement::is_low_flying(
-            candidate,
-            ctx.terrain,
-            Some((ctx.rules, ctx.interner)),
-        ),
-        EntityCategory::Unit => !obj.non_vehicle,
-        EntityCategory::Infantry => false,
-    }
+    super::vehicle_like(
+        candidate.category(),
+        obj.non_vehicle,
+        obj.is_1x1_with_undeploy(),
+        || {
+            crate::sim::movement::air_movement::is_low_flying(
+                candidate,
+                ctx.terrain,
+                Some((ctx.rules, ctx.interner)),
+            )
+        },
+    )
 }
 
 /// EvaluateCandidate6F8682..6F86FE: both complete Map565730 lookups precede

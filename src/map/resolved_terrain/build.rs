@@ -1549,9 +1549,6 @@ pub(super) fn classify_overlay_effects(
         return result;
     };
     for overlay in entries {
-        let name = overlay_registry
-            .and_then(|reg| reg.name(overlay.overlay_id))
-            .unwrap_or("");
         // Bridge overlays identified by hardcoded index, matching original engine.
         let is_bridge = crate::rules::overlay_types::is_bridge_overlay_index(overlay.overlay_id);
 
@@ -1584,27 +1581,11 @@ pub(super) fn classify_overlay_effects(
         }
         if is_bridge && result.bridge_layer.is_none() {
             result.has_bridge_deck = true;
-            // Direction determined by index: 24/237=EW, 25/238=NS, rest=Low.
-            let direction = match overlay.overlay_id {
-                24 | 237 => BridgeDirection::EastWest,
-                25 | 238 => BridgeDirection::NorthSouth,
-                _ => BridgeDirection::Low,
-            };
-            // High bridges: deck 4 levels above ground (HighBridgeHeight=4).
-            // Low bridges: deck at ground level (no elevation change).
-            let deck_level = match direction {
-                BridgeDirection::EastWest | BridgeDirection::NorthSouth => level.saturating_add(4),
-                BridgeDirection::Low => level,
-            };
-            if direction == BridgeDirection::Low {
+            let layer = BridgeLayer::for_overlay(overlay.overlay_id, level);
+            if layer.direction == BridgeDirection::Low {
                 result.is_low_bridge = true;
             }
-            result.bridge_layer = Some(BridgeLayer {
-                overlay_id: overlay.overlay_id,
-                overlay_name: name.to_string(),
-                deck_level,
-                direction,
-            });
+            result.bridge_layer = Some(layer);
         }
     }
     result

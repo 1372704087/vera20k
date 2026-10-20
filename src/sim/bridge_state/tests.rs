@@ -68,8 +68,6 @@ fn make_low_bridge_terrain() -> ResolvedTerrainGrid {
             if (1..=3).contains(&cell.rx) {
                 cell.bridge_deck_level = cell.level;
                 cell.bridge_layer = Some(BridgeLayer {
-                    overlay_id: 0x4a,
-                    overlay_name: "LOBRDG01".to_string(),
                     deck_level: cell.level,
                     direction: BridgeDirection::Low,
                 });

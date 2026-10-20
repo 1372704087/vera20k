@@ -664,7 +664,6 @@ impl OverlayGrid {
     ) -> Option<usize> {
         let idx = index_of(self.width, self.height, rx, ry)?;
         registry.flags(overlay_id)?;
-        let name = registry.name(overlay_id)?;
         let cell = &mut self.cells[idx];
         cell.overlay_id = Some(overlay_id);
         if let Some(overlay_data) = overlay_data {
@@ -672,7 +671,7 @@ impl OverlayGrid {
         }
         self.dirty_cells.push((rx, ry));
         if let Some(terrain) = resolved_terrain {
-            terrain.set_runtime_overlay_bridge_identity(rx, ry, overlay_id, name);
+            terrain.set_runtime_overlay_bridge_identity(rx, ry, overlay_id);
         }
         Some(idx)
     }

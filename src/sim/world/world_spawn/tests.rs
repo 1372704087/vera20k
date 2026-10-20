@@ -1492,8 +1492,6 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
         bridge.bridge_walkable = true;
         bridge.bridge_facts.raw_flags = crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
     }
-    sim.overlay_cell_mut_for_test(bridge_cell.0, bridge_cell.1)
-        .overlay_id = Some(0);
     sim.bridge_state = Some(
         crate::sim::bridge_state::BridgeRuntimeState::from_resolved_terrain(
             sim.resolved_terrain.as_ref().unwrap(),
@@ -1504,7 +1502,6 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
     let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(10, 10);
     for cell in [ore_authored, ore_runtime, bridge_cell] {
         overlays.place_overlay(cell.0, cell.1, 0, 0);
-        sim.overlay_cell_mut_for_test(cell.0, cell.1).overlay_id = Some(0);
     }
     sim.overlay_grid = Some(overlays);
 

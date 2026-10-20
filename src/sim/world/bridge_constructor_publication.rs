@@ -126,8 +126,8 @@ impl LivePublication<'_> {
 }
 
 /// The bridge publication as the CellClass surface of `OverlayClass::Mark`.
-/// Its overlay identity and data are the live scalar cells the publication
-/// reads (`bridge_facts`), which the OverlayGrid mirrors on every store.
+/// Its overlay identity and data stores go to the OverlayGrid, or to the
+/// shared dummy for a missing cell, which the publication then reads.
 struct BridgeMarkHost<'p, 'a> {
     publication: &'p mut LivePublication<'a>,
     registry: &'a crate::rules::overlay_types::OverlayTypeRegistry,

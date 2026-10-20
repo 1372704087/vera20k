@@ -3175,13 +3175,6 @@ fn test_bridge_overlay_creates_upper_layer_without_ground_block() {
     );
     assert!(effects.has_bridge_deck);
     assert!(!effects.overlay_blocks);
-    assert_eq!(
-        effects
-            .bridge_layer
-            .as_ref()
-            .map(|b| b.overlay_name.as_str()),
-        Some("BRIDGE1")
-    );
     // BRIDGE1 = EastWest high bridge: deck_level = ground(3) + HighBridgeHeight(4) = 7.
     assert_eq!(effects.bridge_layer.as_ref().map(|b| b.deck_level), Some(7));
     assert_eq!(

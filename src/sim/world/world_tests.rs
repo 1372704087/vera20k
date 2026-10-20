@@ -4618,7 +4618,6 @@ fn assert_concrete_damage_result(sim: &Simulation, native: &serde_json::Value) {
         assert!(cell.has_bridge_deck);
         let layer = cell.bridge_layer.as_ref().unwrap();
         assert_eq!(layer.direction, BridgeDirection::Low);
-        assert_eq!(layer.overlay_id, expected);
         assert_eq!(layer.deck_level, cell.level);
         assert_eq!(cell.bridge_deck_level, cell.level);
         assert!(!cell.bridge_walkable);

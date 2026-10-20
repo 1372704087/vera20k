@@ -261,13 +261,7 @@ impl ResolvedTerrainGrid {
     /// Project a runtime bridge-overlay identity write into the bridge layer
     /// and deck that pathing and bridge damage read. OverlayGrid owns the
     /// identity itself; a non-bridge identity changes nothing here.
-    pub(crate) fn set_runtime_overlay_bridge_identity(
-        &mut self,
-        rx: u16,
-        ry: u16,
-        overlay_id: u8,
-        overlay_name: &str,
-    ) {
+    pub(crate) fn set_runtime_overlay_bridge_identity(&mut self, rx: u16, ry: u16, overlay_id: u8) {
         if !crate::rules::overlay_types::is_bridge_overlay_index(overlay_id) {
             return;
         }
@@ -275,26 +269,13 @@ impl ResolvedTerrainGrid {
             return;
         };
 
-        let direction = match overlay_id {
-            0x18 | 0xED => BridgeDirection::EastWest,
-            0x19 | 0xEE => BridgeDirection::NorthSouth,
-            _ => BridgeDirection::Low,
-        };
-        let deck_level = match direction {
-            BridgeDirection::EastWest | BridgeDirection::NorthSouth => cell.level.saturating_add(4),
-            BridgeDirection::Low => cell.level,
-        };
-        cell.bridge_layer = Some(BridgeLayer {
-            overlay_id,
-            overlay_name: overlay_name.to_string(),
-            deck_level,
-            direction,
-        });
+        let layer = BridgeLayer::for_overlay(overlay_id, cell.level);
         cell.has_bridge_deck = true;
-        cell.bridge_walkable = direction != BridgeDirection::Low
+        cell.bridge_walkable = layer.direction != BridgeDirection::Low
             && !cell.terrain_object_blocks
             && !cell.overlay_blocks;
-        cell.bridge_deck_level = deck_level;
+        cell.bridge_deck_level = layer.deck_level;
+        cell.bridge_layer = Some(layer);
     }
 
     pub fn capture_real_cell_bridge_flags_0x1180(&self) -> RealCellBridgeFlags0x1180 {

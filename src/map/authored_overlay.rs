@@ -679,8 +679,8 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
 
 /// The load-local CellClass surface as the host of `OverlayClass::Mark`. The
 /// map reader keeps ScenarioInit raised, so the passability, Overrides and
-/// zone-merge branches never run here. Identity and data stores reach the
-/// terrain's bridge mirror as they happen; Recalc is the load Recalc.
+/// zone-merge branches never run here. Identity and data stores go to the
+/// load's live cells as they happen; Recalc is the load Recalc.
 struct FinalizerMarkHost<'a, 'resources, H: AuthoredOverlayLoadHost> {
     terrain: &'a mut ResolvedTerrainGrid,
     recalc: &'a mut LoadCellRecalcState<'resources>,

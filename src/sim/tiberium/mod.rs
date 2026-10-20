@@ -512,8 +512,7 @@ struct PlaceTiberiumMarkUnsupported(&'static str);
 
 /// [`OverlayMarkHost`] on the batched ore placement's borrows: the
 /// OverlayGrid, the shared CellClass array and the live occupation planes.
-/// Identity and data writes go through the OverlayGrid owner without the
-/// terrain bridge cache, which this batch holds shared (#722). Recalc of the
+/// Identity and data writes go through the OverlayGrid owner. Recalc of the
 /// stamped cells is published by the caller before Logic's next object:
 /// the TiberiumClass drivers after their batch (`publish_tiberium_cells`),
 /// a Terrain AI slot before it returns. Within a batch, admission refuses a

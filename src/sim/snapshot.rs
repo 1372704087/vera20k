@@ -1205,7 +1205,8 @@ use crate::util::save_codec;
 // 449 -> 450: the retained `[Basic]` section carries Scenario+0x1440 `Lose`,
 // the movie campaign defeat plays before its retry prompt.
 // 450 -> 451: dynamic terrain cell records no longer carry a copy of the
-// cell's overlay identity and state byte; OverlayGrid alone holds them.
+// cell's overlay identity and state byte, in its bridge facts or its bridge
+// layer; OverlayGrid alone holds them.
 const SNAPSHOT_VERSION: u32 = 451;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
@@ -3075,8 +3076,9 @@ impl Simulation {
     /// The full row-major sweep is required because OverlayGrid's dirty queues
     /// are transient: a saved cell may have been cleared since map load, so an
     /// occupied-only replay would leave the original map overlay's passability
-    /// behind. Bridge cell state needs no separate pass: CellClass is its only
-    /// owner and returns through the dynamic terrain cells above.
+    /// behind. Bridge cell state needs no separate pass: its flags return
+    /// through the dynamic terrain cells above, and its overlay identity and
+    /// state byte through OverlayGrid.
     pub fn restore_map_authority_after_snapshot_load(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,

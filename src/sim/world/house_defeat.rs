@@ -407,7 +407,7 @@ impl Simulation {
             alive.iter().all(|right| {
                 left == right
                     || crate::map::houses::are_houses_mutually_allied(
-                        &self.house_alliances,
+                        self.house_alliances.as_map(),
                         self.interner.resolve(*left),
                         self.interner.resolve(*right),
                     )

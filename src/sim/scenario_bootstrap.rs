@@ -1587,7 +1587,7 @@ fn assign_launch_base_centers(
             continue;
         };
         let waypoint_edge = sim
-            .playfield_bounds
+            .playfield_bounds()
             .map(|bounds| determine_waypoint_edge((waypoint.rx, waypoint.ry), bounds));
         if let Some(house) = crate::sim::house_state::house_state_for_owner_mut(
             &mut sim.houses,
@@ -2337,7 +2337,7 @@ fn starting_object_cell_placeable(
     // acceptance test.
     if !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
         (i32::from(rx), i32::from(ry)),
-        sim.playfield_bounds,
+        sim.playfield_bounds(),
         Some(resolved_terrain),
     ) {
         return false;
@@ -2690,7 +2690,7 @@ impl Simulation {
         terrain: &ResolvedTerrainGrid,
         bounds: NativeStartBounds,
     ) -> Vec<Waypoint> {
-        let map_size_height = self.playfield_size_height;
+        let map_size_height = self.playfield_size_height();
         let binary_frame = self.session.binary_frame();
         native_gather_start_positions(
             waypoints,
@@ -2698,7 +2698,7 @@ impl Simulation {
             terrain,
             &self.substrate.occupancy,
             bounds,
-            self.playfield_bounds,
+            self.playfield_bounds(),
             map_size_height,
             binary_frame,
             &mut self.scenario_rng,
@@ -3660,13 +3660,13 @@ mod tests {
         let mut sim = Simulation::with_seed(seed);
         sim.session.set_map_width_for_test(size);
         sim.session.set_map_height_for_test(size);
-        sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+        sim.set_playfield_bounds_for_test(Some(crate::map::playfield::PlayfieldBounds {
             base: i32::from(size),
             off_fc: 0,
             off_100: 0,
             off_104: i32::from(size),
             off_108: i32::from(size),
-        });
+        }));
         sim
     }
 
@@ -5023,7 +5023,7 @@ mod tests {
                     i32::from(expected_crate_cell.0),
                     i32::from(expected_crate_cell.1),
                 ),
-                sim.playfield_bounds,
+                sim.playfield_bounds(),
                 Some(&terrain),
             ),
             "controlled first crate draw must need no FNPC displacement"

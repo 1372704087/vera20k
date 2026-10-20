@@ -719,7 +719,7 @@ impl Simulation {
                 *tail_grid = None;
             }
             if let (Some(tail), Some(cell)) = (tail_grid.as_mut(), terrain.cell(rx, ry)) {
-                let _ = tail.refresh_resolved_cell(cell, false);
+                let _ = tail.refresh_resolved_cell(cell, self.overlay_grid.as_ref(), false);
             }
         }
 
@@ -1957,7 +1957,7 @@ impl Simulation {
                 };
                 // Enemy-only.
                 if crate::map::houses::are_houses_friendly(
-                    &self.house_alliances,
+                    self.house_alliances.as_map(),
                     command_owner,
                     self.interner.resolve(target_owner),
                 ) {
@@ -2210,7 +2210,7 @@ impl Simulation {
             entity.disguise_hides_house_from(
                 house,
                 Some(&self.fog),
-                Some(&self.house_alliances),
+                Some(self.house_alliances.as_map()),
                 &self.interner,
             )
         }) {
@@ -2447,7 +2447,7 @@ impl Simulation {
             return false;
         }
         let refinery_owner = self.interner.resolve(refinery.owner());
-        if !are_houses_friendly(&self.house_alliances, command_owner, refinery_owner) {
+        if !are_houses_friendly(self.house_alliances.as_map(), command_owner, refinery_owner) {
             return false;
         }
         let refinery_type = self.interner.resolve(refinery.type_ref());
@@ -2492,7 +2492,7 @@ impl Simulation {
         };
         if self.substrate.entities.get(actor_id).is_some_and(|actor| {
             combat::combat_weapon::is_ally_by_object(
-                Some(&self.house_alliances),
+                Some(self.house_alliances.as_map()),
                 &self.interner,
                 player,
                 actor.owner(),

@@ -968,7 +968,9 @@ fn original_live_spark_rof_and_fireat_rearm_use_the_retained_link_and_exact_rng(
         );
         let ((rof, rearm), draws) = crate::sim::rng::trace_draws(|| {
             let rof = fireat_get_rof(
-                &mut sim,
+                &mut sim.scenario_rng,
+                &sim.substrate,
+                &sim.houses,
                 rules,
                 &snap,
                 object,
@@ -976,8 +978,17 @@ fn original_live_spark_rof_and_fireat_rearm_use_the_retained_link_and_exact_rng(
                 Some(&weapon),
                 int(&row["input"]["queried_burst"]),
             );
-            let tail_rof =
-                fireat_get_rof(&mut sim, rules, &snap, object, &weapon, Some(&weapon), 1);
+            let tail_rof = fireat_get_rof(
+                &mut sim.scenario_rng,
+                &sim.substrate,
+                &sim.houses,
+                rules,
+                &snap,
+                object,
+                &weapon,
+                Some(&weapon),
+                1,
+            );
             let rearm = fireat_rearm_frames(tail_rof, row["input"]["berserk"].as_bool().unwrap());
             let actor = sim.substrate.entities.get_mut(owner).unwrap();
             actor.rearm_after_fire(int(&row["input"]["frame"]), rearm);

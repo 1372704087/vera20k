@@ -2298,7 +2298,12 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     entity.begin_building_body(BuildingBodyMode::Idle, 0);
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(1);
-    sim.sample_building_health_for_house_update(1);
+    crate::sim::world::Simulation::sample_building_health_for_house_update(
+        &mut sim.substrate,
+        &sim.houses,
+        &mut sim.power_states,
+        1,
+    );
     crate::sim::power_system::assess_house_power(
         sim.power_states.get_mut(&owner).unwrap(),
         &sim.substrate.entities,
@@ -2382,7 +2387,12 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
         json!(sim.power_states[&owner].total_output()),
         native["power_consumer"]["before_sample"]["house_power"]
     );
-    sim.sample_building_health_for_house_update(1);
+    crate::sim::world::Simulation::sample_building_health_for_house_update(
+        &mut sim.substrate,
+        &sim.houses,
+        &mut sim.power_states,
+        1,
+    );
     assert_eq!(
         json!(
             sim.substrate
@@ -3029,7 +3039,11 @@ fn restored_live_owner_rejects_dangling_definitions_instances_and_attachments() 
         assert!(sim.validate_restored_trigger_runtime().is_err(), "{name}");
     }
     sim.trigger_runtime = owner;
-    sim.mark_live_tag_for_delete(tag);
+    crate::sim::world::Simulation::mark_live_tag_for_delete(
+        &mut sim.substrate,
+        &mut sim.trigger_runtime,
+        tag,
+    );
     sim.validate_restored_trigger_runtime().unwrap();
     // The Tag deleting destructor leaves its Triggers in the common queue.
     // This valid saved intermediate state must not reconstruct or reject them.
@@ -4213,16 +4227,22 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                             FrameEffects::default(),
                         )));
                     }
-                    "mark_tag" => {
-                        sim.mark_live_tag_for_delete(identities[integer(&args[1]) as usize])
-                    }
+                    "mark_tag" => crate::sim::world::Simulation::mark_live_tag_for_delete(
+                        &mut sim.substrate,
+                        &mut sim.trigger_runtime,
+                        identities[integer(&args[1]) as usize],
+                    ),
                     "mark_trigger" => {
                         let trigger = sim
                             .trigger_runtime
                             .tag(identities[integer(&args[1]) as usize])
                             .unwrap()
                             .triggers[integer(&args[2]) as usize];
-                        sim.mark_live_trigger_for_delete(trigger);
+                        crate::sim::world::Simulation::mark_live_trigger_for_delete(
+                            &mut sim.substrate,
+                            &mut sim.trigger_runtime,
+                            trigger,
+                        );
                     }
                     "drain" => sim.process_pending_delete_with(
                         Some(&rules),

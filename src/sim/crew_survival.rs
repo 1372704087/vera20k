@@ -552,7 +552,10 @@ impl Simulation {
         self.with_object_placement_scope(|sim| {
             if infantry {
                 let cell = cell.map_or(RawCellKey::Dummy, |(x, y)| RawCellKey::Real(x, y));
-                let _overwritten = sim.place_infantry_in_ground_key(
+                let _overwritten = Self::place_infantry_in_ground_key(
+                    &sim.interner,
+                    &mut sim.scenario_rng,
+                    &sim.substrate,
                     rules,
                     cell,
                     crate::sim::components::DriveCoord {
@@ -621,7 +624,11 @@ impl Simulation {
             // succeeds. This is the same HouseTracking owner used by a normal
             // Bio Reactor unload; no Unload-only sound/latch/mission effects
             // belong to these ejection paths.
-            sim.restore_absorbed_infantry_tracking(passenger);
+            Self::restore_absorbed_infantry_tracking(
+                &mut sim.substrate,
+                &mut sim.houses,
+                passenger,
+            );
             if infantry {
                 sim.scatter_crew(rules, registry, passenger, effects);
             }

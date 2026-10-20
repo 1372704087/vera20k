@@ -2,6 +2,8 @@
 //! This module and its temporary world transfers do not exist in production.
 
 use super::*;
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 use std::collections::BTreeMap;
 
@@ -94,7 +96,8 @@ pub(crate) fn with_building_fire_stub<T>(
 }
 
 pub(crate) fn substitute_building_fire(
-    world: &mut Simulation,
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
     id: u64,
     shot: BuildingShot,
     rules: &RuleSet,
@@ -104,18 +107,17 @@ pub(crate) fn substitute_building_fire(
             return false;
         };
         let multiplier = if matches!(shot, BuildingShot::Delayed { .. }) {
-            world.substrate.take_support_bonus(id, rules)
+            substrate.take_support_bonus(id, rules)
         } else {
             crate::sim::projectile::ProjectilePayload::UNSCALED
         };
         if let Some(rof) = stub.rearm {
-            world
-                .substrate
+            substrate
                 .entities
                 .get_mut(id)
                 .unwrap()
                 .rearm_timer
-                .start(world.session.binary_frame() as i32, rof);
+                .start(session.binary_frame() as i32, rof);
         }
         stub.calls.push((id, shot, multiplier));
         true

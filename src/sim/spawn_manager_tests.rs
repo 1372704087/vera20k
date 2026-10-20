@@ -939,7 +939,10 @@ fn missile_impact_kills_through_the_shared_death_pipeline() {
             logic_eligible: true,
         },
     );
-    sim.rocket_move_to(
+    Simulation::rocket_move_to(
+        &sim.interner,
+        &sim.session,
+        &mut sim.substrate,
         child_id,
         crate::sim::components::DriveCoord::cell(20, 20, 0),
         &rules,

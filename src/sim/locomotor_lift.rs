@@ -454,7 +454,14 @@ impl Simulation {
                 entity,
                 self.resolved_terrain.as_ref(),
             );
-            self.object_raw_receiver_at(target, coords, false);
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                target,
+                coords,
+                false,
+            );
         }
         if let Some(entity) = self.substrate.entities.get_mut(target) {
             entity.foot_occupation_enabled.resume();

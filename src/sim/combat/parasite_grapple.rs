@@ -4,6 +4,8 @@
 use super::*;
 use crate::sim::anim_class::AnimWorldCoord;
 use crate::sim::components::AnimClassSpawnDescriptor;
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::ObjectSubstrate;
 use crate::util::fixed_math::SimFixed;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits, X87Chop53 as X, X87Value};
 use crate::util::retail_trig::TrigTable;
@@ -68,12 +70,16 @@ impl Simulation {
     /// Helper629720: only a stage advance writes the Anim frame/timer.
     /// Reaching stage10 returns before writing; the new phase gets its own
     /// immediate helper visit in the caller.
-    fn advance_grapple_stage(&mut self, owner: u64, victim: u64) -> bool {
-        let facing = self.substrate.entities.get(victim).map_or(0, |entity| {
-            entity.body_facing_current(self.session.binary_frame())
+    fn advance_grapple_stage(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        owner: u64,
+        victim: u64,
+    ) -> bool {
+        let facing = substrate.entities.get(victim).map_or(0, |entity| {
+            entity.body_facing_current(session.binary_frame())
         });
-        let Some(state) = self
-            .substrate
+        let Some(state) = substrate
             .entities
             .get_mut(owner)
             .and_then(|entity| entity.parasite.class_mut())
@@ -96,7 +102,7 @@ impl Simulation {
         }
         let frame = base + i32::from(dir_from_facing16(facing)) * 10 + state.grapple.stage;
         if let Some(anim) = state.grapple.anim {
-            self.set_anim_manual_frame(anim, frame, 128);
+            Self::set_anim_manual_frame(session, substrate, anim, frame, 128);
         }
         false
     }
@@ -119,7 +125,7 @@ impl Simulation {
             state.grapple.stage = 0;
             state.grapple.delay = 0;
         }
-        self.advance_grapple_stage(owner, victim);
+        Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim);
         self.grapple_wakes(victim, origin, rules);
     }
 
@@ -215,15 +221,15 @@ impl Simulation {
                 state.grapple.phase = 1;
                 state.grapple.stage = 0;
                 state.grapple.delay = 0;
-                self.advance_grapple_stage(owner, victim);
+                Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim);
             }
             1 => {
-                if self.advance_grapple_stage(owner, victim) {
+                if Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim) {
                     self.start_grapple_roll(owner, victim, origin, rules);
                 }
             }
             2 | 3 => {
-                if self.advance_grapple_stage(owner, victim) {
+                if Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim) {
                     let state = self
                         .substrate
                         .entities
@@ -235,7 +241,7 @@ impl Simulation {
                     state.grapple.phase = 4;
                     state.grapple.stage = 0;
                     state.grapple.delay = 0;
-                    self.advance_grapple_stage(owner, victim);
+                    Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim);
                 }
                 let state = &self
                     .substrate

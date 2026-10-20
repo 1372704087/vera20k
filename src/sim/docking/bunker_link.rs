@@ -13,6 +13,7 @@ use crate::sim::mission::authority::{EntityReadyInputProvider, LiveReadyInputPro
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::object_get_coords;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
+use crate::sim::world::FrameChannel;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SIM_ONE;
@@ -261,7 +262,7 @@ pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64,
         now,
         &LiveReadyInputProvider { rules },
     );
-    emit_bunker_wall_sound(sim, building_id, true);
+    emit_bunker_wall_sound(&sim.substrate, &mut sim.sound_events, building_id, true);
 }
 
 /// Clear BOTH sides of the link and send the radio BREAK. Returns the unit id
@@ -297,12 +298,17 @@ pub(crate) fn break_bunker_link(
 /// sound id and skips it when the rules key is empty.
 /// Played by `BuildingClass::UpdateBunker` (`0x00458E50`) state 5 (`0x0045936F`), and on
 /// teardown by `EmptyBunker` (`0x004595C0`) and `ClearBunker` (`0x00459470`).
-pub(crate) fn emit_bunker_wall_sound(sim: &mut Simulation, building_id: u64, up: bool) {
-    let Some(b) = sim.substrate.entities.get(building_id) else {
+pub(crate) fn emit_bunker_wall_sound(
+    substrate: &ObjectSubstrate,
+    sound_events: &mut FrameChannel<SimSoundEvent>,
+    building_id: u64,
+    up: bool,
+) {
+    let Some(b) = substrate.entities.get(building_id) else {
         return;
     };
     let (rx, ry) = (b.position.rx(), b.position.ry());
-    sim.sound_events.emit(if up {
+    sound_events.emit(if up {
         SimSoundEvent::BunkerWallsUp { rx, ry }
     } else {
         SimSoundEvent::BunkerWallsDown { rx, ry }
@@ -321,7 +327,7 @@ pub(crate) fn release_normal(
     effects: FrameEffects<'_>,
 ) {
     emit_bunker_wall_anim(sim, building_id, false, rules);
-    emit_bunker_wall_sound(sim, building_id, false);
+    emit_bunker_wall_sound(&sim.substrate, &mut sim.sound_events, building_id, false);
     let Some(unit_id) = sim
         .substrate
         .entities
@@ -517,7 +523,7 @@ pub(crate) fn clear_bunker(
         return;
     };
     emit_bunker_wall_anim(sim, building_id, false, rules);
-    emit_bunker_wall_sound(sim, building_id, false);
+    emit_bunker_wall_sound(&sim.substrate, &mut sim.sound_events, building_id, false);
     break_first_contact(sim, building_id, effects);
     if let Some(u) = sim.substrate.entities.get_mut(unit_id) {
         u.bunker.link = BunkerLink::None;

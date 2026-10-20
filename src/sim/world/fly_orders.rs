@@ -346,7 +346,14 @@ impl Simulation {
             .as_ref()
             .is_some_and(|locomotor| locomotor.rocket_runtime().is_some())
         {
-            self.rocket_move_to(id, coord, rules);
+            Self::rocket_move_to(
+                &self.interner,
+                &self.session,
+                &mut self.substrate,
+                id,
+                coord,
+                rules,
+            );
         } else {
             self.move_air_coordinate(id, coord, None, Some(rules));
         }

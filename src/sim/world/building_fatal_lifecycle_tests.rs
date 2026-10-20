@@ -1745,9 +1745,12 @@ fn original_direct_ap_receivers_join_debris_crew_uninit_power_and_deferred_destr
             &visit["after_receiver"],
             &format!("direct receiver {index}"),
         );
-        fixture
-            .sim
-            .sample_building_health_for_house_update(fixture.building);
+        Simulation::sample_building_health_for_house_update(
+            &mut fixture.sim.substrate,
+            &fixture.sim.houses,
+            &mut fixture.sim.power_states,
+            fixture.building,
+        );
         fixture.power_prefix();
         fixture.assert_state(
             &visit["after_sample_and_power"],

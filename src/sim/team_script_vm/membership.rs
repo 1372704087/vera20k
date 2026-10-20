@@ -523,7 +523,7 @@ impl Simulation {
         self.team_script_vm
             .record_trigger_outcome(team_id, &team_rules);
         self.team_remove_all_members(team_id, rules, frame_effects);
-        self.clear_team_trigger_tag(team_id);
+        Self::clear_team_trigger_tag(&mut self.substrate, &mut self.trigger_runtime, team_id);
         self.team_script_vm.teams.remove(&team_id);
         self.team_script_vm.forget_team_to_rejoin(team_id);
     }

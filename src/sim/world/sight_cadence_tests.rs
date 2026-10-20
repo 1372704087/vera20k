@@ -1433,7 +1433,14 @@ fn retail_goldst_cold_fire_borders_and_conceal_notifications_match_native() {
             compare_stage(sim);
             for (border_origin, radius) in [(local.unwrap(), 6), (origin, 4)] {
                 let (_, trace) = trace_reveal_calls(|| {
-                    sim.refresh_sight_border(viewer, border_origin, radius, context)
+                    Simulation::refresh_sight_border(
+                        &mut sim.fog,
+                        &sim.resolved_terrain,
+                        viewer,
+                        border_origin,
+                        radius,
+                        context,
+                    )
                 });
                 let border = native["borders"]
                     .as_array()

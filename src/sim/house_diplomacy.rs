@@ -73,6 +73,8 @@ use crate::sim::combat::TargetKind;
 use crate::sim::combat::combat_weapon::is_ally_by_object;
 use crate::sim::house_strategy::update_anger_nodes;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
+use crate::sim::vision::RevealViewers;
 use crate::sim::world::{FrameEffects, Simulation};
 
 /// The native ScenarioInit counter is nonzero during ReadScenarioINI's House
@@ -267,7 +269,14 @@ impl Simulation {
             return;
         }
         // 0x004F9B9F..0x004F9BB3, then the threat rebuild (0x004F9BB9).
-        self.set_ally_bit(owner, other, true);
+        Self::set_ally_bit(
+            &self.interner,
+            &mut self.house_alliances,
+            &mut self.reveal_viewers,
+            owner,
+            other,
+            true,
+        );
         self.rebuild_house_spatial_threat(owner, rules);
         // 0x004F9BBE..0x004F9BEA: the ally's anger is cancelled, which
         // rescans the enemy; 0x004F9BEF..0x004F9BFC: the ally is no enemy.
@@ -414,7 +423,14 @@ impl Simulation {
         ) {
             return;
         }
-        self.set_ally_bit(owner, other, false);
+        Self::set_ally_bit(
+            &self.interner,
+            &mut self.house_alliances,
+            &mut self.reveal_viewers,
+            owner,
+            other,
+            false,
+        );
         self.rebuild_house_spatial_threat(owner, rules);
         // 0x004FA067..0x004FA0DF: the other house breaks its side too, then
         // rescans its enemy: native passes it as both house and peer, and a
@@ -426,7 +442,14 @@ impl Simulation {
             owner,
         );
         if both {
-            self.set_ally_bit(other, owner, false);
+            Self::set_ally_bit(
+                &self.interner,
+                &mut self.house_alliances,
+                &mut self.reveal_viewers,
+                other,
+                owner,
+                false,
+            );
             self.rebuild_house_spatial_threat(other, rules);
             update_anger_nodes(
                 &mut self.houses,
@@ -572,12 +595,18 @@ impl Simulation {
     }
 
     /// Write `owner`'s ally bit for `other`.
-    fn set_ally_bit(&mut self, owner: InternedId, other: InternedId, allied: bool) {
-        let owner_key = normalize_house_name(self.interner.resolve(owner));
-        let other_key = normalize_house_name(self.interner.resolve(other));
-        self.house_alliances
-            .set_ally_bit(owner_key, other_key, allied);
-        self.reveal_viewers.forget();
+    fn set_ally_bit(
+        interner: &StringInterner,
+        house_alliances: &mut HouseAlliances,
+        reveal_viewers: &mut RevealViewers,
+        owner: InternedId,
+        other: InternedId,
+        allied: bool,
+    ) {
+        let owner_key = normalize_house_name(interner.resolve(owner));
+        let other_key = normalize_house_name(interner.resolve(other));
+        house_alliances.set_ally_bit(owner_key, other_key, allied);
+        reveal_viewers.forget();
     }
 }
 

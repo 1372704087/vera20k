@@ -386,12 +386,18 @@ impl Simulation {
         }
         //446A77 invalidates retained House power and radar on every reached
         //opening (including capture), before publishing placement at446A84.
-        self.invalidate_house_power(owner, true);
+        Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, true);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.building_art.actually_placed = true;
         }
         self.add_building_sensor_array_if_powered(id, rules, registry);
-        self.announce_super_weapon_building_complete(id, rules);
+        Self::announce_super_weapon_building_complete(
+            &mut self.interner,
+            &self.substrate,
+            &mut self.sound_events,
+            id,
+            rules,
+        );
         if !captured && !scenario_initialization {
             if crate::sim::production::spawn_building_free_unit(self, id, rules, registry, effects)
             {

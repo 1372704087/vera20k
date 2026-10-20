@@ -11,12 +11,16 @@ use super::ground_pose::position_world_coord;
 use super::locomotor::MovementLayer;
 use super::track_process::{TrackFamily, TrackInvocation, TrackPayment, TrackProcess};
 use crate::map::entities::EntityCategory;
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::components::{DriveCoord, TrackProgress};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::pathfinding::PathGrid;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, Simulation};
+use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum TrackWorldEvent {
@@ -451,7 +455,13 @@ impl Simulation {
             }
 
             if self.track_occupation_enabled(id) {
-                self.track_raw_mark(id, false);
+                Self::track_raw_mark(
+                    &mut self.substrate,
+                    &self.path_grid,
+                    &self.resolved_terrain,
+                    id,
+                    false,
+                );
                 // The first paid point drops the enable (Drive `0x004B161A`,
                 // Ship `0x006A0CDA`).
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
@@ -537,7 +547,13 @@ impl Simulation {
                 return Ok(TrackPass::paid(moved));
             };
             if call.is_at_occupation_handoff(&live) {
-                self.track_raw_mark(id, false);
+                Self::track_raw_mark(
+                    &mut self.substrate,
+                    &self.path_grid,
+                    &self.resolved_terrain,
+                    id,
+                    false,
+                );
             }
             let Some((live, _, _)) = self.track_state(id, family) else {
                 return Ok(TrackPass::paid(moved));
@@ -630,23 +646,35 @@ impl Simulation {
 
     /// Unit7441B0/744210 select the raw plane from exact live XYZ; REMOVE
     /// deliberately does not require a surviving structural bridge flag.
-    pub(super) fn track_raw_mark(&mut self, id: u64, put: bool) {
-        let Some(entity) = self.substrate.entities.get(id) else {
+    pub(super) fn track_raw_mark(
+        substrate: &mut ObjectSubstrate,
+        path_grid: &Option<Arc<PathGrid>>,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        id: u64,
+        put: bool,
+    ) {
+        let Some(entity) = substrate.entities.get(id) else {
             return;
         };
         let coord = position_world_coord(&entity.position);
-        self.track_raw_mark_at(coord, put);
+        Self::track_raw_mark_at(substrate, path_grid, resolved_terrain, coord, put);
     }
 
-    pub(super) fn track_raw_mark_at(&mut self, coord: DriveCoord, put: bool) {
+    pub(super) fn track_raw_mark_at(
+        substrate: &mut ObjectSubstrate,
+        path_grid: &Option<Arc<PathGrid>>,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        coord: DriveCoord,
+        put: bool,
+    ) {
         use crate::sim::occupancy::VEHICLE_OCCUPATION_BIT;
         let (at, layer) = super::foot_mark::raw_occupation_plane(
             coord,
             put,
-            self.resolved_terrain.as_ref(),
-            self.path_grid.as_deref(),
+            resolved_terrain.as_ref(),
+            path_grid.as_deref(),
         );
-        let raw = &mut self.substrate.raw_cell_occupation;
+        let raw = &mut substrate.raw_cell_occupation;
         match (put, layer) {
             (true, MovementLayer::Bridge) => raw.mark_deck(at.0, at.1, VEHICLE_OCCUPATION_BIT),
             (true, _) => raw.mark_ground(at.0, at.1, VEHICLE_OCCUPATION_BIT),
@@ -882,9 +910,21 @@ impl Simulation {
             })
             .flatten();
         if let Some(coord) = handoff {
-            self.track_raw_mark_at(coord, put);
+            Self::track_raw_mark_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                coord,
+                put,
+            );
         }
-        self.track_raw_mark_at(supplied, put);
+        Self::track_raw_mark_at(
+            &mut self.substrate,
+            &self.path_grid,
+            &self.resolved_terrain,
+            supplied,
+            put,
+        );
     }
 
     fn track_try_chain(

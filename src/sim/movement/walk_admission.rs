@@ -23,7 +23,9 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_kernel::native_xyz_distance;
 use crate::sim::combat::TargetKind;
 use crate::sim::components::DriveCoord;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 use crate::util::fixed_math::SIM_ZERO;
 use crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
@@ -160,7 +162,7 @@ impl Simulation {
                 //testing the once-only recursive retry flag.
                 let native = self.walk_lookup_cell(packed)?;
                 self.uncloak_cell_contacts(native, rules)?;
-                self.walk_retry_admission(request)
+                Self::walk_retry_admission(&self.session, &mut self.substrate, request)
             }
             2 => {
                 self.walk_blocked_delay(request, rules, registry, frame_effects)?;
@@ -195,7 +197,7 @@ impl Simulation {
                 let blocker =
                     self.find_blocking_object((at.0 as u16, at.1 as u16), MovementLayer::Ground);
                 if request.allows_retry() {
-                    return self.walk_retry_admission(request);
+                    return Self::walk_retry_admission(&self.session, &mut self.substrate, request);
                 }
                 self.walk_override_blocker(id, packed, blocker, rules, registry, frame_effects)?;
                 //75BB59..75BB90: clear path, speed0, WalkStop. NavCom is
@@ -222,12 +224,12 @@ impl Simulation {
                 //band's current-cell query, including the shared Dummy alias.
                 let cell = self.walk_lookup_cell(packed)?;
                 if request.allows_retry() {
-                    return self.walk_retry_admission(request);
+                    return Self::walk_retry_admission(&self.session, &mut self.substrate, request);
                 }
                 self.walk_scatter_or_stop(id, cell, rules, registry, frame_effects)?;
                 Ok(None)
             }
-            7 => self.walk_retry_admission(request),
+            7 => Self::walk_retry_admission(&self.session, &mut self.substrate, request),
             _ => unreachable!("nonzero Foot entry domain checked above"),
         }
     }
@@ -269,16 +271,16 @@ impl Simulation {
     ///coordinate, expire+640, and recurse once withargument0. Codes1/7 do
     ///nothing beyond+548 when that argument was alreadyfalse.
     fn walk_retry_admission(
-        &mut self,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
         request: WalkAdmissionRequest,
     ) -> Result<Option<FootPathRequest>, String> {
         if !request.allows_retry() {
             return Ok(None);
         }
         let id = request.entity_id;
-        self.substrate.clear_walk_admission_path(id)?;
-        let actor = self
-            .substrate
+        substrate.clear_walk_admission_path(id)?;
+        let actor = substrate
             .entities
             .get_mut(id)
             .ok_or("retired Walk retry owner")?;
@@ -293,7 +295,7 @@ impl Simulation {
         actor
             .navigation
             .path_runtime_mut()
-            .start_movement(self.session.binary_frame(), 0);
+            .start_movement(session.binary_frame(), 0);
         Ok(Some(request.into_path_request(destination, 0)))
     }
 
@@ -324,7 +326,10 @@ impl Simulation {
             .unwrap_or(DriveCoord { x: 0, y: 0, z: 0 });
         // A batched re-path waits for the next frame's batch as if the +640
         // timer still ran (`path_batch`, a proposed deviation).
-        if self.defer_path_search(
+        if Self::defer_path_search(
+            &mut self.path_batch,
+            &self.resolved_terrain,
+            &self.overlay_grid,
             id,
             super::path_batch::WaitingRequest::Code2Ladder { urgency },
         ) {

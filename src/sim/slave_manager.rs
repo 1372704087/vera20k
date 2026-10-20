@@ -1214,7 +1214,13 @@ impl Simulation {
             return None;
         }
         self.begin_slave_hunt(id, rules, frame_effects);
-        Some(self.mission_rate_epilogue_for(rules, id, mission))
+        Some(Self::mission_rate_epilogue_for(
+            &mut self.scenario_rng,
+            &self.substrate,
+            rules,
+            id,
+            mission,
+        ))
     }
 
     /// The master's drop cell ([`deploy_center`]).

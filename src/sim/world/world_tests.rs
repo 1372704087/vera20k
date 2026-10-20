@@ -2544,7 +2544,9 @@ fn insert_test_entity_for_owner(
     entity.set_category_for_test(category);
     sim.substrate.entities.insert(entity);
     // As its construction would: Add_Tracking.
-    sim.update_house_tracking(
+    Simulation::update_house_tracking(
+        &mut sim.substrate,
+        &mut sim.houses,
         stable_id,
         crate::sim::house_tracking::HouseTracking::add_tracking,
     );
@@ -4224,7 +4226,12 @@ fn gsi_05_16_a_captured_insignificant_garrison_does_not_keep_its_house_alive() {
     garrison.set_type_ref_for_test(sim.interner.intern("CAGAS01"));
     garrison.tracking_facts = crate::sim::house_tracking::TrackingFacts::insignificant_for_test();
     sim.substrate.entities.insert(garrison);
-    sim.update_house_tracking(1, crate::sim::house_tracking::HouseTracking::add_tracking);
+    Simulation::update_house_tracking(
+        &mut sim.substrate,
+        &mut sim.houses,
+        1,
+        crate::sim::house_tracking::HouseTracking::add_tracking,
+    );
 
     // The passenger reconciler uses this chokepoint when the first occupant
     // captures a civilian CanBeOccupied building.

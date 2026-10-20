@@ -20,7 +20,10 @@ use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::ground_pose::Position;
+use crate::sim::production::ProductionState;
+use crate::sim::world::FrameChannel;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
@@ -521,33 +524,31 @@ pub(super) fn active_entity_id(
 }
 /// Publish the completion edge once, without releasing the held object.
 pub(super) fn publish_completion(
-    sim: &mut Simulation,
+    interner: &StringInterner,
+    production: &mut ProductionState,
+    sound_events: &mut FrameChannel<SimSoundEvent>,
     rules: &RuleSet,
     owner: InternedId,
     category: ProductionCategory,
 ) {
-    let Some(type_id) = sim
-        .production
+    let Some(type_id) = production
         .factories()
         .view(owner, category)
         .and_then(|view| view.object.map(|object| object.type_id))
     else {
         return;
     };
-    if !sim
-        .production
+    if !production
         .factories_mut()
         .account_completed_object_once(owner, category)
     {
         return;
     }
-    if sim
-        .interner
+    if interner
         .object_type(type_id, rules)
         .is_some_and(|object| object.category == ObjectCategory::Building)
     {
-        sim.sound_events
-            .emit(SimSoundEvent::BuildingComplete { owner });
+        sound_events.emit(SimSoundEvent::BuildingComplete { owner });
     }
 }
 

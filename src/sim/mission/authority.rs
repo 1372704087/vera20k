@@ -41,6 +41,8 @@ use super::readiness::{
 };
 use super::verb::{self, QueueContinuation};
 use super::{MissionCom, MissionId};
+use crate::sim::rng::SimRng;
+use crate::sim::world::ObjectSubstrate;
 
 mod ready_private {
     pub trait Sealed {}
@@ -544,18 +546,18 @@ impl Simulation {
     /// mission as the handler leaves it (`dispatched` when the object is gone
     /// or holds none).
     pub(crate) fn mission_rate_epilogue_for(
-        &mut self,
+        scenario_rng: &mut SimRng,
+        substrate: &ObjectSubstrate,
         rules: &RuleSet,
         receiver: u64,
         dispatched: super::MissionType,
     ) -> i32 {
-        let current = self
-            .substrate
+        let current = substrate
             .entities
             .get(receiver)
             .and_then(|entity| entity.mission.current().known())
             .unwrap_or(dispatched);
-        rate_epilogue(rules, current, &mut self.scenario_rng)
+        rate_epilogue(rules, current, scenario_rng)
     }
 
     /// Host-time queued-mission promotion at the per-object AI position.

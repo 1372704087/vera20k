@@ -1567,7 +1567,13 @@ pub(crate) fn handle_death(
                 // Crazy Ivan's own bomber) plants a bomb on the dying object
                 // instead of damaging (`0x00469343`), which goes off below.
                 if explodes
-                    && let Some(detonation) = super::death_weapon_detonation(world, dead_id, rules)
+                    && let Some(detonation) = super::death_weapon_detonation(
+                        &mut world.interner,
+                        &world.substrate,
+                        &world.resolved_terrain,
+                        dead_id,
+                        rules,
+                    )
                 {
                     let commit =
                         commit_projectiles(world, run, &[detonation], rules, overlay_registry);

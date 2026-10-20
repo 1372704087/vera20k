@@ -59,6 +59,7 @@ pub(crate) fn presented_wol_page(state: &AppState) -> PresentedShell {
         Some(WolPage::Options(_)) => PresentedShell::WolOptions,
         Some(WolPage::AutoLoginQuery(_)) => PresentedShell::WolAutoLoginQuery,
         Some(WolPage::Locale(_)) => PresentedShell::WolLocale,
+        Some(WolPage::MyInformation(_)) => PresentedShell::WolMyInformation,
         _ => PresentedShell::WolWelcome,
     }
 }
@@ -95,6 +96,8 @@ enum Painted {
     SoundOptions(crate::ui::shell::sound::ShellSoundLayout),
     /// `0x112` or `0xFE`.
     Persona(crate::ui::wol_persona::WolPersonaLayout),
+    /// `0x114`.
+    MyInfo(crate::ui::wol_my_info::WolMyInfoLayout),
     /// A dialog has closed: the empty backdrop, under a box or the wait box.
     Backdrop,
 }
@@ -111,6 +114,7 @@ impl Painted {
                 Some(ShellSlideKind::WolLocale)
             }
             Self::Persona(_) => Some(ShellSlideKind::WolAutoLoginQuery),
+            Self::MyInfo(_) => Some(ShellSlideKind::WolMyInformation),
             Self::Backdrop => None,
         }
     }
@@ -125,6 +129,7 @@ impl Painted {
             Self::Persona(layout) => {
                 Some(crate::ui::wol_persona::WolPersonaLayout::spec(layout.dialog).title_key)
             }
+            Self::MyInfo(_) => Some(crate::ui::wol_my_info::PAGE.title_key),
             Self::Backdrop => None,
         }
     }
@@ -189,6 +194,10 @@ pub(crate) fn render_wol_page(
                 None => Painted::Backdrop,
             }
         }
+        WolPage::MyInformation(_) => {
+            crate::app::shell_wol::my_info::open_art(state);
+            Painted::MyInfo(crate::app::shell_wol::my_info::layout(state))
+        }
         WolPage::Backdrop { .. } | WolPage::Message { .. } => Painted::Backdrop,
     };
     // The right panel's geometry is the family's on every WOL page.
@@ -198,6 +207,7 @@ pub(crate) fn render_wol_page(
         Painted::Options(layout) => &layout.page,
         Painted::SoundOptions(layout) => &layout.page,
         Painted::Persona(layout) => &layout.page,
+        Painted::MyInfo(layout) => &layout.page,
         _ => &welcome.page,
     };
     let page = page.clone();
@@ -240,6 +250,10 @@ pub(crate) fn render_wol_page(
                 layout.status_help,
             ),
             Painted::SoundOptions(layout) => (None, layout.status_help),
+            Painted::MyInfo(layout) => (
+                crate::app::shell_wol::my_info::status_key(state),
+                layout.status_help,
+            ),
             Painted::Persona(layout) => (
                 crate::app::shell_wol::persona::status_key(state),
                 layout.status_help,
@@ -286,6 +300,7 @@ pub(crate) fn render_wol_page(
         Painted::Persona(layout) if layout.dialog == crate::ui::wol_persona::AUTO_LOGIN_DIALOG => {
             state.frontend.wol_auto_login_art.as_ref()
         }
+        Painted::MyInfo(_) => state.frontend.wol_my_info_art.as_ref(),
         // 0xFE loads no art of its own.
         Painted::Persona(_) | Painted::Backdrop => None,
     };
@@ -357,6 +372,19 @@ pub(crate) fn render_wol_page(
             });
         }
     }
+    if let (true, Painted::MyInfo(layout)) = (children, &painted) {
+        push_group_box(&mut sprites, chrome, layout.group_box, scale);
+    }
+    let my_info_children = match (&painted, children) {
+        (Painted::MyInfo(layout), true) => {
+            crate::app::shell_wol::my_info::page(state).map(|page| {
+                crate::app::frontend::skirmish_shell_render::paint_wol_my_info_children(
+                    state, page, layout,
+                )
+            })
+        }
+        _ => None,
+    };
     let login_children = match (&painted, children) {
         (Painted::Login(layout), true) => state
             .frontend
@@ -538,6 +566,24 @@ pub(crate) fn render_wol_page(
                         .collect();
                 }
                 _ => {}
+            }
+            None
+        }
+        (Painted::MyInfo(layout), None) => {
+            spec = Some(&crate::ui::wol_my_info::PAGE);
+            if let Some(page) = crate::app::shell_wol::my_info::page(state) {
+                painted_buttons = layout
+                    .page
+                    .buttons
+                    .iter()
+                    .map(|button| {
+                        (
+                            *button,
+                            page.buttons.is_pressed(button.id),
+                            page.enabled(button.id),
+                        )
+                    })
+                    .collect();
             }
             None
         }
@@ -752,6 +798,18 @@ pub(crate) fn render_wol_page(
         });
         text.extend(login.texts);
         text.extend(login.popup_texts);
+    }
+    if let (Some(atlas), Some(my_info)) = (controls_atlas, my_info_children) {
+        draws.push(TexturedDraw {
+            texture: &atlas.texture,
+            instances: my_info.controls,
+        });
+        draws.push(TexturedDraw {
+            texture: &atlas.texture,
+            instances: my_info.popup,
+        });
+        text.extend(my_info.texts);
+        text.extend(my_info.popup_texts);
     }
     if let (Some(atlas), Some(options)) = (controls_atlas, options_children) {
         draws.push(TexturedDraw {

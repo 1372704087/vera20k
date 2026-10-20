@@ -78,6 +78,8 @@ pub(crate) enum ShellSlideKind {
     WolAutoLoginQuery,
     /// Dialog 0xFE — the WOL locale page during the connect.
     WolLocale,
+    /// Dialog 0x114 — WOL My Information.
+    WolMyInformation,
     /// Dialog 0xA3 — Options' Keyboard page (front-end parent only).
     Keyboard,
     /// Dialog D7, Options' Network child.
@@ -116,6 +118,7 @@ impl ShellSlideKind {
             ShellSlideKind::WolSoundOptions => 0x00D6,
             ShellSlideKind::WolAutoLoginQuery => 0x0112,
             ShellSlideKind::WolLocale => 0x00FE,
+            ShellSlideKind::WolMyInformation => 0x0114,
             ShellSlideKind::Keyboard => 0x00A3,
             ShellSlideKind::NetworkOptions => 0x00D7,
             ShellSlideKind::LanLobby => 0xBB,
@@ -271,6 +274,8 @@ pub(crate) enum ShellExitThen {
     WolAutoLoginClose(crate::ui::wol_persona::AutoLoginAnswer),
     /// `0xFE` closed with the chosen locale (0 for Cancel or none).
     WolLocaleClose(i32),
+    /// `0x114` closed with this button.
+    WolMyInformationClose(u16),
 }
 
 impl ShellExitThen {
@@ -315,6 +320,7 @@ impl ShellExitThen {
             Self::WolSoundOptionsBack => ShellSlideKind::WolSoundOptions,
             Self::WolAutoLoginClose(_) => ShellSlideKind::WolAutoLoginQuery,
             Self::WolLocaleClose(_) => ShellSlideKind::WolLocale,
+            Self::WolMyInformationClose(_) => ShellSlideKind::WolMyInformation,
             Self::ScoreContinue => ShellSlideKind::Score,
             Self::CampaignScoreContinue => ShellSlideKind::CampaignScore,
         }
@@ -593,6 +599,7 @@ impl<'a> ShellLifecycleReducer<'a> {
             | ShellSlideKind::WolSoundOptions
             | ShellSlideKind::WolAutoLoginQuery
             | ShellSlideKind::WolLocale
+            | ShellSlideKind::WolMyInformation
             | ShellSlideKind::Keyboard
             | ShellSlideKind::NetworkOptions
             | ShellSlideKind::LanLobby => ShellWaveCompletion::MenuPage,
@@ -820,6 +827,9 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
                 ShellSlideKind::WolAutoLoginQuery
             }
             Some(crate::app::shell_wol::WolPage::Locale(_)) => ShellSlideKind::WolLocale,
+            Some(crate::app::shell_wol::WolPage::MyInformation(_)) => {
+                ShellSlideKind::WolMyInformation
+            }
             _ => return None,
         }
     } else if state.frontend.shell_route.wol_lobby() {
@@ -1032,7 +1042,8 @@ pub(crate) fn render_shell_first_paint_slide(
         | ShellSlideKind::WolOptions
         | ShellSlideKind::WolSoundOptions
         | ShellSlideKind::WolAutoLoginQuery
-        | ShellSlideKind::WolLocale => {
+        | ShellSlideKind::WolLocale
+        | ShellSlideKind::WolMyInformation => {
             crate::app::frontend::wol_welcome_render::render_wol_page(state, encoder, destination)?
         }
         ShellSlideKind::Options | ShellSlideKind::VeraOptions => {

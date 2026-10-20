@@ -23,7 +23,7 @@
 //! aircraft (native: EMP), so both are dormant.
 //!
 //! Horizontal_Step ends by deselecting another house's object over the
-//! player's shroud ([`Simulation::fly_deselect_over_shroud`]).
+//! player's shroud ([`Simulation::deselect_over_player_shroud`]).
 
 use super::Simulation;
 use crate::map::entities::EntityCategory;
@@ -749,45 +749,9 @@ impl Simulation {
         if land {
             self.begin_fly_landing(id, rules, registry, frame_effects);
         }
-        self.fly_deselect_over_shroud(id);
+        // 0x004CF55D..0x004CF5EC: the owner test is 0x0050B6F0.
+        self.deselect_over_player_shroud(id, Self::house_is_human_player);
         distance
-    }
-
-    /// The tail of Horizontal_Step (`0x004CF55D..0x004CF5EC`): a selected
-    /// object (`+0x83`) whose owner is not the player's (`0x0050B6F0`,
-    /// [`Self::house_is_human_player`]) is deselected (vt+0x150) when its
-    /// Location is shrouded on the player's map (`MapClass::IsShrouded @
-    /// 0x00586360`, [`vision::point_is_shrouded`]). So a selected enemy
-    /// aircraft drops out of the player's selection as it flies into the
-    /// black. The fog arm's `MapClass::IsFogged @ 0x005865E0` is `xor al, al;
-    /// ret 4`, so it never deselects. Without a player house or map nothing
-    /// is asked.
-    ///
-    /// [`vision::point_is_shrouded`]: crate::sim::vision::point_is_shrouded
-    fn fly_deselect_over_shroud(&mut self, id: u64) {
-        let (Some(player), Some(terrain)) =
-            (self.session.current_house(), self.resolved_terrain.as_ref())
-        else {
-            return;
-        };
-        let Some(entity) = self
-            .substrate
-            .entities
-            .get(id)
-            .filter(|entity| entity.selection.is_selected())
-        else {
-            return;
-        };
-        if self.house_is_human_player(entity.owner()) {
-            return;
-        }
-        let location = ground_pose::object_location(entity, Some(terrain));
-        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-        if crate::sim::vision::point_is_shrouded(&self.fog, &cells, player, location)
-            && let Some(entity) = self.substrate.entities.get_mut(id)
-        {
-            entity.selection.deselect();
-        }
     }
 
     /// `0x004CD510`, after the phase transitions: a Location in the playfield

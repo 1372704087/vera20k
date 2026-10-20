@@ -22,7 +22,7 @@
 /// `Command::Select` commits it through `apply_selection_snapshot`; Limbo,
 /// Destroy, a Temporal erase, a power-down, a lift, a bunker install, the
 /// crew and parasite paths, a non-player object's cloak and a non-player
-/// aircraft over shroud call Select or Deselect too. VERA keeps the
+/// aircraft or jumpjet over shroud call Select or Deselect too. VERA keeps the
 /// current-objects vector as the app's selection ledger (input order and
 /// pending commands), which it reconciles with this byte after the frame.
 /// Combat reads it for selected-unit effects.

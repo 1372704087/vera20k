@@ -124,12 +124,25 @@ impl WolPageDialog {
         }
     }
 
-    /// A press on an edit or the list takes the focus (their window procs
-    /// call `SetFocus` on the button press).
+    /// A press on an edit takes the focus.
     pub(crate) fn press(&mut self, control: u16, last: &mut u16) -> Vec<WolPageAction> {
         let mut actions = Vec::new();
-        if matches!(control, NAME | TEXT | PAGE_TRANSCRIPT) {
+        if matches!(control, NAME | TEXT) {
             self.focus_to(Some(control), last, &mut actions);
+        }
+        actions
+    }
+
+    /// A press on a transcript row: the list subclass `0x00618D40` calls
+    /// `SetFocus(list)`, whose `WM_SETFOCUS` the owner-draw default handler
+    /// (`0x006118BF..0x006118DE`) hands straight back to the previous
+    /// control. The focused edit keeps the focus and sees its kill and set
+    /// notifications.
+    pub(crate) fn press_transcript_row(&mut self, last: &mut u16) -> Vec<WolPageAction> {
+        let mut actions = Vec::new();
+        if let Some(edit) = self.focus {
+            self.notify(edit, last, &mut actions);
+            self.notify(edit, last, &mut actions);
         }
         actions
     }
@@ -280,11 +293,14 @@ impl WolPageReceived {
         }
     }
 
+    /// A press on the reply edit takes the focus; a transcript press hands
+    /// it back to the previous control (see
+    /// [`WolPageDialog::press_transcript_row`]).
     pub(crate) fn press(&mut self, control: u16) {
-        if (control == TEXT) != self.reply.focused {
+        if control == TEXT && !self.reply.focused {
             self.focus_at = Some(std::time::Instant::now());
+            self.reply.focused = true;
         }
-        self.reply.focused = control == TEXT;
     }
 
     /// `EN_CHANGE` (`0x300`): Send follows the text.
@@ -421,6 +437,33 @@ mod tests {
     }
 
     #[test]
+    fn a_transcript_row_click_hands_the_focus_back_to_the_edit() {
+        let mut last = 0u16;
+        let mut page = WolPageDialog::new();
+        page.press(NAME, &mut last);
+        page.insert_text("Tanya", &mut last);
+        page.status = "Lobby 1".into();
+        // The name's kill and set notifications: `last` and the status only.
+        assert!(page.press_transcript_row(&mut last).is_empty());
+        assert_eq!((page.focus, last), (Some(NAME), NAME));
+        assert!(page.status.is_empty());
+        page.insert_text("x", &mut last);
+        assert_eq!(page.name_text(), "Tanyax");
+        // From the text field the first notification locates once.
+        page.press(TEXT, &mut last);
+        last = NAME;
+        assert_eq!(
+            page.press_transcript_row(&mut last),
+            vec![WolPageAction::Locate("Tanyax".into())]
+        );
+        assert_eq!((page.focus, last), (Some(TEXT), TEXT));
+        // With the dialog itself focused nothing is notified.
+        let mut fresh = WolPageDialog::new();
+        assert!(fresh.press_transcript_row(&mut last).is_empty());
+        assert_eq!(fresh.focus, None);
+    }
+
+    #[test]
     fn page_received_replies_to_the_first_pager_from_the_selection() {
         let line = |text: &str| LanChatLine {
             text: text.encode_utf16().collect(),
@@ -436,7 +479,12 @@ mod tests {
         received.select(1);
         assert_eq!(received.reply_to, "Boris");
         received.press(TEXT);
-        received.insert_text("ok");
+        received.insert_text("o");
+        // Choosing another pager keeps the reply's focus.
+        received.select(0);
+        received.press(RECEIVED_TRANSCRIPT);
+        received.select(1);
+        received.insert_text("k");
         assert!(received.send_enabled);
         assert_eq!(
             received.key(LanEditKey::Enter),

@@ -10,6 +10,7 @@ use winit::keyboard::KeyCode;
 use super::service::WolServiceRequest;
 use crate::app::{App, AppState};
 use crate::ui::lan_shell::{LanChatLine, LanEditKey, LanListState, append_list_message};
+use crate::ui::main_menu_dialogs::options::LauncherCue;
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use crate::ui::shell::list::{ListMetrics, ShellListGeometry};
 use crate::ui::shell::modal::{
@@ -84,67 +85,87 @@ pub(crate) fn open_page_dialog(state: &mut AppState) {
     state.platform.window.request_redraw();
 }
 
-fn measure(state: &AppState) -> impl Fn(&[u16]) -> i32 + '_ {
-    |units| {
-        state
-            .renderer
-            .bit_font
-            .text_width(&String::from_utf16_lossy(units)) as i32
-    }
+/// `0x005E2820` into one of the dialogs' lists, wrapped to its width.
+fn append_line(
+    font: &crate::render::bit_font::BitFont,
+    lines: &mut Vec<LanChatLine>,
+    list: &mut LanListState,
+    line: LanChatLine,
+    width: i32,
+    visible: usize,
+) {
+    append_list_message(lines, list, line, width, visible, |units| {
+        font.text_width(&String::from_utf16_lossy(units)) as i32
+    });
 }
 
 /// `0x005E2790` with `0xCF` current: the line goes to its list `0x5B5`.
 /// Returns whether `0xCF` took it.
 pub(crate) fn append_page_line(state: &mut AppState, line: LanChatLine) -> bool {
     let layout = page_layout(state);
-    let Some(mut page) = state
+    let font = &state.renderer.bit_font;
+    let Some(page) = state
         .frontend
         .wol
         .as_mut()
-        .and_then(|visit| visit.page_dialog.take())
+        .and_then(|visit| visit.page_dialog.as_deref_mut())
     else {
         return false;
     };
-    let visible = page_geometry(&layout, &page).visible_rows;
-    let page_ref = &mut *page;
-    append_list_message(
-        &mut page_ref.lines,
-        &mut page_ref.list,
-        line,
-        layout.transcript.w,
-        visible,
-        measure(state),
-    );
-    if let Some(visit) = state.frontend.wol.as_mut() {
-        visit.page_dialog = Some(page);
-    }
+    let visible = page_geometry(&layout, page).visible_rows;
+    let width = layout.transcript.w;
+    append_line(font, &mut page.lines, &mut page.list, line, width, visible);
     true
 }
 
 /// `0x005E2700` into `0x11E`'s `0x53F`.
 pub(super) fn append_received_line(state: &mut AppState, line: LanChatLine) {
     let layout = received_layout(state);
-    let Some(mut received) = state
+    let font = &state.renderer.bit_font;
+    let Some(received) = state
         .frontend
         .wol
         .as_mut()
-        .and_then(|visit| visit.page_received.take())
+        .and_then(|visit| visit.page_received.as_deref_mut())
     else {
         return;
     };
-    let visible = received_geometry(&layout, &received).visible_rows;
-    let received_ref = &mut *received;
-    append_list_message(
-        &mut received_ref.lines,
-        &mut received_ref.list,
+    let visible = received_geometry(&layout, received).visible_rows;
+    let width = layout.transcript.w;
+    append_line(
+        font,
+        &mut received.lines,
+        &mut received.list,
         line,
-        layout.transcript.w,
+        width,
         visible,
-        measure(state),
     );
-    if let Some(visit) = state.frontend.wol.as_mut() {
-        visit.page_received = Some(received);
+}
+
+/// The current window's `0x53F`, else its `0x5B5` (the find sink's tail
+/// `0x007AA5D5`, the page-result sink's failure branch `0x007A9800`):
+/// `0xCF`'s list, `0x11E`'s, or the lobby's or C2/C9's transcript. Returns
+/// false when the current window has neither.
+/// RESIDUAL: in a match both sinks then post a MessageList row (in-match
+/// chain).
+pub(super) fn current_window_line(state: &mut AppState, line: LanChatLine) -> bool {
+    if page_dialog(state).is_some() {
+        return append_page_line(state, line);
     }
+    if page_received(state).is_some() {
+        append_received_line(state, line);
+        return true;
+    }
+    let shell = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| !visit.in_game);
+    if shell && (state.frontend.shell_route.network_setup() || App::wol_page_is_lobby(state)) {
+        crate::app::shell_lan::append_chat(state, line);
+        return true;
+    }
+    false
 }
 
 /// The page sinks' last resort (`0x007A945A..0x007A94E8`): no dialog in
@@ -399,18 +420,26 @@ pub(crate) fn mouse(state: &mut AppState, pressed: bool) {
             let mut button = false;
             let actions = with_last(state, |page, last| {
                 let geometry = page_geometry(&layout, page);
-                if over == Some(PAGE_TRANSCRIPT)
-                    && let Some(part) = geometry.scroll_part_at(x, y)
-                {
-                    page.list.scroll.press(
-                        part,
-                        geometry,
-                        &mut page.list.top_index,
-                        y,
-                        Instant::now(),
-                    );
-                }
                 match over {
+                    Some(PAGE_TRANSCRIPT) => {
+                        if let Some(part) = geometry.scroll_part_at(x, y) {
+                            page.list.scroll.press(
+                                part,
+                                geometry,
+                                &mut page.list.top_index,
+                                y,
+                                Instant::now(),
+                            );
+                            Vec::new()
+                        } else if geometry
+                            .row_at(page.lines.len(), page.list.top_index, x, y)
+                            .is_some()
+                        {
+                            page.press_transcript_row(last)
+                        } else {
+                            Vec::new()
+                        }
+                    }
                     Some(SEND) if !page.send_enabled => Vec::new(),
                     Some(id @ (SEND | CANCEL)) => {
                         page.buttons.press(Some(id));
@@ -446,6 +475,7 @@ pub(crate) fn mouse(state: &mut AppState, pressed: bool) {
     let layout = received_layout(state);
     let over = received_control_at(&layout, x, y);
     let mut button = false;
+    let mut row_click = false;
     let action = state
         .frontend
         .wol
@@ -479,9 +509,10 @@ pub(crate) fn mouse(state: &mut AppState, pressed: bool) {
                     } else if let Some(row) =
                         geometry.row_at(received.lines.len(), received.list.top_index, x, y)
                     {
+                        // A selectable owner-draw list clicks like the lobby's.
                         received.select(row);
+                        row_click = true;
                     }
-                    received.press(RECEIVED_TRANSCRIPT);
                 }
                 Some(id) => received.press(id),
                 None => received.buttons.press(None),
@@ -490,6 +521,9 @@ pub(crate) fn mouse(state: &mut AppState, pressed: bool) {
         });
     if button {
         App::play_main_menu_button_sound(state);
+    }
+    if row_click {
+        App::play_launcher_options_cue(state, LauncherCue::GenericClick);
     }
     apply_received(state, action);
 }

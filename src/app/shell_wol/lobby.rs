@@ -1591,16 +1591,19 @@ pub(super) fn located(state: &mut AppState, result: Result<WolChannel, u32>) {
             format_csf(&csf(state, key), &[CsfArg::Str(&name)])
         }
     };
-    let route = state.frontend.shell_route;
-    if route.wol_lobby() || route.network_setup() {
-        message_line(state, text);
-        state.platform.window.request_redraw();
-    } else {
+    // 0x007AA5D5..0x007AA685: colour [0x7EEF28] = -1; `[0xB76E28]` is
+    // cleared either way.
+    let line = LanChatLine {
+        text: text.encode_utf16().collect(),
+        color: u32::MAX,
+    };
+    if !super::page::current_window_line(state, line) {
         log::info!("WOL find result outside a transcript: {text}");
-        if let Some(visit) = state.frontend.wol.as_mut() {
-            visit.locate_name = None;
-        }
     }
+    if let Some(visit) = state.frontend.wol.as_mut() {
+        visit.locate_name = None;
+    }
+    state.platform.window.request_redraw();
 }
 
 /// The page-send result sink `0x007A9800`: success writes `TXT_PAGESENT`
@@ -1619,18 +1622,10 @@ pub(super) fn page_result(state: &mut AppState, result: Result<(), u32>) {
         text: units(state, key),
         color: u32::MAX,
     };
-    if result.is_ok() || super::page::page_dialog(state).is_some() {
+    if result.is_ok() {
         super::page::append_page_line(state, line);
-    } else if super::page::page_received(state).is_some() {
-        super::page::append_received_line(state, line);
-    } else if !state
-        .frontend
-        .wol
-        .as_ref()
-        .is_none_or(|visit| visit.in_game)
-        && (state.frontend.shell_route.network_setup() || App::wol_page_is_lobby(state))
-    {
-        crate::app::shell_lan::append_chat(state, line);
+    } else {
+        super::page::current_window_line(state, line);
     }
     state.platform.window.request_redraw();
 }
@@ -1805,6 +1800,8 @@ pub(super) fn page_received(state: &mut AppState, from: WolMember, text: Vec<u16
         log::warn!("WOL page during a match: the in-match rows are not ported");
     } else {
         super::page::append_page_line(state, line.clone());
+        // The walk down the stack stops at the first `0x53F`: the lobby's
+        // (also while Options `0x2BC` hides it), C2/C9's, or `0x11E`'s.
         let route = state.frontend.shell_route;
         let transcript = super::page::page_received(state).is_none()
             && (route.network_setup() || lobby(state).is_some());

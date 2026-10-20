@@ -8,7 +8,8 @@ use crate::sim::occupancy::OccupancyGrid;
 /// vtable `+0x170` (`0x007418E5` -> `0x00746D60`) runs Death_Explosion
 /// (`0x00738680`): one Scenario pick from `Explosion=`, its anim at the
 /// tank's Location (stock vehicles author no `DestroyAnim=`), before the
-/// kill is recorded and the tank is UnInit.
+/// kill is recorded and the tank is UnInit. Having crushed a Unit, the
+/// level fortress then tilts forwards.
 #[test]
 fn a_battle_fortress_crushing_a_tank_plays_its_death_explosion() {
     let Some(mut rules) = retail_unlayered_rules_with_art() else {
@@ -26,7 +27,11 @@ fn a_battle_fortress_crushing_a_tank_plays_its_death_explosion() {
     let tank = sim
         .spawn_object("MTNK", "Americans", 12, 10, 0, &rules)
         .expect("MTNK spawns");
-    let position = sim.substrate.entities.get(fortress).unwrap().position;
+    // The tank stands a little off the fortress's centre, inside the crush
+    // distance, so its Location is not the crusher's.
+    let mut position = sim.substrate.entities.get(fortress).unwrap().position;
+    let centre = position_world_coord(&position);
+    position.put_world_xy([centre.x + 40, centre.y - 24]);
     sim.substrate.entities.get_mut(tank).unwrap().position = position;
     sim.substrate.occupancy = OccupancyGrid::rebuild(&sim.substrate.entities);
     let location = position_world_coord(&position);
@@ -65,4 +70,13 @@ fn a_battle_fortress_crushing_a_tank_plays_its_death_explosion() {
         .collect();
     assert_eq!(played, [(expected, (location.x, location.y, location.z))]);
     assert_eq!(sim.scenario_rng.state(), replay.state());
+    // The crush tail (`0x00741939..0x00741954`): the level fortress tilts.
+    let rocking = sim
+        .substrate
+        .entities
+        .get(fortress)
+        .unwrap()
+        .rocking
+        .unwrap();
+    assert_eq!(rocking.native_bits()[3], 0xbd4c_cccd);
 }

@@ -302,6 +302,7 @@ impl Simulation {
             .occupancy
             .get(at.0, at.1)
             .and_then(|list| list.first_on_layer(layer));
+        let mut crushed_unit = false;
         while let Some(victim) = cursor {
             // Save successor BEFORE lifecycle can remove the current object.
             cursor = self
@@ -354,6 +355,7 @@ impl Simulation {
                     .get(victim)
                     .is_some_and(|entity| entity.category() == EntityCategory::Unit)
                 {
+                    crushed_unit = true;
                     self.unit_death_explosion(rules, victim, &mut Vec::new());
                 }
                 // `UnitClass::Crush_Or_Prescatter_Cell @ 0x007416A0`: the
@@ -381,6 +383,15 @@ impl Simulation {
                     reason: UninitReason::Crush,
                 });
             }
+        }
+        // The loop's tail (`0x00741925..0x00741954`): any crush uncloaks the
+        // crusher (vtable `+0x45C`, argument 0; no stock crusher cloaks),
+        // and crushing a Unit tilts a level crusher forwards.
+        if crushed_unit && let Some(crusher) = self.substrate.entities.get_mut(id) {
+            crusher
+                .rocking
+                .get_or_insert_with(Default::default)
+                .tilt_after_unit_crush();
         }
         // 0x0073B08F tests only IsAlive (`+0x90`) before the Foot body.
         if self.per_cell_owner_alive(id) {

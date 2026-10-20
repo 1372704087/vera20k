@@ -48,18 +48,22 @@ impl CrushImmunity {
     }
 }
 
-/// Event9 DEPLOY4C778A..4C7812. MCV conversion, simple deployment and the
-/// deploy-fire arm share this event; each concrete Mission_Unload branch owns
-/// its effects.
+/// Event9 DEPLOY4C76BC..4C7812. MCV conversion, simple deployment, the
+/// deploy-fire arm and a tank bunker's occupant share this event; each
+/// concrete Mission_Unload branch owns its effects.
 ///
-/// RESIDUAL:
-/// - Native refuses only an aircraft (`0x004C777E`) and the
-///   Construction/Selling missions below; VERA admits only those three Unit
-///   kinds, whose Unload arms it ports. Trigger: a DEPLOY event for another
-///   object, which no VERA sender issues.
-/// - Native breaks radio contact (vt+0x274(3), `0x004C77E4`) and deploys;
-///   VERA refuses a unit with a radio partner. Trigger: D on a unit in radio
-///   contact, such as one docked at a service depot. Effect: it ignores D.
+/// The object must be alive (`+0x90`), out of limbo (`+0x81`), untethered
+/// (`+0x418`) and not under EMP (`+0x504`, which nothing writes yet). Then it
+/// sends OVER_OUT to its radio contact 0 (vt+0x274(3), `0x004C77E4`), so a
+/// bunkered unit lets go of its bunker before its Unload empties it.
+///
+/// RESIDUAL: native refuses only an aircraft (`0x004C777E`) and the
+/// Construction/Selling missions below; VERA admits only the Unit kinds whose
+/// Unload arms it ports: an MCV, a simple deployer, a deploy-fire unit and a
+/// unit in a tank bunker. Trigger: a DEPLOY event for another object, which
+/// no VERA sender issues: the deploy key and the self-click send a loaded
+/// transport's unload order instead, and CanDeploySlashUnload refuses every
+/// other Unit.
 pub(crate) fn issue_order(
     sim: &mut Simulation,
     id: u64,
@@ -72,7 +76,9 @@ pub(crate) fn issue_order(
             && e.tether.partner().is_none()
             && (crate::sim::mcv_deploy::is_mcv(sim, e, rules)
                 || crate::sim::unit_simple_deploy::is_simple_deployer(sim, e, rules)
-                || unit_fires_on_deploy(sim, e, rules))
+                || unit_fires_on_deploy(sim, e, rules)
+                || (e.category() == EntityCategory::Unit
+                    && e.bunker.link().installed_in().is_some()))
     }) {
         return false;
     }
@@ -122,9 +128,17 @@ pub(crate) fn issue_order(
     {
         return false;
     }
-    // Event DEPLOY: the Unit's class setter takes a null destination
-    // (`0x004C77F8`, Unit `0x00741970`) and its class target setter a null
-    // target (`0x004C7804`) before Queue_Mission(Unload) (`0x004C7812`).
+    // Event DEPLOY: OVER_OUT to radio contact 0 (`0x004C77E4`), then the
+    // Unit's class setter takes a null destination (`0x004C77F8`, Unit
+    // `0x00741970`) and its class target setter a null target (`0x004C7804`)
+    // before Queue_Mission(Unload) (`0x004C7812`).
+    crate::sim::radio::transmit_to_contact(
+        sim,
+        id,
+        crate::sim::radio::RadioMessage::Break,
+        Some(rules),
+        effects,
+    );
     // Queue's same-mission guard keeps the handler and timer on a repeated D.
     sim.assign_null_destination(id, Some(rules), None, effects);
     let _ = sim.assign_target_represented(id, None, Some(rules), None, effects);

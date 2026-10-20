@@ -12,8 +12,9 @@ mod wol;
 pub(crate) use actions::{apply_action, commit_map_selection, commit_start, open_choose_map};
 pub(crate) use view::view;
 pub(crate) use wol::{
-    WolStartUser, guest_users_listed, kicked_key, local_left, play_player_left, player_choices,
-    player_ready, send_first_choices, user_joined, user_kicked, user_left,
+    WolStartUser, guest_users_listed, kicked_key, local_left, map_status, play_player_left,
+    player_choices, player_ready, send_first_choices, user_joined, user_kicked, user_left, verify,
+    verify_cursor_moved, verify_layout, verify_mouse,
 };
 
 use super::{App, AppState};
@@ -107,6 +108,9 @@ pub(crate) struct NetworkSetupProtocol {
     /// WOL guest `[0xA8D610]`: the first other user the user-list sink
     /// added (`0x7A7627..0x7A763D`); its row shows `wolhost.pcx`.
     wol_host: Option<String>,
+    /// WOL Start Game Now's connection verify `0x130` over C2/C9, from
+    /// OnGameStart until the negotiation ends.
+    wol_verify: Option<crate::ui::wol_verify::WolVerifyDialog>,
     start_requested: bool,
     accept_eligible: bool,
     go_deadline: Option<Instant>,
@@ -151,6 +155,7 @@ impl NetworkSetupProtocol {
             ping_deadline: wol_host.then(|| Instant::now() + wol::PING_PERIOD),
             pings: Vec::new(),
             wol_host: None,
+            wol_verify: None,
             start_requested: false,
             accept_eligible: false,
             go_deadline: None,

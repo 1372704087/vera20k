@@ -5117,7 +5117,12 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
         let mut restored = GameSnapshot::load(&bytes).expect("load").sim;
-        restored.rebuild_logic_membership(); // the real post-deserialize step
+        Simulation::rebuild_logic_membership(
+            &mut restored.terrain_objects,
+            &mut restored.substrate,
+            &mut restored.projectiles,
+            &mut restored.waves,
+        ); // the real post-deserialize step
         assert_eq!(
             restored.state_hash(),
             hash_before,

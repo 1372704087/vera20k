@@ -6318,7 +6318,12 @@ mod tests {
         let bytes = crate::util::save_codec::serialize(&sim).expect("serialize sim with AnimStore");
         let mut restored: Simulation =
             crate::util::save_codec::deserialize(&bytes).expect("deserialize AnimStore");
-        restored.rebuild_logic_membership();
+        Simulation::rebuild_logic_membership(
+            &mut restored.terrain_objects,
+            &mut restored.substrate,
+            &mut restored.projectiles,
+            &mut restored.waves,
+        );
         assert_eq!(restored.live_object_order_snapshot(), expected_order);
         assert_eq!(restored.state_hash(), expected_hash);
         assert!(restored.sound_events.is_empty());

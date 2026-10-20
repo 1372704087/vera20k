@@ -482,8 +482,18 @@ fn saved_live_statistics_preserve_terminal_score_and_rng_continuation() {
     restored.retain_process_state_for_load(crate::sim::world::SnapshotProcessState::Live(&sim));
     restored.restore_after_snapshot_load().unwrap();
     let before_rng = sim.rng_state();
-    assert!(sim.finalize_terminal_score_snapshot());
-    assert!(restored.finalize_terminal_score_snapshot());
+    assert!(Simulation::finalize_terminal_score_snapshot(
+        &sim.session,
+        &mut sim.scenario_rng,
+        &mut sim.terminal_score_snapshot,
+        &sim.houses
+    ));
+    assert!(Simulation::finalize_terminal_score_snapshot(
+        &restored.session,
+        &mut restored.scenario_rng,
+        &mut restored.terminal_score_snapshot,
+        &restored.houses
+    ));
     assert_ne!(
         sim.rng_state(),
         before_rng,

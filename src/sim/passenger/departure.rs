@@ -199,7 +199,16 @@ fn restore_departure(
         || (route == DepartureRoute::LandedAircraft
             && !matches!(failure, DepartureFailure::GroundReveal(_)))
     {
-        super::receive_gunner(sim, rules, transport_id, passenger_id);
+        super::receive_gunner(
+            &sim.interner,
+            &sim.session,
+            &mut sim.scenario_rng,
+            &mut sim.substrate,
+            &sim.houses,
+            rules,
+            transport_id,
+            passenger_id,
+        );
     }
 }
 

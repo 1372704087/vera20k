@@ -31,11 +31,16 @@
 #[path = "fire_tests.rs"]
 mod tests;
 
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::superweapon_type::{SuperWeaponKind, SuperWeaponType};
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::rng::SimRng;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
 impl Simulation {
@@ -252,7 +257,17 @@ impl Simulation {
         // `0x004FAEC6..0x004FAEF2`: every house, last to first.
         let houses: Vec<InternedId> = self.houses.order().iter().rev().copied().collect();
         for house in houses {
-            alert_super_weapon_defense(self, rules, house, sw, cell);
+            alert_super_weapon_defense(
+                &self.session,
+                &mut self.scenario_rng,
+                &self.substrate,
+                &mut self.houses,
+                &self.resolved_terrain,
+                rules,
+                house,
+                sw,
+                cell,
+            );
         }
         called_launch
     }
@@ -506,13 +521,17 @@ fn super_instance(
 /// base the origin (the zeroed static `0x00A8EFF8`), and the distance is
 /// `CoordStruct::Distance3D @ 0x0041C380` of base minus cell.
 fn alert_super_weapon_defense(
-    sim: &mut Simulation,
+    session: &ScenarioSession,
+    scenario_rng: &mut SimRng,
+    substrate: &ObjectSubstrate,
+    houses: &mut Houses,
+    resolved_terrain: &Option<ResolvedTerrainGrid>,
     rules: &RuleSet,
     house_id: InternedId,
     sw: &SuperWeaponType,
     cell: (u16, u16),
 ) {
-    let Some(house) = sim.houses.get(&house_id) else {
+    let Some(house) = houses.get(&house_id) else {
         return;
     };
     if house.multiplay_passive() || house.is_human() || !sw.ai_defend_against {
@@ -521,7 +540,7 @@ fn alert_super_weapon_defense(
     let base = house.base_origin();
     let probability = house.difficulty_value(&rules.general.ai_super_defense_probability);
     let first_yard = house.build_const_order().first().copied();
-    let terrain = sim.resolved_terrain.as_ref();
+    let terrain = resolved_terrain.as_ref();
     let cell_coords = |(x, y): (u16, u16)| {
         let coord = crate::sim::projectile::cell_ground_coord(terrain, x, y);
         [coord.x, coord.y, coord.z]
@@ -535,21 +554,21 @@ fn alert_super_weapon_defense(
     if distance > rules.general.ai_super_defense_distance {
         return;
     }
-    if sim.scenario_rng.next_range_i32_inclusive(0, 99) > probability {
+    if scenario_rng.next_range_i32_inclusive(0, 99) > probability {
         return;
     }
     let defended = first_yard
-        .and_then(|yard| sim.substrate.entities.get(yard))
+        .and_then(|yard| substrate.entities.get(yard))
         .map(|yard| {
             let coords = crate::sim::movement::ground_pose::object_get_coords(
                 yard,
-                sim.resolved_terrain.as_ref(),
+                resolved_terrain.as_ref(),
             );
             ((coords.x / 256) as u16, (coords.y / 256) as u16)
         })
         .unwrap_or(base);
-    let frame = sim.session.binary_frame() as i32;
-    if let Some(house) = sim.houses.get_mut(&house_id) {
+    let frame = session.binary_frame() as i32;
+    if let Some(house) = houses.get_mut(&house_id) {
         house.alert_super_weapon_defense(defended, frame);
     }
 }

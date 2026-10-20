@@ -2029,7 +2029,17 @@ fn run_special_detonation_arm(
         }
         SpecialDetonationAction::IvanBomb => {
             // 0x00469343..0x00469375: the bullet's owner plants on a Techno.
-            world.bomb_attach(owner, object, rules);
+            Simulation::bomb_attach(
+                &world.interner,
+                &world.session,
+                &mut world.substrate,
+                &mut world.sound_events,
+                &world.resolved_terrain,
+                &mut world.bombs,
+                owner,
+                object,
+                rules,
+            );
         }
         SpecialDetonationAction::BombDisarm => {
             // 0x004699C4..0x004699FE: a bombed Object target is defused.

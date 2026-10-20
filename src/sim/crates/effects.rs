@@ -16,9 +16,12 @@ use crate::rules::object_type::ObjectCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::veterancy;
 use crate::sim::components::DriveCoord;
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::ground_pose::position_world_coord;
 use crate::sim::rng::SimRng;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
@@ -301,14 +304,17 @@ pub(super) enum UnitCrateOutcome {
 /// (a rules-data-only divergence), including when every goodie is a forbidden
 /// base unit. When a candidate exists, retain the original full-array draws.
 pub(super) fn choose_unit_crate_type<'r>(
-    sim: &mut Simulation,
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    scenario_rng: &mut SimRng,
+    houses: &Houses,
     rules: &'r RuleSet,
     owner: InternedId,
     preempted: bool,
 ) -> Option<&'r crate::rules::object_type::ObjectType> {
     use crate::sim::ai_buildable::{first_owner_compatible, house_country_bit};
-    let house = sim.houses.get(&owner)?;
-    let country_bit = house_country_bit(rules, sim.interner.resolve(house.house_type_id()));
+    let house = houses.get(&owner)?;
+    let country_bit = house_country_bit(rules, interner.resolve(house.house_type_id()));
     let mut chosen = None;
     if preempted {
         chosen = first_owner_compatible(
@@ -320,7 +326,7 @@ pub(super) fn choose_unit_crate_type<'r>(
     }
     if chosen.is_none() {
         let tracked = |category: EntityCategory, type_id: &str| -> i32 {
-            sim.interner
+            interner
                 .get(type_id)
                 .map_or(0, |type_id| house.tracking().owned_count(category, type_id))
         };
@@ -354,8 +360,8 @@ pub(super) fn choose_unit_crate_type<'r>(
     if chosen.is_some() {
         return chosen;
     }
-    let human = house.is_controlled_by_human(sim.session.game_mode_nonzero());
-    let bases = sim.session.game_options().bases;
+    let human = house.is_controlled_by_human(session.game_mode_nonzero());
+    let bases = session.game_options().bases;
     let ids = rules.type_array_ids(ObjectCategory::Vehicle);
     let eligible = |candidate: &crate::rules::object_type::ObjectType| {
         let is_base_unit = rules
@@ -375,9 +381,7 @@ pub(super) fn choose_unit_crate_type<'r>(
     }
     let count = i32::try_from(ids.len()).unwrap_or(i32::MAX);
     loop {
-        let index = sim
-            .scenario_rng
-            .next_range_i32_inclusive(0, count.wrapping_sub(1));
+        let index = scenario_rng.next_range_i32_inclusive(0, count.wrapping_sub(1));
         let Some(candidate) = usize::try_from(index)
             .ok()
             .and_then(|index| ids.get(index))

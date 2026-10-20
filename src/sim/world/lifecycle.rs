@@ -27,8 +27,10 @@ use super::{FrameEffects, Simulation};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::sim::houses::Houses;
 use crate::sim::intern::StringInterner;
+use crate::sim::projectile::ProjectileStore;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::terrain_object::TerrainObjectStore;
+use crate::sim::wave::WaveStore;
 use crate::sim::world::ObjectSubstrate;
 
 /// A building's `HasSpotlight=` fact and its owned `BuildingLightClass`.
@@ -1565,7 +1567,15 @@ impl Simulation {
             // tail at44159D..4415B3, including a reached first opening.
             self.fill_base_plan_from_successful_building_unlimbo(stable_id);
         }
-        self.submit_entity_display(stable_id, context.rules, context.terrain());
+        Self::submit_entity_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            &self.resolved_terrain,
+            stable_id,
+            context.rules,
+            context.terrain(),
+        );
         self.lifecycle_outputs
             .emit(LifecycleOutput::RevealDisplay { stable_id });
         #[cfg(any(test, feature = "test-support"))]
@@ -2433,7 +2443,15 @@ impl Simulation {
             .expect("member remains represented");
         entity.on_bridge.store(false);
         entity.position.put_z(world_z);
-        self.submit_entity_display(stable_id, rules, None);
+        Self::submit_entity_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            &self.resolved_terrain,
+            stable_id,
+            rules,
+            None,
+        );
         if foot {
             self.foot_mark_put(stable_id, rules, context.registry, context.effects);
         } else {
@@ -2544,7 +2562,15 @@ impl Simulation {
             None => crate::sim::movement::air_movement::AirMovementTickStats::default(),
         };
         if let Some(before) = jumpjet_layer_before {
-            self.complete_jumpjet_display_process(stable_id, before, rules);
+            Self::complete_jumpjet_display_process(
+                &self.interner,
+                &self.terrain_objects,
+                &mut self.substrate,
+                &self.resolved_terrain,
+                stable_id,
+                before,
+                rules,
+            );
         }
         Ok(stats)
     }
@@ -2626,7 +2652,14 @@ impl Simulation {
             .and_then(|l| l.fly_runtime())
             .is_some_and(|s| s.taking_off())
         {
-            self.apply_fly_takeoff_callback(id, rules);
+            Self::apply_fly_takeoff_callback(
+                &self.interner,
+                &self.session,
+                &mut self.substrate,
+                &self.resolved_terrain,
+                id,
+                rules,
+            );
         }
         let after = self.entity_display_layer(id, rules);
         if before != after {
@@ -2670,7 +2703,15 @@ impl Simulation {
         // the landing retry's C4 receiver just destroyed; store removal expires
         // that registration. Object Mark5F5850 refuses a Limbo owner, so the
         // cell lists never regain it.
-        self.submit_entity_display(id, rules, None);
+        Self::submit_entity_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            &self.resolved_terrain,
+            id,
+            rules,
+            None,
+        );
         if self
             .substrate
             .entities
@@ -2684,19 +2725,22 @@ impl Simulation {
 
     /// Admitted callback4CE680. The phase caller owns Mark/Display sequencing;
     /// the callback owns flag clearing and the two existing facing controllers.
-    pub(super) fn apply_fly_takeoff_callback(&mut self, id: u64, rules: Option<&RuleSet>) {
+    pub(super) fn apply_fly_takeoff_callback(
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        id: u64,
+        rules: Option<&RuleSet>,
+    ) {
         use crate::sim::movement::{air_movement, fly_height::TakeoffFacing, ground_pose};
-        let entity = self
-            .substrate
-            .entities
-            .get(id)
-            .expect("admitted Fly callback");
+        let entity = substrate.entities.get(id).expect("admitted Fly callback");
         let xy = ground_pose::position_world_xy(&entity.position);
-        let mut height = air_movement::current_fly_height(entity, self.resolved_terrain.as_ref());
+        let mut height = air_movement::current_fly_height(entity, resolved_terrain.as_ref());
         //4CE696..4CE6DF: query structure even below416; bridge-normalize only
         // when not already OnBridge and high enough above a structural deck.
         if !entity.on_bridge() {
-            let bridge = self.resolved_terrain.as_ref().is_some_and(|terrain| {
+            let bridge = resolved_terrain.as_ref().is_some_and(|terrain| {
                 let cell =
                     terrain.native_cell_identity(((xy[0] / 256) as i16, (xy[1] / 256) as i16));
                 terrain.native_cell_flags(cell) & 0x100 != 0
@@ -2707,11 +2751,10 @@ impl Simulation {
         }
         let landing_base = crate::sim::aircraft::landing_base::landing_base(
             entity,
-            &self.substrate.entities,
-            rules.map(|r| (r, &self.interner)),
+            &substrate.entities,
+            rules.map(|r| (r, interner)),
         );
-        let entity = self
-            .substrate
+        let entity = substrate
             .entities
             .get_mut(id)
             .expect("admitted Fly callback");
@@ -2731,7 +2774,7 @@ impl Simulation {
                     .barrel_facing
                     .as_mut()
                     .unwrap()
-                    .set(desired, self.session.binary_frame());
+                    .set(desired, session.binary_frame());
             }
             TakeoffFacing::PrimaryToDestination => {
                 // Original also evaluates the zero delta; do not special-case
@@ -2740,7 +2783,7 @@ impl Simulation {
                     destination.x.wrapping_sub(xy[0]),
                     destination.y.wrapping_sub(xy[1]),
                 );
-                entity.body_facing.set(desired, self.session.binary_frame());
+                entity.body_facing.set(desired, session.binary_frame());
                 entity
                     .locomotor
                     .as_mut()
@@ -2838,44 +2881,52 @@ impl Simulation {
     /// object. The single dispatch the registration/removal contract repairs
     /// the flag through. For a Techno it is RegisterObject's set (`0x0055BAC6`)
     /// or UnregisterObject's clear (`0x0055BB27`).
-    fn set_logic_membership_flag(&mut self, stable_id: u64, kind: ObjectKind, member: bool) {
+    fn set_logic_membership_flag(
+        terrain_objects: &mut TerrainObjectStore,
+        substrate: &mut ObjectSubstrate,
+        projectiles: &mut ProjectileStore,
+        waves: &mut WaveStore,
+        stable_id: u64,
+        kind: ObjectKind,
+        member: bool,
+    ) {
         match kind {
             ObjectKind::Spotlight => {
-                if let Some(l) = self.substrate.spotlights.get_mut(stable_id) {
+                if let Some(l) = substrate.spotlights.get_mut(stable_id) {
                     l.mark_logic_membership(member);
                 }
             }
             ObjectKind::Smudge => assert!(!member, "Smudge {stable_id} never joins Logic"),
             ObjectKind::Anim => {
-                if let Some(anim) = self.substrate.anims.get_mut(stable_id) {
+                if let Some(anim) = substrate.anims.get_mut(stable_id) {
                     anim.mark_logic_membership(member);
                 }
             }
             ObjectKind::VoxelAnim => {
-                if let Some(debris) = self.substrate.voxel_anims.get_mut(stable_id) {
+                if let Some(debris) = substrate.voxel_anims.get_mut(stable_id) {
                     debris.mark_logic_membership(member);
                 }
             }
             ObjectKind::ParticleSystem => {
-                if let Some(system) = self.substrate.particle_systems.get_mut(stable_id) {
+                if let Some(system) = substrate.particle_systems.get_mut(stable_id) {
                     system.mark_logic_membership(member);
                 }
             }
             ObjectKind::Terrain => {
-                self.terrain_objects.set_logic_membership(stable_id, member);
+                terrain_objects.set_logic_membership(stable_id, member);
             }
             ObjectKind::Projectile => {
-                if let Some(projectile) = self.projectiles.get_mut(stable_id) {
+                if let Some(projectile) = projectiles.get_mut(stable_id) {
                     projectile.mark_logic_membership(member);
                 }
             }
             ObjectKind::Wave => {
-                if let Some(wave) = self.waves.get_mut(stable_id) {
+                if let Some(wave) = waves.get_mut(stable_id) {
                     wave.mark_logic_membership(member);
                 }
             }
             ObjectKind::Entity => {
-                if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+                if let Some(entity) = substrate.entities.get_mut(stable_id) {
                     entity.in_logic_vector.mark(member);
                 }
             }
@@ -2903,7 +2954,15 @@ impl Simulation {
         }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::LogicAppended);
-        self.set_logic_membership_flag(stable_id, kind, true);
+        Self::set_logic_membership_flag(
+            &mut self.terrain_objects,
+            &mut self.substrate,
+            &mut self.projectiles,
+            &mut self.waves,
+            stable_id,
+            kind,
+            true,
+        );
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::LogicMembershipSet);
         true
@@ -2920,7 +2979,15 @@ impl Simulation {
             return false;
         }
         let _ = self.substrate.logic.remove_first(stable_id);
-        self.set_logic_membership_flag(stable_id, kind, false);
+        Self::set_logic_membership_flag(
+            &mut self.terrain_objects,
+            &mut self.substrate,
+            &mut self.projectiles,
+            &mut self.waves,
+            stable_id,
+            kind,
+            false,
+        );
         true
     }
 
@@ -3658,7 +3725,15 @@ impl Simulation {
                 Some(rules) => self.rereveal_sight_to_current_house(stable_id, rules),
                 None => self.release_object_sight_with_context(stable_id, context),
             }
-            self.remove_building_gap(stable_id);
+            Self::remove_building_gap(
+                &self.interner,
+                &mut self.fog,
+                &self.house_alliances,
+                &mut self.substrate,
+                &self.houses,
+                &self.resolved_terrain,
+                stable_id,
+            );
             // Steam gamemd3e81a617, TechnoLimbo6F6B98..6F6BA0 clears an
             // OpenTopped hull's own rider targets before HouseRemoved6F6BD1.
             // Cargo, each rider's +82 and Logic membership survive this call.

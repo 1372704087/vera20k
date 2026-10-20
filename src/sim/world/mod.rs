@@ -266,6 +266,10 @@ use crate::sim::trigger_runtime::{TriggerEffect, TriggerRuntime};
 use crate::sim::vision::{self, FogState};
 use crate::util::fixed_math::SimFixed;
 use crate::sim::native_identity::NativeUniqueIdCursor;
+use crate::sim::ore_growth::OreGrowthConfig;
+use crate::sim::ore_growth::OreGrowthState;
+use crate::sim::terrain_object::TerrainObjectStore;
+use crate::sim::wave::WaveStore;
 
 /// Test fixtures' seed. Real launches negotiate a per-match seed through
 /// `ScenarioDescriptor`, and only test builds can construct with this value.
@@ -3384,6 +3388,31 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn rebuild_logic_membership_for_test(&mut self) {
+        Self::rebuild_logic_membership(
+            &mut self.terrain_objects,
+            &mut self.substrate,
+            &mut self.projectiles,
+            &mut self.waves,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn bomb_attach_for_test(&mut self, planter: u64, target: Option<u64>, rules: &RuleSet) {
+        Self::bomb_attach(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            &mut self.sound_events,
+            &self.resolved_terrain,
+            &mut self.bombs,
+            planter,
+            target,
+            rules,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn suspend_production_for_test(
         &mut self,
         owner: &str,
@@ -4277,21 +4306,38 @@ impl Simulation {
     /// Packed subtraction leaves offsets independent of the centre, so reuse
     /// that constant count without adding another floating distance kernel.
     pub(crate) fn trigger_reduce_tiberium_at_waypoint(
-        &mut self,
+        terrain_objects: &TerrainObjectStore,
+        ore_growth_config: &OreGrowthConfig,
+        ore_growth_state: &mut OreGrowthState,
+        session: &ScenarioSession,
+        scenario_rng: &mut SimRng,
+        substrate: &ObjectSubstrate,
+        resolved_terrain: &mut Option<ResolvedTerrainGrid>,
+        overlay_grid: &mut Option<OverlayGrid>,
+        dirty_cells: &mut DirtyCells,
         waypoint: i32,
         rules: &RuleSet,
         overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     ) -> bool {
-        let Some(cell) = self.session.waypoint_cell(waypoint) else {
+        let Some(cell) = session.waypoint_cell(waypoint) else {
             return false;
         };
-        if self.resolved_terrain.is_none() || self.overlay_grid.is_none() {
+        if resolved_terrain.is_none() || overlay_grid.is_none() {
             return false;
         }
         // Keep every call, including after depletion. The shared owner
         // performs each native lookup and owns RNG/queues/radar/cleanup.
         for _ in 0..109 {
-            self.reduce_tiberium_at_with_native_context(
+            Self::reduce_tiberium_at_with_native_context(
+                terrain_objects,
+                ore_growth_config,
+                ore_growth_state,
+                session,
+                scenario_rng,
+                substrate,
+                resolved_terrain,
+                overlay_grid,
+                dirty_cells,
                 (cell.0 as u16, cell.1 as u16),
                 1,
                 Some(rules),
@@ -4302,29 +4348,37 @@ impl Simulation {
     }
 
     pub(crate) fn reduce_tiberium_at_with_native_context<A: Into<i32>>(
-        &mut self,
+        terrain_objects: &TerrainObjectStore,
+        ore_growth_config: &OreGrowthConfig,
+        world_ore_growth_state: &mut OreGrowthState,
+        session: &ScenarioSession,
+        scenario_rng: &mut SimRng,
+        substrate: &ObjectSubstrate,
+        world_resolved_terrain: &mut Option<ResolvedTerrainGrid>,
+        world_overlay_grid: &mut Option<OverlayGrid>,
+        world_dirty_cells: &mut DirtyCells,
         cell: (u16, u16),
         amount: A,
         rules: Option<&RuleSet>,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) -> crate::sim::tiberium::ReduceTiberiumOutcome {
         let mut ctx = crate::sim::tiberium::ReduceTiberiumContext {
-            overlay_grid: self.overlay_grid.as_mut(),
-            ore_growth_state: &mut self.ore_growth_state,
+            overlay_grid: world_overlay_grid.as_mut(),
+            ore_growth_state: &mut *world_ore_growth_state,
             overlay_registry,
             tiberium_types: rules.map(|rules| &rules.tiberium_types),
-            resolved_terrain: self.resolved_terrain.as_mut(),
-            source_object_cells: Some(self.terrain_objects.spawning_cells()),
+            resolved_terrain: world_resolved_terrain.as_mut(),
+            source_object_cells: Some(terrain_objects.spawning_cells()),
             live_objects: Some(crate::sim::tiberium::NativeCellObjectView::new(
-                &self.substrate.occupancy,
-                self.terrain_objects.cell_index(),
+                &substrate.occupancy,
+                terrain_objects.cell_index(),
             )),
             // ore growth/spread — scenario stream. Direct field: this literal
             // co-borrows other &mut self fields, so an all-self accessor conflicts.
-            rng: Some(&mut self.scenario_rng),
-            binary_frame: self.session.binary_frame(),
-            spread_enabled: self.ore_growth_config.spreads(),
-            dirty_cells: Some(&mut self.dirty_cells),
+            rng: Some(scenario_rng),
+            binary_frame: session.binary_frame(),
+            spread_enabled: ore_growth_config.spreads(),
+            dirty_cells: Some(world_dirty_cells),
         };
         crate::sim::tiberium::reduce_tiberium(&mut ctx, cell, amount.into())
     }
@@ -5231,7 +5285,12 @@ impl Simulation {
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_logic_order_for_test(&mut self, order: Vec<u64>) {
         self.substrate.logic.set_order_for_test(order);
-        self.rebuild_logic_membership();
+        Self::rebuild_logic_membership(
+            &mut self.terrain_objects,
+            &mut self.substrate,
+            &mut self.projectiles,
+            &mut self.waves,
+        );
     }
 
     /// Common VoxelAnim7493B0 constructor/admission for typed Techno and
@@ -5687,7 +5746,15 @@ impl Simulation {
             // `ReReveal(0, 0, 0, 0)` (`0x00448BD9`) releases the old owner's
             // sight only: what a `RevealToAll=` opening showed the current
             // house stays.
-            self.remove_building_gap(stable_id);
+            Self::remove_building_gap(
+                &self.interner,
+                &mut self.fog,
+                &self.house_alliances,
+                &mut self.substrate,
+                &self.houses,
+                &self.resolved_terrain,
+                stable_id,
+            );
             self.release_object_sight_with_context(stable_id, UninitContext::new(rules, None));
             // Original4483A6 clears PrimaryFactory before the old-house
             //teardown.448C69 initializes it after the delegated owner swap.
@@ -5715,7 +5782,14 @@ impl Simulation {
         // transfer (tests only) cannot read the type and grants nothing.
         if let Some(rules) = rules {
             crate::sim::credit_income::produce_cash_on_owner_change(
-                self, stable_id, old_owner, new_owner, rules,
+                &self.interner,
+                &self.session,
+                &mut self.substrate,
+                &mut self.houses,
+                stable_id,
+                old_owner,
+                new_owner,
+                rules,
             );
         }
         // Building4484AF precedes the delegated Techno owner transfer.
@@ -6380,44 +6454,49 @@ impl Simulation {
     /// saved order determines it. Idempotent — safe to call after any load.
     /// Standalone (no heavy load-arg dependency) so save/load membership is
     /// unit-testable.
-    pub fn rebuild_logic_membership(&mut self) {
-        for entity in self.substrate.entities.values_mut() {
+    pub fn rebuild_logic_membership(
+        terrain_objects: &mut TerrainObjectStore,
+        substrate: &mut ObjectSubstrate,
+        projectiles: &mut ProjectileStore,
+        waves: &mut WaveStore,
+    ) {
+        for entity in substrate.entities.values_mut() {
             entity.in_logic_vector.mark(false);
         }
-        for anim in self.substrate.anims.values_mut() {
+        for anim in substrate.anims.values_mut() {
             anim.mark_logic_membership(false);
         }
-        for light in self.substrate.spotlights.values_mut() {
+        for light in substrate.spotlights.values_mut() {
             light.mark_logic_membership(false);
         }
-        for debris in self.substrate.voxel_anims.values_mut() {
+        for debris in substrate.voxel_anims.values_mut() {
             debris.mark_logic_membership(false);
         }
-        for (_, system) in self.substrate.particle_systems.iter_mut() {
+        for (_, system) in substrate.particle_systems.iter_mut() {
             system.mark_logic_membership(false);
         }
-        self.terrain_objects.clear_logic_memberships();
-        for (_, projectile) in self.projectiles.iter_mut() {
+        terrain_objects.clear_logic_memberships();
+        for (_, projectile) in projectiles.iter_mut() {
             projectile.mark_logic_membership(false);
         }
-        for (_, wave) in self.waves.iter_mut() {
+        for (_, wave) in waves.iter_mut() {
             wave.mark_logic_membership(false);
         }
-        for &id in &self.substrate.logic.snapshot() {
-            if let Some(entity) = self.substrate.entities.get_mut(id) {
+        for &id in &substrate.logic.snapshot() {
+            if let Some(entity) = substrate.entities.get_mut(id) {
                 entity.in_logic_vector.mark(true);
-            } else if let Some(anim) = self.substrate.anims.get_mut(id) {
+            } else if let Some(anim) = substrate.anims.get_mut(id) {
                 anim.mark_logic_membership(true);
-            } else if let Some(light) = self.substrate.spotlights.get_mut(id) {
+            } else if let Some(light) = substrate.spotlights.get_mut(id) {
                 light.mark_logic_membership(true);
-            } else if let Some(debris) = self.substrate.voxel_anims.get_mut(id) {
+            } else if let Some(debris) = substrate.voxel_anims.get_mut(id) {
                 debris.mark_logic_membership(true);
-            } else if let Some(system) = self.substrate.particle_systems.get_mut(id) {
+            } else if let Some(system) = substrate.particle_systems.get_mut(id) {
                 system.mark_logic_membership(true);
-            } else if self.terrain_objects.set_logic_membership(id, true) {
-            } else if let Some(projectile) = self.projectiles.get_mut(id) {
+            } else if terrain_objects.set_logic_membership(id, true) {
+            } else if let Some(projectile) = projectiles.get_mut(id) {
                 projectile.mark_logic_membership(true);
-            } else if let Some(wave) = self.waves.get_mut(id) {
+            } else if let Some(wave) = waves.get_mut(id) {
                 wave.mark_logic_membership(true);
             }
         }
@@ -7783,7 +7862,12 @@ impl Simulation {
         // Campaign's standalone result dialog reads its own House statistics.
         let terminal_score_finalized = self.session.game_mode_nonzero()
             && self.natural_outcome_exit_ready()
-            && self.finalize_terminal_score_snapshot();
+            && Self::finalize_terminal_score_snapshot(
+                &self.session,
+                &mut self.scenario_rng,
+                &mut self.terminal_score_snapshot,
+                &self.houses,
+            );
         profile_phase!(SCORE);
         // A frame that ends the match hashes whatever its tick: the replay
         // log records it as its last frame.

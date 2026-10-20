@@ -72,6 +72,7 @@ use std::hash::{Hash, Hasher};
 use serde::{Deserialize, Serialize};
 
 use crate::map::entities::EntityCategory;
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::warhead_type::WarheadType;
@@ -82,8 +83,11 @@ use crate::sim::combat::world_receiver::{
 use crate::sim::combat::{DeathEffects, UnderAttackEvent};
 use crate::sim::components::DriveCoord;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::ground_pose::{object_get_coords, object_location};
 use crate::sim::projectile::ProjectileCoord;
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::FrameChannel;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
@@ -379,11 +383,21 @@ impl Simulation {
     /// The IvanBomb arm of `BulletClass::DetonateAtCoord` (`0x00469343`) and
     /// `BombListClass::Attach @ 0x00438E70`: the bullet's owner plants a bomb
     /// on its target when the owner is Infantry and the target carries none.
-    pub fn bomb_attach(&mut self, planter: u64, target: Option<u64>, rules: &RuleSet) {
+    pub(crate) fn bomb_attach(
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        sound_events: &mut FrameChannel<SimSoundEvent>,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        bombs: &mut BombList,
+        planter: u64,
+        target: Option<u64>,
+        rules: &RuleSet,
+    ) {
         // An object UnInit has passed reads as the null pointer its expiry
         // left natively.
         let live = |id| {
-            self.substrate
+            substrate
                 .entities
                 .get(id)
                 .filter(|entity| entity.lifecycle.object_alive())
@@ -407,9 +421,9 @@ impl Simulation {
         let position = carrier.position;
         let world_z_leptons = crate::sim::movement::ground_pose::object_world_z_leptons(
             carrier,
-            self.resolved_terrain.as_ref(),
+            resolved_terrain.as_ref(),
         );
-        let start_frame = self.session.binary_frame() as i32;
+        let start_frame = session.binary_frame() as i32;
         let bomb = Bomb {
             planter: Some(planter),
             planter_house,
@@ -417,21 +431,21 @@ impl Simulation {
             end_frame: start_frame.wrapping_add(rules.combat_damage.ivan_timed_delay),
             seen_by: 0,
         };
-        if let Some(carrier) = self.substrate.entities.get_mut(target) {
+        if let Some(carrier) = substrate.entities.get_mut(target) {
             carrier.bomb = Some(bomb);
         }
-        self.bombs.carriers.insert(target);
+        bombs.carriers.insert(target);
         // 0x00438FCA: the carrier is seen from the second UpdateAll on.
-        self.bombs.visibility_countdown = 1;
+        bombs.visibility_countdown = 1;
         log::info!(
             "BOMB {target} planted by {planter} ({}), fuse {start_frame}..{}",
-            self.interner.resolve(planter_house),
+            interner.resolve(planter_house),
             bomb.end_frame,
         );
         // 0x00438FD7..0x0043901D: BombAttachSound at the target, only for the
         // player who owns the planter (+0x21C).
         if let Some(sound_id) = rules.general.bomb_attach_sound.clone() {
-            self.sound_events.emit(SimSoundEvent::VocAt {
+            sound_events.emit(SimSoundEvent::VocAt {
                 sound_id,
                 audible_to: Some([planter_house, planter_house]),
                 rx: position.rx(),
@@ -474,26 +488,33 @@ impl Simulation {
     /// `BombClass::Detonate @ 0x00438720` up to its blast: the record goes
     /// first; `None` when the carrier carries none, or silently when it is in
     /// limbo.
-    fn take_bomb_blast(&mut self, carrier: u64, rules: &RuleSet) -> Option<BombBlast> {
-        let entity = self.substrate.entities.get_mut(carrier)?;
+    fn take_bomb_blast(
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        bombs: &mut BombList,
+        carrier: u64,
+        rules: &RuleSet,
+    ) -> Option<BombBlast> {
+        let entity = substrate.entities.get_mut(carrier)?;
         let bomb = entity.bomb.take()?;
-        self.bombs.carriers.remove(&carrier);
-        let entity = self.substrate.entities.get(carrier)?;
+        bombs.carriers.remove(&carrier);
+        let entity = substrate.entities.get(carrier)?;
         if entity.lifecycle.in_limbo() {
             log::info!("BOMB {carrier} went off in limbo, silently");
             return None;
         }
         log::info!(
             "BOMB {carrier} goes off at frame {} (source {:?})",
-            self.session.binary_frame(),
+            session.binary_frame(),
             bomb.planter,
         );
         let bridge_hut = entity.category() == EntityCategory::Structure
-            && self
-                .interner
+            && interner
                 .object_type(entity.type_ref(), rules)
                 .is_some_and(|object| object.bridge_repair_hut);
-        let location = object_location(entity, self.resolved_terrain.as_ref());
+        let location = object_location(entity, resolved_terrain.as_ref());
         Some(BombBlast {
             source: bomb.planter.unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
             location: ProjectileCoord::new(location.x, location.y, location.z),
@@ -520,7 +541,15 @@ impl Simulation {
         if !expired || entity.lifecycle.in_limbo() {
             return false;
         }
-        let Some(blast) = self.take_bomb_blast(carrier, rules) else {
+        let Some(blast) = Self::take_bomb_blast(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            &self.resolved_terrain,
+            &mut self.bombs,
+            carrier,
+            rules,
+        ) else {
             return false;
         };
         let Some(warhead) = ivan_warhead(rules) else {
@@ -551,7 +580,15 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&OverlayTypeRegistry>,
     ) -> Option<(DeathEffects, Vec<UnderAttackEvent>)> {
-        let blast = self.take_bomb_blast(carrier, rules)?;
+        let blast = Self::take_bomb_blast(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            &self.resolved_terrain,
+            &mut self.bombs,
+            carrier,
+            rules,
+        )?;
         let warhead = ivan_warhead(rules)?;
         let origin = blast.origin(&mut self.interner, warhead);
         let (mut effects, pings) = apply_area_damage_in_run(

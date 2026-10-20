@@ -67,7 +67,15 @@ impl super::object_health::ObjectHealthHost for ReceiverHealthHost<'_, '_, '_> {
             //5F5486: a heal that changed Strength calls vt+148 Flash(7).
             HealthCallback::Changed => {
                 if self.execute_world_callbacks {
-                    self.world.flash_object(id, 7);
+                    Simulation::flash_object(
+                        &self.world.interner,
+                        &self.world.session,
+                        &self.world.fog,
+                        &self.world.house_alliances,
+                        &mut self.world.substrate,
+                        id,
+                        7,
+                    );
                 }
             }
             HealthCallback::Tag { kind, with_source } => {

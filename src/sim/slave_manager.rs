@@ -1496,9 +1496,21 @@ impl Simulation {
             }
             // ftol(min(1.0, Storage - total)): one level while not full.
             let config = MinerConfig::from_rules(rules);
-            if let Some(bale) =
-                crate::sim::miner::extract_bale(self, rules, registry, cell, &config)
-                && let Some(entity) = self.substrate.entities.get_mut(slave)
+            if let Some(bale) = crate::sim::miner::extract_bale(
+                &self.terrain_objects,
+                &self.ore_growth_config,
+                &mut self.ore_growth_state,
+                &self.session,
+                &mut self.scenario_rng,
+                &self.substrate,
+                &mut self.resolved_terrain,
+                &mut self.overlay_grid,
+                &mut self.dirty_cells,
+                rules,
+                registry,
+                cell,
+                &config,
+            ) && let Some(entity) = self.substrate.entities.get_mut(slave)
             {
                 entity.slave.cargo.push(bale);
             }

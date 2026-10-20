@@ -1052,7 +1052,11 @@ impl Simulation {
                     // SpawnSurvivors (`0x00443182`) and Mission_Selling
                     // (`0x0044A6ED`): GetCellAt, then PlaceInfantryInCell
                     // (0, 0, 0) on that cell's ground.
-                    let Some(spot) = self.place_infantry_in_ground_cell(
+                    let Some(spot) = Self::place_infantry_in_ground_cell(
+                        &self.interner,
+                        &mut self.scenario_rng,
+                        &self.substrate,
+                        &self.resolved_terrain,
                         rules,
                         crate::sim::components::DriveCoord {
                             x: (i32::from(cell.0) << 8).wrapping_add(request.0.to_num::<i32>()),

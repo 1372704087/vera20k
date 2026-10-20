@@ -1414,7 +1414,7 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                     let frame = sim.session().binary_frame();
                     sim.session_mut_for_test()
                         .set_binary_frame_for_test(start as u32);
-                    sim.bomb_attach(planter, Some(id), rules);
+                    sim.bomb_attach_for_test(planter, Some(id), rules);
                     sim.bomb_list_update(rules);
                     if actor["bomb_visible"].as_bool().unwrap_or(true) {
                         sim.bomb_list_update(rules);

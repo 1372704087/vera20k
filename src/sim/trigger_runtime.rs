@@ -3777,7 +3777,20 @@ impl Simulation {
                 else {
                     return false;
                 };
-                return self.trigger_reduce_tiberium_at_waypoint(waypoint, rules, registry);
+                return Self::trigger_reduce_tiberium_at_waypoint(
+                    &self.terrain_objects,
+                    &self.ore_growth_config,
+                    &mut self.ore_growth_state,
+                    &self.session,
+                    &mut self.scenario_rng,
+                    &self.substrate,
+                    &mut self.resolved_terrain,
+                    &mut self.overlay_grid,
+                    &mut self.dirty_cells,
+                    waypoint,
+                    rules,
+                    registry,
+                );
             }
             85 => {
                 // Execute6DDB94/6E0250 stores the literal low byte in34A7.

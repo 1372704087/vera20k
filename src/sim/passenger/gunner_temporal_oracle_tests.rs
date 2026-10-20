@@ -481,9 +481,16 @@ fn native_temporal_gunner_callbacks_match_retained_histories() {
                 }
                 callback => {
                     let (_, draws) = trace_draws(|| match callback {
-                        "receive" | "retry" => {
-                            receive_gunner(&mut sim, rules, actors.transport, actors.passenger)
-                        }
+                        "receive" | "retry" => receive_gunner(
+                            &sim.interner,
+                            &sim.session,
+                            &mut sim.scenario_rng,
+                            &mut sim.substrate,
+                            &sim.houses,
+                            rules,
+                            actors.transport,
+                            actors.passenger,
+                        ),
                         "remove" => {
                             remove_gunner(&mut sim, rules, actors.transport, Some(actors.passenger))
                         }

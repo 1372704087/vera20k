@@ -3072,7 +3072,12 @@ impl Simulation {
                 entity.parasite.restart_timers_after_load(frame);
             }
         }
-        self.rebuild_logic_membership();
+        Self::rebuild_logic_membership(
+            &mut self.terrain_objects,
+            &mut self.substrate,
+            &mut self.projectiles,
+            &mut self.waves,
+        );
         self.substrate.rebuild_building_anim_slot_indices();
         self.rebuild_bomb_carriers();
         // The kamikaze tracker's Load (`0x0054E7B0`) follows its Clear.
@@ -3830,7 +3835,12 @@ mod tests {
         // monotonic allocators. Rebuild their substrate caches directly; the
         // production path uses `restore_after_snapshot_load`.
         sim.substrate.entities.rebuild_class_registries();
-        sim.rebuild_logic_membership();
+        Simulation::rebuild_logic_membership(
+            &mut sim.terrain_objects,
+            &mut sim.substrate,
+            &mut sim.projectiles,
+            &mut sim.waves,
+        );
         sim.substrate
             .occupancy
             .restore_memberships(&sim.substrate.entities)
@@ -9101,7 +9111,12 @@ mod tests {
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);
         let mut restored = GameSnapshot::load(&bytes).expect("load should succeed").sim;
-        restored.rebuild_logic_membership();
+        Simulation::rebuild_logic_membership(
+            &mut restored.terrain_objects,
+            &mut restored.substrate,
+            &mut restored.projectiles,
+            &mut restored.waves,
+        );
 
         let member = restored.substrate.entities.get(1).expect("member restored");
         assert!(member.in_logic_vector.is_member());

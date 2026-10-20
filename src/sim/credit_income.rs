@@ -19,10 +19,12 @@ use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::mission::MissionType;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::power_system::PowerStates;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
@@ -169,23 +171,25 @@ pub(crate) fn available_money(sim: &Simulation, owner: InternedId) -> i32 {
 /// Capture by a non-passive house from a non-passive house (an engineer
 /// retaking a derrick) grants nothing and leaves the timer running as it was.
 pub(crate) fn produce_cash_on_owner_change(
-    sim: &mut Simulation,
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    houses: &mut Houses,
     stable_id: u64,
     old_owner: InternedId,
     new_owner: InternedId,
     rules: &RuleSet,
 ) {
-    let Some(entity) = sim.substrate.entities.get(stable_id) else {
+    let Some(entity) = substrate.entities.get(stable_id) else {
         return;
     };
     if entity.category() != EntityCategory::Structure {
         return;
     }
-    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
+    let Some(obj) = interner.object_type(entity.type_ref(), rules) else {
         return;
     };
-    let old_passive = sim
-        .houses
+    let old_passive = houses
         .get(&old_owner)
         .is_some_and(|house| house.multiplay_passive());
     if !old_passive || obj.produce_cash_startup == 0 {
@@ -193,9 +197,9 @@ pub(crate) fn produce_cash_on_owner_change(
     }
     let startup = obj.produce_cash_startup;
     let delay = obj.produce_cash_delay;
-    let frame = sim.session.binary_frame();
-    add_credits(&mut sim.houses, new_owner, startup);
-    if let Some(entity) = sim.substrate.entities.get_mut(stable_id) {
+    let frame = session.binary_frame();
+    add_credits(houses, new_owner, startup);
+    if let Some(entity) = substrate.entities.get_mut(stable_id) {
         entity.produce_cash.arm(frame, delay);
     }
 }

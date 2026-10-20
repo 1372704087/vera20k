@@ -270,7 +270,15 @@ impl Simulation {
                 &self.interner,
             );
             self.mark_entity_put(id, context);
-            self.submit_entity_display(id, rules, None);
+            Self::submit_entity_display(
+                &self.interner,
+                &self.terrain_objects,
+                &mut self.substrate,
+                &self.resolved_terrain,
+                id,
+                rules,
+                None,
+            );
         }
         let Some(entity) = self.substrate.entities.get(id) else {
             return false;

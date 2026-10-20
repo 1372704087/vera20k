@@ -508,9 +508,27 @@ impl Simulation {
     ///   over an object it may not attack. Then a NoMove over an object worn
     ///   as terrain becomes Move (`0x00417EFE..0x00417F39`).
     ///
-    /// The aircraft's cell query passes no Shift: native's third argument is
-    /// the object query's own, and Shift's early Move only differs where the
-    /// aircraft's Can_Enter_Cell refuses the Cell.
+    /// The aircraft's cell query passes no Shift. Native asks it with the
+    /// keys read live (third argument 0), but Shift's early Move only differs
+    /// where the aircraft's Can_Enter_Cell refuses the Cell, which it never
+    /// does in a session game ([`Self::aircraft_can_enter_cell`]).
+    ///
+    /// RESIDUALS:
+    /// - AirportBound GuardArea (`0x00417CE9..0x00417CFE`): Ctrl+Alt over an
+    ///   object answers 0x1A, which an `AirportBound=` type (`+0xE0D`, retail
+    ///   ORCA and BEAG) turns into 0 and so into this Cell query, whose own
+    ///   Ctrl+Alt rung may answer GuardArea on the Cell. VERA's GuardArea
+    ///   admission refuses an aircraft over an object and falls back to
+    ///   Move. Trigger: Ctrl+Alt over an object with a Harrier or Black
+    ///   Eagle selected. Effect: it moves to the object's Cell instead of
+    ///   area-guarding it. Frequency: rare.
+    /// - The Cell query's attack rung (`0x007008A6..`): over a destroyable
+    ///   cliff or a `LegalTarget=` overlay native answers Attack, which the
+    ///   Immune rung then tests on the object and the click sends to Foot
+    ///   `0x004D74E0` as an attack on the object. [`Self::cell_move_action`]
+    ///   does not model that rung, so VERA answers Move. Trigger: an aircraft
+    ///   over an object it may not attack standing on such a Cell. Frequency:
+    ///   rare.
     pub fn foot_object_class_action(
         &self,
         viewer: InternedId,

@@ -653,7 +653,14 @@ pub(super) fn capability_cursor_for_hover(
             return CursorFeedbackKind::NoDeploy;
         }
 
-        return if entity.category() == EntityCategory::Structure {
+        // Aircraft417DCD..417DF4: the Self (4) of an Aircraft carrying no
+        // passengers (+0x114) is 0, the arrow.
+        let empty_aircraft = entity.category() == EntityCategory::Aircraft
+            && entity
+                .passenger_role
+                .cargo()
+                .is_none_or(|cargo| cargo.count() == 0);
+        return if entity.category() == EntityCategory::Structure || empty_aircraft {
             CursorFeedbackKind::Default
         } else {
             CursorFeedbackKind::Invalid
@@ -901,8 +908,14 @@ pub(super) fn capability_cursor_for_hover(
     // (`TechnoClass::What_Action_OnObject` `0x0070000B`, `[0xA8ECC8] == 1` at
     // `0x007000C1`, see `self_click_command`) — so the barred cursor wins.
     // Hovering an own unit that is NOT selected still takes Select, and a
-    // no-selection hover keeps DetermineAction's no-selection Select.
-    if hover_is_selected_own_unit(hover, &selected) {
+    // no-selection hover keeps DetermineAction's no-selection Select. An
+    // Aircraft cursor owner's 0 there becomes its Cell action instead
+    // (`0x00417D7C`), which the object action below answers.
+    if hover_is_selected_own_unit(hover, &selected)
+        && !best_id
+            .and_then(|id| sim.entities().get(id))
+            .is_some_and(|actor| actor.category() == EntityCategory::Aircraft)
+    {
         return CursorFeedbackKind::Invalid;
     }
     match hover.kind {
@@ -924,7 +937,12 @@ pub(super) fn capability_cursor_for_hover(
             if friendly
                 && !best_is_ivan
                 && !best_id.is_some_and(|id| {
-                    super::context_order::object_action_answers_friendly(sim, id, hover.stable_id)
+                    super::context_order::object_action_answers_friendly(
+                        sim,
+                        selected,
+                        id,
+                        hover.stable_id,
+                    )
                 })
             {
                 return if hover.kind == HoverTargetKind::FriendlyUnit {

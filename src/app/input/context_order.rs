@@ -387,26 +387,25 @@ pub(crate) fn attack_action(
 
 /// Whether the cursor owner `actor_id`'s own What_Action decides a click or
 /// hover over the friendly object `target_id`, rather than the friendly
-/// selection route: a Unit's always (`0x007403EB`), and an Aircraft's over
-/// another House's object, whose 0 becomes its Cell action (`0x00417D7C`).
-/// An Aircraft over an own object keeps the selection route; natively a
-/// selected one in a larger selection is Move too.
+/// selection route: a Unit's (`0x007403EB`) and an Aircraft's. Over an own
+/// object that is not selected the Techno base answers Select (7) as the
+/// selection route would; otherwise an Aircraft's 0 becomes its Cell action
+/// (`0x00417D7C`). A lone selected Aircraft over itself is Techno's Self
+/// (`0x007000B9..0x007000DF`), which an Aircraft carrying no passengers
+/// turns into 0 (`0x00417DCD..0x00417DF4`), so it keeps the selection route.
 pub(super) fn object_action_answers_friendly(
     sim: &crate::sim::world::Simulation,
+    selected: &[u64],
     actor_id: u64,
     target_id: u64,
 ) -> bool {
-    let Some(actor) = sim.entities().get(actor_id) else {
-        return false;
-    };
-    match actor.category() {
-        EntityCategory::Unit => true,
-        EntityCategory::Aircraft => sim
-            .entities()
-            .get(target_id)
-            .is_some_and(|target| target.owner() != actor.owner()),
-        _ => false,
-    }
+    sim.entities()
+        .get(actor_id)
+        .is_some_and(|actor| match actor.category() {
+            EntityCategory::Unit => true,
+            EntityCategory::Aircraft => selected != [target_id],
+            _ => false,
+        })
 }
 
 /// The target is an object whose type is `Immune=` (`+0x233`), which the
@@ -2248,7 +2247,14 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             let friendly_unit_action = clicked_friendly
                 && hover.as_ref().is_some_and(|target| {
                     cursor_owner(sim, &resources.rules, &current_objects, target.stable_id)
-                        .is_some_and(|id| object_action_answers_friendly(sim, id, target.stable_id))
+                        .is_some_and(|id| {
+                            object_action_answers_friendly(
+                                sim,
+                                &current_objects,
+                                id,
+                                target.stable_id,
+                            )
+                        })
                 });
             if select_friendly_clicks
                 && clicked_friendly
@@ -4206,6 +4212,13 @@ mod tests {
         let tank = sim
             .spawn_object("MTNK", "Enemy", 12, 10, 0, &rules)
             .unwrap();
+        let own_tank = sim.spawn_object("MTNK", "Local", 6, 4, 0, &rules).unwrap();
+        let wingman = sim.spawn_object("ORCA", "Local", 6, 5, 0, &rules).unwrap();
+        sim.entities_mut_for_test()
+            .get_mut(wingman)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
         for flier in [kirov, rocketeer] {
             sim.entities_mut_for_test()
                 .get_mut(flier)
@@ -4297,6 +4310,35 @@ mod tests {
             CursorFeedbackKind::Invalid
         );
         assert_eq!(click(tank), None);
+
+        // Own objects: one not selected is Techno's Select (7); a selected
+        // one in a larger selection is 0, so the Cell action, Move; a lone
+        // Harrier over itself is Self, which 417DCD turns into 0 (the arrow).
+        assert_eq!(action(own_tank), AttackAction::Select);
+        assert_eq!(
+            cursor(own_tank, HoverTargetKind::FriendlyUnit),
+            CursorFeedbackKind::FriendlyUnit
+        );
+        assert_eq!(
+            crate::app::input::cursor::capability_cursor_for_hover(
+                &sim,
+                &[harrier, wingman],
+                Some(harrier),
+                &HoverTargetKindWithId {
+                    kind: HoverTargetKind::FriendlyUnit,
+                    stable_id: wingman,
+                },
+                Some(&rules),
+                None,
+                OrderModifier::Normal,
+                false,
+            ),
+            CursorFeedbackKind::Move
+        );
+        assert_eq!(
+            cursor(harrier, HoverTargetKind::FriendlyUnit),
+            CursorFeedbackKind::Default
+        );
     }
 
     /// What_Action_OnCell's force-fire rung is a human player's too

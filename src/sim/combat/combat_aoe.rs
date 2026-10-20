@@ -83,6 +83,7 @@ pub(crate) trait AoECellPrelude {
     fn wall_navigation_step(
         &mut self,
         _terrain: &ResolvedTerrainGrid,
+        _overlays: &OverlayGrid,
         _cell: (u16, u16),
         _navigation_changed: bool,
         _repair: ZoneRepairKind,
@@ -110,12 +111,13 @@ impl WallDamageTransactionHost for AoEWallDamageHost<'_, '_> {
     fn navigation_step(
         &mut self,
         terrain: &ResolvedTerrainGrid,
+        overlays: &OverlayGrid,
         cell: (u16, u16),
         navigation_changed: bool,
         repair: ZoneRepairKind,
     ) {
         if let Some(prelude) = self.prelude.as_deref_mut() {
-            prelude.wall_navigation_step(terrain, cell, navigation_changed, repair);
+            prelude.wall_navigation_step(terrain, overlays, cell, navigation_changed, repair);
         }
     }
 

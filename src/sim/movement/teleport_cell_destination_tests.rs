@@ -125,7 +125,7 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
             })
         })
         .collect();
-    // Overlays as the map loader leaves them: the overlay cell and the bridge facts.
+    // Overlays and bridge facts as the map loader leaves them.
     let mut overlays = crate::sim::overlay_grid::OverlayGrid::new(32, 32);
     for native in before["cells"].as_array().unwrap() {
         let (x, y) = pair(&native["coord"]);
@@ -133,8 +133,8 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
         cell.level = native["level"].as_u64().unwrap() as u8;
         cell.slope_type = native["slope"].as_u64().unwrap() as u8;
         if let Some(overlay) = native.get("overlay_id") {
-            cell.bridge_facts.overlay_id = overlay.as_i64().and_then(|id| u8::try_from(id).ok());
-            overlays.cell_mut_for_test(x, y).overlay_id = cell.bridge_facts.overlay_id;
+            overlays.cell_mut_for_test(x, y).overlay_id =
+                overlay.as_i64().and_then(|id| u8::try_from(id).ok());
         }
         cell.bridge_facts.raw_flags = native["structural_flags"].as_u64().unwrap() as u32;
         assert_eq!(native["land"], 0, "fixture has only native land0");

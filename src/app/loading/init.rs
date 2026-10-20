@@ -1777,6 +1777,21 @@ mod fresh_transport_tests {
 /// already copied setup staging into the active Scenario array before `.SED`
 /// regeneration, so the prefix plan—not regenerated map content—owns these
 /// eight entries for loading markers, save/restore, and deterministic hashing.
+/// Installs the startup's GameMode into the scenario session, with the
+/// admitted MaxAhead for a network start. The frame tail's `Queue_AI` route
+/// reads this mode, so a LAN/WOL start must arrive as LAN/WOL.
+pub(super) fn install_startup_session_mode(
+    simulation: &mut crate::sim::world::Simulation,
+    startup: &LoadingStartup,
+) {
+    simulation.session.set_game_mode(startup.session_mode());
+    if let LoadingStartup::Network(accepted) = startup {
+        simulation
+            .session
+            .install_network_timing(accepted.max_ahead_frames());
+    }
+}
+
 pub(crate) fn scenario_start_waypoints_for_load(
     map_data: &MapFile,
     projection: Option<&StockOfflinePrefixProjection>,
@@ -2882,14 +2897,7 @@ pub(crate) fn load_map_from_initial(
     // constructor now mutate the same Simulation identity that reaches gameplay.
     let (mut staged_simulation, scenario_prefix_projection) =
         bootstrap_rng.into_fresh_staged_simulation(&scenario_descriptor, fresh_prefix)?;
-    staged_simulation
-        .session
-        .set_game_mode(startup.session_mode());
-    if let LoadingStartup::Network(accepted) = &startup {
-        staged_simulation
-            .session
-            .install_network_timing(accepted.max_ahead_frames());
-    }
+    install_startup_session_mode(&mut staged_simulation, &startup);
     staged_simulation.bind_shared_cell_dummy(shared_cell_dummy.clone());
     staged_simulation
         .session

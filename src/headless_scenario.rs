@@ -781,11 +781,9 @@ mod retail_construction_tests {
         // Queue_AI route: both instances store an identical retail sync
         // checksum every frame.
         for scenario in [&mut a, &mut b] {
-            scenario
-                .runtime
-                .simulation
-                .session
-                .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+            let session = &mut scenario.runtime.simulation.session;
+            session.set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+            session.install_network_timing(10);
         }
         for tick in 0..60u32 {
             let [checksum_a, checksum_b] = [&mut a, &mut b].map(|scenario| {

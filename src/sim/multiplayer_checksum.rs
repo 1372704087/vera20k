@@ -676,6 +676,7 @@ mod tests {
         multi
             .session
             .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+        multi.session.install_network_timing(10);
         let frame = multi.session.binary_frame();
         let mut expected_rng = single.scenario_rng.clone();
 

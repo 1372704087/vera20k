@@ -125,6 +125,8 @@ pub enum AbortConfirmAction {
     Cancel,
     /// Leave — end the session through the graceful-exit route.
     Leave,
+    /// Campaign Restart — B6 result 5 (`0x004F196B`).
+    Restart,
 }
 
 /// What the app layer must do once a modal reports the player's choice.
@@ -136,6 +138,9 @@ pub enum ModalOutcome {
     Enter(InGameMenuState),
     /// End the running match by the graceful-exit route.
     LeaveMatch,
+    /// Raise the scenario restart request: the state machine's result-5 arm
+    /// (`0x0048CB2E`) sets `0x008B41C0` and the modal state returns to 0.
+    RestartScenario,
 }
 
 /// The abort confirmation's button routes.
@@ -148,6 +153,7 @@ pub fn resolve_abort_action(action: AbortConfirmAction) -> ModalOutcome {
         AbortConfirmAction::None => ModalOutcome::Stay,
         AbortConfirmAction::Cancel => ModalOutcome::Enter(InGameMenuState::Closed),
         AbortConfirmAction::Leave => ModalOutcome::LeaveMatch,
+        AbortConfirmAction::Restart => ModalOutcome::RestartScenario,
     }
 }
 
@@ -200,6 +206,15 @@ mod tests {
         assert_eq!(
             resolve_abort_action(AbortConfirmAction::Leave),
             ModalOutcome::LeaveMatch
+        );
+    }
+
+    /// Campaign Restart raises the restart request instead of leaving.
+    #[test]
+    fn campaign_restart_requests_a_scenario_restart() {
+        assert_eq!(
+            resolve_abort_action(AbortConfirmAction::Restart),
+            ModalOutcome::RestartScenario
         );
     }
 

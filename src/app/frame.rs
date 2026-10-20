@@ -46,6 +46,9 @@ impl App {
         // current outcome Vox before it raises the victory/defeat exit global.
         // Drive that gate before deciding whether another sim frame is legal.
         let scenario_now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+        // Main_Tick55DE4F skips the frame while the restart byte is set and
+        // Main_Game's router55CFD0 takes it before EXIT.
+        Self::consume_scenario_restart_request(state);
         Self::consume_executed_abort_exit(state, scenario_now_ms);
         crate::app::match_runtime::sim_tick::drive_local_player_outcome_voice_wait(
             state,

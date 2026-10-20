@@ -163,6 +163,12 @@ pub struct PreparedCampaignStartup {
     /// The globals `0x004C6180` saved from the won mission; `0x004C6210`
     /// writes them back once Start_Scenario has read the next map.
     carried_globals: Option<[bool; SCENARIO_GLOBAL_COUNT]>,
+    /// Start_Scenario's DL argument (`0x00683ABC`), tested at `0x00683D9C`
+    /// before the post-read `[Basic] Action` movie (Scenario+0x1444). A new
+    /// campaign (`0x0052E70C`) and a won mission (`0x00685C45`) pass 1; the
+    /// restart (`0x006864ED`) and the defeat retry (`0x00686287`) pass 0.
+    /// The pre-read Intro/Brief movie does not depend on it.
+    play_action_movie: bool,
     pub seed: MatchSeed,
 }
 
@@ -206,6 +212,46 @@ impl PreparedCampaignStartup {
         self.carried_globals.as_ref()
     }
 
+    pub fn plays_action_movie(&self) -> bool {
+        self.play_action_movie
+    }
+
+    /// Start_Scenario for the same mission: the in-battle Restart
+    /// (`0x006863E0`, call at `0x006864FC`) and the defeat retry (`0x00686296`)
+    /// both pass Scenario+0x125C, DL 0 and the retained campaign index
+    /// Scenario+0x34CC. Neither path touches the mission counter
+    /// Scenario+0x1254 or saves the carry-over record, so the record
+    /// `0x004C6210` writes back afterwards (`0x00686506`, `0x0068639A`) is the
+    /// one this mission started from. Without a won mission the record is the
+    /// one `0x004C6140` cleared at session preparation (`0x0052DF0E`): every
+    /// global false, as the freshly read map already has them, so `None`
+    /// writes nothing. Difficulty is Options.Difficulty again.
+    pub fn restart(
+        &self,
+        difficulty: i32,
+        game_speed: i32,
+        clock: &mut impl MatchSeedClock,
+    ) -> Self {
+        Self {
+            campaign_index: self.campaign_index,
+            campaign: self.campaign.clone(),
+            scenario: self.scenario.clone(),
+            scenario_file: self.scenario_file.clone(),
+            mission_counter: self.mission_counter,
+            difficulty,
+            launch_options: self
+                .launch_options
+                .as_ref()
+                .map(|options| CampaignLaunchOptions {
+                    game_speed,
+                    ..options.clone()
+                }),
+            carried_globals: self.carried_globals,
+            play_action_movie: false,
+            seed: read_match_seed(clock),
+        }
+    }
+
     /// The won mission's Start_Scenario (`0x00685C4E`): the same campaign
     /// index, the map MapSelect chose, the incremented mission counter and
     /// the saved globals. Difficulty is Options.Difficulty again.
@@ -236,6 +282,7 @@ impl PreparedCampaignStartup {
                     ..options.clone()
                 }),
             carried_globals: Some(carried_globals),
+            play_action_movie: true,
             seed: read_match_seed(clock),
         }
     }
@@ -265,6 +312,7 @@ pub fn prepare_campaign_startup(
         difficulty,
         launch_options,
         carried_globals: None,
+        play_action_movie: true,
         seed: read_match_seed(clock),
     })
 }
@@ -765,6 +813,37 @@ mod tests {
         assert_eq!(next.scenario(), "ALL05UMD.MAP");
         assert_eq!(next.game_options().unwrap().game_speed, 4);
         assert!(!next.game_options().unwrap().build_off_ally);
+        assert!(startup.plays_action_movie() && next.plays_action_movie());
+    }
+
+    /// Restart and the defeat retry re-enter Start_Scenario with the same
+    /// FileName and campaign index, DL 0 and the record this mission
+    /// started from; only the seed and Options.Difficulty are read again.
+    #[test]
+    fn restart_reenters_the_same_mission_without_the_action_movie() {
+        let ini = crate::rules::ini_parser::IniFile::from_str(
+            "[Battles]\n0=ALL1\n1=SOV1\n[ALL1]\nScenario=ALL01UMD.MAP\n[SOV1]\nScenario=SOV01UMD.MAP\n",
+        );
+        let mut campaigns = crate::rules::campaigns::CampaignRegistry::default();
+        campaigns.apply_ini(&ini, &crate::rules::movies::MovieRegistry::default());
+        let mut clock = CountingClock { value: 5, reads: 0 };
+        let first = prepare_campaign_startup(&campaigns, "SOV1", 0, None, None, &mut clock)
+            .expect("campaign admission");
+        let mut globals = [false; SCENARIO_GLOBAL_COUNT];
+        globals[3] = true;
+        let second = first.next_mission("SOV02SMD.MAP".into(), 2, 0, 1, globals, &mut clock);
+        clock.value = 77;
+        let restarted = second.restart(2, 1, &mut clock);
+        assert_eq!(restarted.campaign_index(), second.campaign_index());
+        assert_eq!(restarted.campaign(), second.campaign());
+        assert_eq!(restarted.scenario(), "SOV02SMD.MAP");
+        assert_eq!(restarted.selected_map_file(), second.selected_map_file());
+        assert_eq!(restarted.mission_counter(), 2);
+        assert_eq!(restarted.carried_globals(), Some(&globals));
+        assert_eq!(restarted.difficulty(), 2);
+        assert_eq!(restarted.seed.value, 77);
+        assert!(!restarted.plays_action_movie());
+        assert_eq!(first.restart(0, 1, &mut clock).carried_globals(), None);
     }
 
     fn acknowledge<'a>(
@@ -955,5 +1034,4 @@ mod tests {
         }
         assert!(accepted_tick_is_admitted(None, None));
     }
-
 }

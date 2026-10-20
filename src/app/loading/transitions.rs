@@ -303,7 +303,11 @@ pub(crate) fn install_world_presentation(
 /// owner suspends/resumes audio; the later Theme queue/Stop(true) belongs to
 /// apply_map_load_result (683E4D..683E66), after this movie returns.
 pub(crate) fn finish_fresh_scenario_read(state: &mut AppState, mut result: init::MapLoadResult) {
-    let action_movie = result.scenario.startup.campaign().and_then(|_| {
+    let action_movie = result.scenario.startup.campaign().and_then(|startup| {
+        // Start_Scenario683D9C tests its DL argument before the movie.
+        if !startup.plays_action_movie() {
+            return None;
+        }
         let name = result.scenario.basic.action.as_deref()?;
         let movies = state.process_assets.native_rules()?.movies();
         movies.name(movies.find_index(name)).map(str::to_owned)

@@ -235,14 +235,15 @@ fn stock_cloak_tick_facts(
 /// (`BuildingClass::UpdateGapGenerator_Tick @ 0x004551B9 / 0x004553B3`), and no
 /// stock YR building carries the key — so this is constantly false in an
 /// ordinary skirmish, exactly as in gamemd.
+///
+/// The bit is the owner's House array index (`HouseClass+0x30`). The AI asks
+/// it of every object, so an owner the House array lacks (a test fixture's)
+/// answers false rather than tripping the base-reservation lookup's assertion.
 fn owner_cloak_field_bit(sim: &Simulation, owner: InternedId, rx: u16, ry: u16) -> bool {
-    let Some(index) = sim.base_reservation_house_index(owner) else {
-        return false;
-    };
-    let Ok(index) = u8::try_from(index) else {
-        return false;
-    };
-    sim.fog.is_cloaked_by_house(index, rx, ry)
+    sim.houses
+        .index_of(owner)
+        .and_then(|index| u8::try_from(index).ok())
+        .is_some_and(|index| sim.fog.is_cloaked_by_house(index, rx, ry))
 }
 
 fn sensor_targeters_in_native_dispatch_order(sim: &Simulation, cloaker_id: u64) -> Vec<u64> {

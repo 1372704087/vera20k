@@ -761,8 +761,10 @@ impl Simulation {
     /// - the water and rock death (`0x0051A94F..0x0051A9E8`) is not ported:
     ///   a stationary infantryman whose type is not `C4=` and who has no C4
     ///   ability, off a bridge on Water or Rock, takes ReceiveDamage of his
-    ///   own Strength with `C4Warhead=`. Trigger: infantry left standing on
-    ///   water or rock. Effect: VERA leaves him alive there.
+    ///   current Health (`+0x6C`) with `C4Warhead=`, ignoring defenses.
+    ///   Trigger: a paratrooper landing (`0x005F3F8D`) on water or rock; a
+    ///   walking arrival is still moving and skips it. Effect: VERA's
+    ///   paratroopers live on there, where retail's die.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,
@@ -860,10 +862,13 @@ impl Simulation {
     /// all three infantry spots of the entry `cell` are taken (the deck byte
     /// `+0x128` on a bridge, else the ground byte `+0x124`; `& 0x1C ==
     /// 0x1C`), `CellClass::Scatter_Objects(null, 1, 1, OnBridge)`
-    /// (`0x00481670`, [`Self::scatter_cell_objects`]) scatters that list,
-    /// the arriver included. A barracks product is tethered until its first
-    /// arrival, so the third man reaching a door cell clears it. Each
-    /// admitted infantryman takes his own Scenario draw in Scatter's null arm.
+    /// (`0x00481670`, [`Self::scatter_cell_objects`]) scatters that list. A
+    /// Walk arriver's raw spot counts (FindSubCellDest re-marks it,
+    /// `0x0075BE18`), but he is lifted from the list until his Mark after
+    /// this call, so only the men already there scatter. A barracks product
+    /// is tethered until its first arrival, so the third man reaching a door
+    /// cell clears it. Each admitted infantryman takes his own Scenario draw
+    /// in Scatter's null arm.
     /// Answers whether a Scatter's immediate Process changed bridge state.
     fn infantry_full_cell_scatter(
         &mut self,

@@ -90,9 +90,10 @@ fn arrive(sim: &mut Simulation, rules: &RuleSet, id: u64) {
 
 /// `0x0051A84F..0x0051A886`: the third barracks product reaching a door cell
 /// fills its three infantry spots (`& 0x1C`), and `Scatter_Objects(null, 1,
-/// 1)` sends the two idle men there to nearby cells. The arriver, still
-/// walking, drops `forced` and stays. Two men in the cell, or an arrival with
-/// no tether (`+0x418`), scatter no one.
+/// 1)` sends the two idle men there to nearby cells. The arriver is lifted
+/// from the cell's list, as a Walk arrival leaves him, with his raw spot
+/// still marked. Two men in the cell, or an arrival with no tether
+/// (`+0x418`), scatter no one.
 #[test]
 fn a_tethered_arrival_that_fills_its_cell_scatters_the_men_there() {
     for case in ["full", "two_men", "untethered"] {
@@ -122,6 +123,7 @@ fn a_tethered_arrival_that_fills_its_cell_scatters_the_men_there() {
         assert_eq!(full, count == 3, "{case}");
         let arriver = *men.last().unwrap();
         mid_arrival(&mut sim, arriver);
+        sim.substrate.occupancy.remove(CELL.0, CELL.1, arriver);
         if case != "untethered" {
             send(&mut sim, &rules, arriver, barracks, RadioMessage::Hello);
             send(&mut sim, &rules, arriver, barracks, RadioMessage::Tether);
@@ -135,7 +137,7 @@ fn a_tethered_arrival_that_fills_its_cell_scatters_the_men_there() {
         assert_eq!(
             arriver_entity.navigation.nav_com(),
             Some(NavTargetRef::cell(CELL.0, CELL.1)),
-            "{case}: the walking arriver is refused"
+            "{case}: the lifted arriver is not scattered"
         );
         for &man in &men[..men.len() - 1] {
             let nav_com = sim

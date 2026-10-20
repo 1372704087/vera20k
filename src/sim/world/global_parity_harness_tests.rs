@@ -690,7 +690,13 @@ const FINAL_STREAM_STATES: (u64, u64, u64) = (
 // array (67c50da8f) then runs the fixture houses' AI, and the Unit moving
 // defer holds tank 4's Attack (see FINAL_STREAM_STATES).
 // Previous: 0x5714_B259_DD03_BE9D.
-const GLOBAL_HARNESS_FINAL_HASH: u64 = 0x1052_E1D9_3D61_E22C;
+// Infantry Per_Cell_Process's Map567DA0 sight border (`0x0051A925`) now
+// writes the fog border storage at each infantry arrival, as the Unit tail
+// already did. Every stream, fire and outcome check is unchanged; a control
+// without that one call gave the previous value. The arrival's idle entry and
+// Commence (`0x0051A88B..0x0051A8C5`) move nothing here.
+// Previous: 0x1052_E1D9_3D61_E22C.
+const GLOBAL_HARNESS_FINAL_HASH: u64 = 0xF5F0_1892_EC3E_8BD4;
 
 fn harness_ini() -> IniFile {
     // Multi-faction vehicles + infantry + buildings (war factory, refinery) plus a

@@ -3,7 +3,7 @@
 //! it has none, its `PoweredUnit=` vehicles go offline (Techno `+0x1C8`,
 //! [`Deactivation`]).
 //!
-//! gamemd-derived (instruction reading; YR 1.001, SHA-256 `1cdd1180…4298c`):
+//! gamemd-derived (instruction reading; YR 1.001):
 //! - the house's count of powered centers (House `+0x2D8`) and each
 //!   building's share in it (`+0x662`): the `PowersUnit=` arms of
 //!   BuildingClass's operational-edge dispatcher (`0x004549B0`: on at

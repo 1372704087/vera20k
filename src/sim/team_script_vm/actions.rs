@@ -77,7 +77,7 @@ impl TeamScriptState {
     /// TeamFlash6EF5F0 walks +54/+5D8 head first and writes signed Techno+F0.
     /// Script50 inlines the same loop at6E9CFF..6E9D18. Neither caller asks
     /// TechnoFlash6F9DD0 or filters dead, limbo, disguised or foreign members.
-    /// Original Steam gamemd3e81a617..08600; trigger_flash_team's native
+    /// Original Steam gamemd; trigger_flash_team's native
     /// dispatch/member controls and team_creation's signed countdown rows.
     fn flash_members(&self, entities: &mut EntityStore, frames: i32) {
         for member in self.members() {
@@ -367,7 +367,7 @@ impl Simulation {
                 frame_effects,
             ),
             17 => {
-                // Steam3e81a617:6E972C..6E977F destroys the current Script,
+                // Steam gamemd:6E972C..6E977F destroys the current Script,
                 // constructs one from ScriptType::Array8B41CC[argument],
                 // then Reset691590 sets its cursor to-1. It does NOT set
                 // Team+80. Native Current691500 consequently returns -1 on
@@ -396,7 +396,7 @@ impl Simulation {
                 }
             }
             37 => {
-                //Steam3e81a617:6E954D..6E957A caches Foot+5D8 before
+                //Steam gamemd:6E954D..6E957A caches Foot+5D8 before
                 //vtD4 Limbo and vtF8 UnInit, then marks+80 to advance.
                 //Neither direct deletion nor a damage/RecordKill path is
                 //this action's call. Reuse the complete class lifecycle.
@@ -445,7 +445,7 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            // Steam3e81a617: Script39 at6E9BA1 and Script40 at6E9BBE
+            // Steam gamemd: Script39 at6E9BA1 and Script40 at6E9BBE
             // call SetLocal689910(argument, true/false), respectively,
             // then team+80=1 even if the variable index was rejected. The
             // existing trigger owner keeps dirty admission and timer resets.
@@ -501,7 +501,7 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            // Steam gamemd3e81a617: Script20 at6E9683..6E96BC caches
+            // Steam gamemd: Script20 at6E9683..6E96BC caches
             // Foot+5D8 before each ChangeOwner(vt+3D4), resolving the
             // Country through502D30 for every member, then sets Team+80.
             // The class owner can unlink a transferred member; neither
@@ -568,7 +568,7 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            // Original gamemd1cdd1180,6E9FEC ->6E99E1..6E99FD
+            // Original gamemd,6E9FEC ->6E99E1..6E99FD
             // (tools/native_inspect): House+250=4, then Team+80=1.
             // Argument/first are unused; the existing House Strategy timer
             // decides when FireSale/Hunt runs. No direct RNG/timer/detach.
@@ -808,7 +808,7 @@ impl Simulation {
     /// keeps the action pending; otherwise low16(argument<<13) is compared
     /// with PrimaryFacing::Current and a differing direction goes through
     /// ILocomotion+4C. Completion waits for moving, not the facing timer.
-    /// Native Steam gamemd3e81a617..08600; tools/team_recruit_oracle.py
+    /// Native Steam gamemd; tools/team_recruit_oracle.py
     /// --force-facing. Missing locomotors fault natively; Rust retains the
     /// pending action and reports the invalid state instead.
     fn team_action_force_facing(
@@ -857,7 +857,7 @@ impl Simulation {
     /// target; it does not immediately return to the waypoint in that visit.
     /// Object focus uses CoordinateAttack; Cell/NULL uses CoordinateMove.
     /// No RNG draw, timer write or detach in the handler; its shared setters
-    /// retain member/radio/target cleanup. Steam gamemd3e81a617..08600;
+    /// retain member/radio/target cleanup. Steam gamemd;
     /// original instructions and reader, tools/team_recruit_oracle.py --patrol.
     /// Invalid modded periods whose IDIV faults natively skip scanning here
     /// with an error, retaining normal movement. This safety policy does not
@@ -2042,8 +2042,7 @@ impl Simulation {
     /// Later visits retain that target. An absent target or wholly spent
     /// team clears it and finishes; otherwise the existing CoordinateAttack
     /// owner orders the members. No RNG or timer write in this handler.
-    /// Source: original6EC9A0..6ECA64 and6E9605..6E961D in Steam gamemd.exe
-    /// (SHA-256 3e81a617..08600).
+    /// Source: original6EC9A0..6ECA64 and6E9605..6E961D in Steam gamemd.exe.
     /// Terrain targets and retained Dummy identity remain the existing
     /// TeamTarget residuals; ALL01 Nuke_Repair's waypoint364 names a Building.
     fn team_action_attack_waypoint(
@@ -2109,7 +2108,7 @@ impl Simulation {
     /// visits retain the target without another waypoint query. Target plus
     /// any unlimited/positive-ammo member invokes the sole CoordinateAttack;
     /// otherwise AssignMissionTarget(NULL) and +80 advance, in that order.
-    /// Steam3e81a617..08600, original6ECA70..6ECB45 instructions and
+    /// Steam gamemd, original6ECA70..6ECB45 instructions and
     /// team_attack_waypoint_building's bounded control corpus.
     fn team_action_attack_waypoint_building(
         &mut self,

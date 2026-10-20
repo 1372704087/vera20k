@@ -3747,7 +3747,7 @@ impl Simulation {
                 &self.resolved_terrain,
                 stable_id,
             );
-            // Steam gamemd3e81a617, TechnoLimbo6F6B98..6F6BA0 clears an
+            // Steam gamemd, TechnoLimbo6F6B98..6F6BA0 clears an
             // OpenTopped hull's own rider targets before HouseRemoved6F6BD1.
             // Cargo, each rider's +82 and Logic membership survive this call.
             if let Some(rules) = context.rules() {
@@ -4912,7 +4912,7 @@ impl Simulation {
             .ammo()
             .is_some_and(|ammo| ammo.dock() == Some(expired_id));
 
-        // Steam gamemd3e81a617, TechnoPointerExpired7078B2..7078DB:
+        // Steam gamemd, TechnoPointerExpired7078B2..7078DB:
         // Transporter+11C survives a live hull's ordinary Limbo announcement,
         // for either control. Clear only on Object+90==0, exact Health==0 or
         // ScenarioInit(A8E7AC)!=0. Negative live HP is not this zero test.
@@ -6004,7 +6004,7 @@ impl Simulation {
         // existing House+1FC tech-tree refresh; no alternate counter or
         // production admission is introduced. Constructor-complete Full
         // carriers can reach this scalar path without an earlier UnInit.
-        // Source: Steam gamemd3e81a617..08600, Unit destructor735780 body.
+        // Source: Steam gamemd, Unit destructor735780 body.
         if (game_state as u8) != 0
             && let Some(rules) = context.rules()
             && let Some(owner) = self.substrate.entities.get(stable_id).and_then(|entity| {
@@ -6031,8 +6031,7 @@ impl Simulation {
         // Their gate is the low byte of GameState[A8E9A0], independently of
         // ScenarioStarted[A8ED5C]. Foot4D3597..4D35C8 repeats the same shared
         // RemoveMember6EA870 when a class destructor retained the reference.
-        // Source: original gamemd SHA256
-        // 1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c;
+        // Source: original gamemd;
         // executed composed action7 cleanup: spatial_oracle/team_creation.
         if foot && (game_state as u8) != 0 {
             self.leave_team(stable_id, false, context.rules(), context.effects());
@@ -6101,7 +6100,7 @@ impl Simulation {
             // ordinary21slots, then43BDE0 destroys the distinct eight fire
             // Anims, before Techno tracking removal43BF34. Whole original
             // UnInit/drain control: building_death_anims joined evidence,
-            // gamemd SHA1cdd1180e49024fbda8ad568caac2e86e.
+            // gamemd.
             self.clear_all_building_anim_slots(stable_id);
             self.clear_building_damage_fire_slots(stable_id, context.rules());
             // Building43BE47..43BEF0 rechecks existing grants when one of its
@@ -6159,7 +6158,7 @@ impl Simulation {
         //UnInit already drained cargo; constructor-complete Full carriers
         //can reach this scalar owner directly. Do not book a kill/UnInit or
         //use FootRemoveFirst4DE710's gunner reset on this raw Cargo pop.
-        // Source: Steam gamemd3e81a617..08600, Unit destructor735780 body.
+        // Source: Steam gamemd, Unit destructor735780 body.
         if (game_state as u8) != 0
             && !self.object_placement_scope_active()
             && self

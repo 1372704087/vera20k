@@ -323,7 +323,7 @@ pub(crate) fn all_to_hunt(
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     frame_effects: FrameEffects<'_>,
 ) {
-    // Steam3e81a617..08600:501400 captures count once;50141D/501423
+    // Steam gamemd:501400 captures count once;50141D/501423
     // re-read the array and its indexed object after callbacks. Storage
     // snapshots hide intervening removals from this existing registry.
     let count = sim.substrate.entities.techno_registry_len();

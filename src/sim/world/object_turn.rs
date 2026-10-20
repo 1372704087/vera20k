@@ -123,7 +123,7 @@ impl Simulation {
     /// Original joined construction controls reach51BDC9 on frames269/486;
     /// Scatter's51D385 draw precedes its synchronous Walk Process51D478.
     /// Evidence: basic-factory-output-idle-prerequisite-research, original
-    /// construction/no-rally and planning-header controls (gamemd1cdd1180).
+    /// construction/no-rally and planning-header controls (gamemd).
     fn scatter_idle_infantry_from_building(
         &mut self,
         stable_id: u64,

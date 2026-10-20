@@ -95,7 +95,7 @@ const CELL_FLAG_BRIDGE_DECK: u32 = 0x200;
 
 impl Simulation {
     /// Foot4DF7F0 / Infantry522FE0, virtual508. Source: unchanged active-YR
-    /// bodies, Steam3e81a617..08600 (tools.native_inspect). Reuses the single
+    /// bodies, Steam gamemd (tools.native_inspect). Reuses the single
     /// Teleport/piggyback warp owner; no action-specific position/state copy.
     /// No own RNG/timer/detach: class destination and Walk sub-cell consumers
     /// retain theirs, and subsequent Teleport Process owns warp timers.

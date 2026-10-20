@@ -110,10 +110,6 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
     ))
     .unwrap();
     assert_eq!(corpus["schema_version"], 1);
-    assert_eq!(
-        corpus["native_sha256"],
-        "1cdd1180e49024fbda8ad568caac2e86e856063ff67ab38f62b7d2c7bb84298c"
-    );
     let mut compared = 0;
     for row in corpus["rows"].as_array().unwrap() {
         // The retained -123264 control exceeds the existing Position owner's

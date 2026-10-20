@@ -324,7 +324,7 @@ pub(in crate::sim) fn exit_produced_object(
 /// requests deferred Unload before finding an exit, then successful Unlimbo
 /// and rally assignment end with Mark(0), Cell center SetLocation, Mark(1).
 /// Original execution on stock GAYARD/DEST and its deferred animation cleanup:
-/// `tools/sidebar_oracle/factory_naval_output.md` (gamemd SHA256 1cdd).
+/// `tools/sidebar_oracle/factory_naval_output.md` (gamemd).
 fn exit_naval(
     sim: &mut Simulation,
     rules: &RuleSet,

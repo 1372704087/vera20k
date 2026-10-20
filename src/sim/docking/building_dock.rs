@@ -2236,7 +2236,8 @@ mod tests {
         let pending = DEPOT + 1;
         link_for_service(&mut sim, 1);
         set_pending_entry(&mut sim, 1, Some(pending));
-        sim.mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 0)
+        sim.substrate
+            .mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 0)
             .unwrap();
         let building = sim.substrate.entities.get_mut(DEPOT).unwrap();
         building.mission.set_handler_state(2);
@@ -2335,7 +2336,8 @@ mod tests {
     #[test]
     fn a_moving_pending_unit_commences_enter_before_its_pad_order() {
         let (mut sim, rules) = setup(1);
-        sim.mission_assign_exact(1, MissionId::from_known(MissionType::Move), 0)
+        sim.substrate
+            .mission_assign_exact(1, MissionId::from_known(MissionType::Move), 0)
             .unwrap();
         assert!(sim.set_unit_destination(
             1,
@@ -2719,7 +2721,8 @@ mod tests {
         assert!(order_repair(&mut sim, &rules, 3));
         // Tank 2 idles on Guard with a due dispatch timer.
         let now = sim.session.binary_frame();
-        sim.mission_assign_exact(2, MissionId::from_known(MissionType::Guard), now)
+        sim.substrate
+            .mission_assign_exact(2, MissionId::from_known(MissionType::Guard), now)
             .expect("assign Guard");
         sim.session
             .set_binary_frame_for_test(sim.session.binary_frame() + 1);
@@ -2752,7 +2755,8 @@ mod tests {
         );
 
         let after_ai = sim.scenario_rng.state();
-        sim.mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 1)
+        sim.substrate
+            .mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 1)
             .unwrap();
         sim.substrate
             .entities
@@ -3075,7 +3079,8 @@ mod tests {
             "[Enter]\nRate=.1\n[Guard]\nRate=.03\n",
         ));
         sim.scenario_rng = crate::sim::rng::SimRng::new(1);
-        sim.mission_assign_exact(1, MissionId::from_known(MissionType::Enter), 0)
+        sim.substrate
+            .mission_assign_exact(1, MissionId::from_known(MissionType::Enter), 0)
             .unwrap();
 
         let delay = crate::sim::mission::enter::mission_enter(
@@ -3292,7 +3297,8 @@ mod tests {
         // The house's building list holds its factory (FindFactory scans it).
         sim.append_house_base_building_for_test(501);
         link_for_service(&mut sim, 1);
-        sim.mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 0)
+        sim.substrate
+            .mission_assign_exact(DEPOT, MissionId::from_known(MissionType::Repair), 0)
             .unwrap();
         sim.substrate
             .entities
@@ -3300,7 +3306,8 @@ mod tests {
             .unwrap()
             .mission
             .set_handler_state(1);
-        sim.mission_assign_exact(1, MissionId::from_known(MissionType::Sleep), 0)
+        sim.substrate
+            .mission_assign_exact(1, MissionId::from_known(MissionType::Sleep), 0)
             .unwrap();
         sim.substrate
             .entities
@@ -3368,7 +3375,8 @@ mod tests {
                 .get_mut(DEPOT)
                 .unwrap()
                 .mark_live_contact_with(1);
-            sim.mission_assign_exact(1, MissionId::from_known(MissionType::Enter), 0)
+            sim.substrate
+                .mission_assign_exact(1, MissionId::from_known(MissionType::Enter), 0)
                 .expect("unit exists");
             assert!(linked(&sim, 1));
             (sim, rules)

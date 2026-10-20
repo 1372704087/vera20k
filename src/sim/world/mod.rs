@@ -4050,13 +4050,7 @@ impl Simulation {
         &self.substrate.display
     }
 
-    /// Mutable entity-store access inside the crate. The client reads through
-    /// `entities()` and never holds a mutable object.
-    pub(crate) fn entities_mut(&mut self) -> &mut EntityStore {
-        &mut self.substrate.entities
-    }
-
-    /// Client-crate fixtures; in-crate code uses `entities_mut`.
+    /// Client-crate fixtures; in-crate code uses the substrate's entity store.
     #[cfg(any(test, feature = "test-support"))]
     pub fn entities_mut_for_test(&mut self) -> &mut EntityStore {
         &mut self.substrate.entities
@@ -5330,14 +5324,6 @@ impl Simulation {
         }
     }
 
-    /// Inline native House+1FC writers request the existing House tail;
-    /// power/radar dirty bytes remain with their distinct PowerState owner.
-    pub(crate) fn request_house_tech_tree_recheck(&mut self, owner: InternedId) {
-        if let Some(house) = self.houses.get_mut(&owner) {
-            house.request_tech_recheck();
-        }
-    }
-
     /// BuildingAI440042..44006C samples live health before the common Techno
     /// tail. Repair701410 itself leaves both House dirty bytes untouched.
     pub(super) fn sample_building_health_for_house_update(&mut self, id: u64) {
@@ -5604,7 +5590,7 @@ impl Simulation {
             self.remove_build_const_from_owner(stable_id);
         }
         if category == EntityCategory::Structure {
-            self.leave_house_base_lists(stable_id, old_owner);
+            self.houses.leave_house_base_lists(stable_id, old_owner);
         }
         // Original7014DB/7014E9 dispatch the class target and destination
         // setters, then70151A clears Archive and70156E queues Guard. All run
@@ -5738,7 +5724,8 @@ impl Simulation {
             self.spatial_threat_after_owner_change(stable_id, spatial_threat_cell, rules);
         }
         if category == EntityCategory::Structure {
-            self.move_house_base_tracking(stable_id, old_owner, new_owner);
+            self.houses
+                .move_house_base_tracking(stable_id, old_owner, new_owner);
         }
         // `BuildingClass::ChangeOwner @ 0x00448723` marks every transferred
         // building HasBeenCaptured (+0x6E3); survivors read it at death. Its
@@ -5908,8 +5895,8 @@ impl Simulation {
         // or prerequisites.
         //44936E/449379: both houses' retained1FC asks their next House tail.
         if category == EntityCategory::Structure {
-            self.request_house_tech_tree_recheck(old_owner);
-            self.request_house_tech_tree_recheck(new_owner);
+            self.houses.request_house_tech_tree_recheck(old_owner);
+            self.houses.request_house_tech_tree_recheck(new_owner);
         }
     }
 
@@ -6165,7 +6152,7 @@ impl Simulation {
                 || e.mission.queued().known() == Some(MissionType::Rescue)
         });
         if rescue {
-            let _ = self.mission_assign_exact(
+            let _ = self.substrate.mission_assign_exact(
                 stable_id,
                 MissionId::from_known(MissionType::Guard),
                 now,
@@ -6185,12 +6172,6 @@ impl Simulation {
         self.assign_null_destination(stable_id, Some(rules), None, effects);
         let _ = self.assign_target_represented(stable_id, None, Some(rules), None, effects);
         enter_idle_mode(self, stable_id, rules, None, effects);
-    }
-
-    /// Legacy non-lifecycle contact scrub retained only for separately classified
-    /// failure paths. Reveal/Conceal/UnInit must use synchronous radio authority.
-    pub(crate) fn clear_radio_contacts_for(&mut self, stable_id: u64) {
-        self.substrate.entities.clear_radio_contacts_for(stable_id);
     }
 
     /// Restore externally-derived cache fields after validated snapshot
@@ -7619,6 +7600,7 @@ impl Simulation {
                 binary_frame,
             );
         }
+        #[cfg(any(test, feature = "test-support"))]
         building_anim::finalize(self);
         profile_phase!(ANIMS);
         #[cfg(debug_assertions)]
@@ -7661,6 +7643,24 @@ impl Simulation {
                 bridge_state_changed,
             },
         })
+    }
+}
+
+impl crate::sim::houses::Houses {
+    /// Inline native House+1FC writers request the existing House tail;
+    /// power/radar dirty bytes remain with their distinct PowerState owner.
+    pub(crate) fn request_house_tech_tree_recheck(&mut self, owner: InternedId) {
+        if let Some(house) = self.get_mut(&owner) {
+            house.request_tech_recheck();
+        }
+    }
+}
+
+impl ObjectSubstrate {
+    /// Legacy non-lifecycle contact scrub retained only for separately classified
+    /// failure paths. Reveal/Conceal/UnInit must use synchronous radio authority.
+    pub(crate) fn clear_radio_contacts_for(&mut self, stable_id: u64) {
+        self.entities.clear_radio_contacts_for(stable_id);
     }
 }
 

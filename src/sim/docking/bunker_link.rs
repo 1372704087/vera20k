@@ -13,6 +13,7 @@ use crate::sim::mission::authority::{EntityReadyInputProvider, LiveReadyInputPro
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::object_get_coords;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SIM_ONE;
 
@@ -217,7 +218,7 @@ pub(crate) fn cancel_approach(sim: &mut Simulation, unit_id: u64) {
                 .is_some_and(|runtime| runtime.installing_unit() == Some(unit_id))
     });
     if held_by_unit {
-        reset_bunker_idle(sim, building_id);
+        reset_bunker_idle(&mut sim.substrate, building_id);
         queue_guard(sim, building_id);
     }
 }
@@ -327,7 +328,7 @@ pub(crate) fn release_normal(
         .get(building_id)
         .and_then(|building| building.bunker.occupant())
     else {
-        reset_bunker_idle(sim, building_id);
+        reset_bunker_idle(&mut sim.substrate, building_id);
         queue_guard(sim, building_id);
         return;
     };
@@ -363,7 +364,7 @@ pub(crate) fn release_normal(
     if let Some(building) = sim.substrate.entities.get_mut(building_id) {
         building.bunker.occupant = None;
     }
-    reset_bunker_idle(sim, building_id);
+    reset_bunker_idle(&mut sim.substrate, building_id);
     queue_guard(sim, building_id);
     #[cfg(test)]
     release_tests::record(sim, building_id, unit_id, "building-link");
@@ -524,7 +525,7 @@ pub(crate) fn clear_bunker(
     if let Some(b) = sim.substrate.entities.get_mut(building_id) {
         b.bunker.occupant = None;
     }
-    reset_bunker_idle(sim, building_id);
+    reset_bunker_idle(&mut sim.substrate, building_id);
     queue_guard(sim, building_id);
 }
 
@@ -537,8 +538,8 @@ pub(crate) fn clear_bunker(
 /// bunker.
 /// `TechnoClass::PointerExpired` (`0x007077C0`) clears a `+0x2E4` link naming the expired
 /// object (`0x00707849..0x00707859`); `RadioClass::PointerExpired` (`0x0065AAC0`) the contact.
-pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
-    let Some(e) = sim.substrate.entities.get(id) else {
+pub fn break_links_on_despawn(substrate: &mut ObjectSubstrate, id: u64) {
+    let Some(e) = substrate.entities.get(id) else {
         return;
     };
     let occupant = e.bunker.occupant();
@@ -548,18 +549,18 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
         .and_then(|runtime| runtime.installing_unit());
     let approached = e.bunker.link().approaching();
     if let Some(unit_id) = occupant
-        && let Some(u) = sim.substrate.entities.get_mut(unit_id)
+        && let Some(u) = substrate.entities.get_mut(unit_id)
     {
         u.bunker.link = BunkerLink::None;
     }
     if let Some(unit_id) = approaching
-        && let Some(u) = sim.substrate.entities.get_mut(unit_id)
+        && let Some(u) = substrate.entities.get_mut(unit_id)
         && u.bunker.link() == BunkerLink::Approaching(id)
     {
         u.bunker.link = BunkerLink::None;
     }
     if let Some(building_id) = host
-        && let Some(b) = sim.substrate.entities.get_mut(building_id)
+        && let Some(b) = substrate.entities.get_mut(building_id)
     {
         b.bunker.occupant = None;
         if let Some(rt) = b.bunker_runtime.as_mut() {
@@ -567,8 +568,7 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
         }
     }
     if let Some(building_id) = approached
-        && let Some(rt) = sim
-            .substrate
+        && let Some(rt) = substrate
             .entities
             .get_mut(building_id)
             .and_then(|b| b.bunker_runtime.as_mut())
@@ -581,8 +581,8 @@ pub fn break_links_on_despawn(sim: &mut Simulation, id: u64) {
 /// Reset the bunker runtime to empty/idle. Native zeroes the state (`+0x718`)
 /// in `BuildingClass::EmptyBunker` (`0x004596C2`, `0x0045981A`), `ClearBunker`
 /// (`0x0045959C`) and UpdateBunker's no-object arm (`0x00458E85`).
-pub(super) fn reset_bunker_idle(sim: &mut Simulation, building_id: u64) {
-    if let Some(b) = sim.substrate.entities.get_mut(building_id)
+pub(super) fn reset_bunker_idle(substrate: &mut ObjectSubstrate, building_id: u64) {
+    if let Some(b) = substrate.entities.get_mut(building_id)
         && let Some(rt) = b.bunker_runtime.as_mut()
     {
         *rt = BunkerRuntime::idle();
@@ -1126,7 +1126,7 @@ mod tests {
     fn despawn_safety_net_clears_surviving_side() {
         // Building despawns → the occupant unit's link is cleared.
         let mut sim = installed_sim();
-        break_links_on_despawn(&mut sim, 2);
+        break_links_on_despawn(&mut sim.substrate, 2);
         assert_eq!(
             sim.substrate.entities.get(1).unwrap().bunker.link(),
             BunkerLink::None
@@ -1134,7 +1134,7 @@ mod tests {
 
         // Unit despawns → the surviving building's back-pointer is cleared.
         let mut sim = installed_sim();
-        break_links_on_despawn(&mut sim, 1);
+        break_links_on_despawn(&mut sim.substrate, 1);
         assert_eq!(
             sim.substrate.entities.get(2).unwrap().bunker.occupant(),
             None

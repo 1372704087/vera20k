@@ -284,7 +284,7 @@ impl Simulation {
         let captured = entity.has_been_captured.is_set();
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
         let yard = object.factory_type() == Some(FactoryType::BuildingType);
-        let side = self.houses.get(&entity.owner())?.side_index;
+        let side = self.houses.get(&entity.owner())?.side_index();
         if !captured && self.scenario_rng.next_range_u32_inclusive(0, 99) < 25 && yard {
             return rules.general.engineer_infantry.clone();
         }
@@ -313,7 +313,7 @@ impl Simulation {
         let Some(house) = self.houses.get(&entity.owner()) else {
             return 0;
         };
-        let divisor = match house.side_index {
+        let divisor = match house.side_index() {
             0 => rules.general.allied_survivor_divisor,
             1 => rules.general.soviet_survivor_divisor,
             2 => rules.general.third_survivor_divisor,
@@ -578,7 +578,7 @@ impl Simulation {
             let on_bridge = building.on_bridge();
             // `0x00442F3C..0x00442F63`: the building's `+0x388` Current() as a
             // rounded DirType is the Unlimbo direction.
-            let frame = sim.session.binary_frame;
+            let frame = sim.session.binary_frame();
             let facing = building.body_facing_dir(frame);
             let requested = building.position;
             let positioned = if infantry && !no_survivor {
@@ -672,7 +672,7 @@ impl Simulation {
         let armed = crate::sim::combat::combat_weapon::is_armed(entity, object);
         let on_bridge = entity.on_bridge();
         let position = entity.position;
-        let Some(side) = self.houses.get(&owner).map(|house| house.side_index) else {
+        let Some(side) = self.houses.get(&owner).map(|house| house.side_index()) else {
             return;
         };
         // `InfantryClass::Unlimbo @ 0x0051DFF0` places through
@@ -832,7 +832,7 @@ impl Simulation {
         let Some(unit) = self.substrate.entities.get(unit_id) else {
             return;
         };
-        let frame = self.session.binary_frame;
+        let frame = self.session.binary_frame();
         let unit_owner = unit.owner();
         let on_bridge = unit.on_bridge();
         let dropped_as_bomb = unit.was_dropped_as_bomb();
@@ -1099,7 +1099,7 @@ impl Simulation {
             self.substrate
                 .entities
                 .get(id)
-                .map(|entity| entity.body_facing_dir(self.session.binary_frame))
+                .map(|entity| entity.body_facing_dir(self.session.binary_frame()))
         });
         let outcome = self.try_reveal_entity_with_context(
             id,

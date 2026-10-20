@@ -68,7 +68,7 @@ fn sim(rules: &RuleSet, human: bool, levels: &[((u16, u16), u8)]) -> Simulation 
     let owner = sim.interner.intern(OWNER);
     sim.houses
         .register(HouseState::new(owner, 0, None, human, 0, 10));
-    sim.session.game_options.super_weapons = true;
+    sim.session.game_options_mut_for_test().super_weapons = true;
     sim.resolved_terrain = Some(test_grid(64, 64, |x, y| ResolvedTerrainCell {
         level: levels
             .iter()
@@ -107,7 +107,8 @@ fn click_fire_matches_native() {
         sw.post_click = flag(&row["post_click"]);
         sw.manual_control = flag(&row["manual"]);
         sw.recharge_time_frames = int(&row["recharge"]);
-        sim.session.binary_frame = u32::try_from(int(&row["frame"])).unwrap();
+        sim.session
+            .set_binary_frame_for_test(u32::try_from(int(&row["frame"])).unwrap());
         let mut instance = SuperWeaponInstance::new(sw_type_id, owner, 0);
         instance.is_active = flag(&row["granted"]);
         instance.is_ready = flag(&row["charged"]);
@@ -254,16 +255,22 @@ fn the_launch_alert_matches_native() {
                 [coords[0], coords[1], coords[2]],
                 "{row}"
             );
-            sim.houses.get_mut(&house_id).unwrap().build_const_order = vec![id];
+            sim.houses
+                .get_mut(&house_id)
+                .unwrap()
+                .set_build_const_order_for_test(vec![id]);
         }
         {
             let house = sim.houses.get_mut(&house_id).unwrap();
-            house.multiplay_passive = flag(&row["passive"]);
-            house.difficulty = HouseDifficulty::from_native(int(&row["difficulty"])).unwrap();
-            house.base_center = Some(cell(&row["base"]));
-            house.alternate_base_center = cell(&row["alternate"]);
+            house.set_multiplay_passive_for_test(flag(&row["passive"]));
+            house.set_difficulty_for_test(
+                HouseDifficulty::from_native(int(&row["difficulty"])).unwrap(),
+            );
+            house.set_base_center_for_test(Some(cell(&row["base"])));
+            house.set_alternate_base_center_for_test(cell(&row["alternate"]));
         }
-        sim.session.binary_frame = u32::try_from(int(&row["frame"])).unwrap();
+        sim.session
+            .set_binary_frame_for_test(u32::try_from(int(&row["frame"])).unwrap());
         sim.scenario_rng = SimRng::answering(0, 99, int(&row["answer"]));
         // RandomRanged's own retries draw more raw words; count its calls by
         // the cursor they leave.

@@ -1086,7 +1086,7 @@ pub(crate) fn try_pending_entry(
             id,
             MissionId::from_known(MissionType::Enter),
             1,
-            sim.session.binary_frame,
+            sim.session.binary_frame(),
             &LiveReadyInputProvider { rules },
         );
         // vt+0x480 of whichever Foot waits: an aircraft's pending entry is
@@ -1106,7 +1106,7 @@ pub(crate) fn try_pending_entry(
             id,
             MissionId::NONE,
             0,
-            sim.session.binary_frame,
+            sim.session.binary_frame(),
             &LiveReadyInputProvider { rules },
         );
         sim.assign_null_destination(id, Some(rules), None, frame_effects);
@@ -1181,7 +1181,7 @@ pub(crate) fn park_pending_entry(
         id,
         MissionId::from_known(MissionType::Move),
         0,
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
         &LiveReadyInputProvider { rules },
     );
     true
@@ -1280,7 +1280,7 @@ fn release_contact(
         unit,
         MissionId::from_known(MissionType::Move),
         0,
-        sim.session.binary_frame,
+        sim.session.binary_frame(),
         &LiveReadyInputProvider { rules },
     );
     let _ = sim.assign_destination_represented(
@@ -1353,7 +1353,7 @@ pub(crate) fn mission_repair(
         .unwrap_or(MissionType::Repair);
     let rate = rules.mission_control.rate_frames(current);
     let contact = building.radio_contacts.slot(0);
-    let now = sim.session.binary_frame;
+    let now = sim.session.binary_frame();
     let Some(unit) = contact else {
         // State1's no-contact arm44C0BD retains the current idle animations
         // when neither service slot exists. Recreating them would reset their
@@ -1936,8 +1936,8 @@ mod tests {
         ));
         assert_eq!(repair_request(&mut sim, &rules, 1), RadioResponse::Negatory);
         assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 100);
-        assert_eq!(sim.houses[&owner].economy.credits(), 10_000);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().credits(), 10_000);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
     }
 
     /// Techno6F4D35 replies32 without side effects; repeated requests do not
@@ -1949,7 +1949,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(1);
         let rng = sim.scenario_rng.state();
         let estimate = sim
@@ -1968,8 +1968,8 @@ mod tests {
         let unit = sim.substrate.entities.get(1).unwrap();
         assert_eq!(unit.health.current(), 100);
         assert_eq!(unit.estimated_health.get(), estimate);
-        assert_eq!(sim.houses[&owner].economy.credits(), 1);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
         assert_eq!(sim.scenario_rng.state(), rng);
     }
 
@@ -2166,7 +2166,7 @@ mod tests {
             use crate::sim::house_state::HouseState;
             let owner_id = sim.interner.intern("Americans");
             let mut house = HouseState::new(owner_id, 0, None, false, 0, 10);
-            house.economy.set_credits_for_test(10_000);
+            house.economy_mut().set_credits_for_test(10_000);
             sim.houses.register(house);
         }
         spawn_depot(&mut sim);
@@ -2205,8 +2205,8 @@ mod tests {
         let tank = sim.substrate.entities.get(1).unwrap();
         assert_eq!(tank.health.current(), 108);
         let house = sim.houses.get(&owner).unwrap();
-        assert_eq!(house.economy.credits(), 9_998);
-        assert_eq!(house.economy.spent_credits(), 2);
+        assert_eq!(house.economy().credits(), 9_998);
+        assert_eq!(house.economy().spent_credits(), 2);
         assert_eq!(sim.scenario_rng.state(), rng);
     }
 
@@ -2468,11 +2468,12 @@ mod tests {
     /// Component fixture for unit-only Enter/RNG observations. Depot visits
     /// are explicit so its independent Guard cadence is outside those checks.
     fn tick_units(sim: &mut Simulation, rules: &RuleSet) {
-        sim.session.binary_frame = sim.session.binary_frame.wrapping_add(1);
+        sim.session
+            .set_binary_frame_for_test(sim.session.binary_frame().wrapping_add(1));
         visit_units(sim, rules);
         process_units(sim, rules);
         pending_entries(sim, rules);
-        sim.session.tick += 1;
+        sim.session.set_tick_for_test(sim.session.tick() + 1);
     }
 
     fn visit_depot(sim: &mut Simulation, rules: &RuleSet) {
@@ -2631,9 +2632,60 @@ mod tests {
                 .unwrap()
                 .mission
                 .dispatch_timer();
-            assert_eq!(timer.start_frame(), sim.session.binary_frame as i32);
+            assert_eq!(timer.start_frame(), sim.session.binary_frame() as i32);
             assert!((14..=16).contains(&timer.delay()));
         }
+    }
+
+    /// Each Enter dispatch draws exactly one `RandomRanged(0,2)` on the
+    /// Scenario stream (the Mission_Enter epilogue), none between dispatches.
+    #[test]
+    fn waiter_probe_draws_one_scenario_random_per_dispatch() {
+        let (mut sim, rules) = setup(2);
+        for tank in 1..=2 {
+            assert!(order_repair(&mut sim, &rules, tank));
+        }
+        // Frame 1: the contact probes and the pending unit dispatches (two
+        // draws).
+        let mut shadow = sim.clone_scenario_rng();
+        tick_units(&mut sim, &rules);
+        shadow.next_range_u32_inclusive(0, 2);
+        shadow.next_range_u32_inclusive(0, 2);
+        assert_eq!(
+            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
+            shadow.next_range_u32_inclusive(0, 1000),
+            "two dispatches ⇒ two RandomRanged(0,2) draws"
+        );
+    }
+
+    /// Between two of the contact's probes nothing draws.
+    #[test]
+    fn contact_probe_draws_nothing_between_dispatches() {
+        let (mut sim, rules) = setup(1);
+        assert!(order_repair(&mut sim, &rules, 1));
+        tick_units(&mut sim, &rules);
+        let mut shadow = sim.clone_scenario_rng();
+        let due = {
+            let timer = sim
+                .substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .mission
+                .dispatch_timer();
+            (timer.start_frame() + timer.delay()) as u32
+        };
+        for _ in 0..64 {
+            if sim.session.binary_frame() + 1 >= due {
+                break;
+            }
+            tick_units(&mut sim, &rules);
+        }
+        assert_eq!(
+            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
+            shadow.next_range_u32_inclusive(0, 1000),
+            "no draw between dispatches"
+        );
     }
 
     /// The `Mission_Enter` epilogue draw sits in the unit's OWN object-AI
@@ -2648,10 +2700,11 @@ mod tests {
         assert!(order_repair(&mut sim, &rules, 1));
         assert!(order_repair(&mut sim, &rules, 3));
         // Tank 2 idles on Guard with a due dispatch timer.
-        let now = sim.session.binary_frame;
+        let now = sim.session.binary_frame();
         sim.mission_assign_exact(2, MissionId::from_known(MissionType::Guard), now)
             .expect("assign Guard");
-        sim.session.binary_frame += 1;
+        sim.session
+            .set_binary_frame_for_test(sim.session.binary_frame() + 1);
         let ctx = crate::sim::world::ObjectAiCtx::default;
 
         let mut shadow = sim.clone_scenario_rng();
@@ -2837,7 +2890,7 @@ mod tests {
             (timer.start_frame() + timer.delay()) as u32
         };
         for _ in 0..64 {
-            if sim.session.binary_frame >= due {
+            if sim.session.binary_frame() >= due {
                 break;
             }
             tick(&mut sim, &rules);
@@ -2890,7 +2943,7 @@ mod tests {
             (timer.start_frame() + timer.delay()) as u32
         };
         for _ in 0..64 {
-            if sim.session.binary_frame >= due {
+            if sim.session.binary_frame() >= due {
                 break;
             }
             tick(&mut sim, &rules);
@@ -2923,7 +2976,7 @@ mod tests {
             (timer.start_frame() + timer.delay()) as u32
         };
         for _ in 0..64 {
-            if sim.session.binary_frame >= due2 {
+            if sim.session.binary_frame() >= due2 {
                 break;
             }
             tick(&mut sim, &rules);
@@ -3052,8 +3105,9 @@ mod tests {
         let mut writes = 0u32;
         let mut prev_timer = dispatch_timer(&sim, MINER);
         for _ in 0..2000 {
-            sim.session.binary_frame = sim.session.binary_frame.wrapping_add(1);
-            let now = sim.session.binary_frame;
+            sim.session
+                .set_binary_frame_for_test(sim.session.binary_frame().wrapping_add(1));
+            let now = sim.session.binary_frame();
             let due_at_entry = sim
                 .substrate
                 .entities
@@ -3100,7 +3154,7 @@ mod tests {
             prev_timer = timer;
             visit_depot(&mut sim, &rules);
             process_units(&mut sim, &rules);
-            sim.session.tick += 1;
+            sim.session.set_tick_for_test(sim.session.tick() + 1);
             if servicing(&sim, MINER) {
                 reached_pad = true;
                 assert!(linked(&sim, MINER));
@@ -3206,7 +3260,7 @@ mod tests {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(2);
         spawn_entity(
             &mut sim,
@@ -3257,8 +3311,8 @@ mod tests {
         }
         sim.advance_tick(&[], Some(&rules), None, None, 66);
         assert_eq!(sim.substrate.entities.get(1).unwrap().health.current(), 108);
-        assert_eq!(sim.houses[&owner].economy.credits(), 0);
-        assert_eq!(sim.houses[&owner].economy.spent_credits(), 2);
+        assert_eq!(sim.houses[&owner].economy().credits(), 0);
+        assert_eq!(sim.houses[&owner].economy().spent_credits(), 2);
         let factory = sim.production.factories.test_first_mut().unwrap();
         assert_eq!(factory.progress, 0);
         assert_eq!(factory.balance, 108);
@@ -3280,7 +3334,10 @@ mod tests {
             let (mut sim, rules) = setup(0);
             if human {
                 let owner_id = sim.interner.intern("Americans");
-                sim.houses.get_mut(&owner_id).unwrap().is_human = true;
+                sim.houses
+                    .get_mut(&owner_id)
+                    .unwrap()
+                    .set_is_human_for_test(true);
             }
             spawn_entity(&mut sim, 1, "HARV", EntityCategory::Unit, 14, 11, 600);
             {
@@ -3329,57 +3386,6 @@ mod tests {
             sim.substrate.entities.get(1).unwrap().mission.queued(),
             MissionId::from_known(MissionType::Guard),
             "a human house's miner standing off ore parks on Guard"
-        );
-    }
-
-    /// Between two of the contact's probes nothing draws.
-    #[test]
-    fn contact_probe_draws_nothing_between_dispatches() {
-        let (mut sim, rules) = setup(1);
-        assert!(order_repair(&mut sim, &rules, 1));
-        tick_units(&mut sim, &rules);
-        let mut shadow = sim.clone_scenario_rng();
-        let due = {
-            let timer = sim
-                .substrate
-                .entities
-                .get(1)
-                .unwrap()
-                .mission
-                .dispatch_timer();
-            (timer.start_frame() + timer.delay()) as u32
-        };
-        for _ in 0..64 {
-            if sim.session.binary_frame + 1 >= due {
-                break;
-            }
-            tick_units(&mut sim, &rules);
-        }
-        assert_eq!(
-            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
-            shadow.next_range_u32_inclusive(0, 1000),
-            "no draw between dispatches"
-        );
-    }
-
-    /// Each Enter dispatch draws exactly one `RandomRanged(0,2)` on the
-    /// Scenario stream (the Mission_Enter epilogue), none between dispatches.
-    #[test]
-    fn waiter_probe_draws_one_scenario_random_per_dispatch() {
-        let (mut sim, rules) = setup(2);
-        for tank in 1..=2 {
-            assert!(order_repair(&mut sim, &rules, tank));
-        }
-        // Frame 1: the contact probes and the pending unit dispatches (two
-        // draws).
-        let mut shadow = sim.clone_scenario_rng();
-        tick_units(&mut sim, &rules);
-        shadow.next_range_u32_inclusive(0, 2);
-        shadow.next_range_u32_inclusive(0, 2);
-        assert_eq!(
-            sim.scenario_rng.next_range_u32_inclusive(0, 1000),
-            shadow.next_range_u32_inclusive(0, 1000),
-            "two dispatches ⇒ two RandomRanged(0,2) draws"
         );
     }
 }

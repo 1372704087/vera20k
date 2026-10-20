@@ -131,7 +131,7 @@ fn produce_cash_fires(timer: CdTimer, frame: u32) -> bool {
 /// `owner`'s wallet (`HouseClass::Add_Credits @ 0x004F9950`).
 pub fn add_credits(sim: &mut Simulation, owner: InternedId, amount: i32) {
     if let Some(house) = sim.houses.get_mut(&owner) {
-        house.economy.add_credits(amount);
+        house.economy_mut().add_credits(amount);
     }
 }
 
@@ -139,7 +139,7 @@ pub fn add_credits(sim: &mut Simulation, owner: InternedId, amount: i32) {
 /// `owner`'s wallet (`HouseClass::Spend_Money @ 0x004F9790`).
 pub(crate) fn spend_money(sim: &mut Simulation, owner: InternedId, amount: i32) {
     if let Some(house) = sim.houses.get_mut(&owner) {
-        house.economy.spend_money(amount);
+        house.economy_mut().spend_money(amount);
     }
 }
 
@@ -149,7 +149,7 @@ pub(crate) fn spend_money(sim: &mut Simulation, owner: InternedId, amount: i32) 
 pub(crate) fn available_money(sim: &Simulation, owner: InternedId) -> i32 {
     sim.houses
         .get(&owner)
-        .map_or(0, |house| house.economy.available_money())
+        .map_or(0, |house| house.economy().available_money())
 }
 
 // ---------------------------------------------------------------------------
@@ -184,13 +184,13 @@ pub(crate) fn produce_cash_on_owner_change(
     let old_passive = sim
         .houses
         .get(&old_owner)
-        .is_some_and(|house| house.multiplay_passive);
+        .is_some_and(|house| house.multiplay_passive());
     if !old_passive || obj.produce_cash_startup == 0 {
         return;
     }
     let startup = obj.produce_cash_startup;
     let delay = obj.produce_cash_delay;
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     add_credits(sim, new_owner, startup);
     if let Some(entity) = sim.substrate.entities.get_mut(stable_id) {
         entity.produce_cash.arm(frame, delay);
@@ -209,7 +209,7 @@ pub(crate) fn produce_cash_on_grand_opening(sim: &mut Simulation, id: u64, rules
     if delay != 0
         && let Some(entity) = sim.substrate.entities.get_mut(id)
     {
-        entity.produce_cash.arm(sim.session.binary_frame, delay);
+        entity.produce_cash.arm(sim.session.binary_frame(), delay);
     }
 }
 
@@ -232,7 +232,7 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
     if entity.category() != EntityCategory::Structure {
         return;
     }
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     if !produce_cash_fires(entity.produce_cash.timer(), frame) {
         return;
     }
@@ -248,7 +248,7 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
     if sim
         .houses
         .get(&owner)
-        .is_some_and(|house| house.multiplay_passive)
+        .is_some_and(|house| house.multiplay_passive())
     {
         return;
     }
@@ -497,7 +497,7 @@ pub(crate) fn drain_common_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
         let delay = rules.general.drain_money_frame_delay;
         // Native divides by the raw dword; a zero delay would fault there.
         if delay != 0
-            && (sim.session.binary_frame as i32).wrapping_rem(delay) == 0
+            && (sim.session.binary_frame() as i32).wrapping_rem(delay) == 0
             && let Some(drainer_owner) = sim
                 .substrate
                 .entities
@@ -549,7 +549,7 @@ pub(crate) fn drain_unit_ai_step(sim: &mut Simulation, stable_id: u64, rules: Op
         return;
     };
     if let Some(target) = target
-        && (sim.session.binary_frame as i32).wrapping_rem(16) == 2
+        && (sim.session.binary_frame() as i32).wrapping_rem(16) == 2
         && sim
             .substrate
             .occupancy
@@ -696,7 +696,7 @@ mod tests {
     }
 
     fn credits(sim: &Simulation, owner: InternedId) -> i32 {
-        sim.houses[&owner].economy.credits()
+        sim.houses[&owner].economy().credits()
     }
 
     /// Original 70FD8D/47C520 queries the actual ground list, not the enclosing
@@ -743,7 +743,7 @@ mod tests {
             install_drain_link(&mut sim, disc, refinery),
             "still on the ground list"
         );
-        sim.session.binary_frame = 2;
+        sim.session.set_binary_frame_for_test(2);
         drain_unit_ai_step(&mut sim, disc, Some(&rules));
         assert_eq!(
             sim.entities().get(disc).unwrap().drain.target(),
@@ -753,14 +753,14 @@ mod tests {
             refinery,
             crate::sim::world::UninitContext::with_rules(&rules)
         ));
-        sim.session.binary_frame = 17;
+        sim.session.set_binary_frame_for_test(17);
         drain_unit_ai_step(&mut sim, disc, Some(&rules));
         assert_eq!(
             sim.entities().get(disc).unwrap().drain.target(),
             Some(refinery),
             "not a recheck frame"
         );
-        sim.session.binary_frame = 18;
+        sim.session.set_binary_frame_for_test(18);
         drain_unit_ai_step(&mut sim, disc, Some(&rules));
         assert_eq!(sim.entities().get(disc).unwrap().drain.target(), None);
         assert_eq!(
@@ -783,7 +783,10 @@ mod tests {
         let rules = rules();
         let mut sim = Simulation::with_seed(0x0011_0901);
         let neutral = house(&mut sim, "Neutral", false, 0);
-        sim.houses.get_mut(&neutral).unwrap().multiplay_passive = true;
+        sim.houses
+            .get_mut(&neutral)
+            .unwrap()
+            .set_multiplay_passive_for_test(true);
         let americans = house(&mut sim, "Americans", true, 5_000);
         let soviets = house(&mut sim, "Soviet", true, 5_000);
         base(&mut sim, &rules, "Americans", 30, 30);
@@ -814,7 +817,7 @@ mod tests {
         );
         let armed = sim.substrate.entities.get(oil).unwrap().produce_cash.timer;
         assert_eq!(armed.duration(), 100);
-        assert_eq!(armed.start_frame(), sim.session.binary_frame as i32);
+        assert_eq!(armed.start_frame(), sim.session.binary_frame() as i32);
 
         // Arming frame semantics: `change_owner` armed the timer at frame
         // `F = start_frame` with duration `Delay = 100`. `advance_tick` runs
@@ -831,7 +834,7 @@ mod tests {
             let now = credits(&sim, americans);
             if now != last {
                 assert_eq!(now - last, 20, "one ProduceCashAmount per fire");
-                payments.push((tick, sim.session.binary_frame));
+                payments.push((tick, sim.session.binary_frame()));
                 last = now;
             }
         }
@@ -905,7 +908,7 @@ mod tests {
                 ai_counter: 0,
                 dispatch_timer: MissionDispatchTimer::at_frame(0),
             });
-            sim.session.binary_frame = 99;
+            sim.session.set_binary_frame_for_test(99);
             let before = credits(&sim, owner);
             produce_cash_step(&mut sim, id, &rules);
             assert_eq!(credits(&sim, owner) - before, if pays { 20 } else { 0 });
@@ -926,7 +929,10 @@ mod tests {
         let rules = rules();
         let mut sim = Simulation::with_seed(0x0011_0902);
         let neutral = house(&mut sim, "Neutral", false, 0);
-        sim.houses.get_mut(&neutral).unwrap().multiplay_passive = true;
+        sim.houses
+            .get_mut(&neutral)
+            .unwrap()
+            .set_multiplay_passive_for_test(true);
         let americans = house(&mut sim, "Americans", true, 0);
         let oil = sim
             .spawn_object("CAOILDP", "Neutral", 10, 10, 0, &rules)
@@ -954,7 +960,7 @@ mod tests {
         let timer = sim.substrate.entities.get(oil).unwrap().produce_cash.timer;
         assert_eq!(timer.duration(), 100);
         assert!(
-            (sim.session.binary_frame as i32).wrapping_sub(timer.start_frame()) < 100,
+            (sim.session.binary_frame() as i32).wrapping_sub(timer.start_frame()) < 100,
             "timer keeps cycling while offline"
         );
     }
@@ -1207,7 +1213,7 @@ mod tests {
         // UnitClass::AI, whatever the frame.
         attach_drain_anim(&mut sim, disk, &rules);
         let stray = assert_drain_anim(&sim, disk);
-        sim.session.binary_frame = 5;
+        sim.session.set_binary_frame_for_test(5);
         drain_unit_ai_step(&mut sim, disk, Some(&rules));
         assert_eq!(sim.entities().get(disk).unwrap().drain.anim, None);
         assert!(anim_uninited(&sim, stray));

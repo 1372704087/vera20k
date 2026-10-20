@@ -44,7 +44,7 @@ fn world(rules: &RuleSet) -> Simulation {
             .register(HouseState::new(owner, index as u8, None, true, 2000, 10));
         construct_house_supers(&mut sim, rules, owner, false);
     }
-    sim.session.game_options.super_weapons = true;
+    sim.session.game_options_mut_for_test().super_weapons = true;
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(32, 32, |x, y| {
         super::cell_receiver_tests::test_terrain_cell(x, y)
     }));
@@ -91,7 +91,7 @@ fn ready(sim: &mut Simulation, name: &str) -> InternedId {
         .unwrap();
     instance.is_active = true;
     instance.is_ready = true;
-    instance.charge_start_tick = sim.session.binary_frame as i32;
+    instance.charge_start_tick = sim.session.binary_frame() as i32;
     instance.charge_duration = 1;
     id
 }
@@ -257,8 +257,14 @@ fn unavailable_ai_does_not_enter_target_search_or_draw_rng() {
     let rules = rules_with("");
     let mut sim = world(&rules);
     let owner = sim.interner.get(OWNER).unwrap();
-    sim.houses.get_mut(&owner).unwrap().is_human = false;
-    sim.houses.get_mut(&owner).unwrap().player_control = false;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_human_for_test(false);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_player_control_for_test(false);
     assert!(!sim.houses[&owner].is_controlled_by_human(sim.session.game_mode_nonzero()));
     ready(&mut sim, NORMAL);
     let before = sim.state_hash();

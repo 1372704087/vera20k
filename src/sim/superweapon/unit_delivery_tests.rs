@@ -60,7 +60,7 @@ fn world(rules: &RuleSet) -> Simulation {
     }
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.game_options.super_weapons = true;
+    sim.session.game_options_mut_for_test().super_weapons = true;
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);
     sim
 }
@@ -76,7 +76,7 @@ fn charge(sim: &mut Simulation, rules: &RuleSet, owner: &str) -> (InternedId, In
         .get_mut(&sw)
         .unwrap();
     instance.is_ready = true;
-    instance.charge_start_tick = sim.session.binary_frame as i32;
+    instance.charge_start_tick = sim.session.binary_frame() as i32;
     instance.charge_duration = 1;
     (owner, sw)
 }
@@ -117,11 +117,11 @@ fn unit_delivery_vehicle_appears_at_deferment_not_one_frame_before() {
     assert!(payloads(&sim, "MTNK").is_empty());
     assert_eq!(sim.unit_deliveries.pending.len(), 1);
     for frame in 1..20 {
-        sim.session.binary_frame = frame;
+        sim.session.set_binary_frame_for_test(frame);
         tick(&mut sim, &rules, None, FrameEffects::default());
         assert!(payloads(&sim, "MTNK").is_empty());
     }
-    sim.session.binary_frame = 20;
+    sim.session.set_binary_frame_for_test(20);
     tick(&mut sim, &rules, None, FrameEffects::default());
     assert_eq!(payloads(&sim, "MTNK").len(), 1);
     assert!(sim.unit_deliveries.pending.is_empty());
@@ -271,7 +271,7 @@ fn unit_delivery_pending_save_restores_deadline_payload_and_one_shot_completion(
     let rules = rules("[Delivery]\nDeliver.Types=MTNK,MTNK\nSW.ActivationSound=DeliveryCue\n");
     let mut original = world(&rules);
     fire(&mut original, &rules, "Americans", (12, 10));
-    original.session.binary_frame = 7;
+    original.session.set_binary_frame_for_test(7);
     let hash = original.state_hash();
     original.unit_deliveries.pending[0].due_frame += 1;
     assert_ne!(
@@ -299,7 +299,7 @@ fn unit_delivery_pending_save_restores_deadline_payload_and_one_shot_completion(
     original.sound_events.clear();
     for frame in [19, 20, 21] {
         for sim in [&mut original, &mut restored] {
-            sim.session.binary_frame = frame;
+            sim.session.set_binary_frame_for_test(frame);
             tick(sim, &rules, None, FrameEffects::default());
             assert_eq!(payloads(sim, "MTNK").len(), if frame < 20 { 0 } else { 2 });
         }
@@ -446,13 +446,13 @@ fn unit_delivery_no_legal_site_discards_constructor_and_tracking_without_retryin
     let ty = sim.interner.get("MTNK").unwrap();
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .owned_count(crate::map::entities::EntityCategory::Unit, ty),
         0
     );
     assert_eq!(
         sim.houses[&owner]
-            .tracking
+            .tracking()
             .active_count(crate::map::entities::EntityCategory::Unit, ty),
         0
     );
@@ -466,10 +466,10 @@ fn unit_delivery_no_legal_site_discards_constructor_and_tracking_without_retryin
 fn unit_delivery_frame_wrap_and_snapshot_owner_validation() {
     let rules = rules("[Delivery]\nSW.Deferment=4\n");
     let mut sim = world(&rules);
-    sim.session.binary_frame = u32::MAX - 2;
+    sim.session.set_binary_frame_for_test(u32::MAX - 2);
     fire(&mut sim, &rules, "Americans", (12, 10));
     for frame in [u32::MAX - 1, u32::MAX, 0] {
-        sim.session.binary_frame = frame;
+        sim.session.set_binary_frame_for_test(frame);
         tick(&mut sim, &rules, None, FrameEffects::default());
         assert!(payloads(&sim, "MTNK").is_empty());
     }
@@ -480,7 +480,7 @@ fn unit_delivery_frame_wrap_and_snapshot_owner_validation() {
     let mut bad = sim.unit_deliveries.clone();
     bad.pending[0].due_frame = bad.pending[0].issued_frame.wrapping_sub(1);
     assert!(bad.validate(&sim).is_err());
-    sim.session.binary_frame = 1;
+    sim.session.set_binary_frame_for_test(1);
     tick(&mut sim, &rules, None, FrameEffects::default());
     assert_eq!(payloads(&sim, "MTNK").len(), 1);
 }
@@ -546,10 +546,10 @@ fn unit_delivery_negative_deferment_waits_twenty_frames() {
     let mut sim = world(&rules);
     fire(&mut sim, &rules, "Americans", (12, 10));
     assert!(payloads(&sim, "MTNK").is_empty());
-    sim.session.binary_frame = 19;
+    sim.session.set_binary_frame_for_test(19);
     tick(&mut sim, &rules, None, FrameEffects::default());
     assert!(payloads(&sim, "MTNK").is_empty());
-    sim.session.binary_frame = 20;
+    sim.session.set_binary_frame_for_test(20);
     tick(&mut sim, &rules, None, FrameEffects::default());
     assert_eq!(payloads(&sim, "MTNK").len(), 1);
     assert!(sim.unit_deliveries.pending.is_empty());
@@ -657,7 +657,8 @@ fn unit_delivery_activation_cue_precedes_building_discovery() {
         "[Delivery]\nSW.Deferment=0\nDeliver.Types=GAPOWR\nSW.ActivationSound=DeliveryCue\n[GAPOWR]\nSuperWeapon=Delivery\n",
     );
     let mut sim = world(&rules);
-    sim.session.current_house = sim.interner.get("Americans");
+    sim.session
+        .set_current_house_for_test(sim.interner.get("Americans"));
     fire(&mut sim, &rules, "Americans", (12, 10));
     let cue = sim.sound_events.iter().position(|event| matches!(event, SimSoundEvent::VocAt { sound_id, .. } if sound_id == "DeliveryCue")).expect("activation cue");
     let discovery = sim
@@ -686,7 +687,7 @@ fn unit_delivery_retail_flying_foot_lifts_off_without_a_later_order() {
         // destroys a house with no counted building or BaseUnit. Keep two
         // opposing bases alive; a dying Rocketeer can still be airborne and
         // would otherwise hide the same fixture error that removes a Kirov.
-        sim.session.game_options.short_game = true;
+        sim.session.game_options_mut_for_test().short_game = true;
         for (owner, cell) in [("Americans", (4, 4)), ("Russians", (24, 24))] {
             sim.spawn_object("GAPOWR", owner, cell.0, cell.1, 0, &rules)
                 .expect("retail base building on the clear arena");
@@ -713,7 +714,7 @@ fn unit_delivery_retail_flying_foot_lifts_off_without_a_later_order() {
         }
         let owner = sim.interner.get("Americans").unwrap();
         assert!(
-            !sim.houses[&owner].is_defeated,
+            !sim.houses[&owner].is_defeated(),
             "{name}: live short-game base"
         );
         let entity = sim
@@ -770,7 +771,7 @@ fn unit_delivery_same_due_requests_complete_newest_first_and_only_once() {
     fire(&mut sim, &rules, "Americans", (12, 10));
     fire(&mut sim, &rules, "Russians", (20, 20));
     assert_eq!(sim.unit_deliveries.pending.len(), 2);
-    sim.session.binary_frame = 2;
+    sim.session.set_binary_frame_for_test(2);
     tick(&mut sim, &rules, None, FrameEffects::default());
     let mut ids = payloads(&sim, "MTNK");
     ids.sort_unstable();
@@ -826,7 +827,7 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
             false
         ));
         let settled = 2000 + amount;
-        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        assert_eq!(sim.houses[&owner].economy().credits(), settled);
         assert_eq!(sim.unit_deliveries.pending.len(), 1);
         assert!(!sim.fire_super_weapon(
             &rules,
@@ -837,7 +838,7 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
             FrameEffects::default(),
             false
         ));
-        assert_eq!(sim.houses[&owner].economy.credits(), settled);
+        assert_eq!(sim.houses[&owner].economy().credits(), settled);
         sim.uninit_with_rules(provider, &rules);
         crate::sim::credit_income::add_credits(&mut sim, owner, -1);
         let bytes = crate::sim::snapshot::GameSnapshot::save(
@@ -853,14 +854,14 @@ fn superweapon_money_delivery_settles_once_at_enqueue_and_survives_save_and_prov
         crate::sim::arena_fixture::flat_ground(&mut restored, &rules);
         restored.restore_after_snapshot_load().unwrap();
         for state in [&mut sim, &mut restored] {
-            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
-            state.session.binary_frame = 2;
+            assert_eq!(state.houses[&owner].economy().credits(), settled - 1);
+            state.session.set_binary_frame_for_test(2);
             tick(state, &rules, None, FrameEffects::default());
             assert_eq!(payloads(state, "MTNK").len(), 1);
             assert!(state.unit_deliveries.pending.is_empty());
             tick(state, &rules, None, FrameEffects::default());
             assert_eq!(payloads(state, "MTNK").len(), 1);
-            assert_eq!(state.houses[&owner].economy.credits(), settled - 1);
+            assert_eq!(state.houses[&owner].economy().credits(), settled - 1);
         }
     }
 }

@@ -291,7 +291,12 @@ fn action56_missing_centre_or_primary_enemy_finishes_safely() {
                 .zone = None;
         } else {
             let owner = scene.sim.interner.get(OWNER).unwrap();
-            scene.sim.houses.get_mut(&owner).unwrap().enemy_house = None;
+            scene
+                .sim
+                .houses
+                .get_mut(&owner)
+                .unwrap()
+                .set_enemy_house_for_test(None);
             set_only_enemy(&mut scene, true);
         }
         assert!(step(&mut scene).is_empty());

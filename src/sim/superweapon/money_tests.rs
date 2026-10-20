@@ -42,12 +42,12 @@ fn world(rules: &RuleSet, credits: i32, human: bool) -> (Simulation, InternedId)
     let mut sim = Simulation::with_seed(0x4D4F_4E45);
     sim.intern_rule_type_ids(rules);
     sim.resolve_type_handles(rules);
-    sim.session.binary_frame = 100;
+    sim.session.set_binary_frame_for_test(100);
     let owner = sim.interner.intern("Americans");
     sim.houses
         .register(HouseState::new(owner, 0, None, human, credits, 10));
-    sim.session.current_house = Some(owner);
-    sim.session.game_options.super_weapons = true;
+    sim.session.set_current_house_for_test(Some(owner));
+    sim.session.game_options_mut_for_test().super_weapons = true;
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);
     superweapon::construct_house_supers(&mut sim, rules, owner, false);
     (sim, owner)
@@ -69,7 +69,10 @@ fn ready(
         .unwrap()
         .get_mut(&id)
         .unwrap()
-        .set_charged(rules.super_weapon(name).unwrap(), sim.session.binary_frame);
+        .set_charged(
+            rules.super_weapon(name).unwrap(),
+            sim.session.binary_frame(),
+        );
     sim.sound_events.clear();
     id
 }
@@ -159,12 +162,12 @@ fn superweapon_money_exact_funds_pay_once_through_house_wallet() {
     let (mut sim, owner) = world(&rules, 500, true);
     let id = ready(&mut sim, &rules, owner, "Reveal", false);
     assert!(fire(&mut sim, &rules, owner, id, (10, 10)));
-    assert_eq!(sim.houses[&owner].economy.credits(), 0);
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), 500);
+    assert_eq!(sim.houses[&owner].economy().credits(), 0);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), 500);
     assert!(!sim.super_weapons[&owner][&id].is_ready);
     assert!(sim.sound_events.iter().any(|event| matches!(event, SimSoundEvent::SuperWeaponLaunched { sw_type, .. } if *sw_type == id)));
     assert!(!fire(&mut sim, &rules, owner, id, (10, 10)));
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), 500);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), 500);
 }
 
 #[test]
@@ -173,11 +176,11 @@ fn superweapon_money_positive_grant_changes_cash_not_spending_or_score() {
     let (mut sim, owner) = world(&rules, 50, true);
     let id = ready(&mut sim, &rules, owner, "Reveal", false);
     assert!(fire(&mut sim, &rules, owner, id, (10, 10)));
-    assert_eq!(sim.houses[&owner].economy.credits(), 450);
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
-    assert_eq!(sim.houses[&owner].economy.score(), 0);
+    assert_eq!(sim.houses[&owner].economy().credits(), 450);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
+    assert_eq!(sim.houses[&owner].economy().score(), 0);
     assert!(!fire(&mut sim, &rules, owner, id, (10, 10)));
-    assert_eq!(sim.houses[&owner].economy.credits(), 450);
+    assert_eq!(sim.houses[&owner].economy().credits(), 450);
 }
 
 #[test]
@@ -186,7 +189,7 @@ fn superweapon_money_positive_grant_preserves_host_wrapping_add_credits() {
     let (mut sim, owner) = world(&rules, i32::MAX, true);
     let id = ready(&mut sim, &rules, owner, "Reveal", false);
     assert!(fire(&mut sim, &rules, owner, id, (10, 10)));
-    assert_eq!(sim.houses[&owner].economy.credits(), i32::MIN);
+    assert_eq!(sim.houses[&owner].economy().credits(), i32::MIN);
 }
 
 #[test]
@@ -243,10 +246,10 @@ fn superweapon_money_one_time_grant_cannot_pay_or_reward_twice() {
         let (mut sim, owner) = world(&rules, 1000, true);
         let id = ready(&mut sim, &rules, owner, "Reveal", true);
         assert!(fire(&mut sim, &rules, owner, id, (10, 10)));
-        assert_eq!(sim.houses[&owner].economy.credits(), 1000 + amount);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1000 + amount);
         assert!(!sim.super_weapons[&owner][&id].is_active);
         assert!(!fire(&mut sim, &rules, owner, id, (10, 10)));
-        assert_eq!(sim.houses[&owner].economy.credits(), 1000 + amount);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1000 + amount);
     }
 }
 
@@ -294,8 +297,8 @@ fn superweapon_money_zero_cost_chronosphere_keeps_native_source_and_warp() {
     assert!(fire(&mut sim, &rules, owner, sphere, (10, 10)));
     assert!(!fire(&mut sim, &rules, owner, sphere, (10, 10)));
     assert!(fire(&mut sim, &rules, owner, warp, (15, 15)));
-    assert_eq!(sim.houses[&owner].economy.credits(), 1000);
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), 0);
+    assert_eq!(sim.houses[&owner].economy().credits(), 1000);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), 0);
 }
 
 #[test]
@@ -323,10 +326,10 @@ fn superweapon_money_saved_wallet_and_charge_do_not_repeat_settlement() {
     crate::sim::arena_fixture::flat_ground(&mut restored, &rules);
     restored.resolve_type_handles(&rules);
     restored.restore_after_snapshot_load().unwrap();
-    assert_eq!(restored.houses[&owner].economy.credits(), 500);
-    assert_eq!(restored.houses[&owner].economy.spent_credits(), 500);
+    assert_eq!(restored.houses[&owner].economy().credits(), 500);
+    assert_eq!(restored.houses[&owner].economy().spent_credits(), 500);
     assert!(!fire(&mut restored, &rules, owner, id, (10, 10)));
-    assert_eq!(restored.houses[&owner].economy.credits(), 500);
+    assert_eq!(restored.houses[&owner].economy().credits(), 500);
 }
 
 #[test]
@@ -341,11 +344,11 @@ fn superweapon_money_funded_ai_uses_the_same_single_settlement() {
         .unwrap()
         .set_preferred_super_weapon_target((10, 10));
     superweapon::ai_fire::try_fire(&mut sim, &rules, owner, None, FrameEffects::default());
-    assert_eq!(sim.houses[&owner].economy.credits(), 500);
-    assert_eq!(sim.houses[&owner].economy.spent_credits(), 500);
+    assert_eq!(sim.houses[&owner].economy().credits(), 500);
+    assert_eq!(sim.houses[&owner].economy().spent_credits(), 500);
     assert!(!sim.super_weapons[&owner][&id].is_ready);
     superweapon::ai_fire::try_fire(&mut sim, &rules, owner, None, FrameEffects::default());
-    assert_eq!(sim.houses[&owner].economy.credits(), 500);
+    assert_eq!(sim.houses[&owner].economy().credits(), 500);
 }
 
 #[test]
@@ -356,9 +359,9 @@ fn superweapon_money_action_none_settles_the_native_direct_launch_event() {
         let id = ready(&mut sim, &rules, owner, "Reveal", false);
         // The sidebar's Action=None branch intentionally supplies no target.
         assert!(fire(&mut sim, &rules, owner, id, (0, 0)));
-        assert_eq!(sim.houses[&owner].economy.credits(), 1000 + amount);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1000 + amount);
         assert!(!fire(&mut sim, &rules, owner, id, (0, 0)));
-        assert_eq!(sim.houses[&owner].economy.credits(), 1000 + amount);
+        assert_eq!(sim.houses[&owner].economy().credits(), 1000 + amount);
     }
 }
 
@@ -391,7 +394,7 @@ fn superweapon_money_generic_payload_and_target_preflight_precede_settlement() {
             "{override_tags}"
         );
         assert_eq!(
-            sim.houses[&owner].economy.credits(),
+            sim.houses[&owner].economy().credits(),
             if accepted { 500 } else { 1000 }
         );
         if !accepted {
@@ -421,11 +424,12 @@ fn superweapon_money_two_stage_source_never_changes_wallet_across_ticks() {
                 sim.sound_events.is_empty(),
                 "refusal has no activation effects"
             );
-            sim.session.binary_frame += 1;
+            sim.session
+                .set_binary_frame_for_test(sim.session.binary_frame() + 1);
             superweapon::tick_house_superweapon_instances(&mut sim, &rules, owner);
         }
         assert_eq!(
-            sim.houses[&owner].economy.credits(),
+            sim.houses[&owner].economy().credits(),
             10_000,
             "unsupported paid source must not settle on a repeatable selection"
         );

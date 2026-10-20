@@ -160,7 +160,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        let current_frame = self.session.binary_frame as i32;
+        let current_frame = self.session.binary_frame() as i32;
         let Some(team) = self.team_script_vm.teams.get_mut(&team_id) else {
             return;
         };
@@ -564,7 +564,7 @@ impl Simulation {
         let mut best_score = i32::MAX;
         if let Some(house) = self.houses.get(&owner) {
             // 6EA173 iterates the retained House Building array, in order.
-            for &building_id in house.base_projection.buildings() {
+            for &building_id in house.base_projection().buildings() {
                 let Some(building) = self.substrate.entities.get(building_id) else {
                     continue;
                 };

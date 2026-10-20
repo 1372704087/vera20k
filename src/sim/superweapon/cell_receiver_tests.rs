@@ -77,7 +77,7 @@ fn fixture_with_art(extra: &str, art: Option<&IniFile>) -> (Simulation, RuleSet)
     let owner = sim.interner.intern("Americans");
     sim.houses
         .register(HouseState::new(owner, 0, None, true, 50_000, 10));
-    sim.session.game_options.super_weapons = true;
+    sim.session.game_options_mut_for_test().super_weapons = true;
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(16, 16, |x, y| {
         test_terrain_cell(x, y)
     }));
@@ -94,7 +94,7 @@ fn launch_command(sim: &mut Simulation, rules: &RuleSet, name: &str, rx: u16, ry
     // Charged on a running timer: ClickFire refuses a stopped one.
     let mut instance = SuperWeaponInstance::new(sw_type_id, owner, 0);
     instance.is_active = true;
-    instance.charge_start_tick = (sim.session.binary_frame) as i32;
+    instance.charge_start_tick = (sim.session.binary_frame()) as i32;
     instance.charge_duration = 1;
     instance.is_ready = true;
     sim.super_weapons
@@ -684,7 +684,7 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
         ));
     }
 
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     {
         let object = sim.substrate.entities.get_mut(over_strength).unwrap();
         object.health.set_for_test(150);
@@ -722,8 +722,8 @@ fn iron_curtain_command_forces_authored_strength_and_attributes_retained_deaths(
     // The ordinary sequence still owns the object; the existing shared UnInit
     // terminal owns score publication. Verify the attributed receipt survives it.
     sim.uninit_with_rules(wounded, &rules);
-    assert_eq!(sim.houses[&owner].stats.units_killed(), 1);
-    assert_eq!(sim.houses[&enemy].stats.units_lost(), 1);
+    assert_eq!(sim.houses[&owner].stats().units_killed(), 1);
+    assert_eq!(sim.houses[&enemy].stats().units_lost(), 1);
     assert!(
         sim.substrate
             .entities

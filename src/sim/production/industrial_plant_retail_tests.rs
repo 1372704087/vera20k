@@ -107,7 +107,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
         let owner = sim.interner.get(OWNER).unwrap();
         let tank = sim.interner.get("HTNK").unwrap();
         let plant_type = sim.interner.get("NAINDP").unwrap();
-        assert_eq!(sim.houses[&owner].side_index, 1);
+        assert_eq!(sim.houses[&owner].side_index(), 1);
         let local: Vec<_> = sim
             .entities()
             .iter_sorted()
@@ -152,7 +152,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                 .and_then(|id| sim.entities().get(id))
                 .and_then(|entity| entity.miner.as_ref())
                 .is_some_and(|miner| !miner.cargo().is_empty());
-            let wallet = &sim.houses[&owner].economy;
+            let wallet = sim.houses[&owner].economy();
             let money_before = (wallet.credits(), wallet.spent_credits(), wallet.score());
             let gross_before = i64::from(money_before.0) + i64::from(money_before.1);
             if step == 11800 {
@@ -164,7 +164,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                 assert!(sim.entities().get(id).unwrap().lifecycle.in_limbo());
                 assert!(
                     sim.houses[&owner]
-                        .base_projection
+                        .base_projection()
                         .factory_plants()
                         .is_empty()
                 );
@@ -228,7 +228,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
             });
             let commands: Vec<_> = command
                 .into_iter()
-                .map(|command| CommandEnvelope::new(owner, sim.session.tick, command))
+                .map(|command| CommandEnvelope::new(owner, sim.session.tick(), command))
                 .collect();
             scene
                 .runtime
@@ -236,7 +236,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                 .expect("ordinary bound-resource frame");
             let sim = scene.sim();
             let rules = &scene.runtime.resources.rules;
-            let wallet = &sim.houses[&owner].economy;
+            let wallet = sim.houses[&owner].economy();
             if step < 11800 && carrying_before {
                 earned_income |= miner
                     .and_then(|id| sim.entities().get(id))
@@ -276,7 +276,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                 let entity = sim.entities().get(id).unwrap();
                 assert!(!entity.lifecycle.in_limbo());
                 assert_eq!(entity.building_ready_latch(), 0);
-                assert_eq!(sim.houses[&owner].base_projection.factory_plants(), [id]);
+                assert_eq!(sim.houses[&owner].base_projection().factory_plants(), [id]);
                 assert_eq!(
                     sim.cost_of(owner, rules.object("HTNK").unwrap(), rules),
                     675
@@ -339,7 +339,7 @@ fn stock_plant_gain_and_sale_preserve_tank_debt_and_settle_current_price() {
                     assert_eq!(wallet.spent_credits(), money_before.1);
                     assert!(
                         sim.houses[&owner]
-                            .base_projection
+                            .base_projection()
                             .factory_plants()
                             .is_empty()
                     );

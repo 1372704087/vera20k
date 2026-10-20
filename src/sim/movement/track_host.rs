@@ -531,7 +531,7 @@ impl Simulation {
             {
                 entity
                     .body_facing
-                    .snap(u16::from(facing) << 8, self.session.binary_frame);
+                    .snap(u16::from(facing) << 8, self.session.binary_frame());
             }
             let Some((live, _, _)) = self.track_state(id, family) else {
                 return Ok(TrackPass::paid(moved));
@@ -1186,7 +1186,7 @@ impl Simulation {
                     id,
                     MissionId::from_known(MissionType::Move),
                     0,
-                    self.session.binary_frame,
+                    self.session.binary_frame(),
                     &crate::sim::mission::authority::EntityReadyInputProvider,
                 );
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
@@ -1387,7 +1387,7 @@ impl Simulation {
                 id,
                 MissionId::from_known(selection),
                 0,
-                self.session.binary_frame,
+                self.session.binary_frame(),
                 &crate::sim::mission::authority::EntityReadyInputProvider,
             );
         }
@@ -1443,7 +1443,7 @@ fn unit_idle_guard_pick(sim: &Simulation, id: u64, rules: &RuleSet) -> MissionTy
     let wide = sim
         .houses
         .get(&entity.owner())
-        .is_some_and(|house| house.current_iq >= rules.general.iq_guard_area)
+        .is_some_and(|house| house.current_iq() >= rules.general.iq_guard_area)
         || sim
             .object_type(entity.type_ref(), rules)
             .is_some_and(|object| {

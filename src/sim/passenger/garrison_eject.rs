@@ -220,7 +220,7 @@ fn place_garrison_passenger_at_cell(
         && sim
             .houses
             .get(&pax.owner())
-            .is_some_and(|house| house.is_human)
+            .is_some_and(|house| house.is_human())
     {
         pax.building_entry.clear_occupy_seeks();
     }
@@ -256,7 +256,7 @@ fn place_garrison_passenger_at_cell(
             passenger_id,
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Hunt),
             0,
-            sim.session.binary_frame,
+            sim.session.binary_frame(),
             &crate::sim::mission::authority::EntityReadyInputProvider,
         )
         .expect("a revealed garrison occupant can queue Hunt");

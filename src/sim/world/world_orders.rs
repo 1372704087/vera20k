@@ -281,7 +281,7 @@ impl Simulation {
         if self.session.game_mode_nonzero() {
             //50B716 loads A83D4C, the persisted native current-house input.
             //Presentation viewer binding cannot change this receiver's result.
-            self.session.current_house == Some(owner)
+            self.session.current_house() == Some(owner)
         } else {
             self.houses
                 .get(&owner)
@@ -300,7 +300,7 @@ impl Simulation {
         } else {
             self.houses
                 .get(&owner)
-                .is_some_and(|house| house.player_control)
+                .is_some_and(|house| house.player_control())
         }
     }
 
@@ -334,7 +334,7 @@ impl Simulation {
             if object.construction_yard
                 && !(self.owner_is_human(actor.owner())
                     && self.session.game_mode_nonzero()
-                    && self.session.game_options.mcv_redeploy
+                    && self.session.game_options().mcv_redeploy
                     && actor.mind_control.controller().is_none())
             {
                 return false;
@@ -347,7 +347,7 @@ impl Simulation {
             return false;
         }
         if object.spawned
-            || actor.parasite.is_paralyzed(self.session.binary_frame)
+            || actor.parasite.is_paralyzed(self.session.binary_frame())
             || actor.is_warped_out()
             || actor.is_warping_in()
             || actor.slave.owner().is_some()
@@ -417,7 +417,7 @@ impl Simulation {
             let passive_occupation = self
                 .houses
                 .get(&target.owner())
-                .is_some_and(|house| house.multiplay_passive)
+                .is_some_and(|house| house.multiplay_passive())
                 && object.can_be_occupied
                 && !target.is_warped_out();
             if !allied && !passive_occupation {
@@ -611,7 +611,7 @@ impl Simulation {
         if self
             .houses
             .get(&new_owner)
-            .is_some_and(|h| h.multiplay_passive)
+            .is_some_and(|h| h.multiplay_passive())
         {
             return;
         }
@@ -753,7 +753,7 @@ impl Simulation {
                     && self
                         .houses
                         .get(&building.owner())
-                        .is_some_and(|house| house.multiplay_passive));
+                        .is_some_and(|house| house.multiplay_passive()));
             let full = building.health.current() == object.strength;
             let refused_capture = building.mission.current().known() == Some(MissionType::Selling)
                 || building.is_warped_out();
@@ -836,8 +836,8 @@ impl Simulation {
         )
         .map_err(|cause| {
             super::FrameAdvanceError::new(
-                self.session.tick,
-                self.session.binary_frame,
+                self.session.tick(),
+                self.session.binary_frame(),
                 engineer_id,
                 cause,
             )
@@ -956,8 +956,8 @@ impl Simulation {
         )
         .map_err(|cause| {
             super::FrameAdvanceError::new(
-                self.session.tick,
-                self.session.binary_frame,
+                self.session.tick(),
+                self.session.binary_frame(),
                 infantry_id,
                 cause,
             )
@@ -1002,7 +1002,7 @@ impl Simulation {
         else {
             return false;
         };
-        if !pending.timer().expired(self.session.binary_frame as i32) || health <= 0 {
+        if !pending.timer().expired(self.session.binary_frame() as i32) || health <= 0 {
             return false;
         }
 
@@ -1054,7 +1054,7 @@ mod repair_notification_tests {
                     id, 0, None, true, 0, 1,
                 ));
         }
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
@@ -1066,7 +1066,7 @@ mod repair_notification_tests {
                 .sim
         };
         let mut restored = restore();
-        assert_eq!(restored.session.current_house, Some(owner));
+        assert_eq!(restored.session.current_house(), Some(owner));
         restored.announce_bridge_repair(owner, (7, 8), (8, 8));
         assert!(
             matches!(
@@ -1084,7 +1084,9 @@ mod repair_notification_tests {
         );
 
         let mut other_current = restore();
-        other_current.session.current_house = Some(other);
+        other_current
+            .session
+            .set_current_house_for_test(Some(other));
         other_current.announce_bridge_repair(owner, (7, 8), (8, 8));
         assert!(
             matches!(
@@ -1108,7 +1110,10 @@ mod repair_notification_tests {
                     owner, 0, None, false, 0, 0,
                 ));
         }
-        sim.houses.get_mut(&player).unwrap().player_control = true;
+        sim.houses
+            .get_mut(&player)
+            .unwrap()
+            .set_player_control_for_test(true);
         sim.announce_bridge_repair(ai, (7, 8), (8, 8));
         assert!(
             matches!(

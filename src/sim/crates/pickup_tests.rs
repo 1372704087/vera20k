@@ -26,7 +26,7 @@ const STOCK_WEIGHTS: [i32; POWERUP_COUNT] = [
 fn house(sim: &mut Simulation, name: &str, player_control: bool) -> InternedId {
     let id = sim.interner.intern(name);
     let mut house = HouseState::new(id, 0, None, false, 0, 10);
-    house.player_control = player_control;
+    house.set_player_control_for_test(player_control);
     sim.houses.register(house);
     id
 }
@@ -143,14 +143,14 @@ fn multiplayer_fixture(slot: u8) -> (Simulation, RuleSet, OverlayTypeRegistry, I
     let mut sim = sim_with_grid(31);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.game_options.crates = false;
+    sim.session.game_options_mut_for_test().crates = false;
     // Bases off: a house with no building and the credits of one Money crate
     // would otherwise be pre-empted onto the Unit slot (`0x00481BB8`).
-    sim.session.game_options.bases = false;
+    sim.session.game_options_mut_for_test().bases = false;
     let mut rules = crate_ruleset("");
     rules.powerups.weights = STOCK_WEIGHTS;
     rules.crate_rules.radius = 768;
-    sim.session.binary_frame = 100;
+    sim.session.set_binary_frame_for_test(100);
     sim.playfield_bounds.as_mut().unwrap().base = 10;
     sim.playfield_size_height = Some(10);
     let registry = crate_registry();
@@ -197,8 +197,8 @@ fn original_pickup_rows_match_through_the_dispatcher() {
             ),
         );
         // `0x00A8B261` is zero in the fixture: no replacement placer.
-        sim.session.game_options.crates = false;
-        sim.session.binary_frame = 100;
+        sim.session.game_options_mut_for_test().crates = false;
+        sim.session.set_binary_frame_for_test(100);
         sim.playfield_bounds.as_mut().unwrap().base = 10;
         sim.playfield_size_height = Some(10);
         let mut rules = crate_ruleset("");
@@ -261,7 +261,7 @@ fn original_pickup_rows_match_through_the_dispatcher() {
         }
         let owner = sim.interner.intern("H0");
         let mut owner_house = HouseState::new(owner, 0, None, false, 0, 10);
-        owner_house.multiplay_passive = input["passive"].as_i64() == Some(1);
+        owner_house.set_multiplay_passive_for_test(input["passive"].as_i64() == Some(1));
         sim.houses.register(owner_house);
         let actor = if input["null_actor"] == true {
             99
@@ -351,7 +351,7 @@ fn money_crate_draws_once_pays_the_owner_and_sounds() {
         crate::sim::world::FrameEffects::default()
     ));
 
-    assert_eq!(sim.houses[&owner].economy.credits(), expected);
+    assert_eq!(sim.houses[&owner].economy().credits(), expected);
     assert_eq!(
         sim.scenario_rng.native_state_hex(),
         probe.native_state_hex()
@@ -368,7 +368,7 @@ fn money_crate_draws_once_pays_the_owner_and_sounds() {
 #[test]
 fn multiplayer_pickup_places_one_replacement_crate() {
     let (mut sim, rules, registry, _owner, actor) = multiplayer_fixture(0);
-    sim.session.game_options.crates = true;
+    sim.session.game_options_mut_for_test().crates = true;
     *sim.crate_authority.slot_mut(0) = CrateSlot {
         start_frame: 0,
         aux: 0,
@@ -458,7 +458,10 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
     let (mut sim, _, registry, owner, actor) = multiplayer_fixture(POWERUP_ARMOR as u8);
     let rules =
         effect_rules("[AudioVisual]\nCrateArmourSound=CrateArmor\nCrateFireSound=CrateFirePower\n");
-    sim.houses.get_mut(&owner).unwrap().player_control = true;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_player_control_for_test(true);
     let distant = place_actor(&mut sim, owner, (20, 20), EntityCategory::Infantry, "E1");
 
     assert!(pickup_crate(
@@ -488,7 +491,7 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
     // A second Armor crate: the armoured actor is ineligible (`0x00481C69`)
     // and falls back to Money, so nothing stacks.
     place_registered_crate(&mut sim, &registry, CELL, POWERUP_ARMOR as u8);
-    let credits = sim.houses[&owner].economy.credits();
+    let credits = sim.houses[&owner].economy().credits();
     assert!(pickup_crate(
         &mut sim,
         &rules,
@@ -499,7 +502,7 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
     ));
     assert_eq!(armor(&sim, actor).bits(), 1.5_f64.to_bits());
     assert!(
-        sim.houses[&owner].economy.credits() > credits,
+        sim.houses[&owner].economy().credits() > credits,
         "Money fallback"
     );
 
@@ -538,10 +541,10 @@ fn armor_and_firepower_crates_multiply_once_and_announce() {
 fn reveal_crate_reveals_the_whole_map_for_the_owner() {
     let (mut sim, _, registry, owner, actor) = multiplayer_fixture(POWERUP_REVEAL as u8);
     let rules = effect_rules("[AudioVisual]\nCrateRevealSound=CrateReveal\n");
-    sim.fog.width = sim.session.map_width;
-    sim.fog.height = sim.session.map_height;
+    sim.fog.width = sim.session.map_width();
+    sim.fog.height = sim.session.map_height();
     assert!(!sim.fog.whole_map_revealed_for_owner(owner));
-    assert!(!sim.houses[&owner].map_is_clear);
+    assert!(!sim.houses[&owner].map_is_clear());
 
     assert!(pickup_crate(
         &mut sim,
@@ -553,7 +556,7 @@ fn reveal_crate_reveals_the_whole_map_for_the_owner() {
     ));
 
     assert!(sim.fog.whole_map_revealed_for_owner(owner));
-    assert!(sim.houses[&owner].map_is_clear);
+    assert!(sim.houses[&owner].map_is_clear());
     // `0x0048202D..0x0048203C`: the one arm without the local-player test.
     assert_eq!(sounds(&sim), vec![("CrateReveal".to_string(), None)]);
 }
@@ -564,7 +567,10 @@ fn reveal_crate_reveals_the_whole_map_for_the_owner() {
 fn guards_leave_the_crate_and_the_rng_alone() {
     let (mut sim, rules, registry, owner, actor) = multiplayer_fixture(10);
     let before = sim.scenario_rng.native_state_hex();
-    sim.houses.get_mut(&owner).unwrap().multiplay_passive = true;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_multiplay_passive_for_test(true);
     assert!(pickup_crate(
         &mut sim,
         &rules,
@@ -574,7 +580,10 @@ fn guards_leave_the_crate_and_the_rng_alone() {
         crate::sim::world::FrameEffects::default()
     ));
     assert!(overlay_at(&sim, CELL).is_some());
-    sim.houses.get_mut(&owner).unwrap().multiplay_passive = false;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_multiplay_passive_for_test(false);
     assert!(pickup_crate(
         &mut sim,
         &rules,
@@ -630,11 +639,11 @@ fn arena() -> (Simulation, RuleSet, OverlayTypeRegistry, InternedId, u64) {
     sim.overlay_grid = Some(OverlayGrid::new(32, 32));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.game_options.crates = false;
+    sim.session.game_options_mut_for_test().crates = false;
     // Bases off: no MCV pre-empt, and the random Unit draw refuses `BaseUnit=`.
-    sim.session.game_options.bases = false;
+    sim.session.game_options_mut_for_test().bases = false;
     // A normal game: its unit totals keep the buildingless House undefeated.
-    sim.session.game_options.short_game = false;
+    sim.session.game_options_mut_for_test().short_game = false;
     let owner = sim.interner.intern("Americans");
     sim.houses
         .register(HouseState::new(owner, 0, Some(owner), true, 5000, 10));
@@ -748,7 +757,7 @@ fn unit_crate_under_its_picker_lands_the_goodie_on_the_first_ring_at_any_level()
 #[test]
 fn mcv_preempt_grants_the_base_unit_with_bases_on() {
     let (mut sim, rules, registry, owner, actor) = arena();
-    sim.session.game_options.bases = true;
+    sim.session.game_options_mut_for_test().bases = true;
     place_registered_crate(&mut sim, &registry, (21, 22), POWERUP_MONEY as u8);
 
     assert!(!pickup_crate(
@@ -826,11 +835,11 @@ fn a_moving_tank_picks_up_the_crate_on_its_path() {
     use crate::sim::command::{Command, CommandEnvelope};
     let (mut sim, rules, registry, owner, actor) = arena();
     place_registered_crate(&mut sim, &registry, (22, 22), POWERUP_MONEY as u8);
-    let credits = sim.houses[&owner].economy.credits();
+    let credits = sim.houses[&owner].economy().credits();
     let grid = sim.path_grid_snapshot();
     let order = CommandEnvelope::new(
         owner,
-        sim.session.tick + 1,
+        sim.session.tick() + 1,
         Command::Move {
             entity_id: actor,
             target_rx: 25,
@@ -849,7 +858,7 @@ fn a_moving_tank_picks_up_the_crate_on_its_path() {
         None,
         "the tank crossed the crate"
     );
-    assert!(sim.houses[&owner].economy.credits() > credits);
+    assert!(sim.houses[&owner].economy().credits() > credits);
 }
 
 /// Drive `Force_Track`'s false answer (`0x004B0D22`): a Unit crate on the
@@ -898,11 +907,11 @@ fn a_walking_soldier_picks_up_the_crate_on_his_path() {
         .spawn_object("E1", "Americans", 10, 10, 0, &rules)
         .expect("the soldier spawns");
     place_registered_crate(&mut sim, &registry, (12, 10), POWERUP_MONEY as u8);
-    let credits = sim.houses[&owner].economy.credits();
+    let credits = sim.houses[&owner].economy().credits();
     let grid = sim.path_grid_snapshot();
     let order = CommandEnvelope::new(
         owner,
-        sim.session.tick + 1,
+        sim.session.tick() + 1,
         Command::Move {
             entity_id: soldier,
             target_rx: 15,
@@ -921,7 +930,7 @@ fn a_walking_soldier_picks_up_the_crate_on_his_path() {
         None,
         "the soldier crossed the crate"
     );
-    assert!(sim.houses[&owner].economy.credits() > credits);
+    assert!(sim.houses[&owner].economy().credits() > credits);
 }
 
 /// A nonempty CrateGoodie pool can still have no acceptable candidate: an
@@ -935,8 +944,11 @@ fn random_unit_crate_with_only_forbidden_mcvs_returns_without_rng() {
              [AMCV]\nStrength=1000\nCrateGoodie=yes\n",
         ))
         .unwrap();
-        sim.session.game_options.bases = bases;
-        sim.houses.get_mut(&owner).unwrap().is_human = human;
+        sim.session.game_options_mut_for_test().bases = bases;
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_is_human_for_test(human);
         let before = sim.scenario_rng.native_state_hex();
         assert!(
             effects::choose_unit_crate_type(&mut sim, &rules, owner, false).is_none(),
@@ -955,8 +967,11 @@ fn random_unit_crate_still_allows_a_human_mcv_with_bases() {
          [AMCV]\nStrength=1000\nCrateGoodie=yes\n",
     ))
     .unwrap();
-    sim.session.game_options.bases = true;
-    sim.houses.get_mut(&owner).unwrap().is_human = true;
+    sim.session.game_options_mut_for_test().bases = true;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_is_human_for_test(true);
     assert_eq!(
         effects::choose_unit_crate_type(&mut sim, &rules, owner, false)
             .map(|object| object.id.as_str()),
@@ -975,7 +990,7 @@ fn random_unit_crate_keeps_rejected_draws_before_an_eligible_vehicle() {
          [TNK]\nStrength=300\nCrateGoodie=yes\n",
     ))
     .unwrap();
-    sim.session.game_options.bases = false;
+    sim.session.game_options_mut_for_test().bases = false;
     // Select a deterministic starting state whose first two draws are 0, 1.
     let expected = (0..100)
         .find_map(|_| {
@@ -1086,14 +1101,17 @@ fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
         );
         // The joined native Anim fixture supplies its stored speed explicitly;
         // normalized MONEY timing must use the same input through its owner.
-        sim.session.game_options.game_speed = input["game_speed"].as_i64().unwrap() as i32;
-        sim.session.game_options.crates = input["regenerate"].as_bool().unwrap_or(true);
-        sim.session.binary_frame = input["frame"].as_u64().unwrap() as u32;
+        sim.session.game_options_mut_for_test().game_speed =
+            input["game_speed"].as_i64().unwrap() as i32;
+        sim.session.game_options_mut_for_test().crates =
+            input["regenerate"].as_bool().unwrap_or(true);
+        sim.session
+            .set_binary_frame_for_test(input["frame"].as_u64().unwrap() as u32);
         let owner = house(&mut sim, "Americans", true);
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .economy
+            .economy_mut()
             .set_credits_for_test(input["balance"].as_i64().unwrap() as i32);
         // Native supplies one tracked building without a resident Building
         // body. Install that prior through the existing tracking owner.
@@ -1107,7 +1125,7 @@ fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
         sim.houses
             .get_mut(&owner)
             .unwrap()
-            .tracking
+            .tracking_mut()
             .add_tracking(sim.substrate.entities.get_mut(yard).unwrap());
         let actor = sim
             .spawn_object("MTNK", "Americans", 10, 11, 0, &rules)
@@ -1202,7 +1220,7 @@ fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
             row["returned"].as_u64().unwrap() != 0
         );
         assert_eq!(
-            json!(sim.houses[&owner].economy.credits()),
+            json!(sim.houses[&owner].economy().credits()),
             row["balance"],
             "{name}"
         );
@@ -1267,7 +1285,7 @@ fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
         let history = row["history"].as_array().unwrap();
         let last = history.last().unwrap()["frame"].as_u64().unwrap() as u32;
         for frame in input["frame"].as_u64().unwrap() as u32..=last {
-            sim.session.binary_frame = frame;
+            sim.session.set_binary_frame_for_test(frame);
             sim.visit_anim(
                 anim,
                 &rules,

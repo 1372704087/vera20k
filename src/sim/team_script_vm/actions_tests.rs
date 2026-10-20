@@ -334,7 +334,8 @@ fn patrol_clears_a_lost_target_then_returns_to_the_waypoint_on_the_next_visit() 
             FrameEffects::default(),
         );
     }
-    sim.session.binary_frame = rules.general.patrol_scan_frames() as u32;
+    sim.session
+        .set_binary_frame_for_test(rules.general.patrol_scan_frames() as u32);
     sim.team_step_script(team, &rules, None, FrameEffects::default());
     let state = sim.team_script_vm.team(team).unwrap();
     assert_eq!(state.mission_target, None);
@@ -346,7 +347,8 @@ fn patrol_clears_a_lost_target_then_returns_to_the_waypoint_on_the_next_visit() 
         let entity = sim.substrate.entities.get(member).unwrap();
         entity.attack_target.target().is_none() && entity.navigation.nav_com().is_none()
     }));
-    sim.session.binary_frame += 1;
+    sim.session
+        .set_binary_frame_for_test(sim.session.binary_frame() + 1);
     sim.team_step_script(team, &rules, None, FrameEffects::default());
     assert_eq!(
         sim.team_script_vm.team(team).unwrap().mission_target,
@@ -362,13 +364,15 @@ fn patrol_scans_on_the_global_period_and_orders_members_to_attack() {
         .unwrap();
     let owner = sim.interner.get("Russians").unwrap();
     crate::sim::vision::reveal_radius(&mut sim.fog, owner, 14, 10, 8);
-    sim.session.binary_frame = (rules.general.patrol_scan_frames() - 1) as u32;
+    sim.session
+        .set_binary_frame_for_test((rules.general.patrol_scan_frames() - 1) as u32);
     sim.team_step_script(team, &rules, None, FrameEffects::default());
     assert_eq!(
         sim.team_script_vm.team(team).unwrap().mission_target,
         Some(TeamTarget::Cell { x: 30, y: 20 })
     );
-    sim.session.binary_frame += 1;
+    sim.session
+        .set_binary_frame_for_test(sim.session.binary_frame() + 1);
     sim.team_step_script(team, &rules, None, FrameEffects::default());
     assert_eq!(
         sim.team_script_vm.team(team).unwrap().mission_target,
@@ -727,7 +731,10 @@ fn building_team(
     let russians = house("Russians", 1);
     let americans = house("Americans", 0);
     house("Germans", 0);
-    sim.houses.get_mut(&russians).unwrap().enemy_house = Some(americans);
+    sim.houses
+        .get_mut(&russians)
+        .unwrap()
+        .set_enemy_house_for_test(Some(americans));
     let plants = plants
         .iter()
         .map(|&(owner, rx, ry)| {
@@ -784,7 +791,7 @@ fn script59_building_gate_and_retained_ammo_route_match_original_controls() {
             "{input}: supplied native type ammo"
         );
         let mut sim = Simulation::new();
-        sim.session.binary_frame = 1;
+        sim.session.set_binary_frame_for_test(1);
         crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
         let first = input["first"].as_bool().unwrap();
         let has_building = input["blocker"] == "building" || !first;
@@ -1257,9 +1264,15 @@ fn the_building_search_admits_by_alliance_passivity_and_enemy() {
                 .or_default()
                 .insert("GERMANS".into());
         }
-        sim.houses.get_mut(&germans).unwrap().multiplay_passive = passive;
+        sim.houses
+            .get_mut(&germans)
+            .unwrap()
+            .set_multiplay_passive_for_test(passive);
         if !enemy {
-            sim.houses.get_mut(&russians).unwrap().enemy_house = None;
+            sim.houses
+                .get_mut(&russians)
+                .unwrap()
+                .set_enemy_house_for_test(None);
         }
         if only_enemy {
             let team_type = sim.interner.intern("BUILDING TEAMTYPE");
@@ -1523,7 +1536,11 @@ fn deploy_refused_for_a_computer_owner_clears_the_site() {
     for human in [false, true] {
         let mut team = DeployTeam::new(&[("AMCV", 20, 22)]);
         let owner = team.sim.interner.intern("Russians");
-        team.sim.houses.get_mut(&owner).unwrap().is_human = human;
+        team.sim
+            .houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_is_human_for_test(human);
         let e1 = team
             .sim
             .spawn_object_at_height("E1", "Russians", 19, 21, 0, 0, &team.rules)

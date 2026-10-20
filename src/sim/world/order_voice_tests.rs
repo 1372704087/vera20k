@@ -40,7 +40,7 @@ fn retail_attack_acknowledgement_spends_the_original_singleton_main_draw() {
     };
     let mut sim = Simulation::with_seed(row["input"]["seed"].as_u64().unwrap());
     let local = sim.interner.intern("Local");
-    sim.session.current_house = Some(local);
+    sim.session.set_current_house_for_test(Some(local));
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
     sim.houses
@@ -132,7 +132,7 @@ fn scene_for_rules(
         other => panic!("unknown native actor owner {other}"),
     };
     let type_ref = sim.interner.intern(type_name);
-    sim.session.current_house = Some(local);
+    sim.session.set_current_house_for_test(Some(local));
     sim.session.set_game_mode(
         crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(
             input["mode"].as_u64().unwrap_or(1) != 0,
@@ -148,7 +148,8 @@ fn scene_for_rules(
         0,
         10,
     );
-    other_house.player_control = input["other_player_control"].as_bool().unwrap_or(false);
+    other_house
+        .set_player_control_for_test(input["other_player_control"].as_bool().unwrap_or(false));
     sim.houses.register(other_house);
     let id = 1;
     sim.entities_mut()

@@ -170,7 +170,7 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
             house["game_mode"].as_i64().unwrap_or(1) != 0,
         ),
     );
-    sim.session.game_options.super_weapons = flag("super_weapons", true);
+    sim.session.game_options_mut_for_test().super_weapons = flag("super_weapons", true);
     let owner = sim.interner.intern("H0");
     let other = sim.interner.intern("H1");
     let country = sim
@@ -179,7 +179,7 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
     let human = flag("human", true);
     let tech = house["tech"].as_i64().map_or(10, |tech| tech as i32);
     let mut state = HouseState::new(owner, 0, Some(country), human, 0, tech);
-    state.player_control = flag("control", human);
+    state.set_player_control_for_test(flag("control", human));
     // The stolen-tech bytes +0x2BC, +0x2BD and +0x2BE are what a spy's
     // BuildTech infiltration of an AIBasePlanningSide 2, 1 or 0 type sets.
     for (slot, side) in [2, 1, 0].into_iter().enumerate() {
@@ -266,7 +266,10 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
             }
         }
     }
-    sim.houses.get_mut(&owner).unwrap().tracking = tracking;
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .set_tracking_for_test(tracking);
     (sim, owner)
 }
 
@@ -413,7 +416,7 @@ fn retail_slave_miner_meets_proc_and_docks_limit_harriers() {
         sim.houses
             .get_mut(&house)
             .unwrap()
-            .tracking
+            .tracking_mut()
             .set_active_for_test(category, type_id, count);
     };
 
@@ -435,7 +438,7 @@ fn retail_slave_miner_meets_proc_and_docks_limit_harriers() {
 
     let americans = sim.interner.intern("Americans");
     let mut house = HouseState::new(americans, 0, None, true, 0, 10);
-    house.tracking.add_airport_docks(4);
+    house.tracking_mut().add_airport_docks(4);
     sim.houses.register(house);
     let orca = rules.object("ORCA").unwrap();
     assert!(orca.airport_bound);

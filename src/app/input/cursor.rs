@@ -924,9 +924,7 @@ pub(super) fn capability_cursor_for_hover(
             if friendly
                 && !best_is_ivan
                 && !best_id.is_some_and(|id| {
-                    sim.entities()
-                        .get(id)
-                        .is_some_and(|actor| actor.category() == EntityCategory::Unit)
+                    super::context_order::object_action_answers_friendly(sim, id, hover.stable_id)
                 })
             {
                 return if hover.kind == HoverTargetKind::FriendlyUnit {
@@ -948,7 +946,7 @@ pub(super) fn capability_cursor_for_hover(
                     AttackAction::None => return CursorFeedbackKind::Default,
                     AttackAction::NoMove => return CursorFeedbackKind::Invalid,
                     AttackAction::Select => return CursorFeedbackKind::FriendlyUnit,
-                    AttackAction::Rally => return CursorFeedbackKind::Move,
+                    AttackAction::Rally | AttackAction::Move => return CursorFeedbackKind::Move,
                     AttackAction::Attack => {}
                 }
             } else if friendly {
@@ -1181,7 +1179,7 @@ fn force_fire_feedback(
         match armed_action(sim, rules?, actor_id, target, true, overlay_registry)? {
             AttackAction::None => None,
             AttackAction::NoMove => Some(CursorFeedbackKind::Invalid),
-            AttackAction::Rally => Some(CursorFeedbackKind::Move),
+            AttackAction::Rally | AttackAction::Move => Some(CursorFeedbackKind::Move),
             AttackAction::Select => Some(CursorFeedbackKind::FriendlyUnit),
             AttackAction::Attack => Some(
                 if attack_cursor_is_in_range(

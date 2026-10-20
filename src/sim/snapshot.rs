@@ -1209,7 +1209,9 @@ use crate::util::save_codec;
 // 451 -> 452: dynamic terrain cell records no longer carry a copy of the
 // cell's overlay identity and state byte, in its bridge facts or its bridge
 // layer; OverlayGrid alone holds them.
-const SNAPSHOT_VERSION: u32 = 452;
+// 452 -> 453: GameEntity retains a building's NoSurvivor byte (+0x6E0) for the
+// second SpawnSurvivors of a building that outlives its killing blow.
+const SNAPSHOT_VERSION: u32 = 453;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10068,6 +10070,7 @@ mod tests {
         // 449 -> 450: the retained `[Basic]` Lose movie.
         // 450 -> 451: the House UI name source.
         // 451 -> 452: terrain records drop their overlay identity/state copy.
-        assert_eq!(super::SNAPSHOT_VERSION, 452);
+        // 452 -> 453: a building's NoSurvivor byte.
+        assert_eq!(super::SNAPSHOT_VERSION, 453);
     }
 }

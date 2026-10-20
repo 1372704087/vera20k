@@ -74,6 +74,8 @@ pub(crate) const DEVELOPER_OPTIONS_LABEL: &str = "Developer Options";
 pub(crate) const WOL_TEST_SERVICE_LABEL: &str = "Offline Internet Test Service";
 pub(crate) const WOL_TEST_SERVICE_HELP: &str =
     "Internet opens with stand-in servers, lobbies and players, for testing its screens.";
+pub(crate) const FPS_COUNTER_LABEL: &str = "FPS Counter";
+pub(crate) const FPS_COUNTER_HELP: &str = "Show frames per second in the top-left corner. Off at every start; Ctrl+Alt+F also switches it.";
 pub(crate) const SHIFT_QUEUE_HELP: &str =
     "Shift-click an infantry, vehicle or aircraft cameo to queue several at once.";
 
@@ -363,6 +365,10 @@ pub(crate) enum LauncherCheckboxId {
     WolTestService,
     /// Client-only smoothing, independent of native simulation and detail.
     RenderInterpolation,
+    /// VERA's developer box: the window's FPS readout. Like Full Screen it
+    /// shows and changes live state at once, and is never saved: the readout
+    /// starts hidden at every launch.
+    FpsCounter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -388,6 +394,7 @@ pub(crate) enum LauncherOptionsEvent {
     ShiftQueueChanged(bool),
     WolTestServiceChanged(bool),
     RenderInterpolationChanged(bool),
+    FpsCounterChanged(bool),
     ScorePreview(f32),
     SoundPreview(f32),
     VoicePreview(f32),
@@ -425,6 +432,8 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) render_interpolation: bool,
     pub(crate) shift_queue: bool,
     pub(crate) wol_test_service: bool,
+    /// The FPS readout's live state when the page opened, then each toggle.
+    pub(crate) fps_counter: bool,
     /// The Sidebar list's choice; like Zoom, it applies at once.
     pub(crate) sidebar: SidebarSize,
     pub(crate) score_position: u8,
@@ -447,6 +456,7 @@ impl Default for LauncherOptionsValues {
             render_interpolation: false,
             shift_queue: false,
             wol_test_service: false,
+            fps_counter: false,
             sidebar: SidebarSize::Normal,
             score_position: 4,
             sound_position: 7,
@@ -735,6 +745,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::ShiftQueue => &mut self.values.shift_queue,
             LauncherCheckboxId::WolTestService => &mut self.values.wol_test_service,
             LauncherCheckboxId::RenderInterpolation => &mut self.values.render_interpolation,
+            LauncherCheckboxId::FpsCounter => &mut self.values.fps_counter,
         };
         *slot = !*slot;
         let checked = *slot;
@@ -759,6 +770,9 @@ impl OptionsDialogState {
             LauncherCheckboxId::RenderInterpolation => self
                 .pending_events
                 .push(LauncherOptionsEvent::RenderInterpolationChanged(checked)),
+            LauncherCheckboxId::FpsCounter => self
+                .pending_events
+                .push(LauncherOptionsEvent::FpsCounterChanged(checked)),
             LauncherCheckboxId::Tooltips
             | LauncherCheckboxId::TargetLines
             | LauncherCheckboxId::ShowHidden => {}
@@ -769,6 +783,11 @@ impl OptionsDialogState {
     /// title-bar button), so the box shows what the window is.
     pub(crate) fn sync_full_screen(&mut self, full_screen: bool) {
         self.values.full_screen = full_screen;
+    }
+
+    /// Follow Ctrl+Alt+F while the page is open, so the box shows the readout.
+    pub(crate) fn sync_fps_counter(&mut self, shown: bool) {
+        self.values.fps_counter = shown;
     }
 
     /// Like gamemd's combo owner `0x00617250`, a press emits GUIComboOpen

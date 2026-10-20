@@ -607,6 +607,9 @@ impl ApplicationHandler for App {
                 {
                     if event.state.is_pressed() && !event.repeat {
                         let shown = state.renderer.fps_overlay.toggle();
+                        if let Some(dialog) = state.frontend.options_dialog.as_mut() {
+                            dialog.sync_fps_counter(shown);
+                        }
                         log::info!("FPS overlay: {}", if shown { "shown" } else { "hidden" });
                         state.platform.window.request_redraw();
                     }

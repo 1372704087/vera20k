@@ -250,6 +250,8 @@ pub(crate) fn build_unit_instances(
         .borrow_mut()
         .retain(|id| sim.entities().contains(id));
 
+    let surface_view = crate::app::presentation::render::tactical_surface_line_viewport(state);
+    let laser_palette = std::cell::OnceCell::new();
     let encounter_order = super::helpers::tactical_entity_encounter_order(sim);
     for stable_id in encounter_order {
         let Some(entity) = sim.entities().get(stable_id) else {
@@ -639,7 +641,29 @@ pub(crate) fn build_unit_instances(
                 crate::render::tactical_draw_plan::SpriteEncoding::Voxel,
             );
             if let Some(parent) = parent {
-                objects.push(PlannedObjectInstance::object(parent, pieces));
+                let mut planned = PlannedObjectInstance::object(parent, pieces);
+                if let Some(rules) = state.rules() {
+                    planned.tail_draws = crate::app::presentation::target_lines::target_laser_draws(
+                        entity,
+                        sim,
+                        rules,
+                        || {
+                            laser_palette
+                                .get_or_init(|| {
+                                    state
+                                        .process_assets
+                                        .manager()
+                                        .and_then(|assets| assets.get_ref("palette.pal"))
+                                        .and_then(|bytes| {
+                                            crate::assets::pal_file::Palette::from_bytes(bytes).ok()
+                                        })
+                                })
+                                .as_ref()
+                        },
+                        surface_view,
+                    );
+                }
+                objects.push(planned);
             }
         }
     }

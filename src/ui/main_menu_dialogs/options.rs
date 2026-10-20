@@ -64,7 +64,7 @@ pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to p
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
 pub(crate) const ORIGINAL_SHAPE_HELP: &str =
     "Battles keep the original 4:3 shape, with bars on wide screens.";
-pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "Original YR Style";
+pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "YR Loading & Menu Movie";
 pub(crate) const YR_ORIGINAL_STYLE_HELP: &str =
     "Show the Yuri's Revenge loading screen and menu movie.";
 pub(crate) const SHIFT_QUEUE_LABEL: &str = "Shift-Click Batch Queue";
@@ -343,9 +343,13 @@ pub(crate) enum LauncherCheckboxId {
     /// window's. Like Full Screen, it applies at once.
     OriginalShape,
     /// VERA's own box: the startup splash and the menu movie use Yuri's
-    /// Revenge's art instead of Red Alert 2's; no other shell art follows it.
-    /// The movie changes at once; the splash, drawn before any menu, at the
-    /// next launch.
+    /// Revenge's art instead of Red Alert 2's. The movie changes at once; the
+    /// splash, drawn before any menu, at the next launch.
+    ///
+    /// User-set scope: this box switches only those two. Every other shell
+    /// screen follows gamemd's ordinary asset lookup, and the Skirmish
+    /// background keeps its fixed RA2 art (see `render::skirmish_shell_chrome`),
+    /// whatever the box says. Widening it needs the user's explicit request.
     YrOriginalStyle,
     /// VERA's own box: Shift + left click on a mobile build cameo queues
     /// several copies instead of gamemd's one. It applies at once.

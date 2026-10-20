@@ -88,14 +88,10 @@ pub(crate) fn remove_crate_overlay_from_cell(
 
 fn clear_crate_overlay_fields(sim: &mut Simulation, cell_ref: CrateMarkCellRef) -> bool {
     match cell_ref {
-        CrateMarkCellRef::Real(rx, ry) => {
-            let (Some(grid), Some(terrain)) =
-                (sim.overlay_grid.as_mut(), sim.resolved_terrain.as_mut())
-            else {
-                return false;
-            };
-            grid.clear_crate_mark_fields(terrain, rx, ry)
-        }
+        CrateMarkCellRef::Real(rx, ry) => sim
+            .overlay_grid
+            .as_mut()
+            .is_some_and(|grid| grid.clear_crate_mark_fields(rx, ry)),
         CrateMarkCellRef::Dummy(dummy) => {
             dummy.set_overlay_fields(None, 0);
             true

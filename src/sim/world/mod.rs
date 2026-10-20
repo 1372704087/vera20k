@@ -233,7 +233,7 @@ use crate::sim::lifecycle_request::LifecycleRequest;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::overlay_grid::{
-    WallDamageTransactionHost, WallDirtyStep, WallPointerTarget,
+    OverlayGrid, WallDamageTransactionHost, WallDirtyStep, WallPointerTarget,
     damage_wall_overlay_with_runtime_host, recalc_overlay_passability,
 };
 use crate::sim::passenger;
@@ -1546,6 +1546,7 @@ impl crate::sim::combat::combat_aoe::AoECellPrelude for SimulationAreaDamageCell
     fn wall_navigation_step(
         &mut self,
         terrain: &ResolvedTerrainGrid,
+        overlays: &OverlayGrid,
         cell: (u16, u16),
         navigation_changed: bool,
         repair: ZoneRepairKind,
@@ -1554,6 +1555,7 @@ impl crate::sim::combat::combat_aoe::AoECellPrelude for SimulationAreaDamageCell
             self.zone_grid,
             self.path_grid,
             terrain,
+            overlays,
             self.bridge_state,
             self.playfield_bounds,
             cell,
@@ -1604,6 +1606,7 @@ pub(crate) fn repair_wall_damage_navigation_authorities(
     zone_grid: &mut Option<ZoneGrid>,
     path_grid: &mut Option<Arc<PathGrid>>,
     terrain: &ResolvedTerrainGrid,
+    overlays: &OverlayGrid,
     bridge_state: Option<&BridgeRuntimeState>,
     playfield_bounds: Option<PlayfieldBounds>,
     cell: (u16, u16),
@@ -1617,15 +1620,16 @@ pub(crate) fn repair_wall_damage_navigation_authorities(
         .filter(|grid| grid.width() == terrain.width() && grid.height() == terrain.height());
     match installed {
         Some(grid) if navigation_changed => {
-            let refreshed = terrain
-                .cell(cell.0, cell.1)
-                .is_some_and(|resolved| Arc::make_mut(grid).refresh_resolved_cell(resolved, false));
+            let refreshed = terrain.cell(cell.0, cell.1).is_some_and(|resolved| {
+                Arc::make_mut(grid).refresh_resolved_cell(resolved, Some(overlays), false)
+            });
             debug_assert!(refreshed, "wall Recalc cell must be inside the map");
         }
         Some(_) => {}
         None => {
             *path_grid = Some(Arc::new(PathGrid::from_resolved_terrain_with_bridges(
                 terrain,
+                Some(overlays),
             )));
         }
     }
@@ -1716,6 +1720,7 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
     fn navigation_step(
         &mut self,
         terrain: &ResolvedTerrainGrid,
+        overlays: &OverlayGrid,
         cell: (u16, u16),
         navigation_changed: bool,
         repair: ZoneRepairKind,
@@ -1724,6 +1729,7 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
             self.zone_grid,
             self.path_grid,
             terrain,
+            overlays,
             self.bridge_state,
             self.playfield_bounds,
             cell,
@@ -3300,6 +3306,24 @@ impl Simulation {
         &mut self,
     ) -> &mut Option<crate::sim::overlay_grid::OverlayGrid> {
         &mut self.overlay_grid
+    }
+
+    /// One live overlay cell for a fixture, over an empty grid sized to the
+    /// terrain when none is installed yet.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn overlay_cell_mut_for_test(
+        &mut self,
+        rx: u16,
+        ry: u16,
+    ) -> &mut crate::sim::overlay_grid::OverlayCell {
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .expect("an overlay fixture needs terrain");
+        let (width, height) = (terrain.width(), terrain.height());
+        self.overlay_grid
+            .get_or_insert_with(|| OverlayGrid::new(width, height))
+            .cell_mut_for_test(rx, ry)
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -6178,6 +6202,7 @@ impl Simulation {
         let result = navigation::NavigationCaches {
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
+            overlays: self.overlay_grid.as_ref(),
             playfield_bounds: self.playfield_bounds,
         }
         .rebuild_dynamic(
@@ -6310,6 +6335,7 @@ impl Simulation {
         let mut caches = navigation::NavigationCaches {
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
+            overlays: self.overlay_grid.as_ref(),
             playfield_bounds: self.playfield_bounds,
         };
         let published = cells.iter().try_for_each(|&coord| {
@@ -6340,6 +6366,7 @@ impl Simulation {
         navigation::NavigationCaches {
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
+            overlays: self.overlay_grid.as_ref(),
             playfield_bounds: self.playfield_bounds,
         }
         .rebuild_zones(path_grid, terrain, self.bridge_state.as_ref());
@@ -6355,6 +6382,7 @@ impl Simulation {
         navigation::NavigationCaches {
             zones: &mut self.zone_grid,
             path: &mut self.path_grid,
+            overlays: self.overlay_grid.as_ref(),
             playfield_bounds: self.playfield_bounds,
         }
         .rebuild_zones_full(path_grid, terrain, self.bridge_state.as_ref());

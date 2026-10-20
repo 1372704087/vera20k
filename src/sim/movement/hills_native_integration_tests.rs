@@ -8,7 +8,6 @@
 //! Native command dispatch, full placement and paid Drive ticks remain excluded.
 //! No supplied CanEnter answers or synthetic bridge flags.
 use super::*;
-use crate::map::resolved_terrain::NativeCellQuery;
 use crate::sim::movement::infantry_entry::InfantryEntryArgs;
 use crate::sim::movement::locomotor::MovementLayer;
 
@@ -115,7 +114,6 @@ fn load_hills() -> crate::headless_scenario::HeadlessScenario {
         }
         let cell = terrain.cell(x, y).expect("native-selected Hills cell");
         let identity = terrain.native_cell_identity((x as i16, y as i16));
-        let query = NativeCellQuery::canonical(terrain);
         assert_eq!(
             i64::from(cell.final_tile_index),
             row["tile"].as_i64().unwrap(),
@@ -151,13 +149,14 @@ fn load_hills() -> crate::headless_scenario::HeadlessScenario {
             row["flags"].as_u64().unwrap(),
             "flags {x},{y}"
         );
+        let live = scenario.sim().cell_overlay(identity);
         assert_eq!(
-            i64::from(query.overlay_identity(identity)),
+            live.overlay_id.map_or(-1, i64::from),
             row["overlay"].as_i64().unwrap(),
             "overlay {x},{y}"
         );
         assert_eq!(
-            u64::from(terrain.native_cell_state(identity)),
+            u64::from(live.overlay_data),
             row["state"].as_u64().unwrap(),
             "frame {x},{y}"
         );

@@ -3482,8 +3482,7 @@ impl Simulation {
         // vision must never run against a zero-dim first-tick window. Fixture
         // sims built without a descriptor (zero bounds) keep the lazy
         // derivation as a fallback inside the vision recompute.
-        out.fog.width = out.session.map_width();
-        out.fog.height = out.session.map_height();
+        out.fog = FogState::new(out.session.map_width(), out.session.map_height());
         out
     }
 
@@ -6352,11 +6351,11 @@ impl Simulation {
         if self.session.tick() == 1 {
             log::info!(
                 "Fog grid: {}x{}, {} owners",
-                self.fog.width,
-                self.fog.height,
-                self.fog.by_owner.len()
+                self.fog.width(),
+                self.fog.height(),
+                self.fog.by_owner().len()
             );
-            for (owner, vis) in self.fog.by_owner.iter() {
+            for (owner, vis) in self.fog.by_owner().iter() {
                 let total = vis.width() as u32 * vis.height() as u32;
                 let visible_count = vis.cells_raw().iter().filter(|c| **c & 0x02 != 0).count();
                 let revealed_count = vis.cells_raw().iter().filter(|c| **c & 0x01 != 0).count();

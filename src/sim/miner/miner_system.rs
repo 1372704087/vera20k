@@ -204,6 +204,81 @@ pub(crate) fn unit_ai_clear_harvesting(sim: &mut Simulation, id: u64) {
     }
 }
 
+/// `UnitClass::AI`'s stuck-harvester nudge (`0x0073681D..0x0073697B`), its
+/// last block, every frame. A `Harvester=` Unit (`+0xE0E`) whose House no
+/// human controls (`0x0050B730`), whose mission began more than 300 frames
+/// ago (`+0xC0`), whose locomotor is not moving (ILocomotion `+0x10`) and
+/// which stands on its refinery's dock Cell, the `Refinery=` building's
+/// (`+0x16BB`) Cell plus (3, 1) of the first Building in its own Cell
+/// (`0x0047C520`), drives off: it says OVER_OUT to its contact when it has
+/// one (`0x0065AE30`, vt+0x274(3)), takes the Cell NearbyLocation finds
+/// near the refinery (`0x00703590`) as its destination (vt+0x480(cell, 1))
+/// and queues Move to commence now (vt+0x1E8(2, 1)).
+pub(crate) fn unit_ai_nudge_off_refinery_pad(
+    sim: &mut Simulation,
+    id: u64,
+    rules: &RuleSet,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    frame_effects: FrameEffects<'_>,
+) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let frame = sim.session.binary_frame();
+    if entity.category() != EntityCategory::Unit
+        || !sim
+            .object_type(entity.type_ref(), rules)
+            .is_some_and(|object| object.harvester)
+        || sim
+            .houses
+            .get(&entity.owner())
+            .is_none_or(|house| house.is_controlled_by_human(sim.session.game_mode_nonzero()))
+        || (frame as i32).wrapping_sub(entity.mission.mission_start_frame() as i32) <= 300
+        || crate::sim::movement::motion_query::is_moving(entity) != Some(false)
+    {
+        return;
+    }
+    let (rx, ry) = (entity.position.rx(), entity.position.ry());
+    let in_contact = !entity.radio_contacts.is_empty();
+    let Some(refinery) = sim
+        .substrate
+        .occupancy
+        .first_building_on_layer(rx, ry, MovementLayer::Ground)
+        .filter(|&building| {
+            sim.substrate
+                .entities
+                .get(building)
+                .is_some_and(|building| {
+                    sim.object_type(building.type_ref(), rules)
+                        .is_some_and(|object| object.refinery)
+                        && (
+                            building.position.rx().wrapping_add(3),
+                            building.position.ry().wrapping_add(1),
+                        ) == (rx, ry)
+                })
+        })
+    else {
+        return;
+    };
+    if in_contact {
+        radio::transmit_to_contact(sim, id, RadioMessage::Break, Some(rules), frame_effects);
+    }
+    if let Some(exit) = sim
+        .techno_nearby_location(id, Some(refinery), rules)
+        .and_then(|(x, y)| Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?)))
+    {
+        assign_miner_cell_destination(sim, rules, id, exit, overlay_registry, frame_effects);
+    }
+    let now = sim.session.binary_frame();
+    let _ = sim.mission_queue_exact(
+        id,
+        MissionId::from_known(MissionType::Move),
+        1,
+        now,
+        &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+    );
+}
+
 pub(super) fn process_miner(
     sim: &mut Simulation,
     rules: &RuleSet,

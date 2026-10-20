@@ -2028,13 +2028,21 @@ impl WolCapture {
             );
             requests.drain(..sent.len());
         }
-        let [apply @ .., list] = requests.as_slice() else {
-            bail!("the runner sent nothing");
+        // 0x00787BC8 restarts the buddy mirror before TXT_REQ_CHANLIST: the
+        // buddy list, then the game list with automatic pings.
+        let [apply @ .., buddies, game_list, list] = requests.as_slice() else {
+            bail!("the runner sent too little: {requests:?}");
         };
         let passes = if self.rejoined { 2 } else { 1 };
         ensure!(
             apply.len() == 2 * passes
                 && apply.chunks(2).all(|pair| pair == Self::applied(state))
+                && *buddies == WolServiceRequest::ListBuddies
+                && *game_list
+                    == WolServiceRequest::ListChannels {
+                        kind: GAME_CHANNEL,
+                        flags: 1,
+                    }
                 && *list == WolServiceRequest::ListChannels { kind: 0, flags: 0 },
             "the runner did not apply and request the chat lobbies: {requests:?}"
         );

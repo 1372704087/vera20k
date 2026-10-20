@@ -113,12 +113,12 @@ pub(super) fn open(state: &mut AppState) {
     super::lobby::open_buddy_runner(state);
 }
 
-/// The lobby list arrived: a channel this user is in is left first (step
-/// 3), then the dialog loop starts.
+/// The lobby list arrived: the dialog loop starts. Step 3 leaves the
+/// channel in `[0xB77DD0]` first (`WOL:LeavingChannel`); no entry here is
+/// in one, since the lobby's Buddy List left its channel (API+0x24) and the
+/// welcome and `0x114` have none, so that wait is not modelled.
 pub(super) fn lobbies_listed(state: &mut AppState) {
-    if !super::lobby::leave_for_buddy_list(state) {
-        open_dialog(state);
-    }
+    open_dialog(state);
 }
 
 /// The dialog loop (`0x0079F312`): the art, then `0x116` and its init

@@ -112,8 +112,6 @@ enum AfterLeave {
         key: String,
         observe: bool,
     },
-    /// The Buddy List runner's entry leave; its dialog loop follows.
-    BuddyList,
 }
 
 /// What closing a lobby box continues with.
@@ -480,30 +478,21 @@ pub(super) fn buddy_runner_resumes(state: &mut AppState) {
     }
 }
 
-/// The Buddy List runner's leave before its dialog loop (step 3): the wait
-/// `WOL:LeavingChannel` until OnPart or 15 s. False when not in a channel.
-pub(super) fn leave_for_buddy_list(state: &mut AppState) -> bool {
-    let Some(lobby) = lobby_mut(state) else {
-        return false;
-    };
-    if lobby.current.is_none() {
-        return false;
-    }
-    lobby.step = Step::Leaving {
-        deadline: Instant::now() + LEAVE_WAIT,
-        then: AfterLeave::BuddyList,
-    };
-    request(state, WolServiceRequest::LeaveChannel);
-    show_wait(state, "WOL:LeavingChannel");
-    true
-}
-
 /// Join from `0x116` for a buddy in a listed game: `0x00789960` with the
-/// record, over the empty backdrop.
+/// record, over the empty backdrop. Its own admission `0x0079BA60` runs
+/// first: `0x116`'s observer box does not recompute Join's enable, so the
+/// game may refuse here; then `0x00789960` returns false and the loop goes
+/// on. RESIDUAL: its refusal line (`show` = 1) goes to a list that is not
+/// traced while `0x116` is down; none is printed.
 pub(super) fn buddy_join(state: &mut AppState, channel: WolChannel) {
     if let Some(lobby) = lobby_mut(state) {
         lobby.step = Step::Ready;
         lobby.shown = false;
+    }
+    let observer = state.frontend.multiplayer_shell_runtime.lan_observer();
+    if admit(&channel, observer, admission_context()).is_err() {
+        join_failed_locally(state, true);
+        return;
     }
     continue_join(state, channel);
 }
@@ -777,9 +766,6 @@ fn leave_finished(state: &mut AppState, left: bool) {
             close_wait(state);
             send_create(state, channel, key, observe);
         }
-        // 0x0079F2C4: 0xC4 closes once the leave's bit is cleared, left or
-        // not.
-        AfterLeave::BuddyList => super::buddy::open_dialog(state),
     }
 }
 
@@ -1917,6 +1903,12 @@ pub(super) fn net_status(state: &mut AppState, status: u32) {
     lobby.current = None;
     lobby.pending = None;
     lobby.members.clear();
+    if let (Runner::Buddy, Step::ListingLobbies { .. }) = (lobby.runner, &lobby.step) {
+        // The entry's list wait 0x0077F120 fails without a box: mode 0,
+        // the welcome.
+        close_runner(state);
+        return;
+    }
     if lobby.runner == Runner::Buddy {
         // The Buddy List runner's pump takes event 0: 0x116 ends without a
         // slide and TXT_YOURE_DISCON shows before the welcome. Over C2/C9

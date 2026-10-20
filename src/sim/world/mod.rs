@@ -3485,6 +3485,11 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn waves_mut_for_test(&mut self) -> &mut crate::sim::wave::WaveStore {
+        &mut self.waves
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn lightning_storm_mut_for_test(
         &mut self,
     ) -> &mut crate::sim::superweapon::lightning_storm::LightningStorm {
@@ -7536,12 +7541,8 @@ impl Simulation {
                 HouseAiActivationOrderTestEvent::ProductionCompleted,
             );
             profile_phase!(PRODUCTION);
-            crate::sim::docking::bunker_install::tick_bunker_install(
-                self,
-                rules,
-                overlay_registry,
-                effects,
-            );
+            // Empty since the tank-bunker install runs in the bunker's Repair
+            // mission; the slot stays in the ledger's fixed phase list.
             profile_phase!(DOCKS);
         }
 

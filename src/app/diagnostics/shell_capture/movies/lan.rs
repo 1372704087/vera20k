@@ -107,6 +107,9 @@ pub enum LanTarget {
     /// The peer's vote against the local player reaches nodeCount−1: every
     /// other node is dropped with error 0 (`TXT_LEFT_GAME`, no REMOVEPLAYER).
     Outvoted,
+    /// The kick-vote match won by the remaining human: the multiplayer
+    /// score dialog 0x108 under `GUI:MultiplayerScore`.
+    Score,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -180,6 +183,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-ingame-kick-vote", LanTarget::KickVote),
     ("lan-ingame-connection-resume", LanTarget::ConnectionResume),
     ("lan-ingame-outvoted", LanTarget::Outvoted),
+    ("lan-score", LanTarget::Score),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -286,6 +290,8 @@ enum LanPhase {
     },
     /// Quit Game was released: waiting for BB.
     ConnectionLeft,
+    /// The match was won: waiting for the score dialog.
+    ScoreWait,
     /// The peer resumed at `tick`: waiting for 0xEA to close and a frame.
     Resumed {
         tick: u64,
@@ -345,6 +351,7 @@ impl LanCapture {
                     | LanTarget::HostObserve
                     | LanTarget::HostObserveOffered
                     | LanTarget::ConnectionTimeout
+                    | LanTarget::Score
             ) {
                 120
             } else {
@@ -2211,6 +2218,7 @@ impl LanCapture {
                         | LanTarget::KickVote
                         | LanTarget::ConnectionResume
                         | LanTarget::Outvoted
+                        | LanTarget::Score
                 ) {
                     crate::app::match_runtime::network_match::service_event(
                         state,
@@ -2515,7 +2523,7 @@ impl LanCapture {
                             .push(json!({"frame":frame,"action":"Quit Game","point":point}));
                         self.phase = LanPhase::ConnectionLeft;
                     }
-                    LanTarget::KickVote => {
+                    LanTarget::KickVote | LanTarget::Score => {
                         let point = set_window_pointer_to_rect_center(state, layout.players[1]);
                         crate::app::input::dispatch::handle_cursor_moved_in_game(state);
                         for edge in [
@@ -2741,6 +2749,45 @@ impl LanCapture {
                     "tick":sim.session().tick()}),
                 );
                 MoviesCapture::restore_neutral_pointer(state);
+                self.phase = if self.target == LanTarget::Score {
+                    LanPhase::ScoreWait
+                } else {
+                    LanPhase::Settle(SETTLE_FRAMES)
+                };
+            }
+            LanPhase::ScoreWait => {
+                if rendered != PresentedShell::Score
+                    || !super::super::score::reveals_settled(state)
+                {
+                    return Ok(());
+                }
+                let page = state
+                    .frontend
+                    .score_page
+                    .as_ref()
+                    .context("the score dialog has no page")?;
+                ensure!(
+                    page.model.title_key == "GUI:MultiplayerScore",
+                    "LAN score title {}",
+                    page.model.title_key
+                );
+                let names: Vec<&str> = page
+                    .model
+                    .rows
+                    .iter()
+                    .map(|row| row.name.as_str())
+                    .collect();
+                let mut expected = [
+                    self.inputs["host_name"].as_str().unwrap_or_default(),
+                    self.inputs["peer_name"].as_str().unwrap_or_default(),
+                ];
+                let mut sorted = names.clone();
+                sorted.sort_unstable();
+                expected.sort_unstable();
+                ensure!(sorted == expected, "LAN score rows {names:?}");
+                self.route
+                    .push(json!({"frame":frame,"action":"score dialog 0x108",
+                    "title":page.model.title_key,"rows":names}));
                 self.phase = LanPhase::Settle(SETTLE_FRAMES);
             }
             LanPhase::Leaving => {
@@ -2809,6 +2856,7 @@ impl LanCapture {
                 | LanTarget::KickVote
                 | LanTarget::ConnectionResume
                 | LanTarget::Outvoted
+                | LanTarget::Score
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn

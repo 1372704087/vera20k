@@ -112,6 +112,8 @@ pub(crate) fn open_in_match(state: &mut AppState) {
     }
     App::enter_in_game_menu_state(state, InGameMenuState::Page);
     if state.match_state.match_presentation.in_game_menu == InGameMenuState::Page {
+        // KeyboardClear 0x0054F720 at 0x0077D861 (and 0x0077D895 on close).
+        state.match_state.input.clear_command_latches();
         open_page_dialog(state);
     }
 }
@@ -122,6 +124,7 @@ pub(crate) fn close_page_dialog(state: &mut AppState) {
         visit.page_dialog = None;
     }
     if state.match_state.match_presentation.in_game_menu == InGameMenuState::Page {
+        state.match_state.input.clear_command_latches();
         App::enter_in_game_menu_state(state, InGameMenuState::Closed);
     }
 }
@@ -136,12 +139,11 @@ fn observer_cannot_page(state: &AppState, name: &str) -> bool {
         .as_ref()
         .is_some_and(|runtime| runtime.simulation.local_player_defeated());
     let session = &state.match_state.session;
-    out && crate::app::match_runtime::network_match::nodes(session)
+    let nodes: Vec<String> = crate::app::match_runtime::network_match::nodes(session)
         .into_iter()
-        .any(|node| {
-            crate::app::match_runtime::network_match::participant_name(session, node)
-                .eq_ignore_ascii_case(name)
-        })
+        .map(|node| crate::app::match_runtime::network_match::participant_name(session, node))
+        .collect();
+    observer_refuses(out, &nodes, name)
 }
 
 /// `0x005E2820` into one of the dialogs' lists, wrapped to its width.

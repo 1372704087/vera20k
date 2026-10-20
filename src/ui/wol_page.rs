@@ -99,6 +99,12 @@ impl PageReplyWindow {
     }
 }
 
+/// The observer gate `0x0078D52A..0x0078D566`: with `[0xA8B538]` set, a
+/// name `_stricmp`-equal (`0x007C8D20`) to any connection node's.
+pub(crate) fn observer_refuses(out: bool, nodes: &[String], name: &str) -> bool {
+    out && nodes.iter().any(|node| node.eq_ignore_ascii_case(name))
+}
+
 /// `timeGetTime() >> 4` (`0x006C8C40`).
 pub(crate) fn reply_window_now(time_get_time_ms: u64) -> i32 {
     ((time_get_time_ms as u32) >> 4) as i32
@@ -516,6 +522,14 @@ mod tests {
         window.arm(1_000, REPLY_WINDOW_TICKS);
         let (page, _) = WolPageDialog::open(&mut window, 1_300, Some("Tanya"), &mut last);
         assert!(page.focus.is_none(), "300 ticks elapsed: no time left");
+    }
+
+    #[test]
+    fn an_observer_cannot_page_a_player_in_the_game() {
+        let nodes = ["Tester".to_owned(), "Hotel".to_owned()];
+        assert!(observer_refuses(true, &nodes, "hOTEL"));
+        assert!(!observer_refuses(true, &nodes, "Tanya"), "outsiders pass");
+        assert!(!observer_refuses(false, &nodes, "Hotel"), "players pass");
     }
 
     #[test]

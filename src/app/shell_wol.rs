@@ -344,11 +344,6 @@ pub(crate) fn open_lobby(state: &mut AppState, postmatch: bool) {
 /// mode-loop apply (`0x0077B402`) and the lobby runner with postmatch set
 /// (`0x0077B44B`) follow.
 pub(crate) fn reenter_after_match(state: &mut AppState) {
-    // A match's 0xCF ended with the game: its pump 0x00623120 stops the
-    // loop once Main_Tick reports the game over (0x0062314E..0x00623157).
-    if let Some(visit) = state.frontend.wol.as_mut() {
-        visit.page_dialog = None;
-    }
     persona::enter_wol_main(state);
     read_wol_settings(state);
     let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();

@@ -167,7 +167,12 @@ impl AppState {
                 .software_cursor
                 .is_some()
             && (!self.match_state.paused()
-                || crate::app::frontend::skirmish_shell_render::native_in_game_shell_active(self))
+                || crate::app::frontend::skirmish_shell_render::native_in_game_shell_active(self)
+                || self
+                    .match_state
+                    .match_presentation
+                    .in_game_menu
+                    .draws_over_battlefield())
             && !self.main_menu_dialog_open()
     }
 

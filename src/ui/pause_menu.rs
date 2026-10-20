@@ -94,7 +94,7 @@ impl InGameMenuState {
     }
 
     /// The battlefield keeps drawing under this modal: the modal pump's
-    /// Main_Loop still blits the tactical surface (`0x004F4780` only changes
+    /// Main_Tick still blits the tactical surface (`0x004F4780` only changes
     /// its copy flag while `g_WSDialogCount` is nonzero), and the popup
     /// window sits over it.
     pub fn draws_over_battlefield(self) -> bool {

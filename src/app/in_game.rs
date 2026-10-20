@@ -74,6 +74,9 @@ impl App {
         state.match_state.debug_pause = false;
         state.match_state.match_presentation.in_game_menu =
             crate::ui::pause_menu::InGameMenuState::Closed;
+        // A match's 0xCF ends with the game: its pump 0x00623120 stops the
+        // loop once Main_Tick reports the game over (0x0062314E..0x00623157).
+        crate::app::shell_wol::page::close_page_dialog(state);
         state.match_state.match_presentation.in_game_options_anchor = None;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();

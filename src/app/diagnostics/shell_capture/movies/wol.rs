@@ -3007,7 +3007,7 @@ impl WolCapture {
                     let count = message.reveal_count() as usize;
                     count == 0 || count > message.text.encode_utf16().count() + 8
                 });
-            // State 7 keeps the match running (the modal pump's Main_Loop).
+            // State 7 keeps the match running (the modal pump's Main_Tick).
             let ran_on = self.page_tick.is_none_or(|sent| {
                 state
                     .match_state

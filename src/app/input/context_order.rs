@@ -337,11 +337,13 @@ pub(crate) fn attack_action(
             crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
         };
     }
-    // Attack over an Immune= type (vt+0x88 +0x233) is NoMove for the Foot
-    // classes: Unit740486..74049A, Infantry51F160..51F179 and
-    // Aircraft417F4A..417F63. An Aircraft's ClickedAction refuses it
-    // (417C12); a Unit's or Infantryman's moves to the object or a Cell near
-    // it (Foot4D74E0, Simulation::object_move_click).
+    // Attack over an Immune= type (vt+0x88 +0x233) is NoMove at the end of
+    // the Unit (74041B..74049A) and Aircraft (417F4A..417F63) object
+    // actions. An Aircraft's ClickedAction refuses it (417C12); a Unit's
+    // moves to the object or a Cell near it (Foot4D74E0,
+    // Simulation::object_move_click). The Infantry tail (51F160..51F179)
+    // follows its C4, weapon-cursor and Ivan arms, so it is the last arm of
+    // infantry_attack_action.
     // RESIDUAL: the Unit's Attack reaches 740486 only when vt+0x310
     // (0x00700D10, 74041B..74042E) admits it, and is 0 otherwise. That test
     // refuses a Unit in a tube (Foot +0x684 >= 0) whose vt+0x4E4
@@ -351,7 +353,7 @@ pub(crate) fn attack_action(
     if action == AttackAction::Attack
         && matches!(
             actor.category(),
-            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+            EntityCategory::Unit | EntityCategory::Aircraft
         )
         && target_is_immune(sim, rules, target)
     {
@@ -421,8 +423,8 @@ pub(super) fn object_action_answers_friendly(
     })
 }
 
-/// The target is an object whose type is `Immune=` (`+0x233`), which the
-/// Building and Foot object actions turn from Attack into NoMove.
+/// The target is an object whose type is `Immune=` (`+0x233`), which every
+/// class's object action turns from Attack into NoMove.
 fn target_is_immune(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -3077,9 +3079,15 @@ pub(super) fn infantry_attack_action(
             },
         );
     }
-    if weapon.mig_attack_cursor && target.category() == EntityCategory::Structure {
-        let building = sim.interner().object_type(target.type_ref(), rules)?;
-        return Some(if building.can_c4 && !building.invisible_in_game {
+    // Infantry51EAD2..51EB21: anything but a C4-able building keeps Attack
+    // and returns before the tail below.
+    if weapon.mig_attack_cursor {
+        let air_strike = target.category() == EntityCategory::Structure
+            && sim
+                .interner()
+                .object_type(target.type_ref(), rules)
+                .is_some_and(|building| building.can_c4 && !building.invisible_in_game);
+        return Some(if air_strike {
             InfantryAttackAction::AirStrike
         } else {
             InfantryAttackAction::Attack
@@ -3089,6 +3097,14 @@ pub(super) fn infantry_attack_action(
     // simulation already owns CanInfiltrate and building admission.
     if sim.infiltrator_building_action(actor_id, target_id, rules) {
         return Some(InfantryAttackAction::Infiltrate);
+    }
+    // Infantry51F160..51F179: the Attack left is NoMove over an Immune=
+    // type. A player's Crazy Ivan has returned at his bomb arm
+    // (51EB24..51EB7E) before it.
+    if !(object.ivan && sim.house_is_human_player(actor.owner()))
+        && target_is_immune(sim, rules, &TargetKind::Entity(target_id))
+    {
+        return Some(InfantryAttackAction::NoMove);
     }
     None
 }
@@ -4599,6 +4615,9 @@ mod tests {
     /// (`0x004D74E0`), not an Attack. Retail's `Immune=yes` object is the
     /// bridge repair hut (`CABHUT`); the patched Grizzly shows the same answer
     /// over a unit. A Rhino and a GI keep Attack over another enemy tank.
+    /// Infantry's C4 (`0x0051E9C1..0x0051EA56`) and Crazy Ivan
+    /// (`0x0051EB24..0x0051EB7E`) arms return before its Immune tail, so
+    /// Tanya still sabotages the hut and an Ivan still bombs it.
     #[test]
     fn a_tank_and_a_gi_refuse_to_attack_an_immune_object() {
         use crate::app::types::CursorFeedbackKind;
@@ -4619,6 +4638,8 @@ mod tests {
         let hut = sim
             .spawn_object("CABHUT", "Enemy", 13, 13, 0, &rules)
             .unwrap();
+        let ivan = sim.spawn_object("IVAN", "Local", 4, 6, 0, &rules).unwrap();
+        let tanya = sim.spawn_object("TANY", "Local", 4, 4, 0, &rules).unwrap();
         sim.resolve_type_handles(&rules);
         *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(16, 16);
         sim.fog_mut_for_test()
@@ -4677,8 +4698,18 @@ mod tests {
                 (grizzly, HoverTargetKind::EnemyUnit),
                 (hut, HoverTargetKind::EnemyStructure),
             ] {
-                assert_eq!(action(target, false), AttackAction::NoMove, "{target}");
-                assert_eq!(action(target, true), AttackAction::NoMove, "{target}");
+                if actor == gi {
+                    // The Infantry tail is infantry_attack_action's last arm.
+                    assert_eq!(action(target, true), AttackAction::Attack, "{target}");
+                    assert_eq!(
+                        infantry_attack_action(&sim, &rules, gi, target),
+                        Some(InfantryAttackAction::NoMove),
+                        "{target}"
+                    );
+                } else {
+                    assert_eq!(action(target, false), AttackAction::NoMove, "{target}");
+                    assert_eq!(action(target, true), AttackAction::NoMove, "{target}");
+                }
                 assert_eq!(
                     cursor(target, kind),
                     CursorFeedbackKind::Invalid,
@@ -4695,6 +4726,47 @@ mod tests {
                 );
             }
         }
+
+        assert_eq!(
+            attack_action(&sim, &rules, ivan, &TargetKind::Entity(hut), false, None),
+            AttackAction::Attack
+        );
+        assert_eq!(infantry_attack_action(&sim, &rules, ivan, hut), None);
+        assert_eq!(
+            crate::app::input::cursor::capability_cursor_for_hover(
+                &sim,
+                &[ivan],
+                Some(ivan),
+                &HoverTargetKindWithId {
+                    kind: HoverTargetKind::EnemyStructure,
+                    stable_id: hut,
+                },
+                Some(&rules),
+                None,
+                OrderModifier::Normal,
+                false,
+                false,
+            ),
+            CursorFeedbackKind::IvanBomb
+        );
+        assert_eq!(
+            infantry_attack_action(&sim, &rules, tanya, hut),
+            Some(InfantryAttackAction::Sabotage)
+        );
+        assert!(matches!(
+            object_attack_click_command(
+                &sim,
+                &rules,
+                &overlays,
+                owner,
+                OrderMode::Move,
+                OrderModifier::ForceFire,
+                false,
+                tanya,
+                hut,
+            ),
+            Some(Command::PlantC4 { attacker_id, .. }) if attacker_id == tanya
+        ));
     }
 
     /// What_Action_OnCell's force-fire rung is a human player's too

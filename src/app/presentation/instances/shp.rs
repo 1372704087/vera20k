@@ -385,12 +385,40 @@ pub(crate) fn build_shp_instances(
                 }
             }
         };
-        let key: ShpSpriteKey = ShpSpriteKey {
-            palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
-            type_id: make_type_id.as_deref().unwrap_or(type_str).to_string(),
-            facing: 0,
-            frame: shp_frame,
-            house_color: hc,
+        // Mission Unload's war-factory art ([`factory_unload_art`]).
+        let unload_art = (entity.category() == EntityCategory::Structure
+            && !is_building_up
+            && !is_building_down)
+            .then(|| state.rules().zip(art_reg))
+            .flatten()
+            .and_then(|(rules, art_reg)| {
+                let object = rules.object(type_str)?;
+                let art = art_reg.resolve_metadata_entry(type_str, &object.image)?;
+                factory_unload_art(sim, rules, entity, art)
+            });
+        // A loaded `DeployingAnim=` replaces the body image and its
+        // NormalZAdjust; its frame is GetCurrentFrame, at most half the
+        // image's frame count (`0x0043D7A7..0x0043D7F0`).
+        let door_body = unload_art.as_ref().and_then(|art| {
+            let (name, z_adjust) = art.body?;
+            let count = atlas.object_shp_frame_count(name)?;
+            Some((name.to_ascii_uppercase(), count / 2, z_adjust, art.palette))
+        });
+        let key: ShpSpriteKey = match &door_body {
+            Some((name, half, _, palette)) => ShpSpriteKey {
+                palette_context: *palette,
+                type_id: name.clone(),
+                facing: 0,
+                frame: shp_frame.min(*half),
+                house_color: hc,
+            },
+            None => ShpSpriteKey {
+                palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
+                type_id: make_type_id.as_deref().unwrap_or(type_str).to_string(),
+                facing: 0,
+                frame: shp_frame,
+                house_color: hc,
+            },
         };
         // Fallback: a CanBeOccupied building requesting frame 1/2/3 may miss the
         // atlas if its SHP has fewer than 4 frames. Retry with frame 0 so the
@@ -522,8 +550,11 @@ pub(crate) fn build_shp_instances(
                 .map(|o| o.image.clone())
                 .unwrap_or_else(|| type_str.to_string());
             let art_entry = art_reg.and_then(|a| a.resolve_metadata_entry(type_str, &rules_image));
-            let normal_z_adjust: i32 = art_entry.map_or(0, |a| a.normal_z_adjust);
-            let point_move: (i32, i32) = art_entry.map_or((0, 0), |a| a.z_shape_point_move);
+            let normal_z_adjust: i32 = match &door_body {
+                Some((_, _, z_adjust, _)) => *z_adjust,
+                None => art_entry.map_or(0, |a| a.normal_z_adjust),
+            };
+            let point_move = building_zshape_point_move(entity, art_entry);
             let foundation: (u16, u16) = object_type
                 .map(|o| crate::rules::foundation::foundation_dimensions(&o.foundation))
                 .unwrap_or((1, 1));
@@ -667,6 +698,35 @@ pub(crate) fn build_shp_instances(
                     palette_light,
                     colour_word,
                     draw_state,
+                );
+            }
+            if let Some(name) = unload_art.as_ref().and_then(|art| art.under_door)
+                && let Some(rules) = state.rules()
+            {
+                emit_factory_under_door(
+                    &mut building_pieces,
+                    atlas,
+                    rules,
+                    rules.object(type_str),
+                    entity,
+                    ShpSpriteKey {
+                        palette_context: unload_art.as_ref().map_or(
+                            crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme,
+                            |art| art.palette,
+                        ),
+                        type_id: name.to_ascii_uppercase(),
+                        facing: 0,
+                        frame: 0,
+                        house_color: hc,
+                    },
+                    [sx, sy],
+                    lift_px,
+                    depth,
+                    body_tint,
+                    palette_light,
+                    colour_word,
+                    draw_state,
+                    draw_decision,
                 );
             }
             // Building voxel guns remain inside their SHP hull's draw call.
@@ -945,6 +1005,134 @@ mod building_voxel_tests;
 /// BibShape is a separate SHP (e.g., GAREFNBB for the Allied Refinery dock) drawn
 /// behind the building at the same cell position. It provides the flat ground
 /// surface where harvesters dock or other ground-level detail.
+/// The war-factory unload art `BuildingClass::DrawIt @ 0x0043D290` swaps in
+/// while the building's mission (GetMission, vt+0x184) is Unload (0x10). The
+/// roof variants apply when radio contact 0's type is `JumpJet=` (`+0xD94`)
+/// or `BalloonHover=` (`+0xD6A`) (`0x0043D33F..0x0043D381`). A name whose
+/// SHP did not load draws nothing in its place.
+struct FactoryUnloadArt<'a> {
+    /// `DeployingAnim=` or `RoofDeployingAnim=`, with the z adjustment that
+    /// replaces `NormalZAdjust=` (-20 at `0x0043D6D3`, -40 at `0x0043D7D6`).
+    body: Option<(&'a str, i32)>,
+    /// `UnderDoorAnim=` or `UnderRoofDoorAnim=` (`0x0043D8EE..0x0043DA73`).
+    under_door: Option<&'a str>,
+    /// Both draw through the building's own DrawSHP palette, like its bib.
+    palette: crate::render::sprite_atlas::ShpPaletteContext,
+}
+
+fn factory_unload_art<'a>(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    entity: &crate::sim::game_entity::GameEntity,
+    art: &'a crate::rules::art_data::ArtEntry,
+) -> Option<FactoryUnloadArt<'a>> {
+    if entity.mission.effective().known() != Some(crate::sim::mission::MissionType::Unload) {
+        return None;
+    }
+    let roof = entity
+        .radio_contacts
+        .slot(0)
+        .and_then(|id| sim.entities().get(id))
+        .and_then(|product| sim.interner.object_type(product.type_ref(), rules))
+        .is_some_and(|object| object.jumpjet || object.balloon_hover);
+    let door = &art.factory_door;
+    let (body, under_door) = if roof {
+        (
+            door.roof_deploying.as_deref().map(|name| (name, -40)),
+            door.under_roof_door.as_deref(),
+        )
+    } else {
+        (
+            door.deploying.as_deref().map(|name| (name, -20)),
+            door.under_door.as_deref(),
+        )
+    };
+    Some(FactoryUnloadArt {
+        body,
+        under_door,
+        palette: building_art_palette_context(art),
+    })
+}
+
+/// A building's own SHP pieces (bib, war-factory door art) draw through its
+/// DrawSHP palette: the theater's with `TerrainPalette=`, else its scheme's.
+fn building_art_palette_context(
+    art: &crate::rules::art_data::ArtEntry,
+) -> crate::render::sprite_atlas::ShpPaletteContext {
+    if art.terrain_palette {
+        crate::render::sprite_atlas::ShpPaletteContext::Cell
+    } else {
+        crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme
+    }
+}
+
+/// `UnderDoorAnim=` (or the roof variant) after the bib
+/// (`BuildingClass::DrawIt @ 0x0043D8EE..0x0043DA73`): frame 1 at or below
+/// `ConditionYellow=`, else 0, at the body's point. Like the bib it is a
+/// 0x6E00 draw with gradient entry 0 and the colour word, but its a7 is
+/// `-AdjustForZ(Z)`, and DrawSHP adds its embedded shadow.
+#[allow(clippy::too_many_arguments)]
+fn emit_factory_under_door(
+    pieces: &mut Vec<PlannedBuildingPieceInstance>,
+    atlas: &crate::render::sprite_atlas::SpriteAtlas,
+    rules: &crate::rules::ruleset::RuleSet,
+    object: Option<&crate::rules::object_type::ObjectType>,
+    entity: &crate::sim::game_entity::GameEntity,
+    mut key: ShpSpriteKey,
+    [screen_x, screen_y]: [f32; 2],
+    lift_px: i32,
+    building_depth: f32,
+    tint: [f32; 3],
+    palette_light: crate::render::palette_light::PaletteLight,
+    colour_word: u16,
+    draw_state: DrawState,
+    decision: crate::render::draw_state::DrawDecision,
+) {
+    key.frame = u16::from(object.is_some_and(|object| {
+        crate::sim::building_art::requested_damage_state(
+            entity.health,
+            object.strength,
+            rules.general.condition_yellow,
+        )
+    }));
+    let Some(entry) = atlas.get(&key) else {
+        return;
+    };
+    let policy = BlitPolicy::opaque(SpriteEncoding::Plain);
+    let instance = SpriteInstance {
+        position: [screen_x + entry.offset_x, screen_y + entry.offset_y],
+        size: entry.pixel_size,
+        uv_origin: entry.uv_origin,
+        uv_size: entry.uv_size,
+        source_palette: entry.source_palette,
+        depth: building_depth,
+        tint,
+        palette_light: palette_light.with_colour_word(if policy.ors_colour_word(entry.extended) {
+            colour_word
+        } else {
+            0
+        }),
+        alpha: 1.0,
+        draw_state,
+        z_adjust: lifted_z_adjust(lift_px, SHP_DRAW_Z_ADJUST_PX),
+        z_gradient: pack_z_gradient(ZGradient::Flat, false),
+        ..Default::default()
+    };
+    pieces.push(PlannedBuildingPieceInstance {
+        kind: BuildingPieceKind::UnderDoor,
+        z_bias: 0,
+        policy,
+        target: ObjectTexture::ShpPage(entry.page as usize),
+        instance,
+    });
+    if let Some(mut shadow) =
+        building_embedded_shadow_piece(atlas, object, entity, &key, entry, instance, decision)
+    {
+        shadow.kind = BuildingPieceKind::UnderDoor;
+        pieces.push(shadow);
+    }
+}
+
 fn emit_building_bib(
     pieces: &mut Vec<PlannedBuildingPieceInstance>,
     atlas: &crate::render::sprite_atlas::SpriteAtlas,
@@ -974,11 +1162,7 @@ fn emit_building_bib(
         None => return,
     };
     let bib_key: ShpSpriteKey = ShpSpriteKey {
-        palette_context: if art_entry.terrain_palette {
-            crate::render::sprite_atlas::ShpPaletteContext::Cell
-        } else {
-            crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme
-        },
+        palette_context: building_art_palette_context(art_entry),
         type_id: bib_name.to_uppercase(),
         facing: 0,
         frame: 0,
@@ -1080,6 +1264,7 @@ pub(crate) fn build_building_anim_instances(
                 .anim_slots()
                 .iter()
                 .all(Option::is_none)
+            || slot_anims_hidden_by_sale(building)
         {
             continue;
         }
@@ -1144,6 +1329,28 @@ pub(crate) fn build_building_anim_instances(
             draw_state,
         );
     }
+}
+
+/// `BuildingClass::DrawIt` adds `ZShapePointMove=` to the BUILDNGZ origin
+/// except during Construction or Selling (`0x0043D6DB..0x0043D712`).
+fn building_zshape_point_move(
+    entity: &crate::sim::game_entity::GameEntity,
+    art: Option<&crate::rules::art_data::ArtEntry>,
+) -> (i32, i32) {
+    if entity.building_up() || entity.building_down() {
+        (0, 0)
+    } else {
+        art.map_or((0, 0), |art| art.z_shape_point_move)
+    }
+}
+
+/// `BuildingClass::DrawIt` (`0x0043D2C1..0x0043D306`) hides all 21 slot
+/// anims (Anim `+0x19D`) while the building plays its build-up backwards: a
+/// sale or undeploy (Mission Selling, `0x13`) in BState 0. Native writes the
+/// byte each time it draws the building, and nothing clears it before the
+/// sale removes the building, so the draw itself asks the same question.
+fn slot_anims_hidden_by_sale(building: &crate::sim::game_entity::GameEntity) -> bool {
+    building.building_down() && building.in_construction_bstate()
 }
 
 fn emit_building_anims(
@@ -1662,3 +1869,11 @@ mod tests {
 #[cfg(test)]
 #[path = "building_anim_tests.rs"]
 mod building_anim_tests;
+
+#[cfg(test)]
+#[path = "building_sale_draw_tests.rs"]
+mod building_sale_draw_tests;
+
+#[cfg(test)]
+#[path = "factory_door_tests.rs"]
+mod factory_door_tests;

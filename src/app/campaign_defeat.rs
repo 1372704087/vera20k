@@ -15,11 +15,12 @@
 //! Residuals:
 //! - VERA has no replay playback, so the bit-2 branch that skips the prompt is
 //!   not modeled.
-//! - Start_Scenario's record restore also re-applies the player's difficulty
-//!   (`0x004F6EC0` with record+0x3C), money and TimerInherit; only the globals
-//!   are carried (see `match_bootstrap::PreparedCampaignStartup::restart`).
+//! - The record restore's money, TimerInherit and Scenario+0x35A0 are not
+//!   carried (inert on retail data; see `sim::campaign_carry_over`).
 //! - A restored saved game carries no campaign index, so Yes returns to the
 //!   shell instead of restarting.
+//! - Enter on the box: callback `0x005D36A0` maps IDOK to result 1 (the
+//!   shell); VERA's shell message boxes answer only clicks and Escape.
 
 use super::{App, AppState};
 use crate::app::match_bootstrap::PreparedCampaignStartup;

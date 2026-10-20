@@ -518,18 +518,16 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
                     .map(|rt| &rt.simulation),
                 matches!(state.frontend.screen, GameScreen::Loading),
             );
-            // GameExit::Victory restores the won mission's globals after
-            // Start_Scenario (`0x00685D7A`): CarryOver4C6210 writes each one
-            // through SetGlobal689670 in index order.
+            // GameExit::Victory (`0x00685D7A`), the restart (`0x00686506`)
+            // and the defeat retry (`0x0068639A`) write the carry-over record
+            // back after Start_Scenario through `0x004C6210`.
             if installed.is_ok()
-                && let Some(globals) = prepared.carried_globals()
+                && let Some(record) = prepared.carry_over()
                 && let Some(runtime) = state.match_state.sim_runtime.as_mut()
             {
-                for (index, &set) in globals.iter().enumerate() {
-                    runtime
-                        .simulation
-                        .set_trigger_variable(true, index as i32, set);
-                }
+                runtime
+                    .simulation
+                    .restore_campaign_carry_over(record, &runtime.resources.rules);
             }
             installed
         }

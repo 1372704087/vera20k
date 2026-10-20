@@ -10,10 +10,12 @@ use winit::event::MouseButton;
 
 /// B6 init `0x004F1938..0x004F1A0E` keys control712 on GameMode: 0 shows
 /// Restart, 5 hides it. LAN/WOL show Observe only with two or more live
-/// humans; VERA has no Observe yet and hides it there.
-pub(crate) fn abort_secondary(mode: SessionMode) -> AbortSecondary {
+/// humans; VERA has no Observe yet and hides it there. A campaign VERA cannot
+/// restart (a restored saved game, which carries no campaign start) hides
+/// Restart instead of offering a press that would end the game.
+pub(crate) fn abort_secondary(mode: SessionMode, restartable: bool) -> AbortSecondary {
     match mode {
-        SessionMode::Campaign => AbortSecondary::Restart,
+        SessionMode::Campaign if restartable => AbortSecondary::Restart,
         _ => AbortSecondary::Hidden,
     }
 }
@@ -26,7 +28,10 @@ pub(crate) fn current_abort_layout(state: &AppState) -> Option<AbortLayout> {
         shell.height,
         shell.layout,
         shell.button_size,
-        abort_secondary(state.match_state.session.mode()),
+        abort_secondary(
+            state.match_state.session.mode(),
+            state.match_state.startup.installed_campaign().is_some(),
+        ),
     ))
 }
 
@@ -80,11 +85,19 @@ mod tests {
     #[test]
     fn only_campaign_shows_the_restart_action() {
         assert_eq!(
-            abort_secondary(SessionMode::Campaign),
+            abort_secondary(SessionMode::Campaign, true),
             AbortSecondary::Restart
         );
+        assert_eq!(
+            abort_secondary(SessionMode::Campaign, false),
+            AbortSecondary::Hidden
+        );
         for mode in [SessionMode::Skirmish, SessionMode::Lan, SessionMode::Wol] {
-            assert_eq!(abort_secondary(mode), AbortSecondary::Hidden, "{mode:?}");
+            assert_eq!(
+                abort_secondary(mode, true),
+                AbortSecondary::Hidden,
+                "{mode:?}"
+            );
         }
     }
 }

@@ -113,6 +113,13 @@ impl App {
     /// `0x006863E0`, the termination router's restart arm: tear the running
     /// mission down without fade, movie, prompt or score, then Start_Scenario
     /// on the same map through the one campaign start path.
+    ///
+    /// Residuals: the 60-bucket network wait after Start_Scenario is not
+    /// ported (campaign is single-player). 6863E0 stops the elapsed clock
+    /// into its +0x61C accumulator; no zeroing of that accumulator on this
+    /// path was found, so native score time may run across a restart, while
+    /// VERA starts a fresh clock (unproven, not player-visible until a won
+    /// mission's score).
     fn restart_campaign_scenario(state: &mut AppState) {
         let Some(startup) = Self::prepare_campaign_restart(state) else {
             log::warn!("Restart has no installed campaign start; returning to the shell");

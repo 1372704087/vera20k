@@ -42,6 +42,10 @@ struct Mission {
     campaign_index: usize,
     mission_counter: i32,
     seed: u64,
+    /// The session's Options.Difficulty row and the player House's row,
+    /// which the carry-over restore (`0x004C6295`) may replace.
+    menu_difficulty: Option<i32>,
+    player_difficulty: Option<i32>,
 }
 
 impl Mission {
@@ -65,12 +69,23 @@ impl Mission {
                 .campaign_mission_counter()
                 .context("runtime has no campaign mission counter")?,
             seed: sim.session.seed(),
+            menu_difficulty: sim
+                .session
+                .campaign_house_difficulties()
+                .map(|(player, _)| player as i32),
+            player_difficulty: sim
+                .session
+                .current_house()
+                .and_then(|player| sim.houses.get(&player))
+                .map(|house| house.difficulty() as i32),
         })
     }
 
     fn receipt(&self) -> Value {
         json!({"map_name": self.map_name, "campaign_index": self.campaign_index,
-            "mission_counter": self.mission_counter, "seed": self.seed})
+            "mission_counter": self.mission_counter, "seed": self.seed,
+            "menu_difficulty_row": self.menu_difficulty,
+            "player_house_difficulty_row": self.player_difficulty})
     }
 }
 

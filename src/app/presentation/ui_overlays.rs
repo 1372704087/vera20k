@@ -100,14 +100,33 @@ fn health_bar_drawable(
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
 ) -> bool {
-    let (_, draw_pips) = status_visibility(
-        entity.selection.is_selected(),
-        hovered_id == Some(entity.stable_id()),
-    );
-    if !draw_pips {
-        return false;
-    }
-    admitted_techno_observer(sim, entity, local_owner, rules).is_some()
+    let player = local_owner.and_then(|owner| sim.interner.get(owner));
+    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player);
+    draw_pips && admitted_techno_observer(sim, entity, local_owner, rules).is_some()
+}
+
+/// DrawExtras' health dispatch: [`status_visibility`], except that a hovered,
+/// unselected object disguised to the player with no house behind it draws no
+/// bar (`0x006F5E37..0x006F5E87`: +C8, then +D0(1) NULL), as for an enemy
+/// Mirage worn as terrain.
+fn health_strip_visibility(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    hovered_id: Option<u64>,
+    player: Option<crate::sim::intern::InternedId>,
+) -> (bool, bool) {
+    let selected = entity.selection.is_selected();
+    let hovered = hovered_id == Some(entity.stable_id())
+        && (selected
+            || !player.is_some_and(|player| {
+                entity.disguise_hides_house_from(
+                    player,
+                    Some(&sim.fog),
+                    Some(&sim.house_alliances),
+                    &sim.interner,
+                )
+            }));
+    status_visibility(selected, hovered)
 }
 
 /// Retained Display membership and the shared tactical draw admission.
@@ -993,10 +1012,8 @@ pub(crate) fn techno_extras_for_parent(
             });
         }
     }
-    let (draw_background, draw_health) = status_visibility(
-        entity.selection.is_selected(),
-        hovered_id == Some(entity.stable_id()),
-    );
+    let (draw_background, draw_health) =
+        health_strip_visibility(sim, entity, hovered_id, observer_id);
     if !draw_health {
         return strip;
     }
@@ -1628,7 +1645,8 @@ mod tests {
     }
 
     /// Original Building DrawExtras selected/hover dispatch, with raw shroud
-    /// and +41B contrasts. The same health admission owns mobile pips too.
+    /// and +41B contrasts and the disguised hover arm. The same health
+    /// admission owns mobile pips too.
     #[test]
     fn ordinary_health_hover_matches_native_without_raw_anchor_gate() {
         use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
@@ -1639,17 +1657,21 @@ mod tests {
         let mut compared = 0;
         for row in corpus["controls"].as_array().unwrap() {
             let input = &row["input"];
-            // The disguised hover branch is a separate existing residual;
-            // this comparison is ordinary buildings and the shared admission.
-            if input["disguised"].as_bool().unwrap() {
-                continue;
-            }
-            for category in [
-                EntityCategory::Structure,
-                EntityCategory::Unit,
-                EntityCategory::Infantry,
-                EntityCategory::Aircraft,
-            ] {
+            // The disguised rows execute the Techno base pair (`0x0041C020`,
+            // `0x0041BE70`), which Building and Aircraft keep; the Unit and
+            // Infantry overrides have their own test below.
+            let disguised = input["disguised"].as_bool().unwrap();
+            let categories: &[EntityCategory] = if disguised {
+                &[EntityCategory::Structure, EntityCategory::Aircraft]
+            } else {
+                &[
+                    EntityCategory::Structure,
+                    EntityCategory::Unit,
+                    EntityCategory::Infantry,
+                    EntityCategory::Aircraft,
+                ]
+            };
+            for &category in categories {
                 let mut sim = Simulation::new();
                 let player = sim.intern("Player");
                 let owner = sim.intern("Neutral");
@@ -1674,6 +1696,11 @@ mod tests {
                     false,
                 );
                 entity.lifecycle.set_in_limbo_for_test(false);
+                if disguised {
+                    let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
+                    disguise.acquire(0, None, None);
+                    entity.disguise = Some(disguise);
+                }
                 entity
                     .selection
                     .set_selected_for_test(input["selected"].as_bool().unwrap());
@@ -1715,10 +1742,66 @@ mod tests {
                 compared += 1;
             }
         }
-        assert!(
-            compared >= 16,
-            "ordinary selected/hover and anchor contrasts"
+        assert_eq!(
+            compared, 28,
+            "ordinary selected/hover, anchor and disguise contrasts"
         );
+    }
+
+    /// The Unit and Infantry overrides of the disguised hover arm
+    /// (`0x006F5E4B..0x006F5E87`): an enemy Mirage worn as terrain answers
+    /// NULL from `+0xD0(1)` (`0x007465F0`) and draws no bar until selected; a
+    /// Spy's answer falls back to the player's house (`0x005226C0`), and an
+    /// allied Mirage is not disguised to the player (`0x00746750`).
+    #[test]
+    fn a_hovered_enemy_mirage_worn_as_terrain_hides_its_health_bar() {
+        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
+        let drawable = |category, allied: bool, selected: bool| {
+            let mut sim = Simulation::new();
+            sim.interner.intern("Player");
+            let owner = sim.interner.intern("Enemy");
+            if allied {
+                for (from, to) in [("PLAYER", "ENEMY"), ("ENEMY", "PLAYER")] {
+                    sim.house_alliances
+                        .entry(from.into())
+                        .or_default()
+                        .insert(to.into());
+                }
+            }
+            sim.fog = crate::sim::vision::FogState::new(32, 32);
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                1,
+                20,
+                20,
+                4,
+                0,
+                owner,
+                Health::new(100),
+                sim.interner.intern("MGTK"),
+                category,
+                0,
+                5,
+                false,
+            );
+            entity.lifecycle.set_in_limbo_for_test(false);
+            entity.selection.set_selected_for_test(selected);
+            let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
+            disguise.acquire(0, None, None);
+            entity.disguise = Some(disguise);
+            sim.entities_mut().insert(entity);
+            sim.resubmit_entity_display_for_test(1);
+            health_bar_drawable(
+                &sim,
+                sim.entities().get(1).unwrap(),
+                Some(1),
+                Some("Player"),
+                None,
+            )
+        };
+        assert!(!drawable(EntityCategory::Unit, false, false));
+        assert!(drawable(EntityCategory::Unit, false, true));
+        assert!(drawable(EntityCategory::Unit, true, false));
+        assert!(drawable(EntityCategory::Infantry, false, false));
     }
 
     #[test]

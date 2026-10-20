@@ -163,8 +163,7 @@ fn the_under_door_draws_its_damage_frame_and_shadow_after_the_bib() {
     let object = rules.object("GAWEAP").unwrap();
     for (health, frame) in [(object.strength, 0), (object.strength / 2, 1)] {
         let (mut sim, factory) = unloading_factory(rules, "MTNK", true);
-        sim.substrate
-            .entities
+        sim.entities_mut_for_test()
             .get_mut(factory)
             .unwrap()
             .health

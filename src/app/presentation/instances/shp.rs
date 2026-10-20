@@ -102,7 +102,7 @@ pub(crate) fn build_shp_instances(
         state.render_height() as f32 / z,
     );
     let local_owner = crate::app::input::commands::preferred_local_owner_name(state);
-    let local_owner_id = local_owner.as_deref().and_then(|o| sim.interner.get(o));
+    let local_owner_id = local_owner.as_deref().and_then(|o| sim.interner().get(o));
     let ignore_visibility = state.match_state.sandbox_full_visibility;
     let art_reg: Option<&crate::rules::art_data::ArtRegistry> =
         state.rules().map(|rules| rules.art());
@@ -116,8 +116,7 @@ pub(crate) fn build_shp_instances(
     // Drawing borrows live map fields but uses its own small Dummy identity,
     // so native-style misses cannot mutate lockstep simulation state.
     let cells = sim
-        .resolved_terrain
-        .as_ref()
+        .resolved_terrain()
         .map(crate::map::resolved_terrain::NativeCellQuery::isolated);
     // `0x00487950` on the local player's map: a sandbox view, or a viewer
     // with no house, sees no shroud.
@@ -126,7 +125,7 @@ pub(crate) fn build_shp_instances(
             && local_owner_id
                 .zip(cells.as_ref())
                 .is_some_and(|(viewer, cells)| {
-                    crate::sim::vision::cell_is_shrouded(&sim.fog, cells, viewer, cell)
+                    crate::sim::vision::cell_is_shrouded(sim.fog(), cells, viewer, cell)
                 })
     };
     let encounter_order = super::helpers::tactical_entity_encounter_order(sim);
@@ -159,7 +158,7 @@ pub(crate) fn build_shp_instances(
             continue;
         }
         // Common visibility, passenger, limbo, and DrawState admission is shared below.
-        let owner_str = sim.interner.resolve(entity.owner());
+        let owner_str = sim.interner().resolve(entity.owner());
         let mut observer = super::helpers::observer_draw_context(
             sim,
             entity,
@@ -171,7 +170,7 @@ pub(crate) fn build_shp_instances(
         // ask vt+0x440 (0x0070EE30) before taking the disguise.
         let active_disguise = entity.disguise.as_ref().filter(|disguise| {
             disguise.is_disguised()
-                && DrawState::draws_disguise(entity, sim.session.binary_frame(), observer)
+                && DrawState::draws_disguise(entity, sim.session().binary_frame(), observer)
         });
         let type_name = if entity.category() == EntityCategory::Unit {
             if entity.unit_deploying() {
@@ -179,27 +178,27 @@ pub(crate) fn build_shp_instances(
             }
             super::units::drawn_model_id(
                 entity,
-                &sim.interner,
+                sim.interner(),
                 state.rules(),
-                sim.session.binary_frame(),
+                sim.session().binary_frame(),
                 observer,
             )
         } else {
             std::borrow::Cow::Borrowed(
                 active_disguise
                     .and_then(|state| state.type_id())
-                    .map(|id| sim.interner.resolve(id))
-                    .unwrap_or_else(|| sim.interner.resolve(entity.type_ref())),
+                    .map(|id| sim.interner().resolve(id))
+                    .unwrap_or_else(|| sim.interner().resolve(entity.type_ref())),
             )
         };
         let type_str = type_name.as_ref();
-        if super::helpers::drawn_type_uses_voxel(entity, type_str, &sim.interner, state.rules()) {
+        if super::helpers::drawn_type_uses_voxel(entity, type_str, sim.interner(), state.rules()) {
             continue;
         }
         observer.drawn_voxel = Some(false);
         let remap_owner = active_disguise
             .and_then(|state| state.house())
-            .map(|id| sim.interner.resolve(id))
+            .map(|id| sim.interner().resolve(id))
             .unwrap_or(owner_str);
         // Wall buildings render as overlays (auto-tiled connectivity frames).
         // Their fixed-cell overlay pass owns the connected wall frame.
@@ -228,10 +227,10 @@ pub(crate) fn build_shp_instances(
             owner_str,
             local_owner.as_deref(),
             local_owner_id,
-            &sim.fog,
-            &sim.house_alliances,
+            sim.fog(),
+            sim.house_alliances(),
             ignore_visibility,
-            sim.session.binary_frame(),
+            sim.session().binary_frame(),
             super::units::house_color_to_remap_row(hc),
             observer,
         ) else {
@@ -253,9 +252,9 @@ pub(crate) fn build_shp_instances(
         {
             if let Some(frame) = resolve_object_shp_frame(
                 state,
-                sim.interner.resolve(entity.type_ref()),
+                sim.interner().resolve(entity.type_ref()),
                 entity,
-                sim.session.binary_frame(),
+                sim.session().binary_frame(),
                 cells.as_ref(),
             ) {
                 emit_unit_terrain_body(
@@ -376,7 +375,7 @@ pub(crate) fn build_shp_instances(
                         state,
                         type_str,
                         entity,
-                        sim.session.binary_frame(),
+                        sim.session().binary_frame(),
                         cells.as_ref(),
                     ) else {
                         continue;
@@ -761,10 +760,10 @@ pub(crate) fn build_shp_instances(
                         .barrel_image_pitches
                         .borrow_mut(),
                     type_str,
-                    entity.body_facing_current(sim.session.binary_frame()),
+                    entity.body_facing_current(sim.session().binary_frame()),
                     entity
                         .barrel_elevation()
-                        .current(sim.session.binary_frame()),
+                        .current(sim.session().binary_frame()),
                     entity.turret_anim_frame.frame(),
                     entity.voxel_recoil(),
                     turret_offset,
@@ -1113,7 +1112,7 @@ fn factory_unload_art<'a>(
         .radio_contacts
         .slot(0)
         .and_then(|id| sim.entities().get(id))
-        .and_then(|product| sim.interner.object_type(product.type_ref(), rules))
+        .and_then(|product| sim.interner().object_type(product.type_ref(), rules))
         .is_some_and(|object| object.jumpjet || object.balloon_hover);
     let door = &art.factory_door;
     let (body, under_door) = if roof {
@@ -1316,17 +1315,16 @@ pub(crate) fn build_building_anim_instances(
     let local_owner = crate::app::input::commands::preferred_local_owner_name(state);
     let local_owner_id = local_owner
         .as_deref()
-        .and_then(|name| sim.interner.get(name));
+        .and_then(|name| sim.interner().get(name));
     let cells = sim
-        .resolved_terrain
-        .as_ref()
+        .resolved_terrain()
         .map(crate::map::resolved_terrain::NativeCellQuery::isolated);
     let shrouded = |cell| {
         !state.match_state.sandbox_full_visibility
             && local_owner_id
                 .zip(cells.as_ref())
                 .is_some_and(|(viewer, cells)| {
-                    crate::sim::vision::cell_is_shrouded(&sim.fog, cells, viewer, cell)
+                    crate::sim::vision::cell_is_shrouded(sim.fog(), cells, viewer, cell)
                 })
     };
     let axis = depth_axis(state);
@@ -1348,7 +1346,7 @@ pub(crate) fn build_building_anim_instances(
         {
             continue;
         }
-        let owner = sim.interner.resolve(building.owner());
+        let owner = sim.interner().resolve(building.owner());
         let house_color = state
             .match_state
             .match_presentation
@@ -1369,7 +1367,7 @@ pub(crate) fn build_building_anim_instances(
         // its own retained Display member and hidden byte decide that.
         let material = DrawState::for_entity(
             building,
-            sim.session.binary_frame(),
+            sim.session().binary_frame(),
             super::units::house_color_to_remap_row(house_color),
             observer,
         );
@@ -1394,7 +1392,7 @@ pub(crate) fn build_building_anim_instances(
             atlas,
             rules.art(),
             Some(rules),
-            sim.interner.resolve(building.type_ref()),
+            sim.interner().resolve(building.type_ref()),
             house_color,
             tint,
             selected_palette,
@@ -1477,7 +1475,7 @@ fn emit_building_anims(
         if instance.draw_runtime().hidden {
             continue;
         }
-        let anim_name = sim.interner.resolve(instance.type_id());
+        let anim_name = sim.interner().resolve(instance.type_id());
         let Some(runtime_config) = art_reg.anim_runtime_config(anim_name) else {
             continue;
         };
@@ -1645,8 +1643,7 @@ fn anim_colour_word(
     }
     let (x, y) = cells.coord(cell);
     let cell = (x as u16, y as u16);
-    sim.substrate
-        .occupancy
+    sim.occupancy()
         .first_building_on_layer(
             cell.0,
             cell.1,
@@ -1748,7 +1745,7 @@ fn emit_unit_terrain_body(
             && (!grounded
                 || state
                     .rules()
-                    .and_then(|rules| sim.interner.object_type(entity.type_ref(), rules))
+                    .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
                     .is_some_and(|object| object.no_shadow))
         {
             continue;
@@ -1796,7 +1793,7 @@ pub(crate) fn resolve_object_shp_frame(
             .sim_runtime
             .as_ref()
             .map_or(type_id, |runtime| {
-                runtime.simulation.interner.resolve(entity.type_ref())
+                runtime.simulation.interner().resolve(entity.type_ref())
             })
     } else {
         type_id
@@ -1847,7 +1844,7 @@ pub(crate) fn resolve_object_shp_frame(
             .rules()
             .and_then(|rules| {
                 let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
-                sim.interner.object_type(entity.type_ref(), rules)
+                sim.interner().object_type(entity.type_ref(), rules)
             })
             .filter(|object| object.jumpjet && !object.jumpjet_turn)
             .filter(|_| {

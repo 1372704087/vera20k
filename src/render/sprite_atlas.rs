@@ -848,9 +848,9 @@ fn anim_remap_base_keys<'a>(
     house_colors: &'a HouseColorMap,
 ) -> impl Iterator<Item = (String, HouseColorIndex)> + 'a {
     sim.anims().filter_map(move |(_, anim)| {
-        let color = anim_remap_color(anim, &sim.interner, house_colors)?;
+        let color = anim_remap_color(anim, sim.interner(), house_colors)?;
         Some((
-            sim.interner.resolve(anim.type_id()).to_ascii_uppercase(),
+            sim.interner().resolve(anim.type_id()).to_ascii_uppercase(),
             color,
         ))
     })

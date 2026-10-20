@@ -183,7 +183,6 @@ fn tactical_cell_tip_text(
 fn tactical_world_tip_text(
     view: crate::sim::runtime::SimView<'_>,
     rules: &crate::rules::ruleset::RuleSet,
-    height_map: &std::collections::BTreeMap<(u16, u16), u8>,
     csf: Option<&crate::assets::csf_file::CsfFile>,
     world: (f32, f32),
     cursor_coordinates: bool,
@@ -220,8 +219,6 @@ fn tactical_world_tip_text(
         crate::app::input::dispatch::CLICK_SELECT_RADIUS,
         Some(rules),
         Some(sim.houses()),
-        height_map,
-        crate::app::match_runtime::sim_tick::tactical_bridge_cells(sim),
         Some(view.interner()),
         Some(terrain),
     );
@@ -300,7 +297,6 @@ fn tactical_tip_text(state: &AppState) -> String {
     tactical_world_tip_text(
         view,
         rules,
-        state.height_map(),
         state.process_assets.csf.as_ref(),
         world,
         input.cursor_coordinates,
@@ -808,7 +804,7 @@ mod tests {
 
     struct MappedTipFixture {
         runtime: crate::sim::runtime::SimRuntime,
-        heights: std::collections::BTreeMap<(u16, u16), u8>,
+
         csf: crate::assets::csf_file::CsfFile,
         entity_id: u64,
         world: (f32, f32),
@@ -829,7 +825,6 @@ mod tests {
             let text = tactical_world_tip_text(
                 fixture.runtime.view(),
                 &fixture.runtime.resources.rules,
-                &fixture.heights,
                 Some(&fixture.csf),
                 fixture.world,
                 false,
@@ -913,7 +908,7 @@ mod tests {
         let world = crate::app::presentation::instances::interpolated_screen_position_entity(
             sim.entities().get(entity_id).unwrap(),
         );
-        let heights = sim.resolved_terrain().unwrap().build_height_map();
+
         let order = crate::app::presentation::instances::tactical_entity_encounter_order(&sim);
         assert_eq!(
             crate::app::input::entity_pick::pick_entity_at_point(
@@ -926,8 +921,6 @@ mod tests {
                 0.0,
                 Some(&rules),
                 Some(sim.houses()),
-                &heights,
-                None,
                 Some(sim.interner()),
                 sim.resolved_terrain(),
             ),
@@ -938,7 +931,7 @@ mod tests {
         runtime.resources.rules = rules;
         Some(MappedTipFixture {
             runtime,
-            heights,
+
             csf,
             entity_id,
             world,
@@ -955,7 +948,7 @@ mod tests {
 
         let Some(MappedTipFixture {
             mut runtime,
-            heights,
+
             csf,
             entity_id,
             world,
@@ -977,7 +970,6 @@ mod tests {
         let text = tactical_world_tip_text(
             runtime.view(),
             &runtime.resources.rules,
-            &heights,
             Some(&csf),
             world,
             false,
@@ -1009,7 +1001,6 @@ mod tests {
         let text = tactical_world_tip_text(
             runtime.view(),
             &runtime.resources.rules,
-            &heights,
             Some(&csf),
             world,
             false,

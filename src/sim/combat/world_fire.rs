@@ -1253,6 +1253,41 @@ pub(super) fn emit_admitted_fire(
         return None;
     }
 
+    // `0x006FE095..0x006FE245`: the target argument and its coordinate. A
+    // `SprayAttack=` type (TechnoType `+0x691`) aims at one of eight fixed
+    // offsets around itself instead, the first picked by a Scenario draw;
+    // retail sets the key on no type, so that branch is dormant and not
+    // ported. Otherwise an `AreaFire=` weapon (`+0x150`,
+    // `0x006FE140..0x006FE1D8`) fires at the cell under the firer: GetCoords
+    // (vt+0x48) XY /256 toward zero, packed to 16 bits, Map `0x005657A0`.
+    // That cell's own GetCoords (`0x00486840`: centre XY and ground height,
+    // not vt+0x58's bridge deck) becomes the target coordinate, and Map
+    // `0x00565730` looks the same cell up again as the new target. Every later
+    // step reads these: CreateBullet, the Inviso placement, the beams and
+    // RevealOnFire, which a Cell skips (`0x006FF6D4`). TarCom, which GetFLH and
+    // the estimate debit read, keeps the victim. Infantry GetFireError refuses
+    // an AreaFire shot off its own cell (`0x0051CB08`); a Unit fires it from
+    // range, so a Chaos Drone's gas rises around the drone, not the victim. A
+    // fixture without terrain has no cell and keeps the victim.
+    let area_fire_cell = (weapon.area_fire && !obj.spray_attack)
+        .then(|| object_get_coords(world, snap.stable_id))
+        .flatten()
+        .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+    // The Object local FireAt took at entry (`0x006FDD88..0x006FDDA1`),
+    // which the retarget leaves alone; the Inviso OnBridge copy reads it.
+    let entry_target = snap.target;
+    let area_fire_snap;
+    let (snap, (target_rx, target_ry, target_sub_x, target_sub_y)) = match area_fire_cell {
+        Some((rx, ry)) => {
+            area_fire_snap = AttackerSnapshot {
+                target: TargetKind::Cell(rx, ry),
+                ..snap.clone()
+            };
+            (&area_fire_snap, cell_center_coords(rx, ry))
+        }
+        None => (snap, (target_rx, target_ry, target_sub_x, target_sub_y)),
+    };
+
     // Fire one shot!
     //
     // The burst index is needed twice — the fire coordinate mirrors its lateral
@@ -1372,12 +1407,20 @@ pub(super) fn emit_admitted_fire(
             launch_source.coord,
             // 6FE1EE reads the Building argument's+A4. The launch delta and
             // Bullet::Fire reference below independently read+58 instead.
-            super::fire_coord::effect_target_coordinate(
-                world,
-                rules,
-                snap.target.projectile_target(world),
-            )
-            .unwrap_or(impact),
+            // AreaFire's coordinate is its cell's +48 (6FE1A3).
+            match area_fire_cell {
+                Some((rx, ry)) => crate::sim::projectile::cell_ground_coord(
+                    world.resolved_terrain.as_ref(),
+                    rx,
+                    ry,
+                ),
+                None => super::fire_coord::effect_target_coordinate(
+                    world,
+                    rules,
+                    snap.target.projectile_target(world),
+                )
+                .unwrap_or(impact),
+            },
             tarcom,
         );
         let origin = launch_source.coord;
@@ -1617,6 +1660,10 @@ pub(super) fn emit_admitted_fire(
                     } else {
                         launch_speed.clamp(0, i32::from(u16::MAX)) as u16
                     },
+                    target_on_bridge: super::projectile_delivery::target_on_bridge(
+                        world,
+                        entry_target.projectile_target(world),
+                    ),
                 },
             );
         }

@@ -647,7 +647,10 @@ const TARGET_LASER_PATTERN: [u8; 16] = [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0
 /// starts that 15-frame timer (`0x006FF48D..0x006FF4C9`) on the frame and
 /// path that store +120 (`0x006FF743`), so it runs while `frame - LastFireFrame
 /// < 15`. Only Units draw it; any class may start it. 6FF960 needs a Target
-/// (+2B4). The frame is A8ED84 at the draw: the committed frame less one.
+/// (+2B4). The frame is A8ED84 at the draw, `sim`'s committed frame: Main_Tick
+/// renders (`0x0055DBBE`) before its logic (`0x0055DC9E`) and increment
+/// (`0x0055DE81`), so the first draw after a shot sees elapsed 1 and the
+/// laser shows for 14 frames.
 ///
 /// Residual: IsHumanPlayer is read now, not at the shot, so an owner change
 /// within the 15 frames after a shot shows or hides the rest of that laser.
@@ -658,7 +661,7 @@ pub(crate) fn target_laser_draws<'a>(
     palette: impl FnOnce() -> Option<&'a crate::assets::pal_file::Palette>,
     view: crate::render::surface_line::SurfaceLineViewport,
 ) -> Vec<crate::render::surface_line::SurfaceDraw> {
-    let frame = sim.session().binary_frame().wrapping_sub(1);
+    let frame = sim.session().binary_frame();
     target_laser_draws_at(entity, sim, rules, palette, view, frame)
 }
 

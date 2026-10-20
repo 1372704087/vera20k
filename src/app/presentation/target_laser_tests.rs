@@ -82,13 +82,14 @@ fn first_shot(
     panic!("{shooter}'s {firer} never fired");
 }
 
-/// The player's Apocalypse draws its laser from the shot's frame for 15
-/// frames: two 3x3 boxes at the attack line's endpoints, then the clipped
-/// [1,0] dash, all in the attack line's colour (Palette87F6C4 index 8). The
-/// dash phase `(frame * 7) % 16` lights the other half of the walk on each
-/// next frame.
+/// The player's Apocalypse draws its laser on the 14 renders after its shot
+/// (elapsed 1..14; Main_Tick renders before the logic that fired and its
+/// frame increment): two 3x3 boxes at the attack line's endpoints, then the
+/// clipped [1,0] dash, all in the attack line's colour (Palette87F6C4 index
+/// 8). The dash phase `(frame * 7) % 16` lights the other half of the walk on
+/// each next frame.
 #[test]
-fn the_players_apocalypse_marks_its_target_for_fifteen_frames() {
+fn the_players_apocalypse_marks_its_target_for_fourteen_frames() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
@@ -99,11 +100,12 @@ fn the_players_apocalypse_marks_its_target_for_fifteen_frames() {
     let shot = first_shot(&mut sim, rules, "Americans", apoc, rhino);
     let palette = palette();
     let entity = sim.entities().get(apoc).unwrap();
-    assert_eq!(sim.session().binary_frame().wrapping_sub(1), shot);
+    // The first render after the shot reads the committed frame.
+    assert_eq!(sim.session().binary_frame(), shot + 1);
     let at = |frame| target_laser_draws_at(entity, &sim, rules, || Some(&palette), view(), frame);
     assert_eq!(
         target_laser_draws(entity, &sim, rules, || Some(&palette), view()),
-        at(shot)
+        at(shot + 1)
     );
 
     let word = action_line_word(&palette, 8);
@@ -135,10 +137,10 @@ fn the_players_apocalypse_marks_its_target_for_fifteen_frames() {
         walk.insert(point);
     });
     assert!(walk.len() > 20, "the laser spans the four cells");
-    let (even, odd) = (lit(shot), lit(shot + 1));
-    assert!(even.is_disjoint(&odd));
-    assert_eq!(&even | &odd, walk);
-    assert_eq!(lit(shot + 14).len(), lit(shot).len());
+    let (first, second) = (lit(shot + 1), lit(shot + 2));
+    assert!(first.is_disjoint(&second));
+    assert_eq!(&first | &second, walk);
+    assert_eq!(lit(shot + 14), second, "the 14th render");
     assert!(at(shot + 15).is_empty(), "the timer ran out");
 
     sim.entities_mut_for_test()
@@ -148,7 +150,7 @@ fn the_players_apocalypse_marks_its_target_for_fifteen_frames() {
         .set_for_test(None);
     let entity = sim.entities().get(apoc).unwrap();
     assert!(
-        target_laser_draws_at(entity, &sim, rules, || Some(&palette), view(), shot).is_empty(),
+        target_laser_draws_at(entity, &sim, rules, || Some(&palette), view(), shot + 1).is_empty(),
         "6FF960 needs a Target"
     );
 }
@@ -164,11 +166,11 @@ fn neither_a_computer_apocalypse_nor_the_players_rhino_draws_a_laser() {
     let palette = palette();
     for (kind, shooter) in [("APOC", "Russians"), ("HTNK", "Americans")] {
         let (mut sim, firer, target) = duel(rules, kind, shooter);
-        let shot = first_shot(&mut sim, rules, shooter, firer, target);
+        first_shot(&mut sim, rules, shooter, firer, target);
         let entity = sim.entities().get(firer).unwrap();
         assert!(entity.attack_target.target().is_some());
         assert!(
-            target_laser_draws_at(entity, &sim, rules, || Some(&palette), view(), shot).is_empty(),
+            target_laser_draws(entity, &sim, rules, || Some(&palette), view()).is_empty(),
             "{shooter}'s {kind}"
         );
     }

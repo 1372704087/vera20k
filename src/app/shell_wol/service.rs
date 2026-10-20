@@ -177,11 +177,16 @@ pub(crate) enum WolServiceEvent {
     ChannelLeft,
     /// The create result and the channel's users.
     Created(Result<Vec<WolMember>, u32>),
-    /// The page sinks `0x007A9200`/`0x007A9550`: sender and text.
+    /// The page sinks: `ansi` for `0x007A9200`, otherwise the UTF-16
+    /// `0x007A9550`, which gamemd's own pages (API+0xF8 with UTF-16 text)
+    /// most likely reach.
     Page {
         from: WolMember,
         text: Vec<u16>,
+        ansi: bool,
     },
+    /// The page-send result sink `CChatEventSink+0x6C` (`0x007A9800`).
+    PageResult(Result<(), u32>),
     /// A chat or action line from another user: the chat sinks
     /// `0x007A8DA0` (public), `0x007A8FC0` (private), `0x007AB170` (public
     /// action), `0x007AAFB0` (private action) and their UTF-16 forms.
@@ -701,8 +706,12 @@ pub(crate) fn service_event(state: &mut AppState, event: WolServiceEvent) {
         return;
     }
     let event = match event {
-        WolServiceEvent::Page { from, text } => {
-            super::lobby::page_received(state, from, text);
+        WolServiceEvent::Page { from, text, ansi } => {
+            super::lobby::page_received(state, from, text, ansi);
+            return;
+        }
+        WolServiceEvent::PageResult(result) => {
+            super::lobby::page_result(state, result);
             return;
         }
         WolServiceEvent::Message {

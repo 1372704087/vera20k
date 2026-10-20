@@ -825,8 +825,8 @@ fn seed_scenario(sim: &mut Simulation, rules: &RuleSet, overlays: &OverlayTypeRe
     // response treated a house-less owner as a computer's (a human house's
     // AttackMove tank keeps moving when hit), and the harvester branches that
     // treat a missing house as human are not reached in these 700 ticks.
-    // Registered, they run House AI; with no credits and no factory it
-    // builds nothing and forms no team.
+    // Registered, they run House AI; with no credits it builds nothing and
+    // forms no team.
     for (owner, side) in [("Americans", 0), ("Soviet", 1)] {
         let id = sim.interner.intern(owner);
         sim.houses.get_or_register_for_test(id, || {
@@ -1103,6 +1103,25 @@ fn global_skirmish_replay_is_deterministic_and_baseline_stable() {
                     assert_eq!(
                         tank.attack_target.target(),
                         Some(crate::sim::combat::TargetKind::Entity(7))
+                    );
+                    // The defer's own inputs: Is_Moving_Now and Get_Height.
+                    assert!(
+                        crate::sim::movement::ready_producer::ready_state_for(
+                            tank,
+                            Some(crate::sim::movement::SpeedRules::new(
+                                &rules,
+                                &rec.interner,
+                                &rec.houses
+                            )),
+                            rec.session.binary_frame(),
+                        )
+                        .is_some_and(|state| state.is_moving_now())
+                    );
+                    assert!(
+                        crate::sim::movement::air_movement::current_fly_height(
+                            tank,
+                            rec.resolved_terrain.as_ref()
+                        ) >= 0
                     );
                     assert!(
                         !rec.mission_ready_to_commence(4, &rules),

@@ -15,9 +15,9 @@
 //! families that can reach this gate, derived per gate evaluation by
 //! [`crate::sim::movement::ready_producer`] — native makes a fresh locomotor
 //! call at each of its own gate sites rather than caching one per frame. The
-//! signed object height still has no live producer; the host promotion maps that
-//! unavailability to a permissive moving-defer gate (recorded residual) rather
-//! than stalling queued missions forever.
+//! signed object height (`Get_Height`) is read from the object's position on
+//! the moving path. A rules-free provider cannot make the factory and contact
+//! lookups, so it answers a Unit that reaches them not ready.
 
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
@@ -189,7 +189,18 @@ pub(crate) struct LiveReadyInputProvider<'r> {
     pub(crate) rules: &'r RuleSet,
 }
 
-struct UnavailableUnitWorld;
+/// Rules-free Unit-readiness world: the height reads the object, the
+/// factory and contact lookups are unavailable.
+struct RulesFreeUnitWorld<'a> {
+    sim: &'a Simulation,
+    entity: &'a crate::sim::game_entity::GameEntity,
+}
+
+/// `Get_Height` (vt+0x1C8, `ObjectClass::GetHeight @ 0x005F5F40`): the
+/// object's height above the ground or bridge deck under it.
+fn unit_signed_height(sim: &Simulation, entity: &crate::sim::game_entity::GameEntity) -> i32 {
+    crate::sim::movement::air_movement::current_fly_height(entity, sim.resolved_terrain.as_ref())
+}
 
 /// Live Unit-readiness world: Radio contact slot 0 identity and the
 /// building-under lookup in the existing per-cell stored list order.
@@ -258,12 +269,16 @@ impl UnitReadyWorld for LiveUnitWorld<'_> {
             anchor,
         )))
     }
+
+    fn signed_height(&self) -> i32 {
+        unit_signed_height(self.sim, self.entity)
+    }
 }
 
 impl ready_private::Sealed for EntityReadyInputProvider {}
 impl ready_private::Sealed for LiveReadyInputProvider<'_> {}
 
-impl UnitReadyWorld for UnavailableUnitWorld {
+impl UnitReadyWorld for RulesFreeUnitWorld<'_> {
     fn contact_slot_zero(&self) -> Result<Option<UnitReadyContact>, ReadyUnavailable> {
         Err(ReadyUnavailable::WorldLookup)
     }
@@ -273,6 +288,10 @@ impl UnitReadyWorld for UnavailableUnitWorld {
         _unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable> {
         Err(ReadyUnavailable::WorldLookup)
+    }
+
+    fn signed_height(&self) -> i32 {
+        unit_signed_height(self.sim, self.entity)
     }
 }
 
@@ -330,11 +349,6 @@ fn evaluate_ready(
 
         match entity.category() {
             EntityCategory::Unit => {
-                // `Get_Height` (vt+0x1C8, `ObjectClass::GetHeight @ 0x005F5F40`).
-                let signed_height = crate::sim::movement::air_movement::current_fly_height(
-                    entity,
-                    sim.resolved_terrain.as_ref(),
-                );
                 let leaf = entity
                     .mission_leaf
                     .as_unit()
@@ -351,7 +365,6 @@ fn evaluate_ready(
                         leaf,
                         unload_active,
                         locomotor,
-                        signed_height,
                         attack_target_present,
                         position,
                         world: &LiveUnitWorld { sim, rules, entity },
@@ -361,10 +374,9 @@ fn evaluate_ready(
                         leaf,
                         unload_active,
                         locomotor,
-                        signed_height,
                         attack_target_present,
                         position,
-                        world: &UnavailableUnitWorld,
+                        world: &RulesFreeUnitWorld { sim, entity },
                     }),
                 }
             }
@@ -504,7 +516,7 @@ impl Simulation {
     /// `decompile_function 0x007360c0` / `0x0051bab0` and the Queue/Commence
     /// active-caller census. Commence is a fieldwise no-op on an empty queue,
     /// so the Ready read is skipped there (pure, result unused). Readiness is
-    /// [`ready_to_commence_answer`], with its moving-defer residual.
+    /// [`ready_to_commence_answer`].
     pub(crate) fn mission_host_promote(&mut self, receiver: u64, now: u32, rules: &RuleSet) {
         let queued = self
             .substrate

@@ -87,6 +87,10 @@ pub(crate) trait UnitReadyWorld {
         &self,
         unit_position: ReadyLeptonPoint,
     ) -> Result<Option<UnitReadyBuilding>, ReadyUnavailable>;
+
+    /// `Get_Height` (vt+0x1C8, `ObjectClass::GetHeight @ 0x005F5F40`), asked
+    /// only on the moving path (`0x007442E9`).
+    fn signed_height(&self) -> i32;
 }
 
 /// Complete borrowed/scalar inputs for the Unit leaf.
@@ -95,8 +99,6 @@ pub(crate) struct UnitReadyView<'a, W: UnitReadyWorld + ?Sized> {
     pub(crate) leaf: &'a UnitMissionLeaf,
     pub(crate) unload_active: bool,
     pub(crate) locomotor: Option<LocomotorReadyState>,
-    /// `Get_Height` (vt+0x1C8).
-    pub(crate) signed_height: i32,
     pub(crate) attack_target_present: bool,
     pub(crate) position: ReadyLeptonPoint,
     pub(crate) world: &'a W,
@@ -154,7 +156,7 @@ pub(crate) fn unit_ready_to_commence<W: UnitReadyWorld + ?Sized>(
             .ok_or(ReadyUnavailable::Locomotor)?
             .is_moving_now();
         if moving {
-            if view.signed_height >= 0 {
+            if view.world.signed_height() >= 0 {
                 let effective = view.mission.effective();
                 if effective != MISSION_GUARD
                     && !(effective == MISSION_ATTACK && !view.attack_target_present)
@@ -270,6 +272,7 @@ mod tests {
     struct TestWorld {
         contact: Result<Option<UnitReadyContact>, ReadyUnavailable>,
         building: Result<Option<UnitReadyBuilding>, ReadyUnavailable>,
+        height: i32,
         calls: RefCell<Vec<Lookup>>,
     }
 
@@ -278,6 +281,7 @@ mod tests {
             Self {
                 contact: Ok(None),
                 building: Ok(None),
+                height: 0,
                 calls: RefCell::new(Vec::new()),
             }
         }
@@ -297,6 +301,10 @@ mod tests {
                 .borrow_mut()
                 .push(Lookup::BuildingUnder(unit_position));
             self.building
+        }
+
+        fn signed_height(&self) -> i32 {
+            self.height
         }
     }
 
@@ -343,7 +351,6 @@ mod tests {
             leaf,
             unload_active: false,
             locomotor: Some(stopped()),
-            signed_height: 0,
             attack_target_present: false,
             position: ReadyLeptonPoint::new(40 * 256, 51 * 256),
             world,
@@ -430,14 +437,15 @@ mod tests {
         let world = TestWorld::default();
         let mut view = unit_view(&mission, leaf, &world);
         view.locomotor = Some(moving());
-        view.signed_height = 0;
         assert_eq!(unit_ready_to_commence(view), Ok(false));
         assert!(world.calls.borrow().is_empty());
 
-        let world = TestWorld::default();
+        let world = TestWorld {
+            height: -1,
+            ..TestWorld::default()
+        };
         let mut view = unit_view(&mission, leaf, &world);
         view.locomotor = Some(moving());
-        view.signed_height = -1;
         assert_eq!(unit_ready_to_commence(view), Ok(true));
 
         for (current, target_present, bypass) in [

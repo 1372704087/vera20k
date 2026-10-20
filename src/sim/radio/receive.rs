@@ -917,7 +917,7 @@ fn unit_docking(
         // the DWORD -1 (`0x00737910..0x0073791B`). Without a zone grid both
         // lookups answer None and compare equal.
         let retained_zone = |foot: &crate::sim::game_entity::GameEntity| {
-            let (x, y) = foot.navigation.neighbor_state.cell();
+            let (x, y) = foot.navigation.neighbor_state().cell();
             sim.zone_grid
                 .as_ref()
                 .zip(sim.resolved_terrain.as_ref())

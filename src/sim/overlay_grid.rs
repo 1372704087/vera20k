@@ -355,11 +355,23 @@ impl OverlayGrid {
     }
 
     /// Mutable access to cell. Panics if out-of-bounds.
-    pub fn cell_mut(&mut self, rx: u16, ry: u16) -> &mut OverlayCell {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn cell_mut_for_test(&mut self, rx: u16, ry: u16) -> &mut OverlayCell {
         self.bump_mutation_epoch();
         let idx =
             index_of(self.width, self.height, rx, ry).expect("OverlayGrid::cell_mut out of bounds");
         &mut self.cells[idx]
+    }
+
+    /// Empty the whole cell without dirty-cell or neighbor bookkeeping: a
+    /// resource that cannot lie on its slope ([`recalc_overlay_passability`])
+    /// and the resource under an authored terrain object at map load.
+    /// Panics if out-of-bounds.
+    pub(crate) fn clear_cell_silently(&mut self, rx: u16, ry: u16) {
+        self.bump_mutation_epoch();
+        let idx = index_of(self.width, self.height, rx, ry)
+            .expect("OverlayGrid::clear_cell_silently out of bounds");
+        self.cells[idx] = OverlayCell::default();
     }
 
     /// Update only CellClass's bridge-overlay identity.
@@ -610,8 +622,9 @@ impl OverlayGrid {
     /// without a dirty entry or Recalc: `OverlayClass::Mark`'s data stores and
     /// the stores that follow an Overlay constructor
     /// (`CellClass::PlaceTiberium @ 0x004872A0`, `AnimClass::AI @
-    /// 0x00424155`). The terrain bridge cache follows as for
-    /// [`Self::write_mark_identity`]. False outside the grid.
+    /// 0x00424155`), and map-load germination's densities. The terrain bridge
+    /// cache follows as for [`Self::write_mark_identity`]. False outside the
+    /// grid.
     pub(crate) fn write_cell_data(
         &mut self,
         resolved_terrain: Option<&mut ResolvedTerrainGrid>,
@@ -1035,7 +1048,7 @@ pub fn recalc_overlay_passability(
     let source_flags = overlay_id.and_then(|id| registry.flags(id));
     let mut cleared_resource_for_slope = false;
     if source_flags.is_some_and(|flags| clears_tiberium_on_slope(flags, slope_type)) {
-        *overlay_grid.cell_mut(rx, ry) = OverlayCell::default();
+        overlay_grid.clear_cell_silently(rx, ry);
         overlay_id = None;
         cleared_resource_for_slope = true;
     }
@@ -2793,7 +2806,7 @@ NoUseTileLandType=yes
         assert_eq!(deck.base_land_type, LandType::Water.as_index());
 
         // Removing the bridge hands the cell back to the water tile.
-        *overlay_grid.cell_mut(0, 0) = OverlayCell::default();
+        *overlay_grid.cell_mut_for_test(0, 0) = OverlayCell::default();
         recalc_overlay_passability(&mut overlay_grid, &mut terrain, &registry, 0, 0);
         let bare = terrain.cell(0, 0).expect("cleared cell");
         assert_eq!(bare.land_type, LandType::Water.as_index());

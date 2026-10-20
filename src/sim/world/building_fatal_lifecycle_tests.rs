@@ -960,7 +960,7 @@ impl Fixture {
                 .take_while(|word| *word != u8::MAX)
                 .collect();
             assert_eq!(
-                actual.navigation.path_replay.remaining_directions(),
+                actual.navigation.path_replay().remaining_directions(),
                 native_path,
                 "{boundary}: retained native path head"
             );

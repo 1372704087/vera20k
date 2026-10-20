@@ -158,7 +158,7 @@ fn no_queue_path_request(
 ) -> Option<crate::sim::components::DriveCoord> {
     if !entity
         .navigation
-        .path_replay
+        .path_replay()
         .remaining_directions()
         .is_empty()
     {
@@ -269,7 +269,7 @@ impl FootPathRequest {
     ) {
         let current = (actor.position.rx(), actor.position.ry());
         super::path_markers::install_path_replay(
-            &mut actor.navigation.path_replay,
+            actor.navigation.path_replay_mut(),
             current,
             &path,
             1,
@@ -438,7 +438,7 @@ fn advance_ordinary_mover(
         //wait: 75AF57..75AF66 calls the owner's vt+0x548 and returns.
         if !entity
             .navigation
-            .path_runtime
+            .path_runtime()
             .movement_timer()
             .expired(native_frame as i32)
         {
@@ -538,7 +538,7 @@ fn advance_ordinary_mover(
         && super::ground_pose::position_world_xy(before)
             != super::ground_pose::position_world_xy(&entity.position)
     {
-        entity.navigation.path_runtime.set_path_blocked(false);
+        entity.navigation.path_runtime_mut().set_path_blocked(false);
     }
 }
 

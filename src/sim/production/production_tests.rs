@@ -1621,7 +1621,7 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
     assert!(
         produced
             .navigation
-            .path_replay
+            .path_replay()
             .remaining_directions()
             .is_empty()
     );

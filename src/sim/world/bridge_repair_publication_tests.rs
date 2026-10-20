@@ -281,7 +281,7 @@ fn walk_boundary_relinks_current_xyz_and_leaves_the_raw_bit_on_the_head() {
         e.position.set_sub_x_for_test(SimFixed::from_num(192));
         e.position.set_sub_y_for_test(SimFixed::from_num(64));
         e.locomotor.as_mut().unwrap().set_step_head(Some(head));
-        (e.owner(), e.navigation.path_replay.clone())
+        (e.owner(), e.navigation.path_replay().clone())
     };
     sim.substrate
         .raw_cell_occupation
@@ -311,7 +311,7 @@ fn walk_boundary_relinks_current_xyz_and_leaves_the_raw_bit_on_the_head() {
     assert!(e.lifecycle.cell_marked() && e.foot_occupation_enabled());
     assert_eq!(e.sub_cell(), Some(0));
     assert_eq!(e.locomotor.as_ref().unwrap().step_head(), Some(head));
-    assert_eq!(e.navigation.path_replay, queue);
+    assert_eq!(e.navigation.path_replay().clone(), queue);
     assert_eq!(
         sim.substrate.raw_cell_occupation.ground_bits(15, 15) & 0x1f,
         0
@@ -909,7 +909,7 @@ fn walk_stop_and_retarget_finish_a_same_cell_committed_head() {
         let e = sim.substrate.entities.get(id).unwrap();
         assert_eq!(ground_pose::position_world_coord(&e.position), before);
         assert_eq!(e.locomotor.as_ref().unwrap().step_head(), Some(head));
-        assert!(e.navigation.path_replay.remaining_directions().is_empty());
+        assert!(e.navigation.path_replay().remaining_directions().is_empty());
         assert_eq!(e.navigation.nav_com().is_none(), stop);
         // Both instance-owned XYZ values survive the actual snapshot envelope.
         let map_terrain = sim.resolved_terrain.as_ref().unwrap().clone();
@@ -1013,10 +1013,12 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
             .unwrap()
             .set_walk_destination(Some(dest));
         e.locomotor.as_mut().unwrap().set_step_head(Some(head));
-        e.navigation.path_runtime.start_movement(50, 5);
-        e.navigation.path_runtime.start_blocked(40, 6);
-        e.navigation.path_runtime.set_path_blocked(true);
-        e.navigation.path_runtime.set_retries_left(0x8000_0001);
+        e.navigation.path_runtime_mut().start_movement(50, 5);
+        e.navigation.path_runtime_mut().start_blocked(40, 6);
+        e.navigation.path_runtime_mut().set_path_blocked(true);
+        e.navigation
+            .path_runtime_mut()
+            .set_retries_left(0x8000_0001);
         // The paid head is the last Foot+5E0 word, as the object-turn
         // suspension exposes it to the real PerCell completion owner.
         sim.run_completed_walk_step(
@@ -1029,10 +1031,10 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
         .expect("fixture frame must complete");
         let e = sim.substrate.entities.get(id).unwrap();
         assert_eq!(e.navigation.nav_com().is_some(), survives);
-        assert!(!e.navigation.path_runtime.path_blocked());
-        assert_eq!(e.navigation.path_runtime.retries_left(), 0x8000_0001);
+        assert!(!e.navigation.path_runtime().path_blocked());
+        assert_eq!(e.navigation.path_runtime().retries_left(), 0x8000_0001);
         assert_eq!(
-            e.navigation.path_runtime.movement_timer(),
+            e.navigation.path_runtime().movement_timer(),
             if survives {
                 CdTimer::from_raw(50, 5)
             } else {
@@ -1040,7 +1042,7 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
             },
         );
         assert_eq!(
-            e.navigation.path_runtime.blocked_timer(),
+            e.navigation.path_runtime().blocked_timer(),
             if survives {
                 CdTimer::from_raw(40, 6)
             } else {
@@ -1054,10 +1056,10 @@ fn walk_completion_uses_retained_destination_and_exact_height_tolerance() {
         if survives {
             assert!(crate::sim::movement::motion_query::is_moving(&e) == Some(true));
             assert!(
-                e.navigation.path_replay.remaining_directions().is_empty(),
+                e.navigation.path_replay().remaining_directions().is_empty(),
                 "surviving destination must regain a first-search request"
             );
-            assert_eq!(e.navigation.path_replay.reference_cell(), Some((16, 15)));
+            assert_eq!(e.navigation.path_replay().reference_cell(), Some((16, 15)));
             assert_eq!(e.locomotor.as_ref().unwrap().walk_destination(), Some(dest));
         }
     }
@@ -1245,13 +1247,13 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
         if ordered {
             // Infantry's accepted Foot setter4D96C2..9707 runs after Jumpjet
             // MoveTo: reset timers/latch while preserving the retry dword.
-            let path_runtime = &mut sim
+            let path_runtime = sim
                 .substrate
                 .entities
                 .get_mut(rocketeer)
                 .unwrap()
                 .navigation
-                .path_runtime;
+                .path_runtime_mut();
             path_runtime.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(-1, 7));
             path_runtime.set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(-1, 31));
             path_runtime.set_path_blocked(true);
@@ -1282,7 +1284,8 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
                     .get(rocketeer)
                     .unwrap()
                     .navigation
-                    .path_runtime,
+                    .path_runtime()
+                    .clone(),
                 expected_runtime
             );
             let state = sim

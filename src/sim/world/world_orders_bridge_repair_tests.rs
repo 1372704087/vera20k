@@ -828,7 +828,7 @@ fn live_repair_fixture() -> (
             .overlay_id = Some(231);
         let overlays = sim.overlay_grid.as_mut().unwrap();
         overlays.place_overlay(x, y, 231, 0xA0 + index as u8);
-        overlays.cell_mut(x, y).wall_owner = Some(owner);
+        overlays.cell_mut_for_test(x, y).wall_owner = Some(owner);
     }
     (sim, rules, registry, engineer)
 }

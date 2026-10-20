@@ -277,16 +277,16 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
         .set_nav_queue_for_test(vec![NavTargetRef::cell(12, 10)]);
     entity
         .navigation
-        .path_replay
+        .path_replay_mut()
         .set_directions_for_test(vec![2, 2]);
-    entity.navigation.path_runtime.set_path_blocked(true);
+    entity.navigation.path_runtime_mut().set_path_blocked(true);
     entity
         .navigation
-        .path_runtime
+        .path_runtime_mut()
         .set_movement_timer_for_test(CdTimer::started(50, 5));
     entity
         .navigation
-        .path_runtime
+        .path_runtime_mut()
         .set_blocked_timer_for_test(CdTimer::started(40, 6));
     let runtime = entity
         .locomotor
@@ -331,11 +331,11 @@ fn a_jumpjet_touchdown_without_a_target_runs_the_class_null_setter() {
     assert!(
         entity
             .navigation
-            .path_replay
+            .path_replay()
             .remaining_directions()
             .is_empty()
     );
-    let timing = &entity.navigation.path_runtime;
+    let timing = entity.navigation.path_runtime();
     assert!(!timing.path_blocked());
     assert_eq!(timing.movement_timer(), CdTimer::started(1000, 0));
     assert_eq!(

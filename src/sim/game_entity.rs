@@ -1063,7 +1063,7 @@ impl GameEntity {
     /// Foot+5E0=-1; retained suffix/reference words and the destination
     /// remain intact.
     pub(crate) fn clear_live_path_head(&mut self) {
-        self.navigation.path_replay.clear_live_head();
+        self.navigation.path_replay_mut().clear_live_head();
     }
 
     /// The stored playfield membership (`TechnoClass+0x3D5`).

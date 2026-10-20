@@ -191,16 +191,16 @@ mod tests {
         assert!(InGameMenuState::AbortConfirm.is_open());
         assert!(InGameMenuState::Options.is_open());
         assert!(InGameMenuState::Diplomacy.is_open());
+        assert!(InGameMenuState::MissionBriefing.is_open());
     }
 
-    /// Dialog 0x73 has no cancel path: only Return closes it.
+    /// Dialogs 0x73 and 0x10C have no cancel path: only Return closes them.
     #[test]
-    fn escape_keeps_the_diplomacy_dialog_open() {
-        assert_eq!(
-            InGameMenuState::Diplomacy.on_escape(),
-            InGameMenuState::Diplomacy
-        );
-        assert!(escape_belongs_to_modal_machine(InGameMenuState::Diplomacy));
+    fn escape_keeps_diplomacy_and_the_briefing_open() {
+        for state in [InGameMenuState::Diplomacy, InGameMenuState::MissionBriefing] {
+            assert_eq!(state.on_escape(), state);
+            assert!(escape_belongs_to_modal_machine(state));
+        }
     }
 
     /// Doing nothing in the abort dialog leaves the modal where it was.

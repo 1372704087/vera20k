@@ -164,9 +164,11 @@ impl RestartCapture {
             presentation.in_game_menu == crate::ui::pause_menu::InGameMenuState::MissionBriefing,
             "the 0xF2 tab did not open the restate briefing"
         );
+        // ALL01UMD.MAP's MISSIONMD Briefing key.
+        let expected = crate::app::frontend::shell_pass::resolve_csf(state, "Brief:ALL01md");
         ensure!(
-            !presentation.restate_text.is_empty(),
-            "the restate briefing resolved no text"
+            presentation.restate_text == expected,
+            "the restate briefing did not resolve Brief:ALL01md"
         );
         route.push(
             json!({"frame": frame, "action": "0xF2 tab press and release",

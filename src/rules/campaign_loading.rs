@@ -188,7 +188,7 @@ mod tests {
     }
 
     #[test]
-    fn retail_restate_briefings_name_every_section_and_fall_back_to_the_error_key() {
+    fn retail_restate_briefings_read_their_section_key_or_fall_back_to_the_error_key() {
         let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
             return;
         };

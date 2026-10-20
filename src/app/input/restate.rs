@@ -8,9 +8,12 @@
 //! (`[0xB04CA0]`); a missing file opens nothing. The dialog sends no event:
 //! in co-op the other peers are not told, and the local game keeps running
 //! under it through the modal pump, as under Diplomacy.
-//! RESIDUAL: native zeroes `g_ScenarioStarted` while the dialog is open
-//! (0x0065F537..0x0065F6C4) on the opening peer only; its gameplay readers
-//! (`FootClass::PointerExpired` 0x004D999B, ParasiteClass, TagClass) would
+//! Native zeroes `g_ScenarioStarted` while the dialog is open
+//! (0x0065F537..0x0065F6C4) on the opening peer only. Its presentation reader,
+//! the camera focus in `Tactical::AI` (0x006D256B), is held here through
+//! [`crate::app::input::camera::advance_camera_ai`].
+//! RESIDUAL: its gameplay readers (`FootClass::PointerExpired` 0x004D999B,
+//! ParasiteClass, TagClass) and the session-query answer 0x005DFE7E would
 //! diverge that peer, and VERA keeps the flag in the lockstep sim.
 
 use crate::app::{App, AppState};
@@ -18,19 +21,13 @@ use crate::ui::pause_menu::InGameMenuState;
 use crate::ui::shell::restate::{RestateButton, RestateControl, RestateLayout, restate_layout};
 use winit::event::MouseButton;
 
-/// Scenario+0x125C, the section MISSIONMD is read under: the campaign's
-/// scenario, or the network launch's map.
-/// RESIDUAL: a restored save keeps no file name, so a restored campaign
-/// mission opens nothing.
+/// Scenario+0x125C, the section MISSIONMD is read under: the loaded
+/// scenario's file name, which a save carries. The section lookup is exact
+/// case, so a Cooperative launch must name its map as MISSIONMD spells it
+/// (`[C1A01MD.MAP]`); that spelling is unverified until Cooperative launches.
 fn scenario_file_name(state: &AppState) -> Option<String> {
-    if let Some(campaign) = state.match_state.startup.installed_campaign() {
-        return Some(campaign.scenario().to_owned());
-    }
-    state
-        .match_state
-        .session
-        .network_setup()
-        .and_then(|launch| launch.selected_map_file.clone())
+    let runtime = state.match_state.sim_runtime.as_ref()?;
+    Some(runtime.simulation.session().map_name().to_owned())
 }
 
 /// `0x0065F520`: read the briefing, then open 0x10C.

@@ -761,10 +761,14 @@ impl Simulation {
     /// - the water and rock death (`0x0051A94F..0x0051A9E8`) is not ported:
     ///   a stationary infantryman whose type is not `C4=` and who has no C4
     ///   ability, off a bridge on Water or Rock, takes ReceiveDamage of his
-    ///   current Health (`+0x6C`) with `C4Warhead=`, ignoring defenses.
-    ///   Trigger: a paratrooper landing (`0x005F3F8D`) on water or rock; a
-    ///   walking arrival is still moving and skips it. Effect: VERA's
-    ///   paratroopers live on there, where retail's die.
+    ///   current Health (`+0x6C`) with `C4Warhead=`, ignoring defenses, and
+    ///   the visit ends before the Foot body. No skirmish route reaches it
+    ///   with another outcome: a Walk or Teleport arrival is still moving;
+    ///   Drop_Payload drops a paratrooper only where his Can_Enter_Cell
+    ///   answers 0 (`0x00415D7D`); unload and Tube exits use passable cells;
+    ///   and a DropAsBomb faller from a lost deck dies of the landing's own
+    ///   `C4Warhead=` hit (`0x005F402B`) just after this call. Effect: that
+    ///   faller runs the Foot body before he dies.
     fn infantry_per_cell_process(
         &mut self,
         id: u64,

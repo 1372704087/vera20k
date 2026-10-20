@@ -1746,6 +1746,9 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
             state,
             crate::app::types::CategoryNavigationKind::Veterancy,
         ),
+        HotkeyCommand::ToggleAlliance => {
+            crate::app::input::diplomacy::toggle_alliance_hotkey(state)
+        }
         // UNCHECKED residual, all still no-ops. Two of them are audio
         // triggers whose rules keys VERA already parses or could:
         // `PlaceBeacon` should place the beacon and play `[AudioVisual]
@@ -1757,10 +1760,7 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         // nothing. Frequency: rare in skirmish — both are multiplayer
         // social commands. Downstream risk: beacons and taunts are network
         // messages, so they belong with `net/`, not with this row.
-        HotkeyCommand::ToggleAlliance
-        | HotkeyCommand::PlaceBeacon
-        | HotkeyCommand::PageUser
-        | HotkeyCommand::Taunt(_) => {}
+        HotkeyCommand::PlaceBeacon | HotkeyCommand::PageUser | HotkeyCommand::Taunt(_) => {}
     }
 }
 

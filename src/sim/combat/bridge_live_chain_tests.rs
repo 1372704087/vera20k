@@ -652,7 +652,13 @@ fn retail_bridge_forcefire_chain(vehicle_name: &str, weapon_name: &str, projecti
             .unwrap();
         let state = (
             cell.bridge_facts.raw_flags,
-            cell.bridge_facts.state_byte,
+            scenario
+                .sim()
+                .overlay_grid
+                .as_ref()
+                .unwrap()
+                .cell(target.0, target.1)
+                .overlay_data,
             cell.final_tile_index,
         );
         if let Some(previous) = last_state

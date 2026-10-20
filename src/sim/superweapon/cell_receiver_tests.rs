@@ -941,16 +941,16 @@ fn iron_curtain_command_observes_native_deck_order_after_nested_bridge_drop_in()
         cell.bridge_walkable = cell.has_bridge_deck;
         cell.bridge_deck_level = if cell.has_bridge_deck { 7 } else { 3 };
     }
-    let facts = &mut sim
-        .resolved_terrain
+    sim.resolved_terrain
         .as_mut()
         .unwrap()
         .cell_mut_for_test(5, 5)
         .unwrap()
-        .bridge_facts;
-    facts.overlay_id = Some(24);
-    facts.state_byte = 6;
-    facts.raw_flags |= 0x2000;
+        .bridge_facts
+        .raw_flags |= 0x2000;
+    let anchor = sim.overlay_cell_mut_for_test(5, 5);
+    anchor.overlay_id = Some(24);
+    anchor.overlay_data = 6;
     let state =
         BridgeRuntimeState::from_resolved_terrain(sim.resolved_terrain.as_ref().unwrap(), true, 1);
     sim.bridge_state = Some(state);

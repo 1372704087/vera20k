@@ -673,12 +673,9 @@ fn read_crate_mark_fields(sim: &Simulation, cell: (i16, i16)) -> (Option<u8>, u8
 fn write_crate_mark_raw_data(sim: &mut Simulation, cell: (i16, i16), overlay_data: u8) {
     match resolve_crate_mark_cell(sim, cell) {
         CrateMarkCellRef::Real(rx, ry) => {
-            let (Some(grid), Some(terrain)) =
-                (sim.overlay_grid.as_mut(), sim.resolved_terrain.as_mut())
-            else {
-                return;
-            };
-            let _ = grid.write_crate_mark_data_field(terrain, rx, ry, overlay_data);
+            if let Some(grid) = sim.overlay_grid.as_mut() {
+                let _ = grid.write_crate_mark_data_field(rx, ry, overlay_data);
+            }
         }
         CrateMarkCellRef::Dummy(dummy) => {
             let (overlay_id, _) = dummy.overlay_fields();
@@ -2313,19 +2310,6 @@ pub(crate) mod tests {
         let anchor = terrain.cell(12, 13).unwrap().bridge_facts;
         assert!(anchor.is_anchor_self());
         assert!(anchor.has_structural_bridge());
-        assert_eq!(anchor.state_byte, u8::MAX);
-        for target in [(12, 12), (12, 11), (12, 14)] {
-            assert_eq!(
-                terrain
-                    .cell(target.0, target.1)
-                    .unwrap()
-                    .bridge_facts
-                    .state_byte,
-                0,
-                "derived state follows raw setter data at {target:?}"
-            );
-        }
-        assert_eq!(terrain.cell(12, 10).unwrap().bridge_facts.state_byte, 7);
 
         let mut terrain_blocked = sim_with_grid(0x14090009);
         write_crate_mark_raw_data(&mut terrain_blocked, (12, 13), 7);
@@ -2414,17 +2398,6 @@ pub(crate) mod tests {
             );
             for target in [(11, 13), (10, 13), (13, 13)] {
                 assert_eq!(grid.cell(target.0, target.1).overlay_data, 9, "{target:?}");
-                assert_eq!(
-                    sim.resolved_terrain
-                        .as_ref()
-                        .unwrap()
-                        .cell(target.0, target.1)
-                        .unwrap()
-                        .bridge_facts
-                        .state_byte,
-                    9,
-                    "derived state follows raw setter data at {target:?}"
-                );
             }
         }
     }

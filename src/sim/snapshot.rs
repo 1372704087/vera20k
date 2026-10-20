@@ -1206,7 +1206,10 @@ use crate::util::save_codec;
 // the movie campaign defeat plays before its retry prompt.
 // 450 -> 451: HouseState retains House+0x1602A's UI name source (handle,
 // TXT_COMPUTER, map UIName= key or the type's UIName).
-const SNAPSHOT_VERSION: u32 = 451;
+// 451 -> 452: dynamic terrain cell records no longer carry a copy of the
+// cell's overlay identity and state byte, in its bridge facts or its bridge
+// layer; OverlayGrid alone holds them.
+const SNAPSHOT_VERSION: u32 = 452;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -3075,8 +3078,9 @@ impl Simulation {
     /// The full row-major sweep is required because OverlayGrid's dirty queues
     /// are transient: a saved cell may have been cleared since map load, so an
     /// occupied-only replay would leave the original map overlay's passability
-    /// behind. Bridge cell state needs no separate pass: CellClass is its only
-    /// owner and returns through the dynamic terrain cells above.
+    /// behind. Bridge cell state needs no separate pass: its flags return
+    /// through the dynamic terrain cells above, and its overlay identity and
+    /// state byte through OverlayGrid.
     pub fn restore_map_authority_after_snapshot_load(
         &mut self,
         rules: &crate::rules::ruleset::RuleSet,
@@ -9365,7 +9369,10 @@ mod tests {
             0
         );
 
-        let path = PathGrid::from_resolved_terrain_with_bridges(reconciled);
+        let path = PathGrid::from_resolved_terrain_with_bridges(
+            reconciled,
+            restored.overlay_grid.as_ref(),
+        );
         assert!(path.is_walkable(destroyed_cell.0, destroyed_cell.1));
         assert!(!path.is_walkable(damaged_cell.0, damaged_cell.1));
         assert!(!path.is_walkable(spawner_cell.0, spawner_cell.1));
@@ -9445,9 +9452,11 @@ mod tests {
 
         let path_a = PathGrid::from_resolved_terrain_with_bridges(
             a.resolved_terrain.as_ref().expect("terrain restored"),
+            a.overlay_grid.as_ref(),
         );
         let path_b = PathGrid::from_resolved_terrain_with_bridges(
             b.resolved_terrain.as_ref().expect("terrain restored"),
+            b.overlay_grid.as_ref(),
         );
         assert_eq!(path_a, path_b);
 
@@ -10058,6 +10067,7 @@ mod tests {
         // 448 -> 449: the disguise firing blink and its rules keys.
         // 449 -> 450: the retained `[Basic]` Lose movie.
         // 450 -> 451: the House UI name source.
-        assert_eq!(super::SNAPSHOT_VERSION, 451);
+        // 451 -> 452: terrain records drop their overlay identity/state copy.
+        assert_eq!(super::SNAPSHOT_VERSION, 452);
     }
 }

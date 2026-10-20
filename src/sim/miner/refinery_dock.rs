@@ -21,6 +21,10 @@
 //! The shared `mission::enter` owner re-runs that setter on each dispatch.
 //! Evidence: tools/spatial_oracle/cmin_dock.json.
 //!
+//! A computer miner standing still on the pad more than 300 frames into its
+//! mission is sent off by `UnitClass::AI`'s last block
+//! (`miner_system::unit_ai_nudge_off_refinery_pad`, `0x0073681D`).
+//!
 //! RESIDUALS (named trigger, effect, frequency):
 //! - The shared Enter, pending-entry and destination owners handle depot and
 //!   refinery consumers; retained controls/histories compare their native

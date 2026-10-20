@@ -1109,7 +1109,7 @@ fn retail_goldst_uncached_reveal_border_matches_native_admission_and_transport()
             // Derive the LOS cache through its actual existing terrain reader.
             // Full Rust map vs sparse native crop is bounded to these receivers.
             sim.path_grid = Some(std::sync::Arc::new(
-                PathGrid::from_resolved_terrain_with_bridges(terrain),
+                PathGrid::from_resolved_terrain_with_bridges(terrain, sim.overlay_grid.as_ref()),
             ));
         }
         let before_view = serde_json::to_value(&sim.fog.by_owner()[&local]).unwrap();

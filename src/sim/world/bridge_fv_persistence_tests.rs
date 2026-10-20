@@ -106,15 +106,7 @@ fn checkpoint(
             (48..=59).flat_map(|y| (84..=90).map(move |x| (x, y))),
         ),
         transients: transient_ids(sim, ambient),
-        collapsed: sim
-            .resolved_terrain
-            .as_ref()
-            .unwrap()
-            .cell(87, 54)
-            .unwrap()
-            .bridge_facts
-            .overlay_id
-            == Some(232),
+        collapsed: sim.overlay_grid.as_ref().unwrap().cell(87, 54).overlay_id == Some(232),
     }
 }
 
@@ -173,15 +165,7 @@ fn retail_fv_pursuit_missiles_collapse_and_guard_survive_restore() {
             }
             2 if output.tick.bridge_state_changed
                 && actor.attack_target.target().is_none()
-                && sim
-                    .resolved_terrain
-                    .as_ref()
-                    .unwrap()
-                    .cell(87, 54)
-                    .unwrap()
-                    .bridge_facts
-                    .overlay_id
-                    == Some(232) =>
+                && sim.overlay_grid.as_ref().unwrap().cell(87, 54).overlay_id == Some(232) =>
             {
                 Some("collapsed")
             }

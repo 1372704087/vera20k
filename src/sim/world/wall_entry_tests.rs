@@ -98,13 +98,7 @@ fn map_wall(sim: &mut Simulation, overlay: u8, data: u8) {
         .as_mut()
         .unwrap()
         .place_overlay(16, 15, overlay, data);
-    sim.resolved_terrain
-        .as_mut()
-        .unwrap()
-        .cell_mut_for_test(16, 15)
-        .unwrap()
-        .bridge_facts
-        .overlay_id = Some(overlay);
+    sim.overlay_cell_mut_for_test(16, 15).overlay_id = Some(overlay);
 }
 
 /// The class `Can_Enter_Cell` code of mover `id` for the wall cell (16, 15).
@@ -1170,10 +1164,11 @@ fn assert_retail_wall_history(native_path: &'static str, wall_name: &str, direct
                     .cell(coordinate.0, coordinate.1)
                     .unwrap();
                 assert!(
-                    sim.path_grid
-                        .as_ref()
-                        .unwrap()
-                        .resolved_cell_is_current(ground, false),
+                    sim.path_grid.as_ref().unwrap().resolved_cell_is_current(
+                        ground,
+                        sim.overlay_grid.as_ref(),
+                        false
+                    ),
                     "wall navigation publication at {coordinate:?}"
                 );
                 if expected_patch.contains_key(&at(&change["after"])) {

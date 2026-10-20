@@ -182,7 +182,7 @@ impl OverlayMarkHost for SimulationMarkHost<'_> {
         match self.real_coord(cell) {
             Some((x, y)) => {
                 if let Some(grid) = self.sim.overlay_grid.as_mut() {
-                    grid.write_cell_data(self.sim.resolved_terrain.as_mut(), x, y, data);
+                    grid.write_cell_data(x, y, data);
                 }
             }
             None => self.terrain().shared_cell_dummy().write_overlay_state(data),
@@ -221,7 +221,7 @@ impl OverlayMarkHost for SimulationMarkHost<'_> {
         // `0x0047E040`/`0x0047E470` store the data byte on these four visits,
         // with its radar-dirty event, before the flag transaction; a miss
         // writes the shared dummy, which ends on the setter's final visit.
-        let data = if direction == 0 { 0 } else { 9 };
+        let data = crate::map::bridge_facts::bridge_setter_state(direction);
         for (slot, coord) in slots {
             if !matches!(
                 slot,
@@ -238,11 +238,8 @@ impl OverlayMarkHost for SimulationMarkHost<'_> {
             let target = self.cell((x as i16, y as i16));
             match self.real_coord(target) {
                 Some((rx, ry)) => {
-                    if let (Some(grid), Some(terrain)) = (
-                        self.sim.overlay_grid.as_mut(),
-                        self.sim.resolved_terrain.as_mut(),
-                    ) {
-                        grid.write_crate_mark_data_field(terrain, rx, ry, data);
+                    if let Some(grid) = self.sim.overlay_grid.as_mut() {
+                        grid.write_crate_mark_data_field(rx, ry, data);
                     }
                 }
                 None => self.terrain().shared_cell_dummy().write_overlay_state(data),
@@ -287,10 +284,11 @@ impl OverlayMarkHost for SimulationMarkHost<'_> {
 
     fn merge_wall_zones(&mut self, anchor: NativeCellIdentity) -> Result<(), Infallible> {
         let (x, y) = self.coord(anchor);
-        self.with_wall_host(|_, terrain, host| {
+        self.with_wall_host(|grid, terrain, host| {
             use crate::sim::overlay_grid::WallDamageTransactionHost;
             host.navigation_step(
                 terrain,
+                grid,
                 (x as u16, y as u16),
                 false,
                 ZoneRepairKind::MergeAdjacent,

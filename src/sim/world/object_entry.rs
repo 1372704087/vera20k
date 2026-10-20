@@ -982,7 +982,7 @@ fn full_foot_entry<'a>(
                 return Ok(7);
             }
         } else if c.land_type != required.as_index()
-            && !(matches!(c.bridge_facts.overlay_id, Some(237 | 238))
+            && !(matches!(live.sim.cell_overlay(cell).overlay_id, Some(237 | 238))
                 && args.height != i32::from(initial_level))
         {
             return Ok(7);

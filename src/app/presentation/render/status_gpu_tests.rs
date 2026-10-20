@@ -28,6 +28,78 @@ fn native_mobile_health_strips_preserve_color_a_and_z() {
     );
 }
 
+/// The disguised hover arm (`0x006F5E37..0x006F5E87`) through the strip
+/// production draws: an enemy Mirage worn as terrain (Unit `+0xD0(1)`
+/// `0x007465F0` NULL) draws no health while hovered until it is selected; a
+/// Spy (Infantry `0x005226C0` falls back to the player's house) draws it.
+#[test]
+#[ignore = "requires retail assets and GPU; Mirage and Spy hover health through the production strip"]
+fn a_hovered_enemy_mirage_worn_as_terrain_draws_no_health_strip() {
+    let retail = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+        .expect("physical Battle rules");
+    let rules = &retail.rules;
+    let assets = AssetManager::new(
+        &std::path::PathBuf::from(std::env::var_os("RA2_DIR").unwrap()),
+        MediaArchiveMode::STOCK_DIGITAL,
+    )
+    .unwrap();
+    let gpu = Gpu::new();
+    let batch = BatchRenderer::new_with_device(
+        &gpu.device,
+        &gpu.queue,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
+    let overlay = SelectionOverlay::new_on_device(&gpu.device, &gpu.queue, &batch, Some(&assets));
+    let center = crate::util::lepton::absolute_leptons_to_screen(20 * 256 + 128, 20 * 256 + 128, 0);
+    let health_fills = |name: &str, selected: bool| {
+        let mut sim = Simulation::new();
+        let player = sim.interner.intern("Player");
+        let owner = sim.interner.intern("Enemy");
+        let object = rules.object(name).unwrap();
+        let mut entity = GameEntity::new_at_frame_zero_for_test(
+            1,
+            20,
+            20,
+            0,
+            0,
+            owner,
+            Health::new(object.strength),
+            sim.interner.intern(name),
+            EntityCategory::from(object.category),
+            0,
+            5,
+            false,
+        );
+        entity.lifecycle.set_in_limbo_for_test(false);
+        entity.selection.set_selected_for_test(selected);
+        let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
+        disguise.acquire(0, None, None);
+        entity.disguise = Some(disguise);
+        sim.fog = crate::sim::vision::FogState::new(64, 64);
+        sim.fog.reveal_all_for_owner(player);
+        sim.entities_mut().insert(entity);
+        sim.resubmit_entity_display_for_test(1);
+        techno_extras_for_parent(
+            &sim,
+            sim.entities().get(1).unwrap(),
+            Some(rules),
+            &overlay,
+            Some(1),
+            Some("Player"),
+            StatusViewport {
+                camera: [center.0 - 400.0, center.1 - 300.0],
+                size: [800.0, 600.0],
+                ignore_visibility: false,
+            },
+        )
+        .fills
+        .len()
+    };
+    assert_eq!(health_fills("MGTK", false), 0);
+    assert!(health_fills("MGTK", true) > 0);
+    assert!(health_fills("SPY", false) > 0);
+}
+
 #[test]
 #[ignore = "requires retail assets and GPU; original GAPOWR health colors, phases and unchanged A/Z"]
 fn native_building_health_strips_preserve_color_a_and_z() {

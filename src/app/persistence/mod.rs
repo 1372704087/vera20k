@@ -307,7 +307,7 @@ impl PreparedLoad {
         self.simulation.install_fresh_process_main(process_main);
         // Original successful LoadGame67E6C4 publishes A8ED5C=1 after the
         // fallible content/read tail. Failed preparation never changes it.
-        self.simulation.session.set_started(true);
+        self.simulation.session.publish_started();
         (
             self.simulation,
             CommittedLoadPresentation {

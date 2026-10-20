@@ -6350,7 +6350,7 @@ mod tests {
         let entity_id = sim.allocate_stable_id();
         let mut entity = GameEntity::test_default(entity_id, "MTNK", "Americans", 5, 7);
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(false);
+        entity.lifecycle.set_cell_marked_for_test(false);
         entity.in_logic_vector.set_for_test(true);
         entity.position.set_z_for_test(3);
         entity.position.set_exact_z_leptons_for_test(Some(-37));
@@ -9024,7 +9024,7 @@ mod tests {
         let mut entity = GameEntity::test_default(7, "MTNK", "Americans", 5, 5);
         entity.lifecycle.set_object_alive_for_test(false);
         entity.lifecycle.set_in_limbo_for_test(true);
-        entity.lifecycle.set_cell_marked(false);
+        entity.lifecycle.set_cell_marked_for_test(false);
         entity.in_logic_vector.set_for_test(false);
         entity.death.set_dying_for_test(true);
         entity.removal_facts.set_dirty_rect_eligible_for_test(true);
@@ -9063,7 +9063,7 @@ mod tests {
         let mut sim = Simulation::new();
         let mut off_cell_member = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
         off_cell_member.lifecycle.set_in_limbo_for_test(false);
-        off_cell_member.lifecycle.set_cell_marked(false);
+        off_cell_member.lifecycle.set_cell_marked_for_test(false);
         sim.substrate.entities.insert(off_cell_member);
         sim.substrate
             .logic
@@ -9072,7 +9072,7 @@ mod tests {
 
         let mut marked_non_member = GameEntity::test_default(2, "MTNK", "Americans", 6, 6);
         marked_non_member.lifecycle.set_in_limbo_for_test(false);
-        marked_non_member.lifecycle.set_cell_marked(true);
+        marked_non_member.lifecycle.set_cell_marked_for_test(true);
         sim.substrate.entities.insert(marked_non_member);
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "test_map", 0);

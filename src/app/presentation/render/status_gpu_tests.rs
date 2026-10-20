@@ -729,7 +729,7 @@ fn native_building_status_labels(fixture: &'static str) {
                 entity.lifecycle.set_in_limbo_for_test(false);
                 entity
                     .lifecycle
-                    .set_cell_marked(actor["marked"].as_bool().unwrap());
+                    .set_cell_marked_for_test(actor["marked"].as_bool().unwrap());
                 entity
                     .selection
                     .set_selected_for_test(actor["selected"].as_bool().unwrap());

@@ -57,7 +57,7 @@ impl App {
             // it at686424. The runtime may remain retained, but Tag
             // destruction must see a stopped session.
             // Source: original gamemd.exe instructions, SHA2561cdd1180..84298c.
-            runtime.simulation.session.set_started(false);
+            runtime.simulation.session.retire_started();
         }
         state.match_state.scenario_restart_requested = false;
         state.match_state.debug_pause = false;

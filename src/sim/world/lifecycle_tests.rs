@@ -150,8 +150,9 @@ fn constructor_complete_foot_destructors_match_native_team_gate_and_rng() {
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        sim.session
-            .set_started(input["scenario_started_byte"].as_i64().unwrap() != 0);
+        if input["scenario_started_byte"].as_i64().unwrap() != 0 {
+            sim.session.publish_started();
+        }
         let owner = sim.interner.intern("Americans");
         sim.houses
             .register(HouseState::new(owner, 0, Some(owner), true, 0, 10));
@@ -1840,7 +1841,7 @@ fn gsi_04_12_common_raw_occupation_follows_the_layer_query_not_the_path_layer() 
     let mut sim = Simulation::new();
     insert_entity(&mut sim, 2, EntityCategory::Unit);
     let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Drive);
-    locomotor.set_layer(MovementLayer::Air);
+    locomotor.set_layer_for_test(MovementLayer::Air);
     sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(locomotor);
     let _ = sim.try_reveal_entity(2, common_raw_request(5, 6, 0, 128, 128));
     assert!(sim.substrate.occupancy.contains_entity(5, 6, 2));
@@ -2309,7 +2310,7 @@ fn gsi_04_07_damage_air_spatial_entry_crossing_and_exit_keep_vector_order() {
         .unwrap()
         .fly_runtime_mut()
         .unwrap()
-        .set_current_speed(SimFixed::from_num(1));
+        .set_current_speed_for_test(SimFixed::from_num(1));
     sim.tick_air_movement_with_cell_lists_one(
         20,
         None,
@@ -2531,7 +2532,7 @@ fn lifecycle_authority_reveal_rejects_an_already_marked_limbo_object() {
         .get_mut(1)
         .unwrap()
         .lifecycle
-        .set_cell_marked(true);
+        .set_cell_marked_for_test(true);
 
     assert_eq!(
         sim.try_reveal_entity(1, request(10, 20, PlacementEvidence::MarkSucceeded)),
@@ -9146,8 +9147,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         loco.set_fly_target_height(600);
 
         let fly = loco.fly_runtime_mut().unwrap();
-        fly.set_current_speed(SIM_ONE);
-        fly.set_target_speed(SIM_ONE);
+        fly.set_current_speed_for_test(SIM_ONE);
+        fly.set_target_speed_for_test(SIM_ONE);
         let cells = sim
             .resolved_terrain
             .as_ref()
@@ -9179,8 +9180,8 @@ fn fly_cross_level_move_lands_on_destination_surface_after_restore() {
         // Fly lands there (`0x004CE3C0`'s Begin_Landing).
         let loco = entity.locomotor.as_mut().unwrap();
         let fly = loco.fly_runtime_mut().unwrap();
-        fly.set_current_speed(SIM_ZERO);
-        fly.set_target_speed(SIM_ZERO);
+        fly.set_current_speed_for_test(SIM_ZERO);
+        fly.set_target_speed_for_test(SIM_ZERO);
         loco.begin_fly_landing();
         loco.set_fly_target_height(0);
 

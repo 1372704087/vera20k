@@ -1019,7 +1019,7 @@ mod tests {
         let mut e = GameEntity::test_default(1, "MTNK", "Test", 10, 10);
         e.position.set_z_for_test(level);
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.set_cell_marked(true);
+        e.lifecycle.set_cell_marked_for_test(true);
         e
     }
 
@@ -1027,7 +1027,7 @@ mod tests {
     fn aircraft_at_altitude(altitude_lep: i64) -> GameEntity {
         let mut e = GameEntity::test_default(2, "ORCA", "Test", 10, 10);
         e.set_category_for_test(EntityCategory::Aircraft);
-        e.lifecycle.set_cell_marked(true);
+        e.lifecycle.set_cell_marked_for_test(true);
         e.position
             .set_exact_z_leptons_for_test(Some(altitude_lep as i32));
         let mut loco = LocomotorState::for_test_kind(LocomotorKind::Fly);
@@ -1300,7 +1300,7 @@ mod tests {
             actor.position.set_exact_z_leptons_for_test(Some(z));
             actor
                 .lifecycle
-                .set_cell_marked(input["marked"].as_bool().unwrap_or(false));
+                .set_cell_marked_for_test(input["marked"].as_bool().unwrap_or(false));
             actor.set_on_bridge(input["on_bridge"].as_bool().unwrap_or(false));
             if !row["source_geometry"].is_null() {
                 let geometry = object_get_coords(&actor, Some(&terrain));
@@ -1361,7 +1361,7 @@ mod tests {
                 target.position.set_exact_z_leptons_for_test(Some(at(2)));
                 target
                     .lifecycle
-                    .set_cell_marked(object["marked"].as_bool().unwrap_or(true));
+                    .set_cell_marked_for_test(object["marked"].as_bool().unwrap_or(true));
                 let mut objects = Simulation::new();
                 objects.substrate.entities.insert(target);
                 let target = TargetKind::Entity(2);
@@ -1523,7 +1523,7 @@ mod tests {
         let mut e = GameEntity::test_default(100, type_ref, "Attackers", rx, ry);
         e.position.set_z_for_test(level);
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.set_cell_marked(true);
+        e.lifecycle.set_cell_marked_for_test(true);
         e
     }
 
@@ -1531,7 +1531,7 @@ mod tests {
         let mut e = GameEntity::test_default(200, type_ref, "Defenders", rx, ry);
         e.position.set_z_for_test(level);
         e.set_category_for_test(EntityCategory::Unit);
-        e.lifecycle.set_cell_marked(true);
+        e.lifecycle.set_cell_marked_for_test(true);
         e
     }
 

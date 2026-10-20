@@ -793,7 +793,7 @@ fn takeoff_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     })).unwrap();
     loco.fly_runtime_mut()
         .unwrap()
-        .set_target_speed(SimFixed::lit("0.25"));
+        .set_target_speed_for_test(SimFixed::lit("0.25"));
     sim.session.set_binary_frame_for_test(100);
     (sim, rules)
 }
@@ -1381,7 +1381,7 @@ fn fly_paid_step_matches_native_math_and_production_type_speed() {
             .unwrap()
             .fly_runtime_mut()
             .unwrap()
-            .set_current_speed(fraction);
+            .set_current_speed_for_test(fraction);
         sim.session.set_binary_frame_for_test(frame);
         let mut restored = if input["name"] == "turn_5_100" {
             sim.scenario_rng = crate::sim::rng::SimRng::new(0);

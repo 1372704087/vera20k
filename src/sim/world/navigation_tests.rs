@@ -165,7 +165,7 @@ fn recalc_keeps_marked_structure_over_partial_terrain_occupation_and_bridge_deck
         crate::sim::game_entity::GameEntity::test_default(47, "YARD", "Americans", 6, 6);
     structure.set_category_for_test(EntityCategory::Structure);
     structure.set_type_ref_for_test(sim.interner.intern("YARD"));
-    structure.lifecycle.set_cell_marked(true);
+    structure.lifecycle.set_cell_marked_for_test(true);
     structure.death.set_dying_for_test(true); // Dying still owns its marked footprint.
     sim.substrate.entities.insert(structure);
     assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -420,7 +420,7 @@ fn structure_changes_publish_footprint_cells_without_rebuilding_zones() {
         crate::sim::game_entity::GameEntity::test_default(9, "YARD", "Americans", 6, 6);
     structure.set_category_for_test(EntityCategory::Structure);
     structure.set_type_ref_for_test(sim.interner.intern("YARD"));
-    structure.lifecycle.set_cell_marked(true);
+    structure.lifecycle.set_cell_marked_for_test(true);
     sim.substrate.entities.insert(structure);
     assert!(
         sim.finalize_frame_overlays_and_navigation(Some(&rules), Some(&overlays), false, true)
@@ -445,7 +445,7 @@ fn structure_changes_publish_footprint_cells_without_rebuilding_zones() {
         .get_mut(9)
         .unwrap()
         .lifecycle
-        .set_cell_marked(false);
+        .set_cell_marked_for_test(false);
     let zones_before = zone_storage(&sim);
     sim.finalize_frame_overlays_and_navigation(Some(&rules), Some(&overlays), false, true);
     assert_eq!(*sim.path_grid_snapshot().unwrap(), *open);

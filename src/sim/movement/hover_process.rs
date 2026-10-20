@@ -418,7 +418,7 @@ impl Simulation {
     ) -> Result<Arrival, FrameAdvanceError> {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.foot_occupation_enabled.resume();
-            entity.navigation.path_runtime_mut().set_path_blocked(false);
+            entity.navigation.path_runtime_mut().clear_blockage();
             if let Some(hover) = runtime_mut(entity) {
                 hover.pushed = false;
             }
@@ -524,7 +524,7 @@ impl Simulation {
             self.track_raw_mark_at(location, false);
             if let Some(entity) = self.substrate.entities.get_mut(id) {
                 entity.foot_occupation_enabled.suspend();
-                entity.navigation.path_runtime_mut().set_path_blocked(false);
+                entity.navigation.path_runtime_mut().clear_blockage();
             }
         }
         let Some(facing) = self.hover(id).map(|hover| hover.facing.current(frame)) else {
@@ -892,10 +892,7 @@ impl Simulation {
             }
         }
         if let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity
-                .navigation
-                .path_runtime_mut()
-                .set_retries_left(crate::sim::components::FootPathRuntime::RETRY_RELOAD);
+            entity.navigation.path_runtime_mut().reload_retries();
         }
         Ok(())
     }
@@ -1206,8 +1203,8 @@ impl Simulation {
                 }
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
                     let queue = entity.navigation.path_replay_mut();
-                    super::super::path_markers::consume_path_replay(queue, 1);
-                    queue.set_reference_cell(Some(coord_cell(head)));
+                    queue.consume(1);
+                    queue.rebase(coord_cell(head));
                 }
                 Ok(0)
             }
@@ -1241,10 +1238,7 @@ impl Simulation {
                     .get_mut(id)
                     .expect("same Hover Foot");
                 let runtime = entity.navigation.path_runtime_mut();
-                if !runtime.path_blocked() {
-                    runtime.set_path_blocked(true);
-                    runtime.start_blocked(frame, rules.general.blockage_path_delay_ticks);
-                }
+                runtime.latch_blockage(frame, rules.general.blockage_path_delay_ticks);
                 if runtime.movement_timer().expired(frame as i32) {
                     entity.navigation.path_replay_mut().clear_live_head();
                 }

@@ -281,7 +281,7 @@ impl Simulation {
             .ok_or("retired Drive/Ship path owner")?
             .navigation
             .path_runtime_mut()
-            .set_retries_left(crate::sim::components::FootPathRuntime::RETRY_RELOAD);
+            .reload_retries();
         Ok(FootPathOutcome::Resume)
     }
 

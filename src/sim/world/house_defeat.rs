@@ -535,8 +535,7 @@ impl Simulation {
             return;
         }
         if campaign {
-            let was_locked = self.session.input_locked();
-            self.session.set_input_locked(true);
+            let was_locked = self.session.lock_input();
             self.publish_trigger_effects(vec![
                 crate::sim::trigger_runtime::TriggerEffect::InputLockChanged {
                     locked: true,

@@ -104,9 +104,9 @@ pub(crate) fn unset_choices() -> crate::skirmish_launch::SkirmishLocalSlot {
 /// (`0x7A7558..0x7A7786`) but no row; rows are bound only by the host's
 /// `'L'` (`0x5E8EA0`), here [`service::NetworkSetupEvent::HostSetup`]. The
 /// first node added while only the local one exists is the host
-/// `[0xA8D610]` (`0x7A7627..0x7A763D`). Without an operator in the list the
-/// local leave runs (`0x7A782A..0x7A788D`) and this returns false;
-/// otherwise `0x5E9850` clears the acceptances.
+/// `[0xA8D610]` (`0x7A7627..0x7A763D`). Without an operator in the list
+/// this returns false and the caller runs the local leave
+/// (`0x7A782A..0x7A788D`); otherwise `0x5E9850` clears the acceptances.
 pub(crate) fn guest_users_listed(state: &mut AppState, users: &[(String, bool)]) -> bool {
     for (name, _) in users {
         let human = crate::skirmish_launch::SkirmishHumanSlot {
@@ -126,7 +126,6 @@ pub(crate) fn guest_users_listed(state: &mut AppState, users: &[(String, bool)])
         }
     }
     if !users.iter().any(|(_, operator)| *operator) {
-        local_left(state);
         return false;
     }
     if let Err(error) = clear_guest_acceptance(state) {
@@ -242,6 +241,73 @@ pub(crate) fn user_left(state: &mut AppState, name: &str, operator: bool) -> any
     Ok(())
 }
 
+/// The private-options sink `0x7A8260`'s gates for a guest's `R`: nothing
+/// while a WOL match runs (`[0xB77DC1]`) or a start is requested
+/// (`[0xB77E28]`); the sender must be a channel user (the caller's check)
+/// and own a node here. Only a host receives it.
+pub(crate) fn player_choices(
+    state: &mut AppState,
+    name: &str,
+    choices: crate::skirmish_launch::SkirmishLocalSlot,
+    observer: bool,
+) -> anyhow::Result<()> {
+    if crate::app::shell_wol::in_match(state)
+        || start_pending(state)
+        || !state.match_state.session.host()
+    {
+        return Ok(());
+    }
+    let Some(index) = participant(state, name) else {
+        return Ok(());
+    };
+    service::service_event(
+        state,
+        service::NetworkSetupEvent::PlayerChoices {
+            index,
+            choices,
+            observer,
+        },
+    )
+}
+
+/// A user's `A<n>` (`0x5E3D10` arm `'A'`, `0x5E4388` → `0x77E900`): the
+/// parse drops it while a WOL match runs or a start is requested
+/// (`0x5E3E73..0x5E3E90`); the user's node takes the value, and its
+/// accept icon shows only for 1 (`0x5EA3E0`).
+pub(crate) fn player_ready(state: &mut AppState, name: &str, value: i32) -> anyhow::Result<()> {
+    if crate::app::shell_wol::in_match(state) || start_pending(state) {
+        return Ok(());
+    }
+    let Some(index) = participant(state, name) else {
+        return Ok(());
+    };
+    // RESIDUAL: 0x77E900's own-name A0 re-enables C9 (0x5EDDE0); this
+    // user's own readiness is local.
+    if state
+        .match_state
+        .session
+        .network_setup()
+        .is_some_and(|launch| launch.local_player_index == index)
+    {
+        return Ok(());
+    }
+    service::service_event(
+        state,
+        service::NetworkSetupEvent::PlayerReady {
+            index,
+            accepted: value == 1,
+        },
+    )
+}
+
+fn participant(state: &AppState, name: &str) -> Option<usize> {
+    state
+        .match_state
+        .session
+        .network_setup()
+        .and_then(|launch| launch.humans.iter().position(|human| human.name == name))
+}
+
 /// The kick sink `0x7AB670` for another user in this game channel: its
 /// `TXT_USER_KICKED` line in C2/C9 unless `0x5E9510` finds no Open player
 /// row (`0x7AB860..0x7AB8AD`), then its leave.
@@ -268,8 +334,9 @@ pub(crate) fn kicked_key(state: &AppState) -> &'static str {
     }
 }
 
-/// `0x785740`'s local tail for C9: PlayerLeft (`0x785764`), then C9 closes
-/// (`CloseAndPop`) and the lobby rejoins (`0x788A30`). No box.
+/// `0x785740`'s local tail for C2/C9 after the lobby cleared the channel:
+/// PlayerLeft (`0x785764`), then the dialog closes (`CloseAndPop`) and the
+/// lobby rejoins (`0x788A30`). No box.
 pub(crate) fn local_left(state: &mut AppState) {
     play_player_left(state);
     let dialog = super::dialog(state);
@@ -280,7 +347,7 @@ pub(crate) fn local_left(state: &mut AppState) {
 }
 
 /// `0x750920(Rules+0x6BC)` while in a channel (`[0xB76B10]` != 0).
-fn play_player_left(state: &mut AppState) {
+pub(crate) fn play_player_left(state: &mut AppState) {
     let sound = state
         .rules()
         .and_then(|rules| rules.general.player_left_sound())

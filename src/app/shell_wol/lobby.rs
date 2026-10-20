@@ -91,6 +91,7 @@ enum Step {
     },
     Creating {
         observe: bool,
+        channel: WolChannel,
     },
     JoiningGame,
     /// The Buddy List runner's second game-list request for Join.
@@ -215,6 +216,10 @@ pub(super) fn lobbies(state: &AppState) -> &[WolChannel] {
 /// This user is in a channel (`[0xB77DD0]`): a leave will see its OnPart.
 pub(crate) fn in_channel(state: &AppState) -> bool {
     lobby(state).is_some_and(|lobby| lobby.current.is_some())
+}
+
+pub(crate) fn current_channel(state: &AppState) -> Option<WolChannel> {
+    lobby(state)?.current.clone()
 }
 
 fn lobby_mut(state: &mut AppState) -> Option<&mut WolLobby> {
@@ -374,8 +379,18 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     let resume = !postmatch && visit.lobby.is_some();
     if resume {
         let lobby = visit.lobby.as_deref_mut().expect("checked");
-        lobby.current = None;
-        lobby.members.clear();
+        // C2 Back (0x790060..0x7900BE) leaves without waiting; the runner's
+        // 0x788A30 (0x787ED8) then leaves the game channel before joining
+        // (0x788800), whose OnPart shows TXT_YOULEFT here. A channel C9
+        // already left is gone.
+        if lobby
+            .current
+            .as_ref()
+            .is_none_or(|current| current.kind != GAME_CHANNEL)
+        {
+            lobby.current = None;
+            lobby.members.clear();
+        }
         lobby.shown = true;
         lobby.covered = false;
         lobby.ui.observer = observer;
@@ -714,6 +729,10 @@ fn left_channel(state: &mut AppState) {
     }) else {
         return;
     };
+    // 0x785764..0x785788: PlayerLeft in a channel of a nonzero type.
+    if current.kind != 0 {
+        setup::play_player_left(state);
+    }
     let room = match current.lobby_number() {
         Some(number) => WolLobbyRow::joined_name(number, &base_names(state)),
         None => current.name,
@@ -723,6 +742,18 @@ fn left_channel(state: &mut AppState) {
         &[crate::assets::csf_file::CsfArg::Str(&room)],
     );
     message_line(state, text);
+}
+
+/// `0x00785740` for this user while C2/C9 is up: its `TXT_YOULEFT` goes to
+/// that dialog (`[0x7EEF28]`) and closes with it; the channel record and its
+/// users clear, then the dialog closes (`0x785970`, `0x7859F9`) with
+/// PlayerLeft.
+fn setup_channel_left(state: &mut AppState) {
+    if let Some(lobby) = lobby_mut(state) {
+        lobby.members.clear();
+        lobby.current = None;
+    }
+    setup::local_left(state);
 }
 
 /// The leave finished (the sink cleared `[0xB77DD0]`) or its 15 s ran out.
@@ -861,7 +892,10 @@ fn send_create(state: &mut AppState, channel: WolChannel, key: String, observe: 
         .multiplayer_shell_runtime
         .set_side_and_color(persona.country, persona.color);
     if let Some(lobby) = lobby_mut(state) {
-        lobby.step = Step::Creating { observe };
+        lobby.step = Step::Creating {
+            observe,
+            channel: channel.clone(),
+        };
     }
     request(state, WolServiceRequest::CreateChannel { channel, key });
     show_wait(state, "GUI:CreatingChannel");
@@ -1507,6 +1541,9 @@ fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
                 .multiplayer_shell_runtime
                 .set_side_and_color(persona.country, persona.color);
             setup::send_first_choices(state);
+        } else {
+            // 0x7A782A..0x7A788D: no operator, the local tail 0x785740.
+            setup_channel_left(state);
         }
         return;
     }
@@ -1613,7 +1650,7 @@ fn created(state: &mut AppState, result: Result<Vec<WolMember>, u32>) {
     let Some(lobby) = lobby_mut(state) else {
         return;
     };
-    let Step::Creating { observe } = lobby.step else {
+    let Step::Creating { observe, channel } = lobby.step.clone() else {
         log::debug!("stale WOL create result");
         return;
     };
@@ -1639,6 +1676,9 @@ fn created(state: &mut AppState, result: Result<Vec<WolMember>, u32>) {
                 return;
             }
             let lobby = lobby_mut(state).expect("checked");
+            // 0x7A57C7..0x7A57EB: the created channel is the current one
+            // ([0xB76B10]) and this user its host ([0xB77E4C]).
+            lobby.current = Some(channel);
             lobby.members = members;
             lobby.step = Step::Ready;
             if lobby.runner == Runner::Buddy {
@@ -1731,7 +1771,33 @@ pub(super) fn service_event(state: &mut AppState, event: WolServiceEvent) {
                 log::warn!("WOL game-channel leave: {error:#}");
             }
         }
+        WolServiceEvent::ChannelLeft if in_setup_channel(state) => setup_channel_left(state),
         WolServiceEvent::ChannelLeft => leave_finished(state, true),
+        WolServiceEvent::PlayerChoices {
+            from,
+            slot,
+            observer,
+        } => {
+            // 0x7A82F8..0x7A833C: only from a user of this channel.
+            let member = lobby_mut(state)
+                .expect("checked")
+                .members
+                .iter()
+                .any(|member| member.name.eq_ignore_ascii_case(&from));
+            if member
+                && in_setup_channel(state)
+                && let Err(error) = setup::player_choices(state, &from, slot, observer)
+            {
+                log::warn!("WOL choices from {from}: {error:#}");
+            }
+        }
+        WolServiceEvent::PlayerReady { from, value } => {
+            if in_setup_channel(state)
+                && let Err(error) = setup::player_ready(state, &from, value)
+            {
+                log::warn!("WOL readiness from {from}: {error:#}");
+            }
+        }
         WolServiceEvent::Created(result) => created(state, result),
         other => log::debug!("WOL event not for the lobby: {other:?}"),
     }
@@ -2027,10 +2093,7 @@ pub(super) fn kicked(state: &mut AppState, channel: WolChannel, user: WolMember,
                     color: u32::MAX,
                 },
             );
-            if let Some(lobby) = lobby_mut(state) {
-                lobby.members.clear();
-            }
-            setup::local_left(state);
+            setup_channel_left(state);
             return;
         }
         let text = format_csf(

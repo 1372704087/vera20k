@@ -12,8 +12,8 @@ mod wol;
 pub(crate) use actions::{apply_action, commit_map_selection, commit_start, open_choose_map};
 pub(crate) use view::view;
 pub(crate) use wol::{
-    WolStartUser, guest_users_listed, kicked_key, local_left, send_first_choices, user_joined,
-    user_kicked, user_left,
+    WolStartUser, guest_users_listed, kicked_key, local_left, play_player_left, player_choices,
+    player_ready, send_first_choices, user_joined, user_kicked, user_left,
 };
 
 use super::{App, AppState};

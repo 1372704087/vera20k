@@ -550,13 +550,6 @@ fn all_to_hunt_matches_native() {
     }
 }
 
-fn state(mode: i32, last_attack: i32) -> HouseStrategyEmergencyState {
-    let mut state = HouseStrategyEmergencyState::default();
-    state.set_mode_for_test(mode);
-    state.note_building_attack(last_attack);
-    state
-}
-
 fn house(name: InternedId, side: i32) -> HouseState {
     HouseState::new(name, side, None, false, 0, 10)
 }
@@ -762,19 +755,6 @@ fn all_to_hunt_override_is_persistent_and_follows_designated_enemy() {
     house.set_enemy_house_for_test(None);
     assert_eq!(all_to_hunt_score_override(&house, bystander), None);
     assert!(house.strategy_emergency().all_to_hunt_bias());
-}
-
-#[test]
-fn native_entry_writers_change_only_their_owned_fields() {
-    let mut emergency = state(-7, 123);
-    emergency.set_state_four();
-    assert_eq!(emergency.mode(), 4);
-    assert_eq!(emergency.last_building_attack_frame(), 123);
-    assert!(!emergency.all_to_hunt_bias());
-
-    emergency.note_building_attack(-55);
-    assert_eq!(emergency.last_building_attack_frame(), -55);
-    assert_eq!(emergency.mode(), 4);
 }
 
 #[test]

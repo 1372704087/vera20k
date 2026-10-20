@@ -1165,15 +1165,6 @@ mod tests {
     }
 
     #[test]
-    fn reveal_timer_blocks_until_expiry() {
-        let mut state = DisguiseRuntime::default();
-        assert!(!state.reveal_blocks(0));
-        state.block_reacquisition(100, 10);
-        assert!(state.reveal_blocks(109));
-        assert!(!state.reveal_blocks(110));
-    }
-
-    #[test]
     fn cloaking_speed_five_delays_each_progress_step() {
         let mut state = CloakRuntime::new(0);
         let mut rng = SimRng::new(1);

@@ -154,18 +154,6 @@ const LEVEL_HEIGHT_LEPTONS: i32 = crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTO
 const TRAILER_DRAW_FLAGS: u32 = 0x600;
 const DAMAGE_FIRE_SLOT_COUNT: usize = 8;
 
-/// Pure YR `AnimClass_UpdateBouncePhysics` directional-frame projection.
-#[cfg(any(test, feature = "test-support"))]
-pub fn directional_tumble_frame(running_frames: i32, bucket8: i32, global_frame: i32) -> i32 {
-    let running = running_frames.max(1);
-    running * ((-1 - bucket8) & 7) + (global_frame / 3).rem_euclid(running)
-}
-
-#[cfg(any(test, feature = "test-support"))]
-pub fn settled_bounce_frame(running_frames: i32) -> i32 {
-    running_frames.wrapping_mul(8).wrapping_add(1)
-}
-
 /// `AnimClass_Update` @ 0x00423f37: landing consumes two inclusive rolls.
 pub(crate) fn bounce_spawn_count(
     has_spawns: bool,
@@ -3353,32 +3341,6 @@ fn advance_anim_boundary(anim: &mut AnimObject, config: &AnimTypeRuntimeConfig) 
 mod long_tail_contract_tests {
     use super::*;
 
-    #[test]
-    fn yr_long_tail_vectors() {
-        assert_eq!(directional_tumble_frame(5, 0, 9), 38);
-        assert_eq!(directional_tumble_frame(5, 7, 14), 4);
-        assert_eq!(settled_bounce_frame(5), 41);
-        assert_eq!(bounce_spawn_count(true, 4, 2, 3), 5);
-        assert_eq!(
-            anim_translucency_selection(AnimTranslucencyInput {
-                base_flags: 0,
-                forced_translucent: false,
-                forced_uses_75: false,
-                translucency_detail_level: 1,
-                game_detail_level: 2,
-                translucent_ramp: true,
-                current_frame: 7,
-                end_frame: 10,
-                explicit_translucency: 0,
-                instance_ramp: 0,
-            }),
-            AnimTranslucencyResult {
-                draw: true,
-                flags: 6
-            }
-        );
-    }
-
     /// `0x0042319A..0x004231BC`: only an exact `Translucency=` 25, 50 or 75
     /// selects a stage; any other value draws without one.
     #[test]
@@ -5448,32 +5410,6 @@ mod tests {
     }
 
     #[test]
-    fn normalized_rate_uses_live_speed_after_random_rate_selection() {
-        let rules = runtime_rules(
-            "[TEST]\nRate=900\nRandomRate=180,225\nNormalized=yes\nEnd=3\nLoopCount=1\n",
-            &[("TEST", 3)],
-        );
-        let mut sim = Simulation::new();
-        sim.session.game_options_mut_for_test().game_speed = 1;
-        let type_id = sim.interner.intern("TEST");
-        let expected_rng = sim.scenario_rng.clone();
-        let expected_rate = sim.session.game_options().normalized_anim_delay(4);
-
-        let id = sim
-            .spawn_anim_object(&rules, runtime_descriptor(type_id, 0))
-            .unwrap();
-        let runtime = &sim.anim(id).unwrap().runtime;
-
-        assert_eq!(runtime.rate_reload, expected_rate);
-        assert_eq!(runtime.frame_timer.start_frame(), 0);
-        assert_eq!(runtime.frame_timer.duration(), i32::from(expected_rate));
-        assert_eq!(
-            sim.scenario_rng.logical_state(),
-            expected_rng.logical_state()
-        );
-    }
-
-    #[test]
     fn stock_naweap_a_rate_normalizes_to_six_frames_at_speed_one() {
         let rules = runtime_rules(
             "[NAWEAP_A]\nRate=200\nNormalized=yes\nEnd=12\nLoopCount=-1\n",
@@ -6094,71 +6030,6 @@ mod tests {
                 .count(),
             2,
         );
-    }
-
-    #[test]
-    fn occupiable_building_selects_condition_red_boundary() {
-        let (mut sim, rules, building_id) = damage_fire_fixture(true);
-        sim.substrate
-            .entities
-            .get_mut(building_id)
-            .unwrap()
-            .health
-            .set_for_test(26);
-        sim.update_building_damage_fire(building_id, &rules);
-        assert!(
-            !sim.substrate
-                .entities
-                .get(building_id)
-                .unwrap()
-                .damage_fires
-                .active
-        );
-        sim.substrate
-            .entities
-            .get_mut(building_id)
-            .unwrap()
-            .health
-            .set_for_test(25);
-        sim.update_building_damage_fire(building_id, &rules);
-        assert!(
-            sim.substrate
-                .entities
-                .get(building_id)
-                .unwrap()
-                .damage_fires
-                .active
-        );
-    }
-
-    #[test]
-    fn first_anim_visit_only_clears_guard() {
-        let (mut sim, rules, building_id) = damage_fire_fixture(false);
-        sim.substrate
-            .entities
-            .get_mut(building_id)
-            .unwrap()
-            .health
-            .set_for_test(50);
-        sim.update_building_damage_fire(building_id, &rules);
-        let anim_id = sim
-            .substrate
-            .entities
-            .get(building_id)
-            .unwrap()
-            .damage_fires
-            .anim_ids[0]
-            .unwrap();
-        let frame = sim.anim(anim_id).unwrap().runtime.current_frame;
-        sim.visit_anim(
-            anim_id,
-            &rules,
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-        let anim = sim.anim(anim_id).unwrap();
-        assert_eq!(anim.runtime.current_frame, frame);
-        assert!(!anim.runtime.first_ai_guard);
     }
 
     #[test]

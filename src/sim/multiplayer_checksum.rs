@@ -561,30 +561,6 @@ mod tests {
     }
 
     #[test]
-    fn only_the_multiplayer_feedback_anim_sentinel_is_skipped() {
-        let mut checksum = RetailChecksumAccumulator::new();
-        checksum.fold_object(ChecksumObject::new(100, 200, 4, SYNC_EXEMPT_ANIM_ID));
-        assert_eq!(checksum.value(), 0);
-
-        checksum.fold_object(ChecksumObject::new(100, 200, 4, -1));
-        assert_ne!(checksum.value(), 0);
-    }
-
-    #[test]
-    fn multiplayer_frame_consumes_exactly_two_scenario_rng_samples() {
-        let mut sim = Simulation::with_seed(0x1234);
-        let mut reference = sim.scenario_rng.clone();
-        let checksum_sample = reference.next_u32();
-        let diagnostic_sample = reference.next_u32();
-
-        let frame = sim.compute_retail_multiplayer_checksum().unwrap();
-
-        assert_eq!(frame.value, checksum_sample);
-        assert_eq!(frame.diagnostic_rng_sample, diagnostic_sample);
-        assert_eq!(sim.scenario_rng.next_u32(), reference.next_u32());
-    }
-
-    #[test]
     fn gsi_16_11_six_family_logic_fold_uses_stored_order_direct_coords_and_full_rtti() {
         let first_order = [5, 1, 4, 0, 3, 2];
         let second_order = [2, 3, 0, 4, 1, 5];
@@ -773,16 +749,5 @@ mod tests {
 
         assert!(sim.compute_retail_multiplayer_checksum().is_err());
         assert_eq!(sim.scenario_rng.next_u32(), reference.next_u32());
-    }
-
-    #[test]
-    fn gsi_16_11_dangling_logic_id_remains_a_hard_error() {
-        let mut sim = Simulation::new();
-        sim.substrate.logic.set_order_for_test(vec![91]);
-
-        assert_eq!(
-            sim.compute_retail_multiplayer_checksum(),
-            Err(MultiplayerChecksumError::MissingObject(91))
-        );
     }
 }

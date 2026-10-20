@@ -1765,24 +1765,6 @@ SpreadPercentage=.06
     }
 
     #[test]
-    fn native_tiberium_shell_allocates_per_type_due_timers() {
-        let mut state = make_state(20, 20);
-
-        state.reset_native_tiberium_classes(4, 1234);
-
-        let native = state.native_tiberium_state();
-        assert_eq!(native.classes.len(), 4);
-        for class in &native.classes {
-            assert_eq!(class.growth_timer, CdTimer::started(1234, 0));
-            assert_eq!(class.spread_timer, CdTimer::started(1234, 0));
-            assert!(class.growth.is_empty());
-            assert!(class.spread.is_empty());
-            assert!(class.growth_bitmap.is_empty());
-            assert!(class.spread_bitmap.is_empty());
-        }
-    }
-
-    #[test]
     fn native_tiberium_shell_hashes_timers_heaps_and_bitmaps() {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::Hasher;

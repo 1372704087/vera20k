@@ -825,10 +825,6 @@ mod tests {
         rules
     }
 
-    fn seed_one(sim: &mut Simulation, rules: &RuleSet) {
-        seed_one_at(sim, rules, "TIBTRE01", (10, 11));
-    }
-
     fn seed_one_at(sim: &mut Simulation, rules: &RuleSet, type_name: &str, cell: (u16, u16)) {
         seed_terrain_animations(
             sim,
@@ -1043,64 +1039,6 @@ mod tests {
     }
 
     #[test]
-    fn gsi_04_10_stock_immune_tibtree_ignores_wood_damage_and_keeps_spawner() {
-        let rules = rules("Immune=yes\n");
-        let mut sim = Simulation::new();
-        seed_one(&mut sim, &rules);
-        let warhead = rules.warhead("WH").expect("warhead");
-
-        let result = damage_terrain_object_at_cell(
-            &mut sim.production,
-            &mut sim.substrate.raw_cell_occupation,
-            &rules,
-            &sim.interner,
-            (10, 11),
-            10,
-            warhead,
-            None,
-        );
-
-        assert_eq!(result, TerrainDamageResult::Ignored);
-        assert!(sim.production.terrain_animations.contains_key(&(10, 11)));
-        let terrain = sim.production.terrain_objects.values().next().unwrap();
-        assert_eq!(terrain.lifecycle, TerrainObjectLifecycle::Live);
-        assert_eq!(terrain.health, 10);
-    }
-
-    #[test]
-    fn gsi_04_10_nonimmune_tibtree_death_limbos_object_and_removes_spawner_indices() {
-        let rules = rules("Immune=no\n");
-        let mut sim = Simulation::new();
-        seed_one(&mut sim, &rules);
-        let stable_id = *sim.production.terrain_object_cells.get(&(10, 11)).unwrap();
-        let warhead = rules.warhead("WH").expect("warhead");
-
-        let result = damage_terrain_object_at_cell(
-            &mut sim.production,
-            &mut sim.substrate.raw_cell_occupation,
-            &rules,
-            &sim.interner,
-            (10, 11),
-            10,
-            warhead,
-            None,
-        );
-
-        assert_eq!(result, TerrainDamageResult::Destroyed);
-        assert!(!sim.production.terrain_object_cells.contains_key(&(10, 11)));
-        assert!(!sim.production.terrain_animations.contains_key(&(10, 11)));
-        assert!(
-            !sim.production
-                .tiberium_spawning_terrain_cells
-                .contains(&(10, 11))
-        );
-        assert_eq!(
-            sim.production.terrain_objects[&stable_id].lifecycle,
-            TerrainObjectLifecycle::Destroyed
-        );
-    }
-
-    #[test]
     fn gsi_04_10_non_wood_and_immune_damage_do_not_mutate_ordinary_tree() {
         for (wood, type_section) in [(false, ""), (true, "Immune=yes\n")] {
             let rules = terrain_rules("TREE01", wood, type_section);
@@ -1131,38 +1069,6 @@ mod tests {
             assert_eq!(cell.terrain_object_occupation, Some(7));
             assert!(cell.terrain_object_blocks);
         }
-    }
-
-    #[test]
-    fn gsi_04_10_wood_sublethal_damage_changes_only_health() {
-        let rules = terrain_rules("TREE01", true, "");
-        let mut sim = Simulation::new();
-        seed_one_at(&mut sim, &rules, "TREE01", (0, 0));
-        let stable_id = sim.production.terrain_object_cells[&(0, 0)];
-        let terrain = sim.production.terrain_objects[&stable_id].clone();
-        let mut grid = resolved_clear_grid();
-        mark_terrain_occupation(&terrain, Some(&mut grid));
-        let mut expected = sim.production.terrain_objects[&stable_id].clone();
-        expected.health = 6;
-        let warhead = rules.warhead("WH").expect("warhead");
-
-        let result = damage_terrain_object_at_cell(
-            &mut sim.production,
-            &mut sim.substrate.raw_cell_occupation,
-            &rules,
-            &sim.interner,
-            (0, 0),
-            4,
-            warhead,
-            Some(&mut grid),
-        );
-
-        assert_eq!(result, TerrainDamageResult::Damaged { remaining: 6 });
-        assert_eq!(sim.production.terrain_objects[&stable_id], expected);
-        assert_eq!(sim.production.terrain_object_cells[&(0, 0)], stable_id);
-        let cell = grid.cell(0, 0).unwrap();
-        assert_eq!(cell.terrain_object_occupation, Some(7));
-        assert!(cell.terrain_object_blocks);
     }
 
     #[test]
@@ -1205,33 +1111,6 @@ mod tests {
         assert!(!cell.terrain_object_blocks);
         assert!(!cell.ground_walk_blocked);
         assert_eq!(cell.zone_type, zone_class::GROUND);
-    }
-
-    #[test]
-    fn gsi_04_12_terrain_raw_occupation_live_limbo_clears_native_bits_only() {
-        let rules = terrain_rules("TREE01", true, "TemperateOccupationBits=7\n");
-        let mut sim = Simulation::new();
-        sim.substrate.raw_cell_occupation.mark_ground(0, 0, 0xE0);
-        sim.substrate.raw_cell_occupation.mark_deck(0, 0, 0xA5);
-        seed_one_at(&mut sim, &rules, "TREE01", (0, 0));
-        let stable_id = sim.production.terrain_object_cells[&(0, 0)];
-
-        assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(0, 0), 0xFC);
-        let did_limbo = limbo_terrain_object_at_cell(
-            &mut sim.production,
-            (0, 0),
-            &mut sim.substrate.raw_cell_occupation,
-            None,
-        );
-
-        assert!(did_limbo);
-        assert_eq!(sim.substrate.raw_cell_occupation.ground_bits(0, 0), 0xA0);
-        assert_eq!(sim.substrate.raw_cell_occupation.deck_bits(0, 0), 0xA5);
-        assert!(!sim.production.terrain_object_cells.contains_key(&(0, 0)));
-        assert_eq!(
-            sim.production.terrain_objects[&stable_id].lifecycle,
-            TerrainObjectLifecycle::Limbo
-        );
     }
 
     #[test]

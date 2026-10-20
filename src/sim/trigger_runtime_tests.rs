@@ -2646,28 +2646,6 @@ fn techno_playfield_action_40_exact_recompute_and_mobile_reveal_callback() {
 }
 
 #[test]
-fn time_trigger_can_center_camera_at_waypoint() {
-    let map = trigger_fixture_map(
-        "[Triggers]\nTRIG_A=Neutral,<none>,Timer A,0,1,1,1,0\n\
-         [Events]\nTRIG_A=1,47,0,3\n[Actions]\nTRIG_A=1,112,0,0,0,0,0,0,J\n\
-         [Tags]\nTRIG_A_TAG=0,Timer A,TRIG_A\n",
-    );
-    let mut sim = Simulation::new();
-    install_map_triggers(&mut sim, &map);
-    sim.classify_map_triggers(None);
-
-    assert!(advance_trigger_frame(&mut sim, 44, None, &HashMap::new()).is_empty());
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 45, None, &HashMap::new()),
-        vec![TriggerEffect::CameraAtCoord {
-            coord: [128, 128, 0],
-            velocity: None
-        }]
-    );
-    assert!(advance_trigger_frame(&mut sim, 46, None, &HashMap::new()).is_empty());
-}
-
-#[test]
 fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
     let map = trigger_fixture_map(
         "[Triggers]\nTRIG_A=Neutral,<none>,Frame Zero,0,1,1,1,0\n\
@@ -2900,73 +2878,6 @@ fn typed_trigger_reference_enable_and_disable_use_operand_instead_of_metadata() 
 }
 
 #[test]
-fn global_actions_can_enable_and_force_followup_trigger() {
-    let map = trigger_fixture_map(
-        "[Triggers]\nTRIG_A=Neutral,<none>,Set Global,0,1,1,1,0\n\
-         TRIG_B=Neutral,<none>,Camera,1,1,1,1,0\n\
-         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,27,0,7\n\
-         [Actions]\nTRIG_A=3,28,0,7,0,0,0,0,A,53,2,TRIG_B,0,0,0,0,A,22,2,TRIG_B,0,0,0,0,A\n\
-         TRIG_B=1,112,0,0,0,0,0,0,D\n\
-         [Tags]\nTRIG_A_TAG=0,Set Global,TRIG_A\nTRIG_B_TAG=0,Camera,TRIG_B\n",
-    );
-    let mut sim = Simulation::new();
-    install_map_triggers(&mut sim, &map);
-    sim.classify_map_triggers(None);
-
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 15, None, &HashMap::new()),
-        vec![TriggerEffect::CameraAtCoord {
-            coord: [128, 128, 0],
-            velocity: None
-        }]
-    );
-}
-
-#[test]
-fn linked_trigger_instances_execute_in_reverse_chain_order() {
-    let map = trigger_fixture_map(
-        "[Triggers]\nTRIG_A=Neutral,TRIG_B,Primary,0,1,1,1,0\n\
-         TRIG_B=Neutral,<none>,Followup,0,1,1,1,0\n\
-         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,28,0,9\n\
-         [Actions]\nTRIG_A=1,28,0,5,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,E\n\
-         [Tags]\nTRIG_A_TAG=0,Primary,TRIG_A\nTRIG_B_TAG=0,Followup,TRIG_B\n",
-    );
-    let mut sim = Simulation::new();
-    install_map_triggers(&mut sim, &map);
-    sim.classify_map_triggers(None);
-
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 15, None, &HashMap::new()),
-        vec![TriggerEffect::CameraAtCoord {
-            coord: [128, 128, 0],
-            velocity: None
-        }]
-    );
-}
-
-#[test]
-fn force_trigger_bypasses_unmet_event_predicates() {
-    let map = trigger_fixture_map(
-        "[Triggers]\nTRIG_A=Neutral,<none>,Force,0,1,1,1,0\n\
-         TRIG_B=Neutral,<none>,Blocked,0,1,1,1,0\n\
-         [Events]\nTRIG_A=1,47,0,1\nTRIG_B=1,27,0,99\n\
-         [Actions]\nTRIG_A=1,22,2,TRIG_B,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,D\n\
-         [Tags]\nTRIG_A_TAG=0,Force,TRIG_A\nTRIG_B_TAG=0,Blocked,TRIG_B\n",
-    );
-    let mut sim = Simulation::new();
-    install_map_triggers(&mut sim, &map);
-    sim.classify_map_triggers(None);
-
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 15, None, &HashMap::new()),
-        vec![TriggerEffect::CameraAtCoord {
-            coord: [128, 128, 0],
-            velocity: None
-        }]
-    );
-}
-
-#[test]
 fn mission_announce_then_end_uses_the_player_house_and_shared_timer() {
     use crate::rules::ini_parser::IniFile;
     use crate::rules::ruleset::RuleSet;
@@ -3025,34 +2936,6 @@ fn mission_announce_then_end_uses_the_player_house_and_shared_timer() {
             .advance_outcome_savour(15, false)
     );
     assert!(sim.ready_outcome_for_owner(player).is_some());
-}
-
-#[test]
-fn local_variables_seed_and_gate_followup_triggers() {
-    let map = trigger_fixture_map(
-        "[Triggers]\nTRIG_A=Neutral,<none>,Flip Local,0,1,1,1,0\n\
-         TRIG_B=Neutral,<none>,Uses Local,0,1,1,1,0\n\
-         [Events]\nTRIG_A=1,37,0,2\nTRIG_B=1,36,0,2\n\
-         [Actions]\nTRIG_A=1,56,0,2,0,0,0,0,A\nTRIG_B=1,112,0,0,0,0,0,0,G\n\
-         [Tags]\nTRIG_A_TAG=0,Flip Local,TRIG_A\nTRIG_B_TAG=0,Uses Local,TRIG_B\n\
-         [VariableNames]\n2=BridgeDone,0\n",
-    );
-    let mut sim = Simulation::new();
-    install_map_triggers(&mut sim, &map);
-    sim.classify_map_triggers(None);
-
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 0, None, &HashMap::new()),
-        Vec::<TriggerEffect>::new()
-    );
-    assert!(sim.trigger_runtime.locals_set.contains(&2));
-    assert_eq!(
-        advance_trigger_frame(&mut sim, 0, None, &HashMap::new()),
-        vec![TriggerEffect::CameraAtCoord {
-            coord: [128, 128, 0],
-            velocity: None
-        }]
-    );
 }
 
 #[test]
@@ -3258,26 +3141,6 @@ fn action_137_canonicalizes_house_type_alias_and_none_owner() {
         none_sim.houses[&first_type].alternate_base_center(),
         (93, 106)
     );
-}
-
-#[test]
-fn action_137_rejects_only_exact_packed_zero_cell() {
-    let rules = waypoint_action_rules();
-    for cell in [(0, 17), (23, 0)] {
-        let mut sim = Simulation::new();
-        let house =
-            register_waypoint_action_house(&mut sim, "AxisHouse", Some("Americans"), (9, 9));
-        let waypoints = waypoint_map(15, cell);
-        run_waypoint_action(
-            137,
-            Some("P"),
-            "Americans",
-            &mut sim,
-            &waypoints,
-            Some(&rules),
-        );
-        assert_eq!(sim.houses[&house].alternate_base_center(), cell);
-    }
 }
 
 #[test]

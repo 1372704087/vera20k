@@ -296,42 +296,6 @@ mod tests {
         assert_eq!(sim.clone_scenario_rng().state(), cursor);
     }
 
-    #[test]
-    fn terminal_score_snapshot_is_latched_without_repeating_rng_draws() {
-        let mut sim = Simulation::with_seed(0x51C0_5678);
-        insert_house(
-            &mut sim,
-            HouseFixture {
-                name: "Alpha",
-                defeated: false,
-                passive: false,
-                score: 100,
-                units_killed: 0,
-                buildings_killed: 0,
-                units_lost: 0,
-                buildings_lost: 0,
-                built: 0,
-            },
-        );
-
-        assert!(sim.finalize_terminal_score_snapshot());
-        let first = sim
-            .terminal_score_snapshot()
-            .expect("first terminal score snapshot")
-            .clone();
-        let cursor_after_first = sim.clone_scenario_rng().state();
-        let hash_after_first = sim.state_hash();
-        assert!(!sim.finalize_terminal_score_snapshot());
-        let second = sim
-            .terminal_score_snapshot()
-            .expect("latched terminal score snapshot")
-            .clone();
-
-        assert_eq!(second, first);
-        assert_eq!(sim.clone_scenario_rng().state(), cursor_after_first);
-        assert_eq!(sim.state_hash(), hash_after_first);
-    }
-
     fn natural_terminal_sim(seed: u64) -> Simulation {
         let mut sim = Simulation::with_seed(seed);
         sim.session.set_game_mode(

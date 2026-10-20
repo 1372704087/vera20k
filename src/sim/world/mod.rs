@@ -265,6 +265,7 @@ use crate::sim::tiberium::TiberiumPlacementObjectContext;
 use crate::sim::trigger_runtime::{TriggerEffect, TriggerRuntime};
 use crate::sim::vision::{self, FogState};
 use crate::util::fixed_math::SimFixed;
+use crate::sim::native_identity::NativeUniqueIdCursor;
 
 /// Test fixtures' seed. Real launches negotiate a per-match seed through
 /// `ScenarioDescriptor`, and only test builds can construct with this value.
@@ -4517,7 +4518,12 @@ impl Simulation {
                 // their ordered registry/ID effects before live-object AI;
                 // Scenario IDs and retirement order are preserved independently
                 // of the intervening Scenario RNG and queue mutations.
-                self.publish_overlay_constructions(spread.into_overlay_constructions());
+                Self::publish_overlay_constructions(
+                    &mut self.native_unique_ids,
+                    &mut self.load_objects,
+                    &mut self.substrate,
+                    spread.into_overlay_constructions(),
+                );
             }
         }
     }
@@ -4544,21 +4550,20 @@ impl Simulation {
     }
 
     pub(crate) fn publish_overlay_constructions(
-        &mut self,
+        native_unique_ids: &mut Option<NativeUniqueIdCursor>,
+        load_objects: &mut LoadObjectLifecycle,
+        substrate: &mut ObjectSubstrate,
         receipts: impl IntoIterator<Item = OverlayConstructionReceipt>,
     ) {
         for receipt in receipts {
-            let stable_id = self.substrate.allocate_stable_id();
-            let handle = self
-                .load_objects
+            let stable_id = substrate.allocate_stable_id();
+            let handle = load_objects
                 .construct_overlay(stable_id, receipt.cell(), || {
-                    crate::sim::native_identity::NativeUniqueIdCursor::assign_runtime(
-                        &mut self.native_unique_ids,
-                    )
+                    NativeUniqueIdCursor::assign_runtime(native_unique_ids)
                 })
                 .expect("runtime Overlay constructor must join its owned registries");
-            self.load_objects
-                .finish_cell_construction(handle, receipt, &mut self.substrate.pending_delete)
+            load_objects
+                .finish_cell_construction(handle, receipt, &mut substrate.pending_delete)
                 .expect("runtime Overlay constructor must finish its owned lifecycle");
         }
     }

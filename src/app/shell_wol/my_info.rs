@@ -24,13 +24,13 @@ fn view(persona: &WolPersona) -> MyInfoPersona {
     }
 }
 
-/// `0x799080`'s AutoLogin check: `GetAutoLogin()` against `[0xB73E40]`
-/// with `0x007B4780` (case-sensitive). An empty AutoLogin counts as
-/// unequal.
-fn auto_login_names(state: &AppState, nickname: &str) -> bool {
-    super::persona::info_file(state)
+/// `0x799080`'s AutoLogin check against the current `[0xB73E40]`
+/// (`0x00799AF3`, `0x00799279`).
+fn auto_login_names(state: &AppState) -> bool {
+    let auto_login = super::persona::info_file(state)
         .map(|file| file.auto_login())
-        .is_some_and(|auto| !auto.is_empty() && auto == nickname)
+        .unwrap_or_default();
+    state.frontend.wol_account.auto_login_names(&auto_login)
 }
 
 /// `0x4E3A00`'s rows: `GUI:RandomEx` (-2), then the multiplayer countries
@@ -79,7 +79,7 @@ pub(super) fn open(state: &mut AppState) {
     let nickname = state.frontend.wol_account.nickname.clone();
     let persona = super::persona::load(state, &nickname);
     let texts = super::persona::profile_texts(state, &nickname, &persona);
-    let auto_login = auto_login_names(state, &nickname);
+    let auto_login = auto_login_names(state);
     let default_text = service::resolve(state, DEFAULT_KEY);
     let countries = country_rows(state);
     let colors = color_rows(state);
@@ -217,10 +217,14 @@ fn apply(state: &mut AppState, action: MyInfoAction) {
                 })
                 .map(|stored| stored.nickname.clone())
                 .unwrap_or_default();
-            state.frontend.wol_account.nickname = name.clone();
+            // 0x00799222: the clear frees the buffer; a stored slot's
+            // nickname allocates it again (0x007B48D0).
+            let account = &mut state.frontend.wol_account;
+            account.nickname = name.clone();
+            account.nickname_allocated = slot != -1 && !name.is_empty();
             let persona = super::persona::load(state, &name);
             let texts = super::persona::profile_texts(state, &name, &persona);
-            let auto_login = auto_login_names(state, &name);
+            let auto_login = auto_login_names(state);
             if let Some(page) = page_mut(state) {
                 page.nickname_changed(&view(&persona), texts, !name.is_empty(), auto_login);
             }

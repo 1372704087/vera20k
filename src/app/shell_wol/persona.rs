@@ -41,6 +41,8 @@ pub(crate) fn enter_wol_main(state: &mut AppState) {
     if !state.frontend.wol_account.nickname.is_empty() {
         return;
     }
+    // The assignment allocates the buffer even for an empty AutoLogin.
+    state.frontend.wol_account.nickname_allocated = true;
     let Some(file) = info_file(state) else {
         return;
     };

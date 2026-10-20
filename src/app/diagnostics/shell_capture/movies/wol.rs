@@ -3499,6 +3499,9 @@ impl WolCapture {
                     && !page.forget_enabled
                     && !page.play_buddy_enabled
                     && !page.auto_login_enabled
+                    // WOL entry allocated the empty nickname, which equals
+                    // the empty AutoLogin: checked, though disabled.
+                    && page.auto_login
                     && page
                         .texts
                         .iter()

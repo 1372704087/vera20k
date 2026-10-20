@@ -504,6 +504,19 @@ impl Simulation {
         Some(record)
     }
 
+    /// EVENT_ALLY's record: the header House is the sender, the dword
+    /// payload the other House's index (`0x00731877..0x007318C8`).
+    pub fn encode_ally_record(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+        house_index: i32,
+    ) -> Option<CommandRecord> {
+        let mut record =
+            self.encode_header_event(command_owner, crate::sim::command::ALLY_OPCODE)?;
+        record.payload_mut()[..4].copy_from_slice(&house_index.to_le_bytes());
+        Some(record)
+    }
+
     fn encode_header_event(
         &self,
         command_owner: crate::sim::intern::InternedId,
@@ -671,6 +684,15 @@ impl Simulation {
                         house_index: removed,
                     },
                 )
+            });
+        }
+
+        if record.opcode() == crate::sim::command::ALLY_OPCODE {
+            let house_index = usize::try_from(record.house_id()).ok()?;
+            let owner = *self.houses.order().get(house_index)?;
+            let other = i32::from_le_bytes(record.payload()[..4].try_into().ok()?);
+            return self.houses.contains_key(&owner).then(|| {
+                CommandEnvelope::new(owner, execute_tick, Command::Ally { house_index: other })
             });
         }
 
@@ -1512,7 +1534,11 @@ impl Simulation {
                 }
                 // A Simulation without a current House (diagnostic and replay
                 // drivers) has no remote senders.
-                if self.session.current_house().is_none_or(|local| local == owner) {
+                if self
+                    .session
+                    .current_house()
+                    .is_none_or(|local| local == owner)
+                {
                     // The local sender's EventClass__Execute (0x004C7903)
                     // writes the termination byte at 0x004C7917. The app
                     // consumes the owner-tagged edge after this tail.
@@ -1525,6 +1551,30 @@ impl Simulation {
                     // the app runs DestroyConnection(house, 0) for it
                     // (0x0064C9B1).
                     self.departed_owners.push(owner);
+                }
+                true
+            }
+            Command::Ally { house_index } => {
+                // EventClass::Execute 0x004C6DEE..0x004C6E23: no admission
+                // gate; the sender toggles on its own mask, announced.
+                let (Some(owner), Some(other), Some(rules)) = (
+                    self.interner.get(command_owner),
+                    usize::try_from(*house_index)
+                        .ok()
+                        .and_then(|index| self.houses.order().get(index).copied()),
+                    rules,
+                ) else {
+                    return false;
+                };
+                if crate::sim::combat::combat_weapon::is_ally_by_object(
+                    Some(self.house_alliances()),
+                    &self.interner,
+                    owner,
+                    other,
+                ) {
+                    self.make_enemy(owner, other, rules, true);
+                } else {
+                    self.make_ally(owner, other, rules, overlay_registry, frame_effects, true);
                 }
                 true
             }

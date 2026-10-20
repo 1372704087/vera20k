@@ -2407,10 +2407,13 @@ mod modal_pump_tests {
         let mut sim = crate::sim::world::Simulation::with_seed(1);
         let player = sim.intern("Player");
         let computer = sim.intern("Computer1");
-        sim.houses_mut_for_test()
-            .register(HouseState::new(player, 0, None, true, 0, 10));
-        sim.houses_mut_for_test()
-            .register(HouseState::new(computer, 1, None, false, 0, 10));
+        let mut player_house = HouseState::new(player, 0, None, true, 0, 10);
+        player_house
+            .set_ui_name_for_test(crate::sim::house_state::HouseUiName::handle("[New Player]"));
+        let mut computer_house = HouseState::new(computer, 1, None, false, 0, 10);
+        computer_house.set_ui_name_for_test(crate::sim::house_state::HouseUiName::Computer);
+        sim.houses_mut_for_test().register(player_house);
+        sim.houses_mut_for_test().register(computer_house);
         let row = |owner, losses| crate::sim::score::TerminalScoreRowSnapshot {
             owner,
             country: None,
@@ -2438,7 +2441,7 @@ mod modal_pump_tests {
             &sim,
             &snapshot,
             &crate::app::presentation::house_ui::HouseUiSources {
-                handle: Some("[New Player]"),
+                csf: None,
                 computer: "Computer",
                 schemes: &schemes,
                 colors: &colors,
@@ -2456,12 +2459,17 @@ mod modal_pump_tests {
                 ("[New Player]", [34, 105, 212], 15)
             ]
         );
-        // Without a skirmish session a human row falls back.
+        // A House still holding its type's UIName shows its country, else
+        // its House name.
+        sim.houses_mut_for_test()
+            .get_mut(&player)
+            .unwrap()
+            .set_ui_name_for_test(crate::sim::house_state::HouseUiName::TypeName);
         let rows = resolve_score_rows(
             &sim,
             &snapshot,
             &crate::app::presentation::house_ui::HouseUiSources {
-                handle: None,
+                csf: None,
                 computer: "Computer",
                 schemes: &schemes,
                 colors: &colors,
@@ -2469,5 +2477,25 @@ mod modal_pump_tests {
             |_| None,
         );
         assert_eq!(rows[1].name, "Player");
+        // A map `UIName=` key resolves through the string table, then the
+        // field keeps 20 characters (500CD7..500CEC).
+        sim.houses_mut_for_test()
+            .get_mut(&player)
+            .unwrap()
+            .set_ui_name_for_test(crate::sim::house_state::HouseUiName::Csf(
+                "Name:AVeryLongHouseUiNameKey".into(),
+            ));
+        let rows = resolve_score_rows(
+            &sim,
+            &snapshot,
+            &crate::app::presentation::house_ui::HouseUiSources {
+                csf: None,
+                computer: "Computer",
+                schemes: &schemes,
+                colors: &colors,
+            },
+            |_| None,
+        );
+        assert_eq!(rows[1].name, "Name:AVeryLongHouseU");
     }
 }

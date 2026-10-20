@@ -337,7 +337,7 @@ impl PaidHead {
             }
             "external_spend_wallet" => {
                 let money = crate::sim::credit_income::available_money(sim, self.owner);
-                crate::sim::credit_income::spend_money(sim, self.owner, money);
+                crate::sim::credit_income::spend_money(&mut sim.houses, self.owner, money);
             }
             other => panic!("unconsumed original phase {other}"),
         }

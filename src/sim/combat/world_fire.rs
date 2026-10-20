@@ -1624,7 +1624,7 @@ pub(super) fn emit_admitted_fire(
             // laser width (`0x006FF52B`), sampled before this consumption.
             let damage_multiplier = match snap.building_shot {
                 Some(super::BuildingShot::Delayed { .. }) => {
-                    world.take_support_bonus(snap.stable_id, rules)
+                    world.substrate.take_support_bonus(snap.stable_id, rules)
                 }
                 _ => ProjectilePayload::UNSCALED,
             };

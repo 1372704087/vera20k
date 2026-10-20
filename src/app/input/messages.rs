@@ -357,6 +357,70 @@ pub(crate) fn post_house_line(
     );
 }
 
+/// MapPlayerColorToScheme `0x0069A310` of a player's Session colour: VERA
+/// reads it as the House's own scheme, as MPlayer_Defeated's lines do.
+pub(crate) fn player_line_rgb(state: &AppState, owner: crate::sim::intern::InternedId) -> [f32; 3] {
+    let owner = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|runtime| runtime.simulation.interner().resolve(owner).to_string());
+    house_message_rgb(
+        owner.as_deref(),
+        &state.match_state.match_presentation.house_color_map,
+        state.rules().map(|rules| rules.color_schemes.as_slice()),
+    )
+}
+
+/// A chat line: Add_Message with the sender's name as prefix, style 4046,
+/// MessageDelay*900 buckets and silent 0, so IncomingMessage plays once
+/// (`0x0055F0A8..0x0055F104` echo, `0x0048D93A..0x0048D98D` receive).
+pub(crate) fn post_chat_line(state: &mut AppState, name: &str, text: &str, rgb: [f32; 3]) {
+    let Some(rules) = state.rules() else {
+        return;
+    };
+    let timeout_ms = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    post_resolved_message(
+        state,
+        &crate::ui::messages::MessagePost {
+            prefix: Some(name),
+            text,
+            rgb,
+            timeout_ms,
+            silent: false,
+        },
+    );
+}
+
+/// The observer gate's silent `TXT_OBSERVER_CANT_SEND` row in the "Grey"
+/// scheme (`0x004E12D0` with `0x00822728`), flags 0x16, MessageDelay*900
+/// (`0x0055EED0..0x0055EF2C`).
+pub(crate) fn post_observer_refusal(state: &mut AppState) {
+    let Some(rules) = state.rules() else {
+        return;
+    };
+    let timeout_ms = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    let rgb = crate::rules::color_scheme::scheme_entry_by_name(&rules.color_schemes, "Grey")
+        .and_then(|entry| u8::try_from(entry).ok())
+        .map_or(MESSAGE_RGB_SYSTEM, |entry| {
+            crate::rules::house_colors::house_text_rgb(
+                &rules.color_schemes,
+                crate::rules::house_colors::HouseColorIndex(entry),
+            )
+            .map(|channel| f32::from(channel) / 255.0)
+        });
+    post_localized_message(
+        state,
+        &crate::ui::messages::MessagePost {
+            prefix: None,
+            text: "TXT_OBSERVER_CANT_SEND",
+            rgb,
+            timeout_ms,
+            silent: true,
+        },
+    );
+}
+
 /// Post a row whose `text` is a CSF key.
 fn post_localized_message(state: &mut AppState, post: &crate::ui::messages::MessagePost<'_>) {
     post_message(state, post, true);
@@ -455,6 +519,15 @@ pub(crate) fn update(state: &mut AppState) -> Option<u64> {
 }
 
 fn sync_view(state: &mut AppState) {
+    let typing = state
+        .frontend
+        .multiplayer_shell_runtime
+        .scroll_text(state.match_state.session.mode());
+    state
+        .match_state
+        .match_presentation
+        .message_list
+        .set_typing(typing);
     // The list spans the tactical viewport: the frame left of the sidebar.
     let tactical_w = crate::app::input::camera::tactical_viewport_size(state).0 as i32;
     state.match_state.match_presentation.message_list.set_view(
@@ -505,7 +578,12 @@ fn message_instances(
     let x = list.x() as f32;
     let mut fills = Vec::new();
     let mut texts = Vec::new();
-    for m in list.messages() {
+    // Draw 0x005D49A0 paints the edit label first, whole: its reveal flag
+    // is never set and the chat cursor character 0 draws no caret.
+    let edit = list
+        .edit_line()
+        .map(|edit| crate::ui::messages::Message::edit_row(&edit));
+    for m in edit.iter().chain(list.messages()) {
         // Message rows are screen-space, but `draw_pooled_ui` binds the
         // live world camera and the shader subtracts it. Add that camera
         // back here so scrolling cannot displace the HUD text.

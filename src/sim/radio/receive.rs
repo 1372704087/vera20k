@@ -1213,7 +1213,7 @@ fn unit_run_away(
     if !latched_harvester {
         return;
     }
-    crate::sim::miner::clear_unload_latch(sim, unit);
+    crate::sim::miner::clear_unload_latch(&mut sim.substrate, unit);
     if let Err(cause) = sim.scatter(
         unit,
         None,
@@ -1424,7 +1424,7 @@ fn aircraft_move_here(
         &EntityReadyInputProvider,
     );
     sim.assign_aircraft_destination(aircraft, payload.target, rules, effects);
-    let _ = sim.mission_commence_exact(aircraft, now);
+    let _ = sim.substrate.mission_commence_exact(aircraft, now);
     RadioResponse::Roger
 }
 
@@ -1831,7 +1831,7 @@ fn techno_repair_tick(
         return RadioResponse::InsufficientFunds;
     }
     if cost != 0 {
-        crate::sim::credit_income::spend_money(sim, owner, cost);
+        crate::sim::credit_income::spend_money(&mut sim.houses, owner, cost);
     }
     let Some(entity) = sim.substrate.entities.get_mut(techno) else {
         return RadioResponse::None;

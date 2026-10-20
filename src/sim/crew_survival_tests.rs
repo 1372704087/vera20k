@@ -1770,7 +1770,8 @@ fn signed_country_crew_type_and_rng_match_original() {
         sim.scenario_rng =
             SimRng::from_native_state_hex_for_test(row["rng_before"].as_str().unwrap());
         assert_eq!(
-            sim.techno_crew_type(
+            techno_crew_type(
+                &mut sim.scenario_rng,
                 &rules,
                 row["country_side"].as_i64().unwrap() as i32,
                 row["armed"].as_bool().unwrap()

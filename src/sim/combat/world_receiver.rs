@@ -2064,7 +2064,7 @@ fn run_special_detonation_arm(
             );
         }
         SpecialDetonationAction::ElectricAssault => {
-            world.electric_assault_detonation(owner, object);
+            world.substrate.electric_assault_detonation(owner, object);
         }
         SpecialDetonationAction::Airstrike => {
             world.airstrike_detonation(owner, object, rules, effects);

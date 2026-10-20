@@ -1491,7 +1491,11 @@ impl Simulation {
             let actor = self.substrate.entities.get_mut(id).expect("same arm actor");
             super::navcom::track_stop_moving(actor);
             actor.setter_force_reassign.raised = true;
-            let _ = self.mission_assign_exact(id, crate::sim::mission::MissionId::NONE, frame);
+            let _ = self.substrate.mission_assign_exact(
+                id,
+                crate::sim::mission::MissionId::NONE,
+                frame,
+            );
             let _ = self.mission_queue_exact(
                 id,
                 crate::sim::mission::MissionId::from_known(MissionType::Enter),
@@ -1710,7 +1714,7 @@ impl Simulation {
         }
         let attack = crate::sim::mission::MissionId::from_known(MissionType::Attack);
         if actor.mission.effective() != attack {
-            let _ = self.mission_assign_exact(id, attack, frame);
+            let _ = self.substrate.mission_assign_exact(id, attack, frame);
         }
         true
     }

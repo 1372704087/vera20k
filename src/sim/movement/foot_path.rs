@@ -401,7 +401,7 @@ impl Simulation {
             request.entity_id,
             super::path_batch::WaitingRequest::NoQueue,
         ) {
-            self.walk_owner_clear_doing(request.entity_id)?;
+            self.substrate.walk_owner_clear_doing(request.entity_id)?;
             return Ok(FootPathOutcome::Returned);
         }
         self.run_walk_path_request(request, rules, registry, frame_effects)

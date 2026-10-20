@@ -1818,7 +1818,7 @@ impl Simulation {
                             // Dormant: no retail `[AircraftTypes]` entry has
                             // `Passengers=`.
                             let now = self.session.binary_frame();
-                            let _ = self.mission_assign_exact(
+                            let _ = self.substrate.mission_assign_exact(
                                 *transport_id,
                                 crate::sim::mission::MissionId::from_known(MissionType::Unload),
                                 now,

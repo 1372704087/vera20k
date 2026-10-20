@@ -553,6 +553,9 @@ pub(crate) fn local_map_metadata(
 /// and clearing the admitted setup through its owner.
 pub(crate) fn commit_back(state: &mut AppState) {
     let dialog = leave_setup(state);
+    if dialog.wol() && dialog.host {
+        crate::app::shell_wol::lobby::host_setup_left(state);
+    }
     open_service_lobby(state, dialog);
 }
 

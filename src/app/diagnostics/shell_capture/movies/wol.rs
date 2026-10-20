@@ -1307,10 +1307,15 @@ impl WolCapture {
                     return Ok(());
                 }
                 if !self.target.guest() {
-                    // C2 Back: the runner's join (0x788A30) leaves the game
-                    // channel first (0x788800); its OnPart says TXT_YOULEFT.
+                    // C2 Back's own leave (0x7900B8), then the runner's join
+                    // (0x788A30) leaves again first (0x788800); the OnPart
+                    // says TXT_YOULEFT.
                     ensure!(
-                        requests == [WolServiceRequest::LeaveChannel],
+                        requests
+                            == [
+                                WolServiceRequest::LeaveChannel,
+                                WolServiceRequest::LeaveChannel
+                            ],
                         "C2 Back did not leave the game channel first: {requests:?}"
                     );
                     let game = crate::app::shell_wol::lobby::current_channel(state)

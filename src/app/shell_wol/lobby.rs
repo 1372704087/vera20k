@@ -380,9 +380,9 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     if resume {
         let lobby = visit.lobby.as_deref_mut().expect("checked");
         // C2 Back (0x790060..0x7900BE) leaves without waiting; the runner's
-        // 0x788A30 (0x787ED8) then leaves the game channel before joining
-        // (0x788800), whose OnPart shows TXT_YOULEFT here. A channel C9
-        // already left is gone.
+        // 0x788A30 (0x787ED8) then leaves the game channel again before
+        // joining (0x788800, 0x7888AD), whose OnPart shows TXT_YOULEFT
+        // here. A channel C9 already left is gone.
         if lobby
             .current
             .as_ref()
@@ -487,10 +487,24 @@ pub(super) fn buddy_dialog_opens(state: &mut AppState) {
 /// Create/Join (C2/C9 Back left the game channel).
 pub(super) fn buddy_runner_resumes(state: &mut AppState) {
     if let Some(lobby) = lobby_mut(state) {
-        lobby.current = None;
+        // A game channel C2 Back is still leaving stays until its OnPart.
+        if lobby
+            .current
+            .as_ref()
+            .is_none_or(|current| current.kind != GAME_CHANNEL)
+        {
+            lobby.current = None;
+            lobby.members.clear();
+        }
         lobby.pending = None;
-        lobby.members.clear();
         lobby.shown = false;
+    }
+}
+
+/// C2 Back's own leave (API+0x24 at `0x007900B8`), after the dialog closed.
+pub(crate) fn host_setup_left(state: &mut AppState) {
+    if current_channel(state).is_some_and(|current| current.kind == GAME_CHANNEL) {
+        request(state, WolServiceRequest::LeaveChannel);
     }
 }
 

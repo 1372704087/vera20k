@@ -572,7 +572,9 @@ impl MatchSession {
                 return Ok(change);
             }
             // 0x7A8838..0x7A88A4: country Random and a player role, the
-            // observer row opened for observers, then 0x5E9240's row.
+            // observer row opened for observers, then 0x5E9240's row. The
+            // country check still compares against the -3 read at 0x7A865F,
+            // so the options always go out (0x7A8905..0x7A8915).
             self.set_network_row_kind(observer_row.unwrap_or(row), NetworkRowKind::OpenObserver)?;
             let free = self
                 .network_free_row(false)
@@ -581,7 +583,6 @@ impl MatchSession {
             human.set_observer(false);
             human.slot.country_random = true;
             human.raw_slot_index = Some(free);
-            change.options = false;
         } else if !was_observer && observer {
             change.roster = true;
             change.options = true;
@@ -2172,9 +2173,11 @@ mod tests {
         assert!(observer.is_observer());
         assert_eq!(observer.raw_slot_index, Some(7));
         assert_eq!(session.network_vacancy(1), Some(NetworkVacancy::Open));
-        session
+        // Random asked again: the options still go out after the move.
+        let change = session
             .accept_network_peer_choices(1, after.slot.clone(), false, None)
             .unwrap();
+        assert!(change.roster && change.options);
         let player = guest(&session);
         assert!(!player.is_observer());
         assert_eq!(player.raw_slot_index, Some(1));

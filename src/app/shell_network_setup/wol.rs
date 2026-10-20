@@ -305,7 +305,12 @@ fn participant(state: &AppState, name: &str) -> Option<usize> {
         .match_state
         .session
         .network_setup()
-        .and_then(|launch| launch.humans.iter().position(|human| human.name == name))
+        .and_then(|launch| {
+            // strcmpi 0x7C8D20 (0x7A8416).
+            launch.humans.iter().position(|human| {
+                crate::util::native_string::crt_strcmpi(&human.name, name).is_eq()
+            })
+        })
 }
 
 /// The kick sink `0x7AB670` for another user in this game channel: its

@@ -35,8 +35,8 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
                 .as_ref()
                 .is_some_and(|protocol| !protocol.locked)
             {
-                // WOL C2 Back's leave (0x7900B8) is the lobby's: its
-                // runner leaves the game channel before rejoining a lobby.
+                // WOL C2 Back's leave (0x7900B8) goes to the lobby's
+                // service once C2 has closed (commit_back).
                 if !(dialog.wol() && dialog.host) {
                     queue(state, NetworkSetupRequest::Leave);
                 }

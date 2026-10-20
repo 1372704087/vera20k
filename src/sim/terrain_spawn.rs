@@ -396,7 +396,10 @@ pub(crate) fn tick_terrain_object_ai(
     if let (Some(cell), Some(registry)) = (placed_cell, overlay_registry) {
         sim.publish_tiberium_cells(rules, registry, &[cell]);
     }
-    sim.publish_overlay_constructions(
+    crate::sim::world::Simulation::publish_overlay_constructions(
+        &mut sim.native_unique_ids,
+        &mut sim.load_objects,
+        &mut sim.substrate,
         placed.and_then(TiberiumPlacement::into_overlay_construction),
     );
 }

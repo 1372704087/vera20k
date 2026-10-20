@@ -1005,7 +1005,11 @@ mod tests {
         overlay: u8,
     ) {
         for &(x, y) in cells {
-            terrain.cell_mut(x, y).unwrap().bridge_facts.overlay_id = Some(overlay);
+            terrain
+                .cell_mut_for_test(x, y)
+                .unwrap()
+                .bridge_facts
+                .overlay_id = Some(overlay);
         }
     }
 
@@ -1313,7 +1317,7 @@ mod tests {
         let mut terrain = water_below_bridge_terrain(4);
         // A raw overlay alone admits only D. A also needs a real concrete
         // Middle tile class (without0x100 its height gate is bypassed).
-        terrain.cell_mut(5, 5).unwrap().final_tile_index = 1019;
+        terrain.cell_mut_for_test(5, 5).unwrap().final_tile_index = 1019;
         terrain.test_set_high_bridge_rim_tiles(
             crate::map::bridge_rim_tiles::HighBridgeRimTiles::from_ini(
                 1000,
@@ -1370,7 +1374,11 @@ mod tests {
                 crate::map::resolved_terrain::test_flat_cell,
             );
             for &((x, y), flags) in cells {
-                terrain.cell_mut(x, y).unwrap().bridge_facts.raw_flags = flags;
+                terrain
+                    .cell_mut_for_test(x, y)
+                    .unwrap()
+                    .bridge_facts
+                    .raw_flags = flags;
             }
             terrain
         };
@@ -1392,7 +1400,11 @@ mod tests {
         // 0x100 alone anchors on +0x2C.
         let mut terrain = grid(&[((12, 10), BRIDGE_FLAG_STRUCTURAL)]);
         let anchor = terrain.native_cell_identity((13, 12));
-        terrain.cell_mut(12, 10).unwrap().bridge_facts.native_anchor = Some(anchor);
+        terrain
+            .cell_mut_for_test(12, 10)
+            .unwrap()
+            .bridge_facts
+            .native_anchor = Some(anchor);
         assert_eq!(hut_fallback_anchor(terrain, hut), Some(((13, 12), 0)));
 
         // A pure 0x400 starter scans direction 2 over at most three more
@@ -1443,7 +1455,7 @@ mod tests {
         // TopRight1 at sub-tile 12 is a ramp; BottomLeft1 at sub-tile 2 ends
         // a walk heading direction 4. Tiles are base + key - 1.
         for (cell, tile, sub_tile) in [((10, 4), 104, 12), ((10, 6), 104, 12), ((10, 9), 106, 2)] {
-            let cell = terrain.cell_mut(cell.0, cell.1).unwrap();
+            let cell = terrain.cell_mut_for_test(cell.0, cell.1).unwrap();
             cell.final_tile_index = tile;
             cell.final_sub_tile = sub_tile;
         }

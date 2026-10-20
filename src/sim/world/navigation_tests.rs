@@ -20,7 +20,7 @@ fn native_bridge_record_geometry_changes_rebuild_and_restore_navigation() {
     let mut sim = Simulation::with_seed(0x56c510);
     let mut terrain = gsi_04_10_clear_terrain(16, 16);
     for y in 0..16 {
-        let cell = terrain.cell_mut(8, y).unwrap();
+        let cell = terrain.cell_mut_for_test(8, y).unwrap();
         cell.zone_type = zone_class::OUTSIDE;
         cell.ground_walk_blocked = true;
         cell.base_ground_walk_blocked = true;
@@ -152,7 +152,7 @@ fn recalc_keeps_marked_structure_over_partial_terrain_occupation_and_bridge_deck
     let (rules, _) = rules_and_overlays();
     let mut sim = Simulation::with_seed(47);
     let mut terrain = gsi_04_10_clear_terrain(16, 16);
-    let tree_cell = terrain.cell_mut(6, 6).unwrap();
+    let tree_cell = terrain.cell_mut_for_test(6, 6).unwrap();
     tree_cell.terrain_object_occupation = Some(1);
     tree_cell.terrain_object_blocks = true;
     let ground = crate::sim::pathfinding::PathGrid::from_resolved_terrain(&terrain);
@@ -176,7 +176,7 @@ fn recalc_keeps_marked_structure_over_partial_terrain_occupation_and_bridge_deck
     );
     let before = sim.path_grid_snapshot().unwrap();
     let terrain = sim.resolved_terrain.as_mut().unwrap();
-    let cell = terrain.cell_mut(6, 6).unwrap();
+    let cell = terrain.cell_mut_for_test(6, 6).unwrap();
     cell.level = 4;
     cell.slope_type = 1;
     cell.bridge_deck_level = 8;

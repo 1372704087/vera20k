@@ -111,7 +111,7 @@ fn unit(
     for cell in input["cells"].as_array().into_iter().flatten() {
         let (x, y) = pair(cell);
         let level = cell[2].as_u64().unwrap() as u8;
-        let target = terrain.cell_mut(x as u16, y as u16).unwrap();
+        let target = terrain.cell_mut_for_test(x as u16, y as u16).unwrap();
         target.level = level;
         // Cell+140, the bridge bits the +68B comparison reads.
         target.bridge_facts.raw_flags = cell[3].as_u64().unwrap() as u32;
@@ -139,7 +139,7 @@ fn unit(
     for tunnel in input["tunnel"].as_array().into_iter().flatten() {
         let (x, y) = pair(tunnel);
         crate::map::resolved_terrain::install_tunnel_repair_test_catalog(terrain);
-        let cell = terrain.cell_mut(x as u16, y as u16).unwrap();
+        let cell = terrain.cell_mut_for_test(x as u16, y as u16).unwrap();
         cell.final_tile_index = 1;
         cell.land_type = 10;
         cell.base_land_type = 10;
@@ -174,7 +174,7 @@ fn unit(
         let terrain = sim.resolved_terrain.as_mut().unwrap();
         for y in 0..33 {
             for x in 0..33 {
-                let costs = &mut terrain.cell_mut(x, y).unwrap().speed_costs;
+                let costs = &mut terrain.cell_mut_for_test(x, y).unwrap().speed_costs;
                 costs.track = percent;
                 costs.wheel = percent;
             }

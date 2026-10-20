@@ -1016,7 +1016,7 @@ mod tests {
         .expect("rules");
         let mut terrain = explicit_terrain(vec![2, 2]);
         for x in 0..=3 {
-            terrain.cell_mut(x, 0).unwrap().speed_costs.foot = Some(100);
+            terrain.cell_mut_for_test(x, 0).unwrap().speed_costs.foot = Some(100);
         }
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
@@ -1083,7 +1083,7 @@ mod tests {
         sim.resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(2, 0)
+            .cell_mut_for_test(2, 0)
             .unwrap()
             .slope_type = 1;
         let turn = sim

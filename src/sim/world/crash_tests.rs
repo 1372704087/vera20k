@@ -44,7 +44,7 @@ fn magnetron_temporary_bullet_state_matches_original_construction() {
             sim.resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(10, 20)
+                .cell_mut_for_test(10, 20)
                 .unwrap()
                 .level = 6;
             let falling = sim
@@ -187,7 +187,7 @@ fn magnetron_temporary_bullet_tails_match_original_rng_lights_and_ids() {
     }
     let mut sim = Simulation::with_seed(31);
     crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
-    for cell in &mut sim.resolved_terrain.as_mut().unwrap().cells {
+    for cell in sim.resolved_terrain.as_mut().unwrap().cells_mut_for_test() {
         cell.level = 6;
     }
     sim.session
@@ -389,7 +389,7 @@ fn fixture(input: &serde_json::Value) -> (Simulation, RuleSet) {
         let terrain = sim.resolved_terrain.as_mut().unwrap();
         for ry in 44..68 {
             for rx in 44..68 {
-                let cell = terrain.cell_mut(rx, ry).unwrap();
+                let cell = terrain.cell_mut_for_test(rx, ry).unwrap();
                 cell.land_type = int(input, "land_type", 0) as u8;
                 if input["bridge"].as_bool() == Some(true) {
                     cell.bridge_facts.raw_flags |= 0x100;

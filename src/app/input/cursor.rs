@@ -2473,7 +2473,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 sim.resolved_terrain
                     .as_mut()
                     .unwrap()
-                    .cell_mut(x, 2)
+                    .cell_mut_for_test(x, 2)
                     .unwrap()
                     .land_type = u8::try_from(land_type).unwrap();
             }
@@ -3111,8 +3111,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 let mut terrain = crate::map::resolved_terrain::test_flat_ground_grid(20);
                 terrain.test_set_high_bridge_set_starts(Some(100), Some(200));
                 for y in 9..=11 {
-                    terrain.cell_mut(12, y).unwrap().bridge_facts.overlay_id =
-                        Some(if collapsed { 0xE7 } else { 0xD4 });
+                    terrain
+                        .cell_mut_for_test(12, y)
+                        .unwrap()
+                        .bridge_facts
+                        .overlay_id = Some(if collapsed { 0xE7 } else { 0xD4 });
                 }
                 sim.install_resolved_terrain_for_new_map(terrain);
                 sim.bridge_state = Some(crate::sim::bridge_state::BridgeRuntimeState::default());

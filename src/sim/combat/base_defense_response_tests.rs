@@ -604,7 +604,7 @@ fn retail_bridge_base_response_runs_through_the_protected_damage_receiver() {
         for supplied in row["input"]["cells"].as_array().unwrap() {
             let x = supplied["xy"][0].as_u64().unwrap() as u16;
             let y = supplied["xy"][1].as_u64().unwrap() as u16;
-            let cell = terrain.cell_mut(x, y).unwrap();
+            let cell = terrain.cell_mut_for_test(x, y).unwrap();
             cell.level = supplied["level"].as_i64().unwrap() as u8;
             cell.slope_type = supplied["slope"].as_u64().unwrap() as u8;
             cell.bridge_facts.raw_flags = supplied["flags"].as_u64().unwrap() as u32;

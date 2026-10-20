@@ -1468,7 +1468,7 @@ fn give_cells_hover_costs(sim: &mut super::Simulation) {
     let terrain = sim.resolved_terrain.as_mut().unwrap();
     for y in 0..70 {
         for x in 0..70 {
-            terrain.cell_mut(x, y).unwrap().speed_costs.hover = Some(100);
+            terrain.cell_mut_for_test(x, y).unwrap().speed_costs.hover = Some(100);
         }
     }
 }

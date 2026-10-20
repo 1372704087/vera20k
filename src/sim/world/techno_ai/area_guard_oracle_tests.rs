@@ -75,14 +75,15 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         assert_eq!(before, &receipt["after"]);
         assert_eq!(receipt["rng_before"], receipt["rng_after"]);
         assert_eq!(before["slope"], 0, "represented flat post cells");
-        *terrain.cell_mut(x, y).unwrap() =
+        *terrain.cell_mut_for_test(x, y).unwrap() =
             crate::sim::world::lifecycle_tests::common_raw_terrain_cell(
                 x,
                 y,
                 u8::try_from(signed(&before["level"])).unwrap(),
                 false,
             );
-        terrain.cell_mut(x, y).unwrap().land_type = u8::try_from(signed(&before["land"])).unwrap();
+        terrain.cell_mut_for_test(x, y).unwrap().land_type =
+            u8::try_from(signed(&before["land"])).unwrap();
         let identity = terrain.native_cell_identity((x as i16, y as i16));
         terrain.write_native_cell_flags(identity, before["flags"].as_u64().unwrap() as u32);
         let coordinate = crate::sim::movement::nav_target_coordinate(

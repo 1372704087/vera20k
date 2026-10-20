@@ -1224,7 +1224,7 @@ fn teleport_admission_input_error_restores_physical_occupation() {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(12, 10)
+        .cell_mut_for_test(12, 10)
         .unwrap()
         .speed_costs = crate::rules::terrain_rules::SpeedCostProfile::default();
     let raw = save_codec::serialize(&sim.substrate.raw_cell_occupation).unwrap();

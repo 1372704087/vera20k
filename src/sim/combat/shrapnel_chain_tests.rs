@@ -280,7 +280,7 @@ fn retail_comet_terrain_child_keeps_construction_height_through_first_logic() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(17, 15)
+        .cell_mut_for_test(17, 15)
         .unwrap()
         .level = 6;
     let tree_id = scene.admit_tree(17, 15);
@@ -291,7 +291,7 @@ fn retail_comet_terrain_child_keeps_construction_height_through_first_logic() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(17, 15)
+        .cell_mut_for_test(17, 15)
         .unwrap()
         .level = 0;
     let parent = scene.launch();
@@ -601,7 +601,7 @@ fn terrain_bullet_expiry_matches_original_live_observer() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(10, 20)
+            .cell_mut_for_test(10, 20)
             .unwrap()
             .level = 2;
         let tree_id = scene.admit_tree(10, 20);
@@ -889,7 +889,7 @@ fn shrapnel_children_and_lasers_match_original_spawn_shrapnel() {
                     .resolved_terrain
                     .as_mut()
                     .unwrap()
-                    .cell_mut(x, y)
+                    .cell_mut_for_test(x, y)
                     .unwrap()
                     .level = 6;
             }
@@ -981,7 +981,7 @@ fn shrapnel_children_and_lasers_match_original_spawn_shrapnel() {
                         .resolved_terrain
                         .as_mut()
                         .unwrap()
-                        .cell_mut(cell.0, cell.1)
+                        .cell_mut_for_test(cell.0, cell.1)
                         .unwrap()
                         .level = 0;
                 }

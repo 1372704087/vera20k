@@ -2578,9 +2578,12 @@ mod generated_overlay_grid_tests {
         let mut map = emit::empty_map_file(&RmgOptions::default(), 16, 12);
         emit::populate(&mut map, &generated, &[], &[], &[]);
         let mut terrain = ResolvedTerrainGrid::build_generated_materialized_for_test(&map);
-        terrain.cell_mut(22, 22).expect("rock cell").slope_type = 5;
         terrain
-            .cell_mut(22, 24)
+            .cell_mut_for_test(22, 22)
+            .expect("rock cell")
+            .slope_type = 5;
+        terrain
+            .cell_mut_for_test(22, 24)
             .expect("sloped ore cell")
             .slope_type = 1;
 

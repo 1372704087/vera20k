@@ -924,6 +924,24 @@ impl SimSoundEvent {
         Self::voc_at_for(sound_id, None, position)
     }
 
+    /// `VocClass::PlayAt @ 0x007509E0` at an object's Location (`+0x9C`),
+    /// context 0.
+    pub(crate) fn voc_at_location(
+        sound_id: String,
+        entity: &crate::sim::game_entity::GameEntity,
+        terrain: Option<&ResolvedTerrainGrid>,
+    ) -> Self {
+        Self::VocAt {
+            sound_id,
+            audible_to: None,
+            rx: entity.position.rx(),
+            ry: entity.position.ry(),
+            sub_x: entity.position.sub_x(),
+            sub_y: entity.position.sub_y(),
+            world_z_leptons: crate::sim::movement::ground_pose::object_location(entity, terrain).z,
+        }
+    }
+
     /// `VocClass::PlayAt @ 0x007509E0` for a source whose authoritative
     /// location comes from `FootClass::GetCoords` rather than raw Position.
     pub(crate) fn voc_at_world_coord(

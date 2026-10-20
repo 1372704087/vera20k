@@ -4471,6 +4471,15 @@ impl RuleSet {
                 object.project_infantry_pips(pips);
             }
         }
+        for (name, reads) in processed.infantry_sequence_sound_reads() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == ObjectCategory::Infantry && object.id == name)
+            {
+                object.project_sequence_sound_reads(reads);
+            }
+        }
         for (name, flags) in processed.infantry_infiltration_states() {
             if let Some(object) = rules
                 .object_list
@@ -4877,6 +4886,9 @@ impl RuleSet {
                     .and_then(|section| sounds.read_rules_reference(section, "EnterWaterSound"));
                 object.leave_water_sound = section
                     .and_then(|section| sounds.read_rules_reference(section, "LeaveWaterSound"));
+                // ReadSequenceData (`0x0052403F`) resolves each pair through
+                // VocClass::FindByName (`0x007514D0`, first _strcmpi match).
+                object.bind_sequence_sounds(|name| sounds.get(name).map(|entry| entry.id.clone()));
             }
         }
     }

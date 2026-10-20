@@ -1333,6 +1333,12 @@ impl App {
             ShellExitThen::WolSoundOptionsBack => {
                 crate::app::shell_wol::options::commit_sound_back(state)
             }
+            ShellExitThen::WolAutoLoginClose(answer) => {
+                crate::app::shell_wol::persona::commit_auto_login(state, answer)
+            }
+            ShellExitThen::WolLocaleClose(locale) => {
+                crate::app::shell_wol::persona::commit_locale(state, locale)
+            }
         }
     }
 

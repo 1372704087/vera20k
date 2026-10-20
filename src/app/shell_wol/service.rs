@@ -328,6 +328,14 @@ fn server_status_fails(status: u32) -> bool {
 }
 
 impl WolVisit {
+    /// `0x00787010`'s entry: the last login result `[0xB77DF8]` is zeroed
+    /// (`0x0078701E`) before the WOLAPI object is created.
+    fn begin_login(&mut self) {
+        self.last_login_result = None;
+        self.awaiting = Awaiting::Api;
+        self.requests.push(WolServiceRequest::EnsureApi);
+    }
+
     /// `0x00786EF0` over `[0xB77AD0]`: an empty text shows nothing
     /// (`0x005E2CD0` returns on length 0); either way the flow returns 0.
     fn failed_login_box(&self) -> WolStep {
@@ -376,15 +384,20 @@ impl WolVisit {
         self.servers.get(self.selected_server as usize).cloned()
     }
 
-    /// The silent path's index in mode 4 (`0x00787262..0x007872F4`):
-    /// `[0xB76468]` without a persona server, the matching record with one,
-    /// and -1 (no connect, no box) when it is not listed.
+    /// The silent path's index: the record matching the persona's server.
+    /// Without one, modes 1-3 keep `[0xB76468]` (`0x007871D1..0x0078725D`);
+    /// the other modes keep it only when the persona has no server, and an
+    /// unlisted one gives -1, no connect and no box (`0x00787262..0x007872F4`).
     fn auto_login_server(&self, persona_server: &str) -> i32 {
-        if persona_server.is_empty() {
-            return self.selected_server;
+        match self.preferred_server(persona_server) {
+            Some(index) => index as i32,
+            None if persona_server.is_empty()
+                || matches!(self.mode.map(WolMode::native), Some(1..=3)) =>
+            {
+                self.selected_server
+            }
+            None => -1,
         }
-        self.preferred_server(persona_server)
-            .map_or(-1, |index| index as i32)
     }
 
     /// A connect failed (an error result, the Disconnect button or the
@@ -539,14 +552,12 @@ fn answer_unavailable(state: &mut AppState) {
     }
 }
 
-/// `0x00787010` (and `0x00799D30` for My Information) start by creating the
-/// WOLAPI object.
+/// The login flow `0x00787010` starts by creating the WOLAPI object.
 pub(super) fn begin_flow(state: &mut AppState) {
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;
     };
-    visit.awaiting = Awaiting::Api;
-    visit.requests.push(WolServiceRequest::EnsureApi);
+    visit.begin_login();
     answer_unavailable(state);
 }
 
@@ -1325,6 +1336,10 @@ mod tests {
         assert_eq!(visit.auto_login_server(""), 1);
         assert_eq!(visit.auto_login_server("Server2"), 2);
         assert_eq!(visit.auto_login_server("Nowhere"), -1);
+        // Quick Match and Quick Co-op keep [0xB76468] instead.
+        visit.mode = Some(WolMode::QuickMatch);
+        assert_eq!(visit.auto_login_server("Nowhere"), 1);
+        assert_eq!(visit.auto_login_server("Server2"), 2);
         let display = WolServer {
             name: "irc:USA East:6667".into(),
         };
@@ -1361,6 +1376,23 @@ mod tests {
         };
         assert_eq!(
             visit.reduce(WolServiceEvent::Login(Err(0x8004_0065))),
+            WolStep::Message {
+                key: "TXT_BADPASS",
+                yes_no: false,
+                then: WolBoxThen::Welcome
+            }
+        );
+    }
+
+    #[test]
+    fn a_new_login_flow_forgets_the_last_result() {
+        let mut visit = visit_waiting_servers();
+        visit.last_error = Some("TXT_BADPASS");
+        visit.last_login_result = Some(0x8004_0072);
+        visit.begin_login();
+        // A timeout leaves no new result: the box is OK-only.
+        assert_eq!(
+            visit.failed_login_box(),
             WolStep::Message {
                 key: "TXT_BADPASS",
                 yes_no: false,

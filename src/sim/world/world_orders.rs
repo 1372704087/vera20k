@@ -475,7 +475,8 @@ impl Simulation {
     /// - A `DeploysInto=` unit: that type's CanPlaceAt (vt+0xA8, no house) at
     ///   the unit's cell, one cell north-west for a foundation wider or deeper
     ///   than 2 (`0x0073FEAD..0x0073FF52`), with the unit lifted for the test
-    ///   (Mark(UP) and Mark_All_Occupation_Bits(0), `0x0073FF5C..0x0073FF81`).
+    ///   (Mark(UP) and Mark_All_Occupation_Bits(0), `0x0073FF5C..0x0073FF81`;
+    ///   [`crate::sim::build_site::LiftedUnit`]).
     /// - A loaded transport (`Passengers=` above 0) off a bridge (`+0x8C`) and
     ///   in no tank bunker (`+0x2E4`): its first passenger's SpeedType on its
     ///   cell's land below 1% (the float table `0x0089EA40` against 0.01 at
@@ -484,10 +485,10 @@ impl Simulation {
     ///   ground (GetHeight vt+0x1C8, `0x007400C6..0x007400EB`).
     ///
     /// An empty transport answers NoDeploy before these tests (`0x0074003F`);
-    /// a simple deployer goes straight to CanDeploySlashUnload (`0x00740013`).
-    /// A bunkered unit cannot be selected, so the bunker rows never answer a
-    /// player's click. The arm's planning test (`0x0073FEA0`) belongs to the
-    /// caller, which holds Planning Mode.
+    /// a simple deployer goes straight to CanDeploySlashUnload (`0x00740013`),
+    /// as does a bunkered unit (`0x00740023`, `0x00740107`). The arm's
+    /// planning test (`0x0073FEA0`) belongs to the caller, which holds
+    /// Planning Mode.
     pub fn unit_self_deploy_site_refused(
         &self,
         id: u64,
@@ -517,7 +518,7 @@ impl Simulation {
                 origin,
                 None,
                 None,
-                Some(id),
+                Some(&crate::sim::build_site::LiftedUnit::read(self, id)),
             );
         }
         let Some(object) = self.object_type(entity.type_ref(), rules) else {

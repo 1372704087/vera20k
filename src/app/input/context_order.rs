@@ -2106,6 +2106,21 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, cmd));
                 return finish_order(state, queued, speaker_id);
             }
+            if context_actions_enabled
+                && hover.as_ref().is_some_and(|target| {
+                    self_answers_no_deploy(
+                        sim,
+                        &resources.rules,
+                        Some(&resources.overlay_registry),
+                        owner_id,
+                        &current_objects,
+                        target,
+                        planning,
+                    )
+                })
+            {
+                return finish_order(state, queued, speaker_id);
+            }
             // A Crazy Ivan bombs a friend by a plain click, when the object that
             // owns the cursor is one of the bombing Ivans.
             if clicked_friendly
@@ -2433,7 +2448,7 @@ pub(super) fn is_simple_deploy_unit(
 /// Infantry51EC14..51EC9F and Unit740015..74003F produce NoDeploy30,
 /// rather than a self action: deployed/transitioning infantry with a deploy
 /// weapon, or an empty mobile transport. The D-key's receiver is separate.
-pub(super) fn self_deploy_is_blocked(
+fn self_deploy_is_blocked(
     entity: &crate::sim::game_entity::GameEntity,
     object: &crate::rules::object_type::ObjectType,
 ) -> bool {
@@ -2492,10 +2507,46 @@ pub(super) fn self_click_command(
         .filter(|_| !unit_refuses_deploy(sim, rules, registry, target.stable_id))
 }
 
+/// The lone selected object's NoDeploy (0x1E) over itself: a refused self
+/// action ([`self_deploy_is_refused`]), or one blocked before it
+/// ([`self_deploy_is_blocked`], [`is_simple_deploy_unit`]). Cursor and click
+/// share it. The release dispatches NoDeploy, so a click on it orders and
+/// selects nothing (`0x004ABE88`).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn self_answers_no_deploy(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    local_owner: InternedId,
+    selected_ids: &[u64],
+    target: &HoverTargetKindWithId,
+    planning: bool,
+) -> bool {
+    self_deploy_is_refused(
+        sim,
+        rules,
+        registry,
+        local_owner,
+        selected_ids,
+        target,
+        planning,
+    ) || (selected_ids == [target.stable_id]
+        && sim.entities().get(target.stable_id).is_some_and(|entity| {
+            entity.owner() == local_owner
+                && sim
+                    .interner()
+                    .object_type(entity.type_ref(), rules)
+                    .is_some_and(|object| {
+                        self_deploy_is_blocked(entity, object)
+                            || is_simple_deploy_unit(entity, object)
+                    })
+        }))
+}
+
 /// Unit What_Action's NoDeploy answer (`0x0073FFF4`) for a self action its
 /// site tests or CanDeploySlashUnload refuse, and Planning Mode's for any
 /// Unit or Infantry self action.
-pub(super) fn self_deploy_is_refused(
+fn self_deploy_is_refused(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,

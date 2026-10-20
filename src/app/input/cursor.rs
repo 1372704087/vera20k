@@ -649,7 +649,7 @@ pub(super) fn capability_cursor_for_hover(
         {
             return CursorFeedbackKind::Deploy;
         }
-        if super::context_order::self_deploy_is_refused(
+        if super::context_order::self_answers_no_deploy(
             sim,
             rules,
             overlay_registry,
@@ -657,10 +657,7 @@ pub(super) fn capability_cursor_for_hover(
             selected,
             hover,
             planning,
-        ) || hovered_obj.is_some_and(|obj| {
-            super::context_order::self_deploy_is_blocked(entity, obj)
-                || super::context_order::is_simple_deploy_unit(entity, obj)
-        }) {
+        ) {
             return CursorFeedbackKind::NoDeploy;
         }
 

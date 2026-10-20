@@ -82,3 +82,72 @@ fn a_loaded_transport_on_a_beach_offers_no_deploy() {
     land(&mut sim, LandType::Water);
     assert!(!sim.unit_self_deploy_site_refused(transport, rules, None));
 }
+
+/// A driving MCV's track holds the Cell ahead as well as its own, and the
+/// lift clears both (Mark(UP), then Drive's Mark_All_Occupation_Bits(0)). On
+/// every frame of a drive the read-only lift answers as the deploy's real
+/// lift-and-replace does (`Simulation::deploy_mcv`).
+#[test]
+fn a_driving_mcv_reads_its_lift_as_the_deploy_performs_it() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let mut sim = arena(rules);
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 12, 12, 0, rules)
+        .expect("mcv");
+    let yard = rules.object("GACNST").expect("yard");
+    assert!(sim.set_unit_destination(
+        mcv,
+        crate::sim::components::NavTargetRef::cell(18, 12),
+        rules,
+        true,
+        crate::sim::world::FrameEffects::default(),
+    ));
+    let mut ahead_held = 0;
+    for frame in 101..260 {
+        sim.session.set_binary_frame_for_test(frame);
+        sim.substrate
+            .entities
+            .get_mut(mcv)
+            .unwrap()
+            .mission_leaf
+            .set_foot_idle_entry_latch(0);
+        let grid = sim.path_grid.clone();
+        sim.process_ground_locomotor_for_test(mcv, Some(rules), grid.as_deref(), None)
+            .unwrap();
+        let entity = sim.substrate.entities.get(mcv).unwrap();
+        let own = (entity.position.rx(), entity.position.ry());
+        if let Some(head) = crate::sim::movement::track_head::committed_track_head(entity) {
+            let ahead = ((head.x / 256) as u16, (head.y / 256) as u16);
+            if ahead != own
+                && sim
+                    .substrate
+                    .raw_cell_occupation
+                    .ground_bits(ahead.0, ahead.1)
+                    & crate::sim::occupancy::VEHICLE_OCCUPATION_BIT
+                    != 0
+            {
+                ahead_held += 1;
+            }
+        }
+        let origin = crate::sim::world::world_spawn::deploy_origin_from_unit_cell(
+            own.0,
+            own.1,
+            &yard.foundation,
+        );
+        let read = !sim.unit_self_deploy_site_refused(mcv, rules, None);
+        let effects = crate::sim::world::FrameEffects::default;
+        assert!(sim.foot_mark_remove(mcv, Some(rules), None, effects()));
+        sim.locomotor_mark_all_occupation_bits(mcv, false);
+        let lifted = crate::sim::build_site::can_place_building_at(
+            &sim, rules, None, yard, origin, None, None, None,
+        );
+        sim.locomotor_mark_all_occupation_bits(mcv, true);
+        assert!(sim.foot_mark_put(mcv, Some(rules), None, effects()));
+        assert_eq!(read, lifted, "frame {frame}");
+        assert!(lifted, "frame {frame}: the arena admits the yard");
+    }
+    assert!(ahead_held > 0, "the drive never held a Cell ahead");
+}

@@ -57,6 +57,36 @@ pub(crate) fn building_speed_type(ty: &ObjectType) -> Option<SpeedType> {
     ty.water_bound.then_some(SpeedType::Float)
 }
 
+/// A Unit lifted around a placement test without moving it, as Unit
+/// What_Action's self arm lifts its `DeploysInto=` unit
+/// (`0x0073FF5C..0x0073FF81`, put back at `0x0073FFC8..0x0073FFD9`): Mark(UP)
+/// takes it off its Cell's object list and clears its vehicle bit (0x20)
+/// where it is marked, and its locomotor's Mark_All_Occupation_Bits(0)
+/// clears the bits its track holds, the next Cell of a driving unit
+/// included. The test reads that state instead of writing it.
+pub(crate) struct LiftedUnit {
+    id: u64,
+    /// Cells whose ground-plane vehicle bit the lift clears.
+    ground_cells: Vec<(u16, u16)>,
+}
+
+impl LiftedUnit {
+    pub(crate) fn read(sim: &Simulation, id: u64) -> Self {
+        let ground_cells = sim
+            .unit_mark_up_raw_cleared(id)
+            .into_iter()
+            .chain(sim.locomotor_occupation_cleared(id))
+            .filter(|&(_, layer)| layer != MovementLayer::Bridge)
+            .map(|(at, _)| at)
+            .collect();
+        Self { id, ground_cells }
+    }
+
+    fn clears_ground(&self, cell: (u16, u16)) -> bool {
+        self.ground_cells.contains(&cell)
+    }
+}
+
 /// `BuildingTypeClass::CanPlaceAt @ 0x00464AC0`: a `PlaceAnywhere=` type
 /// stands anywhere (`0x00464AC0..0x00464ACC`); otherwise
 /// `TechnoTypeClass::CanPlaceAt @ 0x00716150` walks the foundation list from
@@ -67,8 +97,8 @@ pub(crate) fn building_speed_type(ty: &ObjectType) -> Option<SpeedType> {
 /// type, which needs one clear cell (`0x00716260..0x00716280`).
 /// Simulation callers use the canonical lookup (`None`); presentation carries
 /// its isolated query through this same walk and every nested Cell decision.
-/// `lifted_unit` reads the map as it stands while that Unit is lifted for the
-/// test ([`is_clear_to_build`]).
+/// `lifted` reads the map as it stands while that Unit is lifted for the
+/// test ([`LiftedUnit`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn can_place_building_at(
     sim: &Simulation,
@@ -78,7 +108,7 @@ pub(crate) fn can_place_building_at(
     origin: (i16, i16),
     house: Option<InternedId>,
     native_cells: Option<&NativeCellQuery<'_>>,
-    lifted_unit: Option<u64>,
+    lifted: Option<&LiftedUnit>,
 ) -> bool {
     if ty.place_anywhere {
         return true;
@@ -105,7 +135,7 @@ pub(crate) fn can_place_building_at(
             Some(ty),
             house,
             Some(cells),
-            lifted_unit,
+            lifted,
         ) {
             admitted = true;
         } else {
@@ -124,14 +154,7 @@ pub(crate) fn can_place_building_at(
 /// house (`None` is null; it matches an unowned wall).
 /// A supplied query must be the context that resolved `cell`, so retained
 /// Dummy coordinates/ground fields come from that identity without relookup.
-///
-/// `lifted_unit` is a Unit its caller lifts around the test without moving
-/// it: Mark(UP) takes it off its cell's object list and clears its vehicle
-/// bit (0x20) at its Location, as the Drive locomotor's
-/// Mark_All_Occupation_Bits(0) does for a unit standing still. Unit
-/// What_Action's self arm lifts its DeploysInto unit this way
-/// (`0x0073FF5C..0x0073FF81`, put back at `0x0073FFC8..0x0073FFD9`); the
-/// query reads that state instead of writing it.
+/// `lifted` is a Unit its caller lifts around the test ([`LiftedUnit`]).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn is_clear_to_build(
     sim: &Simulation,
@@ -142,7 +165,7 @@ pub(crate) fn is_clear_to_build(
     ty: Option<&ObjectType>,
     house: Option<InternedId>,
     native_cells: Option<&NativeCellQuery<'_>>,
-    lifted_unit: Option<u64>,
+    lifted: Option<&LiftedUnit>,
 ) -> bool {
     // Original47C632 returns true while the shared A8E7AC bracket is raised.
     // Building440580 still enters449440; the bypass belongs to this cell
@@ -156,7 +179,7 @@ pub(crate) fn is_clear_to_build(
     let canonical = NativeCellQuery::canonical(terrain);
     let cells = native_cells.unwrap_or(&canonical);
     if let Some(ty) = ty
-        && !objects_admit(sim, rules, terrain, cell, ty, house, lifted_unit)
+        && !objects_admit(sim, rules, terrain, cell, ty, house, lifted)
     {
         return false;
     }
@@ -318,31 +341,27 @@ fn objects_admit(
     cell: NativeCellIdentity,
     ty: &ObjectType,
     house: Option<InternedId>,
-    lifted_unit: Option<u64>,
+    lifted: Option<&LiftedUnit>,
 ) -> bool {
-    let lifted = lifted_unit.map(CellObjectMember::Entity);
+    let lifted_id = lifted.map(|lifted| lifted.id);
     let members: Vec<CellObjectMember> = match cell {
         NativeCellIdentity::Real(index) => {
             let cell = &terrain.cells()[index];
             sim.cell_objects((cell.rx, cell.ry), MovementLayer::Ground)
-                .filter(|member| Some(*member) != lifted)
+                .filter(|member| Some(*member) != lifted_id.map(CellObjectMember::Entity))
                 .collect()
         }
         // The shared dummy carries no object list.
         NativeCellIdentity::Dummy => Vec::new(),
     };
-    // The lifted unit's vehicle bit, where it holds this cell's ground plane.
-    let lifted_bits = lifted_unit
-        .filter(|&id| {
-            sim.substrate.entities.get(id).is_some_and(|entity| {
-                entity.category() == EntityCategory::Unit && entity.foot_occupation_enabled()
-            }) && matches!(cell, NativeCellIdentity::Real(index)
-            if sim.foot_mark_cell(id).is_some_and(|(at, layer)| {
-                let cell = &terrain.cells()[index];
-                layer == MovementLayer::Ground && at == (cell.rx, cell.ry)
-            }))
-        })
-        .map_or(0, |_| crate::sim::occupancy::VEHICLE_OCCUPATION_BIT);
+    let lifted_bits = match (lifted, cell) {
+        (Some(lifted), NativeCellIdentity::Real(index))
+            if lifted.clears_ground((terrain.cells()[index].rx, terrain.cells()[index].ry)) =>
+        {
+            crate::sim::occupancy::VEHICLE_OCCUPATION_BIT
+        }
+        _ => 0,
+    };
     let category = |member: &CellObjectMember| match *member {
         CellObjectMember::Entity(id) => sim.substrate.entities.get(id).map(|e| e.category()),
         CellObjectMember::Terrain(_) => None,
@@ -376,7 +395,7 @@ fn objects_admit(
                     return None;
                 };
                 let cell = &terrain.cells()[index];
-                sim.nearest_cell_object((cell.rx, cell.ry), MovementLayer::Ground, lifted_unit)
+                sim.nearest_cell_object((cell.rx, cell.ry), MovementLayer::Ground, lifted_id)
                     .map(CellObjectMember::Entity)
             })
             .or_else(|| members.iter().find(|member| is_terrain(member)).copied());

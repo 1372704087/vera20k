@@ -45,6 +45,7 @@ use crate::rules::warhead_type::WarheadType;
 use crate::rules::weapon_type::WeaponType;
 use crate::util::fixed_math::{SIM_ONE, SimFixed};
 use crate::util::lookup_hash::LookupMap;
+use crate::util::native_random::unit_draw_threshold;
 use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
 
 #[cfg(test)]
@@ -979,7 +980,7 @@ pub struct GeneralRules {
     /// from `condition_red_sparking_probability` at parse time: the per-tick test
     /// becomes the pure-integer `roll < threshold` (no float in the sim hot path).
     /// `roll = scenario_rng.next_range_u32_inclusive(0, 0x7ffffffe)`. See
-    /// [`damage_spark_spawn_threshold`]. Default 42_949_673 (band 0.02).
+    /// [`unit_draw_threshold`]. Default 42_949_673 (band 0.02).
     pub condition_red_spark_threshold: u32,
     /// Integer roll threshold for the yellow-band damage-Spark prob-roll.
     /// Default 21_474_837 (band 0.01).
@@ -1967,57 +1968,6 @@ pub struct GeneralRules {
     pub weather_con_bolts: Vec<String>,
 }
 
-/// Count of representable `roll` values for the damage-Spark prob-roll, i.e.
-/// `RandomRanged(0, 0x7ffffffe)` yields `[0, 0x7ffffffe]`, so 0x7fffffff values.
-/// A band of >= 1.0 lets every roll pass.
-const DAMAGE_SPARK_ROLL_COUNT: u32 = 0x7fff_ffff;
-
-/// Compute the integer spawn threshold for a damage-Spark probability `band`:
-/// the number of `roll` values in `[0, 0x7ffffffe]` for which gamemd's roll
-/// SUCCEEDS, so the per-tick test reduces to the pure-integer `roll < threshold`
-/// (no float in the sim hot path; `roll` from `next_range_u32_inclusive(0,
-/// 0x7ffffffe)`).
-///
-/// gamemd compares `(double)roll * SCALE < band` with `SCALE` the exact double
-/// `0x3E00000000400000` = `(2^30 + 1)·2^-61`, evaluated in x87 80-bit. Because
-/// `roll·(2^30 + 1) <= 2^61 - 2` fits the 64-bit x87 mantissa, that product is
-/// the EXACT real value, and `band` is an exact f64 — so the boundary is the
-/// exact-rational comparison `roll·(2^30+1)·2^-61 < band`, computed here with
-/// integer arithmetic (machine-independent; no float, no x87 dependency, no
-/// multiply-vs-divide rounding hazard). A 1-off here flips the draw count on a
-/// boundary tick → desync, so the two stock thresholds are pinned by test.
-pub(crate) fn damage_spark_spawn_threshold(band: f64) -> u32 {
-    // band <= 0 (or NaN): no roll passes. band >= 1: every roll passes.
-    if band.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-        return 0;
-    }
-    if band >= 1.0 {
-        return DAMAGE_SPARK_ROLL_COUNT;
-    }
-    // Decompose band = mant · 2^exp (normalized double carries the implicit 53rd
-    // bit): value = (2^52 + frac) · 2^(exp_field - 1075).
-    let bits = band.to_bits();
-    let exp_field = ((bits >> 52) & 0x7ff) as i32;
-    let frac = bits & ((1u64 << 52) - 1);
-    let (mant, exp) = if exp_field == 0 {
-        (frac, -1074) // subnormal
-    } else {
-        ((1u64 << 52) | frac, exp_field - 1075)
-    };
-    // roll·SCALE >= band  <=>  roll·(2^30+1) >= mant·2^(exp+61).
-    // threshold = smallest qualifying roll = ceil(mant·2^(exp+61) / (2^30+1)).
-    const D: u128 = (1u128 << 30) + 1;
-    let k = exp + 61;
-    let threshold: u128 = if k >= 0 {
-        ((mant as u128) << (k as u32)).div_ceil(D)
-    } else {
-        // mant·2^(exp+61) is fractional; scale the divisor instead:
-        // roll >= ceil(mant / ((2^30+1) << -k)).
-        (mant as u128).div_ceil(D << ((-k) as u32))
-    };
-    threshold.min(DAMAGE_SPARK_ROLL_COUNT as u128) as u32
-}
-
 /// `[General] URepairRate=` default, in minutes.
 const U_REPAIR_RATE_MINUTES: f64 = 0.016;
 
@@ -2449,8 +2399,8 @@ impl Default for GeneralRules {
             airstrike_attack_voice: None,
             condition_red_sparking_probability: 0.02,
             condition_yellow_sparking_probability: 0.01,
-            condition_red_spark_threshold: damage_spark_spawn_threshold(0.02),
-            condition_yellow_spark_threshold: damage_spark_spawn_threshold(0.01),
+            condition_red_spark_threshold: unit_draw_threshold(0.02),
+            condition_yellow_spark_threshold: unit_draw_threshold(0.01),
             dumb_my_effectiveness_coefficient: 200.0,
             dumb_target_effectiveness_coefficient: 200.0,
             dumb_target_special_threat_coefficient: 200.0,
@@ -3273,10 +3223,8 @@ impl GeneralRules {
             savour_delay_minutes,
             condition_red_sparking_probability: condition_red_spark_prob,
             condition_yellow_sparking_probability: condition_yellow_spark_prob,
-            condition_red_spark_threshold: damage_spark_spawn_threshold(condition_red_spark_prob),
-            condition_yellow_spark_threshold: damage_spark_spawn_threshold(
-                condition_yellow_spark_prob,
-            ),
+            condition_red_spark_threshold: unit_draw_threshold(condition_red_spark_prob),
+            condition_yellow_spark_threshold: unit_draw_threshold(condition_yellow_spark_prob),
             dumb_my_effectiveness_coefficient: general.read_double(
                 "DumbMyEffectivenessCoefficient",
                 defaults.dumb_my_effectiveness_coefficient,
@@ -10440,39 +10388,41 @@ DefaultSparkSystem=SparkSys
         assert_eq!(g.guard_area_targeting_delay, -10);
     }
 
+    /// The constructor bands take the executed Spark gate's boundary draws
+    /// (`0x006FAE2D..0x006FAE40`); a 1-off flips the draw count on a boundary
+    /// tick. A subnormal and a tiny reader value admit roll 0 alone.
     #[test]
-    fn damage_spark_thresholds_match_x87_boundary() {
-        // The stock-default thresholds are the EXACT boundary of gamemd's 80-bit
-        // `(double)roll * 0x3E00000000400000 < band` compare. A 1-off here flips
-        // the per-tick draw count → desync, so pin both bands and the threshold
-        // derived into GeneralRules.
-        assert_eq!(damage_spark_spawn_threshold(0.02), 42_949_673);
-        assert_eq!(damage_spark_spawn_threshold(0.01), 21_474_837);
+    fn damage_spark_thresholds_from_the_general_reader() {
         let d = GeneralRules::default();
+        let mut checked = 0;
+        for (band, draw, passed) in crate::util::native_random::native_gate_rows("spark") {
+            for (probability, threshold) in [
+                (
+                    d.condition_red_sparking_probability,
+                    d.condition_red_spark_threshold,
+                ),
+                (
+                    d.condition_yellow_sparking_probability,
+                    d.condition_yellow_spark_threshold,
+                ),
+            ] {
+                if band.to_bits() == probability.to_bits() {
+                    assert_eq!(draw < threshold, passed, "band {band}, draw {draw:#x}");
+                    checked += 1;
+                }
+            }
+        }
+        assert_eq!(checked, 12);
         assert_eq!(d.condition_red_spark_threshold, 42_949_673);
         assert_eq!(d.condition_yellow_spark_threshold, 21_474_837);
 
-        // Verify the boundary directly against the exact f64 product gamemd uses:
-        // roll = threshold-1 must PASS (roll*scale < band), roll = threshold must FAIL.
-        // (roll·(2^30+1) fits the 64-bit x87 mantissa, so this f64 multiply equals
-        // gamemd's 80-bit product exactly at the boundary.)
-        let scale = f64::from_bits(0x3E00_0000_0040_0000);
-        for (band, t) in [(0.02_f64, 42_949_673_u32), (0.01, 21_474_837)] {
-            assert!(
-                (t as f64 - 1.0) * scale < band,
-                "roll=t-1 must pass for band {band}"
-            );
-            assert!(
-                ((t as f64) * scale).partial_cmp(&band) != Some(std::cmp::Ordering::Less),
-                "roll=t must fail for band {band}"
-            );
-        }
-
-        // Degenerate bands.
-        assert_eq!(damage_spark_spawn_threshold(0.0), 0);
-        assert_eq!(damage_spark_spawn_threshold(-1.0), 0);
-        assert_eq!(damage_spark_spawn_threshold(1.0), DAMAGE_SPARK_ROLL_COUNT);
-        assert_eq!(damage_spark_spawn_threshold(2.0), DAMAGE_SPARK_ROLL_COUNT);
+        let g = GeneralRules::from_ini(&ini_with_general(
+            "ConditionRedSparkingProbability=1e-45\nConditionYellowSparkingProbability=1e-30",
+        ));
+        let red = g.condition_red_sparking_probability;
+        assert!(red > 0.0 && red < f64::from(f32::MIN_POSITIVE), "{red:e}");
+        assert_eq!(g.condition_red_spark_threshold, 1);
+        assert_eq!(g.condition_yellow_spark_threshold, 1);
     }
 
     /// The constructor empties every paradrop list (`0x00666649..0x006666D8`)

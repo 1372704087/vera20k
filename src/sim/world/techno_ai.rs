@@ -45,8 +45,10 @@ use super::{FrameEffects, ObjectSubstrate, Simulation};
 use crate::map::entities::EntityCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
+use crate::sim::intern::StringInterner;
 use crate::sim::miner::MinerConfig;
 use crate::sim::mission::MissionType;
+use crate::sim::scenario_session::ScenarioSession;
 
 /// Non-rules world context the mission handler bodies dispatched from the
 /// host need (overlay types and per-tick config the spine already owns;
@@ -825,7 +827,7 @@ fn techno_ai_shell(
             }
             building_missions::update_animation(sim, id, rules);
             // The ready check after UpdateAnimation (`0x0043FE27`).
-            building_missions::ready_commence(sim, id, true);
+            building_missions::ready_commence(&sim.session, &mut sim.substrate, id, true);
             if let Some(rules) = rules
                 && !techno_common_steps(
                     sim,
@@ -866,12 +868,17 @@ fn techno_ai_shell(
                 building_missions::gattling_idle(sim, id, rules);
             }
             // The ready check after the Techno AI (`0x0043FF91`).
-            building_missions::ready_commence(sim, id, false);
-            building_missions::apply_queued_body(sim, id);
+            building_missions::ready_commence(&sim.session, &mut sim.substrate, id, false);
+            building_missions::apply_queued_body(&sim.session, &mut sim.substrate, id);
             // Building440042..440074 samples Health AFTER its queued body
             // and BEFORE delayed fire/paid repair. Engineer701410 itself
             // deliberately does not invalidate the House.
-            sim.sample_building_health_for_house_update(id);
+            Simulation::sample_building_health_for_house_update(
+                &mut sim.substrate,
+                &sim.houses,
+                &mut sim.power_states,
+                id,
+            );
             // Building440072..4400F1 retires a building at Health 0 once its
             // shared C4/death fuse has run out: one that outlived its killing
             // blow (an `Explodes=` type or one dying while Selling, whose
@@ -1445,7 +1452,7 @@ fn techno_common_steps(
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.update_voxel_recoil(); // Techno6FA4D1, before ChargeTurret.
     }
-    charge_turret_step(sim, id, rules);
+    charge_turret_step(&sim.interner, &sim.session, &mut sim.substrate, id, rules);
     //Techno6FA5BE..6FA5D6, before Mission AI: every Techno finishes its own
     //due Door transition here. Gate/Factory mission work observes this change
     //inside the same LogicVector visit; no global phase advances Door clocks.
@@ -1520,14 +1527,20 @@ fn iron_tint_step(sim: &mut Simulation, id: u64) {
 
 /// Techno6FA4FB follows target validity and precedes mission dispatch. The
 /// same object's later shot arms its charge duration for the next AI visit.
-fn charge_turret_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
-    let Some(entity) = sim.substrate.entities.get_mut(id) else {
+fn charge_turret_step(
+    interner: &StringInterner,
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    id: u64,
+    rules: &RuleSet,
+) {
+    let Some(entity) = substrate.entities.get_mut(id) else {
         return;
     };
-    let Some(object) = sim.interner.object_type(entity.type_ref(), rules) else {
+    let Some(object) = interner.object_type(entity.type_ref(), rules) else {
         return;
     };
-    entity.update_charge_turret(sim.session.binary_frame() as i32, object);
+    entity.update_charge_turret(session.binary_frame() as i32, object);
 }
 
 /// `TechnoClass::AI_Update @ 0x006FA472..0x006FA4CB`, after the drain

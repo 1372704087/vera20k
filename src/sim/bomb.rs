@@ -84,6 +84,7 @@ use crate::sim::components::DriveCoord;
 use crate::sim::intern::InternedId;
 use crate::sim::movement::ground_pose::{object_get_coords, object_location};
 use crate::sim::projectile::ProjectileCoord;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
 /// `BombListClass` (`0x0087F5D8`): the carriers of the live bombs and the
@@ -453,10 +454,13 @@ impl Simulation {
 
     /// `BombListClass::PointerGotInvalid @ 0x00439150`: bombs planted by the
     /// expired object lose their source.
-    pub(crate) fn bomb_planter_expired(&mut self, expired: u64) {
-        for &carrier in &self.bombs.carriers {
-            if let Some(bomb) = self
-                .substrate
+    pub(crate) fn bomb_planter_expired(
+        substrate: &mut ObjectSubstrate,
+        bombs: &BombList,
+        expired: u64,
+    ) {
+        for &carrier in &bombs.carriers {
+            if let Some(bomb) = substrate
                 .entities
                 .get_mut(carrier)
                 .and_then(|entity| entity.bomb.as_mut())

@@ -19,9 +19,11 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::sim::components::DriveCoord;
 use crate::sim::entity_store::EntityStore;
 use crate::sim::game_entity::GameEntity;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::rng::SimRng;
+use crate::sim::world::ObjectSubstrate;
 
 /// Functional infantry sub-cell positions. The original engine uses sub-cells
 /// 2 (NE), 3 (SW), 4 (SE) — three corners of the isometric diamond. Sub-cells
@@ -352,7 +354,14 @@ impl crate::sim::world::Simulation {
             ),
             None => RawCellKey::Real((point.x / 256) as u16, (point.y / 256) as u16),
         };
-        self.place_infantry_in_ground_key(rules, key, point)
+        Self::place_infantry_in_ground_key(
+            &self.interner,
+            &mut self.scenario_rng,
+            &self.substrate,
+            rules,
+            key,
+            point,
+        )
     }
 
     /// PlaceInfantryInCell with useCellCoords (`0x00481212`) on `cell`, the
@@ -372,7 +381,14 @@ impl crate::sim::world::Simulation {
             .as_ref()
             .ok_or("PlaceInfantryInCell requires map cells")?;
         let key = crate::sim::occupancy::RawCellKey::from_native(terrain, cell);
-        let Some(slot) = self.place_infantry_in_ground_key(rules, key, request) else {
+        let Some(slot) = Self::place_infantry_in_ground_key(
+            &self.interner,
+            &mut self.scenario_rng,
+            &self.substrate,
+            rules,
+            key,
+            request,
+        ) else {
             return Ok(None);
         };
         let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(
@@ -391,24 +407,26 @@ impl crate::sim::world::Simulation {
     /// [`place_infantry_in_native_cell`] on `key`'s ground plane without
     /// priority, with the live ground Gate.
     pub(crate) fn place_infantry_in_ground_key(
-        &mut self,
+        world_interner: &StringInterner,
+        scenario_rng: &mut SimRng,
+        substrate: &ObjectSubstrate,
         rules: &crate::rules::ruleset::RuleSet,
         key: crate::sim::occupancy::RawCellKey,
         request: DriveCoord,
     ) -> Option<u8> {
         place_infantry_in_native_cell(
-            &self.substrate.raw_cell_occupation,
+            &substrate.raw_cell_occupation,
             key,
             MovementLayer::Ground,
             request,
             false,
             GroundGate::Live {
-                occupancy: &self.substrate.occupancy,
-                entities: &self.substrate.entities,
+                occupancy: &substrate.occupancy,
+                entities: &substrate.entities,
                 rules: Some(rules),
-                interner: &self.interner,
+                interner: world_interner,
             },
-            &mut self.scenario_rng,
+            scenario_rng,
         )
     }
 }

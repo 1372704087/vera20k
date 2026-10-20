@@ -228,9 +228,13 @@ use crate::sim::bridge_state::BridgeRuntimeState;
 use crate::sim::combat::combat_weapon::WeaponSlot;
 use crate::sim::command::CommandEnvelope;
 use crate::sim::components::{AnimClassSpawnDescriptor, DriveCoord, Position};
+use crate::sim::dirty_cells::DirtyCells;
 use crate::sim::entity_store::EntityStore;
+use crate::sim::house_diplomacy::HouseAlliances;
 use crate::sim::house_state::HouseState;
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::overlay_grid::{
@@ -244,8 +248,10 @@ use crate::sim::pathfinding::zone_incremental::{
     PackedZoneCoord, ZoneRepairKind, repair_zone_cell,
 };
 use crate::sim::pathfinding::zone_map::ZoneGrid;
+use crate::sim::power_system::PowerStates;
 use crate::sim::power_system::{self, PowerState};
 use crate::sim::production::{self, ProductionState};
+use crate::sim::projectile::ProjectileStore;
 use crate::sim::projectile::{
     Projectile, ProjectileBridgeCrossing, ProjectileCollisionResponse, ProjectileCoord,
     projectile_bridge_crossing,
@@ -253,6 +259,7 @@ use crate::sim::projectile::{
 use crate::sim::radar::{RadarEventRequest, RadarEventType};
 use crate::sim::rng::{MainRng, SimRng, SimRngLogicalState, SimRngLogicalView};
 use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::smudge_grid::SmudgeGrid;
 use crate::sim::team_script_vm::TeamScriptVm;
 use crate::sim::tiberium::TiberiumPlacementObjectContext;
 use crate::sim::trigger_runtime::{TriggerEffect, TriggerRuntime};
@@ -2072,7 +2079,11 @@ impl Simulation {
         #[cfg(test)]
         if let crate::sim::combat::world_fire::FireVisit::Building { id, shot } = &visit
             && crate::sim::combat::receiver_fixture::substitute_building_fire(
-                self, *id, *shot, rules,
+                &self.session,
+                &mut self.substrate,
+                *id,
+                *shot,
+                rules,
             )
         {
             return damage_consequences::DamageCommitReceipt {
@@ -4119,14 +4130,16 @@ impl Simulation {
         self.dirty_cells.mark_radar(cells);
     }
 
-    pub(crate) fn flush_smudge_dirty(&mut self) {
-        let dirty = self
-            .smudge_grid
+    pub(crate) fn flush_smudge_dirty(
+        smudge_grid: &mut Option<SmudgeGrid>,
+        dirty_cells: &mut DirtyCells,
+    ) {
+        let dirty = smudge_grid
             .as_mut()
             .map(crate::sim::smudge_grid::SmudgeGrid::drain_dirty)
             .unwrap_or_default();
         for cell in dirty {
-            self.dirty_cells.mark_cell(cell);
+            dirty_cells.mark_cell(cell);
         }
     }
 
@@ -4173,7 +4186,7 @@ impl Simulation {
                 lifecycle::UninitContext::new(Some(rules), overlay_registry),
             );
         }
-        self.flush_smudge_dirty();
+        Self::flush_smudge_dirty(&mut self.smudge_grid, &mut self.dirty_cells);
     }
 
     /// Execute59 at6DE313 uses +90 as a waypoint, not the +44 tail or an
@@ -4706,7 +4719,13 @@ impl Simulation {
             target,
             payload,
         );
-        self.construct_bullet_scheme(id, rules);
+        Self::construct_bullet_scheme(
+            &self.interner,
+            &self.substrate,
+            &mut self.projectiles,
+            id,
+            rules,
+        );
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::UnfiredProjectileConstructed {
             stable_id: id,
@@ -4754,20 +4773,26 @@ impl Simulation {
     /// `FirersPalette=` BulletType (`+0x2A9`) whose Owner (`+0xB0`) exists
     /// keeps the Owner's House colour scheme at `+0x114`; every other bullet
     /// keeps -1. Runs after each admission and re-Construct.
-    pub(crate) fn construct_bullet_scheme(&mut self, bullet: u64, rules: &RuleSet) {
-        let Some(projectile) = self.projectiles.get(bullet) else {
+    pub(crate) fn construct_bullet_scheme(
+        interner: &StringInterner,
+        substrate: &ObjectSubstrate,
+        projectiles: &mut ProjectileStore,
+        bullet: u64,
+        rules: &RuleSet,
+    ) {
+        let Some(projectile) = projectiles.get(bullet) else {
             return;
         };
         let firers_palette = projectile
             .payload()
             .projectile_type()
-            .and_then(|id| rules.projectile(self.interner.resolve(id)))
+            .and_then(|id| rules.projectile(interner.resolve(id)))
             .is_some_and(|kind| kind.firers_palette);
         let house = firers_palette
-            .then(|| self.substrate.entities.get(projectile.source_id()))
+            .then(|| substrate.entities.get(projectile.source_id()))
             .flatten()
             .map(|owner| owner.owner());
-        self.projectiles.set_firer_house(bullet, house);
+        projectiles.set_firer_house(bullet, house);
     }
 
     /// Admit the bullets a detonation spawned (`BulletClass::SpawnShrapnel
@@ -4802,7 +4827,13 @@ impl Simulation {
                 .is_some_and(|kind| kind.inviso);
             let placement = projectile.initial_target_position;
             self.admit_projectile(stable_id, projectile);
-            self.construct_bullet_scheme(stable_id, rules);
+            Self::construct_bullet_scheme(
+                &self.interner,
+                &self.substrate,
+                &mut self.projectiles,
+                stable_id,
+                rules,
+            );
             #[cfg(test)]
             if let Some(fixture) = self.receiver_fixture.as_mut() {
                 fixture
@@ -5196,15 +5227,15 @@ impl Simulation {
     /// Apply `house_tracking`'s Add_Tracking or Remove_Tracking for an object
     /// on its owner's house.
     pub(crate) fn update_house_tracking(
-        &mut self,
+        substrate: &mut ObjectSubstrate,
+        houses: &mut Houses,
         stable_id: u64,
         update: fn(
             &mut crate::sim::house_tracking::HouseTracking,
             &mut crate::sim::game_entity::GameEntity,
         ),
     ) {
-        let Some(owner) = self
-            .substrate
+        let Some(owner) = substrate
             .entities
             .get(stable_id)
             .map(crate::sim::game_entity::GameEntity::owner)
@@ -5212,8 +5243,8 @@ impl Simulation {
             return;
         };
         if let (Some(entity), Some(house)) = (
-            self.substrate.entities.get_mut(stable_id),
-            self.houses.get_mut(&owner),
+            substrate.entities.get_mut(stable_id),
+            houses.get_mut(&owner),
         ) {
             update(house.tracking_mut(), entity);
         }
@@ -5307,11 +5338,15 @@ impl Simulation {
     /// house, priced with that house's current `Cost_Of` factors. It counts
     /// no powered center and invalidates no power; the first GrandOpening
     /// owns that invalidation.
-    pub(crate) fn house_added_to_game(&mut self, stable_id: u64) {
-        let Some(entity) = self.substrate.entities.get(stable_id) else {
+    pub(crate) fn house_added_to_game(
+        substrate: &ObjectSubstrate,
+        houses: &mut Houses,
+        stable_id: u64,
+    ) {
+        let Some(entity) = substrate.entities.get(stable_id) else {
             return;
         };
-        if let Some(house) = self.houses.get_mut(&entity.owner()) {
+        if let Some(house) = houses.get_mut(&entity.owner()) {
             let factors = house.cost_factors();
             house.tracking_mut().added_to_game(entity, &factors);
         }
@@ -5349,28 +5384,38 @@ impl Simulation {
             house.tracking_mut().removed_from_game(entity, &factors);
         }
         if structure {
-            self.invalidate_house_power(owner, false);
+            Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, false);
         }
     }
 
     /// Private retained House dirty bytes, shared by their represented native
     /// writers. An absent House cannot acquire derived state from a callback.
-    pub(crate) fn invalidate_house_power(&mut self, owner: InternedId, radar: bool) {
-        if self.houses.contains_key(&owner) {
-            self.power_states.house_mut(owner).invalidate(radar);
+    pub(crate) fn invalidate_house_power(
+        houses: &Houses,
+        power_states: &mut PowerStates,
+        owner: InternedId,
+        radar: bool,
+    ) {
+        if houses.contains_key(&owner) {
+            power_states.house_mut(owner).invalidate(radar);
         }
     }
 
     /// BuildingAI440042..44006C samples live health before the common Techno
     /// tail. Repair701410 itself leaves both House dirty bytes untouched.
-    pub(super) fn sample_building_health_for_house_update(&mut self, id: u64) {
-        let owner = self.substrate.entities.get_mut(id).and_then(|entity| {
+    pub(super) fn sample_building_health_for_house_update(
+        substrate: &mut ObjectSubstrate,
+        houses: &Houses,
+        power_states: &mut PowerStates,
+        id: u64,
+    ) {
+        let owner = substrate.entities.get_mut(id).and_then(|entity| {
             entity
                 .sample_building_health_for_power()
                 .then_some(entity.owner())
         });
         if let Some(owner) = owner {
-            self.invalidate_house_power(owner, true);
+            Self::invalidate_house_power(houses, power_states, owner, true);
         }
     }
 
@@ -5462,16 +5507,19 @@ impl Simulation {
     ///
     /// gamemd-derived: House pointer expiry around `0x004FBA1D` and
     /// `BuildingClass::ChangeOwner @ 0x00448260`.
-    pub(crate) fn remove_build_const_from_owner(&mut self, stable_id: u64) {
-        let Some((owner, eligible)) = self
-            .substrate
+    pub(crate) fn remove_build_const_from_owner(
+        substrate: &ObjectSubstrate,
+        houses: &mut Houses,
+        stable_id: u64,
+    ) {
+        let Some((owner, eligible)) = substrate
             .entities
             .get(stable_id)
             .map(|entity| (entity.owner(), entity.type_facts.build_const_eligible()))
         else {
             return;
         };
-        if eligible && let Some(house) = self.houses.get_mut(&owner) {
+        if eligible && let Some(house) = houses.get_mut(&owner) {
             house.remove_build_const(stable_id);
         }
     }
@@ -5624,7 +5672,7 @@ impl Simulation {
         // this pointer from the old House BuildConst vector before delegating
         // the Techno owner swap, then appends it to the new House tail.
         if build_const_eligible {
-            self.remove_build_const_from_owner(stable_id);
+            Self::remove_build_const_from_owner(&self.substrate, &mut self.houses, stable_id);
         }
         if category == EntityCategory::Structure {
             self.houses.leave_house_base_lists(stable_id, old_owner);
@@ -5711,7 +5759,9 @@ impl Simulation {
                 house.economy_mut().add_score(cost);
             }
         }
-        self.update_house_tracking(
+        Self::update_house_tracking(
+            &mut self.substrate,
+            &mut self.houses,
             stable_id,
             crate::sim::house_tracking::HouseTracking::remove_tracking,
         );
@@ -5834,7 +5884,7 @@ impl Simulation {
         }
         // Techno701757..70178E: Added_To_Game on the new house (not in limbo).
         if on_map {
-            self.house_added_to_game(stable_id);
+            Self::house_added_to_game(&self.substrate, &mut self.houses, stable_id);
         }
         // TechnoChangeOwner7017A0 clears only the trigger-held original
         // House; the controlling House+2CC survives an ordinary capture.
@@ -6680,12 +6730,17 @@ impl Simulation {
         effects
     }
 
-    fn apply_active_vision_structures(&mut self, effects: &ActiveVisionStructures) {
+    fn apply_active_vision_structures(
+        interner: &StringInterner,
+        fog: &mut FogState,
+        house_alliances: &HouseAlliances,
+        effects: &ActiveVisionStructures,
+    ) {
         vision::materialize_gap_generator_sources(
-            &mut self.fog,
-            self.house_alliances.as_map(),
+            fog,
+            house_alliances.as_map(),
             &effects.gap_generators,
-            &self.interner,
+            interner,
         );
     }
 
@@ -6734,7 +6789,12 @@ impl Simulation {
             }
         }
         let effects = self.collect_active_vision_structures(rules);
-        self.apply_active_vision_structures(&effects);
+        Self::apply_active_vision_structures(
+            &self.interner,
+            &mut self.fog,
+            &self.house_alliances,
+            &effects,
+        );
     }
 
     /// Early mechanisms inside one reached House update.
@@ -6781,7 +6841,12 @@ impl Simulation {
         // Apply SpySat and Gap Generator effects if rules are available.
         if let Some(rules) = rules {
             let effects = self.collect_active_vision_structures(rules);
-            self.apply_active_vision_structures(&effects);
+            Self::apply_active_vision_structures(
+                &self.interner,
+                &mut self.fog,
+                &self.house_alliances,
+                &effects,
+            );
         }
 
         // Diagnostic: log fog grid stats on first tick to debug coverage issues.
@@ -6838,12 +6903,13 @@ impl Simulation {
     /// lives here; the listener gates (local player, `IsAlliedWith(PlayerPtr)`,
     /// `[0xA8B538]`, `GameMode`, `AuxBuilding` ownership) are the app's.
     pub(crate) fn announce_super_weapon_building_complete(
-        &mut self,
+        interner: &mut StringInterner,
+        substrate: &ObjectSubstrate,
+        sound_events: &mut FrameChannel<SimSoundEvent>,
         stable_id: u64,
         rules: &RuleSet,
     ) {
-        let Some((owner, type_ref)) = self
-            .substrate
+        let Some((owner, type_ref)) = substrate
             .entities
             .get(stable_id)
             .filter(|e| e.category() == EntityCategory::Structure && !e.death.is_dying())
@@ -6851,16 +6917,14 @@ impl Simulation {
         else {
             return;
         };
-        let Some(section) = self
-            .interner
+        let Some(section) = interner
             .object_type(type_ref, rules)
             .and_then(|obj| obj.super_weapon.clone())
         else {
             return;
         };
-        let sw_type = self.interner.intern(&section);
-        self.sound_events
-            .emit(SimSoundEvent::SuperWeaponDetected { owner, sw_type });
+        let sw_type = interner.intern(&section);
+        sound_events.emit(SimSoundEvent::SuperWeaponDetected { owner, sw_type });
     }
 
     /// The Selling mission's visit in the building's own LogicVector slot
@@ -7384,7 +7448,12 @@ impl Simulation {
         };
 
         // MainTick55DBC8 precedes Logic55DC9E (including trigger polling).
-        self.sort_display_ground(rules);
+        Self::sort_display_ground(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            rules,
+        );
 
         self.lifecycle_outputs.emit(LifecycleOutput::LogicVisit);
         profile_phase!(COMMANDS_ADMIT);
@@ -7509,7 +7578,7 @@ impl Simulation {
             // harvest, a crate pickup and a destroyed wall happen in a Foot
             // turn or a damage commit.
             self.finish_terrain_navigation_changes(rules, &[]);
-            self.flush_smudge_dirty();
+            Self::flush_smudge_dirty(&mut self.smudge_grid, &mut self.dirty_cells);
             profile_phase!(COMBAT);
             // Retaliation is not a phase: every receiver issues its Mission
             // Override inline (`TechnoClass::ReceiveDamage 0x00702A43`), and

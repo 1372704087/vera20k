@@ -146,7 +146,14 @@ impl Simulation {
                 return false;
             }
             if !super::two_stage::source_available(self, rules, owner, source, source_sw) {
-                self.cancel_paid_super_weapon_selection(rules, owner, ticket);
+                Self::cancel_paid_super_weapon_selection(
+                    &mut self.substrate,
+                    &mut self.sound_events,
+                    &mut self.super_weapons,
+                    rules,
+                    owner,
+                    ticket,
+                );
                 return false;
             }
         } else if selection.is_some() && paid_source.is_none() {
@@ -228,7 +235,12 @@ impl Simulation {
             super_instance(self, owner, pre_type)
                 .expect("retained paired Super")
                 .is_ready = false;
-            self.release_super_anim(owner, pre_type);
+            Self::release_super_anim(
+                &mut self.substrate,
+                &mut self.super_weapons,
+                owner,
+                pre_type,
+            );
             let frame = self.session.binary_frame();
             super_instance(self, owner, pre_type)
                 .expect("retained paired Super")
@@ -296,7 +308,12 @@ fn click_fire(
     let one_time = super_instance(sim, owner, sw_type_id).is_some_and(|instance| instance.one_time);
     //6CBB1B returns before placement-Anim retirement/recharge for one-time.
     if !one_time && !sw.manual_control && !sw.pre_click && !sw.post_click {
-        sim.release_super_anim(owner, sw_type_id);
+        Simulation::release_super_anim(
+            &mut sim.substrate,
+            &mut sim.super_weapons,
+            owner,
+            sw_type_id,
+        );
     }
     let frame = sim.session.binary_frame();
     if let Some(instance) = sim.super_weapons.instance_mut(&owner, &sw_type_id) {

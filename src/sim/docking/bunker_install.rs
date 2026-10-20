@@ -21,6 +21,7 @@ use crate::sim::movement::ScatterFlags;
 use crate::sim::movement::ground_pose::object_get_coords;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::entity_occupancy_cells;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
@@ -166,7 +167,7 @@ pub(crate) fn update_bunker(
         BunkerState::ClearWait => {
             if occupy_cells_hold_only(sim, building_id, unit_id) {
                 if let Some(f) = install_facing(sim, building_id, unit_id) {
-                    turn_unit(sim, unit_id, f);
+                    turn_unit(&sim.session, &mut sim.substrate, unit_id, f);
                 }
                 set_state(
                     &mut sim.substrate,
@@ -208,7 +209,7 @@ pub(crate) fn update_bunker(
                 frame_effects,
             );
             if arrived_and_stopped(sim, building_id, unit_id) {
-                turn_unit(sim, unit_id, SOUTH_FACING);
+                turn_unit(&sim.session, &mut sim.substrate, unit_id, SOUTH_FACING);
                 set_state(
                     &mut sim.substrate,
                     building_id,
@@ -317,9 +318,14 @@ fn set_state(
 /// Turn the unit's body (`+0x388` `Set`) toward the complete native facing word.
 /// `BuildingClass::UpdateBunker` (`0x00458E50`) states 1 and 3 call
 /// `FacingClass::Set_Desired` (`0x004C9220`) at `0x004590EA` and `0x00459228`.
-fn turn_unit(sim: &mut Simulation, unit_id: u64, facing: u16) {
-    let frame = sim.session.binary_frame();
-    if let Some(u) = sim.substrate.entities.get_mut(unit_id) {
+fn turn_unit(
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    unit_id: u64,
+    facing: u16,
+) {
+    let frame = session.binary_frame();
+    if let Some(u) = substrate.entities.get_mut(unit_id) {
         u.body_facing.set(facing, frame);
     }
 }

@@ -102,10 +102,12 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::components::NavTargetRef;
 use crate::sim::docking::bunker_link::{self, can_auto_deploy_here};
 use crate::sim::game_entity::GameEntity;
+use crate::sim::houses::Houses;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::ground_pose::object_get_coords;
 use crate::sim::radio::{RadioMessage, RadioPayload, RadioResponse, transmit};
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, Simulation};
 use crate::util::native_x87::object_distance;
 
@@ -423,20 +425,16 @@ impl Simulation {
 
     /// Bio Reactor Unload's `IsHuman` gate (`House+0x1EC` at `0x0044DBE6`) and
     /// passenger latch clear. Computer-owned passengers retain the seek byte.
-    pub(crate) fn clear_human_absorber_seek_on_unload(&mut self, stable_id: u64) {
-        let Some(owner) = self
-            .substrate
-            .entities
-            .get(stable_id)
-            .map(GameEntity::owner)
-        else {
+    pub(crate) fn clear_human_absorber_seek_on_unload(
+        substrate: &mut ObjectSubstrate,
+        houses: &Houses,
+        stable_id: u64,
+    ) {
+        let Some(owner) = substrate.entities.get(stable_id).map(GameEntity::owner) else {
             return;
         };
-        if self
-            .houses
-            .get(&owner)
-            .is_some_and(|house| house.is_human())
-            && let Some(passenger) = self.substrate.entities.get_mut(stable_id)
+        if houses.get(&owner).is_some_and(|house| house.is_human())
+            && let Some(passenger) = substrate.entities.get_mut(stable_id)
         {
             passenger.building_entry.clear_absorber_seek();
         }

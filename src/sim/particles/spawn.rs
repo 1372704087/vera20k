@@ -16,6 +16,8 @@ use super::{Particle, ParticleSystem};
 use crate::rules::particle_system_type::{ParticleSystemBehavesLike, ParticleSystemTypeId};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::intern::InternedId;
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 #[cfg(any(test, feature = "test-support"))]
 use crate::util::fixed_math::SimFixed;
@@ -404,11 +406,15 @@ impl Simulation {
     /// Execute89 at6DF49E..6DF518: all Alive systems whose GetCell41BEA0
     /// equals the waypoint receive virtual F8/6301E0. No type/House filter,
     /// RNG, timer, detach or physical deletion; even an empty list returns1.
-    pub(crate) fn trigger_mark_particle_systems_done_at_waypoint(&mut self, waypoint: i32) -> bool {
-        let Some(cell) = self.session.waypoint_cell(waypoint) else {
+    pub(crate) fn trigger_mark_particle_systems_done_at_waypoint(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        waypoint: i32,
+    ) -> bool {
+        let Some(cell) = session.waypoint_cell(waypoint) else {
             return false;
         };
-        for (_, system) in self.substrate.particle_systems.iter_mut() {
+        for (_, system) in substrate.particle_systems.iter_mut() {
             if !system.alive() {
                 continue;
             }

@@ -7977,7 +7977,7 @@ fn radiation_skips_only_objects_in_the_air() {
     }
     sim.substrate.entities.get_mut(hover).unwrap().locomotor =
         Some(LocomotorState::for_test_kind(LocomotorKind::Hover));
-    sim.set_object_height_unmarked(hover, 120);
+    Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, hover, 120);
     irradiate(&mut sim, &rules, (5, 5), 500, 2);
 
     rad_frame(&mut sim, &rules, 16);

@@ -347,7 +347,14 @@ impl Simulation {
             ),
         };
         let on_bridge = entity.on_bridge();
-        self.object_raw_receiver_at(id, location, false);
+        Self::object_raw_receiver_at(
+            &mut self.substrate,
+            &self.path_grid,
+            &self.resolved_terrain,
+            id,
+            location,
+            false,
+        );
         let (rx, ry) = ((x / 256) as u16, (y / 256) as u16);
         let building = self
             .substrate
@@ -375,7 +382,14 @@ impl Simulation {
         {
             return false;
         }
-        self.object_raw_receiver_at(id, location, true);
+        Self::object_raw_receiver_at(
+            &mut self.substrate,
+            &self.path_grid,
+            &self.resolved_terrain,
+            id,
+            location,
+            true,
+        );
         true
     }
 

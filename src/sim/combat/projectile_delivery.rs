@@ -376,7 +376,13 @@ pub(crate) fn admit_fired_bullet(
     );
     let spawn = delivery.spawn(&world.substrate.entities, rules, projectile_type, bullet);
     world.admit_projectile(bullet_id, spawn);
-    world.construct_bullet_scheme(bullet_id, rules);
+    Simulation::construct_bullet_scheme(
+        &world.interner,
+        &world.substrate,
+        &mut world.projectiles,
+        bullet_id,
+        rules,
+    );
     #[cfg(test)]
     if let Some(fixture) = world.receiver_fixture.as_mut() {
         fixture

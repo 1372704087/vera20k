@@ -108,7 +108,9 @@ pub(super) const DISPATCH_NEXT_FRAME: i32 = 1;
 /// (an archive or scan-hit destination, or one it already held), and any
 /// cursor outside the native handler's switch.
 pub(super) fn arm_rate_epilogue(sim: &mut Simulation, rules: &RuleSet, snap: &mut MinerSnapshot) {
-    snap.dispatch_delay = sim.mission_rate_epilogue_for(
+    snap.dispatch_delay = Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
         rules,
         snap.entity_id,
         crate::sim::mission::MissionType::Harvest,

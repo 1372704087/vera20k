@@ -1084,7 +1084,7 @@ fn jumpjet_fixture(balloon: bool) -> (Simulation, RuleSet, u64, u64) {
     sim.add_entity_occupancy(1);
     // This held-aircraft midpoint follows native takeoff's tracker Add;
     // marking a Jumpjet does not manufacture that retained registration.
-    sim.aircraft_tracker_add(1);
+    Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
     assert!(sim.substrate.set_cell_air_slot((52, 52), Some(1)));
     for _ in 0..2 {
         let rider = sim

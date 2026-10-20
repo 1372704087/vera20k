@@ -30,9 +30,13 @@ use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::{has_weapon_ability, rank_from_u16};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
 use crate::sim::game_entity::{GameEntity, GeneratedTechnoInit, TechnoConstructorInit};
+use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::production;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::vision::MAX_SIGHT_RANGE;
+use crate::sim::world::ObjectSubstrate;
 use crate::util::fixed_math::SimFixed;
 
 #[derive(Clone, Copy)]
@@ -553,7 +557,7 @@ impl Simulation {
                 ge.base_defense_response
                     .author_recruitable(map_ent.recruitable_a, map_ent.recruitable_b);
 
-                sim.install_techno_components(
+                Self::install_techno_components(&mut sim.interner, &sim.session, &sim.houses,
                     &mut ge,
                     rules.and_then(|rules| {
                         authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules)
@@ -595,11 +599,11 @@ impl Simulation {
                 if matches!(outcome, RevealOutcome::Revealed { .. })
                     && let Some(ruleset) = rules
                 {
-                    sim.initialize_cloak_after_unlimbo(stable_id, ruleset);
+                    Self::initialize_cloak_after_unlimbo(&sim.interner, &sim.session, &mut sim.substrate, stable_id, ruleset);
                     sim.add_unit_sensor_after_unlimbo(stable_id, ruleset, overlay_registry);
                     sim.add_building_sensor_array_if_powered(stable_id, ruleset, overlay_registry);
                 }
-                sim.commit_map_placement_mission(stable_id, map_ent.mission);
+                Self::commit_map_placement_mission(&sim.session, &mut sim.substrate, stable_id, map_ent.mission);
                 if let Some(rules) = rules {
                     // ReadINI44FC1B..44FD23: the factory callback is inside
                     // an admitted transition, not unconditional after Unlimbo.
@@ -765,26 +769,26 @@ impl Simulation {
     /// A building's `[Structures]` line has no mission column; it takes
     /// [`ObjectSubstrate::ready_placed_building`](crate::sim::world::ObjectSubstrate::ready_placed_building).
     fn commit_map_placement_mission(
-        &mut self,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
         stable_id: u64,
         authored: Option<crate::sim::mission::MissionType>,
     ) {
         // A harvester keeps the Harvest that Unlimbo's idle mode gave it
         // (`UnitClass::Enter_Idle_Mode @ 0x00738970`, harvester arm
         // `0x00738BD8`, owned by `techno_unlimbo_idle_mode`).
-        let harvester = self
-            .substrate
+        let harvester = substrate
             .entities
             .get(stable_id)
             .is_some_and(crate::sim::game_entity::GameEntity::is_harvester);
-        if harvester || self.substrate.ready_placed_building(stable_id) {
+        if harvester || substrate.ready_placed_building(stable_id) {
             return;
         }
         let Some(mission) = authored else {
             return;
         };
-        let now = self.session.binary_frame();
-        let _ = self.substrate.mission_assign_exact(
+        let now = session.binary_frame();
+        let _ = substrate.mission_assign_exact(
             stable_id,
             crate::sim::mission::MissionId::from_known(mission),
             now,
@@ -980,7 +984,13 @@ impl Simulation {
             self.discard_constructed_limbo(stable_id, Some(rules), FrameEffects::default());
             return Ok(None);
         }
-        self.initialize_cloak_after_unlimbo(stable_id, rules);
+        Self::initialize_cloak_after_unlimbo(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            stable_id,
+            rules,
+        );
         self.add_unit_sensor_after_unlimbo(stable_id, rules, overlay_registry);
         self.substrate.ready_placed_building(stable_id);
         Ok(Some(stable_id))
@@ -1033,7 +1043,7 @@ impl Simulation {
             return Ok(None);
         };
 
-        let stable_id = self.create_limbo(ge);
+        let stable_id = Self::create_limbo(&mut self.substrate, &mut self.houses, ge);
         self.commit_constructor_owned_techno_children(stable_id, rules, frame_effects);
         self.register_house_base_building(stable_id, rules);
         Ok(Some(stable_id))
@@ -1347,7 +1357,13 @@ impl Simulation {
             entity.mission_leaf.reset_infantry_water_state();
         }
         self.allocate_building_light(stable_id, rules);
-        self.initialize_cloak_after_unlimbo(stable_id, rules);
+        Self::initialize_cloak_after_unlimbo(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            stable_id,
+            rules,
+        );
         self.add_unit_sensor_after_unlimbo(stable_id, rules, overlay_registry);
         Some(stable_id)
     }
@@ -1715,7 +1731,11 @@ impl Simulation {
 
     /// Store a freshly constructed object in native-style limbo and account for
     /// its owner. Placement is a separate, result-bearing Reveal transaction.
-    fn store_spawned_limbo(&mut self, mut ge: GameEntity) -> u64 {
+    fn store_spawned_limbo(
+        substrate: &mut ObjectSubstrate,
+        houses: &mut Houses,
+        mut ge: GameEntity,
+    ) -> u64 {
         let stable_id = ge.stable_id();
 
         // Object5F3993..5F39C0 copies AC1380's default CoordStruct, whose
@@ -1733,9 +1753,11 @@ impl Simulation {
         ge.in_logic_vector.mark(false);
         ge.kill_record.reset_constructed();
 
-        self.substrate.entities.insert(ge);
+        substrate.entities.insert(ge);
         // The class constructors and InitFromType call Add_Tracking.
-        self.update_house_tracking(
+        Self::update_house_tracking(
+            substrate,
+            houses,
             stable_id,
             crate::sim::house_tracking::HouseTracking::add_tracking,
         );
@@ -1800,8 +1822,12 @@ impl Simulation {
     /// its house (Add_Tracking) but NOT registered in the active order or map
     /// occupancy. Registration happens later at reveal/landing (e.g. paradrop
     /// drop). Returns the stable id.
-    pub(crate) fn create_limbo(&mut self, ge: GameEntity) -> u64 {
-        self.store_spawned_limbo(ge)
+    pub(crate) fn create_limbo(
+        substrate: &mut ObjectSubstrate,
+        houses: &mut Houses,
+        ge: GameEntity,
+    ) -> u64 {
+        Self::store_spawned_limbo(substrate, houses, ge)
     }
 
     /// Store a new object, then place it through active
@@ -1812,7 +1838,7 @@ impl Simulation {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn unlimbo(&mut self, ge: GameEntity) -> (u64, RevealOutcome) {
         let position = ge.position;
-        let stable_id = self.store_spawned_limbo(ge);
+        let stable_id = Self::store_spawned_limbo(&mut self.substrate, &mut self.houses, ge);
         let outcome = self.try_reveal_entity(
             stable_id,
             RevealRequest {
@@ -1853,7 +1879,7 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) -> (u64, RevealPosition) {
         let position = ge.position;
-        let stable_id = self.store_spawned_limbo(ge);
+        let stable_id = Self::store_spawned_limbo(&mut self.substrate, &mut self.houses, ge);
         if let Some(rules) = rules {
             self.commit_constructor_owned_techno_children(stable_id, rules, frame_effects);
             self.register_house_base_building(stable_id, rules);
@@ -2122,9 +2148,15 @@ impl Simulation {
     /// Unit/Infantry constructor cloak ability plus UnitClass::Unlimbo's
     /// exceptional state-2 establishment. Active evidence: constructor copy at
     /// 0x007355B6/0x00517D88 and UnitClass::Unlimbo @ 0x00737BA0.
-    fn initialize_cloak_after_unlimbo(&mut self, stable_id: u64, rules: &RuleSet) {
+    fn initialize_cloak_after_unlimbo(
+        interner: &StringInterner,
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        stable_id: u64,
+        rules: &RuleSet,
+    ) {
         let Some((category, veterancy, in_playfield, type_ref)) =
-            self.substrate.entities.get(stable_id).map(|entity| {
+            substrate.entities.get(stable_id).map(|entity| {
                 (
                     entity.category(),
                     entity.veterancy.rank(),
@@ -2138,18 +2170,18 @@ impl Simulation {
         if !matches!(category, EntityCategory::Unit | EntityCategory::Infantry) {
             return;
         }
-        let Some(object) = self.interner.object_type(type_ref, rules) else {
+        let Some(object) = interner.object_type(type_ref, rules) else {
             return;
         };
         let rank_cloak = has_weapon_ability(rank_from_u16(veterancy), object, Ability::Cloak);
         if !object.cloakable && !rank_cloak {
             return;
         }
-        let frame = self.session.binary_frame() as i32;
+        let frame = session.binary_frame() as i32;
         // Only UnitClass owns the direct Unlimbo state write, and it tests the
         // copied runtime Cloakable byte rather than rank-granted CLOAK.
         let fully_cloaked = category == EntityCategory::Unit && object.cloakable && !in_playfield;
-        if let Some(entity) = self.substrate.entities.get_mut(stable_id) {
+        if let Some(entity) = substrate.entities.get_mut(stable_id) {
             crate::sim::cloak_disguise::CloakRuntime::install(
                 &mut entity.cloak,
                 frame,
@@ -2541,7 +2573,13 @@ impl Simulation {
         if let Some(building) = self.substrate.entities.get_mut(new_sid) {
             building.mission_leaf.set_building_ready_latch(1);
         }
-        self.initialize_cloak_after_unlimbo(new_sid, rules);
+        Self::initialize_cloak_after_unlimbo(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            new_sid,
+            rules,
+        );
         self.add_unit_sensor_after_unlimbo(new_sid, rules, registry);
         self.mission_spawned_entities = true;
         if let Some((country_name, side_index, difficulty, tech_level, _)) = recalc_context {
@@ -2767,7 +2805,13 @@ impl Simulation {
             );
             return;
         }
-        self.initialize_cloak_after_unlimbo(new_sid, rules);
+        Self::initialize_cloak_after_unlimbo(
+            &self.interner,
+            &self.session,
+            &mut self.substrate,
+            new_sid,
+            rules,
+        );
         self.add_unit_sensor_after_unlimbo(new_sid, rules, overlay_registry);
         if let Some(unit) = self.substrate.entities.get_mut(new_sid) {
             converted_health.apply(unit);

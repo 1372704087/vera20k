@@ -58,8 +58,10 @@ use crate::sim::components::AnimClassSpawnDescriptor;
 use crate::sim::intern::InternedId;
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::occupancy::{RawCellKey, RawCellOccupationGrid, infantry_raw_occupation_mask};
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::timer::CdTimer;
 use crate::sim::touch_log::{TouchLogs, Touched};
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{LifecycleOutput, SimSoundEvent, Simulation};
 use crate::util::fixed_math::SimFixed;
 use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
@@ -2344,9 +2346,15 @@ impl Simulation {
     /// Manual frame writer62979A..6297D7: restart the owned stage timer,
     /// write its reload rate (+C0 at6297B7), then set the requested frame.
     /// The animation remains in Logic and must retain this rate on expiry.
-    pub(crate) fn set_anim_manual_frame(&mut self, id: AnimId, frame: i32, duration: u16) {
-        let current = self.session.binary_frame() as i32;
-        if let Some(anim) = self.substrate.anims.get_mut(id) {
+    pub(crate) fn set_anim_manual_frame(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        id: AnimId,
+        frame: i32,
+        duration: u16,
+    ) {
+        let current = session.binary_frame() as i32;
+        if let Some(anim) = substrate.anims.get_mut(id) {
             anim.runtime.frame_timer = CdTimer::started(current, i32::from(duration));
             anim.runtime.rate_reload = duration;
             anim.runtime.current_frame = frame;

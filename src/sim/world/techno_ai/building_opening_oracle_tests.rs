@@ -473,7 +473,7 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
                             crate::sim::world::FrameEffects::default(),
                         );
                         update_animation(sim, stable_id, Some(rules));
-                        ready_commence(sim, stable_id, true);
+                        ready_commence(&sim.session, &mut sim.substrate, stable_id, true);
                         dispatch(
                             sim,
                             stable_id,
@@ -481,8 +481,8 @@ fn stock_opening_matches_original_building_and_same_pass_anim_visits() {
                             ObjectAiCtx::default(),
                             &mut false,
                         );
-                        ready_commence(sim, stable_id, false);
-                        apply_queued_body(sim, stable_id);
+                        ready_commence(&sim.session, &mut sim.substrate, stable_id, false);
+                        apply_queued_body(&sim.session, &mut sim.substrate, stable_id);
                     }
                 })
             });

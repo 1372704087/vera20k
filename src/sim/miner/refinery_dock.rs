@@ -432,7 +432,13 @@ fn set_status(substrate: &mut ObjectSubstrate, id: u64, status: u32) {
 }
 
 fn epilogue(sim: &mut Simulation, rules: &RuleSet, id: u64) -> i32 {
-    sim.mission_rate_epilogue_for(rules, id, MissionType::Unload)
+    Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Unload,
+    )
 }
 
 /// `FindFirstUsedSlot` (`0x006C9820`) and `RemoveAmount` (`0x006C96B0`) on

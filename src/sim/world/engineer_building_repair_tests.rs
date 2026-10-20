@@ -930,9 +930,12 @@ fn original_nine_routes_ten_walk_arrivals_repair_capture_and_deferred_cleanup() 
         }
         // Repair leaves +544 unchanged; its later Building visit is the only
         // consumer that samples restored HP and invalidates House assessment.
-        fixture
-            .sim
-            .sample_building_health_for_house_update(fixture.building);
+        Simulation::sample_building_health_for_house_update(
+            &mut fixture.sim.substrate,
+            &fixture.sim.houses,
+            &mut fixture.sim.power_states,
+            fixture.building,
+        );
         fixture.assert_building(&route["power_consumers"]["after_sample"]["building"], name);
     }
     assert_eq!(arrivals, 10);

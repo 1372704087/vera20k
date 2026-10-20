@@ -14,6 +14,8 @@ use crate::sim::combat::TargetKind;
 use crate::sim::combat::veterancy::VeterancyRank;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::mission::{MissionId, MissionType};
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -214,13 +216,17 @@ impl Simulation {
                 effects,
             );
         }
-        self.airstrike_mark_target(owner, target);
+        Self::airstrike_mark_target(&self.session, &mut self.substrate, owner, target);
     }
 
-    fn airstrike_mark_target(&mut self, owner: u64, target: u64) {
-        let frame = self.session.binary_frame() as i32;
-        if let Some(e) = self
-            .substrate
+    fn airstrike_mark_target(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        owner: u64,
+        target: u64,
+    ) {
+        let frame = session.binary_frame() as i32;
+        if let Some(e) = substrate
             .entities
             .get_mut(target)
             .filter(|e| e.category() == EntityCategory::Structure)
@@ -263,7 +269,7 @@ impl Simulation {
             old.airstrike_tint.stop(self.session.binary_frame() as i32);
         }
         self.substrate.airstrike_manager_mut(owner).unwrap().target = None;
-        self.airstrike_mark_target(owner, target);
+        Self::airstrike_mark_target(&self.session, &mut self.substrate, owner, target);
         self.substrate.airstrike_manager_mut(owner).unwrap().target = Some(target);
         for aircraft in aircraft.into_iter().take(remaining) {
             if self
@@ -384,9 +390,14 @@ impl Simulation {
     }
 
     /// Remove41DC80 clears only this aircraft link; last removal starts recharge.
-    fn airstrike_remove_aircraft(&mut self, owner: u64, aircraft: u64) {
-        let frame = self.session.binary_frame() as i32;
-        let Some(m) = self.substrate.airstrike_manager_mut(owner) else {
+    fn airstrike_remove_aircraft(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        owner: u64,
+        aircraft: u64,
+    ) {
+        let frame = session.binary_frame() as i32;
+        let Some(m) = substrate.airstrike_manager_mut(owner) else {
             return;
         };
         if let Some(index) = m.aircraft.iter().take(102).position(|&id| id == aircraft) {
@@ -397,7 +408,7 @@ impl Simulation {
                 m.active = false;
                 m.returned_at = Some(frame);
             }
-            if let Some(e) = self.substrate.entities.get_mut(aircraft) {
+            if let Some(e) = substrate.entities.get_mut(aircraft) {
                 e.airstrike.link = None;
             }
         }
@@ -448,7 +459,7 @@ impl Simulation {
             }
             self.airstrike_clear_target(owner, rules, effects);
             for id in aircraft {
-                self.airstrike_remove_aircraft(owner, id);
+                Self::airstrike_remove_aircraft(&self.session, &mut self.substrate, owner, id);
             }
         } else if self
             .substrate
@@ -462,7 +473,7 @@ impl Simulation {
                 .get(expired)
                 .is_some_and(|e| e.category() != EntityCategory::Structure)
         {
-            self.airstrike_remove_aircraft(owner, expired);
+            Self::airstrike_remove_aircraft(&self.session, &mut self.substrate, owner, expired);
         } else if self.substrate.entities.get(expired).is_some_and(|e| {
             e.category() == EntityCategory::Structure
                 && e.airstrike.link == Some(owner)

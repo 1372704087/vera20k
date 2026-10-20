@@ -567,11 +567,19 @@ pub(super) fn spawn_structure(
     sim.append_house_base_building_for_test(sid);
     // Its house counts it as tracked and on the map, as CanBuild's
     // prerequisites read them.
-    sim.update_house_tracking(sid, crate::sim::house_tracking::HouseTracking::add_tracking);
-    sim.house_added_to_game(sid);
-    sim.update_house_tracking(sid, |tracking, entity| {
-        tracking.increment_factory_count(entity)
-    });
+    Simulation::update_house_tracking(
+        &mut sim.substrate,
+        &mut sim.houses,
+        sid,
+        crate::sim::house_tracking::HouseTracking::add_tracking,
+    );
+    Simulation::house_added_to_game(&sim.substrate, &mut sim.houses, sid);
+    Simulation::update_house_tracking(
+        &mut sim.substrate,
+        &mut sim.houses,
+        sid,
+        |tracking, entity| tracking.increment_factory_count(entity),
+    );
     if sim.next_stable_object_id() <= sid {
         sim.set_next_stable_object_id_for_test(sid + 1);
     }

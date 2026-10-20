@@ -941,7 +941,14 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
     // The fourth moves to the centre of (40, 40), behind the three on its list.
     let [x, y] =
         ground_pose::position_world_xy(&sim.substrate.entities.get(fourth).unwrap().position);
-    assert!(sim.object_raw_receiver_at(fourth, DriveCoord { x, y, z: 0 }, false));
+    assert!(Simulation::object_raw_receiver_at(
+        &mut sim.substrate,
+        &sim.path_grid,
+        &sim.resolved_terrain,
+        fourth,
+        DriveCoord { x, y, z: 0 },
+        false
+    ));
     let occupancy = &mut sim.substrate.occupancy;
     occupancy.move_entity(
         41,
@@ -976,7 +983,14 @@ fn a_fourth_infantryman_at_a_full_cells_centre_mutates() {
         entity.position.put_location(centre);
         entity.set_sub_cell(Some(0));
     }
-    assert!(sim.object_raw_receiver_at(fourth, centre, true));
+    assert!(Simulation::object_raw_receiver_at(
+        &mut sim.substrate,
+        &sim.path_grid,
+        &sim.resolved_terrain,
+        fourth,
+        centre,
+        true
+    ));
     let listed: Vec<u64> = sim
         .substrate
         .occupancy

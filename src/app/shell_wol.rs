@@ -341,6 +341,11 @@ pub(crate) fn chat_sent(state: &mut AppState, line: &crate::ui::wol_chat::WolCha
     }
 }
 
+/// `[0xB77DC1]`: a WOL match runs.
+pub(crate) fn in_match(state: &AppState) -> bool {
+    state.frontend.wol.as_ref().is_some_and(|visit| visit.in_game)
+}
+
 /// The runner handed over to a WOL match (`[0xB77DC1]` set).
 pub(crate) fn match_started(state: &mut AppState) {
     if let Some(visit) = state.frontend.wol.as_mut() {

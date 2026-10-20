@@ -185,7 +185,8 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
                 .session
                 .remove_network_participant(index)?;
             if dialog.wol() {
-                // The WOL part sink calls no 0x750920 PlayerLeft (lead).
+                // The part sink 0x785740 played PlayerLeft and clears the
+                // acceptances itself (super::wol::user_left).
                 clear_cooperative_partners(state);
                 state.platform.window.request_redraw();
                 return Ok(());
@@ -234,6 +235,13 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             cooperative_difficulty,
             seed,
         } => {
+            // 0x5E3E73..0x5E3E90: a WOL parse drops every option text while
+            // the game runs ([0xB77DC1]) or a StartGame is pending ([0xB77E28]).
+            if dialog.wol()
+                && (crate::app::shell_wol::in_match(state) || super::wol::start_pending(state))
+            {
+                return Ok(());
+            }
             let before = state
                 .match_state
                 .session
@@ -602,10 +610,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
         NetworkSetupEvent::Ping { name, ping } => super::wol::ping(state, name, ping)?,
         NetworkSetupEvent::ChannelLeft => {
             anyhow::ensure!(!dialog.host, "the C2 host closes on its own Back");
-            App::leave_shell_dialog(
-                state,
-                shell_transition::ShellExitThen::NetworkSetupBack(dialog),
-            );
+            super::wol::local_left(state);
         }
     }
     state.platform.window.request_redraw();

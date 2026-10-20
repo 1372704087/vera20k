@@ -695,7 +695,7 @@ fn forced_terrain_enqueue_rebuild_uses_live_scenario_flags_through_advance_tick(
         (capacity - 9)
             as usize
     ]);
-    saved["native_tiberium"]["classes"][0]["growth"]["heap"] = json!([0]);
+    saved["native_tiberium"]["classes"][0]["growth"]["heap"]["slots"] = json!([]);
     saved["native_tiberium"]["classes"][0]["growth_bitmap"] = json!([[10, 10]]);
     s.sim.ore_growth_state = serde_json::from_value(saved).unwrap();
     let path = s.sim.path_grid_snapshot();

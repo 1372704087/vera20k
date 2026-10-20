@@ -137,7 +137,7 @@ impl Simulation {
         //50C905/50C90B: centered cue follows every member callback, even
         //when the registry is empty or every infantry refuses the action.
         if let Some(sound_id) = rules.general.cheer_sound() {
-            self.sound_events.push(SimSoundEvent::VocCentered {
+            self.sound_events.emit(SimSoundEvent::VocCentered {
                 sound_id: sound_id.to_owned(),
             });
             effects.flush_sound(self, Some(rules));
@@ -845,7 +845,7 @@ impl Simulation {
             && rules.general.sell_sound.is_some()
             && let Some(receiver) = self.interner.get(command_owner)
         {
-            self.sound_events.push(SimSoundEvent::WallSold { receiver });
+            self.sound_events.emit(SimSoundEvent::WallSold { receiver });
         }
         let _discarded_actual_cost = rules.building_actual_cost(wall_type);
 
@@ -2359,7 +2359,7 @@ impl Simulation {
             && let Some(sound_id) = self.selection_voice_request(rules, stable_id, voice_latch)
         {
             let sound_id = sound_id.to_owned();
-            self.sound_events.push(SimSoundEvent::UnitVoiceRequested {
+            self.sound_events.emit(SimSoundEvent::UnitVoiceRequested {
                 owner: stable_id,
                 sound_id,
             });

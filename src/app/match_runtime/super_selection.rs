@@ -557,7 +557,7 @@ mod tests {
         // selection, then the client hides its anims.
         let mut frame = |sim: &mut Simulation, targeting: &mut Option<TargetingMode>| {
             step(sim, &rules);
-            let events = std::mem::take(sim.sound_events_mut_for_test());
+            let events = sim.take_sound_events_for_test();
             follow_selection_writes(targeting, &events, sim, &rules, Some("Americans"));
             let warp = chrono_warp_selected(targeting.as_ref(), &rules);
             hide_placement_anims(&mut hidden, sim, warp, Some("Americans"), &mut output);

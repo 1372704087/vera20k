@@ -186,7 +186,7 @@ mod tests {
         );
         terrain.test_set_high_bridge_set_starts(Some(100), Some(200));
         for (x, y) in [(5, 5), (10, 5)] {
-            let cell = terrain.cell_mut(x, y).unwrap();
+            let cell = terrain.cell_mut_for_test(x, y).unwrap();
             cell.final_tile_index = 106;
             cell.final_sub_tile = 4;
         }

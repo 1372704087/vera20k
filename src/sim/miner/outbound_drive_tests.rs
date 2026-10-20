@@ -148,7 +148,7 @@ fn staged_terrain(
             .collect(),
     );
     for &(rx, ry) in ore_cells {
-        let cell = terrain.cell_mut(rx, ry).expect("staged ore cell");
+        let cell = terrain.cell_mut_for_test(rx, ry).expect("staged ore cell");
         let tiberium_land_type = LandType::Tiberium.as_index();
         cell.land_type = tiberium_land_type;
         cell.speed_costs = oracle.tiberium_speed_costs;
@@ -230,7 +230,7 @@ fn rock_where_grid_blocks(sim: &mut Simulation, grid: &PathGrid) {
             let cell = sim
                 .resolved_terrain
                 .as_mut()
-                .and_then(|terrain| terrain.cell_mut(rx, ry))
+                .and_then(|terrain| terrain.cell_mut_for_test(rx, ry))
                 .expect("staged cell");
             cell.land_type = LandType::Rock.as_index();
             cell.speed_costs = rock;

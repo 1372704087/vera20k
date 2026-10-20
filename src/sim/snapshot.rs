@@ -3136,17 +3136,13 @@ impl Simulation {
 
         // Reproject runtime isometric replacements onto the pristine
         // app-supplied map before overlay, bridge, and zone reconstruction.
-        {
-            let terrain = self
-                .resolved_terrain
-                .as_mut()
-                .expect("validated terrain cache");
-            for (&(rx, ry), state) in &self.dynamic_terrain_cells {
-                if !terrain.apply_dynamic_cell_state(rx, ry, state) {
-                    return Err(SnapshotRestoreError::DynamicTerrainCellMissing { rx, ry });
-                }
-            }
-        }
+        self.dynamic_terrain_cells
+            .apply_to(
+                self.resolved_terrain
+                    .as_mut()
+                    .expect("validated terrain cache"),
+            )
+            .map_err(|(rx, ry)| SnapshotRestoreError::DynamicTerrainCellMissing { rx, ry })?;
 
         // MouseClass::Load @ 0x005BE657 calls the restored-cell TMP admission
         // pass @ 0x00546DA0 before publishing the loaded map. Admission must
@@ -4002,10 +3998,7 @@ mod tests {
             .unwrap()
             .clone();
         replaced.final_tile_index = 71;
-        sim.dynamic_terrain_cells.insert(
-            (1, 2),
-            crate::map::resolved_terrain::DynamicTerrainCellState::capture(&replaced),
-        );
+        sim.dynamic_terrain_cells.record(&replaced);
         sim.real_cell_bridge_flags_0x1180.set_allocated_cell(
             2 * 4 + 1,
             crate::map::bridge_facts::BRIDGE_FLAG_DIRECTION_ZERO,
@@ -7790,7 +7783,7 @@ mod tests {
         sim.session.set_map_width_for_test(4);
         sim.session.set_map_height_for_test(4);
         let mut terrain = flat_terrain(4, 4);
-        terrain.cell_mut(1, 1).unwrap().level = 2;
+        terrain.cell_mut_for_test(1, 1).unwrap().level = 2;
         let tree_id = sim.allocate_stable_id();
         let tree = TerrainObjectState::new(
             tree_id,
@@ -8457,7 +8450,7 @@ mod tests {
         let mut map_load_terrain = flat_terrain(4, 3);
         map_load_terrain.test_set_native_allocated_cells(&[(0, 0), (1, 1)]);
         {
-            let pristine_bridge_cell = map_load_terrain.cell_mut(1, 1).unwrap();
+            let pristine_bridge_cell = map_load_terrain.cell_mut_for_test(1, 1).unwrap();
             pristine_bridge_cell.level = 2;
             pristine_bridge_cell.slope_type = 1;
             pristine_bridge_cell.bridge_facts.raw_flags = MODELED_CELLCLASS_BRIDGE_FLAG_MASK;
@@ -8637,7 +8630,7 @@ mod tests {
         );
         assert!(restored_terrain.cell(1, 0).is_none());
         assert_eq!(
-            restored_terrain.cells[1].bridge_facts.raw_flags & MODELED_CELLCLASS_BRIDGE_FLAG_MASK,
+            restored_terrain.cells()[1].bridge_facts.raw_flags & MODELED_CELLCLASS_BRIDGE_FLAG_MASK,
             0,
             "unallocated storage is not promoted into real-cell authority"
         );

@@ -717,7 +717,7 @@ fn unit_crate_under_its_picker_lands_the_goodie_on_the_first_ring_at_any_level()
     for y in 0..32 {
         for x in 0..32 {
             if (x, y) != at {
-                terrain.cell_mut(x, y).unwrap().level = 2;
+                terrain.cell_mut_for_test(x, y).unwrap().level = 2;
             }
         }
     }

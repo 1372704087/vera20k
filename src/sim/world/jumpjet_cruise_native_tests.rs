@@ -191,7 +191,7 @@ fn supplied_world(
                 .resolved_terrain
                 .as_mut()
                 .unwrap()
-                .cell_mut(x, y)
+                .cell_mut_for_test(x, y)
                 .unwrap();
             terrain.slope_type = signed(&world["default_slope"]) as u8;
             terrain.land_type = land;
@@ -210,7 +210,7 @@ fn supplied_world(
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(at.0, at.1)
+            .cell_mut_for_test(at.0, at.1)
             .unwrap();
         terrain.land_type = land;
         terrain.speed_costs = semantics.speed_costs;

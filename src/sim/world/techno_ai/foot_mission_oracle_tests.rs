@@ -1341,7 +1341,7 @@ fn install_recorded_anytown_query_state(
             receipt["cell"],
             "{name}: original Cell constructor identity"
         );
-        let cell = terrain.cell_mut(x, y).unwrap();
+        let cell = terrain.cell_mut_for_test(x, y).unwrap();
         // Physical map/TMP data establishes these independently of Rust's
         // query result. Flags and Land are the retained native crop state,
         // rather than a claim about every production Cell Recalc writer.

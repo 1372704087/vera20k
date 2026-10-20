@@ -55,7 +55,7 @@ fn fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
     sim.resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(10, 10)
+        .cell_mut_for_test(10, 10)
         .unwrap()
         .slope_type = integer("slope", 0) as u8;
     assert_eq!(sim.allocate_stable_id(), 1);
@@ -530,7 +530,7 @@ fn destination_fixture(row: &serde_json::Value) -> (Simulation, RuleSet) {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(64, 64)
+        .cell_mut_for_test(64, 64)
         .unwrap();
     target_cell.level = input["level"].as_u64().unwrap_or(0) as u8;
     target_cell.slope_type = input["slope"].as_u64().unwrap_or(0) as u8;

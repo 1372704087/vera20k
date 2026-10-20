@@ -456,7 +456,7 @@ mod tests {
                 })
                 .collect(),
         );
-        let c = terrain.cell_mut(10, 10).unwrap();
+        let c = terrain.cell_mut_for_test(10, 10).unwrap();
         c.level = 2;
         c.slope_type = 1;
         for row in selections {
@@ -511,12 +511,15 @@ mod tests {
         for row in rows {
             let i = &row["input"];
             let out = &row["output"];
-            terrain.cell_mut(10, 10).unwrap().bridge_facts.raw_flags =
-                if i["structural"].as_bool().unwrap() {
-                    0x100
-                } else {
-                    0
-                };
+            terrain
+                .cell_mut_for_test(10, 10)
+                .unwrap()
+                .bridge_facts
+                .raw_flags = if i["structural"].as_bool().unwrap() {
+                0x100
+            } else {
+                0
+            };
             let mut raw = RawCellOccupationGrid::default();
             raw.mark_ground_infantry(
                 10,

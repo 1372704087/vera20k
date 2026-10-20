@@ -2249,7 +2249,7 @@ fn mixed_slope_preview_uses_proximity_and_preserves_paid_product_lifecycle() {
             .resolved_terrain
             .as_mut()
             .unwrap()
-            .cell_mut(cell.0, cell.1)
+            .cell_mut_for_test(cell.0, cell.1)
             .unwrap()
             .slope_type = 1;
     }
@@ -2305,7 +2305,7 @@ fn mixed_slope_preview_uses_proximity_and_preserves_paid_product_lifecycle() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(near.0, near.1)
+        .cell_mut_for_test(near.0, near.1)
         .unwrap()
         .slope_type = 0;
     fixture
@@ -2339,7 +2339,7 @@ fn mixed_slope_preview_uses_proximity_and_preserves_paid_product_lifecycle() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(near.0, near.1)
+        .cell_mut_for_test(near.0, near.1)
         .unwrap()
         .slope_type = 1;
     let command = submit_current_building(&mut fixture, near);
@@ -2373,7 +2373,7 @@ fn mixed_slope_preview_uses_proximity_and_preserves_paid_product_lifecycle() {
         .resolved_terrain
         .as_mut()
         .unwrap()
-        .cell_mut(near.0, near.1)
+        .cell_mut_for_test(near.0, near.1)
         .unwrap()
         .slope_type = 0;
     let command = submit_ready_building(&mut fixture, "GAPOWR", SidebarTab::Building, near);

@@ -319,7 +319,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
     if let Some(level) = case["terrain_level"].as_u64() {
         for y in 0..32 {
             for x in 0..32 {
-                terrain.cell_mut(x, y).unwrap().level = level as u8;
+                terrain.cell_mut_for_test(x, y).unwrap().level = level as u8;
             }
         }
     }

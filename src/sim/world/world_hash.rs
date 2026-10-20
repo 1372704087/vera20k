@@ -96,7 +96,10 @@ mod retained_cell_hash_tests {
         );
         let terrain = sim.resolved_terrain.as_mut().expect("installed map");
         terrain.test_set_native_allocated_cells(&[(0, 0), (1, 0)]);
-        let anchor = &mut terrain.cell_mut(1, 0).expect("the cell").bridge_facts;
+        let anchor = &mut terrain
+            .cell_mut_for_test(1, 0)
+            .expect("the cell")
+            .bridge_facts;
         anchor.native_anchor = None;
         assert!(
             !coordinate_hashes(&sim),

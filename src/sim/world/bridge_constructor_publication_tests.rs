@@ -76,7 +76,9 @@ fn live_bridge_constructor_matches_original_and_drains_at_admitted_tick() {
         let (mut sim, rules, registry) = fixture();
         match original["kind"].as_str().unwrap() {
             "terrain" => {
-                sim.production.terrain_object_cells.insert((16, 16), 919);
+                sim.terrain_objects
+                    .cell_index_mut_for_test()
+                    .insert((16, 16), 919);
             }
             "slope" => {
                 sim.resolved_terrain

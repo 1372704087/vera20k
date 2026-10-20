@@ -423,7 +423,7 @@ fn campaign_house_segment_matches_six_stock_rows_and_nine_startup_controls() {
                 row["rng_after"]["mapgen"].as_str().unwrap()
             );
             assert!(
-                fresh.entities().is_empty() && fresh.production.terrain_objects.is_empty(),
+                fresh.entities().is_empty() && fresh.terrain_objects.objects().is_empty(),
                 "the actual House generation completes before Fill and every object section"
             );
         }

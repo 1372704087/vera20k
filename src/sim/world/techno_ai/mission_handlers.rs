@@ -2869,29 +2869,37 @@ mod terrain_target_tests {
             .set_for_test(Some(TargetKind::Entity(2)));
         sim.substrate.entities.insert(actor);
         let tree_type = sim.interner.intern("TREE01");
-        sim.production
-            .terrain_objects
+        sim.terrain_objects
+            .objects_mut_for_test()
             .insert(2, TerrainObjectState::for_test(2, tree_type, 7, 5));
 
         assert!(!attack_target_is_stale(&sim, 1));
         assert!(foot_dispatch_in_cadence_band(&sim, &rules, 1));
-        sim.production.terrain_objects.get_mut(&2).unwrap().health = 0;
+        sim.terrain_objects
+            .objects_mut_for_test()
+            .get_mut(&2)
+            .unwrap()
+            .set_health_for_test(0);
         assert!(attack_target_is_stale(&sim, 1));
         // Coordinate virtuals remain readable while expiry still holds the
         // Object; presence and coordinate resolution are different questions.
         assert!(foot_dispatch_in_cadence_band(&sim, &rules, 1));
-        let tree = sim.production.terrain_objects.get_mut(&2).unwrap();
-        tree.health = 100;
-        tree.lifecycle = TerrainObjectLifecycle::Limbo;
+        let tree = sim
+            .terrain_objects
+            .objects_mut_for_test()
+            .get_mut(&2)
+            .unwrap();
+        tree.set_health_for_test(100);
+        tree.set_lifecycle_for_test(TerrainObjectLifecycle::Limbo);
         // Object Alive remains set in Limbo; only UnInit clears it.
         assert!(!attack_target_is_stale(&sim, 1));
-        sim.production
-            .terrain_objects
+        sim.terrain_objects
+            .objects_mut_for_test()
             .get_mut(&2)
             .unwrap()
-            .lifecycle = TerrainObjectLifecycle::Destroyed;
+            .set_lifecycle_for_test(TerrainObjectLifecycle::Destroyed);
         assert!(attack_target_is_stale(&sim, 1));
-        sim.production.terrain_objects.remove(&2);
+        sim.terrain_objects.objects_mut_for_test().remove(&2);
         assert!(attack_target_is_stale(&sim, 1));
         assert!(!foot_dispatch_in_cadence_band(&sim, &rules, 1));
     }

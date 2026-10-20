@@ -40,7 +40,7 @@ fn refused_begin_still_publishes_the_local_prediction_gate_transition() {
         owner: reached, category: ProductionCategory::Infantry, naval: false,
     }] if *reached == owner)
     );
-    assert!(sim.production.factories.is_empty());
+    assert!(sim.production.factories().is_empty());
     assert!(sim.entities().is_empty());
     assert_eq!(*sim.houses[&owner].economy(), before_wallet);
 
@@ -725,7 +725,7 @@ fn offline_backup_preserves_paid_infantry_with_system_hold() {
         .unwrap()
         .set_temporal_for_test(TemporalState::warped_by_for_test(backup));
     let category = ProductionCategory::Infantry;
-    let before = sim.production.factories.view(owner, category).unwrap();
+    let before = sim.production.factories().view(owner, category).unwrap();
     assert!(before.is_running());
     let progress = before.progress;
     assert!(progress > 0 && progress < super::PRODUCTION_STEPS);
@@ -736,7 +736,7 @@ fn offline_backup_preserves_paid_infantry_with_system_hold() {
 
     sim.techno_limbo_with_rules(barracks, &runtime.resources.rules, None);
 
-    let held = sim.production.factories.view(owner, category).unwrap();
+    let held = sim.production.factories().view(owner, category).unwrap();
     assert!(
         !held.is_running(),
         "native50924D suspends the paid head when only an offline backup remains"
@@ -748,11 +748,11 @@ fn offline_backup_preserves_paid_infantry_with_system_hold() {
     for offset in 1..=12 {
         let sim = &mut runtime.simulation;
         sim.production
-            .factories
+            .factories_mut()
             .step_all(&mut sim.houses, sim.session.binary_frame() + offset);
     }
     let sim = &runtime.simulation;
-    let held = sim.production.factories.view(owner, category).unwrap();
+    let held = sim.production.factories().view(owner, category).unwrap();
     assert_eq!(held.progress, progress);
     assert_eq!(held.object.unwrap().entity_id, product);
     assert_eq!(sim.houses[&owner].economy().credits(), wallet);
@@ -800,7 +800,7 @@ fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
         assert!(sim.entities().get(backup).unwrap().building_online());
         let held = sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert!(
@@ -834,7 +834,7 @@ fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
             branch.change_owner_with_rules(captured, owner, rules, None, FrameEffects::default());
             let factory = branch
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .unwrap();
             assert_eq!(
@@ -859,7 +859,7 @@ fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
                 ));
                 let factory = branch
                     .production
-                    .factories
+                    .factories()
                     .view(owner, ProductionCategory::Infantry)
                     .unwrap();
                 assert!(
@@ -940,7 +940,7 @@ fn selling_last_retail_barracks_keeps_paid_head_before_map_exit() {
         let factory = runtime
             .simulation
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert!(factory.progress < super::PRODUCTION_STEPS);
@@ -1052,7 +1052,7 @@ fn selling_last_retail_barracks_keeps_paid_head_before_map_exit() {
             let factory = runtime
                 .simulation
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .expect(
                     "native has not run the queue-loss callback while sale only changed mission",
@@ -1086,7 +1086,7 @@ fn selling_last_retail_barracks_keeps_paid_head_before_map_exit() {
             runtime
                 .simulation
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .is_none()
         );
@@ -1177,7 +1177,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
         let before = runtime
             .simulation
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         let progress = before.progress;
@@ -1248,7 +1248,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
         );
         assert_eq!(
             sim.production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .is_some(),
             after_native["factory_present"].as_bool().unwrap()
@@ -1256,7 +1256,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
         if second_barracks {
             let factory = sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .unwrap();
             assert_eq!(factory.construction_order(), factory_order);
@@ -1267,7 +1267,7 @@ fn retail_barracks_sale_callbacks_reject_successor_or_keep_surviving_producer() 
             assert!(!sim.entities().contains(product));
             assert!(
                 sim.production
-                    .factories
+                    .factories()
                     .view(owner, ProductionCategory::Infantry)
                     .is_none()
             );
@@ -1541,7 +1541,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
             sim.advance_tick(&[], Some(rules), None, None, 67);
             if sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Vehicle)
                 .unwrap()
                 .progress
@@ -1552,7 +1552,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         }
         let vehicle = sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Vehicle)
             .unwrap();
         assert_eq!(
@@ -1563,7 +1563,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         );
         let balance = sim
             .production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap()
             .balance;
@@ -1597,7 +1597,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         let frame = sim.session.binary_frame() as i32;
         for category in [ProductionCategory::Vehicle, ProductionCategory::Infantry] {
             sim.production
-                .factories
+                .factories_mut()
                 .test_factory_mut(owner, category)
                 .unwrap()
                 .step_timer
@@ -1657,7 +1657,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         assert_gone(&sim, held, &[]);
         assert!(
             sim.production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Vehicle)
                 .is_none(),
             "native cancellation releases the empty factory and held Techno"
@@ -1666,7 +1666,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         assert!(expected["factories"]["MGTK"].is_null());
         let infantry = sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert_eq!(
@@ -1676,7 +1676,7 @@ fn retail_prerequisite_loss_refunds_after_the_factory_charge_sweep() {
         );
         let balance = sim
             .production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Infantry)
             .unwrap()
             .balance;
@@ -1812,7 +1812,7 @@ fn prerequisite_loss_events_preserve_player_copies_cleanup_and_snapshot_replay()
     assert!(
         live.simulation
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Vehicle)
             .unwrap()
             .queue
@@ -1915,7 +1915,7 @@ fn retail_superweapon_construction_survives_revalidation() {
             sim.advance_tick(&[], Some(rules), None, None, 67);
             let view = sim
                 .production
-                .factories
+                .factories()
                 .view(owner, category)
                 .unwrap_or_else(|| panic!("{building}: construction was cancelled"));
             assert_eq!(view.object.unwrap().entity_id, Some(head));
@@ -1923,7 +1923,7 @@ fn retail_superweapon_construction_survives_revalidation() {
                 break;
             }
         }
-        let view = sim.production.factories.view(owner, category).unwrap();
+        let view = sim.production.factories().view(owner, category).unwrap();
         assert_eq!(
             view.progress,
             super::PRODUCTION_STEPS,
@@ -1937,7 +1937,7 @@ fn retail_superweapon_construction_survives_revalidation() {
                 .lifecycle
                 .in_limbo()
         );
-        let factories = sim.production.factories.clone();
+        let factories = sim.production.factories().clone();
         let wallet = sim.houses[&owner].economy().clone();
         let next_identity = sim.substrate.next_stable_object_id;
         // House4FA5A8/4FA628 admits this same completed product through the
@@ -1955,7 +1955,8 @@ fn retail_superweapon_construction_survives_revalidation() {
             "{building}: same completed request is admitted"
         );
         assert_eq!(
-            sim.production.factories, factories,
+            *sim.production.factories(),
+            factories,
             "{building}: complete resume is inert"
         );
         assert_eq!(
@@ -1995,7 +1996,7 @@ fn retail_superweapon_construction_survives_revalidation() {
                 .in_limbo(),
             "{building}: the completed object is placed without replacement"
         );
-        assert!(sim.production.factories.view(owner, category).is_none());
+        assert!(sim.production.factories().view(owner, category).is_none());
         assert!(
             !enqueue_by_type(
                 &mut sim,
@@ -2091,13 +2092,13 @@ fn limited_heads_survive_revalidation_without_bypassing_limits_or_cleanup() {
         sim.uninit_with_rules(1, &rules);
 
         assert!(!sim.substrate.entities.contains(replacement));
-        assert!(sim.production.factories.view(owner, category).is_none());
+        assert!(sim.production.factories().view(owner, category).is_none());
     }
 }
 
 pub(super) fn held_id(sim: &Simulation, owner: InternedId, category: ProductionCategory) -> u64 {
     sim.production
-        .factories
+        .factories()
         .view(owner, category)
         .unwrap()
         .object
@@ -2249,7 +2250,7 @@ fn manager_factory_cancellation_finishes_graph_accounting_and_promotion() {
         );
         assert!(
             sim.production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Vehicle)
                 .is_none()
         );
@@ -2302,7 +2303,7 @@ fn manager_factory_cancellation_finishes_graph_accounting_and_promotion() {
         );
         assert_eq!(
             sim.production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Vehicle)
                 .unwrap()
                 .progress,
@@ -2337,7 +2338,7 @@ fn a_produced_slave_miner_leaves_tethered_without_hunting_yet() {
     let produced = held_id(&sim, owner, ProductionCategory::Vehicle);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Vehicle)
     );
     let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
@@ -2382,7 +2383,7 @@ fn produced_infantry_retains_its_barracks_rally_until_exit_handoff() {
     let produced = held_id(&sim, owner, ProductionCategory::Infantry);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Infantry)
     );
     let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
@@ -2452,7 +2453,7 @@ fn ready_manager_cancel_refunds_disposes_and_constructs_one_successor() {
     assert_eq!(child_ids.len(), 2);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Building)
     );
     super::publish_production_changes(&mut sim, &rules);
@@ -2477,7 +2478,7 @@ fn ready_manager_cancel_refunds_disposes_and_constructs_one_successor() {
     assert_eq!(held_id(&sim, owner, ProductionCategory::Building), parent);
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .unwrap()
             .queue
@@ -2520,7 +2521,7 @@ fn ready_manager_cancel_refunds_disposes_and_constructs_one_successor() {
     assert_constructor_words(&sim, successor, &mut expected);
     assert_eq!(
         sim.production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .unwrap()
             .progress,
@@ -2559,7 +2560,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
     let spent = {
         let factory = sim
             .production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
         assert!(factory.progress > 0 && factory.progress < 54);
@@ -2584,7 +2585,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
     assert_constructor_words(&sim, successor, &mut expected);
     assert_eq!(
         sim.production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Vehicle)
             .unwrap()
             .progress,
@@ -2593,7 +2594,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
     let (rate, timer) = {
         let factory = sim
             .production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
         (factory.step_rate_frames, factory.step_timer)
@@ -2602,7 +2603,7 @@ fn prerequisite_revalidation_disposes_manager_and_promoted_build_steps_a_rate_la
     assert!(rate > 1);
     let progress = |sim: &Simulation| {
         sim.production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Vehicle)
             .unwrap()
             .progress
@@ -2639,7 +2640,7 @@ fn missing_barracks_retains_completed_infantry_and_queued_successor() {
     let held = held_id(&sim, owner, ProductionCategory::Infantry);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Infantry)
     );
     // Supply an absent producer without invoking destruction's separate
@@ -2665,7 +2666,7 @@ fn missing_barracks_retains_completed_infantry_and_queued_successor() {
     assert_eq!(held_id(&sim, owner, ProductionCategory::Infantry), held);
     let factory = sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap();
     assert!(factory.complete_object().is_some());
@@ -2754,7 +2755,7 @@ fn factory_loss_revalidation_disposes_parent_and_children_before_returning() {
         let spent = {
             let factory = sim
                 .production
-                .factories
+                .factories_mut()
                 .test_factory_mut(owner, ProductionCategory::Vehicle)
                 .unwrap();
             assert!(factory.progress > 0 && factory.progress < 54);
@@ -2772,7 +2773,7 @@ fn factory_loss_revalidation_disposes_parent_and_children_before_returning() {
         assert_eq!(sim.scenario_rng.logical_state(), rng);
         assert!(
             sim.production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Vehicle)
                 .is_none()
         );
@@ -2799,7 +2800,7 @@ fn a_ready_building_goes_with_the_last_construction_yard() {
     let held = held_id(&sim, owner, ProductionCategory::Building);
     assert!(
         sim.production
-            .factories
+            .factories_mut()
             .test_arm_ready(owner, ProductionCategory::Building)
     );
     super::publish_production_changes(&mut sim, &rules);
@@ -2829,7 +2830,7 @@ fn a_ready_building_goes_with_the_last_construction_yard() {
     );
     assert!(
         sim.production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .is_none()
     );
@@ -2894,7 +2895,7 @@ fn a_build_starts_without_money_owing_its_cost_of() {
     }
     let factory = sim
         .production
-        .factories
+        .factories_mut()
         .test_factory_mut(owner, ProductionCategory::Vehicle)
         .unwrap();
     assert_eq!(factory.balance, 675);
@@ -2919,7 +2920,7 @@ fn a_cancel_refunds_the_cost_of_at_cancel_time() {
     let progress = |sim: &mut Simulation| {
         let factory = sim
             .production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, ProductionCategory::Vehicle)
             .unwrap();
         (factory.progress, factory.balance)
@@ -2980,7 +2981,11 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
         "the wallet covers the build"
     );
     economy.spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
     assert!(dispatch_production_changes_for_tests(
         &mut sim, &rules, None
     ));
@@ -3009,7 +3014,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     assert_eq!(producer_entity.tether.partner(), Some(first));
     assert!(
         sim.production
-            .factories
+            .factories()
             .building_factory(producer)
             .is_none()
     );
@@ -3040,10 +3045,14 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
         "the wallet covers the build"
     );
     economy.spend_money(cost);
-    assert!(sim.production.factories.test_arm_ready(owner, category));
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, category)
+    );
     assert_eq!(
         sim.production
-            .factories
+            .factories_mut()
             .test_factory_mut(owner, category)
             .unwrap()
             .balance,
@@ -3068,7 +3077,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
             .lifecycle
             .in_limbo()
     );
-    let completed = sim.production.factories.view(owner, category).unwrap();
+    let completed = sim.production.factories().view(owner, category).unwrap();
     assert!(completed.complete_object().is_some());
     assert_eq!(completed.queue.len(), 1);
     let credits = sim.houses[&owner].economy().credits();
@@ -3095,7 +3104,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     );
     assert_eq!(sim.houses[&owner].economy().credits(), credits + refund);
     assert_eq!(sim.houses[&owner].economy().spent_credits(), spent);
-    let factory = sim.production.factories.view(owner, category).unwrap();
+    let factory = sim.production.factories().view(owner, category).unwrap();
     let successor = factory.object.unwrap().entity_id.unwrap();
     assert!(successor > refused);
     assert_eq!(factory.progress, 0);
@@ -3123,7 +3132,7 @@ fn occupied_barracks_radio_refunds_discards_and_promotes_one_gi() {
     assert_eq!(producer_entity.tether.partner(), Some(first));
     assert!(
         sim.production
-            .factories
+            .factories()
             .building_factory(producer)
             .is_none()
     );
@@ -3220,7 +3229,7 @@ fn secret_lab_fallback_capture_paid_queue_snapshot_and_loss_share_the_existing_o
     assert_eq!(held_id(&sim, owner, ProductionCategory::Infantry), product);
     let progress = sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap()
         .progress;
@@ -3292,7 +3301,7 @@ fn secret_lab_fallback_capture_paid_queue_snapshot_and_loss_share_the_existing_o
     assert!(
         restored
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .is_none()
     );

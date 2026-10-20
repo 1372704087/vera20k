@@ -984,7 +984,7 @@ impl MatchScenario {
                 runtime
                     .simulation
                     .production
-                    .factories
+                    .factories()
                     .view(id, category)
                     .is_none_or(|factory| factory.queue.len() < QUEUE_DEPTH)
             };
@@ -1138,7 +1138,7 @@ impl MatchScenario {
                 ProductionCategory::Vehicle,
                 ProductionCategory::Aircraft,
             ] {
-                if let Some(factory) = sim.production.factories.view(house.id, category) {
+                if let Some(factory) = sim.production.factories().view(house.id, category) {
                     queued += factory.queue.len();
                     held += usize::from(factory.on_hold || factory.suspended);
                     factories[if factory.complete_object().is_some() {

@@ -692,7 +692,7 @@ mod tests {
             dummy: &sim.shared_cell_dummy,
             occupancy: &sim.substrate.occupancy,
             entities: &sim.substrate.entities,
-            terrain_objects: &sim.production.terrain_objects,
+            terrain_objects: sim.terrain_objects.objects(),
             interner: &sim.interner,
             alliances: &sim.house_alliances,
             overlays: sim.overlay_grid.as_ref(),
@@ -887,8 +887,8 @@ mod tests {
             &rules,
             false,
         );
-        let id = sim.production.terrain_object_cells[&(10, 20)];
-        let coord = sim.production.terrain_objects[&id].world_coord();
+        let id = sim.terrain_objects.cell_index()[&(10, 20)];
+        let coord = sim.terrain_objects.objects()[&id].world_coord();
         assert_eq!(coord.z, 624);
         sim.resolved_terrain
             .as_mut()

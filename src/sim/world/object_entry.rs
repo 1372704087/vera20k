@@ -208,7 +208,7 @@ impl EntryCell {
         let at = (p.0 as u16, p.1 as u16);
         let sim = live.sim;
         let terrain_object = terrain_object
-            .then(|| sim.production.terrain_object_cells.get(&at).copied())
+            .then(|| sim.terrain_objects.cell_index().get(&at).copied())
             .flatten();
         listed
             .then(|| {
@@ -1686,13 +1686,13 @@ fn terrain_impassable(
     };
     let terrain = live
         .sim
-        .production
         .terrain_objects
+        .objects()
         .get(&id)
         .ok_or("repair retired Terrain")?;
     let ty = live
         .rules
-        .terrain_object_type_case_insensitive(live.sim.interner.resolve(terrain.type_ref))
+        .terrain_object_type_case_insensitive(live.sim.interner.resolve(terrain.type_ref()))
         .ok_or("repair missing TerrainType")?;
     // TerrainClass::Can_Enter_Cell @ 0x0071C4D0: the first foundation cell
     // that is not clear for a typeless, houseless build refuses (7).

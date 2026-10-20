@@ -140,7 +140,7 @@ fn yard_builds(sim: &mut Simulation, rules: &RuleSet, owner: InternedId, yard: u
         .ai_production_mut()
         .set_for_test(0, choice, true);
     crate::sim::production::factory_ai(sim, rules, yard, None, FrameEffects::default());
-    assert!(sim.production.factories.building_factory(yard).is_some());
+    assert!(sim.production.factories().building_factory(yard).is_some());
 }
 
 #[test]
@@ -216,7 +216,7 @@ fn the_need_waits_for_the_refinery_the_yard_is_building() {
     yard_builds(&mut sim, &rules, owner, yard, "REFN");
     for (owed, need) in [(1000, false), (1500, false), (1501, true)] {
         sim.production
-            .factories
+            .factories_mut()
             .test_building_factory_mut(yard)
             .unwrap()
             .balance = owed;
@@ -244,7 +244,7 @@ fn the_need_waits_for_the_harvester_the_war_factory_is_building() {
     crate::sim::production::factory_ai(&mut sim, &rules, factory, None, FrameEffects::default());
     for (owed, need) in [(1000, false), (1001, true)] {
         sim.production
-            .factories
+            .factories_mut()
             .test_building_factory_mut(factory)
             .expect("the war factory builds the harvester")
             .balance = owed;
@@ -322,7 +322,7 @@ fn the_rebuild_sells_from_the_last_node_until_it_can_pay() {
     yard_builds(&mut sim, &rules, owner, ids[0], "PLAIN");
     let held = sim
         .production
-        .factories
+        .factories()
         .building_factory(ids[0])
         .and_then(|factory| factory.object.as_ref())
         .and_then(|object| object.entity_id)
@@ -334,7 +334,12 @@ fn the_rebuild_sells_from_the_last_node_until_it_can_pay() {
     // 1000 + 600 is not above 2000; 1000 + 1200 is.
     let sold: Vec<bool> = ids.iter().map(|&id| selling(&sim, id)).collect();
     assert_eq!(sold, [false, false, true, true]);
-    assert!(sim.production.factories.building_factory(ids[0]).is_none());
+    assert!(
+        sim.production
+            .factories()
+            .building_factory(ids[0])
+            .is_none()
+    );
     assert!(
         sim.substrate.entities.get(held).is_none(),
         "the held object goes"
@@ -411,7 +416,7 @@ fn a_house_that_cannot_pay_keeps_its_production_and_hunts() {
     manage_build_queue(&mut sim, &rules, owner, None, FrameEffects::default());
 
     assert!(selling(&sim, ids[0]));
-    assert!(sim.production.factories.building_factory(yard).is_some());
+    assert!(sim.production.factories().building_factory(yard).is_some());
     assert_eq!(
         sim.houses[&owner].ai_production().building_choice(),
         rules.building_type_index("PLAIN").unwrap()
@@ -483,7 +488,12 @@ fn a_house_whose_yard_node_is_open_rebuilds_nothing_and_hunts() {
         .ai_unit_choices_mut()
         .set(UnitChoiceKind::Unit, harvester);
     crate::sim::production::factory_ai(&mut sim, &rules, factory, None, FrameEffects::default());
-    assert!(sim.production.factories.building_factory(factory).is_some());
+    assert!(
+        sim.production
+            .factories()
+            .building_factory(factory)
+            .is_some()
+    );
     assert!(check_build_need(&sim, &rules, owner));
 
     manage_build_queue(&mut sim, &rules, owner, None, FrameEffects::default());
@@ -491,7 +501,12 @@ fn a_house_whose_yard_node_is_open_rebuilds_nothing_and_hunts() {
     // 1800 and the last plain's 600 pass the refinery's 2000.
     let sold: Vec<bool> = ids.iter().map(|&id| selling(&sim, id)).collect();
     assert_eq!(sold, [false, true]);
-    assert!(sim.production.factories.building_factory(factory).is_none());
+    assert!(
+        sim.production
+            .factories()
+            .building_factory(factory)
+            .is_none()
+    );
     assert_eq!(
         plan_types(&sim, &rules, owner),
         [

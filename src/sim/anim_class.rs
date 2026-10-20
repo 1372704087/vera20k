@@ -2601,7 +2601,7 @@ impl Simulation {
                 // contact gate uses XY only (GetCoords5F65A0); it does not
                 // substitute ground/deck height for the object's location.
                 CellObjectMember::Terrain(id) => {
-                    self.production.terrain_objects.get(&id).map(|tree| {
+                    self.terrain_objects.objects().get(&id).map(|tree| {
                         let coord = tree.world_coord();
                         (coord.x, coord.y)
                     })
@@ -2631,11 +2631,11 @@ impl Simulation {
                             ),
                         ),
                         CellObjectMember::Terrain(id) => {
-                            let tree = &self.production.terrain_objects[&id];
+                            let tree = &self.terrain_objects.objects()[&id];
                             AreaDamageReceiver::Terrain(crate::sim::combat::TerrainDamageEvent {
                                 stable_id: id,
-                                rx: tree.rx,
-                                ry: tree.ry,
+                                rx: tree.cell().0,
+                                ry: tree.cell().1,
                                 damage,
                                 distance_leptons,
                                 warhead_ref,
@@ -2812,11 +2812,11 @@ impl Simulation {
                         &self.substrate.raw_cell_occupation,
                         rules,
                         &self.interner,
-                        &self.production.terrain_object_cells,
+                        self.terrain_objects.cell_index(),
                     );
                     crate::sim::tiberium::admit_new_tiberium_target(
                         grid,
-                        &self.production.tiberium_spawning_terrain_cells,
+                        self.terrain_objects.spawning_cells(),
                         NewTiberiumAdmission::runtime(terrain, objects),
                         cell,
                     )

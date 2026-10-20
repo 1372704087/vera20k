@@ -391,7 +391,7 @@ impl Simulation {
                 TargetKind::Cell(..) => true,
                 TargetKind::Entity(target) => {
                     self.substrate.entities.contains(target)
-                        || self.production.terrain_objects.contains_key(&target)
+                        || self.terrain_objects.objects().contains_key(&target)
                 }
             }
             && self.resolved_terrain.is_some()

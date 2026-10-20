@@ -13,7 +13,7 @@ use crate::skirmish_launch::{AiDifficulty, LaunchCountry, LaunchStartPosition, L
 
 fn paid_building_head(sim: &Simulation, owner: crate::sim::intern::InternedId) -> Option<Factory> {
     sim.production
-        .factories
+        .factories()
         .iter_insertion_ordered()
         .into_iter()
         .find(|factory| {

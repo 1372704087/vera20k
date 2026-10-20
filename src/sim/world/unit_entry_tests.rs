@@ -347,7 +347,9 @@ fn a_crusher_meets_a_terrain_object_with_its_weapon() {
         sim.substrate.entities.insert(unit);
         sim.mission_assign_exact(90, crate::sim::mission::MissionId::from_raw(5), 100)
             .unwrap();
-        sim.production.terrain_object_cells.insert((11, 10), 900);
+        sim.terrain_objects
+            .cell_index_mut_for_test()
+            .insert((11, 10), 900);
         let cell = sim
             .resolved_terrain
             .as_ref()

@@ -43,7 +43,7 @@ fn refinery_with_slaves(count: usize) -> SlaveScene {
             [18, 14, 0, 0, 5], [17, 12, 0, 0, 5], [18, 12, 0, 0, 5],
         ],
     }));
-    s.scene.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+    s.scene.sim.ore_growth_config = OreGrowthConfig::disabled();
     s
 }
 
@@ -544,7 +544,7 @@ fn a_refinery_whose_ore_runs_out_packs_up_and_moves_to_the_next_field() {
         "nodes": [inside, inside, inside],
         "ore": [[24, 13, 0, 0, 5], [25, 13, 0, 0, 5], [24, 14, 0, 0, 5], [25, 14, 0, 0, 5]],
     }));
-    s.scene.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+    s.scene.sim.ore_growth_config = OreGrowthConfig::disabled();
     let first = s.master;
     let slaves: Vec<u64> = s.slaves.values().copied().collect();
     let holder_of = |s: &SlaveScene| -> Option<u64> {
@@ -779,7 +779,7 @@ fn a_player_cell_order_relocates_a_refinery_with_its_existing_slave_manager() {
             "ore": if ore { serde_json::json!([[17,13,0,0,5],[24,13,0,0,5]]) }
                 else { serde_json::json!([[17,13,0,0,5]]) },
         }));
-        s.scene.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        s.scene.sim.ore_growth_config = OreGrowthConfig::disabled();
         s.scene.sim.input_delay_ticks = 0;
         s.scene
             .rules

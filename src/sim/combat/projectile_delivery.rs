@@ -259,7 +259,7 @@ impl FiredBullet {
             }
             // Terrain+58 (410540) forwards Object+48 (5F65A0).
             ProjectileTarget::Terrain(id) => {
-                world.production.terrain_objects.get(&id)?.world_coord()
+                world.terrain_objects.objects().get(&id)?.world_coord()
             }
             ProjectileTarget::None => return None,
         };

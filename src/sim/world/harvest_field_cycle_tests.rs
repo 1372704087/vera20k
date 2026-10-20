@@ -48,7 +48,7 @@ fn field(at: (u16, u16), ore: serde_json::Value) -> Scene {
         "unlimbo_at_cell": true,
         "ore": ore,
     }));
-    s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+    s.sim.ore_growth_config = OreGrowthConfig::disabled();
     s
 }
 
@@ -191,7 +191,7 @@ fn retail_war_miner_area_guard_returns_to_harvesting() {
             retail.rules.clone(),
             &retail.processed_rules,
         );
-        s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        s.sim.ore_growth_config = OreGrowthConfig::disabled();
         let owner = s.sim.entities().get(s.miner).unwrap().owner();
         s.sim.session.set_current_house_for_test(Some(owner));
         s.sim.houses.reorder_for_test(&[owner]);
@@ -265,7 +265,7 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             retail.rules,
             &retail.processed_rules,
         );
-        s.sim.production.ore_growth_config = OreGrowthConfig::disabled();
+        s.sim.ore_growth_config = OreGrowthConfig::disabled();
         let retail_order = |s: &mut Scene, command: Command| {
             assert!(s.sim.apply_command_with_overlays(
                 "Americans",
@@ -433,4 +433,34 @@ fn retail_war_miner_attacks_without_cutting_ore_and_resumes_its_idle_mission() {
             assert!(resumed, "promoted Harvest cuts another bale");
         }
     }
+}
+
+#[test]
+fn campaign_shroud_scan_runs_through_the_production_harvest_frame() {
+    use crate::sim::components::NavTargetRef;
+    let corpus = crate::test_fixture::json("tools/spatial_oracle/harvest_field.json");
+    let mut compared = 0;
+    for row in corpus["harvest"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|row| row["input"]["owned_by_current_house"].as_bool().is_some())
+    {
+        let mut scene = row_scene(&row["input"]);
+        scene.sim.ore_growth_config = OreGrowthConfig::disabled();
+        frame(&mut scene);
+        let miner = scene.sim.substrate.entities.get(scene.miner).unwrap();
+        let destination = match miner.navigation.nav_com() {
+            Some(NavTargetRef::Cell { rx, ry }) => serde_json::json!([rx, ry]),
+            None => serde_json::Value::Null,
+            Some(other) => panic!("unexpected mining destination {other:?}"),
+        };
+        assert_eq!(
+            destination, row["state"]["miner_nav"],
+            "{}: production frame destination",
+            row["input"]["name"]
+        );
+        compared += 1;
+    }
+    assert_eq!(compared, 4);
 }

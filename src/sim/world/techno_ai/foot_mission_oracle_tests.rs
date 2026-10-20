@@ -889,7 +889,14 @@ impl SuppliedFootFixture {
                 sub_cell,
                 CellListInsertion::PrependNonBuilding,
             );
-            sim.submit_object_display(id, DisplayLayer::GROUND, Some(rules));
+            Simulation::submit_object_display(
+                &sim.interner,
+                &sim.terrain_objects,
+                &mut sim.substrate,
+                id,
+                DisplayLayer::GROUND,
+                Some(rules),
+            );
         }
         sim.set_logic_order_for_test(logic);
         // The original row writes pose/layer controls AFTER Unlimbo. They do

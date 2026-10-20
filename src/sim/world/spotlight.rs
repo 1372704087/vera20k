@@ -341,7 +341,14 @@ impl Simulation {
             .unwrap()
             .building_light
             .attach(id);
-        self.submit_object_display(id, DisplayLayer::AIR, rules);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            id,
+            DisplayLayer::AIR,
+            rules,
+        );
         self.register_spotlight_logic(id);
     }
     pub(super) fn destroy_spotlight_for_parent(&mut self, parent: u64, context: UninitContext<'_>) {

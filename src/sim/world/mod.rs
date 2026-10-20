@@ -3375,6 +3375,71 @@ impl Simulation {
         self.overlay_grid = Some(grid);
     }
 
+    // Client-crate fixtures for operations that take their owners.
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn bomb_defuse_for_test(&mut self, carrier: u64) {
+        Self::bomb_defuse(&mut self.substrate, &mut self.bombs, carrier);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn suspend_production_for_test(
+        &mut self,
+        owner: &str,
+        category: crate::sim::production::ProductionCategory,
+    ) -> bool {
+        crate::sim::production::suspend_production(
+            &self.interner,
+            &mut self.production,
+            &self.session,
+            owner,
+            category,
+        )
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_trigger_variable_for_test(&mut self, global: bool, index: i32, set: bool) -> bool {
+        Self::set_trigger_variable(
+            &self.session,
+            &mut self.scenario_rng,
+            &mut self.trigger_runtime,
+            global,
+            index,
+            set,
+        )
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn submit_object_display_for_test(
+        &mut self,
+        id: u64,
+        layer: display_layers::DisplayLayer,
+        rules: Option<&RuleSet>,
+    ) {
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            id,
+            layer,
+            rules,
+        );
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn apply_runtime_bridge_mark_stamp_for_test(
+        &mut self,
+        stamp: crate::map::bridge_facts::BridgeFlagStamp,
+        family: crate::map::bridge_facts::BridgeStampFamily,
+    ) {
+        Self::apply_runtime_bridge_mark_stamp(
+            &mut self.resolved_terrain,
+            &mut self.real_cell_bridge_flags_0x1180,
+            stamp,
+            family,
+        );
+    }
+
     // Client-crate fixtures; in-crate tests use the fields.
 
     #[cfg(any(test, feature = "test-support"))]
@@ -3676,25 +3741,24 @@ impl Simulation {
     /// High-bridge anchor construction uses the same literal setter as bridge
     /// damage/repair, but it additionally creates the family/anchor relations
     /// from which Rust derives live bridge topology.
-    pub fn apply_runtime_bridge_mark_stamp(
-        &mut self,
+    pub(crate) fn apply_runtime_bridge_mark_stamp(
+        resolved_terrain: &mut Option<ResolvedTerrainGrid>,
+        real_cell_bridge_flags_0x1180: &mut RealCellBridgeFlags0x1180,
         stamp: crate::map::bridge_facts::BridgeFlagStamp,
         family: crate::map::bridge_facts::BridgeStampFamily,
     ) {
-        let Some(terrain) = self.resolved_terrain.as_ref() else {
+        let Some(terrain) = resolved_terrain.as_ref() else {
             return;
         };
-        if !terrain.bridge_flag_authority_matches_shape(&self.real_cell_bridge_flags_0x1180) {
-            self.real_cell_bridge_flags_0x1180 = terrain.capture_real_cell_bridge_flags_0x1180();
+        if !terrain.bridge_flag_authority_matches_shape(real_cell_bridge_flags_0x1180) {
+            *real_cell_bridge_flags_0x1180 = terrain.capture_real_cell_bridge_flags_0x1180();
         }
-        let updates = self
-            .resolved_terrain
+        let updates = resolved_terrain
             .as_mut()
             .expect("terrain presence checked before runtime bridge Mark setter")
             .apply_runtime_bridge_mark_stamp(stamp, family);
         for (index, flags) in updates {
-            self.real_cell_bridge_flags_0x1180
-                .set_allocated_cell(index, flags);
+            real_cell_bridge_flags_0x1180.set_allocated_cell(index, flags);
         }
     }
 
@@ -5614,7 +5678,7 @@ impl Simulation {
                 .object_type(entity.type_ref(), rules)
                 .is_some_and(|object| object.can_be_occupied)
         {
-            self.bomb_defuse(stable_id);
+            Self::bomb_defuse(&mut self.substrate, &mut self.bombs, stable_id);
         }
         if category == EntityCategory::Structure {
             //448260: gap removal precedes ordinary sight release and owner

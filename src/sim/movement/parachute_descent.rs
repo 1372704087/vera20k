@@ -112,7 +112,14 @@ impl crate::sim::world::Simulation {
             && let Some(layer) = new_layer
         {
             //5F4001..5F400E: resubmit only when the live layer changed.
-            self.submit_object_display(id, layer, Some(rules));
+            Self::submit_object_display(
+                &self.interner,
+                &self.terrain_objects,
+                &mut self.substrate,
+                id,
+                layer,
+                Some(rules),
+            );
         }
         if let Some(health) = self
             .substrate

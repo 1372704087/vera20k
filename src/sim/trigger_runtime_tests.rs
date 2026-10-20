@@ -973,9 +973,23 @@ fn script40_clears_local_through_trigger_owner_and_advances_on_rejected_indices(
             .team_script_vm
             .create_team(owner, script, vec![member], 0);
         if initially_set {
-            sim.set_trigger_variable(false, index, true);
+            Simulation::set_trigger_variable(
+                &sim.session,
+                &mut sim.scenario_rng,
+                &mut sim.trigger_runtime,
+                false,
+                index,
+                true,
+            );
         }
-        sim.set_trigger_variable(true, 3, true);
+        Simulation::set_trigger_variable(
+            &sim.session,
+            &mut sim.scenario_rng,
+            &mut sim.trigger_runtime,
+            true,
+            3,
+            true,
+        );
         sim.trigger_runtime.dirty[0] = false;
         let rng = sim.rng_state();
         sim.run_team_ai_pass(&rules, None, FrameEffects::default());

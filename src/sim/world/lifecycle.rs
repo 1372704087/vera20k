@@ -26,7 +26,9 @@ use super::substrate::{DeferredDeleteTicket, ObjectKind};
 use super::{FrameEffects, Simulation};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::sim::houses::Houses;
+use crate::sim::intern::StringInterner;
 use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::terrain_object::TerrainObjectStore;
 use crate::sim::world::ObjectSubstrate;
 
 /// A building's `HasSpotlight=` fact and its owned `BuildingLightClass`.
@@ -2986,7 +2988,14 @@ impl Simulation {
             return false;
         }
         // VoxelAnim VT7F6318+78 ->74A960: always Air.
-        self.submit_object_display(stable_id, DisplayLayer::AIR, None);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            stable_id,
+            DisplayLayer::AIR,
+            None,
+        );
         self.register_logic_object(stable_id)
     }
 
@@ -3000,7 +3009,14 @@ impl Simulation {
         }
         // ParticleSystem VT7EFB9C+78 ->62FE80: always Ground. Rules resolve
         // the existing Building peers' GetYSort adjustments during insertion.
-        self.submit_object_display(stable_id, DisplayLayer::GROUND, rules);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            stable_id,
+            DisplayLayer::GROUND,
+            rules,
+        );
         self.register_logic_object(stable_id)
     }
 
@@ -3012,8 +3028,20 @@ impl Simulation {
     /// Particle62BB0E calls ObjectUnlimbo5F4EC0; GetLayer62D770 returns
     /// AIR (3), so Display4A9720 reaches the existing append owner5519B0.
     /// A particle is owned by its system and never joins global Logic.
-    pub(crate) fn reveal_particle(&mut self, stable_id: u64) {
-        self.submit_object_display(stable_id, DisplayLayer::AIR, None);
+    pub(crate) fn reveal_particle(
+        interner: &StringInterner,
+        terrain_objects: &TerrainObjectStore,
+        substrate: &mut ObjectSubstrate,
+        stable_id: u64,
+    ) {
+        Self::submit_object_display(
+            interner,
+            terrain_objects,
+            substrate,
+            stable_id,
+            DisplayLayer::AIR,
+            None,
+        );
     }
 
     /// Spark62ED2C (and the other System AI cleanup callers) invokes the
@@ -3048,7 +3076,14 @@ impl Simulation {
         }
         // Terrain ctor71BC76 reveals at the retained type-adjusted coordinate;
         // Object5F4260 selects Ground even on elevated cells.
-        self.submit_object_display(stable_id, DisplayLayer::GROUND, rules);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            stable_id,
+            DisplayLayer::GROUND,
+            rules,
+        );
         self.register_logic_object(stable_id)
     }
 
@@ -3062,7 +3097,14 @@ impl Simulation {
         } else {
             DisplayLayer::AIR
         };
-        self.submit_object_display(stable_id, layer, None);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            stable_id,
+            layer,
+            None,
+        );
         self.register_logic_object(stable_id)
     }
 
@@ -3071,7 +3113,14 @@ impl Simulation {
             return false;
         }
         // Wave VT7F6BF4+78 ->75F890: always Air; Submit at75F952.
-        self.submit_object_display(stable_id, DisplayLayer::AIR, None);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            stable_id,
+            DisplayLayer::AIR,
+            None,
+        );
         self.register_logic_object(stable_id)
     }
 
@@ -5641,7 +5690,7 @@ impl Simulation {
         }
         // ObjectClass::UnInit's first statement (`0x005F65F3`) defuses a
         // carried bomb silently: sold, crushed, erased.
-        self.bomb_defuse(stable_id);
+        Self::bomb_defuse(&mut self.substrate, &mut self.bombs, stable_id);
         self.notify_pointer_expired(stable_id, context);
 
         if spotlight {
@@ -5966,7 +6015,7 @@ impl Simulation {
             self.notify_pointer_expired(stable_id, context);
         }
         // The ObjectClass destructor's defensive Defuse (`0x005F3BA6`).
-        self.bomb_defuse(stable_id);
+        Self::bomb_defuse(&mut self.substrate, &mut self.bombs, stable_id);
         self.team_script_vm.object_deleted(stable_id);
         Self::release_house_base_tracking(&self.substrate, &mut self.houses, stable_id);
         // Selected original Foot destructor4D3632..4D366E clears only its

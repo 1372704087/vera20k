@@ -2219,7 +2219,14 @@ impl Simulation {
     /// the current type's layer.
     pub(crate) fn submit_anim_display(&mut self, id: AnimId, rules: Option<&RuleSet>) {
         if let Some(layer) = self.anim_display_layer(id, rules) {
-            self.submit_object_display(id, layer, rules);
+            Self::submit_object_display(
+                &self.interner,
+                &self.terrain_objects,
+                &mut self.substrate,
+                id,
+                layer,
+                rules,
+            );
         } else {
             self.substrate.display.remove(id);
         }

@@ -301,7 +301,12 @@ impl Particle {
             spark_world::constructor_ground_height(sim, x, y)
         })
         .expect("particle construction requires supported ground facts");
-        sim.reveal_particle(particle.stable_id);
+        Simulation::reveal_particle(
+            &sim.interner,
+            &sim.terrain_objects,
+            &mut sim.substrate,
+            particle.stable_id,
+        );
         particle
     }
 

@@ -313,9 +313,14 @@ fn whole_unit_fixture(
                 None,
                 CellListInsertion::PrependNonBuilding,
             );
-            fixture
-                .sim
-                .submit_object_display(id, DisplayLayer::GROUND, Some(rules));
+            Simulation::submit_object_display(
+                &fixture.sim.interner,
+                &fixture.sim.terrain_objects,
+                &mut fixture.sim.substrate,
+                id,
+                DisplayLayer::GROUND,
+                Some(rules),
+            );
         }
     }
     let native_order = |name: &str| {

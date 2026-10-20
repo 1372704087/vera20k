@@ -4194,11 +4194,16 @@ pub(super) fn replay_native_histories(rows: impl Iterator<Item = Value>) -> usiz
                         )));
                     }
                     "global" | "local" => {
-                        returned = Some(i32::from(sim.set_trigger_variable(
-                            args[0] == "global",
-                            integer(&args[1]),
-                            integer(&args[2]) != 0,
-                        )))
+                        returned = Some(i32::from(
+                            crate::sim::world::Simulation::set_trigger_variable(
+                                &sim.session,
+                                &mut sim.scenario_rng,
+                                &mut sim.trigger_runtime,
+                                args[0] == "global",
+                                integer(&args[1]),
+                                integer(&args[2]) != 0,
+                            ),
+                        ))
                     }
                     "action" => {
                         let action = RuntimeAction {

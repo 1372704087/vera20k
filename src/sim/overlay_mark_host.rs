@@ -245,7 +245,12 @@ impl OverlayMarkHost for SimulationMarkHost<'_> {
                 None => self.terrain().shared_cell_dummy().write_overlay_state(data),
             }
         }
-        self.sim.apply_runtime_bridge_mark_stamp(stamp, family);
+        Simulation::apply_runtime_bridge_mark_stamp(
+            &mut self.sim.resolved_terrain,
+            &mut self.sim.real_cell_bridge_flags_0x1180,
+            stamp,
+            family,
+        );
         Ok(())
     }
 

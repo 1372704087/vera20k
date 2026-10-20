@@ -172,19 +172,26 @@ impl GroundSortKeys for GroundSortView<'_> {
 }
 
 impl Simulation {
-    pub fn submit_object_display(&mut self, id: u64, layer: DisplayLayer, rules: Option<&RuleSet>) {
+    pub(crate) fn submit_object_display(
+        world_interner: &StringInterner,
+        terrain_objects: &TerrainObjectStore,
+        substrate: &mut ObjectSubstrate,
+        id: u64,
+        layer: DisplayLayer,
+        rules: Option<&RuleSet>,
+    ) {
         if layer == DisplayLayer::GROUND {
-            self.substrate.forget_changed_ground_keys(rules);
+            substrate.forget_changed_ground_keys(rules);
         }
         let view = GroundSortView {
-            entities: &self.substrate.entities,
-            anims: &self.substrate.anims,
-            particles: &self.substrate.particle_systems,
-            terrain: self.terrain_objects.objects(),
-            interner: &self.interner,
+            entities: &substrate.entities,
+            anims: &substrate.anims,
+            particles: &substrate.particle_systems,
+            terrain: terrain_objects.objects(),
+            interner: &*world_interner,
             rules,
         };
-        self.substrate.display.submit(id, Some(layer), &view);
+        substrate.display.submit(id, Some(layer), &view);
     }
 
     pub(super) fn submit_entity_display(
@@ -201,7 +208,14 @@ impl Simulation {
             terrain.or(self.resolved_terrain.as_ref()),
             rules.map(|rules| (rules, &self.interner)),
         );
-        self.submit_object_display(id, layer, rules);
+        Self::submit_object_display(
+            &self.interner,
+            &self.terrain_objects,
+            &mut self.substrate,
+            id,
+            layer,
+            rules,
+        );
     }
 
     pub(crate) fn entity_display_layer(
@@ -340,7 +354,14 @@ mod tests {
                 "{name}"
             );
             sim.substrate.entities.insert(entity);
-            sim.submit_object_display(id, DisplayLayer::GROUND, Some(&rules));
+            Simulation::submit_object_display(
+                &sim.interner,
+                &sim.terrain_objects,
+                &mut sim.substrate,
+                id,
+                DisplayLayer::GROUND,
+                Some(&rules),
+            );
         }
         assert_eq!(
             sim.display_layers().members(DisplayLayer::GROUND),
@@ -495,7 +516,14 @@ mod tests {
             entity.position.set_sub_x_for_test(SimFixed::from_num(128));
             entity.position.set_sub_y_for_test(SimFixed::from_num(128));
             sim.substrate.entities.insert(entity);
-            sim.submit_object_display(id, DisplayLayer::GROUND, Some(&rules));
+            Simulation::submit_object_display(
+                &sim.interner,
+                &sim.terrain_objects,
+                &mut sim.substrate,
+                id,
+                DisplayLayer::GROUND,
+                Some(&rules),
+            );
             units.push(id);
         }
         let mut anims = Vec::new();

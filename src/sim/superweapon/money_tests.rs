@@ -414,18 +414,8 @@ fn superweapon_money_two_stage_source_never_changes_wallet_across_ticks() {
         let source = ready(&mut sim, &rules, owner, "Sphere", false);
         let mut admitted = Vec::new();
         for _ in 0..3 {
-            let before = sim.state_hash();
             sim.sound_events.clear_for_test();
             admitted.push(fire(&mut sim, &rules, owner, source, (10, 10)));
-            assert_eq!(
-                sim.state_hash(),
-                before,
-                "refusal preserves source and pair"
-            );
-            assert!(
-                sim.sound_events.is_empty(),
-                "refusal has no activation effects"
-            );
             sim.session
                 .set_binary_frame_for_test(sim.session.binary_frame() + 1);
             superweapon::tick_house_superweapon_instances(&mut sim, &rules, owner);
@@ -433,12 +423,16 @@ fn superweapon_money_two_stage_source_never_changes_wallet_across_ticks() {
         assert_eq!(
             sim.houses[&owner].economy().credits(),
             10_000,
-            "unsupported paid source must not settle on a repeatable selection"
+            "source selection must never settle, even after native re-readiness"
         );
-        assert_eq!(admitted, vec![false; 3]);
+        assert_eq!(admitted, vec![true; 3]);
         assert!(sim.super_weapons[&owner][&source].is_ready);
+        assert_eq!(sim.paid_super_weapon_selection(owner).unwrap().sequence, 3);
     }
 }
+
+#[path = "money_two_stage_tests.rs"]
+mod two_stage_tests;
 
 #[test]
 fn superweapon_money_two_stage_kinds_cannot_bypass_exclusion_by_clearing_flags() {

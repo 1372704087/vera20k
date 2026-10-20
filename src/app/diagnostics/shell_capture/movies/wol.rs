@@ -2725,7 +2725,7 @@ fn ra2md_path(state: &AppState) -> Result<std::path::PathBuf> {
         .as_ref()
         .context("capture game config")?
         .paths
-        .ra2_dir
+        .settings_dir()
         .join("RA2MD.INI"))
 }
 

@@ -783,8 +783,6 @@ impl ResolvedTerrainGrid {
             cell.speed_costs.wheel,
             cell.terrain_object_occupation,
         );
-        cell.bridge_facts.overlay_id = overlay_id;
-        cell.bridge_facts.state_byte = finalized.state();
         cell.is_wood_bridge_repair_tile = state.wood_bridge_repair_tile(cell.final_tile_index);
     }
 

@@ -2154,7 +2154,7 @@ pub(crate) fn area_routes_to_wall(
                 grid.cell(rx as u16, ry as u16).overlay_id
             }
             crate::map::cell_index::NativeCellIdentity::Dummy => {
-                u8::try_from(query.overlay_identity(identity)).ok()
+                u8::try_from(query.dummy_overlay_identity()).ok()
             }
         }
     } else {

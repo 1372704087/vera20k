@@ -3117,14 +3117,11 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 // Clear/Foot speed row before this cursor-only observation.
                 let mut terrain = crate::map::resolved_terrain::test_flat_ground_grid(20);
                 terrain.test_set_high_bridge_set_starts(Some(100), Some(200));
-                for y in 9..=11 {
-                    terrain
-                        .cell_mut_for_test(12, y)
-                        .unwrap()
-                        .bridge_facts
-                        .overlay_id = Some(if collapsed { 0xE7 } else { 0xD4 });
-                }
                 sim.install_resolved_terrain_for_new_map(terrain);
+                for y in 9..=11 {
+                    sim.overlay_cell_mut_for_test(12, y).overlay_id =
+                        Some(if collapsed { 0xE7 } else { 0xD4 });
+                }
                 *sim.bridge_state_mut_for_test() =
                     Some(crate::sim::bridge_state::BridgeRuntimeState::default());
                 crate::sim::arena_fixture::supply_native_map(&mut sim);

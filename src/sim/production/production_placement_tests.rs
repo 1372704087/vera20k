@@ -2805,15 +2805,16 @@ fn place_ready_building_rejects_destroyed_bridge_over_blocked_ground() {
             cell.bridge_deck_level = 3;
             // A legacy deck whose +44 bridge identity 47E040 has destroyed:
             // state 0, bit0x100 clear, bit0x400 set.
-            cell.bridge_facts.overlay_id = Some(0x18);
             cell.bridge_facts.raw_flags = crate::map::bridge_facts::BRIDGE_FLAG_DESTROYED_OR_RAMP;
-            cell.bridge_facts.state_byte = 0;
         }
     });
     sim.bridge_state = Some(
         crate::sim::bridge_state::BridgeRuntimeState::from_resolved_terrain(&resolved, true, 5),
     );
     sim.resolved_terrain = Some(resolved);
+    let deck = sim.overlay_cell_mut_for_test(12, 10);
+    deck.overlay_id = Some(0x18);
+    deck.overlay_data = 0;
 
     let preview = preview_at(&sim, &rules, "Americans", "GAPOWR", (12, 10), None);
     assert_eq!(preview.reason, Some(BuildingPlacementError::BlockedTerrain));

@@ -1204,7 +1204,9 @@ use crate::util::save_codec;
 // DisabledDisguiseDetectionPercent=.
 // 449 -> 450: the retained `[Basic]` section carries Scenario+0x1440 `Lose`,
 // the movie campaign defeat plays before its retry prompt.
-const SNAPSHOT_VERSION: u32 = 450;
+// 450 -> 451: dynamic terrain cell records no longer carry a copy of the
+// cell's overlay identity and state byte; OverlayGrid alone holds them.
+const SNAPSHOT_VERSION: u32 = 451;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -9360,7 +9362,10 @@ mod tests {
             0
         );
 
-        let path = PathGrid::from_resolved_terrain_with_bridges(reconciled);
+        let path = PathGrid::from_resolved_terrain_with_bridges(
+            reconciled,
+            restored.overlay_grid.as_ref(),
+        );
         assert!(path.is_walkable(destroyed_cell.0, destroyed_cell.1));
         assert!(!path.is_walkable(damaged_cell.0, damaged_cell.1));
         assert!(!path.is_walkable(spawner_cell.0, spawner_cell.1));
@@ -9440,9 +9445,11 @@ mod tests {
 
         let path_a = PathGrid::from_resolved_terrain_with_bridges(
             a.resolved_terrain.as_ref().expect("terrain restored"),
+            a.overlay_grid.as_ref(),
         );
         let path_b = PathGrid::from_resolved_terrain_with_bridges(
             b.resolved_terrain.as_ref().expect("terrain restored"),
+            b.overlay_grid.as_ref(),
         );
         assert_eq!(path_a, path_b);
 
@@ -10052,6 +10059,7 @@ mod tests {
         // 447 -> 448: retained Unit firing counter through parasite release.
         // 448 -> 449: the disguise firing blink and its rules keys.
         // 449 -> 450: the retained `[Basic]` Lose movie.
-        assert_eq!(super::SNAPSHOT_VERSION, 450);
+        // 450 -> 451: terrain records drop their overlay identity/state copy.
+        assert_eq!(super::SNAPSHOT_VERSION, 451);
     }
 }

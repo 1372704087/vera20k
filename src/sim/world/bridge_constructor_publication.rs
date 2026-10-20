@@ -153,12 +153,11 @@ impl OverlayMarkHost for BridgeMarkHost<'_, '_> {
     }
 
     fn identity(&self, cell: Cell) -> i32 {
-        let terrain = self.publication.terrain();
-        let identity = match cell {
-            Cell::Real(index) => terrain.cells()[index].bridge_facts.overlay_id,
-            Cell::Dummy => terrain.shared_cell_dummy().overlay_fields().0,
-        };
-        identity.map_or(NO_OVERLAY, i32::from)
+        self.publication
+            .sim
+            .cell_overlay(cell)
+            .overlay_id
+            .map_or(NO_OVERLAY, i32::from)
     }
 
     fn data(&self, cell: Cell) -> u8 {

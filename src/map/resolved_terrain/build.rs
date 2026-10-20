@@ -736,9 +736,6 @@ impl ResolvedTerrainGrid {
                 i32::from(overlay.rx),
                 i32::from(overlay.ry),
             );
-            if let Some(index) = anchor_index {
-                cells[index].bridge_facts.overlay_id = Some(overlay.overlay_id);
-            }
             if overlay_load_source == OverlayLoadSource::Authored
                 && let Some((family, direction)) =
                     crate::map::bridge_facts::high_bridge_stamp_for_overlay(overlay.overlay_id)
@@ -754,21 +751,6 @@ impl ResolvedTerrainGrid {
                     stamp,
                     Some(family),
                 );
-            }
-        }
-
-        let raw_overlay_data = projection.is_eager().then(|| {
-            map.overlay_data_pack()
-                .expect("legacy terrain projection must precede authored pack consumption")
-        });
-        if let Some(raw_overlay_data) = raw_overlay_data.filter(|data| data.is_present()) {
-            for (index, cell) in cells.iter_mut().enumerate() {
-                if native_allocated
-                    .as_deref()
-                    .is_none_or(|mask| mask.get(index).copied().unwrap_or(false))
-                {
-                    cell.bridge_facts.state_byte = raw_overlay_data.byte_at(cell.rx, cell.ry);
-                }
             }
         }
 

@@ -38,14 +38,14 @@ fn a_sale_hides_slot_anims_in_its_build_down_and_drops_the_zshape_move() {
     assert_eq!(sample(&sim), Some((false, false, false, (30, 15))));
     let order = CommandEnvelope::new(
         sim.entities().get(factory).unwrap().owner(),
-        sim.session.tick() + 1,
+        sim.session().tick() + 1,
         Command::SellBuilding { entity_id: factory },
     );
     sim.advance_tick(&[order], Some(rules), None, None, 67);
     let mut seen = Vec::new();
     while let Some(state) = sample(&sim)
         && seen.len() < 8
-        && sim.session.tick() < 2000
+        && sim.session().tick() < 2000
     {
         if seen.last() != Some(&state) {
             seen.push(state);

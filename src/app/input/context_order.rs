@@ -1985,6 +1985,22 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
+            if context_actions_enabled
+                && let Some(target) = hover.as_ref()
+                && let Some(orders) =
+                    grinder_orders(sim, &resources.rules, &mut selected_units, target)
+            {
+                consumed_building_action = true;
+                queued.extend(
+                    orders
+                        .into_iter()
+                        .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
+                );
+                if selected_units.is_empty() {
+                    return finish_order(state, queued, speaker_id);
+                }
+            }
+
             if context_actions_enabled && let Some(target) = hover.as_ref() {
                 let orders = transport_entry_orders(
                     sim,
@@ -2537,6 +2553,44 @@ fn transport_entry_orders(
             }
         })
         .collect()
+}
+
+/// The selected objects whose Select over a friendly `Grinding=` building is
+/// Grind or NoEnter ([`Simulation::grinder_click_action`]) leave `selected`.
+/// Foot ClickedAction (`0x004D774F`) sends a controllable (vt+0xA0) one
+/// mission Eaten with NULL Target and the building as Destination; NoEnter
+/// has no case and orders nothing. None when no selected object takes it.
+///
+/// [`Simulation::grinder_click_action`]: crate::sim::world::Simulation::grinder_click_action
+fn grinder_orders(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    selected: &mut Vec<u64>,
+    hover: &HoverTargetKindWithId,
+) -> Option<Vec<Command>> {
+    if hover.kind != HoverTargetKind::FriendlyStructure {
+        return None;
+    }
+    let mut consumed = false;
+    let mut orders = Vec::new();
+    selected.retain(|&id| {
+        let Some(action) = sim.grinder_click_action(id, hover.stable_id, rules) else {
+            return true;
+        };
+        consumed = true;
+        if action == crate::sim::world::BuildingClickAction::Grind
+            && sim.techno_player_controllable(id, rules)
+        {
+            orders.push(Command::MegaMission {
+                entity_id: id,
+                mission: crate::sim::mission::MissionType::Eaten,
+                target: None,
+                destination: Some(TargetKind::Entity(hover.stable_id)),
+            });
+        }
+        false
+    });
+    consumed.then_some(orders)
 }
 
 /// Engineer object actions before event enqueue. No duplicate geometry query.
@@ -5747,6 +5801,10 @@ mod retail_engineer_tests;
 #[cfg(test)]
 #[path = "context_order_retail_garrison_tests.rs"]
 mod retail_garrison_tests;
+
+#[cfg(test)]
+#[path = "context_order_retail_grinder_tests.rs"]
+mod retail_grinder_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_ifv_repair_tests.rs"]

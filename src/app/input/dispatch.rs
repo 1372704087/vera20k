@@ -155,9 +155,9 @@ pub(crate) fn handle_mouse_input(
         return;
     }
     // MessageList::Input 0x005D4510 ends an open chat edit on the right
-    // button and leaves the click to the game.
-    if button == MouseButton::Right && pressed {
-        crate::app::input::chat::right_press(state);
+    // button, press or release, and leaves the click to the game.
+    if button == MouseButton::Right {
+        crate::app::input::chat::right_button(state);
     }
     match crate::app::input::gadget_input::handle_mouse_button_event(state, button, pressed) {
         GadgetConsume::Tactical => tactical_mouse(state, button, btn_state),

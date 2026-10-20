@@ -96,7 +96,7 @@ pub struct MessagePost<'a> {
     /// None = never expires (native timeout −1 → deadline 0).
     pub timeout_ms: Option<u64>,
     /// Silent adds neither request the insert sound nor enable typing reveal
-    /// in the offline MessageList path (GameMode5, original5D3D95..5D3DBD).
+    /// (original5D3D95..5D3DBD); see [`MessageList::set_typing`].
     pub silent: bool,
 }
 
@@ -164,6 +164,9 @@ pub struct MessageList {
     max_width_px: i32,
     messages: Vec<Message>,
     edit: Option<MessageEdit>,
+    /// Add_Message's per-mode reveal gate: LANScrollText `[0xA8D1F8]` in
+    /// GameMode 3, WOLScrollText `[0xA8D1F9]` in 4, always on otherwise.
+    typing: bool,
 }
 
 impl MessageList {
@@ -175,6 +178,7 @@ impl MessageList {
             max_width_px,
             messages: Vec::with_capacity(MESSAGE_SLOTS),
             edit: None,
+            typing: true,
         }
     }
 
@@ -191,6 +195,11 @@ impl MessageList {
         self.y = y;
         self.max_width_px = max_width_px;
         self.restack();
+    }
+
+    /// The mode's reveal gate for later non-silent adds.
+    pub fn set_typing(&mut self, typing: bool) {
+        self.typing = typing;
     }
 
     /// `+0x19`: an edit line is open.
@@ -369,7 +378,7 @@ impl MessageList {
             rgb: post.rgb,
             deadline_ms: post.timeout_ms.map(|t| now_ms + t),
             y: 0,
-            reveal: (!silent).then(MessageReveal::default),
+            reveal: (!silent && self.typing).then(MessageReveal::default),
         });
         self.restack();
         outcome.added += 1;
@@ -823,6 +832,16 @@ mod tests {
         assert!(l.editing());
         l.set_view(3, 0, 600);
         assert!(!l.editing());
+    }
+
+    #[test]
+    fn a_closed_scroll_text_gate_adds_whole_rows() {
+        let mut l = list(6, 500);
+        l.set_typing(false);
+        let o = l.add_message(&post(None, "abc", None, false), 0, &mono);
+        assert!(o.play_sound, "the sound does not depend on the gate");
+        assert_eq!(l.advance_reveal(100), 0);
+        assert_eq!(l.messages()[0].reveal_count(), 0, "drawn whole");
     }
 
     #[test]

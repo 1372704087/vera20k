@@ -108,6 +108,16 @@ pub(crate) struct ResolvedRows {
     pub chat_header: bool,
 }
 
+/// The House array index row `row` shows. Init 0x00657E8B: the player's
+/// own slot shows House 0 and row 0 the player.
+fn house_for_row(row: usize, player_index: usize) -> usize {
+    match row {
+        0 => player_index,
+        row if row == player_index => 0,
+        row => row,
+    }
+}
+
 /// The rows, named and coloured as the score rows are.
 pub(crate) fn resolve_rows(
     sim: &Simulation,
@@ -143,12 +153,7 @@ pub(crate) fn resolve_rows(
             .and_then(|state| state.country())
             .is_some_and(|country| rules.country_multiplay(sim.interner().resolve(country)))
     };
-    // Init 0x00657E8B: the player's own slot shows House 0, row 0 the player.
-    let house_for_row = |row: usize| match row {
-        0 => player_index,
-        row if row == player_index => 0,
-        row => row,
-    };
+    let house_for_row = |row| house_for_row(row, player_index);
     let allies_shown = switches.allies_allowed && observer != Some(local) && !switches.quick_coop;
     let mut allies_header = false;
     let mut chat_header = false;
@@ -379,9 +384,8 @@ fn toggle_chat_box(state: &mut AppState, row: usize) {
     let Some(index) = state.match_state.sim_runtime.as_ref().and_then(|runtime| {
         let sim = &runtime.simulation;
         let player = sim.houses().index_of(sim.session().current_house()?)?;
-        // The control table slot r is the House index, except the
-        // player's own slot, which shows House 0 (Init 0x00657E8B).
-        Some(if row == player { 0 } else { row })
+        // The writer maps the slot the same way (0x006582B5..0x006582BF).
+        Some(house_for_row(row, player))
     }) else {
         return;
     };

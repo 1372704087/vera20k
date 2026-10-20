@@ -11,7 +11,9 @@
 //! beacon of the player's House; VERA has no beacons. WOL's `/page` and
 //! `/reply` commands (`0x0078A6B0`) and its relay mask (`0x0055F056`) are WOL
 //! backend. The IME queue `0xB730EC` is not modelled; typed text arrives as
-//! the key event's text.
+//! the key event's text, every UTF-16 unit of it. Native WM_CHAR delivers one
+//! ANSI byte per character (`0x0054F56C`), and Shift/Ctrl+Backspace delete
+//! twice or append `0x7F` there; VERA deletes once.
 //!
 //! ## Dependency rules
 //! - Part of the app layer — may depend on everything.
@@ -77,16 +79,16 @@ impl ChatState {
 }
 
 /// KeyToASCII `0x0054F450` for the three keys that open the edit: Enter
-/// `0x0D`, Backspace or Home `8` and `\` or End `0x5C`. ToAscii gives a
-/// control character instead with Ctrl held.
-fn start_target(logical: &Key, ctrl: bool) -> Option<ChatTarget> {
-    if ctrl {
-        return None;
-    }
+/// `0x0D`, Backspace or Home `8` and `\` or End `0x5C`. Home and End map
+/// before any modifier is read; for the others ToAscii gives a control
+/// character with Ctrl held, unless Alt is held too (AltGr).
+fn start_target(logical: &Key, ctrl: bool, alt: bool) -> Option<ChatTarget> {
     match logical {
-        Key::Named(NamedKey::Enter) => Some(ChatTarget::Listeners),
-        Key::Named(NamedKey::Backspace | NamedKey::Home) => Some(ChatTarget::Allies),
+        Key::Named(NamedKey::Home) => Some(ChatTarget::Allies),
         Key::Named(NamedKey::End) => Some(ChatTarget::All),
+        _ if ctrl && !alt => None,
+        Key::Named(NamedKey::Enter) => Some(ChatTarget::Listeners),
+        Key::Named(NamedKey::Backspace) => Some(ChatTarget::Allies),
         Key::Character(text) if text.as_str() == "\\" => Some(ChatTarget::All),
         _ => None,
     }
@@ -121,8 +123,9 @@ pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
         {
             return false;
         }
-        let ctrl = state.match_state.input.hotkey_modifiers.control_key();
-        let Some(target) = start_target(edge.logical, ctrl) else {
+        let modifiers = state.match_state.input.hotkey_modifiers;
+        let Some(target) = start_target(edge.logical, modifiers.control_key(), modifiers.alt_key())
+        else {
             return false;
         };
         return open_edit(state, target);
@@ -136,8 +139,9 @@ pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
     true
 }
 
-/// A right press ends an open edit; the game still handles the click.
-pub(crate) fn right_press(state: &mut AppState) {
+/// A right press or release (key 2 or `0x802`) ends an open edit; the game
+/// still handles the click.
+pub(crate) fn right_button(state: &mut AppState) {
     if state.match_state.match_presentation.message_list.editing() {
         apply_input(state, EditKey::RightClick);
     }
@@ -317,10 +321,10 @@ pub(crate) fn receive(state: &mut AppState, source_index: usize, text: &str) {
                 .as_ref()
                 .and_then(|runtime| runtime.simulation.interner().get(&owner))
         });
-    let Some(owner) = owner else {
-        return;
-    };
-    let rgb = crate::app::input::messages::player_line_rgb(state, owner);
+    // Native shows the line whoever sent it; without a House, system white.
+    let rgb = owner.map_or([1.0; 3], |owner| {
+        crate::app::input::messages::player_line_rgb(state, owner)
+    });
     crate::app::input::messages::post_chat_line(state, &name, text, rgb);
     let sound = state
         .rules()
@@ -346,27 +350,40 @@ mod tests {
     fn three_keys_open_the_edit_and_ctrl_blocks_them() {
         let named = |key| Key::Named(key);
         assert_eq!(
-            start_target(&named(NamedKey::Enter), false),
+            start_target(&named(NamedKey::Enter), false, false),
             Some(ChatTarget::Listeners)
         );
         assert_eq!(
-            start_target(&named(NamedKey::Backspace), false),
+            start_target(&named(NamedKey::Backspace), false, false),
             Some(ChatTarget::Allies)
         );
         assert_eq!(
-            start_target(&named(NamedKey::Home), false),
+            start_target(&named(NamedKey::Home), false, false),
             Some(ChatTarget::Allies)
         );
         assert_eq!(
-            start_target(&named(NamedKey::End), false),
+            start_target(&named(NamedKey::End), false, false),
             Some(ChatTarget::All)
         );
         assert_eq!(
-            start_target(&Key::Character("\\".into()), false),
+            start_target(&Key::Character("\\".into()), false, false),
             Some(ChatTarget::All)
         );
-        assert_eq!(start_target(&Key::Character("a".into()), false), None);
-        assert_eq!(start_target(&named(NamedKey::Enter), true), None);
+        assert_eq!(
+            start_target(&Key::Character("a".into()), false, false),
+            None
+        );
+        assert_eq!(start_target(&named(NamedKey::Enter), true, false), None);
+        assert_eq!(
+            start_target(&named(NamedKey::End), true, false),
+            Some(ChatTarget::All),
+            "Home and End ignore Ctrl"
+        );
+        assert_eq!(
+            start_target(&Key::Character("\\".into()), true, true),
+            Some(ChatTarget::All),
+            "AltGr"
+        );
     }
 
     fn houses() -> [ChatHouse; 3] {

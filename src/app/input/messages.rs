@@ -519,6 +519,15 @@ pub(crate) fn update(state: &mut AppState) -> Option<u64> {
 }
 
 fn sync_view(state: &mut AppState) {
+    let typing = state
+        .frontend
+        .multiplayer_shell_runtime
+        .scroll_text(state.match_state.session.mode());
+    state
+        .match_state
+        .match_presentation
+        .message_list
+        .set_typing(typing);
     // The list spans the tactical viewport: the frame left of the sidebar.
     let tactical_w = crate::app::input::camera::tactical_viewport_size(state).0 as i32;
     state.match_state.match_presentation.message_list.set_view(

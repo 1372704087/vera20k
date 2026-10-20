@@ -8,10 +8,11 @@
 //! instructions (not executed): only a positive `house+0x54E8` enters the entry
 //! (`0x005C99EB`), and a surviving house then gets `v + v/2 + Random(v/2, v)`,
 //! one Scenario RNG draw at `0x005C9A21` unless `v` is 0 (`0x0065C7E0` draws
-//! nothing when min equals max). The native traversal (`Houses[]` order,
-//! skipping `MultiplayPassive` types and the observer house) remains
-//! UNCHECKED against the sim's canonical house registration order used here.
-//! Presentation never advances the gameplay Scenario stream directly.
+//! nothing when min equals max). The traversal walks `Houses[]` and skips a
+//! null House, a `MultiplayPassive` type and the observer House
+//! (`[0x00AC1198]`, `0x005C98CD..0x005C98EB`); the sim's House
+//! registration order is that array's order. Presentation never advances the
+//! gameplay Scenario stream directly.
 
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
@@ -53,13 +54,12 @@ impl Simulation {
             return false;
         }
 
-        // The House array's registration order owns deterministic traversal.
-        // Whether the native score dialog uses this exact traversal remains
-        // UNCHECKED.
+        // Houses[] order, without passive types or the observer House.
+        let observer = self.session.observer_house();
         let contenders: Vec<InternedId> = self
             .houses
             .in_order()
-            .filter(|house| !house.multiplay_passive())
+            .filter(|house| !house.multiplay_passive() && Some(house.name()) != observer)
             .map(|house| house.name())
             .collect();
         let mut rows = Vec::with_capacity(contenders.len());
@@ -294,6 +294,48 @@ mod tests {
             assert_eq!(row.score, 0);
         }
         assert_eq!(sim.clone_scenario_rng().state(), cursor);
+    }
+
+    /// 0x005C98E5: the observer House takes no row and draws nothing.
+    #[test]
+    fn the_observer_house_takes_no_score_row() {
+        let mut sim = Simulation::with_seed(0x51C0_0B5E);
+        let mut owners = Vec::new();
+        for name in ["Player", "Observer"] {
+            owners.push(insert_house(
+                &mut sim,
+                HouseFixture {
+                    name,
+                    defeated: false,
+                    passive: false,
+                    score: 50,
+                    units_killed: 0,
+                    buildings_killed: 0,
+                    units_lost: 0,
+                    buildings_lost: 0,
+                    built: 0,
+                },
+            ));
+        }
+        sim.houses.reorder_for_test(&owners);
+        sim.session.install_multiplayer_house_identity(
+            crate::skirmish_modes::MpModeClass::Battle,
+            Some(owners[1]),
+        );
+        let mut one_draw = sim.clone_scenario_rng();
+        one_draw.next_range_u32_inclusive(25, 50);
+
+        assert!(sim.finalize_terminal_score_snapshot());
+        let snapshot = sim.terminal_score_snapshot().expect("snapshot");
+        assert_eq!(
+            snapshot
+                .rows
+                .iter()
+                .map(|row| row.owner)
+                .collect::<Vec<_>>(),
+            [owners[0]]
+        );
+        assert_eq!(sim.clone_scenario_rng().state(), one_draw.state());
     }
 
     fn natural_terminal_sim(seed: u64) -> Simulation {

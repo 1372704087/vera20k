@@ -363,6 +363,16 @@ fn resolve_score_rows(
     rows
 }
 
+/// The 0x108 title: the proc writes `GUI:SkirmishScore` for GameMode 5 and
+/// `GUI:MultiplayerScore` otherwise (`0x005C9BDF..0x005C9C34`).
+fn score_title_key(mode: SessionMode) -> &'static str {
+    if mode == SessionMode::Skirmish {
+        "GUI:SkirmishScore"
+    } else {
+        "GUI:MultiplayerScore"
+    }
+}
+
 /// Resolve the end-of-match score presentation from a sim-owned raw snapshot.
 ///
 /// Simulation owns contender admission, raw statistics, displayed-score bonus
@@ -403,9 +413,7 @@ fn build_score_screen_model(
         .map_or(0, |house| house.side_index());
 
     ScoreScreenModel {
-        // A stock offline skirmish takes the skirmish heading; the networked
-        // heading belongs to the multiplayer session type.
-        title_key: "GUI:SkirmishScore",
+        title_key: score_title_key(state.match_state.session.mode()),
         game_number: state.frontend.finished_game_count,
         // The clock performs native's signed division first. The existing UI
         // model is unsigned and applies the native 99:59:59 ceiling, so keep
@@ -2171,9 +2179,18 @@ mod camera_cadence_tests;
 #[cfg(test)]
 mod modal_pump_tests {
     use super::{
-        SessionMode, modal_pump_should_advance_sim, resolve_score_rows, should_record_replay_tick,
-        wall_clock_service_admission,
+        SessionMode, modal_pump_should_advance_sim, resolve_score_rows, score_title_key,
+        should_record_replay_tick, wall_clock_service_admission,
     };
+
+    /// 0x005C9BE7: only GameMode 5 retitles 0x108.
+    #[test]
+    fn only_skirmish_retitles_the_score_dialog() {
+        assert_eq!(score_title_key(SessionMode::Skirmish), "GUI:SkirmishScore");
+        for mode in [SessionMode::Lan, SessionMode::Wol, SessionMode::Other] {
+            assert_eq!(score_title_key(mode), "GUI:MultiplayerScore");
+        }
+    }
 
     #[test]
     fn empty_natural_terminal_score_frame_is_recorded() {

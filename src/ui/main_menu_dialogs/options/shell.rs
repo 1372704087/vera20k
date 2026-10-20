@@ -6,12 +6,13 @@
 //! second set of option values or bypassing its ordered preview events.
 
 use super::{
-    DEVELOPER_OPTIONS_LABEL, FULL_SCREEN_HELP, FULL_SCREEN_LABEL, LauncherCheckboxId,
-    LauncherComboId, LauncherCue, LauncherOptionsEvent, LauncherParentResult, LauncherTrackbarId,
-    ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL, OptionsDialogState, PhysicalControlFrame,
-    RENDER_INTERPOLATION_HELP, RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL,
-    SIDEBAR_HELP, SIDEBAR_LABEL, SidebarSize, WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL,
-    YR_ORIGINAL_STYLE_HELP, YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL, Zoom,
+    DEVELOPER_OPTIONS_LABEL, FPS_COUNTER_HELP, FPS_COUNTER_LABEL, FULL_SCREEN_HELP,
+    FULL_SCREEN_LABEL, LauncherCheckboxId, LauncherComboId, LauncherCue, LauncherOptionsEvent,
+    LauncherParentResult, LauncherTrackbarId, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL,
+    OptionsDialogState, PhysicalControlFrame, RENDER_INTERPOLATION_HELP,
+    RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL, SIDEBAR_HELP, SIDEBAR_LABEL,
+    SidebarSize, WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP,
+    YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL, Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -84,7 +85,7 @@ pub(crate) struct LauncherOptionsLayout {
     /// The Sidebar combo, beside Difficulty as Zoom is beside Visual Details.
     pub(crate) sidebar: RectPx,
     pub(crate) trackbars: [(LauncherTrackbarId, RectPx); 6],
-    pub(crate) checkboxes: [(LauncherCheckboxId, RectPx); 9],
+    pub(crate) checkboxes: [(LauncherCheckboxId, RectPx); 10],
     pub(crate) buttons: [(LauncherParentResult, RectPx); 3],
     /// The mapping the rects are in: [`ShellScale::RETAIL`] centres the
     /// authored dialog in the window, otherwise the authored dialog is
@@ -169,12 +170,15 @@ impl LauncherOptionsLayout {
                 (LauncherCheckboxId::ShiftQueue, dlu(238, 233, 120, 10)),
                 // VERA's Developer Options band under Audio, above the
                 // status line, where the template has nothing.
-                (LauncherCheckboxId::WolTestService, dlu(93, 323, 200, 10)),
+                (LauncherCheckboxId::WolTestService, dlu(93, 323, 140, 10)),
                 // Beside Show Hidden, below Scroll Rate and above batch queue.
                 (
                     LauncherCheckboxId::RenderInterpolation,
                     dlu(238, 218, 120, 10),
                 ),
+                // The FPS Counter shares the Developer Options row, in the
+                // right-hand column under Shift-Click Batch Queue.
+                (LauncherCheckboxId::FpsCounter, dlu(238, 323, 120, 10)),
             ],
             buttons: [
                 (LauncherParentResult::Keyboard, button(KEYBOARD_BUTTON)),
@@ -343,6 +347,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::RenderInterpolation => RENDER_INTERPOLATION_LABEL,
             LauncherCheckboxId::ShiftQueue => SHIFT_QUEUE_LABEL,
             LauncherCheckboxId::WolTestService => WOL_TEST_SERVICE_LABEL,
+            LauncherCheckboxId::FpsCounter => FPS_COUNTER_LABEL,
         }
     }
 
@@ -385,6 +390,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::RenderInterpolation => self.values.render_interpolation,
             LauncherCheckboxId::ShiftQueue => self.values.shift_queue,
             LauncherCheckboxId::WolTestService => self.values.wol_test_service,
+            LauncherCheckboxId::FpsCounter => self.values.fps_counter,
         }
     }
 
@@ -518,6 +524,7 @@ impl OptionsDialogState {
                 LauncherCheckboxId::WolTestService => {
                     LauncherStatusHelp::Text(WOL_TEST_SERVICE_HELP)
                 }
+                LauncherCheckboxId::FpsCounter => LauncherStatusHelp::Text(FPS_COUNTER_HELP),
             });
         }
         if layout.sidebar.contains(x, y) {
@@ -1094,6 +1101,53 @@ mod tests {
                 LauncherOptionsEvent::RenderInterpolationChanged(true),
             ]
         );
+    }
+
+    #[test]
+    fn fps_counter_box_shares_the_developer_row_and_follows_live_state() {
+        let mut state = state();
+        let layout = LauncherOptionsLayout::new(800, 600);
+        let id = LauncherCheckboxId::FpsCounter;
+        let (rect, wol) = {
+            let find = |wanted| {
+                layout
+                    .checkboxes
+                    .iter()
+                    .find(|(candidate, _)| *candidate == wanted)
+                    .unwrap()
+                    .1
+            };
+            (find(id), find(LauncherCheckboxId::WolTestService))
+        };
+        for (other, other_rect) in &layout.checkboxes {
+            if *other != id {
+                assert!(
+                    rect.x + rect.w <= other_rect.x
+                        || other_rect.x + other_rect.w <= rect.x
+                        || rect.y + rect.h <= other_rect.y
+                        || other_rect.y + other_rect.h <= rect.y
+                );
+            }
+        }
+        assert_eq!((rect.y, rect.h), (wol.y, wol.h));
+        assert_eq!(state.shell_checkbox_label(id), FPS_COUNTER_LABEL);
+        assert_eq!(
+            state.shell_status_help_key(rect.x + 5, rect.y + 5, &layout),
+            Some(LauncherStatusHelp::Text(FPS_COUNTER_HELP))
+        );
+        assert!(!state.shell_checkbox_checked(id));
+        state.shell_mouse_down(rect.x + 5, rect.y + 5, &layout);
+        assert!(state.shell_checkbox_checked(id));
+        assert_eq!(
+            state.drain_output().events,
+            [
+                LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
+                LauncherOptionsEvent::FpsCounterChanged(true),
+            ]
+        );
+        // Ctrl+Alt+F while the page is open moves the box with the readout.
+        state.sync_fps_counter(false);
+        assert!(!state.shell_checkbox_checked(id));
     }
 
     #[test]

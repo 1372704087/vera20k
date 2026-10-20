@@ -162,16 +162,19 @@ pub(crate) struct FacingUpdate {
 /// Native execution of this arm pair frame by frame:
 /// `tools/spatial_oracle/turret_cadence.py`.
 ///
-/// RESIDUAL (GSI-08.14) — two idle-hold inputs have no VERA analogue and are
-/// therefore not gated: the per-weapon-slot lock byte `WeaponStruct+0x18`
-/// (`0x00736A02`/`0x00736B96`; executed: with a target it aims the turret at
-/// the hull's current facing instead of the target, and its idle return
-/// ignores the NavCom; zero stock authors for the adjacent
-/// `WeaponXTurretLocked` art key) and the locomotor-piggyback flag `+0x6AD`
-/// (`0x00736BB1`). Trigger: a piggybacked unit losing its target while it
-/// has a NavCom. Player effect: its turret turns toward the move destination
-/// where retail holds the last aim. Downstream risk: none — each is a pure
-/// suppression.
+/// RESIDUAL (GSI-08.14) — two Facing_Update inputs have no VERA analogue:
+/// - The per-weapon-slot lock byte `WeaponStruct+0x18` (`0x00736A02`,
+///   `0x00736B96`). Executed: with a target it aims the turret at the hull's
+///   current facing instead of the target, and its idle return ignores the
+///   NavCom. Trigger: a turret-locked weapon slot. Frequency: none in retail;
+///   no stock type authors the adjacent `WeaponXTurretLocked` art key.
+///   Downstream risk: the aim feeds the fire-facing gate, so a modded locked
+///   weapon would fire on VERA's aim, not native's.
+/// - The locomotor-piggyback flag `+0x6AD` (`0x00736BB1`). Trigger: a
+///   piggybacked unit losing its target while it has a NavCom. Player effect:
+///   its turret turns toward the move destination where retail holds the
+///   last aim. Frequency: low; only while the flag is set, with a NavCom
+///   and no target. Downstream risk: none, a pure suppression.
 ///
 /// Recoil's separate presentation state (+3D8/+3F8) is owned by
 /// `game_entity::voxel_recoil`; it does not change aim or consume RNG.

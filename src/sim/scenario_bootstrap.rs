@@ -1217,7 +1217,7 @@ pub fn initialize_skirmish_launch_houses(
         sim.houses.is_empty()
             && sim.houses.order().is_empty()
             && sim.entities().is_empty()
-            && sim.production.terrain_objects.is_empty(),
+            && sim.terrain_objects.objects().is_empty(),
         "skirmish houses must be initialized before map objects"
     );
     let slots = normalized_launch_slots(session);
@@ -2759,7 +2759,7 @@ pub fn initialize_map_roster_houses(
         sim.houses.is_empty()
             && sim.houses.order().is_empty()
             && sim.entities().is_empty()
-            && sim.production.terrain_objects.is_empty(),
+            && sim.terrain_objects.objects().is_empty(),
         "scenario houses must be initialized before map objects"
     );
     let campaign_difficulties = sim.session.campaign_house_difficulties();

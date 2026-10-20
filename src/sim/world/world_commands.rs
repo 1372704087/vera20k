@@ -799,7 +799,7 @@ impl Simulation {
             let visit = {
                 let mut host = SimulationWallRuntimeHost {
                     entities: &mut self.substrate.entities,
-                    target_terrain_objects: &self.production.terrain_objects,
+                    target_terrain_objects: self.terrain_objects.objects(),
                     #[cfg(any(test, feature = "test-support"))]
                     detach_trace: &mut detach_trace,
                     radar_dirty_cells: &mut self.radar_terrain_dirty_cells,
@@ -2284,10 +2284,10 @@ impl Simulation {
             e.lifecycle.object_alive() && e.health.current() != 0 && !e.lifecycle.in_limbo()
         } else {
             // Event4C7225..725D reads Object lifetime/Health, not Techno RTTI.
-            self.production
-                .terrain_objects
+            self.terrain_objects
+                .objects()
                 .get(&stable_id)
-                .is_some_and(|target| target.is_live() && target.health != 0)
+                .is_some_and(|target| target.is_live() && target.health() != 0)
         }
     }
 
@@ -2371,7 +2371,7 @@ impl Simulation {
         token.filter(|token| match *token {
             combat::TargetKind::Entity(id) => {
                 self.substrate.entities.contains(id)
-                    || self.production.terrain_objects.contains_key(&id)
+                    || self.terrain_objects.objects().contains_key(&id)
             }
             combat::TargetKind::Cell(..) => true,
         })

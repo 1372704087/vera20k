@@ -213,7 +213,7 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
             .unwrap();
         assert!(
             sim.production
-                .factories
+                .factories_mut()
                 .test_enqueue_kernel(holder, kind, object, 0, 0)
         );
         construct_active_factory_fixture(&mut sim, rules, holder, kind, object)
@@ -221,7 +221,7 @@ fn sim_for(row: &Value, rules: &RuleSet) -> (Simulation, InternedId) {
         for queued in names(&factory["queued"]) {
             let queued = sim.interner.get(queued).unwrap();
             sim.production
-                .factories
+                .factories_mut()
                 .test_enqueue_kernel(holder, kind, queued, 0, 0);
         }
     }

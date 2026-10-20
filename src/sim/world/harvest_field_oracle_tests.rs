@@ -192,18 +192,18 @@ pub(super) fn row_scene_with(input: &Value, edit: impl FnOnce(&mut String, &mut 
         grid.recalculate_runtime_cell(s.sim.resolved_terrain.as_mut().unwrap(), registry, at);
     }
     let frame = s.sim.session.binary_frame();
-    s.sim.production.ore_growth_state = OreGrowthState::new(33, 33);
+    s.sim.ore_growth_state = OreGrowthState::new(33, 33);
     s.sim
-        .production
         .ore_growth_state
         .reset_native_tiberium_classes_for_rect((16, 16), 2, frame);
     for queued in input["spread_queued"].as_array().into_iter().flatten() {
         s.sim
-            .production
             .ore_growth_state
             .mark_native_spread_bitmap_for_tests(0, cell(queued));
     }
-    s.sim.production.ore_growth_config.spreads = input["spreads"] != false;
+    s.sim
+        .ore_growth_config
+        .set_spreads_for_test(input["spreads"] != false);
     {
         let entity = s.sim.substrate.entities.get_mut(s.miner).unwrap();
         if let Some(archive) = input.get("archive").filter(|a| !a.is_null()) {
@@ -252,12 +252,7 @@ pub(super) fn compare_state(s: &Scene, row: &Value, context: &str) {
             "{context}: cell {key}"
         );
     }
-    let classes = &s
-        .sim
-        .production
-        .ore_growth_state
-        .native_tiberium_state()
-        .classes;
+    let classes = &s.sim.ore_growth_state.native_tiberium_state().classes;
     for (index, heap) in native["spread"].as_array().unwrap().iter().enumerate() {
         let mut expected: Vec<(u16, u16, u32)> = heap
             .as_array()

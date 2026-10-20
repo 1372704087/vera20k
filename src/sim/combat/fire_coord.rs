@@ -65,8 +65,8 @@ pub(crate) fn effect_target_coordinate(
         }
         // Terrain+A4 (41BDD0) delegates to its retained Object+48 (5F65A0).
         ProjectileTarget::Terrain(id) => world
-            .production
             .terrain_objects
+            .objects()
             .get(&id)
             .map(crate::sim::terrain_object::TerrainObjectState::world_coord),
         ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(

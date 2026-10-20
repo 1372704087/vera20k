@@ -319,7 +319,7 @@ fn press_cameo(
         && fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(fixture.owner, ProductionCategory::Building)
             .and_then(|factory| factory.complete_object())
             .is_some_and(|object| fixture.sim.interner.resolve(object.type_id) == "GAPILE")
@@ -708,7 +708,7 @@ fn pending_produce_right_click_suspends_on_arrival_without_duplicate_orders() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(fixture.owner, category)
             .unwrap();
         assert!(
@@ -729,7 +729,7 @@ fn pending_produce_right_click_suspends_on_arrival_without_duplicate_orders() {
             fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(fixture.owner, category)
                 .unwrap()
                 .cameo_state(),
@@ -858,7 +858,7 @@ fn pending_alternating_clicks_retain_native_hold_request_and_resume_on_arrival()
             fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(owner, category)
                 .unwrap()
                 .cameo_state(),
@@ -938,7 +938,7 @@ fn start_mixed_infantry_queue(fixture: &mut Fixture) -> (u64, u64) {
     let factory = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(fixture.owner, ProductionCategory::Infantry)
         .unwrap();
     assert_eq!(fixture.sim.resolve(factory.object.unwrap().type_id), "E1");
@@ -1170,7 +1170,7 @@ fn retail_spy_stolen_soviet_tech_admits_and_delivers_chrono_ivan() {
         if let Some(product) = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .and_then(|factory| factory.object)
         {
@@ -1448,7 +1448,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
     let factory = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap();
     let held_id = factory.object.unwrap().entity_id.unwrap();
@@ -1474,7 +1474,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
     let progress = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap()
         .progress;
@@ -1498,7 +1498,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         let factory = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .unwrap();
         assert_eq!(factory.progress, progress);
@@ -1528,11 +1528,12 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
         .session
         .set_map_name_for_test("HOLD-RESUME.MAP".into());
     fixture.sim.session.set_started(true);
-    let before_factories = fixture.sim.production.factories.clone();
+    let before_factories = fixture.sim.production.factories().clone();
     let before_wallet = fixture.sim.houses[&owner].economy().clone();
     roundtrip_fixture_save(&mut fixture, "paid-user-hold");
     assert_eq!(
-        fixture.sim.production.factories, before_factories,
+        *fixture.sim.production.factories(),
+        before_factories,
         "saved Factory authorities"
     );
     assert_eq!(
@@ -1576,7 +1577,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
     let factory = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap();
     assert_eq!(factory.construction_order(), order);
@@ -1600,7 +1601,7 @@ fn paid_user_hold_stays_stopped_after_a_power_building_sale_refresh() {
     let successor = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap();
     assert_eq!(successor.construction_order(), order);
@@ -1727,7 +1728,7 @@ fn mixed_infantry_delivery_clears_old_cameo_before_same_factory_promotion() {
         if fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .is_some_and(|factory| {
                 factory
@@ -1763,7 +1764,7 @@ fn mixed_infantry_terminal_delivery_clears_old_cameo_before_same_factory_promoti
         if fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Infantry)
             .is_some_and(|factory| factory.complete_object().is_some())
         {
@@ -1779,7 +1780,7 @@ fn mixed_infantry_terminal_delivery_clears_old_cameo_before_same_factory_promoti
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .building_factory(producer)
             .is_none()
     );
@@ -1972,7 +1973,7 @@ fn assert_pending_repeat(name: &str, tab: SidebarTab) {
             let factory = fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(fixture.owner, category)
                 .unwrap();
             let object = factory.complete_object().unwrap();
@@ -2008,7 +2009,7 @@ fn assert_pending_repeat(name: &str, tab: SidebarTab) {
         let object = fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(fixture.owner, category)
             .unwrap()
             .complete_object()
@@ -2648,7 +2649,7 @@ fn unlinked_abandon_clears_current_before_product_expiry() {
     let pill_order = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Defense)
         .unwrap()
         .construction_order();
@@ -2736,7 +2737,7 @@ fn unlinked_abandon_clears_current_before_product_expiry() {
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .is_none()
     );
@@ -2880,7 +2881,7 @@ fn current_product_expiry_retains_type_and_preview_but_has_no_issuer() {
     let factory = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(fixture.owner, ProductionCategory::Building)
         .expect("product expiry alone retains its factory before a building-state recheck");
     assert_eq!(factory.progress, 54);
@@ -2982,7 +2983,7 @@ fn null_product_cameo_right_retains_orphan_until_house_abandon() {
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .is_none()
     );
@@ -3052,7 +3053,7 @@ fn null_product_house_abandon_accepts_nonzero_buildcat_without_a_held_type() {
             fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Building)
                 .is_some()
         );
@@ -3074,7 +3075,7 @@ fn null_product_house_abandon_accepts_nonzero_buildcat_without_a_held_type() {
             fixture
                 .sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Building)
                 .is_none()
         );
@@ -3122,7 +3123,7 @@ fn defense_null_product_house_abandon_clears_only_its_live_factory() {
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Defense)
             .is_none()
     );
@@ -3142,7 +3143,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
     let factory_order = fixture
         .sim
         .production
-        .factories
+        .factories()
         .iter_insertion_ordered()
         .iter()
         .map(|factory| (factory.category, factory.insertion_seq))
@@ -3213,7 +3214,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .iter_insertion_ordered()
             .iter()
             .map(|factory| factory.category)
@@ -3224,7 +3225,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .iter_insertion_ordered()
             .iter()
             .map(|factory| (factory.category, factory.insertion_seq))
@@ -3316,7 +3317,7 @@ fn same_factory_rearm_retains_the_old_cameos_factory_link_and_construction_order
         fixture
             .sim
             .production
-            .factories
+            .factories()
             .view(owner, ProductionCategory::Building)
             .is_none()
     );

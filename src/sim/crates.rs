@@ -560,7 +560,7 @@ pub(crate) fn construct_runtime_overlay(
         .expect("crate Overlay constructor must join its owned registries");
     // `OverlayClass::OverlayClass @ 0x005FC380` performs the TerrainClass scan
     // before calling Unlimbo. A hit skips Unlimbo, so Mark never runs.
-    if sim.production.terrain_object_cells.contains_key(&cell) {
+    if sim.terrain_objects.cell_index().contains_key(&cell) {
         sim.load_objects
             .finish_unrevealed_survivor(handle)
             .expect("Terrain-refused crate retains its constructed Overlay");
@@ -1427,7 +1427,10 @@ pub(crate) mod tests {
         let mut terrain_sim = sim_with_grid(0xA011_0002);
         terrain_sim.install_fixture_path_grid(Some(&grid));
         let (cell, _) = first_random_cell(&terrain_sim);
-        terrain_sim.production.terrain_object_cells.insert(cell, 77);
+        terrain_sim
+            .terrain_objects
+            .cell_index_mut_for_test()
+            .insert(cell, 77);
         let terrain_result =
             place_scenario_start_crates(&mut terrain_sim, &ordinary_rules, &registry, 1);
         assert_eq!((terrain_result.accepted, terrain_result.visible), (1, 0));
@@ -1685,8 +1688,8 @@ pub(crate) mod tests {
         sim.hash_state_every(std::num::NonZeroU64::MIN);
         // Mark is invoked below; autonomous crate spawning is outside this fixture.
         sim.session.game_options_mut_for_test().crates = false;
-        sim.production.ore_growth_config.grows = false;
-        sim.production.ore_growth_config.spreads = false;
+        sim.ore_growth_config.set_grows_for_test(false);
+        sim.ore_growth_config.set_spreads_for_test(false);
         assert!(sim.rebuild_dynamic_navigation(&rules));
         let cells = [(12, 13), (6, 13)];
         for cell in cells {
@@ -2218,8 +2221,8 @@ pub(crate) mod tests {
 
         let mut terrain_object = sim_with_grid(0x14090007);
         terrain_object
-            .production
-            .terrain_object_cells
+            .terrain_objects
+            .cell_index_mut_for_test()
             .insert(cell, 99);
         assert_eq!(
             validate_and_stamp_candidate_with_rules(
@@ -2339,8 +2342,8 @@ pub(crate) mod tests {
             .unwrap()
             .take_dirty_cells();
         terrain_blocked
-            .production
-            .terrain_object_cells
+            .terrain_objects
+            .cell_index_mut_for_test()
             .insert(cell, 100);
         assert_eq!(
             validate_and_stamp_candidate(

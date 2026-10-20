@@ -67,7 +67,7 @@ fn paid_e2_negative_build_limit_prunes_and_refuses_stale_produce_after_load() {
     let held_id = fixture
         .sim
         .production
-        .factories
+        .factories()
         .view(owner, ProductionCategory::Infantry)
         .unwrap()
         .object

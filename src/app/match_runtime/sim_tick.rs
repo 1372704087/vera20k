@@ -2049,9 +2049,9 @@ mod tests {
         let mut interner = StringInterner::default();
         let tree = {
             let mut terrain = TerrainObjectState::for_test(1, interner.intern("TREE01"), 0, 0);
-            terrain.health = 10;
-            terrain.max_health = 10;
-            terrain.occupation_bits = 7;
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain.set_occupation_bits_for_test(7);
             terrain
         };
         mark_terrain_occupation(&tree, sim.resolved_terrain.as_mut());

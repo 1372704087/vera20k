@@ -288,7 +288,7 @@ fn retail_ore_deposit_funds_the_retained_cash_stalled_build() {
         let factory = |s: &Scene| {
             s.sim
                 .production
-                .factories
+                .factories()
                 .iter_insertion_ordered()
                 .into_iter()
                 .find(|f| f.owner == owner && f.category == ProductionCategory::Infantry)
@@ -337,7 +337,7 @@ fn retail_ore_deposit_funds_the_retained_cash_stalled_build() {
                 let view = s
                     .sim
                     .production
-                    .factories
+                    .factories()
                     .view(owner, ProductionCategory::Infantry)
                     .unwrap();
                 assert!(view.is_running());
@@ -357,7 +357,7 @@ fn retail_ore_deposit_funds_the_retained_cash_stalled_build() {
             frame(&mut s);
             if s.sim
                 .production
-                .factories
+                .factories()
                 .view(owner, ProductionCategory::Infantry)
                 .is_some_and(|f| f.object.is_none() && f.queue.is_empty())
             {

@@ -597,7 +597,7 @@ mod map_wall_owner_candidate_tests {
         );
         assert_eq!(constructed, 3);
         assert_eq!(
-            sim.production.terrain_object_cells,
+            *sim.terrain_objects().cell_index(),
             BTreeMap::from([((1, 1), 1), ((2, 1), 2), ((3, 1), 3)]),
             "recognized Terrain entries construct in source order while UNKNOWN is skipped"
         );

@@ -3783,7 +3783,7 @@ fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
             ),
             1
         );
-        let tree = sim.production.terrain_object_cells[&(16, 16)];
+        let tree = sim.terrain_objects.cell_index()[&(16, 16)];
         let listener = sim
             .spawn_object_at_height("SENSOR", "Americans", 15, 16, 0, 0, &rules)
             .unwrap();
@@ -3989,8 +3989,8 @@ fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
             expected_rng.logical_state()
         );
         assert_eq!(sim.fog.sensors_by_house, sensor_counts);
-        assert_eq!(sim.production.terrain_object_cells[&(16, 16)], tree);
-        assert!(sim.production.terrain_objects[&tree].is_live());
+        assert_eq!(sim.terrain_objects.cell_index()[&(16, 16)], tree);
+        assert!(sim.terrain_objects.objects()[&tree].is_live());
         assert_eq!(sim.live_object_order_snapshot(), registered);
     }
 }
@@ -5791,13 +5791,15 @@ fn gsi_05_02_mixed_fixture() -> (Simulation, [u64; 6]) {
     sim.register_live_object(particle_id);
 
     let terrain_id = sim.allocate_stable_id();
-    sim.production.terrain_objects.insert(terrain_id, {
-        let mut terrain =
-            TerrainObjectState::for_test(terrain_id, sim.interner.intern("TREE01"), 8, 9);
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain
-    });
+    sim.terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain =
+                TerrainObjectState::for_test(terrain_id, sim.interner.intern("TREE01"), 8, 9);
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain
+        });
     assert!(sim.register_terrain_object(terrain_id, None));
 
     let projectile_id = sim.allocate_stable_id();
@@ -5841,11 +5843,11 @@ fn gsi_05_02_mixed_six_family_order_roundtrips_and_dispatches_every_slot() {
     assert_eq!(restored.live_object_order_snapshot(), mixed);
     assert!(
         restored
-            .production
             .terrain_objects
+            .objects()
             .get(&mixed[0])
             .unwrap()
-            .in_logic_vector
+            .in_logic_vector()
     );
     assert!(
         restored
@@ -5925,11 +5927,11 @@ fn substrate_registration_and_removal_dispatch_is_order_identical() {
     );
     assert!(!sim.waves.get(wave_id).unwrap().in_logic_vector);
     assert!(
-        sim.production
-            .terrain_objects
+        sim.terrain_objects
+            .objects()
             .get(&terrain_id)
             .unwrap()
-            .in_logic_vector
+            .in_logic_vector()
     );
     assert!(
         sim.substrate
@@ -6065,7 +6067,7 @@ fn gsi_05_02_terrain_map_construction_registers_before_later_techno() {
         ),
         1
     );
-    let terrain_id = *sim.production.terrain_objects.keys().next().unwrap();
+    let terrain_id = *sim.terrain_objects.objects().keys().next().unwrap();
 
     let entity_id = sim.allocate_stable_id();
     insert_entity(&mut sim, entity_id, EntityCategory::Unit);
@@ -6091,14 +6093,16 @@ fn gsi_05_02_lethal_terrain_unregisters_and_inactive_slot_cannot_roundtrip() {
     let terrain_id = sim.allocate_stable_id();
     let type_ref = sim.interner.intern("TREE01");
     let warhead_ref = sim.interner.intern("WOODWH");
-    sim.production.terrain_objects.insert(terrain_id, {
-        let mut terrain = TerrainObjectState::for_test(terrain_id, type_ref, 5, 6);
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain
-    });
-    sim.production
-        .terrain_object_cells
+    sim.terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain = TerrainObjectState::for_test(terrain_id, type_ref, 5, 6);
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain
+        });
+    sim.terrain_objects
+        .cell_index_mut_for_test()
         .insert((5, 6), terrain_id);
     assert!(sim.register_terrain_object(terrain_id, None));
 
@@ -6118,9 +6122,9 @@ fn gsi_05_02_lethal_terrain_unregisters_and_inactive_slot_cannot_roundtrip() {
         )],
         crate::sim::world::FrameEffects::default(),
     );
-    let terrain = &sim.production.terrain_objects[&terrain_id];
-    assert_eq!(terrain.lifecycle, TerrainObjectLifecycle::Destroyed);
-    assert!(!terrain.in_logic_vector);
+    let terrain = &sim.terrain_objects.objects()[&terrain_id];
+    assert_eq!(terrain.lifecycle(), TerrainObjectLifecycle::Destroyed);
+    assert!(!terrain.in_logic_vector());
     assert!(sim.live_object_order_snapshot().is_empty());
     assert_eq!(sim.substrate.pending_delete.object_ids(), vec![terrain_id]);
 
@@ -6159,14 +6163,16 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
     let terrain_id = sim.allocate_stable_id();
     let terrain_type = sim.interner.intern("TREE01");
     let warhead_ref = sim.interner.intern("WOODWH");
-    sim.production.terrain_objects.insert(terrain_id, {
-        let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_type, 5, 6);
-        terrain.health = 10;
-        terrain.max_health = 10;
-        terrain
-    });
-    sim.production
-        .terrain_object_cells
+    sim.terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain = TerrainObjectState::for_test(terrain_id, terrain_type, 5, 6);
+            terrain.set_health_for_test(10);
+            terrain.set_max_health_for_test(10);
+            terrain
+        });
+    sim.terrain_objects
+        .cell_index_mut_for_test()
         .insert((5, 6), terrain_id);
     assert!(sim.register_terrain_object(terrain_id, None));
     sim.commit_noncombat_aoe_receivers(
@@ -6201,13 +6207,13 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
     assert!(sim.object_ai_visit_one(wave_id, None, ObjectAiCtx::default()));
 
     assert_eq!(
-        sim.production.terrain_objects[&terrain_id].lifecycle,
+        sim.terrain_objects.objects()[&terrain_id].lifecycle(),
         TerrainObjectLifecycle::Destroyed
     );
-    assert!(sim.production.terrain_objects.contains_key(&terrain_id));
+    assert!(sim.terrain_objects.objects().contains_key(&terrain_id));
     assert!(sim.projectiles.get(projectile_id).is_some());
     assert!(sim.waves.get(wave_id).is_some());
-    assert!(!sim.production.terrain_objects[&terrain_id].in_logic_vector);
+    assert!(!sim.terrain_objects.objects()[&terrain_id].in_logic_vector());
     assert!(!sim.projectiles.get(projectile_id).unwrap().in_logic_vector);
     assert!(!sim.waves.get(wave_id).unwrap().in_logic_vector);
     assert_eq!(
@@ -6227,22 +6233,12 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
         restored.substrate.pending_delete.object_ids(),
         vec![terrain_id, projectile_id, wave_id]
     );
-    assert!(
-        restored
-            .production
-            .terrain_objects
-            .contains_key(&terrain_id)
-    );
+    assert!(restored.terrain_objects.objects().contains_key(&terrain_id));
     assert!(restored.projectiles.get(projectile_id).is_some());
     assert!(restored.waves.get(wave_id).is_some());
 
     restored.process_pending_delete();
-    assert!(
-        !restored
-            .production
-            .terrain_objects
-            .contains_key(&terrain_id)
-    );
+    assert!(!restored.terrain_objects.objects().contains_key(&terrain_id));
     assert!(restored.projectiles.get(projectile_id).is_none());
     assert!(restored.waves.get(wave_id).is_none());
     assert!(restored.substrate.pending_delete.is_empty());
@@ -7712,12 +7708,12 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
         ));
 
         let terrain_id = sim.allocate_stable_id();
-        sim.production.terrain_objects.insert(
+        sim.terrain_objects.objects_mut_for_test().insert(
             terrain_id,
             TerrainObjectState::for_test(terrain_id, sim.interner.intern("TREE01"), 4, 5),
         );
-        sim.production
-            .terrain_object_cells
+        sim.terrain_objects
+            .cell_index_mut_for_test()
             .insert((4, 5), terrain_id);
 
         let firer_id = sim.allocate_stable_id();
@@ -7766,7 +7762,7 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
                 .unwrap()
                 .health
                 .current(),
-            sim.production.terrain_objects[&terrain_id].health,
+            sim.terrain_objects.objects()[&terrain_id].health(),
             sim.substrate
                 .entities
                 .get(building_id)
@@ -7929,7 +7925,7 @@ fn assert_direct_fatal_death_weapon_starts_crater(bridge: bool) {
     sim.resolved_terrain = Some(ResolvedTerrainGrid::from_cells(10, 10, cells));
     sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(10, 10));
     sim.smudge_grid = Some(crate::sim::smudge_grid::SmudgeGrid::new(10, 10));
-    sim.production.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
+    sim.ore_growth_state = crate::sim::ore_growth::OreGrowthState::new(10, 10);
     let victim_id = sim.allocate_stable_id();
     insert_entity(&mut sim, victim_id, EntityCategory::Unit);
     let victim = sim.substrate.entities.get_mut(victim_id).unwrap();
@@ -8435,13 +8431,16 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
 fn gsi_05_02_restore_rejects_each_live_modeled_family_missing_from_logic() {
     let mut terrain = Simulation::new();
     let terrain_id = terrain.allocate_stable_id();
-    terrain.production.terrain_objects.insert(terrain_id, {
-        let mut terrain =
-            TerrainObjectState::for_test(terrain_id, terrain.interner.intern("TREE01"), 1, 1);
-        terrain.health = 1;
-        terrain.max_health = 1;
-        terrain
-    });
+    terrain
+        .terrain_objects
+        .objects_mut_for_test()
+        .insert(terrain_id, {
+            let mut terrain =
+                TerrainObjectState::for_test(terrain_id, terrain.interner.intern("TREE01"), 1, 1);
+            terrain.set_health_for_test(1);
+            terrain.set_max_health_for_test(1);
+            terrain
+        });
     assert_eq!(
         terrain.restore_after_snapshot_load(),
         Err(SnapshotRestoreError::MissingRequiredLogicIdentity {
@@ -9296,14 +9295,16 @@ fn mixed_display_lifecycle_matches_original_sequences_and_save_restore() {
                             (xyz[0] / 256) as u16,
                             (xyz[1] / 256) as u16,
                         );
-                        terrain.health = 10;
-                        terrain.max_health = 10;
+                        terrain.set_health_for_test(10);
+                        terrain.set_max_health_for_test(10);
                         terrain
                     };
-                    sim.production
-                        .terrain_object_cells
+                    sim.terrain_objects
+                        .cell_index_mut_for_test()
                         .insert(terrain.cell(), id);
-                    sim.production.terrain_objects.insert(id, terrain);
+                    sim.terrain_objects
+                        .objects_mut_for_test()
+                        .insert(id, terrain);
                 }
                 "bullet" => {
                     let mut shot = gsi_05_02_projectile(0, None);

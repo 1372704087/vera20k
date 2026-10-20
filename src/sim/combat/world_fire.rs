@@ -174,9 +174,9 @@ fn admit_attacker_fire<'r>(
                 // FireAt6FDDAE..6FDDC0 retains the actual Object pointer;
                 // Terrain's +48 is Object5F65A0, owned by the shared resolver.
                 // Read its actual Terrain type/Health, without a Techno shell.
-                let target = world.production.terrain_objects.get(&target_id)?;
+                let target = world.terrain_objects.objects().get(&target_id)?;
                 let (rx, ry, sx, sy) = resolve_target_coords(&snap.target, world)?;
-                Some((rx, ry, sx, sy, target.health, target.type_ref))
+                Some((rx, ry, sx, sy, target.health(), target.type_ref()))
             }),
         TargetKind::Cell(rx, ry) => {
             let (trx, try_, tsx, tsy) = cell_center_coords(rx, ry);
@@ -543,10 +543,10 @@ fn admit_attacker_fire<'r>(
                     .map(|target| target.type_ref())
                     .or_else(|| {
                         world
-                            .production
                             .terrain_objects
+                            .objects()
                             .get(&id)
-                            .map(|target| target.type_ref)
+                            .map(|target| target.type_ref())
                     })?;
                 (coords, type_ref)
             }
@@ -922,7 +922,7 @@ fn reveal_on_fire(
     };
     let victim = if let Some(target) = world.substrate.entities.get(target_id) {
         Some(target.owner())
-    } else if world.production.terrain_objects.contains_key(&target_id) {
+    } else if world.terrain_objects.objects().contains_key(&target_id) {
         // Terrain ctor71BBFF installs7F522C; slot+3C=4104A0 returnsNULL.
         // This is a real Object target: Spawner still reaches its border.
         None
@@ -1148,8 +1148,8 @@ pub(super) fn emit_admitted_fire(
             .map(|target| target.lifecycle.in_limbo())
             .or_else(|| {
                 world
-                    .production
                     .terrain_objects
+                    .objects()
                     .get(&id)
                     .map(|target| !target.is_live())
             })
@@ -2396,10 +2396,10 @@ pub(crate) fn visit_fire(
                         .map(|target| target.type_ref())
                         .or_else(|| {
                             world
-                                .production
                                 .terrain_objects
+                                .objects()
                                 .get(&target)
-                                .map(|target| target.type_ref)
+                                .map(|target| target.type_ref())
                         })?,
                     TargetKind::Cell(..) => actor.type_ref(),
                 };
@@ -2824,7 +2824,7 @@ mod reveal_on_fire_tests {
             "TREE01",
             ini.section("TREE01").unwrap(),
         );
-        sim.production.terrain_objects.insert(
+        sim.terrain_objects.objects_mut_for_test().insert(
             3,
             crate::sim::terrain_object::TerrainObjectState::new(
                 3,

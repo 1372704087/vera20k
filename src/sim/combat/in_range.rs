@@ -352,7 +352,7 @@ impl<'a> RangeTarget<'a> {
                 .entities
                 .get(id)
                 .map(Self::Techno)
-                .or_else(|| world.production.terrain_objects.get(&id).map(Self::Terrain))
+                .or_else(|| world.terrain_objects.objects().get(&id).map(Self::Terrain))
                 .unwrap_or(Self::Missing),
             TargetKind::Cell(..) => target
                 .cell_identity(terrain)

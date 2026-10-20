@@ -97,7 +97,7 @@ impl Simulation {
             HouseAllianceAdmission::Admitted(alliances) => alliances,
             HouseAllianceAdmission::ScenarioInitialization { roster } => {
                 assert!(
-                    self.entities().is_empty() && self.production.terrain_objects.is_empty(),
+                    self.entities().is_empty() && self.terrain_objects.objects().is_empty(),
                     "ScenarioInit diplomacy precedes map objects"
                 );
                 assert!(

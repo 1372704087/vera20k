@@ -548,6 +548,7 @@ impl App {
                     pause_menu_interaction: Default::default(),
                     sound_dialog: None,
                     abort_buttons: Default::default(),
+                    diplomacy: Default::default(),
                     saved_game_browser: None,
                     in_game_options: startup_in_game_options,
                     in_game_options_anchor: None,

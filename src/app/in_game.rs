@@ -50,6 +50,7 @@ impl App {
         state.match_state.match_presentation.in_game_options_anchor = None;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
         state.match_state.match_presentation.saved_game_browser = None;
         // Persist the deterministic diagnostic log before leaving the scenario.
@@ -191,6 +192,9 @@ impl App {
         if previous == next {
             return;
         }
+        if !previous.is_open() && next.is_open() && !Self::state_machine_admits_modal(state) {
+            return;
+        }
         let was_open = previous.is_open();
         let will_be_open = next.is_open();
         if was_open != will_be_open {
@@ -220,6 +224,7 @@ impl App {
         state.match_state.match_presentation.in_game_menu = next;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
         if will_be_open {
             // Deactivate683EB0/4AEAD0 tears down drag/capture on the way into
@@ -270,6 +275,41 @@ impl App {
             state.platform.frame_pacer.reset_for_immediate_frame();
         }
         state.platform.window.request_redraw();
+    }
+
+    /// `State_Machine @ 0x0048C8B0`'s admission of a requested modal
+    /// (`0x0048C8C6..0x0048C918`), before `EnterPause`. Outside campaign
+    /// (GameMode 0 skips it) the request is cleared without opening anything
+    /// while the local House has won (`+0x1F7`), lost (`+0x1F8`) or is flagged
+    /// to die (`+0x1F6`). The same test refuses a live, undefeated player
+    /// once the latch `[0x822CFC]` is clear; only the network surrender and
+    /// abort-observe paths clear it (`0x0048CAA1`, `0x0048CB22`,
+    /// `0x0048CC23`), which VERA does not reach, so the latch stays at its
+    /// `Main_Game` value 1 here.
+    fn state_machine_admits_modal(state: &AppState) -> bool {
+        let sim = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|runtime| &runtime.simulation);
+        Self::state_machine_admits(
+            state.match_state.session.mode().is_nonzero(),
+            sim.and_then(|sim| {
+                sim.session
+                    .current_house()
+                    .and_then(|house| sim.houses.get(&house))
+            }),
+        )
+    }
+
+    /// [`Self::state_machine_admits_modal`] on its inputs: GameMode and the
+    /// local House.
+    pub(crate) fn state_machine_admits(
+        game_mode_nonzero: bool,
+        local: Option<&crate::sim::house_state::HouseState>,
+    ) -> bool {
+        !game_mode_nonzero
+            || local.is_none_or(|house| !(house.has_won() || house.has_lost() || house.is_to_die()))
     }
 
     /// Every physical or fallback modal commits through the same state/exit owner.

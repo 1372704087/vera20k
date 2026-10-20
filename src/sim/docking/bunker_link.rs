@@ -100,11 +100,11 @@ impl BunkerLinks {
 /// a parasite (`+0x694`, `0x0070FBAF..0x0070FBC3`). For a Foot the weapon
 /// test is [`crate::sim::combat::combat_weapon::is_armed`]'s.
 ///
-/// Native callers: the bunker's radio receiver (`0x0043C512`, `0x0043C86A`)
+/// Native callers: the bunker's radio receiver (`0x0043C512`, CAN_LOAD's
+/// Bunker arm in [`crate::sim::radio::receive::can_load`]; `0x0043C86A`)
 /// and `FootClass::EnterTankBunker` (`0x004DFF4F`,
-/// [`Simulation::foot_enter_tank_bunker`]). VERA's EnterBunker order asks
-/// it in place of the receiver, and the app's cursor and click order ask it
-/// too. Resolved against `rules`, so the radio bus never calls it.
+/// [`Simulation::foot_enter_tank_bunker`]). VERA's EnterBunker order and the
+/// app's cursor and click order ask it too.
 pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> bool {
     let Some(unit) = sim.substrate.entities.get(unit_id) else {
         return false;
@@ -125,10 +125,19 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
 /// branch from `0x0043C84C`) admits and guides it. Here the bunker answers
 /// CAN_LOAD; on ROGER, DOCK_NOW queues its install mission, `retask` gives
 /// the unit its Enter, and the unit, marked as approaching this bunker (the
-/// install machine's keep-alive), drives to the bunker's cell. False when the
-/// bunker refuses: with nothing changed at CAN_LOAD, with the previous seek
-/// released at DOCK_NOW (a bunker being sold). Shared by the EnterBunker
-/// order and [`Simulation::foot_enter_tank_bunker`].
+/// install machine's keep-alive), drives to the bunker's cell. False, with
+/// nothing changed, when the bunker refuses. Shared by the EnterBunker order
+/// and [`Simulation::foot_enter_tank_bunker`].
+///
+/// RESIDUAL: native sends DOCK_NOW near arrival (UnitClass::PerCellProcess
+/// `0x0073A5C4`, tethered to the bunker), and the AI seek sends HELLO with no
+/// CAN_LOAD (`0x004DFF40`). Trigger: every tank bunker entry. Effect: the
+/// bunker's Repair mission, and the phase of its 15-frame visits, start at
+/// the order instead of near arrival, so each install step can land up to 14
+/// frames apart from native; an AI tank sent to a bunker still building up
+/// or being sold is refused here (CAN_LOAD's mission and BState gates,
+/// `0x0043C326..0x0043C354`), where native drives there. Frequency: every
+/// entry; the AI refusal only in a bunker's buildup or sale. Risk: low.
 pub(crate) fn begin_entry(
     sim: &mut Simulation,
     unit_id: u64,
@@ -144,7 +153,7 @@ pub(crate) fn begin_entry(
         bunker_id,
         RadioMessage::CanEnter,
         RadioPayload::default(),
-        None,
+        Some(rules),
         effects,
     ) != RadioResponse::Roger
     {
@@ -154,18 +163,15 @@ pub(crate) fn begin_entry(
     // caller whose retask only queues a mission. Native HELLO replaces the
     // old radio link (65A970); this adapter carries that link separately.
     cancel_approach(sim, unit_id);
-    if transmit(
+    transmit(
         sim,
         unit_id,
         bunker_id,
         RadioMessage::DockNow,
         RadioPayload::default(),
-        None,
+        Some(rules),
         effects,
-    ) != RadioResponse::Roger
-    {
-        return false;
-    }
+    );
     retask(sim);
     if let Some(unit) = sim.substrate.entities.get_mut(unit_id) {
         unit.bunker.link = BunkerLink::Approaching(bunker_id);

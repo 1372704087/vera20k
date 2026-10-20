@@ -1237,7 +1237,9 @@ use crate::util::save_codec;
 // Warhead extension records; the capability metadata header still starts at 459.
 // 463 -> 464: the retained type registry keeps each InfantryType's
 // ReadSequenceData sound pairs from every reached pass.
-const SNAPSHOT_VERSION: u32 = 464;
+// 464 -> 465: an Anim keeps its Temporal erase pause (+0x11A) and no longer
+// keeps a DoubleThick copy; DrawIt reads the type's.
+const SNAPSHOT_VERSION: u32 = 465;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10213,6 +10215,7 @@ mod tests {
         // 461 -> 462: the typed Enter and Harvest commands are gone.
         // 462 -> 463: retained armor IDs and Ares warhead extension records.
         // 463 -> 464: retained InfantryType sequence sound pairs.
-        assert_eq!(super::SNAPSHOT_VERSION, 464);
+        // 464 -> 465: the Anim Temporal erase pause.
+        assert_eq!(super::SNAPSHOT_VERSION, 465);
     }
 }

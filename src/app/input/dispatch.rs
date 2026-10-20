@@ -3018,9 +3018,10 @@ fn deployer_is_deployed(
 
 /// The deploy key's per-object order for an object it admits: each
 /// class's Unload mission (vt+0x374(9), `0x00730D15`). The command's
-/// historical `DeployMcv` wire name also carries a SimpleDeployer toggle.
-/// A Unit admitted for a tank-bunker link alone gets none, but a bunkered
-/// unit cannot be selected.
+/// historical `DeployMcv` wire name also carries a SimpleDeployer toggle
+/// and a tank bunker's occupant's deploy out. The walk admits a bunkered unit
+/// only through IsActive (vt+0x9C): vt+0xA0 refuses a bunker link, and a box
+/// never selects one, but a click does.
 fn deploy_key_command(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -3523,12 +3524,17 @@ mod deploy_key_tests {
     /// A unit in a tank bunker passes CanDeploySlashUnload and deploys out of
     /// it, a loaded transport too: its Unload's bunker arm (`0x0073D63B`)
     /// precedes the transport arm. Outside a bunker a plain tank is refused.
+    /// Both are armed: vt+0xA0 refuses a bunker link, so the walk admits them
+    /// through IsActive (vt+0x9C), which asks for a weapon.
     #[test]
     fn the_deploy_key_deploys_a_unit_out_of_its_tank_bunker() {
         use crate::sim::docking::bunker_link::BunkerLink;
         let rules = RuleSet::from_ini(&IniFile::from_str(
             "[VehicleTypes]\n0=TANK\n1=TRANSPORT\n\
-             [TANK]\nStrength=300\n[TRANSPORT]\nPassengers=2\n",
+             [TANK]\nStrength=300\nPrimary=GUN\n\
+             [TRANSPORT]\nPassengers=2\nPrimary=GUN\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nDamage=10\nRange=5\nWarhead=AP\n\
+             [Warheads]\n0=AP\n[AP]\n",
         ))
         .expect("bunker deploy rules");
         let mut sim = player_sim();

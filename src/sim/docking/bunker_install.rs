@@ -769,9 +769,8 @@ mod tests {
     }
 
     /// The player's DEPLOY on a bunkered tank (the deploy key's or its
-    /// self-click's order) brings it out: the event sends OVER_OUT to its
-    /// radio contact (`0x004C77E4`) and queues Unload, whose bunker head
-    /// (`0x0073D63B..0x0073D66D`) empties the bunker under it
+    /// self-click's order) brings it out: the event queues Unload, whose
+    /// bunker head (`0x0073D63B..0x0073D66D`) empties the bunker under it
     /// (`EmptyBunker @ 0x004595C0`), which queues the tank's Move out.
     #[test]
     fn a_bunkered_tank_deploys_out_of_its_bunker() {
@@ -820,7 +819,6 @@ mod tests {
                     .bunker
                     .occupant()
                     == None
-                && !unit.has_live_contact_with(bunker)
                 && (xy[0] - inside[0]).abs().max((xy[1] - inside[1]).abs()) > 256
             {
                 left = true;

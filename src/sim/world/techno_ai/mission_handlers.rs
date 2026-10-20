@@ -646,10 +646,10 @@ pub(crate) fn dispatch_foot_mission(
         }
         // A bunkered Unit with no harvester, DeploysInto= or IsSimpleDeployer=
         // arm (every retail `Bunkerable=` type) ends in FootClass::Mission_Unload
-        // (`0x0073DED3`, `0x004DA2B0` -> `0x005B2EF0`), which returns 450. Its
+        // (`0x0073DED3`, `0x004DA2B0` -> the `0x005B2EF0` stub). Its
         // EmptyBunker has already queued Move.
         (EntityCategory::Unit, Some(MissionType::Unload)) if bunker_unload => {
-            MissionHandlerEvaluation::cadence(450)
+            MissionHandlerEvaluation::cadence(crate::sim::mission::MISSION_STUB_FRAMES)
         }
         // Guard and Sticky share the UnitClass slot (`MissionClass::AI`'s
         // table `0x005B34E8` sends both to `+0x21C` = `0x00740810`).

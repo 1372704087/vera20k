@@ -585,14 +585,22 @@ fn terminal_saved_reached_clears_callback_navcom_and_only_live_queue_head() {
             entity
                 .navigation
                 .set_nav_com_for_test(Some(NavTargetRef::cell(25, 25)));
-            entity.navigation.path_replay = FootPathQueue::for_test(vec![1, 2, 3], 1, Some((7, 8)));
+            entity
+                .navigation
+                .set_path_replay_for_test(FootPathQueue::for_test(vec![1, 2, 3], 1, Some((7, 8))));
         }
     });
     let entity = sim.substrate.entities.get(1).unwrap();
     assert!(entity.navigation.nav_com().is_none());
-    assert_eq!(entity.navigation.path_replay.directions(), vec![1, 255, 3]);
-    assert_eq!(entity.navigation.path_replay.cursor(), 1);
-    assert_eq!(entity.navigation.path_replay.reference_cell(), Some((7, 8)));
+    assert_eq!(
+        entity.navigation.path_replay().directions(),
+        vec![1, 255, 3]
+    );
+    assert_eq!(entity.navigation.path_replay().cursor(), 1);
+    assert_eq!(
+        entity.navigation.path_replay().reference_cell(),
+        Some((7, 8))
+    );
 }
 
 #[test]
@@ -654,7 +662,9 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                 .unwrap()
                 .store_track_progress(family, TrackProgress::for_test(1, 37, false, 0))
         );
-        entity.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
+        entity
+            .navigation
+            .set_path_replay_for_test(FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10))));
         let saved_fraction = entity.foot_speed.applied_fraction();
         let mut callbacks = 0;
         sim.run_track_points_observed(
@@ -675,8 +685,13 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
                     assert_eq!(head(entity, family), DriveCoord { x: 0, y: 0, z: 0 });
                     assert!(valid(entity, family));
                     set_head(entity, family, Some(DriveCoord::cell(1, 1, 0)));
-                    entity.navigation.path_replay =
-                        FootPathQueue::for_test(vec![7, 3, 4], 0, Some((6, 7)));
+                    entity
+                        .navigation
+                        .set_path_replay_for_test(FootPathQueue::for_test(
+                            vec![7, 3, 4],
+                            0,
+                            Some((6, 7)),
+                        ));
                     entity
                         .foot_speed
                         .set_speed_fraction(SimFixed::from_num(0.25));
@@ -694,9 +709,9 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
             // it never reaches accepted candidate publication or restoration.
             assert!(!valid(entity, family));
             assert_eq!(head(entity, family), DriveCoord::cell(1, 1, 0));
-            assert_eq!(entity.navigation.path_replay.cursor(), 0);
+            assert_eq!(entity.navigation.path_replay().cursor(), 0);
             assert_eq!(
-                entity.navigation.path_replay.remaining_directions(),
+                entity.navigation.path_replay().remaining_directions(),
                 &[7, 3, 4]
             );
             assert_eq!(
@@ -709,9 +724,9 @@ fn accepted_chain_preserves_call_budget_and_reloads_callback_queue_once() {
         assert!(valid(entity, family));
         assert!(progress(entity, family).unwrap().cursor() > i32::from(selected.entry_index));
         assert_eq!(progress(entity, family).unwrap().residual(), 1);
-        assert_eq!(entity.navigation.path_replay.cursor(), 1);
+        assert_eq!(entity.navigation.path_replay().cursor(), 1);
         assert_eq!(
-            entity.navigation.path_replay.remaining_directions(),
+            entity.navigation.path_replay().remaining_directions(),
             &[3, 4]
         );
         assert_eq!(entity.foot_speed.applied_fraction(), saved_fraction);
@@ -947,8 +962,9 @@ fn terminal_retires_the_head_before_callback_and_keeps_a_new_order() {
                         .navigation
                         .set_nav_com_for_test(Some(NavTargetRef::cell(12, 9)));
                     // The callback's new route: Foot+5E0 words from (10,9).
-                    entity.navigation.path_replay =
-                        crate::sim::movement::fixture_path_replay(&[(10, 9), (11, 9), (12, 9)]);
+                    entity.navigation.set_path_replay_for_test(
+                        crate::sim::movement::fixture_path_replay(&[(10, 9), (11, 9), (12, 9)]),
+                    );
                 }
             }
         });
@@ -957,7 +973,7 @@ fn terminal_retires_the_head_before_callback_and_keeps_a_new_order() {
         assert_eq!(
             entity
                 .navigation
-                .path_replay
+                .path_replay()
                 .remaining_directions()
                 .is_empty(),
             !retarget
@@ -1151,7 +1167,7 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
             .cloned(),
     )
     .unwrap();
-    let path_runtime = unit.navigation.path_runtime;
+    let path_runtime = unit.navigation.path_runtime().clone();
     let producer_mission = sim.substrate.entities.get(2).unwrap().mission;
     let rng = sim.rng_state();
     assert_eq!(
@@ -1208,7 +1224,7 @@ fn per_cell_factory_clearance_precedes_ready_and_preserves_foot_stop_scope() {
         .unwrap(),
         drive
     );
-    assert_eq!(unit.navigation.path_runtime, path_runtime);
+    assert_eq!(*unit.navigation.path_runtime(), path_runtime);
     assert_eq!(unit.navigation.nav_com(), None);
     assert_eq!(unit.navigation.nav_com_aux(), None);
     assert_eq!(

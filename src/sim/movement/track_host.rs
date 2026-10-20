@@ -347,7 +347,7 @@ impl Simulation {
         let candidate_direction = self.substrate.entities.get(id).and_then(|entity| {
             entity
                 .navigation
-                .path_replay
+                .path_replay()
                 .remaining_directions()
                 .first()
                 .copied()
@@ -373,7 +373,7 @@ impl Simulation {
                 // before terminal coordinates/Mark, then retire the selector.
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
                     entity.foot_occupation_enabled.resume();
-                    entity.navigation.path_runtime.set_path_blocked(false);
+                    entity.navigation.path_runtime_mut().set_path_blocked(false);
                 }
                 self.track_place(
                     id,
@@ -424,7 +424,7 @@ impl Simulation {
                 if reached {
                     let entity = self.substrate.entities.get_mut(id).unwrap();
                     entity.navigation.stop_moving();
-                    entity.navigation.path_replay.clear_live_head();
+                    entity.navigation.path_replay_mut().clear_live_head();
                     entity.navigation.settle_destination_setter();
                     if entity.mission.current().known() == Some(MissionType::Move) {
                         let returns = self.unit_enter_idle_mode(id, rules, false, effects);
@@ -456,7 +456,7 @@ impl Simulation {
                 // Ship `0x006A0CDA`).
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
                     entity.foot_occupation_enabled.suspend();
-                    entity.navigation.path_runtime.set_path_blocked(false);
+                    entity.navigation.path_runtime_mut().set_path_blocked(false);
                 }
             }
             let Some((live, live_head, actual)) = self.track_state(id, family) else {
@@ -1042,7 +1042,7 @@ impl Simulation {
         self.track_apply_occupation(id, family, true);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.foot_speed.set_speed_fraction(saved_speed);
-            super::path_markers::consume_path_replay(&mut entity.navigation.path_replay, 1);
+            super::path_markers::consume_path_replay(entity.navigation.path_replay_mut(), 1);
         }
         Ok(true)
     }

@@ -6847,7 +6847,7 @@ impl Simulation {
             tick,
             admitted_commands,
         } = frame;
-        let lighting_events = std::mem::take(&mut self.lighting_sources.pending);
+        let lighting_events = self.lighting_sources.take_pending();
         let trigger_effects = std::mem::take(&mut self.trigger_effects);
         // Preserve the established terminal-frame gate: these are committed
         // light-vector facts and the next admitted frame clears the producer
@@ -7019,7 +7019,7 @@ impl Simulation {
                 self.session.binary_frame(),
                 &rules.radiation,
                 self.resolved_terrain.as_ref(),
-                &mut self.lighting_sources.pending,
+                &mut self.lighting_sources,
             );
             profile_phase!(RADIATION);
         }

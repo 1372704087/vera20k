@@ -1774,7 +1774,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // Preserve schema160's original four-field order. Deriving
         // the fold from the expanded struct would alter every prior
         // projection, including constructor-default Foot states.
-        let path = &entity.navigation.path_runtime;
+        let path = entity.navigation.path_runtime();
         path.movement_timer().hash(hasher);
         path.blocked_timer().hash(hasher);
         path.path_blocked().hash(hasher);
@@ -1799,8 +1799,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"techno-spatial-threat-v1".hash(hasher);
         value.hash(hasher);
     }
-    entity.navigation.neighbor_state.hash(hasher);
-    entity.navigation.path_replay.hash(hasher);
+    entity.navigation.neighbor_state().hash(hasher);
+    entity.navigation.path_replay().hash(hasher);
     entity.navigation.nav_com_aux().hash(hasher);
     entity.navigation.nav_com().hash(hasher);
     entity.navigation.suspended_nav_com().hash(hasher);
@@ -3832,7 +3832,7 @@ mod infantry_hash_tests {
             .get_mut(1)
             .unwrap()
             .navigation
-            .path_runtime = retained;
+            .set_path_runtime_for_test(retained);
         assert_ne!(sim.state_hash(), before);
         let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "foot-path", 0);
         let loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
@@ -3840,7 +3840,7 @@ mod infantry_hash_tests {
             .sim;
         let actor = loaded.entities().get(1).unwrap();
         assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
-        assert_eq!(actor.navigation.path_runtime, retained);
+        assert_eq!(actor.navigation.path_runtime().clone(), retained);
     }
 
     #[test]
@@ -3987,7 +3987,7 @@ mod infantry_hash_tests {
         // isolates persistence, not the intentionally changed RNG future.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let actor = hash_entity(&mut sim, EntityCategory::Infantry);
-        assert_eq!(actor.navigation.path_runtime.scold_latch_raw(), 0);
+        assert_eq!(actor.navigation.path_runtime().scold_latch_raw(), 0);
         sim.substrate.entities.insert(actor);
         let clear_hash = sim.state_hash();
         let mut retained_hashes = vec![clear_hash];
@@ -4002,7 +4002,7 @@ mod infantry_hash_tests {
                 .get_mut(1)
                 .unwrap()
                 .navigation
-                .path_runtime
+                .path_runtime_mut()
                 .set_scold_latch_for_test(raw);
             let current_hash = sim.state_hash();
             assert!(!retained_hashes.contains(&current_hash) || raw == 0);
@@ -4015,17 +4015,17 @@ mod infantry_hash_tests {
             let actor = restored.substrate.entities.get(1).unwrap();
             assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
             assert_eq!(
-                u64::from(actor.navigation.path_runtime.scold_latch_raw()),
+                u64::from(actor.navigation.path_runtime().scold_latch_raw()),
                 row["after_original_noinit_constructor"].as_u64().unwrap()
             );
             assert_eq!(restored.state_hash(), current_hash);
-            let path = &mut restored
+            let path = restored
                 .substrate
                 .entities
                 .get_mut(1)
                 .unwrap()
                 .navigation
-                .path_runtime;
+                .path_runtime_mut();
             assert_eq!(path.clear_scold_latch(), raw != 0);
             assert_eq!(path.scold_latch_raw(), 0);
             assert!(!path.clear_scold_latch(), "a consumed latch stays clear");

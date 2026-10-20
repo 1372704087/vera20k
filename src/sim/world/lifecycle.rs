@@ -742,6 +742,11 @@ pub enum LifecycleOutput {
     LineTrailDetached {
         stable_id: u64,
     },
+    /// ObjectDetachAll5F52EF..5F5306 hands the follow camera back when it
+    /// follows this object, whatever the argument and the Deselect gate.
+    FollowReleased {
+        stable_id: u64,
+    },
     /// DispatchPointerExpired7258D0 reaches navigation733160 at7259B1
     /// for a Techno abstract pointer, regardless of announce-control or Alive.
     ObjectPointerExpired {
@@ -3834,11 +3839,19 @@ impl Simulation {
     /// The Deselect (`0x005F52A8..0x005F52E9`) is unconditional with `all`.
     /// Without it, the object stays selected when its owner is the player's
     /// (`0x0050B6F0`, [`Self::house_is_human_player`]) or, for a Techno, the
-    /// player senses its cell (vt+0x328, [`sensor_visible_to_player`]).
+    /// player senses its cell (vt+0x328, [`sensor_visible_to_player`]). Then
+    /// the follow camera lets go of the object whatever the gate decided
+    /// (`0x005F52EF..0x005F5306`, [`LifecycleOutput::FollowReleased`]).
     ///
-    /// RESIDUAL: `0x005F5284..0x005F529D` frees the object's LineTrail and
-    /// `0x005F52EF..0x005F5306` stops the camera following it
-    /// (`DisplayClass::SetObjectToFollow(NULL)`). VERA models neither.
+    /// Other `Detach_All(false)` callers, all dormant in retail: Infantry
+    /// PerCellProcess's one-cell UndeploysInto conversion (`0x00519A19`, on
+    /// the Building), the vehicle thief (`0x00520423`, `0x00741868`) and the
+    /// Tunnel locomotor (`0x00728F7B`, `0x00729465`). No retail building
+    /// undeploys into a one-cell infantryman, no type sets `VehicleThief=`
+    /// and none uses the Tunnel locomotor.
+    ///
+    /// The LineTrail teardown (`0x005F5284..0x005F529D`) has nothing to free:
+    /// VERA constructs LineTrails only for bullets (`admit_projectile`).
     ///
     /// [`sensor_visible_to_player`]: super::techno_ai_cloak::sensor_visible_to_player
     pub(crate) fn detach_all(&mut self, stable_id: u64, all: bool, context: UninitContext<'_>) {
@@ -3939,13 +3952,15 @@ impl Simulation {
         }
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyDeselected { stable_id });
+        self.lifecycle_outputs
+            .emit(LifecycleOutput::FollowReleased { stable_id });
 
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::DestroyNotifyBoundary { stable_id });
         if all {
             self.notify_pointer_expired(stable_id, context);
-        } else if self.substrate.entities.contains(stable_id) {
-            self.broadcast_pointer_expired(stable_id, PointerExpiryControl::DetachAll, context);
+        } else {
+            self.announce_detach_all(stable_id, context);
         }
     }
 
@@ -4979,13 +4994,12 @@ impl Simulation {
         self.broadcast_pointer_expired(expired_id, PointerExpiryControl::Uninit, context);
     }
 
-    /// `DispatchPointerExpiredCleanup @ 0x007258D0` with control **0**: the
-    /// announcement that ends `Detach_All(false)` ([`Self::detach_all`], from
-    /// `TechnoClass::StartCloaking @ 0x00703770` and the `CloakState 1 -> 2`
-    /// completion at `0x006FBA98`), and that `FootClass::Crash` calls directly
-    /// (`0x004DED4F`). It runs the same `TechnoClass::PointerExpired` body as
-    /// the UnInit path over the same registered-object roster. The detaching
-    /// object survives, so no House-side BuildConst removal happens here.
+    /// `DispatchPointerExpiredCleanup @ 0x007258D0` with control **0**, as
+    /// `FootClass::Crash` calls it directly (`0x004DED4F`). `Detach_All(false)`
+    /// ([`Self::detach_all`]) ends with the same announcement. It runs the same
+    /// `TechnoClass::PointerExpired` body as the UnInit path over the same
+    /// registered-object roster. The detaching object survives, so no
+    /// House-side BuildConst removal happens here.
     ///
     /// **The non-Techno listeners on that roster are control-INSENSITIVE**, read
     /// this session and no longer a residual:
@@ -5017,14 +5031,17 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
-        if !self.substrate.entities.contains(expired_id) {
-            return;
-        }
-        self.broadcast_pointer_expired(
+        self.announce_detach_all(
             expired_id,
-            PointerExpiryControl::DetachAll,
             UninitContext::new(Some(rules), registry).with_effects(effects),
         );
+    }
+
+    /// [`Self::detach_all_pointer_expired`] under a caller's context.
+    fn announce_detach_all(&mut self, expired_id: u64, context: UninitContext<'_>) {
+        if self.substrate.entities.contains(expired_id) {
+            self.broadcast_pointer_expired(expired_id, PointerExpiryControl::DetachAll, context);
+        }
     }
 
     /// Teleport Process7193CC..7193F4 calls Bullet::LoseTarget468430 on every

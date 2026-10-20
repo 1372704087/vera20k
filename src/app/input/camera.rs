@@ -1726,11 +1726,22 @@ pub(crate) fn toggle_follow_target(state: &mut AppState) {
 ///
 /// The pair is cleared from two lifecycle points — `ObjectClass__Detach_All`
 /// 0x005F5306 and `ObjectClass__Deselect` 0x005F4513 — so the camera is handed
-/// back when the followed object dies or leaves the selection.
-pub(crate) fn update_follow_camera(state: &mut AppState) {
+/// back when the followed object dies, leaves the selection, or runs
+/// Detach_All in this Logic visit while it lives on (a cloaking submarine,
+/// [`LifecycleOutput::FollowReleased`] in `outputs`).
+///
+/// [`LifecycleOutput::FollowReleased`]: crate::sim::world::LifecycleOutput::FollowReleased
+pub(crate) fn update_follow_camera(
+    state: &mut AppState,
+    outputs: &[crate::sim::world::LifecycleOutput],
+) {
     let Some(id) = state.match_state.input.follow_target else {
         return;
     };
+    if outputs.contains(&crate::sim::world::LifecycleOutput::FollowReleased { stable_id: id }) {
+        state.match_state.input.follow_target = None;
+        return;
+    }
     let coord = state
         .match_state
         .sim_runtime

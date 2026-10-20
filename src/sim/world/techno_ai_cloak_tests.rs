@@ -1057,8 +1057,17 @@ fn a_non_player_object_leaves_the_selection_as_it_cloaks_and_while_unsensed() {
     };
     select(&mut sim, own);
     select(&mut sim, enemy);
+    sim.lifecycle_outputs.clear_for_test();
     sim.advance_tick(&[], Some(&rules), Some(&grid), None, 33);
     assert_eq!((state(&sim, own), state(&sim, enemy)), (1, 1));
+    for id in [own, enemy] {
+        assert!(
+            sim.lifecycle_outputs
+                .as_slice()
+                .contains(&crate::sim::world::LifecycleOutput::FollowReleased { stable_id: id }),
+            "Detach_All (0x005F5306) hands the follow camera back from either sub"
+        );
+    }
     assert!(selected(&sim, own), "the player's own sub stays selected");
     assert!(
         !selected(&sim, enemy),

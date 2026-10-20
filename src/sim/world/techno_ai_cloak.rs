@@ -405,11 +405,14 @@ pub(super) fn cloak_field_ai_step(
     rules: &RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) {
+    // An object with no cloak runtime is in state 0 and cannot pass
+    // CanAutoCloak (`stock_cloak_tick_facts`), so the callback would do
+    // nothing for it; skipping it keeps the field lookup out of the AI loop.
     let Some((owner, cell, state)) = sim.substrate.entities.get(id).and_then(|entity| {
         Some((
             entity.owner(),
             super::lifecycle::object_get_coords_cell(entity)?,
-            entity.cloak.as_ref().map_or(0, |cloak| cloak.state()),
+            entity.cloak.as_ref()?.state(),
         ))
     }) else {
         return;

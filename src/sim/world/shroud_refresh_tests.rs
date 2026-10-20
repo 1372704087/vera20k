@@ -1345,11 +1345,11 @@ fn a_selected_enemy_aircraft_is_deselected_over_the_players_shroud() {
         .spawn_object_with_overlay_registry("HORNET", "Russians", 8, 15, 0, &rules, &registry)
         .unwrap();
     let flights = [(own, player, 12), (enemy, enemy_house, 15)];
-    let tracks = fly_east_selected(&mut sim, &rules, &registry, &flights);
+    let tracks = move_east_selected(&mut sim, &rules, &registry, &flights, 600);
     for (id, track) in [own, enemy].into_iter().zip(tracks) {
         assert!(
-            track.selected_airborne_over_mapped_ground,
-            "{id}: airborne over mapped ground it stays selected"
+            track.selected_over_mapped_ground,
+            "{id}: over mapped ground it stays selected"
         );
         assert!(track.reached_shroud, "{id}: it flies into the shroud");
     }
@@ -1360,6 +1360,41 @@ fn a_selected_enemy_aircraft_is_deselected_over_the_players_shroud() {
     assert!(
         selected(&sim, own),
         "the player's own aircraft stays selected"
+    );
+}
+
+/// Foot PerCellProcess's step (`0x004D8DA7..0x004D8DF5`): a selected enemy
+/// infantryman walking into the player's shroud leaves the player's
+/// selection at the first cell he arrives at there; over mapped ground he
+/// stays selected. (A walker's own sight keeps the player's own Location
+/// mapped, so the owner test shows only on the fliers above.)
+#[test]
+fn a_selected_enemy_infantryman_is_deselected_walking_into_the_players_shroud() {
+    let (mut sim, rules, registry, _, enemy_house) = shroud_selection_fixture(true);
+    // The player keeps an object, so his house stays in the game.
+    sim.spawn_object_with_overlay_registry("ENGINEER", "Americans", 6, 12, 0, &rules, &registry)
+        .unwrap();
+    let enemy = sim
+        .spawn_object_with_overlay_registry("ENGINEER", "Russians", 8, 15, 0, &rules, &registry)
+        .unwrap();
+    let [track] = move_east_selected(
+        &mut sim,
+        &rules,
+        &registry,
+        &[(enemy, enemy_house, 15)],
+        4000,
+    )
+    .try_into()
+    .ok()
+    .unwrap();
+    assert!(
+        track.selected_over_mapped_ground,
+        "over mapped ground he stays selected"
+    );
+    assert!(track.reached_shroud, "he walks into the shroud");
+    assert!(
+        !selected(&sim, enemy),
+        "in the player's shroud he leaves the selection"
     );
 }
 
@@ -1377,11 +1412,11 @@ fn a_selected_enemy_jumpjet_is_deselected_over_the_players_shroud() {
         .spawn_object_with_overlay_registry("JUMPJET", "Russians", 8, 15, 0, &rules, &registry)
         .unwrap();
     let flights = [(own, player, 12), (enemy, enemy_house, 15)];
-    let tracks = fly_east_selected(&mut sim, &rules, &registry, &flights);
+    let tracks = move_east_selected(&mut sim, &rules, &registry, &flights, 600);
     for (id, track) in [own, enemy].into_iter().zip(tracks) {
         assert!(
-            track.selected_airborne_over_mapped_ground,
-            "{id}: airborne over mapped ground it stays selected"
+            track.selected_over_mapped_ground,
+            "{id}: over mapped ground it stays selected"
         );
         assert!(track.reached_shroud, "{id}: it flies into the shroud");
     }
@@ -1526,23 +1561,24 @@ fn selected(sim: &Simulation, id: u64) -> bool {
         .is_selected()
 }
 
-/// What one flier did on its way east.
+/// What one mover did on its way east.
 struct EastTrack {
-    /// It was airborne over the player's mapped ground (cells 10..=14), and
-    /// selected on every such frame.
-    selected_airborne_over_mapped_ground: bool,
+    /// It crossed the player's mapped ground (cells 10..=14), and was
+    /// selected on every frame there.
+    selected_over_mapped_ground: bool,
     /// It reached cell 24, inside the shroud.
     reached_shroud: bool,
 }
 
-/// Select each `(object, owner, row)` flier, order it east to (30, row), and
-/// run the production tick until every one reaches cell 24 (600 frames at
+/// Select each `(object, owner, row)` mover, order it east to (30, row), and
+/// run the production tick until every one reaches cell 24 (`frames` at
 /// most).
-fn fly_east_selected(
+fn move_east_selected(
     sim: &mut Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     flights: &[(u64, crate::sim::intern::InternedId, u16)],
+    frames: u32,
 ) -> Vec<EastTrack> {
     use crate::sim::command::{Command, CommandEnvelope};
     for &(id, ..) in flights {
@@ -1572,33 +1608,28 @@ fn fly_east_selected(
     let mut tracks: Vec<_> = flights
         .iter()
         .map(|_| EastTrack {
-            selected_airborne_over_mapped_ground: true,
+            selected_over_mapped_ground: true,
             reached_shroud: false,
         })
         .collect();
-    let mut airborne_over_mapped = vec![false; flights.len()];
-    for _ in 0..600 {
+    let mut over_mapped = vec![false; flights.len()];
+    for _ in 0..frames {
         if tracks.iter().all(|track| track.reached_shroud) {
             break;
         }
         let due = sim.take_due_commands();
         sim.advance_tick(&due, Some(rules), grid.as_deref(), Some(registry), 67);
         for (index, &(id, ..)) in flights.iter().enumerate() {
-            let entity = sim.substrate.entities.get(id).unwrap();
-            let height = crate::sim::movement::air_movement::current_fly_height(
-                entity,
-                sim.resolved_terrain.as_ref(),
-            );
-            let rx = entity.position.rx();
-            if height > 0 && (10..=14).contains(&rx) {
-                airborne_over_mapped[index] = true;
-                tracks[index].selected_airborne_over_mapped_ground &= selected(sim, id);
+            let rx = sim.substrate.entities.get(id).unwrap().position.rx();
+            if (10..=14).contains(&rx) {
+                over_mapped[index] = true;
+                tracks[index].selected_over_mapped_ground &= selected(sim, id);
             }
             tracks[index].reached_shroud |= rx >= 24;
         }
     }
-    for (track, seen) in tracks.iter_mut().zip(airborne_over_mapped) {
-        track.selected_airborne_over_mapped_ground &= seen;
+    for (track, seen) in tracks.iter_mut().zip(over_mapped) {
+        track.selected_over_mapped_ground &= seen;
     }
     tracks
 }

@@ -119,7 +119,7 @@ fn with_first_cell_receiver<T>(
 }
 
 impl Simulation {
-    /// The locomotor tail that drops another house's object from the player's
+    /// The movement step that drops another house's object from the player's
     /// selection over the player's shroud: a selected object (`+0x83`) whose
     /// owner fails the locomotor's owner test is deselected (vt+0x150) when
     /// its Location is shrouded on the player's map (`MapClass::IsShrouded @
@@ -127,14 +127,16 @@ impl Simulation {
     /// `MapClass::IsFogged @ 0x005865E0` is `xor al, al; ret 4`, so it never
     /// deselects. Without a player house or map nothing is asked.
     ///
-    /// Two locomotors run it, each with its own owner test:
-    /// - Fly's `Horizontal_Step` (`0x004CF55D..0x004CF5EC`) asks
-    ///   `0x0050B6F0` ([`Self::house_is_human_player`]);
+    /// Three movement steps run it, each with its own owner test:
+    /// - Foot's `PerCellProcess` (`0x004D8DA7..0x004D8DF5`), on every Unit
+    ///   and Infantry cell arrival, and Fly's `Horizontal_Step`
+    ///   (`0x004CF55D..0x004CF5EC`) ask `0x0050B6F0`
+    ///   ([`Self::house_is_human_player`]);
     /// - Jumpjet's `Process` (`0x0054B07D..0x0054B10C`) compares the owner
     ///   with PlayerPtr (`0x00A83D4C`).
     ///
     /// In skirmish both tests answer alike.
-    pub(super) fn deselect_over_player_shroud(
+    pub(crate) fn deselect_over_player_shroud(
         &mut self,
         id: u64,
         player_owned: impl FnOnce(&Self, InternedId) -> bool,

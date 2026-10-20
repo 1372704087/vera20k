@@ -523,7 +523,7 @@ pub(crate) fn build_shp_instances(
                 .unwrap_or_else(|| type_str.to_string());
             let art_entry = art_reg.and_then(|a| a.resolve_metadata_entry(type_str, &rules_image));
             let normal_z_adjust: i32 = art_entry.map_or(0, |a| a.normal_z_adjust);
-            let point_move: (i32, i32) = art_entry.map_or((0, 0), |a| a.z_shape_point_move);
+            let point_move = building_zshape_point_move(entity, art_entry);
             let foundation: (u16, u16) = object_type
                 .map(|o| crate::rules::foundation::foundation_dimensions(&o.foundation))
                 .unwrap_or((1, 1));
@@ -1080,6 +1080,7 @@ pub(crate) fn build_building_anim_instances(
                 .anim_slots()
                 .iter()
                 .all(Option::is_none)
+            || slot_anims_hidden_by_sale(building)
         {
             continue;
         }
@@ -1144,6 +1145,28 @@ pub(crate) fn build_building_anim_instances(
             draw_state,
         );
     }
+}
+
+/// `BuildingClass::DrawIt` adds `ZShapePointMove=` to the BUILDNGZ origin
+/// except during Construction or Selling (`0x0043D6DB..0x0043D712`).
+fn building_zshape_point_move(
+    entity: &crate::sim::game_entity::GameEntity,
+    art: Option<&crate::rules::art_data::ArtEntry>,
+) -> (i32, i32) {
+    if entity.building_up() || entity.building_down() {
+        (0, 0)
+    } else {
+        art.map_or((0, 0), |art| art.z_shape_point_move)
+    }
+}
+
+/// `BuildingClass::DrawIt` (`0x0043D2C1..0x0043D306`) hides all 21 slot
+/// anims (Anim `+0x19D`) while the building plays its build-up backwards: a
+/// sale or undeploy (Mission Selling, `0x13`) in BState 0. Native writes the
+/// byte each time it draws the building, and nothing clears it before the
+/// sale removes the building, so the draw itself asks the same question.
+fn slot_anims_hidden_by_sale(building: &crate::sim::game_entity::GameEntity) -> bool {
+    building.building_down() && building.in_construction_bstate()
 }
 
 fn emit_building_anims(
@@ -1662,3 +1685,7 @@ mod tests {
 #[cfg(test)]
 #[path = "building_anim_tests.rs"]
 mod building_anim_tests;
+
+#[cfg(test)]
+#[path = "building_sale_draw_tests.rs"]
+mod building_sale_draw_tests;

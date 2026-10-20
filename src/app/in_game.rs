@@ -30,7 +30,7 @@ impl App {
     /// TauntsOn and ScrollText switches persist after a LAN or WOL scenario
     /// returns. Skirmish and campaign never write them.
     pub(super) fn persist_returned_session_toggles(state: &mut AppState) {
-        if state.match_state.session.mode().is_network() {
+        if state.match_state.session_mode().is_network() {
             state
                 .frontend
                 .multiplayer_shell_runtime

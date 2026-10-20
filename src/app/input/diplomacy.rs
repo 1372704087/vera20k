@@ -515,7 +515,7 @@ fn toggle_taunts_box(state: &mut AppState) {
     {
         return;
     }
-    let mode = state.match_state.session.mode();
+    let mode = state.match_state.session_mode();
     let runtime = &mut state.frontend.multiplayer_shell_runtime;
     let Some(on) = runtime.taunts_on(mode) else {
         return;

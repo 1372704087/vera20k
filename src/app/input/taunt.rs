@@ -59,7 +59,7 @@ fn taunt_byte(country: u16, number: u8) -> u8 {
 /// every Multiplay House whose chat-mask byte is set
 /// (`0x0053645A..0x0053652B`); alliance does not matter.
 pub(crate) fn execute(state: &mut AppState, number: u8, now_ms: u64) {
-    let mode = state.match_state.session.mode();
+    let mode = state.match_state.session_mode();
     if !mode.is_network() {
         return;
     }
@@ -104,7 +104,7 @@ pub(crate) fn execute(state: &mut AppState, number: u8, now_ms: u64) {
 /// gate; it plays the sender's country voice from the byte, whoever sent it
 /// and whatever the receiver's chat mask, alliances or defeat.
 pub(crate) fn receive(state: &mut AppState, byte: u8) {
-    let mode = state.match_state.session.mode();
+    let mode = state.match_state.session_mode();
     if state.frontend.multiplayer_shell_runtime.taunts_on(mode) == Some(true) {
         play(state, byte);
     }

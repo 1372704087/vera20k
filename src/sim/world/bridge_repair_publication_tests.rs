@@ -537,9 +537,26 @@ fn engineer_at_intact_cabhut_emits_sound_no_mutation() {
 /// A completed hut repair cancels the hut target of every later engineer
 /// before its next turn. Live vector removal skips the repairer's immediate
 /// successor, which keeps its head until its next turn; a nonconsecutive one
-/// finishes its head in the same frame. Neither repeats the cancelled repair.
+/// finishes its head in the same frame. Neither repeats the cancelled repair:
+/// arriving in the hut with no NavCom, each enters idle mode (`0x0051A08C`),
+/// its tail commences Guard (`0x0051A8C5`), and InfantryAI's building scatter
+/// (`0x0051BCB2`) sends it out of the hut in the same turn.
 #[test]
 fn cancelled_successor_engineers_finish_their_heads_without_repeating_the_repair() {
+    let walked_out = |sim: &Simulation, id: u64| {
+        let e = sim.substrate.entities.get(id).unwrap();
+        assert!(e.lifecycle.object_alive());
+        assert_eq!(
+            e.mission.current(),
+            crate::sim::mission::MissionId::from_known(
+                crate::rules::mission_data::MissionType::Guard
+            )
+        );
+        assert!(matches!(
+            e.navigation.nav_com(),
+            Some(crate::sim::components::NavTargetRef::Cell { rx, ry }) if (rx, ry) != (16, 15)
+        ));
+    };
     for separated in [false, true] {
         let (mut sim, rules, registry, hut) = ready_repair_fixture(Some(231));
         let a = ready_engineer(&mut sim, &rules, &registry, hut);
@@ -553,14 +570,17 @@ fn cancelled_successor_engineers_finish_their_heads_without_repeating_the_repair
         if let Some(separator) = separator {
             assert!(sim.substrate.entities.get(separator).is_some());
         }
-        let successor = sim.substrate.entities.get(b).unwrap();
-        assert!(successor.lifecycle.object_alive(), "separated={separated}");
-        assert_eq!(successor.navigation.nav_com(), None);
-        assert_eq!(
-            successor.locomotor.as_ref().unwrap().step_head().is_some(),
-            !separated,
-            "live vector removal skips only the immediate successor"
-        );
+        if separated {
+            walked_out(&sim, b);
+        } else {
+            let successor = sim.substrate.entities.get(b).unwrap();
+            assert!(successor.lifecycle.object_alive());
+            assert_eq!(successor.navigation.nav_com(), None);
+            assert!(
+                successor.locomotor.as_ref().unwrap().step_head().is_some(),
+                "live vector removal skips only the immediate successor"
+            );
+        }
         assert_eq!(repair_sounds(&sim), [true]);
         assert!(sim.dirty_cells.radar_generation() > 0);
         for p in [(17, 14), (17, 15), (17, 16)] {
@@ -568,25 +588,46 @@ fn cancelled_successor_engineers_finish_their_heads_without_repeating_the_repair
         }
         if !separated {
             repair_frame(&mut sim, &rules, &registry);
-            let successor = sim.substrate.entities.get(b).unwrap();
-            assert!(successor.lifecycle.object_alive());
-            assert_eq!(successor.navigation.nav_com(), None);
-            assert_eq!(successor.locomotor.as_ref().unwrap().step_head(), None);
+            walked_out(&sim, b);
             assert_eq!(repair_sounds(&sim), [true]);
         }
     }
 }
 
+/// A later engineer's repair scatters an infantryman standing still in the
+/// hut (Building `0x004576F0`). An engineer whose hut target a repair
+/// cancelled walks out on arrival (see the test above), so the occupant is
+/// supplied through the lifecycle seam the Jumpjet case below uses.
 #[test]
 fn later_repair_scatters_stationary_hut_occupant_and_processes_it_synchronously() {
     use crate::sim::components::{DriveCoord, NavTargetRef};
     use crate::sim::movement::ground_pose;
     let (mut sim, rules, registry, hut) = ready_repair_fixture(Some(231));
     let first = ready_engineer(&mut sim, &rules, &registry, hut);
-    let waiting = ready_engineer(&mut sim, &rules, &registry, hut);
     repair_frame(&mut sim, &rules, &registry);
     assert!(sim.substrate.entities.get(first).is_none());
-    repair_frame(&mut sim, &rules, &registry);
+    let waiting = sim
+        .construct_object_limbo_at_height(
+            "ENGINEER",
+            "Americans",
+            16,
+            15,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(waiting)
+        .unwrap()
+        .position
+        .put_location(DriveCoord::cell(16, 15, 0));
+    assert!(matches!(
+        sim.reveal_entity_with_rules(waiting, &rules),
+        crate::sim::world::RevealOutcome::Revealed { .. }
+    ));
     let e = sim.substrate.entities.get(waiting).unwrap();
     assert_eq!(e.locomotor.as_ref().unwrap().walk_is_moving(), Some(false));
     assert_eq!(e.navigation.nav_com(), None);

@@ -866,7 +866,7 @@ fn gsi_04_12_generated_prefix_uses_accepted_staging_once() {
     );
     assert_eq!(
         staged_sim
-            .session
+            .session()
             .mp_start_waypoints()
             .iter()
             .map(|(&index, &(rx, ry))| (index as u8, rx, ry))
@@ -1924,8 +1924,8 @@ fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_instal
         &rules,
         &descriptor,
     );
-    let local = sim.interner.get("Player").unwrap();
-    let peer = sim.interner.get("Remote").unwrap();
+    let local = sim.interner().get("Player").unwrap();
+    let peer = sim.interner().get("Remote").unwrap();
     let mut session = MatchSession::default();
     session.enter_network(SessionMode::Lan, NetworkReturnContext::LanLobby);
     session.accept_network_setup(launch, true, Some(7)).unwrap();
@@ -1947,9 +1947,9 @@ fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_instal
         2
     );
     let sim = result.scenario.simulation.as_ref().unwrap();
-    assert!(sim.houses[&peer].is_to_die());
-    assert!(!sim.houses[&local].is_to_die());
-    assert_eq!(sim.session.current_house(), Some(local));
+    assert!(sim.houses()[&peer].is_to_die());
+    assert!(!sim.houses()[&local].is_to_die());
+    assert_eq!(sim.session().current_house(), Some(local));
     assert!(apply_network_loading_disconnects(&mut session, &mut result, &[1]).is_empty());
 }
 

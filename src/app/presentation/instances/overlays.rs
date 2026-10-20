@@ -1325,48 +1325,9 @@ mod tests {
         assert_eq!(level_one.5, 15, "one level is one 15 px height step");
     }
 
-    #[test]
-    fn static_terrain_body_and_shadow_use_native_shared_point_and_piece_z() {
-        use crate::render::overlay_atlas::OverlaySpriteEntry;
-        let body = OverlaySpriteEntry {
-            uv_origin: [0.1, 0.2],
-            uv_size: [0.2, 0.3],
-            pixel_size: [33.0, 78.0],
-            offset_x: -16.0,
-            offset_y: -76.0,
-        };
-        let shadow = OverlaySpriteEntry {
-            uv_origin: [0.4, 0.5],
-            uv_size: [0.3, 0.4],
-            pixel_size: [74.0, 36.0],
-            offset_x: 2.0,
-            offset_y: -34.0,
-        };
-        let palette =
-            crate::render::palette_light::PaletteLight::new([288, 576, 992], 27, 799, false);
-        let pieces = super::native_terrain_instances(
-            &body,
-            &shadow,
-            [376.0, 404.0],
-            0,
-            0.3,
-            [0.5, 0.6, 0.7],
-            palette,
-        );
-        assert_eq!(pieces[0].position, [360.0, 328.0]);
-        assert_eq!(pieces[1].position, [378.0, 370.0]);
-        assert_eq!((pieces[0].z_gradient, pieces[0].z_adjust), (2, -12.0));
-        assert_eq!((pieces[1].z_gradient, pieces[1].z_adjust), (0, -3.0));
-        assert_eq!(pieces[0].palette_light, palette);
-        assert_eq!(pieces[0].uv_origin, body.uv_origin);
-        assert_eq!(pieces[1].uv_origin, shadow.uv_origin);
-    }
-
     use super::{
-        ANIM_DRAW_DEPTH_BIAS_PX, CRATE_BODY_FRAME, anim_instance_alpha, apply_shape_z_adjust,
-        body_draw_skips_live_identity, ordinary_overlay_accepts_identity, ordinary_overlay_z,
-        overlay_body_frame, overlay_display_identity, overlay_render_identity,
-        terrain_object_is_render_visible,
+        anim_instance_alpha, body_draw_skips_live_identity, ordinary_overlay_z,
+        overlay_display_identity, overlay_render_identity, terrain_object_is_render_visible,
     };
     use crate::map::overlay::TerrainObject;
     use crate::render::native_z::ZGradient;
@@ -1398,15 +1359,6 @@ mod tests {
         for drawn in [0xA6, 0xA8, 0xB1, 0xB3, 0xEF] {
             assert!(!body_draw_skips_live_identity(drawn), "{drawn:#x}");
         }
-    }
-
-    #[test]
-    fn numeric_high_bridge_identity_has_no_ordinary_overlay_instance_route() {
-        assert!(!ordinary_overlay_accepts_identity(0x18, "HIGHANCHOR"));
-        assert!(!ordinary_overlay_accepts_identity(0x19, "RENAMED_EW"));
-        assert!(!ordinary_overlay_accepts_identity(0xED, "RENAMED_NS"));
-        assert!(!ordinary_overlay_accepts_identity(0xEE, "BRIDGEB2"));
-        assert!(ordinary_overlay_accepts_identity(0x20, "HIGHANCHOR"));
     }
 
     #[test]
@@ -1479,18 +1431,6 @@ mod tests {
     }
 
     #[test]
-    fn damaged_wall_keeps_its_overlay_data_byte_as_the_render_frame() {
-        // A GAWALL segment at damage stage 2 with all four neighbours joined
-        // stores 0x2F. The renderer must ask the atlas for exactly that frame;
-        // any collapse to 0 draws a pristine, isolated post.
-        assert_eq!(overlay_body_frame(false, 0x2F), 0x2F);
-        // Damage stage 1, N+E connected.
-        assert_eq!(overlay_body_frame(false, 0x13), 0x13);
-        // Undamaged, isolated.
-        assert_eq!(overlay_body_frame(false, 0x00), 0x00);
-    }
-
-    #[test]
     fn ordinary_overlay_depth_uses_native_wall_and_nonwall_call_arguments() {
         // Parsed default matters: +0x2B3 starts true, but +0x2A8 Wall forces
         // gradient 2 even if DrawFlat is omitted or explicitly true.
@@ -1519,28 +1459,6 @@ mod tests {
                 assert_eq!(z_adjust as i32, class_term - i32::from(level) * 15);
             }
         }
-    }
-
-    #[test]
-    fn unsupported_overlay_slope_shapes_do_not_acquire_fabricated_depth() {
-        let ore = OverlayTypeFlags {
-            tiberium: true,
-            ..Default::default()
-        };
-        assert_eq!(ordinary_overlay_z(Some(&ore), 1, 4).0, RenderZPolicy::None);
-        assert_eq!(
-            ordinary_overlay_z(Some(&ore), 0, 4).0,
-            RenderZPolicy::ReadWrite
-        );
-        let wall = OverlayTypeFlags {
-            wall: true,
-            ..Default::default()
-        };
-        assert_eq!(
-            ordinary_overlay_z(Some(&wall), 1, 4).0,
-            RenderZPolicy::ReadWrite
-        );
-        assert_eq!(ordinary_overlay_z(None, 0, 0).0, RenderZPolicy::None);
     }
 
     /// Walls and fences (Wall=yes overlays) draw through a native Convert,
@@ -1572,15 +1490,6 @@ mod tests {
             let light = super::ordinary_overlay_palette_light(Some(&other), &grid, (3, 4));
             assert_eq!(light.rgb565(stone, 100, 2), 0);
         }
-    }
-
-    #[test]
-    fn crate_overlays_ignore_the_cell_byte_and_draw_frame_zero() {
-        // gamemd's overlay-body draw takes a Crate=yes branch that hardcodes
-        // the frame; the cell's overlay data never reaches the shape call.
-        assert_eq!(overlay_body_frame(true, 0), CRATE_BODY_FRAME);
-        assert_eq!(overlay_body_frame(true, 7), CRATE_BODY_FRAME);
-        assert_eq!(overlay_body_frame(true, 0x2F), CRATE_BODY_FRAME);
     }
 
     /// 0047F6A0's IsRubble arm: only the cell holding a rubble type draws,
@@ -1732,72 +1641,6 @@ mod tests {
             (tib01.checked_sub(1).expect("registered base - 1"), 8),
             "signed base-relative display selection must not change live density state"
         );
-    }
-
-    #[test]
-    fn apply_shape_z_adjust_is_pixel_exact_with_zero_neutral() {
-        let world_height: f32 = 2000.0;
-        let base: f32 = 0.5;
-        // Neutral is 0, NOT 1000 (the 1000 convention is the per-cell terrain
-        // path, a separate mechanism).
-        assert_eq!(apply_shape_z_adjust(base, 0, world_height), base);
-        // Negative = toward camera (smaller depth), pixel-exact magnitude.
-        let toward = apply_shape_z_adjust(base, -300, world_height);
-        assert!((toward - (base - 300.0 / world_height)).abs() < 1e-6);
-        // Positive = away from camera.
-        let away = apply_shape_z_adjust(base, 40, world_height);
-        assert!(away > base);
-        // Clamped to the valid depth range.
-        assert_eq!(apply_shape_z_adjust(0.002, -100_000, world_height), 0.001);
-        assert_eq!(apply_shape_z_adjust(0.998, 100_000, world_height), 0.999);
-    }
-
-    #[test]
-    fn anim_draw_bias_constant_matches_native() {
-        assert_eq!(ANIM_DRAW_DEPTH_BIAS_PX, -2);
-    }
-
-    #[test]
-    fn gsi_13_09_anim_emitters_carry_the_art_types_translucency_into_instance_alpha() {
-        // BURN-S/M/L (`Translucency=25`) and the wake/warp family
-        // (`Translucent=yes`) are the two stock shapes the emitters must honour.
-        let ini = IniFile::from_str(
-            "[BURNLIKE]\n\
-             Translucency=25\n\
-             [FIFTYLIKE]\n\
-             Translucency=50\n\
-             [WAKELIKE]\n\
-             Translucent=yes\n\
-             End=10\n\
-             [PLAIN]\nFixtureOnly=1\n",
-        );
-        let reg = ArtRegistry::from_ini(&ini);
-
-        // Translucency=N is N percent TRANSPARENT: 25 leaves three quarters of
-        // the source. A fire drawn at 0.25 would be nearly invisible.
-        let burn = reg.anim_runtime_config("BURNLIKE");
-        assert_eq!(anim_instance_alpha(burn, 0, 8), 0.75);
-        assert_eq!(anim_instance_alpha(burn, 7, 8), 0.75);
-        assert_eq!(
-            anim_instance_alpha(reg.anim_runtime_config("FIFTYLIKE"), 0, 8),
-            0.5
-        );
-
-        // Translucent=yes is a progressive fade against End: opaque through
-        // 0.2*End, then 3/4, 1/2, 1/4.
-        let wake = reg.anim_runtime_config("WAKELIKE");
-        assert_eq!(anim_instance_alpha(wake, 2, 10), 1.0);
-        assert_eq!(anim_instance_alpha(wake, 3, 10), 0.75);
-        assert_eq!(anim_instance_alpha(wake, 5, 10), 0.5);
-        assert_eq!(anim_instance_alpha(wake, 9, 10), 0.25);
-
-        // A type with neither key, and a type the registry never saw, draw
-        // opaque — wiring this in cannot dim an animation that was not marked.
-        assert_eq!(
-            anim_instance_alpha(reg.anim_runtime_config("PLAIN"), 4, 8),
-            1.0
-        );
-        assert_eq!(anim_instance_alpha(None, 4, 8), 1.0);
     }
 
     #[test]

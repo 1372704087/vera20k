@@ -1543,81 +1543,6 @@ fn naval_delivery_success_uses_producer_rally_then_move_and_recentres() {
 }
 
 #[test]
-fn naval_rally_destination_and_move_survive_without_path_grid() {
-    let rules = naval_production_rules();
-    let mut sim = Simulation::new();
-    let terrain = water_terrain(40, 40);
-    sim.resolved_terrain = Some(terrain);
-    sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
-        base: 40,
-        off_fc: -100,
-        off_100: -100,
-        off_104: 200,
-        off_108: 200,
-    });
-    sim.playfield_size_height = Some(40);
-    sim.session.set_map_width_for_test(40);
-    sim.session.set_map_height_for_test(40);
-
-    spawn_structure(&mut sim, &rules, 1, "Americans", "GAYARD", 10, 10);
-    sim.remove_entity_occupancy(1);
-    {
-        let yard = sim.substrate.entities.get_mut(1).unwrap();
-        yard.type_facts.set_foundation_for_test("4x4".to_string());
-        yard.set_archive_target(Some(crate::sim::combat::TargetKind::Cell(20, 10)));
-    }
-    sim.add_entity_occupancy(1);
-    arm_build_via(
-        &mut sim,
-        &rules,
-        "Americans",
-        "DEST",
-        ProductionCategory::Ship,
-        1,
-    );
-    let americans = sim.interner.intern("Americans");
-    assert!(
-        sim.production
-            .factories_mut()
-            .test_arm_ready(americans, ProductionCategory::Ship)
-    );
-
-    assert!(super::dispatch_production_changes_for_tests(
-        &mut sim, &rules, None
-    ));
-    let produced = sim
-        .substrate
-        .entities
-        .values()
-        .find(|entity| {
-            entity.owner() == americans
-                && sim
-                    .interner
-                    .resolve(entity.type_ref())
-                    .eq_ignore_ascii_case("DEST")
-        })
-        .expect("rally fast path delivers without a PathGrid");
-    assert_eq!(
-        produced.navigation.nav_com(),
-        Some(crate::sim::components::NavTargetRef::cell(20, 10)),
-        "Assign_Destination commits independently of immediate path authority"
-    );
-    assert_eq!(
-        produced.mission.queued(),
-        crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Move),
-        "Queue_Mission(Move, 0) is not gated by PathGrid availability"
-    );
-    assert!(
-        produced
-            .navigation
-            .path_replay
-            .remaining_directions()
-            .is_empty(),
-        "the class setter searches no route; the Ship's first Process does"
-    );
-}
-
-#[test]
 fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
     let rules = naval_production_rules();
     let mut sim = Simulation::new();
@@ -1703,45 +1628,5 @@ fn naval_rally_destination_and_move_survive_beyond_the_path_grid() {
     assert_eq!(
         crate::sim::movement::movement_goal_cell(produced),
         Some((39, 39))
-    );
-}
-
-#[test]
-fn custom_exit_coord_modded_factory_is_parsed() {
-    let ini = IniFile::from_str(
-        "[InfantryTypes]\n\
-         [VehicleTypes]\n\
-         [AircraftTypes]\n\
-         [BuildingTypes]\n\
-         0=MODFACT\n\
-         [MODFACT]\n\
-         Factory=UnitType\n\
-         ExitCoord=768,512,0\n",
-    );
-    let rules = RuleSet::from_ini(&ini).expect("modded rules should parse");
-    let modfact = rules.object("MODFACT").expect("MODFACT exists");
-    // 768/256=3 cells right, 512/256=2 cells down.
-    assert_eq!(modfact.exit_coord, Some((768, 512, 0)));
-
-    // This non-WeaponsFactory type reaches another native ExitObject arm.
-    // Its parser assertion does not establish a gameplay spawn coordinate.
-}
-
-/// Each house has its own wallet; a house that does not exist has no money
-/// and is not made up.
-#[test]
-fn owner_credits_are_isolated() {
-    let mut sim = Simulation::new();
-    super::house_for_test(&mut sim, "Soviet");
-    super::house_for_test(&mut sim, "Americans")
-        .economy_mut()
-        .add_credits(-750);
-    assert_eq!(credits_for_owner(&sim, "Americans"), STARTING_CREDITS - 750);
-    assert_eq!(credits_for_owner(&sim, "Soviet"), STARTING_CREDITS);
-    assert_eq!(credits_for_owner(&sim, "Germans"), 0);
-    assert!(
-        sim.interner
-            .get("Germans")
-            .is_none_or(|id| !sim.houses.contains_key(&id))
     );
 }

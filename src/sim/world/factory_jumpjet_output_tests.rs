@@ -40,16 +40,14 @@ struct Rocketeer {
     sound_releases: u32,
 }
 
+/// Without a rally the two paid Rocketeers release their Barracks in
+/// flight; with one they fly to the rally after release.
 #[test]
 #[ignore = "slow; run when changing what it covers"]
-fn no_rally_two_paid_rocketeers_release_their_barracks_in_flight() {
-    two_paid_rocketeers(None);
-}
-
-#[test]
-#[ignore = "slow; run when changing what it covers"]
-fn rally_two_paid_rocketeers_fly_to_the_rally_after_release() {
-    two_paid_rocketeers(Some((10, 18)));
+fn two_paid_rocketeers_release_their_barracks_then_fly_to_any_rally() {
+    for rally in [None, Some((10, 18))] {
+        two_paid_rocketeers(rally);
+    }
 }
 
 fn two_paid_rocketeers(rally: Option<(u16, u16)>) {

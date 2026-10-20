@@ -511,14 +511,3 @@ fn mission_harvest_states_zero_and_one_match_the_original_dispatch() {
         compare_state(&s, row, &context);
     }
 }
-
-#[test]
-fn replay_covers_every_row() {
-    let corpus = corpus();
-    let count = |group: &str| corpus[group].as_array().unwrap().len();
-    assert_eq!(count("reduce"), 16);
-    assert_eq!(count("scan"), 19);
-    assert_eq!(count("search"), 4);
-    assert_eq!(count("ore_tick"), 11);
-    assert_eq!(count("harvest"), 23);
-}

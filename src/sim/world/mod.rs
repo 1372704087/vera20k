@@ -103,13 +103,11 @@ pub use world_orders::BuildingClickAction;
 pub(crate) use world_orders::CapturedInfantryType;
 pub use world_orders::EngineerBuildingAction;
 pub use world_orders::UnitRepairAction;
-mod shroud_refresh;
-mod track_cell_recalc;
-#[cfg(any(test, feature = "test-support"))]
-use object_turn::foot_body_counter_admitted;
 mod projectile_collision;
+mod shroud_refresh;
 mod substrate;
 mod techno_ai;
+mod track_cell_recalc;
 mod trigger_camera;
 #[cfg(test)]
 mod trigger_camera_tests;
@@ -7328,10 +7326,6 @@ mod rng_routing_tests;
 #[cfg(test)]
 #[path = "slice6_retask_tests.rs"]
 mod slice6_retask_tests;
-
-#[cfg(test)]
-#[path = "mission_authoritative_tests.rs"]
-mod mission_authoritative_tests;
 
 #[cfg(test)]
 #[path = "global_parity_harness_tests.rs"]

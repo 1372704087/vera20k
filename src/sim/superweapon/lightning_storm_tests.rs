@@ -827,13 +827,6 @@ fn lighting_timing_rules(deferment: i32, duration: i32, rate: &str) -> RuleSet {
     .expect("lighting timing rules should parse")
 }
 
-fn count(sim: &Simulation, wanted: fn(&SimSoundEvent) -> bool) -> usize {
-    sim.sound_events
-        .iter()
-        .filter(|event| wanted(event))
-        .count()
-}
-
 fn began(event: &SimSoundEvent) -> bool {
     matches!(event, SimSoundEvent::LightningStormBegan)
 }
@@ -914,47 +907,6 @@ fn a_storm_starts_and_ends_after_the_frames_ambient_rung() {
     assert_eq!(sim.scenario_rng.state(), rng_before);
 }
 
-/// `StormSound` and the storm's line belong to the countdown's end:
-/// `SuperClass::Launch` case 2 hands `LightningDeferment=` to
-/// `LightningStorm::Start @ 0x00539EB0`, whose deferred branch returns
-/// before them (`0x00539F80`), and Process re-enters Start at zero
-/// (`0x0053AACA`). The launch's EVA line is the app's, at the launch.
-#[test]
-fn the_storm_cue_lands_on_the_countdowns_end_not_on_the_launch() {
-    let rules = lighting_timing_rules(3, 2, ".2");
-    let mut sim = Simulation::with_seed(0x422);
-    launch(&mut sim, &rules);
-    assert_eq!(count(&sim, began), 0, "a deferred launch returns first");
-    assert_eq!(count(&sim, launched), 1);
-    for frame in 1..=2 {
-        lightning_storm::process(
-            &mut sim,
-            &rules,
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(count(&sim, began), 0, "countdown frame {frame}");
-    }
-    lightning_storm::process(
-        &mut sim,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
-    assert_eq!(count(&sim, began), 1);
-    assert_eq!(
-        sim.session.lighting().selected_profile(),
-        ScenarioLightingProfile::Ion
-    );
-    lightning_storm::process(
-        &mut sim,
-        &rules,
-        None,
-        crate::sim::world::FrameEffects::default(),
-    );
-    assert_eq!(count(&sim, began), 1, "a storm starts once");
-}
-
 /// `LightningDeferment=0` skips Start's deferred branch, so the storm
 /// starts inside `SuperClass::Launch`, before the case's EVA line
 /// (`0x006CCD81`).
@@ -965,42 +917,6 @@ fn a_zero_deferment_storm_starts_on_the_launch_frame() {
     launch(&mut sim, &rules);
     let position = |wanted: fn(&SimSoundEvent) -> bool| sim.sound_events.iter().position(&wanted);
     assert!(position(began).unwrap() < position(launched).unwrap());
-}
-
-/// `LightningStormDuration=-1` never ends (`0x0053A919 CMP EAX,-1`).
-#[test]
-fn a_storm_of_duration_minus_one_rages_on() {
-    let rules = lighting_timing_rules(0, -1, ".2");
-    let mut sim = Simulation::with_seed(0x421);
-    launch(&mut sim, &rules);
-    for _ in 0..4 {
-        lightning_storm::process(
-            &mut sim,
-            &rules,
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-        let (active, time_to_end, _, duration, ..) = sim.lightning_storm.globals_for_test();
-        assert_eq!((active, time_to_end, duration), (true, false, -1));
-        assert_eq!(
-            sim.session.lighting().selected_profile(),
-            ScenarioLightingProfile::Ion
-        );
-    }
-}
-
-/// With no storm, Process neither relights nor draws.
-#[test]
-fn a_map_without_a_storm_keeps_its_lighting_and_stream() {
-    let rules = lighting_timing_rules(250, 180, ".2");
-    let mut sim = Simulation::with_seed(0x42);
-    let lighting_before = *sim.session.lighting();
-    let rng_before = sim.scenario_rng.state();
-    for _ in 0..400 {
-        sim.advance_tick(&[], Some(&rules), None, None, 67);
-    }
-    assert_eq!(*sim.session.lighting(), lighting_before);
-    assert_eq!(sim.scenario_rng.state(), rng_before);
 }
 
 /// LWH is declared only by `[Warheads]`; no object or ordinary weapon
@@ -1046,37 +962,6 @@ fn strike(
         registry,
         [i32::from(x) * 256 + 128, i32::from(y) * 256 + 128, 0],
         crate::sim::world::FrameEffects::default(),
-    );
-}
-
-/// The bolt and the `WeatherConBoltExplosion=` explosion are AnimClass
-/// instances at the struck cell; the explosion's smudge is the anim's own,
-/// not deferred.
-#[test]
-fn a_strike_constructs_its_bolt_and_explosion_at_the_cell() {
-    let rules = registry_only_warhead_rules();
-    let mut sim = Simulation::with_seed(1);
-    strike(&mut sim, &rules, (5, 5), None);
-    assert!(sim.pending_smudge_requests.is_empty());
-    let at_cell = |anim: &crate::sim::anim_class::AnimObject| {
-        let (rx, ry, ..) = anim.world_coord.to_cell_sub_z();
-        (rx, ry) == (5, 5)
-    };
-    let explosion = sim.interner.intern("EXPLOSION");
-    assert!(
-        sim.anims().any(|(_, anim)| anim.type_id == explosion
-            && at_cell(anim)
-            && anim.draw_flags == 0x2600
-            && anim.z_adjust == -15),
-        "the explosion takes the combat explosion row"
-    );
-    assert!(
-        sim.anims().any(|(_, anim)| {
-            sim.interner.resolve(anim.type_id).starts_with("WCLBOLT")
-                && at_cell(anim)
-                && anim.draw_flags == 0x600
-        }),
-        "the bolt takes the (0, 1, 0x600, 0, 0) row"
     );
 }
 

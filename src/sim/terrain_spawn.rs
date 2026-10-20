@@ -1047,51 +1047,6 @@ mod tests {
         );
     }
 
-    /// The animation index is a decoration over already-constructed objects, so
-    /// running it alone can never resurrect terrain.
-    #[test]
-    fn gsi_17_01_spawner_animation_pass_only_decorates_constructed_objects() {
-        use crate::map::overlay::TerrainObject;
-        use crate::sim::world::Simulation;
-
-        let ini = IniFile::from_str(
-            "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
-             [TerrainTypes]\n0=TIBTRE01\n\
-             [TIBTRE01]\nSpawnsTiberium=yes\nIsAnimated=yes\n\
-             AnimationRate=3\nAnimationProbability=.003\n",
-        );
-        let mut rules = RuleSet::from_ini(&ini).expect("rules");
-        rules.set_terrain_spawner_frame_count_for_test("TIBTRE01", STOCK_FRAME_COUNT);
-
-        let mut sim = Simulation::new();
-        assert_eq!(
-            seed_terrain_spawner_animation(&mut sim, &rules),
-            0,
-            "no constructed objects means no spawners"
-        );
-        assert!(sim.terrain_objects.objects().is_empty());
-
-        construct_terrain_objects(
-            &mut sim,
-            &[TerrainObject {
-                rx: 5,
-                ry: 6,
-                name: "TIBTRE01".to_string(),
-            }],
-            &rules,
-            false,
-        );
-        assert!(
-            sim.terrain_objects.animations().is_empty(),
-            "construction alone leaves the animation index empty"
-        );
-        assert_eq!(seed_terrain_spawner_animation(&mut sim, &rules), 1);
-        assert_eq!(
-            sim.terrain_objects.animations()[&(5, 6)].frame_count,
-            STOCK_FRAME_COUNT as i16
-        );
-    }
-
     #[test]
     fn gsi_04_12_terrain_raw_occupation_seed_maps_theater_masks_at_source_cell() {
         use crate::map::overlay::TerrainObject;

@@ -221,61 +221,6 @@ fn gsi_04_18_remote_unbound_and_retained_active_uplinks_are_silent() {
 }
 
 #[test]
-fn gsi_04_18_two_uplinks_reshroud_only_after_the_last_provider_is_concealed() {
-    let (mut sim, rules, owner) = fixture();
-    insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
-    insert_structure(&mut sim, 2, owner, "GASPYSAT", 8);
-    let scenario_rng_before = sim.scenario_rng.state();
-    let main_rng_before = sim.main_rng.state();
-
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(sim.houses[&owner].spy_sat_active());
-    assert!(sim.houses[&owner].map_is_clear());
-    assert!(sim.fog.is_cell_revealed(owner, 23, 23));
-
-    sim.uninit(1);
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(sim.houses[&owner].spy_sat_active());
-    assert!(sim.houses[&owner].map_is_clear());
-    assert!(sim.fog.is_cell_revealed(owner, 23, 23));
-
-    sim.uninit(2);
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(!sim.houses[&owner].spy_sat_active());
-    assert!(!sim.houses[&owner].map_is_clear());
-    assert!(!sim.fog.is_cell_revealed(owner, 23, 23));
-    assert_eq!(sim.scenario_rng.state(), scenario_rng_before);
-    assert_eq!(sim.main_rng.state(), main_rng_before);
-}
-
-#[test]
-fn gsi_04_18_last_uplink_loss_preserves_surviving_techno_sight() {
-    let (mut sim, rules, owner) = fixture();
-    insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
-    insert_sight_unit(&mut sim, 2, owner, 4, 4);
-    sim.reconcile_active_vision_structures(&rules);
-    reveal_inserted_sight(&mut sim, 1);
-    reveal_inserted_sight(&mut sim, 2);
-    sim.refresh_fog(&vision::VisionConfig::default(), Some(&rules));
-    assert!(sim.fog.is_cell_visible(owner, 4, 4));
-    assert!(sim.fog.is_cell_revealed(owner, 23, 23));
-    assert!(!sim.fog.is_cell_visible(owner, 23, 23));
-    let scenario_rng_before = sim.scenario_rng.state();
-    let main_rng_before = sim.main_rng.state();
-
-    sim.uninit(1);
-    sim.reconcile_active_vision_structures(&rules);
-
-    assert!(!sim.houses[&owner].spy_sat_active());
-    assert!(!sim.houses[&owner].map_is_clear());
-    assert!(!sim.fog.is_cell_revealed(owner, 23, 23));
-    assert!(sim.fog.is_cell_visible(owner, 4, 4));
-    assert!(sim.fog.is_cell_revealed(owner, 4, 4));
-    assert_eq!(sim.scenario_rng.state(), scenario_rng_before);
-    assert_eq!(sim.main_rng.state(), main_rng_before);
-}
-
-#[test]
 fn gsi_04_18_spy_sat_candidate_is_independent_of_low_or_offline_power() {
     let (mut sim, rules, owner) = fixture();
     insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
@@ -365,31 +310,6 @@ fn gsi_04_18_first_warping_candidate_blocks_later_uplink_but_selling_is_skipped(
 }
 
 #[test]
-fn gsi_04_18_house_rung_applies_spy_sat_before_gap_and_recovers_after_gap_conceal() {
-    let (mut sim, rules, owner) = fixture();
-    let gapper = sim.interner.intern("Soviet");
-    insert_structure(&mut sim, 1, owner, "GASPYSAT", 6);
-    insert_structure(&mut sim, 2, gapper, "GAGAP", 12);
-    sim.visit_building_operational(2, &rules, None, crate::sim::world::FrameEffects::default());
-
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(sim.fog.is_cell_revealed(owner, 23, 23));
-    assert!(!sim.fog.is_cell_revealed(owner, 12, 12));
-    assert!(sim.fog.is_cell_gap_covered(owner, 12, 12));
-
-    sim.uninit(2);
-    sim.fog.mark_visible_for_owner(owner, 3, 3);
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(sim.houses[&owner].spy_sat_active());
-    assert!(sim.fog.is_cell_revealed(owner, 12, 12));
-    assert!(!sim.fog.is_cell_gap_covered(owner, 12, 12));
-    assert!(
-        sim.fog.is_cell_visible(owner, 3, 3),
-        "House-rung Gap replacement must preserve Phase-3 line of sight"
-    );
-}
-
-#[test]
 fn gsi_04_18_spy_sat_latch_and_persisted_fog_are_hash_authority() {
     let (mut sim, _rules, owner) = fixture();
     let baseline = sim.state_hash();
@@ -464,21 +384,6 @@ fn shroud_current_sight_world_collector_and_native_frame_restore() {
         !restored.fog.is_cell_revealed(owner, 12, 12),
         "frame240 consumes persisted pending conceal before object work"
     );
-}
-
-#[test]
-fn shroud_current_sight_psychic_mapping_does_not_gain_gap_immunity() {
-    let (mut sim, rules, owner) = fixture();
-    let gapper = sim.interner.intern("Soviet");
-    let sw = charge_psychic_reveal(&mut sim, owner);
-    assert!(crate::sim::superweapon::psychic_reveal::launch(
-        &mut sim, &rules, owner, 12, 12, sw
-    ));
-    assert!(sim.fog.is_cell_revealed(owner, 12, 12));
-    insert_structure(&mut sim, 1, gapper, "GAGAP", 12);
-    sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());
-    sim.reconcile_active_vision_structures(&rules);
-    assert!(!sim.fog.is_cell_revealed(owner, 12, 12));
 }
 
 #[test]

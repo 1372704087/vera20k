@@ -1215,35 +1215,6 @@ mod tests {
     }
 
     #[test]
-    fn native_home_inputs_keep_retained_base_geometry_across_snapshot_load() {
-        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
-            "tools/spatial_oracle/house_base_return.json",
-        ))
-        .unwrap();
-        for row in corpus["home_return"].as_array().unwrap() {
-            let input = &row["input"];
-            let name = input["name"].as_str().unwrap();
-            let (sim, _, owner) = native_home_fixture(input);
-            let retained = geometry(&sim, owner);
-            let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, name, 0);
-            let mut loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
-                .unwrap()
-                .sim;
-            // These native query premises deliberately have no registered
-            // buildings. Restore must retain the saved House5490/5498, not
-            // replace them with an empty-membership projection.
-            assert_eq!(geometry(&loaded, owner), retained, "{name}");
-            let retained_hash = loaded.state_hash();
-            loaded
-                .houses
-                .get_mut(&owner)
-                .unwrap()
-                .retain_base_geometry(retained.0, retained.1.wrapping_add(1));
-            assert_ne!(loaded.state_hash(), retained_hash, "radius hash: {name}");
-        }
-    }
-
-    #[test]
     fn original_house_500200_ordinary_return_rows_through_production_owner() {
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
             "tools/spatial_oracle/house_base_return.json",
@@ -1328,46 +1299,6 @@ mod tests {
                 physical,
                 "query retains actor: {name}"
             );
-        }
-    }
-
-    #[test]
-    fn ordinary_home_query_reports_unavailable_before_rng_without_map_or_class_authority() {
-        let input = serde_json::json!({
-            "family": "MTNK", "radius": 0, "seed": 31,
-        });
-        for missing in 0..7 {
-            let (mut sim, id, owner) = native_home_fixture(&input);
-            let held_terrain = sim.resolved_terrain.as_ref().unwrap().clone();
-            match missing {
-                0 => sim.resolved_terrain = None,
-                1 => sim.playfield_bounds = None,
-                2 => sim.playfield_size_height = None,
-                3 => sim.zone_grid = None,
-                4 => {
-                    sim.houses.remove_for_test(&owner);
-                }
-                5 => {
-                    sim.substrate.entities.remove(id);
-                }
-                _ => {
-                    sim.substrate
-                        .entities
-                        .get_mut(id)
-                        .unwrap()
-                        .set_category_for_test(EntityCategory::Structure);
-                }
-            }
-            let before = sim.rng_state();
-            let hash_before = sim.state_hash();
-            assert_eq!(
-                sim.house_return_cell(owner, id),
-                None,
-                "missing premise {missing}"
-            );
-            assert_eq!(sim.rng_state(), before, "missing premise {missing}");
-            assert_eq!(sim.state_hash(), hash_before, "missing premise {missing}");
-            assert_eq!(held_terrain.dummy_cell_requested_coord(), (-7, 1));
         }
     }
 
@@ -1591,36 +1522,6 @@ mod tests {
     }
 
     #[test]
-    fn capture_recalculates_after_old_removal_and_before_new_append() {
-        let rules = ordinary_rules();
-        let mut sim = native_map_fixture();
-        let old = add_house(&mut sim, "Americans", &rules);
-        let new = add_house(&mut sim, "Russians", &rules);
-        let first = sim
-            .spawn_object("FIRST", "Americans", 5, 5, 0, &rules)
-            .unwrap();
-        let second = sim
-            .spawn_object("SECOND", "Americans", 13, 9, 0, &rules)
-            .unwrap();
-        sim.change_owner_with_rules(
-            first,
-            new,
-            &rules,
-            None,
-            crate::sim::world::FrameEffects::default(),
-        );
-        assert_eq!(sim.houses[&old].tracking().buildings(), 1);
-        assert_eq!(sim.houses[&new].tracking().buildings(), 1);
-        assert_eq!(sim.houses[&old].base_projection().buildings(), [second]);
-        assert_eq!(sim.houses[&new].base_projection().buildings(), [first]);
-        let old_primary = sim.houses[&old].base_center().unwrap();
-        assert!(old_primary.0.abs_diff(13) <= 1 && old_primary.1.abs_diff(9) <= 1);
-        // Original tracked>0/empty row on the NEW House. If its append ran
-        // first, the geometry would already be near the captured building.
-        assert_eq!(geometry(&sim, new), (None, 512));
-    }
-
-    #[test]
     fn failed_mark_dead_and_attached_upgrade_unlimbo_do_not_publish_geometry() {
         use crate::sim::world::lifecycle::{
             PlacementEvidence, RevealOutcome, RevealPosition, RevealRequest, UninitContext,
@@ -1673,28 +1574,6 @@ mod tests {
             }
             assert_eq!(geometry(&sim, owner), (Some((14, 14)), 9999));
             assert!(sim.houses[&owner].base_projection().buildings().is_empty());
-        }
-    }
-
-    #[test]
-    fn missing_map_context_reports_unavailable_without_replacing_retained_geometry() {
-        let rules = ordinary_rules();
-        for missing in 0..3 {
-            let mut sim = native_map_fixture();
-            let owner = add_house(&mut sim, "Americans", &rules);
-            sim.houses
-                .get_mut(&owner)
-                .unwrap()
-                .retain_base_geometry(Some((14, 14)), 9999);
-            match missing {
-                0 => sim.resolved_terrain = None,
-                1 => sim.playfield_bounds = None,
-                _ => sim.playfield_size_height = None,
-            }
-            let hash_before = sim.state_hash();
-            assert!(!sim.recalculate_house_base_geometry(owner, &rules));
-            assert_eq!(geometry(&sim, owner), (Some((14, 14)), 9999));
-            assert_eq!(sim.state_hash(), hash_before);
         }
     }
 

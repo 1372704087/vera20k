@@ -23,6 +23,8 @@ pub(crate) enum PresentedShell {
     WolWelcome,
     WolLogin,
     WolLobby,
+    WolOptions,
+    WolSoundOptions,
     Score,
 }
 

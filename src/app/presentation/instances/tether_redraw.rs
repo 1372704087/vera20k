@@ -40,8 +40,9 @@ pub(crate) fn assign_tether_redraws(sim: &Simulation, planned: &mut [PlannedObje
         }
         match entity.category() {
             EntityCategory::Structure if gets_unload(entity) => {
-                object.tether_redraws = (0..entity.radio_contacts.len())
-                    .filter_map(|slot| entity.radio_contacts.slot(slot))
+                object.tether_redraws = entity
+                    .radio_contacts
+                    .iter_live()
                     .filter(|&contact| {
                         entities.get(contact).is_some_and(|contact| {
                             !contact.lifecycle.in_limbo()

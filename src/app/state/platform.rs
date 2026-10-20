@@ -64,8 +64,8 @@ pub(crate) struct PlatformState {
     /// the frame counter, input, AI, map logic and per-tick update all stop.
     /// Only the message pump keeps running. Starts true — a window that never
     /// reports an activation edge must keep running. Whether a clear flag
-    /// freezes the match is `focus_freeze_active`; input admission reads this
-    /// flag directly.
+    /// freezes the match is `focus_freeze_active`; input admission and the
+    /// `WM_ACTIVATEAPP` audio-output gate read this flag directly.
     pub(crate) window_active: bool,
     /// `[gameplay] pause_on_focus_loss`: whether a deactivated window freezes
     /// the match the way native does. Off, the match runs on in the background.
@@ -118,8 +118,10 @@ impl PlatformState {
     /// Is the match frozen because the window is not the foreground?
     ///
     /// True only while the window is deactivated and `pause_on_focus_loss` is
-    /// configured; the single gate for the simulation, the message clock and
-    /// the focus-edge audio stop.
+    /// configured; the single gate for the simulation and the message clock.
+    /// The audio stop is deliberately not part of it: gamemd gates its primary
+    /// output on the activation edge itself, so that gate follows
+    /// [`Self::window_active`] alone.
     pub(crate) fn focus_freeze_active(&self) -> bool {
         self.pause_on_focus_loss && !self.window_active
     }

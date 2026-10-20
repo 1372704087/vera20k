@@ -4965,10 +4965,8 @@ MinLowPowerProductionSpeed=0.4\nMaxLowPowerProductionSpeed=0.85\n\n\
     /// the pre-movement gate the promotion slipped a tick, and that lag compounds
     /// through every chained handoff.
     ///
-    /// Infantry rather than Unit deliberately: the Unit moving-defer branch is
-    /// inert in production today because `signed_height` has no producer and the
-    /// resulting error maps to permissive-ready, so a Unit fixture would pass for
-    /// the wrong reason. Infantry readiness reads no height.
+    /// Infantry readiness reads no height, so the walker's stop alone decides
+    /// it.
     #[test]
     fn post_movement_checkpoint_commences_a_walker_that_stopped_this_tick() {
         let rules = promotion_rules();

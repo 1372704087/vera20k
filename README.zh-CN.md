@@ -54,16 +54,10 @@ VERA20K 由玩家打造、为玩家而做，项目的方向由玩家说了算。
 
 ## 系统需求
 
-- **游戏：** 自备一份《红色警戒2：尤里的复仇》，版本 1.001。VERA20K 不含任何游戏文件，
-  它读取你在 `ra2_dir` 中指定的文件夹里的原版 `.mix` 压缩包。
-- **Windows：** Windows 10 或更高版本（x64）。Windows ARM64 需要自行编译，CI 会构建并测试它。
-- **Linux：** x86-64 或 ARM64，需要 Vulkan、X11 或 Wayland，以及 ALSA（libasound2）。
-  官方版本在 Ubuntu 22.04 上构建，因此需要 glibc 2.35 或更高；Steam Deck 上的 SteamOS 满足要求。
-  Linux ARM64 需要自行编译。
-- **macOS：** macOS 11 或更高版本（Apple Silicon），这也是我们发布的版本。Intel Mac 需要自行编译，
-  未纳入 CI 测试。
-- **显卡：** 支持 Vulkan、DirectX 12 或 Metal 的 GPU。渲染器只申请这三种接口，没有 OpenGL
-  或 DirectX 11 的回退路径，因此三者都不支持的显卡无法运行。
+- **游戏：** 《红色警戒2：尤里的复仇》1.001 版。
+- **系统：** Windows 10 或更高、Linux（glibc 2.35 或更高，如 Ubuntu 22.04 或 Steam Deck），
+  或 Apple Silicon 上的 macOS 11 或更高。
+- **显卡：** Vulkan、DirectX 12 或 Metal。
 
 ## 编译与运行
 

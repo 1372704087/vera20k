@@ -144,6 +144,8 @@ pub(crate) fn collect_area(
         .receiver_fixture
         .as_ref()
         .is_none_or(|fixture| fixture.terrain_collection);
+    let playfield_bounds = world.playfield_bounds();
+    let rule_handles = world.resolved_rule_handles();
     let mut prelude = crate::sim::world::simulation_area_damage_cell_prelude(
         rules,
         warhead,
@@ -159,7 +161,7 @@ pub(crate) fn collect_area(
         &mut world.zone_grid,
         &mut world.path_grid,
         world.bridge_state.as_ref(),
-        world.playfield_bounds,
+        playfield_bounds,
     );
     #[cfg(test)]
     let mut deferred_prelude = world.receiver_fixture.as_mut().map(|fixture| {
@@ -186,7 +188,7 @@ pub(crate) fn collect_area(
         warhead,
         rules,
         &world.interner,
-        world.rule_handles,
+        rule_handles,
         origin,
         combat_aoe::AoELayerContext {
             occupancy: Some(&world.substrate.occupancy),
@@ -752,7 +754,7 @@ pub(crate) fn commit_entities(
             rules,
             &world.interner,
             &world.houses,
-            &world.house_alliances,
+            world.house_alliances.as_map(),
             scenario_no_damage,
             current_tick,
             world.resolved_terrain.as_ref(),
@@ -2205,11 +2207,7 @@ fn continue_area_damage(
         ry: context.cell.1,
         damage: context.damage,
         warhead_ref: context.warhead_ref,
-        is_ion_cannon: context.warhead_ref
-            == world
-                .rule_handles
-                .expect("Simulation::resolve_type_handles must run before combat")
-                .ion_cannon,
+        is_ion_cannon: context.warhead_ref == world.rule_handles().ion_cannon,
         impact_z_leptons: context.impact.z,
     };
     crate::sim::world::bridge_orchestrator::apply_bridge_damage_events_with_overlay_registry(

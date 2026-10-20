@@ -100,7 +100,7 @@ fn restore_saved_scenario(
         .expect("saved production identities restore");
     restored.rebuild_caches_after_load(
         template.clone(),
-        live.terrain_speed_config.clone(),
+        live.terrain_speed_config().clone(),
         &resources.rules,
     );
     restored

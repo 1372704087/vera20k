@@ -186,14 +186,14 @@ fn a_mover_that_can_shoot_a_wall_prices_it_by_its_owner() {
         .as_mut()
         .unwrap()
         .set_wall_owner(16, 15, other);
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("RUSSIANS".into())
         .or_default()
         .insert("AMERICANS".into());
     for id in [WALLI, WALLV] {
         assert_eq!(entry(&sim, &rules, &registry, id), Ok(5), "{id}");
     }
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("AMERICANS".into())
         .or_default()
         .insert("RUSSIANS".into());

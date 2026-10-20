@@ -81,7 +81,7 @@ fn fixture_with_art(extra: &str, art: Option<&IniFile>) -> (Simulation, RuleSet)
     sim.resolved_terrain = Some(crate::map::resolved_terrain::test_grid(16, 16, |x, y| {
         test_terrain_cell(x, y)
     }));
-    sim.playfield_bounds = Some(test_playfield_bounds());
+    sim.set_playfield_bounds_for_test(Some(test_playfield_bounds()));
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     sim.spawn_object_at_height("GAPILE", "Americans", 10, 10, 0, 0, &rules)
         .unwrap();

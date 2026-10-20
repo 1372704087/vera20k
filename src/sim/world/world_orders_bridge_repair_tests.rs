@@ -113,8 +113,8 @@ fn spawn_engineer(sim: &mut Simulation, rules: &RuleSet, rx: u16, ry: u16) -> u6
 fn spawn_seal(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
     let owner = sim.interner.intern("Americans");
     let ty = sim.interner.intern("GHOST");
-    let id = sim.substrate.next_stable_object_id;
-    sim.substrate.next_stable_object_id += 1;
+    let id = sim.next_stable_object_id();
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
     let e = GameEntity::new_at_frame_zero_for_test(
         id,
         rx,
@@ -137,8 +137,8 @@ fn spawn_seal(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
 fn spawn_cabhut(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
     let owner = sim.interner.intern("Soviets");
     let ty = sim.interner.intern("CABHUT");
-    let id = sim.substrate.next_stable_object_id;
-    sim.substrate.next_stable_object_id += 1;
+    let id = sim.next_stable_object_id();
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
     let e = GameEntity::new_at_frame_zero_for_test(
         id,
         rx,
@@ -325,7 +325,7 @@ fn ordinary_friendly_repair_uses_capture_event_without_hut_exception() {
             .spawn_object_at_height("CABHUT", target_owner, 9, 10, 0, 0, &rules)
             .unwrap();
         let engineer = spawn_engineer(&mut sim, &rules, 8, 10);
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry("AMERICANS".into())
             .or_default()
             .insert("SOVIETS".into());
@@ -421,7 +421,7 @@ fn queued_hut_capture_survives_repair_before_event_execution() {
             .unwrap();
         let engineer = spawn_engineer(&mut sim, &rules, 8, 10);
         if relation == "allied" {
-            sim.house_alliances
+            sim.house_alliances_mut_for_test()
                 .entry("AMERICANS".into())
                 .or_default()
                 .insert("SOVIETS".into());

@@ -52,6 +52,7 @@
 
 use crate::map::entities::EntityCategory;
 use crate::rules::ruleset::RuleSet;
+#[cfg(any(test, feature = "test-support"))]
 use crate::sim::components::BaleDepositEvent;
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
@@ -188,6 +189,7 @@ fn unload_dumping(
                 // `Unit+0xF8 = 0` (`0x0073E493`).
                 entity.set_native_stage_value(0);
             }
+            #[cfg(any(test, feature = "test-support"))]
             sim.bale_events.push(BaleDepositEvent {
                 building_id: building,
                 tick: sim.session.tick(),
@@ -199,6 +201,7 @@ fn unload_dumping(
             // SpecialAnim destroyed.
             crate::sim::world::building_anim::end_refinery_unload_empty(sim, rules, building);
             set_status(sim, id, UNLOAD_FINISHING);
+            #[cfg(any(test, feature = "test-support"))]
             sim.bale_events.push(BaleDepositEvent {
                 building_id: building,
                 tick: sim.session.tick(),

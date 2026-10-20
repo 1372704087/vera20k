@@ -267,7 +267,7 @@ impl PreludeCells for PreludeReads<'_> {
 /// ([`EntryMover::is_ally_of`]).
 fn allied(live: &EntryReadContext<'_>, asker: InternedId, other: InternedId) -> bool {
     crate::sim::combat::combat_weapon::is_ally_by_object(
-        Some(&live.sim.house_alliances),
+        Some(live.sim.house_alliances.as_map()),
         &live.sim.interner,
         asker,
         other,

@@ -38,7 +38,7 @@ fn authority(sim: &Simulation, source: u64, expected_load: bool) -> Value {
         "logic":sim.substrate.logic.snapshot(),"display":sim.substrate.display,
         "pending_delete":sim.substrate.pending_delete.object_ids(),
         "native_id_cursor":sim.native_unique_ids.as_ref().unwrap().current_raw(),
-        "next_stable_id":sim.substrate.next_stable_object_id,
+        "next_stable_id":sim.next_stable_object_id(),
         "clock":[sim.session.tick(), u64::from(sim.session.binary_frame())],
         "bridge_authority":crate::util::sha256::sha256_hex(
             &save_codec::serialize(&sim.bridge_state).unwrap()),

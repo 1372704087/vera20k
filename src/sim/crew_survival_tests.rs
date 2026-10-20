@@ -1546,7 +1546,7 @@ fn retail_dustbowl_passengers_leave_their_destroyed_transports() {
                     (y - 2..=y + 2).all(|cy| {
                         crate::sim::cell_rect::cell_is_in_playfield_height_aware(
                             (i32::from(cx), i32::from(cy)),
-                            sim.playfield_bounds,
+                            sim.playfield_bounds(),
                             Some(terrain),
                         ) && terrain.cell(cx, cy).is_some_and(|cell| cell.level == level)
                             && grid.cell(cx, cy).is_some_and(|cell| cell.ground_walkable)

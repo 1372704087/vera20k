@@ -351,14 +351,14 @@ fn install_refinery_test_terrain_on(
     sim: &mut Simulation,
     override_cell: impl FnMut(&mut ResolvedTerrainCell),
 ) {
-    sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+    sim.set_playfield_bounds_for_test(Some(crate::map::playfield::PlayfieldBounds {
         base: 0,
         off_fc: -100,
         off_100: -100,
         off_104: 200,
         off_108: 200,
-    });
-    sim.playfield_size_height = Some(64);
+    }));
+    sim.set_playfield_size_height_for_test(Some(64));
     let terrain = resolved_clear_grid_with_override(64, 64, override_cell);
     sim.zone_grid = Some(
         crate::sim::pathfinding::zone_map::ZoneGrid::build_with_terrain(
@@ -561,11 +561,14 @@ fn modded_refinery_rules(foundation: &str, free_unit: Option<&str>) -> RuleSet {
 fn mark_allied(sim: &mut Simulation, a: &str, b: &str) {
     let a = a.to_ascii_uppercase();
     let b = b.to_ascii_uppercase();
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry(a.clone())
         .or_default()
         .insert(b.clone());
-    sim.house_alliances.entry(b).or_default().insert(a);
+    sim.house_alliances_mut_for_test()
+        .entry(b)
+        .or_default()
+        .insert(a);
 }
 
 fn ready_building(sim: &mut Simulation, rules: &RuleSet, owner: &str, type_id: &str) {
@@ -1529,7 +1532,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
         let americans = sim.interner.get("Americans").expect("owner interned");
         let gapowr = sim.interner.get("GAPOWR").expect("type interned");
         let entities_before = sim.substrate.entities.len();
-        let next_id_before = sim.substrate.next_stable_object_id;
+        let next_id_before = sim.next_stable_object_id();
         let occupancy_generation_before = sim.substrate.occupancy.generation();
         let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
         let tick = sim.advance_tick(&[rejected], Some(&rules), Some(&grid), None, 67);
@@ -1549,7 +1552,7 @@ fn placement_command_rejects_marked_ground_mobiles_until_they_are_unmarked() {
             "rejected placement must emit EVA_CannotDeployHere for {blocker_type}"
         );
         assert_eq!(sim.substrate.entities.len(), entities_before);
-        assert_eq!(sim.substrate.next_stable_object_id, next_id_before);
+        assert_eq!(sim.next_stable_object_id(), next_id_before);
         assert_eq!(
             sim.substrate.occupancy.generation(),
             occupancy_generation_before,
@@ -1614,7 +1617,7 @@ fn placement_command_rejects_nonblocking_overlay_and_preserves_ready_building() 
     let americans = sim.interner.get("Americans").expect("owner interned");
     let gapowr = sim.interner.get("GAPOWR").expect("type interned");
     let entities_before = sim.substrate.entities.len();
-    let next_id_before = sim.substrate.next_stable_object_id;
+    let next_id_before = sim.next_stable_object_id();
     let occupancy_generation_before = sim.substrate.occupancy.generation();
     let rejected = place_event(americans, gapowr, (12, 10), sim.session.tick() + 1);
     let tick = sim.advance_tick(&[rejected], Some(&rules), Some(&grid), None, 67);
@@ -1622,7 +1625,7 @@ fn placement_command_rejects_nonblocking_overlay_and_preserves_ready_building() 
     assert_eq!(tick.executed_commands, 1);
     assert!(!tick.spawned_entities);
     assert_eq!(sim.substrate.entities.len(), entities_before);
-    assert_eq!(sim.substrate.next_stable_object_id, next_id_before);
+    assert_eq!(sim.next_stable_object_id(), next_id_before);
     assert_eq!(
         sim.substrate.occupancy.generation(),
         occupancy_generation_before

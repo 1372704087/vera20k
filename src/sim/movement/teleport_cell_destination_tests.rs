@@ -95,16 +95,16 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, u64, InternedId) {
     sim.session.set_map_height_for_test(32);
     sim.session
         .set_map_name_for_test("CLEG supplied command cells".into());
-    sim.playfield_bounds = Some(PlayfieldBounds {
+    sim.set_playfield_bounds_for_test(Some(PlayfieldBounds {
         base: 16,
         off_fc: -16,
         off_100: -16,
         off_104: 64,
         off_108: 64,
-    });
+    }));
     // Executed FNPC56DC20 reads Map+F4=16 and retained Map+F8=0,
     // giving radius cap16. The allocated32x32 cell table is independent.
-    sim.playfield_size_height = Some(0);
+    sim.set_playfield_size_height_for_test(Some(0));
     let mut cells: Vec<_> = (0..32)
         .flat_map(|y| {
             (0..32).map(move |x| {
@@ -985,7 +985,7 @@ fn native_cleg_reservation_survives_snapshot_and_is_hashed() {
         restored.restore_after_snapshot_load().unwrap();
         restored.rebuild_caches_after_load(
             sim.resolved_terrain.as_ref().unwrap().clone(),
-            sim.terrain_speed_config.clone(),
+            sim.terrain_speed_config().clone(),
             &rules,
         );
         assert_eq!(

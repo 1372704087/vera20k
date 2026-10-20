@@ -2544,7 +2544,7 @@ fn stock_sniper_damage_retaliation_uses_wall_context_before_sight_fallback() {
             world: &sim,
             rules,
             overlay_registry: Some(&registry),
-            fog: Some(sim.fog.fire_view(&sim.house_alliances)),
+            fog: Some(sim.fog.fire_view(sim.house_alliances.as_map())),
             firer: actor,
             obj: sniper,
             target: Some(TargetKind::Entity(source)),
@@ -6991,7 +6991,7 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
     victim.health.set_for_test(1000);
     sim.substrate.entities.insert(victim);
     let _ = sim.reveal(2);
-    sim.substrate.next_stable_object_id = 3;
+    sim.set_next_stable_object_id_for_test(3);
 
     let kill_wh = sim.interner.intern("KillWH");
     sim.commit_noncombat_aoe_hits(
@@ -8277,7 +8277,7 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
             dispatch_timer: MissionDispatchTimer::at_frame(frame),
         });
         sim.fire_events.clear();
-        let first_tail = sim.substrate.next_stable_object_id;
+        let first_tail = sim.next_stable_object_id();
         sim.object_ai_visit_one(
             deso,
             Some(&rules),
@@ -8817,7 +8817,7 @@ fn shrapnel_world(rules: &RuleSet, entities: Vec<GameEntity>) -> Simulation {
     sim.interner = test_interner();
     sim.substrate.occupancy = OccupancyGrid::rebuild(&store);
     sim.substrate.entities = store;
-    sim.substrate.next_stable_object_id = next_id;
+    sim.set_next_stable_object_id_for_test(next_id);
     sim.intern_rule_type_ids(rules);
     sim.resolve_type_handles(rules);
     sim.native_unique_ids =
@@ -9264,7 +9264,7 @@ fn gsi_04_01_projectile_shrapnel_captures_each_shared_dummy_lookup() {
     let mut sim = Simulation::with_seed(0x46_a310);
     sim.substrate.entities = entities;
     sim.substrate.occupancy = occupancy;
-    sim.substrate.next_stable_object_id = 2;
+    sim.set_next_stable_object_id_for_test(2);
     sim.interner = interner;
     sim.native_unique_ids =
         Some(crate::sim::native_identity::NativeUniqueIdCursor::for_synthetic_simulation());

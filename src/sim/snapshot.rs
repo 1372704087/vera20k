@@ -2690,7 +2690,7 @@ fn restore_object_references(
             )?;
         }
     }
-    for (&owner_id, &wave_id) in &sim.active_wave_links {
+    for (owner_id, wave_id) in sim.active_wave_links() {
         require_resolved_reference(
             entity_ids.contains(&owner_id),
             "ActiveWaveLinks",
@@ -2710,7 +2710,7 @@ fn restore_object_references(
         )?;
     }
 
-    for &object_id in sim.object_custom_sounds.keys() {
+    for object_id in sim.custom_sound_objects() {
         require_object_reference(
             &entity_ids,
             sim.terrain_objects.objects(),
@@ -3189,7 +3189,7 @@ impl Simulation {
         // The app-supplied terrain template is the immutable load-time map.
         // Action 40's mutable LocalSize is serialized on Simulation, so replay
         // its CellClass-derived cache before overlay and zone reconstruction.
-        if let Some(bounds) = self.playfield_bounds {
+        if let Some(bounds) = self.playfield_bounds() {
             let _ = self
                 .resolved_terrain
                 .as_mut()
@@ -3294,7 +3294,7 @@ impl Simulation {
         let mut native_rect = self.ore_growth_state.native_rect();
         if native_rect == (0, 0)
             && let (Some(bounds), Some(height)) =
-                (self.playfield_bounds, self.playfield_size_height)
+                (self.playfield_bounds(), self.playfield_size_height())
         {
             native_rect = (
                 u16::try_from(bounds.base).unwrap_or(0),
@@ -3987,14 +3987,14 @@ mod tests {
         let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).unwrap();
         let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
         let mut sim = Simulation::new();
-        sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+        sim.set_playfield_bounds_for_test(Some(crate::sim::cell_rect::PlayfieldBounds {
             base: 2,
             off_fc: -8,
             off_100: -8,
             off_104: 16,
             off_108: 16,
-        });
-        sim.playfield_size_height = Some(2);
+        }));
+        sim.set_playfield_size_height_for_test(Some(2));
         sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(4, 4));
         sim.overlay_grid.as_mut().unwrap().place_overlay(2, 2, 0, 0);
         sim.install_resolved_terrain_for_new_map(flat_terrain(4, 4));
@@ -5472,7 +5472,7 @@ mod tests {
         );
         let moved_edges = active.edge_geometry();
         sim.admit_wave(active_id, active);
-        sim.active_wave_links.insert(owner_ids[0], active_id);
+        sim.link_active_wave_for_test(owner_ids[0], active_id);
 
         let inactive_id = sim.allocate_stable_id();
         let mut inactive = Wave::new_owned(
@@ -5489,7 +5489,7 @@ mod tests {
         inactive.set_direction_octant_for_test(6);
         inactive.replace_recorded_cells(vec![WaveRecordedCell::real(7, 2)]);
         sim.admit_wave(inactive_id, inactive);
-        sim.active_wave_links.insert(owner_ids[1], inactive_id);
+        sim.link_active_wave_for_test(owner_ids[1], inactive_id);
 
         let dummy_id = sim.allocate_stable_id();
         let mut dummy = Wave::new_owned(
@@ -5504,7 +5504,7 @@ mod tests {
         dummy.set_direction_octant_for_test(2);
         dummy.replace_recorded_cells(vec![WaveRecordedCell::shared_dummy()]);
         sim.admit_wave(dummy_id, dummy);
-        sim.active_wave_links.insert(owner_ids[2], dummy_id);
+        sim.link_active_wave_for_test(owner_ids[2], dummy_id);
 
         let expected_hash = sim.state_hash();
         let bytes = GameSnapshot::save(&sim, 0, 0, "wave-state.map", 0);
@@ -5514,7 +5514,10 @@ mod tests {
             .expect("Wave identities restore structurally");
 
         assert_eq!(restored.state_hash(), expected_hash);
-        assert_eq!(restored.active_wave_links, sim.active_wave_links);
+        assert_eq!(
+            restored.active_wave_links().collect::<Vec<_>>(),
+            sim.active_wave_links().collect::<Vec<_>>()
+        );
         assert_eq!(restored.waves.get(active_id), sim.waves.get(active_id));
         assert_eq!(
             restored.waves.get(active_id).unwrap().direction_octant(),
@@ -5982,7 +5985,7 @@ mod tests {
             restored.pending_command_snapshot(),
             sim.pending_command_snapshot()
         );
-        assert!(!restored.quit_requested);
+        assert!(!restored.quit_requested());
         assert_eq!(restored.take_executed_exit_owner(), None);
         assert_eq!(restored.state_hash(), expected_hash);
     }
@@ -6320,7 +6323,7 @@ mod tests {
         sim.fog.reveal_all_for_owner(owner);
         crate::sim::vision::apply_gap_generators(
             &mut sim.fog,
-            &sim.house_alliances,
+            sim.house_alliances.as_map(),
             &[(gapper, 6, 6, 2)],
             &sim.interner,
         );
@@ -6536,7 +6539,7 @@ mod tests {
             system.set_target_coords_for_test(glam::IVec3::ZERO);
             system
         });
-        sim.substrate.next_stable_object_id = 5;
+        sim.set_next_stable_object_id_for_test(5);
         let owner = sim.interner.intern("ComputerIQ");
         let mut house = crate::sim::house_state::HouseState::new(owner, 0, None, false, 0, 51);
         house.set_current_iq_for_test(2);
@@ -9234,7 +9237,7 @@ mod tests {
                 terrain.occupation_bits(),
             );
         }
-        sim.substrate.next_stable_object_id = spawner_id + 1;
+        sim.set_next_stable_object_id_for_test(spawner_id + 1);
         sim.terrain_objects.animations_mut_for_test().insert(
             spawner_cell,
             TerrainAnimationState::new(
@@ -9328,7 +9331,7 @@ mod tests {
                 .spawning_cells()
                 .contains(&spawner_cell)
         );
-        assert_eq!(restored.substrate.next_stable_object_id, spawner_id + 1);
+        assert_eq!(restored.next_stable_object_id(), spawner_id + 1);
         let reconciled = restored
             .resolved_terrain
             .as_ref()

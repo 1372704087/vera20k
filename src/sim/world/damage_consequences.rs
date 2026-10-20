@@ -221,13 +221,7 @@ impl DamageConsequences {
         world.dispatch_unit_lost_events(&effects.unit_lost_events);
         debug_assert!(effects.smudge_spawn_requests.is_empty());
         if ordinary {
-            debug_assert!(world.pending_smudge_requests.is_empty());
             world.flush_smudge_dirty();
-            world.pending_smudge_requests.clear();
-        } else {
-            world
-                .pending_smudge_requests
-                .append(&mut effects.smudge_spawn_requests);
         }
         DamageCommitReceipt {
             area_result: None,

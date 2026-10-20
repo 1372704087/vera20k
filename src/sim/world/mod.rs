@@ -400,6 +400,34 @@ pub(crate) enum HouseAiActivationOrderTestEvent {
     DefeatProcessed,
 }
 
+/// The alliance voices MakeAlly and MakeEnemy queue for the local House.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AllianceEva {
+    /// `EVA_AllianceFormed` (`0x008247E4`): the local House is one of the
+    /// pair or allied with both.
+    Formed,
+    /// `EVA_EnemyAllianceFormed` (`0x008247CC`): any other client.
+    EnemyFormed,
+    /// `EVA_RequestingAlliance` (`0x008247B4`): the local House asked.
+    Requesting,
+    /// `EVA_AllianceRequested` (`0x0082479C`): the local House was asked.
+    Requested,
+    /// `EVA_AllianceBroken` (`0x00824808`).
+    Broken,
+}
+
+impl AllianceEva {
+    pub fn event(self) -> &'static str {
+        match self {
+            Self::Formed => "EVA_AllianceFormed",
+            Self::EnemyFormed => "EVA_EnemyAllianceFormed",
+            Self::Requesting => "EVA_RequestingAlliance",
+            Self::Requested => "EVA_AllianceRequested",
+            Self::Broken => "EVA_AllianceBroken",
+        }
+    }
+}
+
 /// A sound event produced during simulation (combat, death, production).
 /// Pure data — no audio library dependency. Drained by the app layer each frame.
 #[derive(Debug, Clone)]
@@ -750,6 +778,17 @@ pub enum SimSoundEvent {
     /// `TXT_PLAYER_DEFEATED` with the House's UI name and plays
     /// `EVA_YouHaveLost` for the local House, `EVA_PlayerDefeated` otherwise.
     PlayerDefeated { house: InternedId },
+    /// MakeAlly or MakeEnemy changed `owner`'s alliance with `other` outside
+    /// initialization (`sim::house_diplomacy`). With `line`, the app posts
+    /// `TXT_HAS_ALLIED` / `TXT_AT_WAR` (owner, other) in the owner's
+    /// HouseType colour; `eva` is the local client's voice, if any.
+    AllianceChanged {
+        owner: InternedId,
+        other: InternedId,
+        formed: bool,
+        line: bool,
+        eva: Option<AllianceEva>,
+    },
     /// A superweapon fired. `sw_type` is the interned `[SuperWeaponTypes]`
     /// section name of the launched weapon — the discriminator the app layer
     /// needs to pick the cue, and the same object gamemd switches on.

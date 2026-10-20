@@ -154,6 +154,11 @@ pub(crate) fn handle_mouse_input(
     if button == MouseButton::Middle {
         return;
     }
+    // MessageList::Input 0x005D4510 ends an open chat edit on the right
+    // button, press or release, and leaves the click to the game.
+    if button == MouseButton::Right {
+        crate::app::input::chat::right_button(state);
+    }
     match crate::app::input::gadget_input::handle_mouse_button_event(state, button, pressed) {
         GadgetConsume::Tactical => tactical_mouse(state, button, btn_state),
         GadgetConsume::Minimap => minimap_mouse(state, button, btn_state),
@@ -1741,6 +1746,9 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
             state,
             crate::app::types::CategoryNavigationKind::Veterancy,
         ),
+        HotkeyCommand::ToggleAlliance => {
+            crate::app::input::diplomacy::toggle_alliance_hotkey(state)
+        }
         // UNCHECKED residual, all still no-ops. Two of them are audio
         // triggers whose rules keys VERA already parses or could:
         // `PlaceBeacon` should place the beacon and play `[AudioVisual]
@@ -1752,10 +1760,7 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         // nothing. Frequency: rare in skirmish — both are multiplayer
         // social commands. Downstream risk: beacons and taunts are network
         // messages, so they belong with `net/`, not with this row.
-        HotkeyCommand::ToggleAlliance
-        | HotkeyCommand::PlaceBeacon
-        | HotkeyCommand::PageUser
-        | HotkeyCommand::Taunt(_) => {}
+        HotkeyCommand::PlaceBeacon | HotkeyCommand::PageUser | HotkeyCommand::Taunt(_) => {}
     }
 }
 

@@ -2857,8 +2857,8 @@ impl Simulation {
                 let Some(target) = self.live_action_house(live, value, rules) else {
                     return false;
                 };
-                self.make_enemy(source, target, rules);
-                self.make_enemy(target, source, rules);
+                self.make_enemy(source, target, rules, false);
+                self.make_enemy(target, source, rules, false);
             }
             23..=27 => {
                 use crate::sim::scenario_session::ScenarioTimerAction;
@@ -3343,8 +3343,23 @@ impl Simulation {
                 let Some(selected) = self.live_action_house(live, value, rules) else {
                     return false;
                 };
-                self.make_ally(owner, selected, rules, overlay_registry, frame_effects);
-                self.make_ally(selected, owner, rules, overlay_registry, frame_effects);
+                // 0x006DE168/0x006DE171 push EBP, null here: no announcement.
+                self.make_ally(
+                    owner,
+                    selected,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                    false,
+                );
+                self.make_ally(
+                    selected,
+                    owner,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                    false,
+                );
             }
             123 | 124 => {
                 // Actual active table entries6DFA0B/6DFA38 dispatch

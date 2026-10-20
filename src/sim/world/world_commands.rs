@@ -498,10 +498,11 @@ impl Simulation {
         command_owner: crate::sim::intern::InternedId,
         house_index: i32,
     ) -> Option<CommandRecord> {
-        let mut record =
-            self.encode_header_event(command_owner, crate::sim::command::REMOVE_PLAYER_OPCODE)?;
-        record.payload_mut()[..4].copy_from_slice(&house_index.to_le_bytes());
-        Some(record)
+        self.encode_house_index_event(
+            command_owner,
+            crate::sim::command::REMOVE_PLAYER_OPCODE,
+            house_index,
+        )
     }
 
     /// EVENT_ALLY's record: the header House is the sender, the dword
@@ -511,8 +512,18 @@ impl Simulation {
         command_owner: crate::sim::intern::InternedId,
         house_index: i32,
     ) -> Option<CommandRecord> {
-        let mut record =
-            self.encode_header_event(command_owner, crate::sim::command::ALLY_OPCODE)?;
+        self.encode_house_index_event(command_owner, crate::sim::command::ALLY_OPCODE, house_index)
+    }
+
+    /// `EventClass(house, type, index)` (`0x004C6720`): a header event
+    /// whose dword payload is a House index.
+    fn encode_house_index_event(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+        opcode: u8,
+        house_index: i32,
+    ) -> Option<CommandRecord> {
+        let mut record = self.encode_header_event(command_owner, opcode)?;
         record.payload_mut()[..4].copy_from_slice(&house_index.to_le_bytes());
         Some(record)
     }
@@ -672,28 +683,21 @@ impl Simulation {
                 .then(|| CommandEnvelope::new(owner, execute_tick, Command::ExitMatch));
         }
 
-        if record.opcode() == crate::sim::command::REMOVE_PLAYER_OPCODE {
-            let house_index = usize::try_from(record.house_id()).ok()?;
-            let owner = *self.houses.order().get(house_index)?;
-            let removed = i32::from_le_bytes(record.payload()[..4].try_into().ok()?);
-            return self.houses.contains_key(&owner).then(|| {
-                CommandEnvelope::new(
-                    owner,
-                    execute_tick,
-                    Command::RemovePlayer {
-                        house_index: removed,
-                    },
-                )
-            });
-        }
-
-        if record.opcode() == crate::sim::command::ALLY_OPCODE {
+        let house_index_event: Option<fn(i32) -> Command> = match record.opcode() {
+            crate::sim::command::REMOVE_PLAYER_OPCODE => {
+                Some(|house_index| Command::RemovePlayer { house_index })
+            }
+            crate::sim::command::ALLY_OPCODE => Some(|house_index| Command::Ally { house_index }),
+            _ => None,
+        };
+        if let Some(command) = house_index_event {
             let house_index = usize::try_from(record.house_id()).ok()?;
             let owner = *self.houses.order().get(house_index)?;
             let other = i32::from_le_bytes(record.payload()[..4].try_into().ok()?);
-            return self.houses.contains_key(&owner).then(|| {
-                CommandEnvelope::new(owner, execute_tick, Command::Ally { house_index: other })
-            });
+            return self
+                .houses
+                .contains_key(&owner)
+                .then(|| CommandEnvelope::new(owner, execute_tick, command(other)));
         }
 
         if record.opcode() == crate::sim::command::DESTRUCT_OPCODE {

@@ -475,7 +475,9 @@ impl Simulation {
                 house,
             )
         };
-        let eva = match (voice, formed, local) {
+        // Every voice sits inside the line's gate (0x004F9D72..0x004F9D8D and
+        // 0x004FA0EB..0x004FA106 jump past both).
+        let eva = match (voice && line, formed, local) {
             (false, _, _) | (_, _, None) => None,
             // 0x004F9E01..0x004F9E85: the alliance is now mutual.
             (true, true, Some(local)) if allied(other, owner) => {

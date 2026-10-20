@@ -874,6 +874,7 @@ pub(crate) fn schedule_command_in_sim(
                 | Command::ExitMatch
                 | Command::Destruct
                 | Command::RemovePlayer { .. }
+                | Command::Ally { .. }
         )
     {
         return None;

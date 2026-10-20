@@ -76,7 +76,6 @@ pub(crate) enum NetworkSetupRequest {
 }
 
 pub(crate) struct NetworkSetupProtocol {
-    dialog: SetupDialog,
     locked: bool,
     /// WOL `00B77DEC`/`00B77E28` after the host's StartGame request, until
     /// the server's OnGameStart answers or rejects it.
@@ -99,7 +98,6 @@ impl NetworkSetupProtocol {
         let host = dialog.host;
         let wol_host = dialog.wol() && host;
         Self {
-            dialog,
             locked: false,
             wol_start_pending: false,
             ping_deadline: wol_host.then(|| Instant::now() + wol::PING_PERIOD),
@@ -144,6 +142,19 @@ impl NetworkSetupProtocol {
 }
 
 /// The setup dialog the admitted session shows: GameMode4 is WOL C2/C9.
+/// A white (0xFFFFFFFF) CSF line in the setup chat log: Start refusals and
+/// WOL chat notices.
+fn chat_notice(state: &mut AppState, key: &str, args: &[crate::assets::csf_file::CsfArg]) {
+    let text = crate::assets::csf_file::format_csf(&App::csf_label(state, key, key), args);
+    crate::app::shell_lan::append_chat(
+        state,
+        crate::ui::lan_shell::LanChatLine {
+            text: text.encode_utf16().collect(),
+            color: u32::MAX,
+        },
+    );
+}
+
 pub(crate) fn dialog(state: &AppState) -> SetupDialog {
     let session = &state.match_state.session;
     SetupDialog {

@@ -1082,10 +1082,12 @@ impl MatchSession {
         Ok(())
     }
 
-    /// WOL `005E9850` clears node+77 of every node but the host's (row 0),
-    /// on host option edits (C2 `0078F9C1`/`0078FA97`) and whenever a user
-    /// joins the game channel (`007A6625`). LAN never does this: its peers
-    /// retract acceptance through packet A0.
+    /// WOL `005E9850` clears node+77 of every node not named `0xA8D610`, on
+    /// host option edits (C2 `0078F9C1`/`0078FA97`) and whenever a user joins
+    /// the game channel (`007A6625`). The host's Create copies its own name
+    /// there (`0x78A0A9`); a guest's join sink empties it (`0x7A620D`), so a
+    /// guest clears every node, its own included. LAN never does this: its
+    /// peers retract acceptance through packet A0.
     pub(crate) fn clear_wol_guest_readiness(&mut self) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.mode == SessionMode::Wol,
@@ -1100,8 +1102,9 @@ impl MatchSession {
         else {
             anyhow::bail!("network setup is not editable");
         };
-        for (human, entry) in launch.humans.iter().zip(admission.iter_mut()) {
-            if human.raw_slot_index != Some(0) {
+        let keep = self.host.then_some(launch.local_player_index);
+        for (index, entry) in admission.iter_mut().enumerate() {
+            if Some(index) != keep {
                 entry.ready = false;
             }
         }
@@ -1598,12 +1601,22 @@ mod tests {
         // 5EC3A0 `0x5EC457`: WOL rows stop at six where LAN keeps eight.
         assert_eq!(session.network_setup_capacity(), Some(6));
         assert_eq!(session.network_row_limit(), 6);
-        // 5E9850 clears every node but the host's (row 0), local or not.
+        // 5E9850 keeps only the node named 0xA8D610: the host's own name on
+        // the host, empty on a guest, which therefore clears its own too.
         session.set_network_player_ready(0, true).unwrap();
         session.set_network_player_ready(1, true).unwrap();
         session.clear_wol_guest_readiness().unwrap();
         assert!(session.network_player_ready(0));
         assert!(!session.network_player_ready(1));
+        let mut guest = MatchSession::default();
+        guest.enter_network(SessionMode::Wol, super::NetworkReturnContext::Wol);
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        guest.accept_network_setup(launch, false, Some(7)).unwrap();
+        guest.set_network_player_ready(0, true).unwrap();
+        guest.set_network_player_ready(1, true).unwrap();
+        guest.clear_wol_guest_readiness().unwrap();
+        assert!(!guest.network_player_ready(0) && !guest.network_player_ready(1));
         // Start Game Now: MaxAhead follows the agreed speed only.
         session.prepare_wol_timing([0; 8], true).unwrap();
         let speed = session.network_setup().unwrap().options.game_speed;

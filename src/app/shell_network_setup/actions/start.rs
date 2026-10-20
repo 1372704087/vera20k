@@ -1,27 +1,20 @@
-//! Host command588's ordered validation and pre-GO setup (005DCF00..5DD5DB).
-//! GO completion is a later service/timeout event, never the Start click.
+//! Host command 588's ordered validation and commit: BC (005DCF00..5DD5DB)
+//! ends in GO, C2 (0x7905D0..0x790BEB) in a StartGame request. GO and the
+//! server's OnGameStart complete later, never the Start click.
 
 use super::*;
-use crate::assets::csf_file::{CsfArg, format_csf};
+use crate::assets::csf_file::CsfArg;
 use crate::skirmish_launch::{LaunchHumanRole, LaunchTeam};
 use crate::skirmish_modes::ModeStartEffect;
 use std::time::{Duration, Instant};
 
-fn message(state: &mut AppState, key: &str, args: &[CsfArg]) {
-    let text = format_csf(&App::csf_label(state, key, key), args);
-    crate::app::shell_lan::append_chat(
-        state,
-        crate::ui::lan_shell::LanChatLine {
-            text: text.encode_utf16().collect(),
-            color: u32::MAX,
-        },
-    );
-}
+use super::super::chat_notice as message;
 
 pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
+    let wol = super::super::dialog(state).wol();
     anyhow::ensure!(
         state.match_state.session.host(),
-        "only the host starts a LAN game"
+        "only the host starts a network game"
     );
     anyhow::ensure!(
         state
@@ -31,6 +24,10 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
             .is_some_and(|protocol| !protocol.locked),
         "setup is locked"
     );
+    // C2 ignores Start while its StartGame request is pending (00B77DEC).
+    if super::super::wol::start_pending(state) {
+        return Ok(());
+    }
     super::super::remember_setup(state);
     let launch = state
         .match_state
@@ -38,14 +35,18 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .network_setup()
         .ok_or_else(|| anyhow::anyhow!("no setup"))?
         .clone();
-    if launch
+    let humans = launch
         .humans
         .iter()
         .filter(|human| !human.is_observer())
-        .count()
-        < 2
-    {
+        .count() as i32;
+    if humans < 2 {
         message(state, "TXT_ONLY_ONE", &[]);
+        return Ok(());
+    }
+    // C2 0x790698: WOL forbids AI players in a game with observers.
+    if wol && humans < launch.humans.len() as i32 && launch.ai_player_count != 0 {
+        message(state, "TXT_NO_AI_OBSERVATION", &[]);
         return Ok(());
     }
     let mut missing_map = false;
@@ -75,106 +76,62 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
     if missing_map {
         return Ok(());
     }
+    let mode = crate::skirmish_modes::mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)
+        .ok_or_else(|| anyhow::anyhow!("unknown mode"))?
+        .clone();
     let capacity = state
         .match_state
         .session
         .network_setup_capacity()
         .unwrap_or(0);
-    let players = launch
-        .humans
-        .iter()
-        .filter(|human| !human.is_observer())
-        .count() as i32
-        + launch.ai_player_count;
-    let capacity_ok = capacity >= players;
-    if !capacity_ok {
-        message(
-            state,
-            "TXT_SCENARIO_TOO_SMALL",
-            &[CsfArg::Int(i64::from(capacity))],
-        );
-    }
-    let mode = crate::skirmish_modes::mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)
-        .ok_or_else(|| anyhow::anyhow!("unknown mode"))?
-        .clone();
-    // The virtual14 callback still runs after a failed capacity check and may
-    // mutate roles or the retained Cooperative partner record.
-    let roles: Vec<_> = launch
-        .humans
-        .iter()
-        .map(|human| human.role.native_value())
-        .collect();
-    let mode_ok = match mode
-        .class
-        .validate_setup_start(launch.options.bases, &roles)
-    {
-        Ok(effect) => {
-            match effect {
-                ModeStartEffect::None => {}
-                ModeStartEffect::FreeForAllSourceRoles => {
-                    for (index, human) in launch.humans.iter().enumerate() {
-                        if !human.is_observer() {
-                            state.match_state.session.accept_network_human_role(
-                                index,
-                                LaunchHumanRole::Player {
-                                    group: index as i32,
-                                },
-                            )?;
-                        }
-                    }
-                }
-                ModeStartEffect::CooperativePartners => {
-                    state
-                        .frontend
-                        .multiplayer_shell_runtime
-                        .bind_network_cooperative_partners(&launch);
-                }
-            }
-            true
+    if wol {
+        // C2 0x79071E..0x7908D5: allies, readiness, then capacity. The
+        // missing AI trackbar 0x552 reads 0 through TBM_GETPOS, so only the
+        // humans count against the map.
+        if all_allied(state, &mode) {
+            message(state, "TXT_CANNOT_ALLY", &[]);
+            return Ok(());
         }
-        Err(key) => {
-            if let Some(key) = key {
-                message(state, key, &[]);
-            }
-            false
+        if !all_ready(state) {
+            return Ok(());
         }
-    };
-    if !capacity_ok || !mode_ok {
-        return Ok(());
-    }
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("mode callback keeps setup");
-    // 5DD0EA: only a nonobserver human in raw row0 seeds the comparison.
-    // An observer there bypasses this native gate; do not invent all-pairs.
-    if let Some(first) = launch
-        .humans
-        .iter()
-        .find(|human| human.raw_slot_index == Some(0) && !human.is_observer())
-    {
-        if let LaunchTeam::Team(team) = first.slot.team {
-            let same_humans = launch
-                .humans
-                .iter()
-                .filter(|human| human.raw_slot_index.is_some() && !human.is_observer())
-                .all(|human| human.slot.team == LaunchTeam::Team(team));
-            let same_ai = launch
-                .opponents
-                .iter()
-                .all(|ai| ai.team == LaunchTeam::Team(team));
-            if same_humans && same_ai && !mode.class.permits_all_allied() {
-                message(state, "TXT_CANNOT_ALLY", &[]);
-                return Ok(());
-            }
+        if capacity < humans {
+            message(
+                state,
+                "TXT_SCENARIO_TOO_SMALL",
+                &[CsfArg::Int(i64::from(capacity))],
+            );
+            return Ok(());
         }
-    }
-    if (0..launch.humans.len()).any(|index| !state.match_state.session.network_player_ready(index))
-    {
-        queue(state, NetworkSetupRequest::RequestAcceptance);
-        message(state, "GUI:HostGameStartHost", &[]);
-        return Ok(());
+        if launch.humans.len() >= 7 {
+            message(state, "TXT_TOO_MANY_PLAYERS", &[]);
+            return Ok(());
+        }
+        if !mode_start(state, &mode)? {
+            return Ok(());
+        }
+    } else {
+        let capacity_ok = capacity >= humans + launch.ai_player_count;
+        if !capacity_ok {
+            message(
+                state,
+                "TXT_SCENARIO_TOO_SMALL",
+                &[CsfArg::Int(i64::from(capacity))],
+            );
+        }
+        // The virtual14 callback still runs after a failed capacity check
+        // and may mutate roles or the retained Cooperative partner record.
+        let mode_ok = mode_start(state, &mode)?;
+        if !capacity_ok || !mode_ok {
+            return Ok(());
+        }
+        if all_allied(state, &mode) {
+            message(state, "TXT_CANNOT_ALLY", &[]);
+            return Ok(());
+        }
+        if !all_ready(state) {
+            return Ok(());
+        }
     }
     let launch = state
         .match_state
@@ -182,14 +139,22 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .network_setup()
         .expect("validated setup")
         .clone();
-    let max_ahead_frames = state
-        .match_state
-        .session
-        .network_max_ahead_frames()
-        .ok_or_else(|| anyhow::anyhow!("host start has no admitted LAN protocol timing"))?;
-    // Host5DD3BD invokes mode+68 before the sole69B8C0 assignment owner.
-    // The callback's declared-count write can survive a false result while
-    // existing AI rows remain, so commit its two effects independently.
+    let max_ahead_frames = if wol {
+        // Start Game Now derives WOL timing after OnGameStart.
+        None
+    } else {
+        Some(
+            state
+                .match_state
+                .session
+                .network_max_ahead_frames()
+                .ok_or_else(|| anyhow::anyhow!("host start has no admitted LAN protocol timing"))?,
+        )
+    };
+    // mode+68 before the sole 69B8C0 assignment owner (BC 5DD3BD, C2
+    // 0x790B38). The callback's declared-count write can survive a false
+    // result while existing AI rows remain, so commit its two effects
+    // independently.
     let map = state
         .frontend
         .scenario_catalog
@@ -224,15 +189,18 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .match_state
         .session
         .accept_network_assignments(resolved)?;
-    let agreed_seed = state
-        .match_state
-        .session
-        .network_start_seed()
-        .ok_or_else(|| anyhow::anyhow!("host setup has no proposed seed"))?;
-    queue(state, NetworkSetupRequest::PublishOptions);
-    queue(state, NetworkSetupRequest::PublishRoster);
+    if wol {
+        // C2: slot names 77DB90 before options 5E32D0(1,1).
+        queue(state, NetworkSetupRequest::PublishRoster);
+        queue(state, NetworkSetupRequest::PublishOptions);
+    } else {
+        queue(state, NetworkSetupRequest::PublishOptions);
+        queue(state, NetworkSetupRequest::PublishRoster);
+    }
     // Native mode+64 follows the resolved options/name publication, before
     // preview disposal and GO. Only Cooperative consumes Scenario RNG here.
+    // C2 then calls mode+0x24 (0x790B62), a no-op except MPCooperative's
+    // 5C1CB0 flag for its later 5C2680 save step: not ported.
     let launch = state
         .match_state
         .session
@@ -242,6 +210,11 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .frontend
         .multiplayer_shell_runtime
         .complete_network_mode_assignments(launch)?;
+    let users: Vec<String> = launch
+        .humans
+        .iter()
+        .map(|human| human.name.clone())
+        .collect();
     if launch.mode.class.uses_cooperative_setup() {
         let rounds = state
             .frontend
@@ -253,6 +226,20 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
             NetworkSetupRequest::PublishCooperativeAssignments(rounds),
         );
     }
+    let Some(max_ahead_frames) = max_ahead_frames else {
+        // C2 0x790BB9: API+0x48 StartGame with every channel user, then
+        // 00B77E28/00B77DEC until OnGameStart answers.
+        queue(state, NetworkSetupRequest::StartGame { users });
+        if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
+            protocol.wol_start_pending = true;
+        }
+        return Ok(());
+    };
+    let agreed_seed = state
+        .match_state
+        .session
+        .network_start_seed()
+        .ok_or_else(|| anyhow::anyhow!("host setup has no proposed seed"))?;
     queue(
         state,
         NetworkSetupRequest::Go {
@@ -268,4 +255,100 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
     }
     state.frontend.skirmish_preview_texture = None;
     Ok(())
+}
+
+/// The all-allied scan (BC 5DD0EA, C2 0x79071E after team copy 5E9E00):
+/// only a nonobserver human in raw row 0 seeds the comparison. An observer
+/// there bypasses this native gate; do not invent all-pairs.
+fn all_allied(state: &AppState, mode: &crate::skirmish_modes::SkirmishGameMode) -> bool {
+    let launch = state
+        .match_state
+        .session
+        .network_setup()
+        .expect("validated setup");
+    let Some(LaunchTeam::Team(team)) = launch
+        .humans
+        .iter()
+        .find(|human| human.raw_slot_index == Some(0) && !human.is_observer())
+        .map(|human| human.slot.team)
+    else {
+        return false;
+    };
+    let same_humans = launch
+        .humans
+        .iter()
+        .filter(|human| human.raw_slot_index.is_some() && !human.is_observer())
+        .all(|human| human.slot.team == LaunchTeam::Team(team));
+    let same_ai = launch
+        .opponents
+        .iter()
+        .all(|ai| ai.team == LaunchTeam::Team(team));
+    same_humans && same_ai && !mode.class.permits_all_allied()
+}
+
+/// Readiness (BC; C2 0x7907E0 from the WOL user records): an unready node
+/// asks every peer to accept and prints the host line.
+fn all_ready(state: &mut AppState) -> bool {
+    let count = state
+        .match_state
+        .session
+        .network_setup()
+        .expect("validated setup")
+        .humans
+        .len();
+    if (0..count).all(|index| state.match_state.session.network_player_ready(index)) {
+        return true;
+    }
+    queue(state, NetworkSetupRequest::RequestAcceptance);
+    message(state, "GUI:HostGameStartHost", &[]);
+    false
+}
+
+/// mode+14 (BC and C2 0x79091D): its effect commits, an error key prints.
+fn mode_start(
+    state: &mut AppState,
+    mode: &crate::skirmish_modes::SkirmishGameMode,
+) -> anyhow::Result<bool> {
+    let launch = state
+        .match_state
+        .session
+        .network_setup()
+        .expect("validated setup")
+        .clone();
+    let roles: Vec<_> = launch
+        .humans
+        .iter()
+        .map(|human| human.role.native_value())
+        .collect();
+    match mode
+        .class
+        .validate_setup_start(launch.options.bases, &roles)
+    {
+        Ok(ModeStartEffect::None) => {}
+        Ok(ModeStartEffect::FreeForAllSourceRoles) => {
+            for (index, human) in launch.humans.iter().enumerate() {
+                if !human.is_observer() {
+                    state.match_state.session.accept_network_human_role(
+                        index,
+                        LaunchHumanRole::Player {
+                            group: index as i32,
+                        },
+                    )?;
+                }
+            }
+        }
+        Ok(ModeStartEffect::CooperativePartners) => {
+            state
+                .frontend
+                .multiplayer_shell_runtime
+                .bind_network_cooperative_partners(&launch);
+        }
+        Err(key) => {
+            if let Some(key) = key {
+                message(state, key, &[]);
+            }
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

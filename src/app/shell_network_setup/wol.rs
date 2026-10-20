@@ -3,9 +3,8 @@
 //! the StartGame/OnGameStart handshake, the WOL chat line, the host ping
 //! timer and the readiness clearing native WOL performs on option edits.
 
+use super::chat_notice as message;
 use super::*;
-use crate::assets::csf_file::{CsfArg, format_csf};
-use crate::skirmish_launch::LaunchTeam;
 use crate::ui::lan_shell::LanChatLine;
 use crate::ui::wol_chat;
 use std::time::Duration;
@@ -84,17 +83,6 @@ impl App {
     }
 }
 
-fn message(state: &mut AppState, key: &str, args: &[CsfArg]) {
-    let text = format_csf(&App::csf_label(state, key, key), args);
-    crate::app::shell_lan::append_chat(
-        state,
-        LanChatLine {
-            text: text.encode_utf16().collect(),
-            color: u32::MAX,
-        },
-    );
-}
-
 fn queue(state: &mut AppState, request: NetworkSetupRequest) {
     if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
         protocol.requests.push(request);
@@ -109,236 +97,14 @@ pub(super) fn start_pending(state: &AppState) -> bool {
         .is_some_and(|protocol| protocol.wol_start_pending)
 }
 
-/// `005E9850`: clear every non-host acceptance and enable Accept on C9.
+/// `005E9850`: clear every acceptance but the host's and enable Accept on C9.
 pub(super) fn clear_guest_acceptance(state: &mut AppState) -> anyhow::Result<()> {
     state.match_state.session.clear_wol_guest_readiness()?;
+    let host = state.match_state.session.host();
     if let Some(protocol) = state.frontend.network_setup_protocol.as_mut()
-        && !protocol.dialog.host
+        && !host
     {
         protocol.accept_eligible = true;
-    }
-    Ok(())
-}
-
-/// C2 Start 0x588 (`0x7905D0..0x790BEB`). Each failure prints into the chat
-/// log and returns; unlike BC nothing is locked. The commit only requests
-/// StartGame: the server's OnGameStart answer completes it.
-pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
-    anyhow::ensure!(state.match_state.session.host(), "only the host starts");
-    if start_pending(state) {
-        return Ok(());
-    }
-    super::remember_setup(state);
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .ok_or_else(|| anyhow::anyhow!("no setup"))?
-        .clone();
-    let observers = launch.humans.iter().filter(|h| h.is_observer()).count();
-    if launch.humans.len() - observers < 2 {
-        message(state, "TXT_ONLY_ONE", &[]);
-        return Ok(());
-    }
-    // 0x790698: WOL forbids AI players in a game with observers.
-    if observers > 0 && launch.ai_player_count != 0 {
-        message(state, "TXT_NO_AI_OBSERVATION", &[]);
-        return Ok(());
-    }
-    let mut missing_map = false;
-    for index in 0..launch.humans.len() {
-        if index != launch.local_player_index
-            && state
-                .match_state
-                .session
-                .network_map_status(index)
-                .unwrap_or(0)
-                == 0
-        {
-            let map_name = super::map_display_name(state)
-                .unwrap_or_default()
-                .to_owned();
-            message(
-                state,
-                "GUI:HostNoMap",
-                &[
-                    CsfArg::Str(&launch.humans[index].name),
-                    CsfArg::Str(&map_name),
-                ],
-            );
-            missing_map = true;
-        }
-    }
-    if missing_map {
-        return Ok(());
-    }
-    // 0x79071E team copy 5E9E00, then the all-allied scan shared with BC.
-    if let Some(first) = launch
-        .humans
-        .iter()
-        .find(|human| human.raw_slot_index == Some(0) && !human.is_observer())
-        && let LaunchTeam::Team(team) = first.slot.team
-    {
-        let mode =
-            crate::skirmish_modes::mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)
-                .ok_or_else(|| anyhow::anyhow!("unknown mode"))?;
-        let same_humans = launch
-            .humans
-            .iter()
-            .filter(|human| human.raw_slot_index.is_some() && !human.is_observer())
-            .all(|human| human.slot.team == LaunchTeam::Team(team));
-        let same_ai = launch
-            .opponents
-            .iter()
-            .all(|ai| ai.team == LaunchTeam::Team(team));
-        if same_humans && same_ai && !mode.class.permits_all_allied() {
-            message(state, "TXT_CANNOT_ALLY", &[]);
-            return Ok(());
-        }
-    }
-    // 0x7907E0: the WOL user records decide readiness, before capacity.
-    if (0..launch.humans.len()).any(|index| !state.match_state.session.network_player_ready(index))
-    {
-        queue(state, NetworkSetupRequest::RequestAcceptance);
-        message(state, "GUI:HostGameStartHost", &[]);
-        return Ok(());
-    }
-    // 0x79086F: the missing AI trackbar 0x552 reads 0 through
-    // TBM_GETPOS, so only the humans count against the map.
-    let capacity = state
-        .match_state
-        .session
-        .network_setup_capacity()
-        .unwrap_or(0);
-    let players = (launch.humans.len() - observers) as i32;
-    if capacity < players {
-        message(
-            state,
-            "TXT_SCENARIO_TOO_SMALL",
-            &[CsfArg::Int(i64::from(capacity))],
-        );
-        return Ok(());
-    }
-    if launch.humans.len() >= 7 {
-        message(state, "TXT_TOO_MANY_PLAYERS", &[]);
-        return Ok(());
-    }
-    let mode = crate::skirmish_modes::mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)
-        .ok_or_else(|| anyhow::anyhow!("unknown mode"))?
-        .clone();
-    let roles: Vec<_> = launch
-        .humans
-        .iter()
-        .map(|human| human.role.native_value())
-        .collect();
-    // 0x79091D mode+14, the same callback BC runs.
-    match mode
-        .class
-        .validate_setup_start(launch.options.bases, &roles)
-    {
-        Ok(crate::skirmish_modes::ModeStartEffect::CooperativePartners) => {
-            state
-                .frontend
-                .multiplayer_shell_runtime
-                .bind_network_cooperative_partners(&launch);
-        }
-        Ok(crate::skirmish_modes::ModeStartEffect::FreeForAllSourceRoles) => {
-            for (index, human) in launch.humans.iter().enumerate() {
-                if !human.is_observer() {
-                    state.match_state.session.accept_network_human_role(
-                        index,
-                        crate::skirmish_launch::LaunchHumanRole::Player {
-                            group: index as i32,
-                        },
-                    )?;
-                }
-            }
-        }
-        Ok(crate::skirmish_modes::ModeStartEffect::None) => {}
-        Err(key) => {
-            if let Some(key) = key {
-                message(state, key, &[]);
-            }
-            return Ok(());
-        }
-    }
-    // Commit 0x790B38..0x790BEB: mode+68, the sole 69B8C0 assignment
-    // owner, then slot names 77DB90 before options 5E32D0(1,1).
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("mode callback keeps setup")
-        .clone();
-    let map = state
-        .frontend
-        .scenario_catalog
-        .shell_maps()
-        .iter()
-        .find(|map| {
-            launch
-                .selected_map_file
-                .as_deref()
-                .is_some_and(|file| file.eq_ignore_ascii_case(&map.file_name))
-        })
-        .ok_or_else(|| anyhow::anyhow!("selected scenario is unavailable"))?;
-    let preparation = state
-        .frontend
-        .multiplayer_shell_runtime
-        .prepare_network_mode_start(&launch, map)?;
-    state
-        .match_state
-        .session
-        .apply_network_ai_preparation(preparation.declared_count, preparation.opponents)?;
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("mode callback retains setup")
-        .clone();
-    let resolved = state
-        .frontend
-        .multiplayer_shell_runtime
-        .resolve_network_assignments(&launch)?;
-    state
-        .match_state
-        .session
-        .accept_network_assignments(resolved)?;
-    queue(state, NetworkSetupRequest::PublishRoster);
-    queue(state, NetworkSetupRequest::PublishOptions);
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("resolved setup");
-    state
-        .frontend
-        .multiplayer_shell_runtime
-        .complete_network_mode_assignments(launch)?;
-    if launch.mode.class.uses_cooperative_setup() {
-        let rounds = state
-            .frontend
-            .multiplayer_shell_runtime
-            .cooperative_round_assignments()
-            .to_vec();
-        queue(
-            state,
-            NetworkSetupRequest::PublishCooperativeAssignments(rounds),
-        );
-    }
-    let launch = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("resolved setup");
-    let users = launch
-        .humans
-        .iter()
-        .map(|human| human.name.clone())
-        .collect();
-    queue(state, NetworkSetupRequest::StartGame { users });
-    if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
-        protocol.wol_start_pending = true;
     }
     Ok(())
 }
@@ -358,11 +124,13 @@ pub(super) fn game_started(
         .network_setup()
         .ok_or_else(|| anyhow::anyhow!("no admitted setup"))?;
     let local = launch.local_player().name.clone();
+    // 0x7A7C80 lowercases both names (Wstring::toLower) before comparing.
     let matches = users.len() == launch.humans.len()
-        && launch
-            .humans
-            .iter()
-            .all(|human| users.iter().any(|user| user.name == human.name));
+        && launch.humans.iter().all(|human| {
+            users
+                .iter()
+                .any(|user| user.name.eq_ignore_ascii_case(&human.name))
+        });
     if !matches {
         if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
             protocol.wol_start_pending = false;

@@ -9,8 +9,23 @@ use crate::ui::multiplayer_setup::*;
 
 pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
     let dialog = super::dialog(state);
+    // While C2's StartGame request is pending (`00B77E28`), its proc skips
+    // checkboxes and sliders (`0x78F823`), and Back, ChooseMap and every
+    // row combo test the same flag (`0x790C5B`, `0x791033`, `0x791075`,
+    // `0x791097`, `0x790D12`).
+    if super::wol::start_pending(state)
+        && matches!(
+            action,
+            SetupAction::Back
+                | SetupAction::ChooseMap
+                | SetupAction::Select { .. }
+                | SetupAction::Toggle { .. }
+                | SetupAction::Trackbar { .. }
+        )
+    {
+        return;
+    }
     let result = match action {
-        SetupAction::Start if dialog.wol() => super::wol::request_start(state),
         SetupAction::Start => start::request_start(state),
         SetupAction::Accept => accept(state),
         SetupAction::Back => {
@@ -19,7 +34,6 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
                 .network_setup_protocol
                 .as_ref()
                 .is_some_and(|protocol| !protocol.locked)
-                && !super::wol::start_pending(state)
             {
                 queue(state, NetworkSetupRequest::Leave);
                 // C9 Back (0x791E4A..5F) closes only when the leave call
@@ -187,8 +201,7 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
     let (column, row) =
         SetupColumn::decode(control).ok_or_else(|| anyhow::anyhow!("unknown setup combo"))?;
     if column == SetupColumn::Player {
-        // C2 0x411..0x418 act only while no start is pending (00B77E28).
-        if value == 0 || super::wol::start_pending(state) {
+        if value == 0 {
             return Ok(());
         }
         let kind = match value {

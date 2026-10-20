@@ -910,11 +910,26 @@ impl WolCapture {
                 ],
             "C2 Start did not commit: {requests:?}"
         );
-        // Back is refused while the start is pending.
+        // Back and option edits are ignored while the start is pending.
+        let options = |state: &AppState| {
+            state
+                .match_state
+                .session
+                .network_setup()
+                .map(|launch| launch.options.clone())
+        };
+        let before = options(state);
         setup_button(state, setup_ui::BACK)?;
+        setup_click(
+            state,
+            crate::ui::skirmish_shell::checkbox_icon_rect(layout.checkboxes[0], layout.page.scale),
+        );
         ensure!(
-            setup_requests(state).is_empty() && state.frontend.shell_exit.is_none(),
-            "Back left a pending start"
+            setup_requests(state).is_empty()
+                && state.frontend.shell_exit.is_none()
+                && options(state) == before
+                && state.match_state.session.network_player_ready(1),
+            "Back or an option edit acted on a pending start"
         );
         let user = |name: &str, flags| WolStartUser {
             name: name.into(),
@@ -922,10 +937,35 @@ impl WolCapture {
         };
         let mut pings = [-1; 8];
         pings[1] = 120;
+        // A server list naming someone else rejects the start; Start again
+        // requests it anew.
         setup::service_event(
             state,
             NetworkSetupEvent::GameStarted {
-                users: vec![user(NICKNAME, 1), user(PEER, 0)],
+                users: vec![user(NICKNAME, 1), user("Bravo", 0)],
+                pings,
+            },
+        )?;
+        ensure!(
+            setup_requests(state).is_empty() && state.frontend.shell_exit.is_none(),
+            "a mismatched OnGameStart started the game"
+        );
+        setup_button(state, setup_ui::START)?;
+        ensure!(
+            setup_requests(state).last()
+                == Some(&NetworkSetupRequest::StartGame {
+                    users: vec![NICKNAME.into(), PEER.into()]
+                }),
+            "Start after a rejected OnGameStart did not request again"
+        );
+        // 0x7A7C80 compares lowercased names.
+        setup::service_event(
+            state,
+            NetworkSetupEvent::GameStarted {
+                users: vec![
+                    user(&NICKNAME.to_uppercase(), 1),
+                    user(&PEER.to_lowercase(), 0),
+                ],
                 pings,
             },
         )?;

@@ -1869,8 +1869,13 @@ impl Simulation {
                 let Some(target_owner) = target_info else {
                     return false;
                 };
-                // Enemy-only.
-                if crate::map::houses::are_houses_friendly(
+                // RESIDUAL: enemy-only, as the actor's house asks it. Native
+                // has no such gate: a Ctrl+click passes What_Action's ally
+                // test (`0x007003C4`), and neither the Sabotage click arm
+                // (`0x004D7788`) nor the arrival (`0x0051A4BF..0x0051A664`)
+                // tests an alliance, so a forced charge goes on an allied or
+                // own CanC4 building.
+                if crate::map::houses::is_allied_with(
                     self.house_alliances.as_map(),
                     command_owner,
                     self.interner.resolve(target_owner),

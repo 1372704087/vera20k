@@ -2026,6 +2026,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 && let Some(orders) = building_entry_orders(
                     sim,
                     &resources.rules,
+                    &current_objects,
                     &mut selected_units,
                     target,
                     Some(&resources.overlay_registry),
@@ -2630,10 +2631,15 @@ pub(super) fn building_entry_action(
 /// (`0x004AE829..0x004AE85A`) asks it. Foot ClickedAction (`0x004D74E0`)
 /// sends a controllable (vt+0xA0) one mission Enter (case 3) or Eaten (case
 /// 0xB) with NULL Target and the building as Destination; NoEnter has no
-/// case and orders nothing. None when no selected object takes it.
+/// case and orders nothing. The loop runs only when the object that owns the
+/// cursor ([`cursor_owner`] of `current_objects`) has one of these actions:
+/// for its Select, BandBox_LeftUp selects the building instead
+/// (`0x004AB9B0` -> `0x004ABE18`) and never reaches the dispatcher. None when
+/// no selected object takes it.
 fn building_entry_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    current_objects: &[u64],
     selected: &mut Vec<u64>,
     hover: &HoverTargetKindWithId,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -2641,6 +2647,8 @@ fn building_entry_orders(
     if hover.kind != HoverTargetKind::FriendlyStructure {
         return None;
     }
+    let owner = cursor_owner(sim, rules, current_objects, hover.stable_id)?;
+    building_entry_action(sim, rules, owner, hover.stable_id, overlay_registry)?;
     let mut consumed = false;
     let mut orders = Vec::new();
     selected.retain(|&id| {

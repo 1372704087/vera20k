@@ -152,9 +152,15 @@ fn a_players_vehicle_and_rifleman_grind_at_their_own_grinder() {
         Some(CursorId::Enter)
     );
     let mut selected = vec![tank, gi];
-    let orders =
-        building_entry_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry))
-            .expect("both grind");
+    let orders = building_entry_orders(
+        &sim,
+        rules,
+        &selected.clone(),
+        &mut selected,
+        &hover(grinder),
+        Some(&registry),
+    )
+    .expect("both grind");
     assert!(selected.is_empty());
     assert_eq!(orders, [eaten(tank, grinder), eaten(gi, grinder)]);
 
@@ -204,7 +210,14 @@ fn armed_objects_over_an_allied_grinder_are_not_ground() {
     }
     let mut selected = vec![tank, gi];
     assert_eq!(
-        building_entry_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry)),
+        building_entry_orders(
+            &sim,
+            rules,
+            &selected.clone(),
+            &mut selected,
+            &hover(grinder),
+            Some(&registry)
+        ),
         None
     );
     assert_eq!(selected, [tank, gi]);
@@ -233,7 +246,14 @@ fn a_crazy_ivan_bombs_the_players_grinder_rather_than_entering() {
     );
     let mut selected = vec![ivan];
     assert_eq!(
-        building_entry_orders(&sim, rules, &mut selected, &hover(grinder), Some(&registry)),
+        building_entry_orders(
+            &sim,
+            rules,
+            &selected.clone(),
+            &mut selected,
+            &hover(grinder),
+            Some(&registry)
+        ),
         None
     );
 }
@@ -279,10 +299,11 @@ fn retail() -> Option<(
 
 /// A Chrono Miner over the player's refinery answers Enter through the
 /// refinery's CAN_LOAD and is sent mission Enter, like any Unit the building
-/// admits; the Grizzly beside it has no refinery row and keeps its place in
-/// the selection for the later routes.
+/// admits. Beside an armed Grizzly, which wins the cursor (DetermineAction
+/// scores an armed object above an unarmed one) and answers Select, the
+/// release selects the refinery and sends no one (`0x004ABE18`).
 #[test]
-fn a_miner_enters_the_players_refinery_and_a_tank_beside_it_does_not() {
+fn a_miner_enters_the_players_refinery_unless_a_tank_owns_the_cursor() {
     let Some((retail, registry)) = retail() else {
         return;
     };
@@ -295,22 +316,41 @@ fn a_miner_enters_the_players_refinery_and_a_tank_beside_it_does_not() {
         cursor(&sim, rules, &registry, miner, refinery),
         Some(CursorId::Enter)
     );
-    let mut selected = vec![tank, miner];
+    let mut selected = vec![miner];
     let orders = building_entry_orders(
         &sim,
         rules,
+        &selected.clone(),
         &mut selected,
         &hover(refinery),
         Some(&registry),
     )
     .expect("the miner enters");
     assert_eq!(orders, [enter(miner, refinery)]);
-    assert_eq!(selected, [tank]);
+    assert!(selected.is_empty());
+
+    assert_eq!(
+        building_entry_action(&sim, rules, tank, refinery, Some(&registry)),
+        None
+    );
+    let mut selected = vec![tank, miner];
+    assert_eq!(
+        building_entry_orders(
+            &sim,
+            rules,
+            &selected.clone(),
+            &mut selected,
+            &hover(refinery),
+            Some(&registry)
+        ),
+        None
+    );
+    assert_eq!(selected, [tank, miner]);
 }
 
 /// The Service Depot's CAN_LOAD (`0x0043C544..0x0043C58C`) has no health
 /// test, so a full-health Grizzly over the player's depot shows Enter and is
-/// sent in; the GI has no depot row. Its first Mission_Enter dispatch
+/// sent in. Its first Mission_Enter dispatch
 /// (`0x004D9290`) sends DOCKING, which the depot refuses for a full-health
 /// contact (IS_REPAIRING, `0x0043C814..0x0043C849`), so it breaks off to
 /// Guard where it stands.
@@ -327,11 +367,35 @@ fn a_full_health_tank_is_sent_to_the_depot_and_turned_away() {
         cursor(&sim, rules, &registry, tank, depot),
         Some(CursorId::Enter)
     );
+    // The GI has no depot row. Beside the tank it stands nearer the depot,
+    // so its Select owns the cursor and the release selects the depot.
+    assert_eq!(
+        building_entry_action(&sim, rules, gi, depot, Some(&registry)),
+        None
+    );
     let mut selected = vec![tank, gi];
-    let orders = building_entry_orders(&sim, rules, &mut selected, &hover(depot), Some(&registry))
-        .expect("the tank enters");
+    assert_eq!(
+        building_entry_orders(
+            &sim,
+            rules,
+            &selected.clone(),
+            &mut selected,
+            &hover(depot),
+            Some(&registry),
+        ),
+        None
+    );
+    let mut selected = vec![tank];
+    let orders = building_entry_orders(
+        &sim,
+        rules,
+        &selected.clone(),
+        &mut selected,
+        &hover(depot),
+        Some(&registry),
+    )
+    .expect("the tank enters");
     assert_eq!(orders, [enter(tank, depot)]);
-    assert_eq!(selected, [gi]);
     assert!(sim.apply_command("Americans", &orders[0], Some(rules)));
     let cell = |sim: &Simulation| {
         let position = &sim.entities().get(tank).unwrap().position;
@@ -377,8 +441,15 @@ fn a_damaged_tank_sent_to_the_depot_is_repaired() {
         Some(CursorId::Enter)
     );
     let mut selected = vec![tank];
-    let orders = building_entry_orders(&sim, rules, &mut selected, &hover(depot), Some(&registry))
-        .expect("the tank enters");
+    let orders = building_entry_orders(
+        &sim,
+        rules,
+        &selected.clone(),
+        &mut selected,
+        &hover(depot),
+        Some(&registry),
+    )
+    .expect("the tank enters");
     assert_eq!(orders, [enter(tank, depot)]);
     assert!(sim.apply_command("Americans", &orders[0], Some(rules)));
     for _ in 0..1800 {
@@ -411,8 +482,15 @@ fn every_tank_is_sent_into_an_empty_bunker_until_one_is_installed() {
         );
     }
     let mut selected = vec![tank, second];
-    let orders = building_entry_orders(&sim, rules, &mut selected, &hover(bunker), Some(&registry))
-        .expect("both enter");
+    let orders = building_entry_orders(
+        &sim,
+        rules,
+        &selected.clone(),
+        &mut selected,
+        &hover(bunker),
+        Some(&registry),
+    )
+    .expect("both enter");
     assert_eq!(orders, [enter(tank, bunker), enter(second, bunker)]);
     assert!(sim.apply_command("Americans", &orders[0], Some(rules)));
     for _ in 0..1500 {

@@ -118,8 +118,8 @@ fn spawn_engineer(sim: &mut Simulation, rules: &RuleSet, rx: u16, ry: u16) -> u6
 fn spawn_seal(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
     let owner = sim.interner.intern("Americans");
     let ty = sim.interner.intern("GHOST");
-    let id = sim.substrate.next_stable_object_id;
-    sim.substrate.next_stable_object_id += 1;
+    let id = sim.next_stable_object_id();
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
     let e = GameEntity::new_at_frame_zero_for_test(
         id,
         rx,
@@ -142,8 +142,8 @@ fn spawn_seal(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
 fn spawn_cabhut(sim: &mut Simulation, rx: u16, ry: u16) -> u64 {
     let owner = sim.interner.intern("Soviets");
     let ty = sim.interner.intern("CABHUT");
-    let id = sim.substrate.next_stable_object_id;
-    sim.substrate.next_stable_object_id += 1;
+    let id = sim.next_stable_object_id();
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
     let e = GameEntity::new_at_frame_zero_for_test(
         id,
         rx,

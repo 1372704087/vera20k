@@ -3843,17 +3843,17 @@ mod tests {
             world.substrate.raw_cell_occupation = raw;
             world.interner = interner;
             world.resolved_terrain = Some(terrain);
-            world.playfield_bounds = Some(
+            world.set_playfield_bounds_for_test(Some(
                 crate::sim::cell_rect::PlayfieldBounds::from_normalized_local_size(
                     16, -16, -16, 64, 64,
                 ),
-            );
+            ));
             if fixture.outside {
-                world.playfield_bounds = Some(
+                world.set_playfield_bounds_for_test(Some(
                     crate::sim::cell_rect::PlayfieldBounds::from_normalized_local_size(
                         16, 0, 0, 1, 1,
                     ),
-                );
+                ));
             }
             world.session.set_binary_frame_for_test(100);
             world.main_rng = SimRng::new(7).into();

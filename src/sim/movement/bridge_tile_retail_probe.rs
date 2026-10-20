@@ -63,7 +63,7 @@ fn retail_middle_bridge_resident_recalc_admits_both_families() {
                             overlay,
                             level_override,
                             registry,
-                            sim.playfield_bounds,
+                            sim.playfield_bounds(),
                         )
                         .unwrap_or_else(|error| {
                             panic!("retail tile {target}/{sub}, level {level_override}: {error}")

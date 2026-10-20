@@ -4151,8 +4151,8 @@ mod rocking_hash_tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         let type_id = sim.interner.intern("HTNK");
-        let id = sim.substrate.next_stable_object_id;
-        sim.substrate.next_stable_object_id += 1;
+        let id = sim.next_stable_object_id();
+        sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
         let e = GameEntity::new_at_frame_zero_for_test(
             id,
             10,
@@ -4212,8 +4212,8 @@ mod c4_hash_tests {
         let mut sim = Simulation::new();
         let owner = sim.interner.intern("Americans");
         let type_id = sim.interner.intern("GHOST");
-        let id = sim.substrate.next_stable_object_id;
-        sim.substrate.next_stable_object_id += 1;
+        let id = sim.next_stable_object_id();
+        sim.set_next_stable_object_id_for_test(sim.next_stable_object_id() + 1);
         let e = GameEntity::new_at_frame_zero_for_test(
             id,
             10,

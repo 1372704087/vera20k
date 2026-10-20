@@ -676,7 +676,7 @@ pub fn can_dock_occupier_garrison(
     );
     if !crate::sim::cell_rect::cell_is_in_playfield_leptons(
         (coord.x, coord.y, coord.z),
-        sim.playfield_bounds,
+        sim.playfield_bounds(),
         sim.resolved_terrain.as_ref(),
     ) {
         return false;

@@ -1340,7 +1340,7 @@ fn a_busy_factory_exit_pushes_its_neighbours_away_from_the_head() {
         spawn(&mut sim, 15, 15);
         let east = spawn(&mut sim, 16, 15);
         let north = spawn(&mut sim, 15, 14);
-        let producer = sim.substrate.next_stable_object_id;
+        let producer = sim.next_stable_object_id();
         let track = DriveCoord {
             x: 15 * 256 + 255,
             y: 15 * 256 + 1,

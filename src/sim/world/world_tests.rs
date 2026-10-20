@@ -9129,7 +9129,7 @@ fn deferred_voxel_delivery_keeps_constructor_identity_without_spending_again() {
     assert_ne!(adjacent, native_id);
     let cursor = sim.native_identity_cursor();
     let rng = sim.scenario_rng.logical_state();
-    let stable_cursor = sim.substrate.next_stable_object_id;
+    let stable_cursor = sim.next_stable_object_id();
     sim.admit_death_debris(packets);
     assert_eq!(
         sim.voxel_anims().get(id).unwrap().native_unique_id(),
@@ -9137,7 +9137,7 @@ fn deferred_voxel_delivery_keeps_constructor_identity_without_spending_again() {
     );
     assert_eq!(sim.native_identity_cursor(), cursor);
     assert_eq!(sim.scenario_rng.logical_state(), rng);
-    assert_eq!(sim.substrate.next_stable_object_id, stable_cursor);
+    assert_eq!(sim.next_stable_object_id(), stable_cursor);
     assert_eq!(sim.live_object_order_snapshot(), [id]);
     sim.debug_assert_logic_membership_consistent();
 }

@@ -872,7 +872,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
                 interner: &sim.interner,
                 grid: &grid,
                 terrain: sim.resolved_terrain.as_ref(),
-                playfield_bounds: sim.playfield_bounds,
+                playfield_bounds: sim.playfield_bounds(),
             }
             .reading(&sim.substrate.entities, &sim.substrate.raw_cell_occupation);
             let search = context.build(
@@ -922,7 +922,7 @@ fn hills_same_type_marker_downgrade_reaches_live_foot_search_and_cleanup() {
                 z: case["height"].as_i64().unwrap() as i32 * 104,
             },
             urgency,
-            sim.playfield_bounds,
+            sim.playfield_bounds(),
         )
         .unwrap();
         assert_eq!(

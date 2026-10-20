@@ -65,7 +65,7 @@ fn insert_structure(
     );
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked_for_test(false);
-    sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(stable_id + 1);
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id().max(stable_id + 1));
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(stable_id);
     // Unlimbo's House+0x68 append, which the SpySat scan walks.
@@ -90,7 +90,7 @@ fn insert_sight_unit(sim: &mut Simulation, stable_id: u64, owner: InternedId, rx
     );
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked_for_test(false);
-    sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(stable_id + 1);
+    sim.set_next_stable_object_id_for_test(sim.next_stable_object_id().max(stable_id + 1));
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(stable_id);
 }

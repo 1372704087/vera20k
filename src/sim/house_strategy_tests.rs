@@ -87,7 +87,7 @@ fn spawn(
     category: EntityCategory,
     health: i32,
 ) -> u64 {
-    let id = sim.substrate.next_stable_object_id;
+    let id = sim.next_stable_object_id();
     let type_ref = sim.interner.intern(type_id);
     let mut entity = GameEntity::new_at_frame_zero_for_test(
         id,
@@ -106,7 +106,7 @@ fn spawn(
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked_for_test(true);
     sim.substrate.entities.insert(entity);
-    sim.substrate.next_stable_object_id = id + 1;
+    sim.set_next_stable_object_id_for_test(id + 1);
     id
 }
 

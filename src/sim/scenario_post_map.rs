@@ -226,7 +226,8 @@ impl Simulation {
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return false;
         };
-        let (Some(bounds), Some(size_height)) = (self.playfield_bounds, self.playfield_size_height)
+        let (Some(bounds), Some(size_height)) =
+            (self.playfield_bounds(), self.playfield_size_height())
         else {
             return false;
         };

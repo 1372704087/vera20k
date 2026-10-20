@@ -167,14 +167,14 @@ fn fixture_world(
         )
     }));
     let span = i32::from(FIXTURE_MAP);
-    sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+    sim.set_playfield_bounds_for_test(Some(crate::map::playfield::PlayfieldBounds {
         base: size.0,
         off_fc: -span,
         off_100: -span,
         off_104: span * 2,
         off_108: span * 2,
-    });
-    sim.playfield_size_height = Some(size.1);
+    }));
+    sim.set_playfield_size_height_for_test(Some(size.1));
     let terrain_key: Vec<_> = specs
         .iter()
         .map(|(at, spec)| (*at, spec.to_string()))
@@ -651,7 +651,7 @@ fn storm_strike_matches_native_rows() {
             &[serde_json::json!([1, false]), serde_json::json!([2, false])],
             Some(0),
         );
-        sim.metallic_debris = row["debris"]
+        *sim.metallic_debris_mut_for_test() = row["debris"]
             .as_array()
             .unwrap()
             .iter()

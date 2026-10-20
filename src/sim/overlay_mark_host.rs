@@ -83,6 +83,7 @@ impl<'a> SimulationMarkHost<'a> {
         let sim = &mut *self.sim;
         #[cfg(any(test, feature = "test-support"))]
         let mut detach_trace = Vec::new();
+        let playfield_bounds = sim.playfield_bounds();
         let mut host = SimulationWallRuntimeHost {
             entities: &mut sim.substrate.entities,
             target_terrain_objects: sim.terrain_objects.objects(),
@@ -92,7 +93,7 @@ impl<'a> SimulationMarkHost<'a> {
             zone_grid: &mut sim.zone_grid,
             path_grid: &mut sim.path_grid,
             bridge_state: sim.bridge_state.as_ref(),
-            playfield_bounds: sim.playfield_bounds,
+            playfield_bounds,
         };
         let (Some(grid), Some(terrain)) =
             (sim.overlay_grid.as_mut(), sim.resolved_terrain.as_mut())

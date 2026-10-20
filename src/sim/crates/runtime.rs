@@ -283,8 +283,8 @@ mod tests {
                 ),
             );
             sim.session.set_binary_frame_for_test(100);
-            sim.playfield_bounds.as_mut().unwrap().base = 10;
-            sim.playfield_size_height = Some(10);
+            sim.playfield_bounds_mut_for_test().as_mut().unwrap().base = 10;
+            sim.set_playfield_size_height_for_test(Some(10));
             let mut rules = crate_ruleset("");
             if input["different_image"] == true {
                 rules.crate_rules.wood_crate_img = Some("SILVER".into());

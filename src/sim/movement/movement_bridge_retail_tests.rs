@@ -384,7 +384,7 @@ fn diagnose_rejected_order(
             "zone_grid: {}, resolved_terrain: {}, playfield_bounds: {:?}",
             sim.zone_grid.is_some(),
             sim.resolved_terrain.is_some(),
-            sim.playfield_bounds.is_some(),
+            sim.playfield_bounds().is_some(),
         );
         if let Some(zones) = sim
             .zone_grid

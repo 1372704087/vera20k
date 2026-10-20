@@ -462,14 +462,14 @@ fn low_dropped_bombs_use_class_water_splashes_without_debris() {
             })
             .collect();
         sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(20, 20, cells));
-        sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+        sim.set_playfield_bounds_for_test(Some(crate::sim::cell_rect::PlayfieldBounds {
             base: 20,
             off_fc: -128,
             off_100: -128,
             off_104: 256,
             off_108: 256,
-        });
-        sim.playfield_size_height = Some(20);
+        }));
+        sim.set_playfield_size_height_for_test(Some(20));
         assert!(sim.rebuild_dynamic_navigation(&rules));
         let id = spawn(&mut sim, &rules, kind, 12, 12);
         let entity = sim.substrate.entities.get_mut(id).unwrap();
@@ -810,14 +810,14 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             })
             .collect();
         sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(20, 20, cells));
-        sim.playfield_bounds = Some(crate::sim::cell_rect::PlayfieldBounds {
+        sim.set_playfield_bounds_for_test(Some(crate::sim::cell_rect::PlayfieldBounds {
             base: 20,
             off_fc: -128,
             off_100: -128,
             off_104: 256,
             off_108: 256,
-        });
-        sim.playfield_size_height = Some(20);
+        }));
+        sim.set_playfield_size_height_for_test(Some(20));
         assert!(sim.rebuild_dynamic_navigation(&rules));
         let ship = spawn(&mut sim, &rules, kind, 12, 12);
         if !water {

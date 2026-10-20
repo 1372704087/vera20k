@@ -720,7 +720,7 @@ impl Simulation {
                 retained_candidate = radial;
                 if !cell_rect::cell_is_in_playfield_height_aware_in_query(
                     (i32::from(radial.0), i32::from(radial.1)),
-                    self.playfield_bounds,
+                    self.playfield_bounds(),
                     Some(cells.terrain()),
                     Some(&cells),
                 ) {
@@ -894,7 +894,7 @@ impl Simulation {
                 if !tile.has_image(column, row)
                     || !cell_rect::cell_is_in_playfield_height_aware(
                         (i32::from(cell.0), i32::from(cell.1)),
-                        self.playfield_bounds,
+                        self.playfield_bounds(),
                         terrain,
                     )
                 {

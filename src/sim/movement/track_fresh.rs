@@ -315,7 +315,7 @@ impl Simulation {
             call.id,
             destination,
             urgency,
-            self.playfield_bounds,
+            self.playfield_bounds(),
         )
         .ok_or_else(|| "retired Drive/Ship Find_Path requester".into())
     }
@@ -1022,6 +1022,7 @@ impl Simulation {
         else {
             return;
         };
+        let terrain_speed = self.terrain_speed_config().clone();
         let Some(actor) = self.substrate.entities.get_mut(id) else {
             return;
         };
@@ -1030,7 +1031,7 @@ impl Simulation {
             strength,
             rules,
             terrain,
-            &self.terrain_speed_config,
+            &terrain_speed,
             (cell.0 as u16, cell.1 as u16),
             road,
         );
@@ -1488,7 +1489,7 @@ mod tests {
         // native save timing. Native load resets Scenario RNG, so these two
         // continuations assert the loop outcome, not matching clocks/hashes.
         let terrain = sim.resolved_terrain.as_ref().unwrap().clone();
-        let speed_config = sim.terrain_speed_config.clone();
+        let speed_config = sim.terrain_speed_config().clone();
         let bytes =
             crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "Terrain blocker interrupt", 0);
         let mut restored = crate::sim::snapshot::GameSnapshot::load(&bytes)

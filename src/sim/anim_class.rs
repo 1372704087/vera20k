@@ -6374,7 +6374,7 @@ mod tests {
             );
             building.health.set(0); //Native Cell47C520 has no Health/Alive admission.
             sim.substrate.entities.insert(building);
-            sim.substrate.next_stable_object_id = 101;
+            sim.set_next_stable_object_id_for_test(101);
             sim.substrate.occupancy.add(
                 10,
                 10,

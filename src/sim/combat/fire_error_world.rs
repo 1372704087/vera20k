@@ -290,10 +290,7 @@ impl<'a> FireSubject<'a> {
                 }
                 Some(_) => Transporter::Plain,
             },
-            wave_live: self
-                .world
-                .active_wave_links
-                .contains_key(&firer.stable_id()),
+            wave_live: self.world.active_wave_id(firer.stable_id()).is_some(),
             // FireError6FC6D5/6FC9C7 reads the actual Techno+308 pointer.
             spark_particles_live: firer.spark_particle_system.system().is_some(),
             // T45: the object's own rearm countdown (`+0x2EC`).

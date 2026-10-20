@@ -145,7 +145,7 @@ pub(crate) fn is_clear_to_build(
     {
         return false;
     }
-    if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds, cells) {
+    if !crate::sim::cell_rect::retained_cell_is_in_playfield(cell, sim.playfield_bounds(), cells) {
         return false;
     }
     // Deliberate developer override; object occupancy and bounds above still apply.

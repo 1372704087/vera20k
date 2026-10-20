@@ -1474,7 +1474,7 @@ mod tests {
     /// Admit `shot` as bullet 100, already in flight: the allocator moves
     /// past it, so the frame's combat tail does not take it for a new shot.
     fn admit_existing(sim: &mut Simulation, shot: crate::sim::projectile::ProjectileSpawn) {
-        sim.substrate.next_stable_object_id = sim.substrate.next_stable_object_id.max(101);
+        sim.set_next_stable_object_id_for_test(sim.next_stable_object_id().max(101));
         sim.admit_projectile(100, shot);
     }
 

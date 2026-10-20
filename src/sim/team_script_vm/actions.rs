@@ -686,7 +686,7 @@ impl Simulation {
             .is_some_and(|(x, y)| {
                 !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
                     (i32::from(x), i32::from(y)),
-                    self.playfield_bounds,
+                    self.playfield_bounds(),
                     self.resolved_terrain.as_ref(),
                 )
             })
@@ -1684,6 +1684,7 @@ impl Simulation {
                 }
             }
         }
+        let playfield_bounds = self.playfield_bounds();
         let Some(team) = self.team_script_vm.teams.get_mut(&team_id) else {
             return;
         };
@@ -1694,7 +1695,7 @@ impl Simulation {
         if let Some(TeamTarget::Cell { x, y }) = target {
             let in_playfield = crate::sim::cell_rect::cell_is_in_playfield_height_aware(
                 (i32::from(x), i32::from(y)),
-                self.playfield_bounds,
+                playfield_bounds,
                 self.resolved_terrain.as_ref(),
             );
             team.leaving_map = !in_playfield;

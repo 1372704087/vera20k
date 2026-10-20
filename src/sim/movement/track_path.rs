@@ -456,7 +456,7 @@ impl Simulation {
     ) -> Result<bool, String> {
         if !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
             cell,
-            self.playfield_bounds,
+            self.playfield_bounds(),
             self.resolved_terrain.as_ref(),
         ) {
             return Ok(false);

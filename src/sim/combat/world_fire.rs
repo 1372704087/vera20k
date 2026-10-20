@@ -1182,7 +1182,7 @@ pub(super) fn emit_admitted_fire(
             .retain_frame_notifications(&mut out.effects);
         return None;
     }
-    if weapon.is_sonic && world.active_wave_links.contains_key(&snap.stable_id) {
+    if weapon.is_sonic && world.active_wave_id(snap.stable_id).is_some() {
         return None;
     }
     // 6FDE36..6FDE48: direct FireAt callers also refuse a flagged weapon
@@ -2332,7 +2332,7 @@ pub(crate) fn visit_fire(
                     &snapshot,
                     fog_enabled,
                     world.session.binary_frame(),
-                    world.active_wave_links.contains_key(&id),
+                    world.active_wave_id(id).is_some(),
                     emit,
                     run.effects(),
                 );
@@ -2362,7 +2362,7 @@ pub(crate) fn visit_fire(
                         &snap,
                         fog_enabled,
                         world.session.binary_frame(),
-                        world.active_wave_links.contains_key(&id),
+                        world.active_wave_id(id).is_some(),
                         emit,
                         run.effects(),
                     )
@@ -2383,7 +2383,7 @@ pub(crate) fn visit_fire(
                     &snap,
                     fog_enabled,
                     world.session.binary_frame(),
-                    world.active_wave_links.contains_key(&id),
+                    world.active_wave_id(id).is_some(),
                     emit,
                     run.effects(),
                 );

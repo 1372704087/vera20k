@@ -201,8 +201,8 @@ pub(crate) use logic_vector::{LogicMembership, LogicVector};
 pub(crate) use object_entry::{EntryFacts, FootEntryReceiver};
 #[cfg(any(test, feature = "test-support"))]
 pub use substrate::DeferredDeleteQueue;
-pub use substrate::EnterOrderCounter;
 pub(crate) use substrate::{DeferredDeleteTicket, ObjectKind, ObjectSubstrate};
+pub use substrate::{EnterOrderCounter, StableIdCursor};
 pub(crate) use world_spawn::{CrushableFacts, MoverFacts, TypeFacts};
 pub use world_spawn::{GeneratedTechnoInitError, GeneratedTechnoInitTable};
 
@@ -1036,7 +1036,7 @@ pub struct Simulation {
     /// `resolve_type_handles` beside the type table; rebuilt from rules on
     /// load. NOT serialized, NOT hashed. `None` until resolved.
     #[serde(skip)]
-    pub(crate) rule_handles: Option<crate::sim::type_handle_table::ResolvedRuleHandles>,
+    rule_handles: Option<crate::sim::type_handle_table::ResolvedRuleHandles>,
     /// Factories, the enqueue stamp and the primary-factory flags.
     pub(crate) production: ProductionState,
     /// Live terrain objects and their cell, animation and spawner indexes.
@@ -1109,7 +1109,7 @@ pub struct Simulation {
     /// reader is proved; cell-array teardown (a new Simulation) resets it and
     /// generated loads leave it `None`.
     #[serde(skip, default)]
-    pub(crate) authored_tiberium_value_total: Option<i32>,
+    authored_tiberium_value_total: Option<i32>,
     /// `DAT_00A8ED78` analogue for this fresh load: the GasCloudSys
     /// `ParticleSystemClass` has been constructed by a post-load setup
     /// (`FUN_00684C30`) since `Clear_Scene` nulled it. A generated launch
@@ -1148,10 +1148,11 @@ pub struct Simulation {
     /// empty. Neither snapshots nor world hashes include this transient set.
     #[serde(skip)]
     unit_voice_visit_interest: std::collections::BTreeSet<u64>,
-    /// Conversion receipts drained into the same tick's navigation/app outputs.
-    /// Derived frame output, not gameplay state; saves occur at frame boundaries.
+    /// A mission or production step placed objects this frame; the frame tail
+    /// folds it into the tick's `spawned_entities`. Derived frame output, not
+    /// gameplay state; saves occur at frame boundaries.
     #[serde(skip)]
-    pub(crate) mission_spawned_entities: bool,
+    mission_spawned_entities: bool,
     /// Ordered occupied-cell identities finalized at the authoritative frame
     /// boundary. The app drains these into its render-only overlay list.
     #[serde(skip)]
@@ -1214,13 +1215,13 @@ pub struct Simulation {
     /// id. The native link is installed even for a constructor-short Wave and
     /// is cleared only by exact pointer-expiry cleanup.
     #[serde(default)]
-    pub(crate) active_wave_links: BTreeMap<u64, u64>,
+    active_wave_links: BTreeMap<u64, u64>,
     /// `ObjectClass+0x64`: the custom sound trigger action 99 gave an object
     /// (a Building or Terrain), keyed by stable id. Absent is the
     /// constructor's -1. Only `object_sound` writes it; the object's
     /// destruction removes it.
     #[serde(default)]
-    pub(crate) object_custom_sounds: BTreeMap<u64, String>,
+    object_custom_sounds: BTreeMap<u64, String>,
     /// Hookless-test adapter retained for old fixture callsites. Production
     /// combat and superweapons commit smudges inline, so this remains empty and
     /// never persists across ticks.
@@ -1338,27 +1339,27 @@ pub struct Simulation {
     /// validator's final playfield-corner test (the engine diamond, not a
     /// rectangle). `None` only in headless tests with no map loaded.
     #[serde(default)]
-    pub(crate) playfield_bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
+    playfield_bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
     /// Immutable signed `[Map] Size=` height retained for later LocalSize
     /// normalization. The live predicate needs only Size width, but action 40
     /// can rewrite the four LocalSize dwords repeatedly during a scenario.
     #[serde(default)]
-    pub(crate) playfield_size_height: Option<i32>,
+    playfield_size_height: Option<i32>,
     /// Monotonic visible-area writer generation. Every successful trigger
     /// action 0x28 advances it, even when two writers normalize to the same
     /// bounds. Presentation consumes this as the global radar/scroll rebuild
     /// edge; cell-local bridge dirtiness is deliberately a separate channel.
     #[serde(default)]
-    pub(crate) playfield_revision: u64,
+    playfield_revision: u64,
     /// Interned projection of RuleSet's ordered BridgeExplosions references.
     /// Rebuilt at map binding and snapshot restoration; not serialized authority.
     #[serde(skip)]
-    pub(crate) bridge_explosions: Vec<InternedId>,
+    bridge_explosions: Vec<InternedId>,
     /// Interned projection of RuleSet's ordered MetallicDebris references,
     /// including unread types without an SHP. Rebuilt at map binding and
     /// snapshot restoration so per-cell selection needs no string interning.
     #[serde(skip)]
-    pub(crate) metallic_debris: Vec<InternedId>,
+    metallic_debris: Vec<InternedId>,
     /// Radar and tactical redraw marks for runtime cell changes.
     #[serde(skip)]
     pub(crate) dirty_cells: crate::sim::dirty_cells::DirtyCells,
@@ -1387,21 +1388,21 @@ pub struct Simulation {
     /// Per-cell terrain speed modifier config (slope climb/descend).
     /// Built from [General] rules at map load.
     #[serde(skip)]
-    pub(crate) terrain_speed_config: terrain_speed::TerrainSpeedConfig,
+    terrain_speed_config: terrain_speed::TerrainSpeedConfig,
     /// Negotiated lockstep ahead window. Offline producers stamp the current
     /// raw issue ordinal; a network transfer owner overwrites that stamp with
     /// `send_current + MaxAhead` before synchronized dispatch.
-    pub(crate) input_delay_ticks: u64,
+    input_delay_ticks: u64,
     /// Native Main_Tick termination gates outside House state. These are
     /// front-end connection/session facts, so they are transient and un-hashed.
     #[serde(skip)]
-    pub(crate) quit_requested: bool,
+    quit_requested: bool,
     /// One-shot owner-tagged edge raised only when a due native EXIT command
     /// executes at the EventClass tail. App teardown consumes and clears it.
     #[serde(skip)]
     executed_exit_owner: Option<InternedId>,
     #[serde(skip)]
-    pub(crate) connection_lost: bool,
+    connection_lost: bool,
     /// Checksum computed by this frame's multiplayer tail, handed to the
     /// frame output. Transient per frame.
     #[serde(skip)]
@@ -3187,6 +3188,49 @@ impl Simulation {
         &self.terrain_speed_config
     }
 
+    /// Wire the cliff/slope coefficients from `[General]` into the live
+    /// config; it otherwise holds the compiled vanilla defaults.
+    pub(crate) fn install_terrain_speed_rules(
+        &mut self,
+        general: &crate::rules::ruleset::GeneralRules,
+    ) {
+        self.terrain_speed_config = terrain_speed::TerrainSpeedConfig::from_general(
+            general.tracked_uphill,
+            general.tracked_downhill,
+            general.wheeled_uphill,
+            general.wheeled_downhill,
+        );
+    }
+
+    /// The authored `Full_Init`'s `InitCellAttributes(0)` value-only total,
+    /// recorded once by the authored map install.
+    pub(crate) fn record_authored_tiberium_value_total(&mut self, total: i32) {
+        self.authored_tiberium_value_total = Some(total);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn authored_tiberium_value_total(&self) -> Option<i32> {
+        self.authored_tiberium_value_total
+    }
+
+    /// A mission or production step placed new objects this frame; the frame
+    /// tail folds it into the tick's `spawned_entities`.
+    pub(crate) fn note_mission_spawned_entities(&mut self) {
+        self.mission_spawned_entities = true;
+    }
+
+    /// Every Techno+324 Wave link, by owner.
+    pub(crate) fn active_wave_links(&self) -> impl Iterator<Item = (u64, u64)> + '_ {
+        self.active_wave_links
+            .iter()
+            .map(|(&owner, &wave)| (owner, wave))
+    }
+
+    /// Objects holding a custom sound loop.
+    pub(crate) fn custom_sound_objects(&self) -> impl Iterator<Item = u64> + '_ {
+        self.object_custom_sounds.keys().copied()
+    }
+
     pub fn input_delay_ticks(&self) -> u64 {
         self.input_delay_ticks
     }
@@ -3209,7 +3253,7 @@ impl Simulation {
     }
 
     pub fn next_stable_object_id(&self) -> u64 {
-        self.substrate.next_stable_object_id
+        self.substrate.next_stable_object_id.peek()
     }
 
     // App and harness entry points into sub-owners. Each runs the sub-owner's
@@ -3370,6 +3414,52 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
+    pub fn set_playfield_bounds_for_test(
+        &mut self,
+        bounds: Option<crate::sim::cell_rect::PlayfieldBounds>,
+    ) {
+        self.playfield_bounds = bounds;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_playfield_size_height_for_test(&mut self, height: Option<i32>) {
+        self.playfield_size_height = height;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn playfield_size_height_mut_for_test(&mut self) -> &mut Option<i32> {
+        &mut self.playfield_size_height
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_rule_handles_for_test(
+        &mut self,
+        handles: Option<crate::sim::type_handle_table::ResolvedRuleHandles>,
+    ) {
+        self.rule_handles = handles;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_quit_requested_for_test(&mut self, requested: bool) {
+        self.quit_requested = requested;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_connection_lost_for_test(&mut self, lost: bool) {
+        self.connection_lost = lost;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_terrain_speed_config_for_test(&mut self, config: terrain_speed::TerrainSpeedConfig) {
+        self.terrain_speed_config = config;
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn link_active_wave_for_test(&mut self, owner: u64, wave: u64) {
+        self.active_wave_links.insert(owner, wave);
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
     pub fn lightning_storm_mut_for_test(
         &mut self,
     ) -> &mut crate::sim::superweapon::lightning_storm::LightningStorm {
@@ -3443,8 +3533,8 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub fn next_stable_object_id_mut_for_test(&mut self) -> &mut u64 {
-        &mut self.substrate.next_stable_object_id
+    pub fn set_next_stable_object_id_for_test(&mut self, next: u64) {
+        self.substrate.next_stable_object_id.set_for_test(next);
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -3664,6 +3754,12 @@ impl Simulation {
             .collect();
     }
 
+    /// Without rules there are no bridge-explosion or metallic-debris types.
+    pub(crate) fn clear_rule_animation_lists(&mut self) {
+        self.bridge_explosions.clear();
+        self.metallic_debris.clear();
+    }
+
     /// Pre-resolved rule handles for combat comparisons.
     ///
     /// # Panics
@@ -3674,6 +3770,13 @@ impl Simulation {
             "Simulation::resolve_type_handles must run at sim init \
              before combat reads warhead handles",
         )
+    }
+
+    /// The rule handles, or `None` before `resolve_type_handles` has run.
+    pub(crate) fn resolved_rule_handles(
+        &self,
+    ) -> Option<crate::sim::type_handle_table::ResolvedRuleHandles> {
+        self.rule_handles
     }
 
     /// Resolve an entity's type to its `ObjectType` through the interner's
@@ -4510,10 +4613,9 @@ impl Simulation {
     /// `ScenarioClass::NextUniqueID @ 0x0068BCB0`; individual stores therefore
     /// must not own independent counters.
     pub fn allocate_stable_id(&mut self) -> u64 {
-        ObjectSubstrate::allocate_stable_id(
-            &mut self.substrate.next_stable_object_id,
-            &self.substrate.entities,
-        )
+        self.substrate
+            .next_stable_object_id
+            .allocate(&self.substrate.entities)
     }
 
     /// CreateBullet46B050 without Fire: consumes one native constructor ID,

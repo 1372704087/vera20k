@@ -25,7 +25,7 @@ fn wall_sale_detach_clears_only_matching_team_target_fields() {
     let mut grid = crate::sim::overlay_grid::OverlayGrid::new(8, 8);
     grid.place_owned_wall(4, 4, 2, 0, wall_owner);
     sim.overlay_grid = Some(grid);
-    sim.playfield_bounds = Some(crate::sim::arena_fixture::OPEN_PLAYFIELD);
+    sim.set_playfield_bounds_for_test(Some(crate::sim::arena_fixture::OPEN_PLAYFIELD));
     let script = sim.interner.intern("DETACH");
     let sold = Some(TeamTarget::Cell { x: 4, y: 4 });
     let other = Some(TeamTarget::Cell { x: 6, y: 6 });

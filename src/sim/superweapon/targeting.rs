@@ -23,7 +23,7 @@ pub(super) fn on_map(sim: &Simulation, cell: (u16, u16)) -> bool {
         .is_some()
         && crate::sim::cell_rect::cell_is_in_playfield_height_aware_in_query(
             (i32::from(cell.0), i32::from(cell.1)),
-            sim.playfield_bounds,
+            sim.playfield_bounds(),
             sim.resolved_terrain.as_ref(),
             None,
         )

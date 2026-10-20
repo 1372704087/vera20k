@@ -49,14 +49,20 @@ const TRACKBAR_FRAME_BORDER: i32 = 2;
 /// (`ui::shell::geom::child_window`): Skirmish `0x102` and the Options audio
 /// sliders 129x22, Generate Map's Players 226x22, the Options plain sliders
 /// 181x22, the shell's Sound Options `0xD6` volumes 261x22. The in-game B8
-/// and BBB sliders keep their 263x21 and 192x21.
-pub const TRACKBAR_FRAMES: [(i32, i32, i32); 6] = [
+/// and BBB sliders keep their 263x21 and 192x21. The network setup dialogs
+/// BC/BD/C2/C9 place their speed, credits and units sliders at 129x21 and the
+/// co-op difficulty slider at 266x22, or 266x21 on WOL's host C2
+/// (`0x0060B950` placement, `tools/storage_oracle/lan_lobby.json`).
+pub const TRACKBAR_FRAMES: [(i32, i32, i32); 9] = [
     (129, 22, 50),
     (226, 22, 50),
     (263, 21, 50),
     (181, 22, 0),
     (192, 21, 0),
     (261, 22, 50),
+    (129, 21, 50),
+    (266, 22, 0),
+    (266, 21, 0),
 ];
 const SKIRMISH_FLAG_PCX_NAMES: [&str; 12] = [
     "usai.pcx", "japi.pcx", "frai.pcx", "geri.pcx", "gbri.pcx", "djbi.pcx", "arbi.pcx", "lati.pcx",

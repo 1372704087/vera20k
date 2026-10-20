@@ -586,6 +586,11 @@ pub(crate) struct RuntimePassInputs {
     /// block). Pause/menu service blocking is applied by the decision, not by
     /// the pacer consult.
     pub(crate) pacer_timing_admits: bool,
+    /// `Wait_For_Players` is waiting for a peer's frames: no frame commits.
+    pub(crate) network_wait: bool,
+    /// Its dialog 0xEA is open: the wait loop stops servicing tactical input
+    /// and drawing (`0x006497EC` needs `!bVar2`).
+    pub(crate) network_dialog_open: bool,
 }
 
 /// The admission outcome of one runtime pass.
@@ -605,7 +610,7 @@ pub(crate) struct RuntimePassDecision {
 /// network-modal frame keeps its non-`Ordinary` lane. `sidebar_credit_gate_matrix`
 /// pins the matrix through this function.
 pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecision {
-    if inputs.exact_step {
+    if inputs.exact_step && !inputs.network_wait {
         // Exact diagnostic stepping is an explicit request, not a wall-clock
         // modal pump: it advances exactly one Ordinary frame even while the
         // app is paused, and never records pacer admission.
@@ -635,6 +640,7 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
                 SessionMode::Campaign | SessionMode::Skirmish
             ))
         && inputs.startup_admitted
+        && !inputs.network_wait
         && (inputs.frame_stepping || pacer_admitted);
     let tick_lane = if inputs.paused && inputs.session_mode.is_network() {
         TickLane::NetworkModal
@@ -645,7 +651,7 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
         run_sim,
         tick_lane,
         admitted_by_pacer: run_sim && !inputs.frame_stepping && pacer_admitted,
-        tactical_mutation: service.tactical_mutation,
+        tactical_mutation: service.tactical_mutation && !inputs.network_dialog_open,
         // Main_Tick polls GScreen input at 0x55D8AB. ThrottleFrame's offline
         // modes 0/5 skip its extra poll at 0x55E253, so a redraw during that
         // wait must neither scroll nor latch a right drag. Native executions:
@@ -655,6 +661,7 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
         scroll_input: inputs.window_active
             && inputs.startup_admitted
             && service.tactical_mutation
+            && !inputs.network_dialog_open
             && (run_sim
                 || (inputs.paused && !inputs.menu_open)
                 || inputs.session_mode.is_network()),
@@ -813,6 +820,8 @@ fn advance_in_game_runtime_mode(
         menu_open: state.match_state.match_presentation.in_game_menu.is_open(),
         session_mode: state.match_state.session.mode(),
         pacer_timing_admits,
+        network_wait: state.match_state.network_wait.waiting(),
+        network_dialog_open: state.match_state.network_wait.dialog_open(),
     });
     if frame_stepping {
         state.diag.debug_frame_step_requested = false;

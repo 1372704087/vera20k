@@ -4368,21 +4368,34 @@ fn gsi_04_07_damage_postmortem_stock_barrel_delay_and_nested_order() {
         Some(&registry),
         crate::sim::world::FrameEffects::default(),
     );
-    let expired = sim
-        .substrate
-        .entities
-        .get(center)
-        .expect("UnInit keeps physical storage until the pending-delete drain");
+    // An `Explodes=` barrel's DestructionEffects arms a zero death fuse
+    // (`0x00441C43`), so the forced C4 hit leaves it alive at Health 0
+    // (`0x0044266B..0x00442690`) until its next Update retires it.
+    let expired = sim.substrate.entities.get(center).unwrap();
     assert_eq!(expired.health.current(), 0);
-    assert!(expired.death.is_dying() && !expired.lifecycle.object_alive());
-    assert!(!expired.in_logic_vector.is_member());
-    assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
-    assert!(sim.substrate.pending_delete.contains_object(&center));
+    assert!(!expired.death.is_dying() && expired.lifecycle.object_alive());
     assert_eq!(
         sim.overlay_grid.as_ref().unwrap().cell(8, 5).overlay_id,
         None,
         "the barrel DeathWeapon removes the wall in the same expiry transaction"
     );
+    sim.object_ai_visit_one(
+        center,
+        Some(&rules),
+        crate::sim::world::ObjectAiCtx {
+            overlay_registry: Some(&registry),
+            ..Default::default()
+        },
+    );
+    let retired = sim
+        .substrate
+        .entities
+        .get(center)
+        .expect("UnInit keeps physical storage until the pending-delete drain");
+    assert!(retired.death.is_dying() && !retired.lifecycle.object_alive());
+    assert!(!retired.in_logic_vector.is_member());
+    assert!(!sim.substrate.occupancy.contains_entity(8, 5, center));
+    assert!(sim.substrate.pending_delete.contains_object(&center));
     sim.flush_pending_delete();
     assert!(sim.substrate.entities.get(center).is_none());
 }

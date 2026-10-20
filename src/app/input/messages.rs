@@ -271,7 +271,7 @@ fn message_delay_timeout_ms(delay: crate::util::native_x87::NativeF64Bits) -> Op
 /// transport does not establish native glyph/style raster equivalence.
 pub(crate) fn post_hud_message(state: &mut AppState, message: HudMessage) {
     if let HudMessage::PlayerDefeated(house) = message {
-        post_house_line(state, message.csf_key(), house);
+        post_house_line(state, message.csf_key(), house, HouseLineColor::Player);
         return;
     }
     let Some(rules) = state.rules() else {
@@ -286,36 +286,59 @@ pub(crate) fn post_hud_message(state: &mut AppState, message: HudMessage) {
     post_localized_message(state, &post);
 }
 
-/// A House-named line: the CSF template formatted with House+0x1602A, in
-/// the House's colour scheme, for MessageDelay*900 buckets, silent 0.
-/// DestroyConnection5DA750 posts TXT_CONNECTION_LOST (name read at
-/// 5DA772); MPlayer_Defeated posts TXT_PLAYER_DEFEATED (4FC271..4FC2DB
-/// local, 4FC34F..4FC3AD remote). The local branch colours through
-/// Session+0x15C, which VERA reads as the local House's own scheme.
+/// The colour of a House-named line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HouseLineColor {
+    /// The player's colour scheme: MPlayer_Defeated (House+0x16054 remote,
+    /// Session+0x15C local, which VERA reads as the House's own scheme).
+    Player,
+    /// The HouseType's `Color=` scheme `[[House+0x34]+0xC0]`:
+    /// DestroyConnection (`0x005DA827..0x005DA834`).
+    Country,
+}
+
+/// A House-named line: the CSF template formatted with House+0x1602A, for
+/// MessageDelay*900 buckets, silent 0. DestroyConnection5DA750 posts
+/// TXT_LEFT_GAME/TXT_CONNECTION_LOST (name read at 5DA772); MPlayer_Defeated
+/// posts TXT_PLAYER_DEFEATED (4FC271..4FC2DB local, 4FC34F..4FC3AD remote).
 pub(crate) fn post_house_line(
     state: &mut AppState,
     key: &str,
     house: crate::sim::intern::InternedId,
+    color: HouseLineColor,
 ) {
     let Some(name) = crate::app::presentation::house_ui::house_ui_name(state, house) else {
         return;
     };
-    let Some(owner) = state
+    let Some(sim) = state
         .match_state
         .sim_runtime
         .as_ref()
-        .map(|runtime| runtime.simulation.interner().resolve(house).to_string())
+        .map(|runtime| &runtime.simulation)
     else {
         return;
     };
+    let owner = sim.interner().resolve(house).to_string();
+    let country = sim
+        .houses()
+        .get(&house)
+        .and_then(|state| state.country())
+        .map(|country| sim.interner().resolve(country).to_string());
     let Some(rules) = state.rules() else {
         return;
     };
-    let rgb = house_message_rgb(
-        Some(&owner),
-        &state.match_state.match_presentation.house_color_map,
-        Some(&rules.color_schemes),
-    );
+    let rgb = match color {
+        HouseLineColor::Player => house_message_rgb(
+            Some(&owner),
+            &state.match_state.match_presentation.house_color_map,
+            Some(&rules.color_schemes),
+        ),
+        HouseLineColor::Country => {
+            // HouseType+0xC0 holds 2*entry+1 (ReadColor 0x474A90).
+            let scheme = country.map_or(0, |country| rules.country_color_scheme(&country));
+            country_message_rgb(scheme, &rules.color_schemes)
+        }
+    };
     let timeout_ms = message_delay_timeout_ms(rules.general.message_delay_minutes);
     let template = crate::app::frontend::shell_pass::resolve_csf(state, key).into_owned();
     let text = crate::assets::csf_file::format_csf(
@@ -368,6 +391,23 @@ fn post_message(state: &mut AppState, post: &crate::ui::messages::MessagePost<'_
 /// Super prints53AE42/53B452 and House4F8D5C. Native caller-null fallback3
 /// is [Colors] entry1; TextLabel72A4D6's invalid-index fallback is scheme0.
 /// Source: tools/procedural_drawing_oracle/house_color.md, message consumer.
+/// A runtime scheme index through TextLabel's invalid-index fallback to
+/// scheme 0 (`0x0072A4D6`).
+fn country_message_rgb(
+    scheme: i32,
+    schemes: &[crate::rules::color_scheme::ColorSchemeEntry],
+) -> [f32; 3] {
+    let entry = u8::try_from(scheme / 2)
+        .ok()
+        .filter(|entry| usize::from(*entry) < schemes.len())
+        .unwrap_or(0);
+    crate::rules::house_colors::house_text_rgb(
+        schemes,
+        crate::rules::house_colors::HouseColorIndex(entry),
+    )
+    .map(|channel| f32::from(channel) / 255.0)
+}
+
 fn house_message_rgb(
     local_owner: Option<&str>,
     house_colors: &crate::map::houses::HouseColorMap,

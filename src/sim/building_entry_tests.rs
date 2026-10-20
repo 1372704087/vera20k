@@ -1468,7 +1468,6 @@ fn absorbed_infantry_tracking_is_restored_after_building_death_and_sale() {
                 &rules,
                 None,
                 reactor,
-                false,
                 |_, _| {},
                 crate::sim::world::FrameEffects::default(),
             );

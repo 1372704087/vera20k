@@ -1093,8 +1093,28 @@ pub(crate) fn commit_entities(
                 fatal_category,
                 EntityCategory::Unit | EntityCategory::Structure
             ) {
-                {
-                    if callbacks_enabled(world) {
+                // Case 4 UnInits a building, and runs AfterDestruction
+                // (`0x0044269A`, `0x004426A2`), only while its death fuse has
+                // time left (`0x0044266B..0x00442690`). One that outlives the
+                // blow stays alive at Health 0 until its Update retires it
+                // (`0x00440072..0x004400F1`); its bunker is still released.
+                let frame = world.session.binary_frame() as i32;
+                let outlives = fatal_category == EntityCategory::Structure
+                    && world
+                        .substrate
+                        .entities
+                        .get(target_id)
+                        .is_some_and(|building| {
+                            !building.pending_c4_detonation.has_time_left(frame)
+                        });
+                if callbacks_enabled(world) {
+                    if outlives {
+                        crate::sim::docking::bunker_link::release_sell_destroy(
+                            world,
+                            target_id,
+                            run.effects(),
+                        );
+                    } else {
                         world.apply_fatal_lifecycle_stage(
                             rules,
                             FatalLifecycleStage::AfterDeathEffects,
@@ -1104,7 +1124,7 @@ pub(crate) fn commit_entities(
                                 .with_registry(overlay_registry)
                                 .with_effects(run.effects()),
                         );
-                    };
+                    }
                 }
                 if callbacks_enabled(world) {
                     nested
@@ -1152,17 +1172,12 @@ pub(crate) fn commit_entities(
         // runs after the IsAlive re-test (`0x00442905`; `+0x90` is
         // `object_alive`); result 5 returned at `0x0044247D`. Case 4 calls
         // `DestructionEffects` (slot `+0x4EC` = `0x004415F0`, which never
-        // writes `+0x90`) and then, for the stock timer (`+0x530` = 8),
+        // writes `+0x90`) and then, for a fuse with time left (`+0x530` = 8),
         // `ObjectClass::UnInit` (`0x005F65F0`, clears `+0x90` at `0x005F6625`),
-        // so a killing blow skips the block. RESIDUAL: `DestructionEffects`
-        // arms a zero timer for `Explodes=` types (TechnoType `+0xD15`,
-        // ReadINI `0x007122BE..0x007122D2`: stock GAYARD, NAYARD, YAYARD,
-        // NANRCT, AMMOCRAT, CAOILD, CAMISC01/02, YAPPPT) and for a building
-        // whose current mission is Selling (0x13), leaving `+0x90` set and the
-        // block live on their killing blow; VERA UnInits them at once (see
-        // `crew_survival` for the second SpawnSurvivors this skips). Every
-        // retail `Explodes=` type is unarmed and Selling stops the block after
-        // its ping, so the missing ping is the whole effect.
+        // so a killing blow skips the block. The zero fuse of an `Explodes=`
+        // type (TechnoType `+0xD15`: stock GAYARD, NAYARD, YAYARD, NANRCT,
+        // AMMOCRAT, CAOILD, CAMISC01/02, YAPPPT) or a building dying while
+        // Selling leaves `+0x90` set and the block live on its killing blow.
         // `FootClass::ReceiveDamage @ 0x004D7442..0x004D7453`: a team member
         // whose hit returned other than none (0) or gone (5) reports it to
         // its team; a killed member has already left it.
@@ -1839,7 +1854,10 @@ fn finish_concrete_death(
         // Logic/display slot.
         effects.despawned_ids.push(dead_id);
     } else {
-        effects.immediate_uninit_ids.push(dead_id);
+        // A building's UnInit waits for its DestructionEffects below.
+        if category != EntityCategory::Structure {
+            effects.immediate_uninit_ids.push(dead_id);
+        }
         effects.despawned_ids.push(dead_id);
     }
     // The receiver owns the recursion boundary; each concrete owner consumes
@@ -1854,14 +1872,15 @@ fn finish_concrete_death(
                 postlude.commit(world, rules, effects, uninit);
             }
             ConcreteDeathSmudgePlan::Building => {
-                // DestructionEffects (`0x004415F0`): the building's own anims
-                // and centre mark, then SpawnSurvivors (`0x00441F1B`), which
-                // interleaves each foundation cell's survivor roll with that
-                // cell's own mark.
+                // DestructionEffects (`0x004415F0`): the building's own anims,
+                // centre mark, death fuse and NoSurvivor, then SpawnSurvivors
+                // (`0x00441F1B`), which interleaves each foundation cell's
+                // survivor roll with that cell's own mark.
                 let deferred = &mut effects.smudge_spawn_requests;
-                world.building_destruction_anims(
+                world.building_destruction_effects(
                     rules,
                     dead_id,
+                    ignore_defenses,
                     &mut effects.explosion_effects,
                     |world, request| {
                         commit_smudges(world, rules, overlay_registry, vec![request], deferred);
@@ -1873,7 +1892,6 @@ fn finish_concrete_death(
                         rules,
                         overlay_registry,
                         dead_id,
-                        ignore_defenses,
                         |world, (cell_rx, cell_ry)| {
                             commit_smudges(
                                 world,
@@ -1888,6 +1906,18 @@ fn finish_concrete_death(
                 }
             }
         }
+    }
+    // Case 4 UnInits a building only while the fuse DestructionEffects armed
+    // has time left (`0x0044266B..0x00442690`).
+    let frame = world.session.binary_frame() as i32;
+    if category == EntityCategory::Structure
+        && world
+            .substrate
+            .entities
+            .get(dead_id)
+            .is_some_and(|building| building.pending_c4_detonation.has_time_left(frame))
+    {
+        effects.immediate_uninit_ids.push(dead_id);
     }
 }
 

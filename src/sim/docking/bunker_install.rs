@@ -648,7 +648,7 @@ mod tests {
     }
 
     /// The Americans' NATBNK at (10, 10) and a light tank at `start`, with
-    /// the player's EnterBunker queued for the next frame.
+    /// the player's Enter order on it queued for the next frame.
     fn retail_bunker_entry(rules: &RuleSet, start: (u16, u16)) -> (Simulation, u64, u64) {
         use crate::sim::command::{Command, CommandEnvelope};
 
@@ -770,7 +770,7 @@ mod tests {
 
     /// Issue #2235: a Rocketeer hovering over the bunker must not keep the
     /// tank out. The air unit takes off, flies to the bunker's cell and holds
-    /// there (BalloonHover); the tank's EnterBunker order follows.
+    /// there (BalloonHover); the tank's Enter order follows.
     #[test]
     fn retail_tank_bunker_entry_with_a_rocketeer_over_the_bunker() {
         use crate::sim::command::{Command, CommandEnvelope};

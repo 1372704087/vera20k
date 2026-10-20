@@ -274,7 +274,7 @@ fn a_move_order_empties_the_list() {
     assert_eq!(list(&sim, id), (vec![], true));
 }
 
-/// A miner's HarvestCell order takes the same Foot clears.
+/// A miner's Harvest order takes the same Foot clears.
 #[test]
 fn a_harvest_order_empties_the_list() {
     let Some((mut sim, rules)) = retail_world(true) else {

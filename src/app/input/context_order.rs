@@ -332,7 +332,10 @@ pub(crate) fn attack_action(
             rules,
             overlay_registry,
         ) {
-            crate::sim::world::MoveAction::None => AttackAction::None,
+            // Harvest is a Unit's Cell answer, never an object's.
+            crate::sim::world::MoveAction::None | crate::sim::world::MoveAction::Harvest => {
+                AttackAction::None
+            }
             crate::sim::world::MoveAction::Move => AttackAction::Move,
             crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
         };
@@ -1539,7 +1542,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         let selected_ids = sim.click_order_receivers(&current_objects);
 
         let mut selected_units: Vec<u64> = Vec::new();
-        let mut selected_miner_ids: Vec<u64> = Vec::new();
 
         for &sid in &selected_ids {
             let Some(entity) = sim.entities().get(sid) else {
@@ -1547,9 +1549,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             };
             if entity.category() != EntityCategory::Structure {
                 selected_units.push(sid);
-                if entity.miner.is_some() {
-                    selected_miner_ids.push(sid);
-                }
             }
         }
         let hover = hover_target_at_point(
@@ -1622,10 +1621,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             modifier,
             OrderModifier::Normal | OrderModifier::Shift | OrderModifier::AttackMove
         );
-        // The ore/gem harvest action hangs off the *cell* action, which stays
-        // Move under Alt and under the cancelled chord but is replaced by force
-        // fire and guard area.
-        let cell_context_enabled: bool = !force_fire && modifier != OrderModifier::GuardArea;
         // A held chord overrides the sticky sidebar order mode for this click.
         let order_mode = match modifier {
             OrderModifier::AttackMove => OrderMode::AttackMove,
@@ -1670,7 +1665,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     .map(|payload| CommandEnvelope::new(owner_id, execute_tick, payload)),
             );
             selected_units.retain(|id| !repair_dispatch.receivers.contains(id));
-            selected_miner_ids.retain(|id| !repair_dispatch.receivers.contains(id));
             selected_ids.retain(|id| !repair_dispatch.receivers.contains(id));
             if selected_ids.is_empty() {
                 let sent = finish_order(state, queued, speaker_id);
@@ -1862,40 +1856,12 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             return sent || (consumed_attack_action && !select_fallback);
         }
         selected_units.retain(|id| !attack_receivers.contains(id));
-        selected_miner_ids.retain(|id| !attack_receivers.contains(id));
         let mobile_count = selected_units.len();
         let structure_selected = selected_ids.iter().any(|&id| {
             sim.entities()
                 .get(id)
                 .is_some_and(|entity| entity.category() == EntityCategory::Structure)
         });
-
-        // Check if the clicked cell holds tiberium (ore/gems). The Unit
-        // harvest arms run only over a Cell the viewer has mapped
-        // (`0x007405DB..0x007405E6`); over shroud a miner moves. They are
-        // the Cell's What_Action, which DetermineAction asks only with no
-        // object under the cursor (`0x0069261B..0x00692655`).
-        let clicked_ore = cell_context_enabled
-            && hover
-                .as_ref()
-                .is_none_or(|target| target.kind == HoverTargetKind::HiddenEnemy)
-            && sim.clicked_cell_is_shrouded(owner_id, (target_rx, target_ry)) != Ok(true)
-            && match (
-                sim.overlay_grid(),
-                Some(&resources.overlay_registry),
-                Some(&resources.rules),
-            ) {
-                (Some(grid), Some(registry), Some(rules)) if !rules.tiberium_types.is_empty() => {
-                    crate::sim::tiberium::tiberium_cell_view(
-                        grid,
-                        registry,
-                        &rules.tiberium_types,
-                        (target_rx, target_ry),
-                    )
-                    .is_some()
-                }
-                _ => false,
-            };
 
         // Each selected building answers its own What_Action in the click
         // loops (`0x004AE829..0x004AE85A` over an object, `0x004AE95B..0x004AE990`
@@ -1920,62 +1886,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             rally_announce |= announce;
         }
 
-        if clicked_ore && !selected_miner_ids.is_empty() {
-            queued.extend(
-                harvest_click_orders(
-                    sim,
-                    &resources.rules,
-                    Some(&resources.overlay_registry),
-                    owner_id,
-                    &selected_miner_ids,
-                    (target_rx, target_ry),
-                    shift_click,
-                )
-                .into_iter()
-                .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
-            );
-            // The harvest order commits mission Harvest, so its ack is the
-            // VoiceHarvest slot (e.g. CMIN ChronoMinerHarvest); a non-miner in
-            // the same selection commits Move and would speak VoiceMove.
-            // Non-miner units in selection just move to that cell, through the
-            // same 4DE1D0 cell receiver as an ordinary Move click.
-            for &stable_id in &selected_units {
-                if !selected_miner_ids.contains(&stable_id) {
-                    push_move_flash(
-                        &mut queued,
-                        sim,
-                        &resources.rules,
-                        Some(&resources.overlay_registry),
-                        owner_id,
-                        execute_tick,
-                        &current_objects,
-                        stable_id,
-                        (target_rx, target_ry),
-                        shift_click,
-                    );
-                    let Some(goal) = crate::app::input::commands::ordinary_cell_move_goal(
-                        sim,
-                        &resources.rules,
-                        Some(&resources.overlay_registry),
-                        owner_id,
-                        stable_id,
-                        (target_rx, target_ry),
-                        shift_click,
-                    ) else {
-                        continue;
-                    };
-                    queued.push(CommandEnvelope::new(
-                        owner_id,
-                        execute_tick,
-                        Command::Move {
-                            entity_id: stable_id,
-                            target_rx: goal.0,
-                            target_ry: goal.1,
-                        },
-                    ));
-                }
-            }
-        } else if structure_selected && mobile_count == 0 {
+        if structure_selected && mobile_count == 0 {
             match building_selection_click(
                 sim,
                 &resources.rules,
@@ -2293,6 +2204,28 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         continue;
                     };
                     payload
+                } else if modifier == OrderModifier::GuardArea
+                    && guard_area_admitted(sim, &resources.rules, stable_id, None)
+                {
+                    // Ctrl+Alt over bare ground uses the same admission as hover.
+                    Command::Guard {
+                        entity_id: stable_id,
+                        target: Some(TargetKind::Cell(target_rx, target_ry)),
+                    }
+                } else if force_move_target.is_none()
+                    && let Some(order) = cell_harvest_order(
+                        sim,
+                        &resources.rules,
+                        Some(&resources.overlay_registry),
+                        owner_id,
+                        stable_id,
+                        (target_rx, target_ry),
+                        shift_click,
+                    )
+                {
+                    // The receiver's own Cell action; under Ctrl too once it
+                    // has no weapon to force-fire (`0x007008C5`).
+                    order
                 } else if force_fire && !cell_is_shrouded {
                     // Unarmed Cell-click fall-through resolves the original
                     // clicked Cell before committing its Move event.
@@ -2323,14 +2256,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                         entity_id: stable_id,
                         target_rx: goal.0,
                         target_ry: goal.1,
-                    }
-                } else if modifier == OrderModifier::GuardArea
-                    && guard_area_admitted(sim, &resources.rules, stable_id, None)
-                {
-                    // Ctrl+Alt over bare ground uses the same admission as hover.
-                    Command::Guard {
-                        entity_id: stable_id,
-                        target: Some(TargetKind::Cell(target_rx, target_ry)),
                     }
                 } else {
                     match order_mode {
@@ -2413,6 +2338,37 @@ pub(crate) fn try_queue_context_order_at_screen_point(
     finish_order(state, queued, speaker_id) || consumed_attack_action
 }
 
+/// A receiver's order when its ClickedAction on a Cell re-asks its What_Action
+/// with mouse-over 0 (`0x004D7DA1`) and gets Harvest
+/// ([`crate::sim::world::Simulation::cell_move_action`]): case 6 sends
+/// ClickedMission Harvest with the Cell as Destination and no Target
+/// (`0x004D7E8E`), before the MoveFlash. The class wrapper answers 0 for a
+/// House that is not the player's (`0x007404BF`); the MEGAMISSION event
+/// itself tests no owner (`0x004C71F6..0x004C721F`).
+fn cell_harvest_order(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    viewer: InternedId,
+    receiver: u64,
+    cell: (u16, u16),
+    shift: bool,
+) -> Option<Command> {
+    let query = crate::sim::world::CellActionQuery {
+        mouse_over: false,
+        shift,
+    };
+    (sim.cell_move_action(viewer, receiver, cell, query, rules, registry)
+        == Ok(crate::sim::world::MoveAction::Harvest))
+    .then(|| {
+        Command::clicked_mission(
+            receiver,
+            crate::sim::mission::MissionType::Harvest,
+            TargetKind::Cell(cell.0, cell.1),
+        )
+    })
+}
+
 /// `FootClass::ClickedAction_Cell`'s MoveFlash (`0x004D7EB5..0x004D8065`)
 /// for one receiver of a Cell click: only the selection's first object asks
 /// ([`crate::sim::world::Simulation::cell_click_flashes_move`]), and its
@@ -2421,42 +2377,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
 /// receiver loop (`0x004ABF94`), so they flash too; a plan's execution clears
 /// the latch around its own ClickedAction (`0x004DC96F..0x004DC984`).
 #[allow(clippy::too_many_arguments)]
-/// The ore click's orders. Each miner asks its own What_Action on the Cell
-/// again with mouse-over 0 (`FootClass::ClickedAction` `0x004D7DA1`), and
-/// UnitClass gives Harvest only where that base action is Move
-/// (`0x007405F5..0x007406C3`): a miner the player cannot order answers None.
-/// Case 6 then sends ClickedMission Harvest with the Cell as Destination and
-/// no Target (`0x004D7D50`). The MEGAMISSION event itself tests no owner.
-fn harvest_click_orders(
-    sim: &crate::sim::world::Simulation,
-    rules: &crate::rules::ruleset::RuleSet,
-    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-    viewer: InternedId,
-    miners: &[u64],
-    cell: (u16, u16),
-    shift: bool,
-) -> Vec<Command> {
-    let query = crate::sim::world::CellActionQuery {
-        mouse_over: false,
-        shift,
-    };
-    miners
-        .iter()
-        .copied()
-        .filter(|&miner| {
-            sim.cell_move_action(viewer, miner, cell, query, rules, registry)
-                == Ok(crate::sim::world::MoveAction::Move)
-        })
-        .map(|miner| {
-            Command::clicked_mission(
-                miner,
-                crate::sim::mission::MissionType::Harvest,
-                TargetKind::Cell(cell.0, cell.1),
-            )
-        })
-        .collect()
-}
-
 fn push_move_flash(
     queued: &mut Vec<CommandEnvelope>,
     sim: &crate::sim::world::Simulation,
@@ -3847,13 +3767,17 @@ mod tests {
         assert!(!in_range(art, far), "beyond Range");
     }
 
-    /// The ore click asks each selected miner's own What_Action on the Cell.
-    /// The player's War Miner sends MEGAMISSION Harvest with the Cell as
-    /// Destination. Another player's War Miner, though selected, answers None
-    /// and sends nothing: the event itself would run it, testing no owner.
+    /// A Cell click asks each receiver's own What_Action ([`cell_harvest_order`]).
+    /// Over revealed ore the player's War Miner sends MEGAMISSION Harvest with
+    /// the Cell as Destination. Another player's War Miner, though selected,
+    /// answers None and sends nothing: the event itself would run it, testing
+    /// no owner. A Grizzly has no harvest rung. Where a tank holds the ore
+    /// Cell, the player's War Miner answers NoMove, and its ClickedAction
+    /// resolves a Cell to move to instead (`0x004D8065`).
     #[test]
-    fn retail_ore_click_orders_only_the_miners_the_player_controls() {
+    fn retail_ore_click_harvests_where_the_receivers_cell_action_does() {
         use crate::sim::house_state::HouseState;
+        use crate::sim::world::{CellActionQuery, MoveAction};
 
         let Some(battle) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -3861,6 +3785,10 @@ mod tests {
             return;
         };
         let rules = &battle.rules;
+        let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+            &battle.processed_rules,
+            Some(&battle.fixed_art),
+        );
         let mut sim = Simulation::with_seed(0);
         sim.intern_rule_type_ids(rules);
         sim.resolve_type_handles(rules);
@@ -3886,25 +3814,65 @@ mod tests {
         sim.session_mut_for_test()
             .set_current_house_for_test(Some(owner));
         crate::sim::arena_fixture::flat_ground(&mut sim, rules);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        sim.fog_mut_for_test().reveal_all_for_owner(owner);
+        let (open, taken) = ((12, 14), (16, 14));
+        let ore = registry.id_for_name("TIB01").unwrap();
+        for cell in [open, taken] {
+            sim.place_overlay_for_test(cell, ore, 6, &registry);
+        }
         let own = sim
             .spawn_object("HARV", "Americans", 10, 10, 0, rules)
             .expect("the player's War Miner");
         let other = sim
             .spawn_object("HARV", "Russians", 14, 10, 0, rules)
             .expect("another player's War Miner");
-        assert!(
-            [own, other]
-                .iter()
-                .all(|&id| sim.entities().get(id).unwrap().miner.is_some())
-        );
+        let tank = sim
+            .spawn_object_with_overlay_registry(
+                "MTNK",
+                "Americans",
+                taken.0,
+                taken.1,
+                0,
+                rules,
+                &registry,
+            )
+            .expect("the player's Grizzly on the ore");
+        sim.resolve_type_handles(rules);
 
+        let harvest =
+            |id, cell| cell_harvest_order(&sim, rules, Some(&registry), owner, id, cell, false);
         assert_eq!(
-            harvest_click_orders(&sim, rules, None, owner, &[own, other], (12, 14), false),
-            vec![Command::clicked_mission(
+            harvest(own, open),
+            Some(Command::clicked_mission(
                 own,
                 crate::sim::mission::MissionType::Harvest,
-                TargetKind::Cell(12, 14),
-            )]
+                TargetKind::Cell(open.0, open.1),
+            ))
+        );
+        assert_eq!(harvest(other, open), None);
+        assert_eq!(harvest(tank, open), None);
+
+        let click = CellActionQuery {
+            mouse_over: false,
+            shift: false,
+        };
+        assert_eq!(
+            sim.cell_move_action(owner, own, taken, click, rules, Some(&registry)),
+            Ok(MoveAction::NoMove)
+        );
+        assert_eq!(harvest(own, taken), None);
+        assert!(
+            crate::app::input::commands::ordinary_cell_move_goal(
+                &sim,
+                rules,
+                Some(&registry),
+                owner,
+                own,
+                taken,
+                false,
+            )
+            .is_some()
         );
     }
 

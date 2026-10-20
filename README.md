@@ -56,17 +56,30 @@ Arrows show data flow:
 
 ![Application sends commands to simulation, which returns world state; application sends draw data to rendering.](docs/images/architecture.png)
 
+## System requirements
+
+- **The game:** your own copy of Red Alert 2: Yuri's Revenge, version 1.001. VERA20K contains no
+  game files and reads the original `.mix` archives from the folder you set as `ra2_dir`.
+- **Windows:** Windows 10 or later on x64. Windows on ARM64 builds from source; CI compiles and
+  tests it.
+- **Linux:** x86-64 or ARM64, with Vulkan, X11 or Wayland, and ALSA (libasound2). Official builds
+  are made on Ubuntu 22.04, so they need glibc 2.35 or later; SteamOS on the Steam Deck qualifies.
+  Linux on ARM64 builds from source.
+- **macOS:** macOS 11 or later on Apple Silicon, which is what we ship. Intel Macs build from
+  source and are not tested in CI.
+- **Graphics:** a GPU with Vulkan, DirectX 12 or Metal. The renderer asks for those three APIs
+  only, with no OpenGL or DirectX 11 fallback, so a GPU that offers none of them cannot run the
+  game.
+
 ## Build and run
 
 You need:
 
-- **The game:** Red Alert 2: Yuri's Revenge.
-- **Rust and Git:** current stable [Rust](https://rustup.rs/), installed with rustup, and
+- **Rust and Git:** [Rust](https://rustup.rs/) 1.88 or later, installed with rustup, and
   [Git](https://git-scm.com/).
 - **Build tools:** on Windows, the Visual Studio C++ build tools, which the Rust installer offers
   to install; on macOS, `xcode-select --install`; on Debian and Ubuntu,
   `sudo apt install build-essential libasound2-dev pkg-config`.
-- **Graphics:** a GPU with Vulkan, DirectX 12 or Metal.
 
 VERA20K has been played on Windows, Linux and macOS.
 
@@ -78,6 +91,8 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
+The build writes several GB into `target/`.
+
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original
@@ -86,8 +101,21 @@ and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 
 ## Customization
 
-Optional features (e.g. Ares) should be configurable through INI files, with client toggles
-where appropriate.
+Ares compatibility is an optional build capability. Default builds use the retail
+readers and dispatch; an INI or client setting cannot enable omitted extensions.
+Build the supported extensions explicitly:
+
+```sh
+python -m tools.cargo_run -- build -p vera20k --profile fast --bin vera20k --features ares
+```
+
+Omit `--features ares` for a build without the extensions. Ares builds identify
+themselves in the window title and startup log. Supported INI keys configure
+existing GenericWarhead, UnitDelivery, superweapon building gates and money behavior;
+Include/inheritance expansion is also active only in Ares gameplay builds. The explicit
+read-only `asset ini-expand` probe remains available independently. Saves retain the
+build capability and cannot load in the other mode, even with identical retail INIs.
+This is partial Rust-native compatibility, not Ares DLL loading or general mod support.
 
 To launch single-player YR skirmishes or campaigns through a dedicated CnCNet
 client, see the [offline client setup](integrations/cncnet/README.md). This needs

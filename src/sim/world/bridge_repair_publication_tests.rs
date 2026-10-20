@@ -1432,7 +1432,6 @@ fn repair_queries_unrelated_rocketeer_after_move_and_snapshot_restore() {
 #[test]
 fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
     use crate::rules::locomotor_type::LocomotorKind;
-    use crate::sim::movement::locomotion::piggyback;
     use crate::sim::{components::DriveCoord, snapshot::GameSnapshot};
     let (mut sim, rules, _) = fixture();
     let id = sim
@@ -1500,10 +1499,7 @@ fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
         .locomotor
         .as_mut()
         .unwrap();
-    assert_eq!(
-        piggyback::begin(loco, LocomotorKind::Walk, 0),
-        piggyback::BeginOutcome::Installed
-    );
+    assert!(loco.begin_piggyback(LocomotorKind::Walk, 0));
     let saved = GameSnapshot::save(&sim, 0, 0, "jumpjet stash", 0);
     let mut restored = GameSnapshot::load(&saved).unwrap().sim;
     restored.restore_after_snapshot_load().unwrap();
@@ -1532,7 +1528,7 @@ fn jumpjet_query_fields_hash_and_restore_as_one_suspended_instance() {
         .as_mut()
         .unwrap();
     loco.set_piggyback_for_test(serde_json::from_str(&original).unwrap());
-    assert!(piggyback::end(loco).is_some());
+    assert!(loco.end_piggyback().is_some());
     assert_eq!(loco.jumpjet_runtime(), Some(&retained));
 }
 

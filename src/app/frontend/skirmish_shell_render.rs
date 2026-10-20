@@ -1903,6 +1903,8 @@ mod abort;
 pub(crate) use abort::render_abort_shell;
 mod diplomacy;
 pub(crate) use diplomacy::render_diplomacy_shell;
+mod connection;
+pub(crate) use connection::{connection_shell_drawable, render_connection_shell};
 
 mod list;
 

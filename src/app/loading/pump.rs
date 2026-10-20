@@ -2029,6 +2029,10 @@ fn apply_network_loading_disconnects(
 ) -> Vec<crate::app::match_runtime::network_match::ConnectionDestroyed> {
     use crate::app::match_runtime::network_match::{ConnectionError, destroy_connection};
     let Some(sim) = result.scenario.simulation.as_mut() else {
+        // No House array to consult: the connections still drop.
+        for &index in indices {
+            session.disconnect_network_participant(index, 1);
+        }
         return Vec::new();
     };
     indices

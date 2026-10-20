@@ -129,7 +129,14 @@ enum NetworkPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NetworkLoadingRequest {
     ReportProgress(i32),
-    Disconnect { source_index: usize, reason: i32 },
+    Disconnect {
+        source_index: usize,
+        reason: i32,
+    },
+    /// The kick proposal packet `0x1C` (0x0064AAE0) to every other node.
+    ProposeKick {
+        target_source: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1382,6 +1389,18 @@ impl MatchSession {
             network
                 .loading_requests
                 .push(NetworkLoadingRequest::ReportProgress(percent));
+        }
+    }
+
+    /// 0x0064AAE0's kick proposal for participant `target_source`, sent to
+    /// every other connected node.
+    pub(crate) fn request_kick_proposal(&mut self, target_source: usize) {
+        if let Some(network) = self.network.as_mut()
+            && matches!(network.phase, NetworkPhase::Frozen { .. })
+        {
+            network
+                .loading_requests
+                .push(NetworkLoadingRequest::ProposeKick { target_source });
         }
     }
 

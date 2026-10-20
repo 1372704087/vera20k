@@ -550,6 +550,42 @@ impl Simulation {
         if shrouded { 7 } else { 0 }
     }
 
+    /// The live Building `id`'s own `Can_Enter_Cell` (vtable `+0x1AC`,
+    /// `BuildingClass::Can_Enter_Cell @ 0x00449440`) at `cell`, for input: 0
+    /// or 7. It reads no argument but the cell, as Techno What_Action
+    /// on a Cell asks it (`0x00700B5F..0x00700B7E`).
+    pub(crate) fn building_can_enter(
+        &self,
+        id: u64,
+        cell: (i16, i16),
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> Result<u8, String> {
+        let e = self
+            .substrate
+            .entities
+            .get(id)
+            .ok_or("Can_Enter_Cell of a retired building")?;
+        let obj = self
+            .interner
+            .object_type(e.type_ref(), rules)
+            .ok_or("Can_Enter_Cell of a building without its type")?;
+        let terrain = self
+            .resolved_terrain
+            .as_ref()
+            .ok_or("Building entry requires map cells")?;
+        // An input query: its own fallback Cell, never the simulation's.
+        let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+        let cell = cells.lookup(cell);
+        let live = EntryReadContext {
+            sim: self,
+            rules,
+            registry,
+            facts: None,
+        };
+        building_impassable(&live, e, obj, cell, Some(&cells)).map(|hard| if hard { 7 } else { 0 })
+    }
+
     /// A mover's own `Can_Enter_Cell` (vtable `+0x1AC`) at a cell, as its
     /// native code: [`Self::aircraft_can_enter`] for an Aircraft, which reads
     /// no argument but the cell, otherwise [`Self::foot_can_enter`] with
@@ -638,7 +674,7 @@ fn classify_entry(
         .object_type(e.type_ref(), live.rules)
         .ok_or("repair admission missing ObjectType")?;
     if e.category() == EntityCategory::Structure {
-        return building_impassable(live, e, obj, cell).map(|hard| if hard { 7 } else { 0 });
+        return building_impassable(live, e, obj, cell, None).map(|hard| if hard { 7 } else { 0 });
     }
     if e.category() == EntityCategory::Aircraft {
         return aircraft_entry(live, e, cell);
@@ -1687,12 +1723,14 @@ fn terrain_impassable(
 }
 /// BuildingClass::Can_Enter_Cell @ 0x00449440: a marked building that can
 /// undeploy tests the one cell, otherwise its type's CanPlaceAt from the
-/// cell; either for the building's own house.
+/// cell; either for the building's own house. `cells` is the query that
+/// resolved `cell`; `None` is the simulation's own.
 fn building_impassable(
     live: &EntryReadContext<'_>,
     e: &GameEntity,
     obj: &ObjectType,
     cell: Cell,
+    cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
 ) -> Result<bool, String> {
     let admitted = if obj.undeploys_into.is_some() && e.lifecycle.cell_marked() {
         crate::sim::build_site::is_clear_to_build(
@@ -1703,17 +1741,18 @@ fn building_impassable(
             crate::sim::build_site::building_speed_type(obj),
             Some(obj),
             Some(e.owner()),
-            None,
+            cells,
         )
     } else {
+        let origin = cells.map_or_else(|| live.coord(cell), |cells| cells.coord(cell));
         crate::sim::build_site::can_place_building_at(
             live.sim,
             live.rules,
             live.registry,
             obj,
-            live.coord(cell),
+            origin,
             Some(e.owner()),
-            None,
+            cells,
         )
     };
     Ok(!admitted)

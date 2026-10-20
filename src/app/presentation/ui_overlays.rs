@@ -100,7 +100,7 @@ fn health_bar_drawable(
     local_owner: Option<&str>,
     rules: Option<&RuleSet>,
 ) -> bool {
-    let player = local_owner.and_then(|owner| sim.interner.get(owner));
+    let player = local_owner.and_then(|owner| sim.interner().get(owner));
     let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player);
     draw_pips && admitted_techno_observer(sim, entity, local_owner, rules).is_some()
 }
@@ -121,9 +121,9 @@ fn health_strip_visibility(
             || !player.is_some_and(|player| {
                 entity.disguise_hides_house_from(
                     player,
-                    Some(&sim.fog),
-                    Some(&sim.house_alliances),
-                    &sim.interner,
+                    Some(sim.fog()),
+                    Some(sim.house_alliances()),
+                    sim.interner(),
                 )
             }));
     status_visibility(selected, hovered)
@@ -1758,17 +1758,17 @@ mod tests {
         use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
         let drawable = |category, allied: bool, selected: bool| {
             let mut sim = Simulation::new();
-            sim.interner.intern("Player");
-            let owner = sim.interner.intern("Enemy");
+            sim.intern("Player");
+            let owner = sim.intern("Enemy");
             if allied {
                 for (from, to) in [("PLAYER", "ENEMY"), ("ENEMY", "PLAYER")] {
-                    sim.house_alliances
+                    sim.house_alliances_mut_for_test()
                         .entry(from.into())
                         .or_default()
                         .insert(to.into());
                 }
             }
-            sim.fog = crate::sim::vision::FogState::new(32, 32);
+            *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
             let mut entity = GameEntity::new_at_frame_zero_for_test(
                 1,
                 20,
@@ -1777,7 +1777,7 @@ mod tests {
                 0,
                 owner,
                 Health::new(100),
-                sim.interner.intern("MGTK"),
+                sim.intern("MGTK"),
                 category,
                 0,
                 5,
@@ -1788,7 +1788,7 @@ mod tests {
             let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
             disguise.acquire(0, None, None);
             entity.disguise = Some(disguise);
-            sim.entities_mut().insert(entity);
+            sim.entities_mut_for_test().insert(entity);
             sim.resubmit_entity_display_for_test(1);
             health_bar_drawable(
                 &sim,

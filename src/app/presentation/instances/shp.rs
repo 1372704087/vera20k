@@ -1032,7 +1032,7 @@ fn factory_unload_art<'a>(
         .radio_contacts
         .slot(0)
         .and_then(|id| sim.entities().get(id))
-        .and_then(|product| sim.interner.object_type(product.type_ref(), rules))
+        .and_then(|product| sim.interner().object_type(product.type_ref(), rules))
         .is_some_and(|object| object.jumpjet || object.balloon_hover);
     let door = &art.factory_door;
     let (body, under_door) = if roof {

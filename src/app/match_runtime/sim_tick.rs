@@ -978,12 +978,10 @@ fn advance_one_simulation_frame(
         let mut hud_messages = Vec::new();
         // Carried out of the sim borrow so the census can read `state` freely below.
         let mut census_tick: Option<u64> = None;
-        let command_queue_route = state.match_state.session.mode().command_queue_route();
         if let Some(rt) = state.match_state.sim_runtime.as_mut() {
             let sim = &mut rt.simulation;
             let native_frame = sim.session().binary_frame();
             sim.prepare_unit_voice_visits(unit_voice_owners);
-            sim.set_command_queue_route(command_queue_route);
             // Normal play hashes its state once every PLAY_HASH_INTERVAL
             // frames and on the frame that ends the match, for the replay log.
             sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);

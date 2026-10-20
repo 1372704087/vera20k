@@ -1418,10 +1418,6 @@ pub struct Simulation {
     executed_exit_owner: Option<InternedId>,
     #[serde(skip)]
     pub(crate) connection_lost: bool,
-    /// GameMode's `Queue_AI` route. The app's session owner is the authority
-    /// and writes it before every frame it admits; never saved or hashed.
-    #[serde(skip)]
-    command_queue_route: CommandQueueRoute,
     /// Checksum computed by this frame's multiplayer tail, handed to the
     /// frame output. Transient per frame.
     #[serde(skip)]
@@ -3888,7 +3884,6 @@ impl Simulation {
             quit_requested: false,
             executed_exit_owner: None,
             connection_lost: false,
-            command_queue_route: CommandQueueRoute::SinglePlayer,
             frame_sync_checksum: None,
             state_hash_interval: every_frame(),
             pending_commands: Vec::new(),
@@ -6930,7 +6925,7 @@ impl Simulation {
         // `Queue_AI_Multiplayer` computes and stores the sync checksum
         // (`0x00647684`, history `0x00B04474[Frame & 0xFF]`) before any
         // command transfer or dispatch; the single-player body never does.
-        if self.command_queue_route == CommandQueueRoute::Multiplayer {
+        if self.session.game_mode().command_queue_route() == CommandQueueRoute::Multiplayer {
             self.frame_sync_checksum = Some(FrameSyncChecksum {
                 frame: self.session.binary_frame(),
                 checksum: self.compute_retail_multiplayer_checksum(),
@@ -7170,11 +7165,6 @@ impl Simulation {
         // into a later headless, replay or ordinary presentation frame.
         self.unit_voice_visit_interest.clear();
         Ok(self.collect_frame_output(frame?, effects))
-    }
-
-    /// The session owner's GameMode route for the next admitted frames.
-    pub fn set_command_queue_route(&mut self, route: CommandQueueRoute) {
-        self.command_queue_route = route;
     }
 
     /// From the next frame on, hash the state for the TickResult only after

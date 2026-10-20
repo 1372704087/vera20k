@@ -53,8 +53,8 @@ fn a_hovered_enemy_mirage_worn_as_terrain_draws_no_health_strip() {
     let center = crate::util::lepton::absolute_leptons_to_screen(20 * 256 + 128, 20 * 256 + 128, 0);
     let health_fills = |name: &str, selected: bool| {
         let mut sim = Simulation::new();
-        let player = sim.interner.intern("Player");
-        let owner = sim.interner.intern("Enemy");
+        let player = sim.intern("Player");
+        let owner = sim.intern("Enemy");
         let object = rules.object(name).unwrap();
         let mut entity = GameEntity::new_at_frame_zero_for_test(
             1,
@@ -64,7 +64,7 @@ fn a_hovered_enemy_mirage_worn_as_terrain_draws_no_health_strip() {
             0,
             owner,
             Health::new(object.strength),
-            sim.interner.intern(name),
+            sim.intern(name),
             EntityCategory::from(object.category),
             0,
             5,
@@ -75,9 +75,9 @@ fn a_hovered_enemy_mirage_worn_as_terrain_draws_no_health_strip() {
         let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
         disguise.acquire(0, None, None);
         entity.disguise = Some(disguise);
-        sim.fog = crate::sim::vision::FogState::new(64, 64);
-        sim.fog.reveal_all_for_owner(player);
-        sim.entities_mut().insert(entity);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(64, 64);
+        sim.fog_mut_for_test().reveal_all_for_owner(player);
+        sim.entities_mut_for_test().insert(entity);
         sim.resubmit_entity_display_for_test(1);
         techno_extras_for_parent(
             &sim,

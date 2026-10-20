@@ -71,7 +71,7 @@ pub(crate) fn open(state: &mut AppState, request: DiplomacyRequest) {
         .sim_runtime
         .as_ref()
         .and_then(|runtime| runtime.simulation.session().multiplayer_mode_class());
-    match requested_state(request, state.match_state.session.mode(), mode_class) {
+    match requested_state(request, state.match_state.session_mode(), mode_class) {
         RequestedState::Nothing => {}
         RequestedState::Diplomacy => {
             App::enter_in_game_menu_state(state, InGameMenuState::Diplomacy);
@@ -246,7 +246,7 @@ pub(crate) fn resolve_rows(
 /// The open dialog's contents from the running match.
 pub(crate) fn view(state: &AppState) -> DiplomacyView {
     let mut view = DiplomacyView::default();
-    let mode = state.match_state.session.mode();
+    let mode = state.match_state.session_mode();
     let (Some(sim), Some(rules)) = (
         state
             .match_state

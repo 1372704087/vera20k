@@ -169,7 +169,7 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
     let title = crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string();
     let detail = crate::app::match_runtime::scenario_exit::outcome_detail(outcome).to_string();
     let destination = crate::app::match_runtime::scenario_exit::scenario_exit_destination(
-        state.match_state.session.mode(),
+        state.match_state.session_mode(),
         outcome,
         state.match_state.map_basic.skip_score.unwrap_or(false),
         title,
@@ -413,7 +413,7 @@ fn build_score_screen_model(
         .map_or(0, |house| house.side_index());
 
     ScoreScreenModel {
-        title_key: score_title_key(state.match_state.session.mode()),
+        title_key: score_title_key(state.match_state.session_mode()),
         game_number: state.frontend.finished_game_count,
         // The clock performs native's signed division first. The existing UI
         // model is unsigned and applies the native 99:59:59 ceiling, so keep
@@ -807,7 +807,7 @@ fn advance_in_game_runtime_mode(
     if service_live
         && scenario_paused
         && matches!(
-            state.match_state.session.mode(),
+            state.match_state.session_mode(),
             SessionMode::Campaign | SessionMode::Skirmish
         )
         && pacer_timing_admits
@@ -826,7 +826,7 @@ fn advance_in_game_runtime_mode(
         paused: state.match_state.paused(),
         scenario_paused,
         menu_open: state.match_state.match_presentation.in_game_menu.is_open(),
-        session_mode: state.match_state.session.mode(),
+        session_mode: state.match_state.session_mode(),
         pacer_timing_admits,
         network_wait: state.match_state.network_wait.waiting(),
         network_dialog_open: state.match_state.network_wait.dialog_open(),

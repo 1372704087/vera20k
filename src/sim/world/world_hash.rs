@@ -1233,42 +1233,15 @@ impl Simulation {
         }
     }
 
-    /// One digest per House's fog grids, in House order, spread over threads
-    /// once the grids are large (30 Houses on a 500x500 map hold millions of
-    /// cells).
+    /// One digest per House's fog grids ([`FogState::plane_digests`]).
     fn fog_digests(&self) -> Vec<u64> {
-        let grids: Vec<_> = self.fog.by_owner.values().collect();
-        let cells = usize::from(self.fog.width) * usize::from(self.fog.height) * grids.len();
-        state_hasher::digests(&grids, cells >= 1 << 20, |grid, hasher| {
-            grid.hash_cells(hasher)
-        })
+        self.fog.plane_digests()
     }
 
     /// Hash fog-of-war visibility and house alliance data, each House's grids
     /// as its digest from [`Self::fog_digests`].
     fn hash_fog_and_alliances(&self, fog_digests: &[u64], hasher: &mut impl Hasher) {
-        self.fog.width.hash(hasher);
-        self.fog.height.hash(hasher);
-        debug_assert_eq!(fog_digests.len(), self.fog.by_owner.len());
-        for (owner, digest) in self.fog.by_owner.keys().zip(fog_digests) {
-            owner.hash(hasher);
-            digest.hash(hasher);
-        }
-        self.fog.gap_sources.hash(hasher);
-        self.fog.hash_sight_admissions(hasher);
-        self.fog.hash_whole_map_reveal_state(hasher);
-        b"fogged-object-footprints-v1".hash(hasher);
-        self.fog.next_fogged_object_id.hash(hasher);
-        self.fog.fogged_object_cells.hash(hasher);
-        self.fog.fogged_objects.hash(hasher);
-        self.fog.sensors_by_house.hash(hasher);
-        // `CellClass+0xAC[house]` disguise-detect counters.
-        // Behaviour-affecting like their `SensorsOfHouses` sibling above:
-        // `FUN_004870F0` reads them inside `IsDisguisedTo`, which decides
-        // target acquisition and so changes issued commands, not just
-        // presentation.
-        self.fog.disguise_detect_by_house.hash(hasher);
-        self.fog.cloaked_by_houses.hash(hasher);
+        self.fog.hash_state(fog_digests, hasher);
         for (owner, allies) in &self.house_alliances {
             owner.hash(hasher);
             for ally in allies {

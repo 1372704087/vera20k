@@ -2672,8 +2672,8 @@ mod reveal_on_fire_tests {
         ))
         .unwrap();
         let mut sim = Simulation::new();
-        sim.fog.width = 32;
-        sim.fog.height = 32;
+        sim.fog.set_width_for_test(32);
+        sim.fog.set_height_for_test(32);
         sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
@@ -2768,14 +2768,14 @@ mod reveal_on_fire_tests {
             crate::sim::vision::reveal_radius(&mut sim.fog, viewer, 10, 12, 1);
             assert!(!revealed(&sim, "Americans", 10, 10));
             assert_eq!(
-                sim.fog.by_owner[&viewer]
+                sim.fog.by_owner()[&viewer]
                     .map_cell_edge_cache_for_test((10, 11))
                     .0[0],
                 -2
             );
             reveal_on_fire(&mut sim, &rules, 1, TargetKind::Entity(2), false, path);
             assert!(!revealed(&sim, "Americans", 10, 10), "disabled leaf");
-            let frame = sim.fog.by_owner[&viewer]
+            let frame = sim.fog.by_owner()[&viewer]
                 .map_cell_edge_cache_for_test((10, 11))
                 .0[0];
             assert_eq!(frame != -2, path == FireDisclosurePath::Spawner);
@@ -2803,13 +2803,13 @@ mod reveal_on_fire_tests {
         );
         assert!(!revealed(&sim, "Americans", 10, 10), "no human victim leaf");
         assert_ne!(
-            sim.fog.by_owner[&viewer]
+            sim.fog.by_owner()[&viewer]
                 .map_cell_edge_cache_for_test((10, 11))
                 .0[0],
             -2
         );
         assert!(
-            !sim.fog.by_owner.contains_key(&computer),
+            !sim.fog.by_owner().contains_key(&computer),
             "no computer client projection"
         );
     }
@@ -2846,7 +2846,7 @@ mod reveal_on_fire_tests {
         );
         assert!(!revealed(&sim, "Americans", 10, 10));
         assert_ne!(
-            sim.fog.by_owner[&viewer]
+            sim.fog.by_owner()[&viewer]
                 .map_cell_edge_cache_for_test((10, 11))
                 .0[0],
             -2
@@ -2861,7 +2861,7 @@ mod reveal_on_fire_tests {
             let cell = if aircraft { (10, 11) } else { (10, 10) };
             // Seed a single ordinary observation without refreshing its frame.
             sim.fog
-                .by_owner
+                .by_owner_mut_for_test()
                 .get_or_insert_with(viewer, || crate::sim::vision::OwnerVisibility::new(32, 32))
                 .mark_visible(cell.0, cell.1);
             if aircraft {
@@ -2878,7 +2878,7 @@ mod reveal_on_fire_tests {
                 FireDisclosurePath::Spawner,
             );
             assert_eq!(
-                sim.fog.by_owner[&viewer]
+                sim.fog.by_owner()[&viewer]
                     .map_cell_edge_cache_for_test(cell)
                     .0[0],
                 -2

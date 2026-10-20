@@ -897,17 +897,25 @@ fn area_guard_starts_an_idle_slave_miners_hunt_at_once() {
             "ore": [[25, 15, 0, 0, 5], [25, 16, 0, 0, 5]],
         }));
         assert_eq!(manager_state_of(&s, s.master), ManagerState::Ready);
-        let mut left_at = None;
-        for step in 0..10 {
+        let mut states = vec![ManagerState::Ready];
+        for _ in 0..30 {
             frame(&mut s);
-            if manager_state_of(&s, s.master) != ManagerState::Ready {
-                left_at = Some(step);
-                break;
+            let state = manager_state_of(&s, s.master);
+            if states.last() != Some(&state) {
+                states.push(state);
             }
         }
-        assert!(
-            left_at.is_some(),
-            "human {human}: the Area Guard visit starts the hunt well before the kick"
+        // StartHunt (state 1), then state 1 finds the field and drives.
+        assert_eq!(
+            states,
+            [
+                ManagerState::Ready,
+                ManagerState::Scanning,
+                ManagerState::Travelling
+            ],
+            "human {human}"
         );
+        let miner = s.scene.sim.substrate.entities.get(s.master).unwrap();
+        assert!(miner.navigation.nav_com().is_some(), "human {human}");
     }
 }

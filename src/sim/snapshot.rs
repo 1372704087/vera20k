@@ -1233,7 +1233,9 @@ use crate::util::save_codec;
 // and HarvestCell are gone (each was the MEGAMISSION event under a second
 // name), which renumbers the later Command variants in pending
 // CommandEnvelope payloads.
-const SNAPSHOT_VERSION: u32 = 462;
+// 462 -> 463: retained ObjectType armor IDs, Ares armor registry and independent
+// Warhead extension records; the capability metadata header still starts at 459.
+const SNAPSHOT_VERSION: u32 = 463;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10249,6 +10251,7 @@ mod tests {
         // 459 -> 460: retained generic prerequisite definitions.
         // 460 -> 461: Tiberium queues hold the shared native heap.
         // 461 -> 462: the typed Enter and Harvest commands are gone.
-        assert_eq!(super::SNAPSHOT_VERSION, 462);
+        // 462 -> 463: retained armor IDs and Ares warhead extension records.
+        assert_eq!(super::SNAPSHOT_VERSION, 463);
     }
 }

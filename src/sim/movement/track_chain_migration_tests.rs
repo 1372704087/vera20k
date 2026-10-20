@@ -68,7 +68,9 @@ fn chain_fixture(passive: bool) -> (Simulation, RuleSet, TrackInvocation) {
                     .with_track_for_test(TrackProgress::for_test(1, 37, false, 0))
             ))
     );
-    mover.navigation.path_replay = FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10)));
+    mover
+        .navigation
+        .set_path_replay_for_test(FootPathQueue::for_test(vec![2, 3], 0, Some((10, 10))));
     // Stand at the actual raw3 chain sample, keeping unrelated crossing effects
     // outside these chain-dispatch fixtures.
     let point = super::super::drive_track::raw_track_points(3)[37];
@@ -143,7 +145,7 @@ fn assert_old_chain_continues(sim: &Simulation) {
     );
     assert_eq!(drive.track().residual(), 1);
     assert_eq!(drive.head_to(), Some(DriveCoord::cell(10, 9, 0)));
-    assert_eq!(mover.navigation.path_replay.cursor(), 0);
+    assert_eq!(mover.navigation.path_replay().cursor(), 0);
 }
 
 #[test]
@@ -242,7 +244,8 @@ fn production_chain_clear_and_code2_share_admission_and_never_scatter_or_repath(
                 .get(MOVER)
                 .unwrap()
                 .navigation
-                .path_runtime;
+                .path_runtime()
+                .clone();
             let blocker_before = sim
                 .substrate
                 .entities
@@ -269,7 +272,7 @@ fn production_chain_clear_and_code2_share_admission_and_never_scatter_or_repath(
                     drive.head_to(),
                     Some(DriveCoord::cell(CANDIDATE.0, CANDIDATE.1, 0))
                 );
-                assert_eq!(mover.navigation.path_replay.cursor(), 1);
+                assert_eq!(mover.navigation.path_replay().cursor(), 1);
                 assert_eq!(per_cell, 1);
             } else {
                 assert_old_chain_continues(&sim);
@@ -281,7 +284,8 @@ fn production_chain_clear_and_code2_share_admission_and_never_scatter_or_repath(
                     .get(MOVER)
                     .unwrap()
                     .navigation
-                    .path_runtime,
+                    .path_runtime()
+                    .clone(),
                 path_before
             );
             assert_eq!(

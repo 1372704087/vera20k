@@ -1418,7 +1418,7 @@ impl Simulation {
         }
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             // Keep the backing suffix/cursor/reference; this is one DWORD.
-            entity.navigation.path_replay.clear_live_head();
+            entity.navigation.path_replay_mut().clear_live_head();
         }
     }
 }

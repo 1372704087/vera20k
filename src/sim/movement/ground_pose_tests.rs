@@ -66,8 +66,9 @@ fn mover(sim: &mut Simulation, kind: LocomotorKind) -> GameEntity {
                 .as_mut()
                 .unwrap()
                 .set_walk_destination(Some(DriveCoord::cell(3, 1, 0)));
-            entity.navigation.path_replay =
-                crate::sim::components::FootPathQueue::for_test(vec![0, 0], 0, Some((3, 3)));
+            entity.navigation.set_path_replay_for_test(
+                crate::sim::components::FootPathQueue::for_test(vec![0, 0], 0, Some((3, 3))),
+            );
         }
         _ => unreachable!(),
     }
@@ -515,7 +516,7 @@ fn moving_ramp_snapshot_continues_residual_bridge_crossing_through_paid_points()
                     entity.position.z(),
                     entity.position.exact_z_leptons(),
                     entity.on_bridge(),
-                    entity.navigation.path_replay.clone(),
+                    entity.navigation.path_replay().clone(),
                 )
             };
             assert_eq!(
@@ -635,7 +636,9 @@ fn fresh_walk_refusal_preserves_xyz_before_head_selection() {
     blocker.set_owner_for_test(sim.intern("Americans"));
     blocker.set_type_ref_for_test(sim.intern("BLOCKER"));
     // Moving: its Foot+5E0 head word steps east from (3,2).
-    blocker.navigation.path_replay = crate::sim::movement::fixture_path_replay(&[(3, 2), (4, 2)]);
+    blocker
+        .navigation
+        .set_path_replay_for_test(crate::sim::movement::fixture_path_replay(&[(3, 2), (4, 2)]));
     sim.substrate.occupancy.add(
         3,
         2,
@@ -718,7 +721,7 @@ fn terminal_centre_height_commits_before_next_process_turn_without_finalizer() {
     entity.position.set_sub_y_for_test(SimFixed::from_num(131));
     super::navcom::set_destination_internal_cell(&mut entity, (4, 3), Some(&terrain), 0);
     super::path_markers::install_path_replay(
-        &mut entity.navigation.path_replay,
+        entity.navigation.path_replay_mut(),
         (3, 3),
         &[(3, 3), (4, 3)],
         1,
@@ -1059,7 +1062,7 @@ fn chained_mover(sim: &mut Simulation, kind: LocomotorKind) -> (GameEntity, Driv
     let mut replay = crate::sim::components::FootPathQueue::default();
     super::path_markers::install_path_replay(&mut replay, (3, 3), &path, 1);
     super::path_markers::accept_path_replay(&mut replay, (4, 1), 2);
-    entity.navigation.path_replay = replay;
+    entity.navigation.set_path_replay_for_test(replay);
     match kind {
         LocomotorKind::Drive => {
             let d = entity.locomotor.as_mut().unwrap();
@@ -1105,7 +1108,7 @@ fn admitted_tick_chain_uses_remaining_queue_and_retains_old_head_z() {
                         .and_then(|l| l.selected_drive_runtime())
                         .and_then(|r| r.retained())
                         .unwrap();
-                    (d.head_to(), &entity.navigation.path_replay)
+                    (d.head_to(), entity.navigation.path_replay())
                 }
                 LocomotorKind::Ship => {
                     let s = entity
@@ -1114,7 +1117,7 @@ fn admitted_tick_chain_uses_remaining_queue_and_retains_old_head_z() {
                         .and_then(|l| l.selected_ship_runtime())
                         .and_then(|r| r.retained())
                         .unwrap();
-                    (s.head_to(), &entity.navigation.path_replay)
+                    (s.head_to(), entity.navigation.path_replay())
                 }
                 _ => unreachable!(),
             };

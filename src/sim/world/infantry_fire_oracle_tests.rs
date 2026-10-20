@@ -672,22 +672,26 @@ fn assert_fired_bullet(
         .get(ids[expected["pointer"].as_str().unwrap()])
         .unwrap();
     assert_eq!(
-        [bullet.position.x, bullet.position.y, bullet.position.z],
+        [
+            bullet.position().x,
+            bullet.position().y,
+            bullet.position().z
+        ],
         xyz(&expected["position"]),
         "{name}: native Bullet launch XYZ"
     );
     assert_eq!(
-        bullet.source_id,
+        bullet.source_id(),
         fixture.id(&expected["owner"]).unwrap(),
         "{name}: Bullet owner"
     );
     assert_eq!(
-        bullet.target,
+        bullet.target(),
         ProjectileTarget::Entity(fixture.id(&expected["target"]).unwrap()),
         "{name}: Bullet target"
     );
     assert_eq!(
-        bullet.payload.base_damage,
+        bullet.payload().base_damage,
         signed(&expected["damage"]),
         "{name}: M60 raw damage"
     );
@@ -695,22 +699,22 @@ fn assert_fired_bullet(
         fixture
             .sim
             .interner
-            .resolve(bullet.payload.installed_weapon().unwrap()),
+            .resolve(bullet.payload().installed_weapon().unwrap()),
         expected["weapon"]["name"].as_str().unwrap(),
         "{name}: weapon identity"
     );
     assert_eq!(
-        fixture.sim.interner.resolve(bullet.payload.warhead),
+        fixture.sim.interner.resolve(bullet.payload().warhead),
         expected["warhead"]["name"].as_str().unwrap(),
         "{name}: warhead identity"
     );
     assert_eq!(
-        bullet.in_logic_vector,
+        bullet.in_logic_vector(),
         expected["logic_registered"] != 0,
         "{name}: Bullet Logic flag"
     );
     for (actual, expected) in bullet
-        .velocity
+        .velocity()
         .native()
         .iter()
         .zip(expected["velocity_f64_bits"].as_array().unwrap())

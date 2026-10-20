@@ -1885,7 +1885,7 @@ pub(super) fn emit_admitted_fire(
         if let Some(kind) = world
             .projectiles
             .get(bullet_id)
-            .and_then(|bullet| bullet.payload.projectile_type())
+            .and_then(|bullet| bullet.payload().projectile_type())
             .and_then(|type_id| rules.projectile(world.interner.resolve(type_id)))
         {
             world.projectiles.init_scalable(bullet_id, kind);
@@ -2625,7 +2625,7 @@ pub(crate) fn tick_combat(
                 &world.session.theater(),
                 &rules.radiation,
                 world.resolved_terrain.as_ref(),
-                &mut Vec::new(),
+                &mut crate::sim::light_sources::LightingSources::default(),
             );
         }
     }

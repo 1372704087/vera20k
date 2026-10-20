@@ -161,10 +161,11 @@ impl DroneScene {
                 assert!(source.lifecycle.in_limbo());
             }
             actual_bullet |= self.sim.projectiles.iter().any(|(_, bullet)| {
-                bullet.source_id == self.drone
-                    && bullet.target == crate::sim::projectile::ProjectileTarget::Entity(self.tank)
+                bullet.source_id() == self.drone
+                    && bullet.target()
+                        == crate::sim::projectile::ProjectileTarget::Entity(self.tank)
                     && bullet
-                        .payload
+                        .payload()
                         .projectile_type()
                         .is_some_and(|id| self.sim.interner.resolve(id) == "JUMP")
             });
@@ -399,8 +400,8 @@ fn stock_infested_tank_moves_and_fires_while_its_body_is_rocking() {
                 .projectiles
                 .iter()
                 .find(|(_, bullet)| {
-                    bullet.source_id == scene.tank
-                        && bullet.target == crate::sim::projectile::ProjectileTarget::Entity(other)
+                    bullet.source_id() == scene.tank
+                        && bullet.target() == crate::sim::projectile::ProjectileTarget::Entity(other)
                 })
                 .unwrap_or_else(|| panic!(
                     "rocked105mm Bullet retired in its firing frame: fire={:?} target={:?} bullets={:?}\n{}",
@@ -412,7 +413,7 @@ fn stock_infested_tank_moves_and_fires_while_its_body_is_rocking() {
                     scene.sim.projectiles.iter().collect::<Vec<_>>(),
                     timeline.join("\n")
                 ));
-            assert_eq!(bullet.launch_origin, shot.fire_coord);
+            assert_eq!(bullet.launch_origin(), shot.fire_coord);
             // Exact tilted geometry belongs to the consumed native Drive/FLH
             // controls. Here the real event, Bullet and common muzzle owner
             // must stay connected while the infested actor moves/fires.

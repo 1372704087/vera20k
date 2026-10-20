@@ -476,7 +476,7 @@ mod tests {
         let entries: Vec<_> = [(4, 4), (4, 5)]
             .into_iter()
             .map(|(rx, ry)| {
-                grid.cell_mut(rx, ry).overlay_id = Some(0);
+                grid.cell_mut_for_test(rx, ry).overlay_id = Some(0);
                 OverlayEntry {
                     rx,
                     ry,
@@ -485,7 +485,7 @@ mod tests {
                 }
             })
             .collect();
-        grid.cell_mut(4, 4).rubble_building_type = Some(building);
+        grid.cell_mut_for_test(4, 4).rubble_building_type = Some(building);
         let atlas = Atlas {
             proxy: OverlaySpriteEntry {
                 uv_origin: [0.0; 2],
@@ -531,18 +531,18 @@ mod tests {
             1,
             "the destroyed building's origin owns its shadow"
         );
-        grid.cell_mut(4, 4).rubble_building_type = None;
+        grid.cell_mut_for_test(4, 4).rubble_building_type = None;
         assert!(emit(&grid, viewport).is_empty(), "cleared origin type");
-        grid.cell_mut(4, 4).rubble_building_type = Some(building);
-        grid.cell_mut(4, 4).overlay_id = None;
+        grid.cell_mut_for_test(4, 4).rubble_building_type = Some(building);
+        grid.cell_mut_for_test(4, 4).overlay_id = None;
         assert!(emit(&grid, viewport).is_empty(), "erased live overlay");
-        grid.cell_mut(4, 4).overlay_id = Some(0);
-        grid.cell_mut(4, 4).overlay_data = 255;
+        grid.cell_mut_for_test(4, 4).overlay_id = Some(0);
+        grid.cell_mut_for_test(4, 4).overlay_data = 255;
         assert!(
             emit(&grid, viewport).is_empty(),
             "retained data misses the proxy frame"
         );
-        grid.cell_mut(4, 4).overlay_data = 0;
+        grid.cell_mut_for_test(4, 4).overlay_data = 0;
         let cell = terrain.cell(4, 4).unwrap();
         let point = crate::map::terrain::iso_to_screen(4, 4, cell.level);
         let outside_proxy = [point.0 + 30.0 - 45.0, point.1 + 15.0 - 10.0, 10.0, 100.0];
@@ -593,7 +593,7 @@ mod tests {
                 overlay_id: 0,
                 frame: 5,
             });
-            let cell = grid.cell_mut(rx, ry);
+            let cell = grid.cell_mut_for_test(rx, ry);
             cell.overlay_id = live_id;
             cell.overlay_data = frame;
         }

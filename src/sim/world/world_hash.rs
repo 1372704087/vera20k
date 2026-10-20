@@ -747,7 +747,7 @@ impl Simulation {
         if bridge_keeps_dummy
             || cells_or_entities_retain_dummy
             || self.projectiles.iter().any(|(_, projectile)| {
-                projectile.target == crate::sim::projectile::ProjectileTarget::DummyCell
+                projectile.target() == crate::sim::projectile::ProjectileTarget::DummyCell
             })
         {
             // Retained Cell pointers make the live coordinate affect
@@ -860,64 +860,64 @@ impl Simulation {
         self.projectiles.len().hash(hasher);
         for (&id, projectile) in self.projectiles.iter() {
             id.hash(hasher);
-            projectile.id.hash(hasher);
-            projectile.native_unique_id.hash(hasher);
-            projectile.source_id.hash(hasher);
-            projectile.position.x.hash(hasher);
-            projectile.position.y.hash(hasher);
-            projectile.position.z.hash(hasher);
-            projectile.launch_origin.hash(hasher);
-            projectile.launch_target.hash(hasher);
-            projectile.previous_cell.hash(hasher);
-            hash_projectile_target(projectile.target, hasher);
-            projectile.last_target_position.x.hash(hasher);
-            projectile.last_target_position.y.hash(hasher);
-            projectile.last_target_position.z.hash(hasher);
-            projectile.payload.base_damage.hash(hasher);
-            projectile.payload.warhead.index().hash(hasher);
+            projectile.id().hash(hasher);
+            projectile.native_unique_id().hash(hasher);
+            projectile.source_id().hash(hasher);
+            projectile.position().x.hash(hasher);
+            projectile.position().y.hash(hasher);
+            projectile.position().z.hash(hasher);
+            projectile.launch_origin().hash(hasher);
+            projectile.launch_target().hash(hasher);
+            projectile.previous_cell().hash(hasher);
+            hash_projectile_target(projectile.target(), hasher);
+            projectile.last_target_position().x.hash(hasher);
+            projectile.last_target_position().y.hash(hasher);
+            projectile.last_target_position().z.hash(hasher);
+            projectile.payload().base_damage.hash(hasher);
+            projectile.payload().warhead.index().hash(hasher);
             projectile
-                .payload
+                .payload()
                 .projectile_type()
                 .map(|id| id.index())
                 .hash(hasher);
-            projectile.payload.bright().hash(hasher);
+            projectile.payload().bright().hash(hasher);
             projectile
-                .payload
+                .payload()
                 .installed_weapon()
                 .map(|id| id.index())
                 .hash(hasher);
-            if projectile.payload.damage_multiplier()
+            if projectile.payload().damage_multiplier()
                 != crate::sim::projectile::ProjectilePayload::UNSCALED
             {
                 b"prism-damage-multiplier-v1".hash(hasher);
-                projectile.payload.damage_multiplier().hash(hasher);
+                projectile.payload().damage_multiplier().hash(hasher);
             }
 
-            projectile.speed_leptons_per_frame.hash(hasher);
-            projectile.velocity.hash(hasher);
-            projectile.trajectory.hash(hasher);
-            projectile.guidance.hash(hasher);
-            projectile.visual.hash(hasher);
-            projectile.arm_timer.hash(hasher);
-            projectile.fuse_frames_remaining.hash(hasher);
-            projectile.ranged_fuse.hash(hasher);
-            projectile.proximity_reference.hash(hasher);
-            projectile.last_distance_half.hash(hasher);
-            projectile.tracks_target.hash(hasher);
-            projectile.target_expiry.hash(hasher);
-            projectile.collision.level.hash(hasher);
-            projectile.collision.subject_to_walls.hash(hasher);
-            projectile.collision.native_cell_collision.hash(hasher);
-            projectile.collision.dropping.hash(hasher);
-            projectile.collision.subject_to_cliffs.hash(hasher);
-            projectile.collision.flak_scatter.hash(hasher);
-            projectile.collision.anti_air.hash(hasher);
-            projectile.collision.airburst.hash(hasher);
-            projectile.collision.inaccurate.hash(hasher);
-            projectile.collision.floater.hash(hasher);
-            projectile.collision.elasticity_bits.hash(hasher);
-            projectile.on_bridge.hash(hasher);
-            projectile.collision.arcing.hash(hasher);
+            projectile.speed_leptons_per_frame().hash(hasher);
+            projectile.velocity().hash(hasher);
+            projectile.trajectory().hash(hasher);
+            projectile.guidance().hash(hasher);
+            projectile.visual().hash(hasher);
+            projectile.arm_timer().hash(hasher);
+            projectile.fuse_frames_remaining().hash(hasher);
+            projectile.ranged_fuse().hash(hasher);
+            projectile.proximity_reference().hash(hasher);
+            projectile.last_distance_half().hash(hasher);
+            projectile.tracks_target().hash(hasher);
+            projectile.target_expiry().hash(hasher);
+            projectile.collision().level.hash(hasher);
+            projectile.collision().subject_to_walls.hash(hasher);
+            projectile.collision().native_cell_collision.hash(hasher);
+            projectile.collision().dropping.hash(hasher);
+            projectile.collision().subject_to_cliffs.hash(hasher);
+            projectile.collision().flak_scatter.hash(hasher);
+            projectile.collision().anti_air.hash(hasher);
+            projectile.collision().airburst.hash(hasher);
+            projectile.collision().inaccurate.hash(hasher);
+            projectile.collision().floater.hash(hasher);
+            projectile.collision().elasticity_bits.hash(hasher);
+            projectile.on_bridge().hash(hasher);
+            projectile.collision().arcing.hash(hasher);
             if let Some(house) = projectile.firer_house() {
                 b"bullet-firer-scheme-v1".hash(hasher);
                 house.index().hash(hasher);
@@ -1774,7 +1774,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // Preserve schema160's original four-field order. Deriving
         // the fold from the expanded struct would alter every prior
         // projection, including constructor-default Foot states.
-        let path = &entity.navigation.path_runtime;
+        let path = entity.navigation.path_runtime();
         path.movement_timer().hash(hasher);
         path.blocked_timer().hash(hasher);
         path.path_blocked().hash(hasher);
@@ -1799,8 +1799,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"techno-spatial-threat-v1".hash(hasher);
         value.hash(hasher);
     }
-    entity.navigation.neighbor_state.hash(hasher);
-    entity.navigation.path_replay.hash(hasher);
+    entity.navigation.neighbor_state().hash(hasher);
+    entity.navigation.path_replay().hash(hasher);
     entity.navigation.nav_com_aux().hash(hasher);
     entity.navigation.nav_com().hash(hasher);
     entity.navigation.suspended_nav_com().hash(hasher);
@@ -3832,7 +3832,7 @@ mod infantry_hash_tests {
             .get_mut(1)
             .unwrap()
             .navigation
-            .path_runtime = retained;
+            .set_path_runtime_for_test(retained);
         assert_ne!(sim.state_hash(), before);
         let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "foot-path", 0);
         let loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
@@ -3840,7 +3840,7 @@ mod infantry_hash_tests {
             .sim;
         let actor = loaded.entities().get(1).unwrap();
         assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
-        assert_eq!(actor.navigation.path_runtime, retained);
+        assert_eq!(actor.navigation.path_runtime().clone(), retained);
     }
 
     #[test]
@@ -3987,7 +3987,7 @@ mod infantry_hash_tests {
         // isolates persistence, not the intentionally changed RNG future.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let actor = hash_entity(&mut sim, EntityCategory::Infantry);
-        assert_eq!(actor.navigation.path_runtime.scold_latch_raw(), 0);
+        assert_eq!(actor.navigation.path_runtime().scold_latch_raw(), 0);
         sim.substrate.entities.insert(actor);
         let clear_hash = sim.state_hash();
         let mut retained_hashes = vec![clear_hash];
@@ -4002,7 +4002,7 @@ mod infantry_hash_tests {
                 .get_mut(1)
                 .unwrap()
                 .navigation
-                .path_runtime
+                .path_runtime_mut()
                 .set_scold_latch_for_test(raw);
             let current_hash = sim.state_hash();
             assert!(!retained_hashes.contains(&current_hash) || raw == 0);
@@ -4015,17 +4015,17 @@ mod infantry_hash_tests {
             let actor = restored.substrate.entities.get(1).unwrap();
             assert!(crate::sim::movement::motion_query::is_moving(&actor) != Some(true));
             assert_eq!(
-                u64::from(actor.navigation.path_runtime.scold_latch_raw()),
+                u64::from(actor.navigation.path_runtime().scold_latch_raw()),
                 row["after_original_noinit_constructor"].as_u64().unwrap()
             );
             assert_eq!(restored.state_hash(), current_hash);
-            let path = &mut restored
+            let path = restored
                 .substrate
                 .entities
                 .get_mut(1)
                 .unwrap()
                 .navigation
-                .path_runtime;
+                .path_runtime_mut();
             assert_eq!(path.clear_scold_latch(), raw != 0);
             assert_eq!(path.scold_latch_raw(), 0);
             assert!(!path.clear_scold_latch(), "a consumed latch stays clear");

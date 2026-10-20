@@ -118,17 +118,17 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
             .shared_cell_dummy()
             .test_set_land_type(input["dummy_land"].as_i64().unwrap() as i32);
     }
-    let base = sim.zone_grid.as_mut().unwrap().base_topology_mut();
-    base.native_bridge_source_size = Some((8, 8));
-    base.zone_ids.fill(0);
-    for row in &mut base.raw_zone_ids_by_row {
+    let base = sim.zone_grid.as_mut().unwrap().base_topology_mut_for_test();
+    base.set_native_bridge_source_size_for_test(Some((8, 8)));
+    base.zone_ids_mut_for_test().fill(0);
+    for row in base.raw_zone_ids_by_row_mut_for_test() {
         *row = vec![1, 2];
     }
     if input["zone_rejected"] == true {
-        base.zone_ids[10 * 33 + 10] = 1;
+        base.zone_ids_mut_for_test()[10 * 33 + 10] = 1;
     }
     if input["target_zone_rejected"] == true {
-        base.zone_ids[10 * 33 + 11] = 1;
+        base.zone_ids_mut_for_test()[10 * 33 + 11] = 1;
     }
     // The wall stands in OverlayGrid alone, as one built in play does; the
     // Override reads the live Cell+0x44 (75BAF3).
@@ -188,15 +188,15 @@ fn fixture(row: &Value) -> (Simulation, RuleSet, OverlayTypeRegistry, u64, Optio
         .set_for_test((input["attack_target"] == true).then_some(TargetKind::Cell(11, 10)));
     e.suspended_attack_target.set_for_test(None);
     e.navigation
-        .path_replay
+        .path_replay_mut()
         .set_directions_for_test(vec![2, 3, 4, 5]);
-    e.navigation.path_replay.set_cursor(0);
-    e.navigation.path_replay.set_reference_cell(Some(
+    e.navigation.path_replay_mut().set_cursor(0);
+    e.navigation.path_replay_mut().set_reference_cell(Some(
         input.get("path_reference").map_or((9, 8), |p| {
             (p[0].as_i64().unwrap() as i16, p[1].as_i64().unwrap() as i16)
         }),
     ));
-    let p = &mut e.navigation.path_runtime;
+    let p = e.navigation.path_runtime_mut();
     p.set_movement_timer_for_test(CdTimer::from_raw(
         before["movement_timer"][0].as_i64().unwrap() as i32,
         before["movement_timer"][2].as_i64().unwrap() as i32,
@@ -277,7 +277,7 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
         Some(NavTargetRef::Cell { rx: 10, ry: 10 }) => CELL,
         other => panic!("unexpected NavCom {other:?}"),
     };
-    let q = &e.navigation.path_replay;
+    let q = e.navigation.path_replay();
     let words: Vec<i32> = (0..4)
         .map(|i| {
             q.directions()
@@ -285,7 +285,7 @@ fn compare(sim: &Simulation, id: u64, other: Option<u64>, expected: &Value, row:
                 .map_or(-1, |&w| if w == u8::MAX { -1 } else { i32::from(w) })
         })
         .collect();
-    let p = &e.navigation.path_runtime;
+    let p = e.navigation.path_runtime();
     for (key, actual) in [
         (
             "doing",
@@ -551,7 +551,7 @@ fn exhausted_walk_retry_emits_native_retained_scold_request() {
             .get_mut(id)
             .unwrap()
             .navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_scold_latch_for_test(guard["supplied_byte"].as_u64().unwrap() as u8);
         let current = crate::sim::movement::ground_pose::position_world_coord(
             &sim.substrate.entities.get(id).unwrap().position,
@@ -587,7 +587,7 @@ fn exhausted_walk_retry_emits_native_retained_scold_request() {
                     .get(id)
                     .unwrap()
                     .navigation
-                    .path_runtime
+                    .path_runtime()
                     .scold_latch_raw()
             ),
             guard["final_byte"]

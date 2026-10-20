@@ -1197,7 +1197,9 @@ use crate::util::save_codec;
 // states; the session no longer carries a separate copy of that order.
 // 446 -> 447: terrain objects and ore growth leave the production state for
 // their own owners (the terrain object store, the ore growth config/state).
-const SNAPSHOT_VERSION: u32 = 447;
+// 447 -> 448: GameEntity retains UnitClass's signed firing counter across
+// LimboLaunch/parasite release. Its positional entity payload grows by a dword.
+const SNAPSHOT_VERSION: u32 = 448;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -5812,6 +5814,13 @@ mod tests {
             .set_for_test(u32::MAX);
         let populated_counter_hash = sim.state_hash();
         assert_ne!(populated_counter_hash, zero_counter_hash);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .unit_firing_counter
+            .set_for_test(7);
+        assert_ne!(sim.state_hash(), populated_counter_hash);
 
         let ship_head = DriveCoord::cell(6, 5, 0);
         let entity = sim.substrate.entities.get_mut(1).expect("SHP unit");
@@ -5844,6 +5853,15 @@ mod tests {
                 .body_frame_counter
                 .get(),
             u32::MAX
+        );
+        assert_eq!(
+            restored
+                .entities()
+                .get(1)
+                .unwrap()
+                .unit_firing_counter
+                .get(),
+            7
         );
         let restored_ship = restored
             .substrate
@@ -10012,6 +10030,7 @@ mod tests {
         // 444 -> 445: retained per-pass BuildingType light integers.
         // 445 -> 446: the House array's registration order.
         // 446 -> 447: terrain objects and ore growth have their own owners.
-        assert_eq!(super::SNAPSHOT_VERSION, 447);
+        // 447 -> 448: retained Unit firing counter through parasite release.
+        assert_eq!(super::SNAPSHOT_VERSION, 448);
     }
 }

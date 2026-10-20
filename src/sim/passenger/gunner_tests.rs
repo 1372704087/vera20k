@@ -397,10 +397,11 @@ fn retail_tanks_scatter_after_their_transport_is_destroyed() {
         ));
         assert!(sim.apply_command(
             OWNER,
-            &Command::EnterTransport {
-                passenger_id: passenger,
-                transport_id: transport,
-            },
+            &Command::clicked_mission(
+                passenger,
+                crate::sim::mission::MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(transport),
+            ),
             Some(rules),
         ));
         for _ in 0..600 {

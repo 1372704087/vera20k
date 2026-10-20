@@ -1261,7 +1261,7 @@ mod tests {
                 }
                 entity
                     .lifecycle
-                    .set_cell_marked(target["marked"].as_bool().unwrap_or(true));
+                    .set_cell_marked_for_test(target["marked"].as_bool().unwrap_or(true));
                 entity.set_on_bridge(target["on_bridge"].as_bool().unwrap_or(false));
                 // The supplied phase is the installed Rocket's MissionState.
                 if target["rocket"].as_bool().unwrap_or(false)

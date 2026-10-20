@@ -234,7 +234,7 @@ fn live_tag_rgb_overrides_reach_packets_and_survive_ambient_writes_during_storm(
         None,
     );
     sim.classify_map_triggers(None);
-    sim.session.set_started(true);
+    sim.session.publish_started();
     // Declared raging-storm fixture; its lifecycle has separate tests.
     let owner = sim.interner.intern("Americans");
     sim.lightning_storm =

@@ -443,7 +443,7 @@ impl Simulation {
                 .recoil_after_overlay_crush();
             //73B067 clears Foot+6B5 after the damage call, even when the
             //Cell refuses a non-Wall overlay. TiltsWhenCrushes is not a gate.
-            actor.foot_speed.set_crush_slowdown(false);
+            actor.foot_speed.clear_crush_slowdown();
         }
     }
 

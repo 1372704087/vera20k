@@ -204,7 +204,7 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
                 dispatch_timer: MissionDispatchTimer::from_raw(0, 0),
             });
             gate.lifecycle.set_in_limbo_for_test(false);
-            gate.lifecycle.set_cell_marked(true);
+            gate.lifecycle.set_cell_marked_for_test(true);
             gate.set_in_playfield(true);
             sim.substrate.entities.insert(gate);
             sim.substrate.occupancy.add(

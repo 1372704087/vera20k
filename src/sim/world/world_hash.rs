@@ -239,7 +239,7 @@ mod locomotor_field_hash_tests {
         let mutations: [Mutation; 6] = [
             ("kind", |l| l.set_kind_for_test(LocomotorKind::Walk)),
             ("powered", |l| l.set_powered_for_test(false)),
-            ("layer", |l| l.set_layer(MovementLayer::Bridge)),
+            ("layer", |l| l.set_layer_for_test(MovementLayer::Bridge)),
             ("balloon_hover", |l| l.set_balloon_hover_for_test(true)),
             ("speed_type", |l| {
                 l.set_speed_type_for_test(SpeedType::Wheel)
@@ -2564,7 +2564,7 @@ mod lifecycle_hash_tests {
             assert_entity_mutation_changes_hash(|entity| {
                 entity
                     .lifecycle
-                    .set_cell_marked(!entity.lifecycle.cell_marked());
+                    .set_cell_marked_for_test(!entity.lifecycle.cell_marked());
             });
             assert_entity_mutation_changes_hash(|entity| {
                 entity.death.set_dying_for_test(!entity.death.is_dying());
@@ -3828,8 +3828,8 @@ mod infantry_hash_tests {
         let mut retained = FootPathRuntime::at_frame(0);
         retained.set_movement_timer_for_test(CdTimer::from_raw(-1, -7));
         retained.set_blocked_timer_for_test(CdTimer::from_raw(i32::MAX - 2, 31));
-        retained.set_path_blocked(true);
-        retained.set_retries_left(u32::MAX);
+        retained.set_path_blocked_for_test(true);
+        retained.set_retries_left_for_test(u32::MAX);
         sim.substrate
             .entities
             .get_mut(1)
@@ -4360,10 +4360,10 @@ mod bridge161_hash_projection_tests {
         };
         match payload {
             LocomotorRuntimePayload::Walk(state) => match field {
-                0 => state.set_head(Some(coord)),
-                1 => state.set_destination(Some(coord)),
-                2 => state.set_moving(true),
-                3 => state.set_animation_moving(true),
+                0 => state.set_head_for_test(Some(coord)),
+                1 => state.set_destination_for_test(Some(coord)),
+                2 => state.set_moving_for_test(true),
+                3 => state.set_animation_moving_for_test(true),
                 _ => unreachable!(),
             },
             LocomotorRuntimePayload::Hover(state) => state.set_head(Some(coord)),
@@ -4374,7 +4374,7 @@ mod bridge161_hash_projection_tests {
                     2 => state.clone().with_phase_for_test(2),
                     3 => {
                         let mut flight = state.flight();
-                        flight.set_target_height(7);
+                        flight.set_target_height_for_test(7);
                         state.clone().with_flight_for_test(flight)
                     }
                     4 => {

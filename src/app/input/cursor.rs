@@ -2704,7 +2704,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             .set_bunker_link_for_test(BunkerLink::Installed(99));
         for id in [actor, target] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
-            entity.lifecycle.set_cell_marked(true);
+            entity.lifecycle.set_cell_marked_for_test(true);
             entity.position.set_exact_z_leptons_for_test(Some(900));
         }
         let mut retained = crate::map::resolved_terrain::test_flat_cell(0, 0);
@@ -2764,7 +2764,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
         for id in [actor_id, target_id] {
             let entity = sim.entities_mut().get_mut(id).unwrap();
             entity.position.set_exact_z_leptons_for_test(Some(900));
-            entity.lifecycle.set_cell_marked(true);
+            entity.lifecycle.set_cell_marked_for_test(true);
         }
         let mut retained_cell = crate::map::resolved_terrain::test_flat_cell(0, 0);
         // A bridge anchor retaining Dummy makes its requested coordinate a

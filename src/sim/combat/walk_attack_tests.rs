@@ -652,7 +652,9 @@ fn walk_null_setter_matches_original_caller_rows() {
         }
         e.navigation.path_runtime_mut().start_movement(0, 5);
         e.navigation.path_runtime_mut().start_blocked(0, 6);
-        e.navigation.path_runtime_mut().set_path_blocked(true);
+        e.navigation
+            .path_runtime_mut()
+            .set_path_blocked_for_test(true);
         let loco = e.locomotor.as_mut().unwrap();
         loco.set_walk_destination(Some(DriveCoord {
             x: 7808,

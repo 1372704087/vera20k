@@ -250,7 +250,7 @@ fn with_world<R>(
         .collect();
     for &id in &unmarked {
         if let Some(entity) = world.substrate.entities.get_mut(id) {
-            entity.lifecycle.set_cell_marked(true);
+            entity.lifecycle.set_cell_marked_for_test(true);
         }
     }
     world.substrate.occupancy = std::mem::take(occupancy);
@@ -326,7 +326,7 @@ fn with_world<R>(
     }
     for id in unmarked {
         if let Some(entity) = world.substrate.entities.get_mut(id) {
-            entity.lifecycle.set_cell_marked(false);
+            entity.lifecycle.set_cell_marked_for_test(false);
         }
     }
     *entities = world.substrate.entities;

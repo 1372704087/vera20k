@@ -255,7 +255,9 @@ fn whole_unit_fixture(
         entity
             .lifecycle
             .set_object_alive_for_test(before["alive"] != 0);
-        entity.lifecycle.set_cell_marked(before["limbo"] == 0);
+        entity
+            .lifecycle
+            .set_cell_marked_for_test(before["limbo"] == 0);
         entity.set_in_playfield(before["limbo"] == 0);
         entity.locomotor = Some(LocomotorState::from_object_type(object, frame));
         entity.set_body_facing_rot(object.turret_rot);

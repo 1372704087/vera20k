@@ -274,7 +274,7 @@ impl Simulation {
         if let Some(locomotor) = actor.locomotor.as_mut() {
             locomotor.set_step_head(Some(head));
         }
-        super::path_markers::consume_path_replay(actor.navigation.path_replay_mut(), 1);
+        actor.navigation.path_replay_mut().consume(1);
         actor.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
             tube_id,
             cursor: 0,
@@ -363,7 +363,7 @@ impl Simulation {
         match entry {
             Some((tube_id, head, target)) => {
                 locomotor.store_track_head(family, Some(head));
-                super::path_markers::consume_path_replay(actor.navigation.path_replay_mut(), 1);
+                actor.navigation.path_replay_mut().consume(1);
                 actor.low_bridge_tube_state = Some(LowBridgeTubeMovementState {
                     tube_id,
                     cursor: 0,
@@ -991,7 +991,7 @@ mod tests {
             true,
         );
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(true);
+        entity.lifecycle.set_cell_marked_for_test(true);
         entity.locomotor = Some(LocomotorState::for_test_kind(
             crate::rules::locomotor_type::LocomotorKind::Drive,
         ));
@@ -1036,7 +1036,7 @@ mod tests {
             true,
         );
         entity.lifecycle.set_in_limbo_for_test(false);
-        entity.lifecycle.set_cell_marked(false);
+        entity.lifecycle.set_cell_marked_for_test(false);
         let spot = DriveCoord {
             x: 2 * 256 + 64,
             y: 192,
@@ -1283,7 +1283,7 @@ mod tests {
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Move),
             0,
         );
-        vehicle.lifecycle.set_cell_marked(false);
+        vehicle.lifecycle.set_cell_marked_for_test(false);
         vehicle.position.put_location(DriveCoord::cell(rx, 0, 0));
         vehicle.navigation.set_path_replay_for_test(
             crate::sim::components::FootPathQueue::for_test(vec![8, 2], 0, Some((rx as i16, 0))),

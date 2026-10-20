@@ -369,8 +369,8 @@ pub(super) fn reengagement_fixture(input: &Value) -> (Simulation, RuleSet) {
     let path = entity.navigation.path_runtime_mut();
     path.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(7, 23));
     path.set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(9, 29));
-    path.set_retries_left(19);
-    path.set_path_blocked(true);
+    path.set_retries_left_for_test(19);
+    path.set_path_blocked_for_test(true);
     let mut loco = LocomotorState::from_object_type(rules.object("TEST").unwrap(), 0);
     loco.set_powered_for_test(input["powered"].as_bool().unwrap_or(true));
     loco.set_fly_target_height(37);

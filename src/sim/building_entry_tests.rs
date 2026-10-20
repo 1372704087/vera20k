@@ -1118,7 +1118,7 @@ fn a_bio_reactor_unlimbo_failure_keeps_the_placement_draw_and_restores_cargo() {
         .get_mut(passenger)
         .unwrap()
         .lifecycle
-        .set_cell_marked(true);
+        .set_cell_marked_for_test(true);
     sim.power_states.insert(
         owner,
         crate::sim::power_system::PowerState::settled_for_test(),

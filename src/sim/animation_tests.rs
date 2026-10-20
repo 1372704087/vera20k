@@ -990,6 +990,40 @@ fn sequence_sound_plays_on_its_stage_frame_after_a_step() {
     assert_eq!(actor.mission_leaf.as_infantry().unwrap().doing(), 0);
 }
 
+/// A walking infantryman's Walk completion re-requests Walk, which leaves
+/// the stage growing past the count, so a Walk sound plays once per cycle of
+/// real stage steps (Techno `0x006FABC4`, then the sequencer).
+#[test]
+fn walk_sequence_sound_plays_once_per_cycle_of_stage_steps() {
+    use crate::sim::stage::StageClass;
+    use crate::sim::timer::CdTimer;
+    let (mut sim, rules, id) =
+        infantry_action_fixture_with(None, "WalkSounds= 2 TrexFoot\n", &["TrexFoot"]);
+    set_infantry_walk_motion(&mut sim, id, true);
+    let actor = sim.substrate.entities.get_mut(id).unwrap();
+    actor.mission_leaf.set_infantry_doing_verified(3).unwrap();
+    actor.install_native_stage_fixture(StageClass::from_native_fixture(
+        0,
+        0,
+        CdTimer::from_raw(0, 1),
+        1,
+        1,
+    ));
+    sim.sound_events.clear_for_test();
+    let mut played_at = Vec::new();
+    for now in 1..=14 {
+        let actor = sim.substrate.entities.get_mut(id).unwrap();
+        assert!(actor.tick_native_stage(now));
+        assert!(!sim.infantry_sequencer(id, &rules, crate::sim::world::FrameEffects::default()));
+        let actor = sim.substrate.entities.get(id).unwrap();
+        assert_eq!(actor.mission_leaf.as_infantry().unwrap().doing(), 3);
+        for _ in sim.sound_events.take_for_test() {
+            played_at.push(actor.native_stage().value());
+        }
+    }
+    assert_eq!(played_at, [2, 8, 14]);
+}
+
 #[test]
 fn infantry_prone_state_drives_prone_crawl_and_fireprone_actions() {
     let (mut sim, rules, id) = infantry_action_fixture(Some("S"));

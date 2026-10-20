@@ -317,18 +317,12 @@ impl Simulation {
                 //51D842..51D8B3: PlayAt7509E0 uses Location and context0.
                 // Queue the original request before the6E8 store/admission;
                 // the app's audio gate and playback own audible output.
-                let location =
-                    super::ground_pose::object_location(actor, self.resolved_terrain.as_ref());
                 self.sound_events
-                    .emit(crate::sim::world::SimSoundEvent::VocAt {
-                        sound_id: sound_id.clone(),
-                        audible_to: None,
-                        rx: actor.position.rx(),
-                        ry: actor.position.ry(),
-                        sub_x: actor.position.sub_x(),
-                        sub_y: actor.position.sub_y(),
-                        world_z_leptons: location.z,
-                    });
+                    .emit(crate::sim::world::SimSoundEvent::voc_at_location(
+                        sound_id.clone(),
+                        actor,
+                        self.resolved_terrain.as_ref(),
+                    ));
             }
             //51D8B8 precedes both unchanged and interruptibility refusals.
             // Every other MovementZone retains its constructor/load state.
@@ -638,6 +632,14 @@ impl Simulation {
     /// frame's stage step passed (`+0xFC`) and the stage modulo the record's
     /// count (at least 1) is its frame. It runs after UnInit too while the
     /// infantryman's state remains.
+    ///
+    /// Residual: native fills a record's count and sounds from one
+    /// `Sequence=` read per pass. The sounds here come from that per-pass
+    /// read; the count comes from the animation catalog, which resolves the
+    /// final pass's image with VERA's ART fallbacks. A map pass that
+    /// re-images an infantry type, or an image with no ART section, can make
+    /// the two name different sequences and a sound play on the wrong frame.
+    /// No retail type does either.
     fn infantry_sequence_sounds(&mut self, id: u64, rules: &RuleSet) {
         let Some(actor) = self.substrate.entities.get(id) else {
             return;
@@ -648,34 +650,25 @@ impl Simulation {
         if doing == -1 || !actor.native_stage().changed() {
             return;
         }
-        let type_id = self.interner.resolve(actor.type_ref());
-        let Some(object) = rules.object(type_id) else {
+        let Some(object) = self.interner.object_type(actor.type_ref(), rules) else {
             return;
         };
-        let count = rules
-            .animation_sequence(type_id)
-            .and_then(|set| set.infantry_action(doing))
-            .map_or(0, |record| record.frames_per_facing);
-        let frame = actor.native_stage().value() % count.max(1);
-        let mut sounds = object
-            .sequence_sounds(doing)
-            .filter(|sound| sound.frame == frame)
-            .peekable();
+        let mut sounds = object.sequence_sounds(doing).peekable();
         if sounds.peek().is_none() {
             return;
         }
-        let location = super::ground_pose::object_location(actor, self.resolved_terrain.as_ref());
-        for sound in sounds {
+        let count = rules
+            .animation_sequence(self.interner.resolve(actor.type_ref()))
+            .and_then(|set| set.infantry_action(doing))
+            .map_or(0, |record| record.frames_per_facing);
+        let frame = actor.native_stage().value() % count.max(1);
+        for sound in sounds.filter(|sound| sound.frame == frame) {
             self.sound_events
-                .emit(crate::sim::world::SimSoundEvent::VocAt {
-                    sound_id: sound.sound_id.clone(),
-                    audible_to: None,
-                    rx: actor.position.rx(),
-                    ry: actor.position.ry(),
-                    sub_x: actor.position.sub_x(),
-                    sub_y: actor.position.sub_y(),
-                    world_z_leptons: location.z,
-                });
+                .emit(crate::sim::world::SimSoundEvent::voc_at_location(
+                    sound.sound_id.clone(),
+                    actor,
+                    self.resolved_terrain.as_ref(),
+                ));
         }
     }
 

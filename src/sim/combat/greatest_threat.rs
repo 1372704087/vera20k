@@ -2030,8 +2030,9 @@ fn evaluate_candidate(
     // `0x006F7D55..0x006F7D82`: a `LandTargeting=2` scanner (`+0x604`; on
     // retail only the Boomer) refuses a candidate low enough to count as on
     // the floor (vt+0x50, [`is_low_flying`]) whose Cell (vt+0x1BC) is not
-    // Water (`+0xEC`); Beach counts as land. Only an explicit order sends it
-    // at land.
+    // Water (`+0xEC`); Beach counts as land. An explicit order, retaliation
+    // (`ShouldRetaliate @ 0x007087C0`, which asks no candidate gate) or another
+    // team member's quarry can still send it at land.
     //
     // [`is_low_flying`]: crate::sim::movement::air_movement::is_low_flying
     if ctx.attacker_obj.land_targeting == 2

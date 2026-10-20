@@ -909,12 +909,6 @@ impl Simulation {
     }
 }
 
-impl crate::sim::world::ObjectSubstrate {
-    pub(crate) fn particle_systems_mut(&mut self) -> &mut ParticleSystemStore {
-        &mut self.particle_systems
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -7656,11 +7656,6 @@ impl crate::sim::houses::Houses {
 }
 
 impl ObjectSubstrate {
-    /// Mutable entity-store access inside the crate. The client reads through
-    /// `entities()` and never holds a mutable object.
-    pub(crate) fn entities_mut(&mut self) -> &mut EntityStore {
-        &mut self.entities
-    }
     /// Legacy non-lifecycle contact scrub retained only for separately classified
     /// failure paths. Reveal/Conceal/UnInit must use synchronous radio authority.
     pub(crate) fn clear_radio_contacts_for(&mut self, stable_id: u64) {

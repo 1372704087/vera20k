@@ -300,7 +300,7 @@ fn retail_planned_depot_and_refinery_orders_reach_their_dock_owners() {
             .unwrap();
         if refinery {
             crate::sim::arena_fixture::install_status_miner_cargo(
-                sim.substrate.entities_mut().get_mut(actor).unwrap(),
+                sim.substrate.entities.get_mut(actor).unwrap(),
                 rules.object(kind).unwrap(),
                 &rules,
                 3,
@@ -308,7 +308,7 @@ fn retail_planned_depot_and_refinery_orders_reach_their_dock_owners() {
             );
         } else {
             sim.substrate
-                .entities_mut()
+                .entities
                 .get_mut(actor)
                 .unwrap()
                 .health

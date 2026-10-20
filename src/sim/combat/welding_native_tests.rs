@@ -463,7 +463,7 @@ fn original_welding_pointer_expiry_and_target_setters_preserve_their_distinct_au
             // Broadcast integration (both controls) also has lifecycle tests.
             assert!(
                 sim.substrate
-                    .particle_systems_mut()
+                    .particle_systems
                     .pointer_expired(id, roles[input["expired"].as_str().unwrap()])
             );
             assert_eq!(
@@ -835,7 +835,7 @@ fn system_child_reference_expiry_retains_the_live_body_until_common_uninit() {
     let queues = sim.substrate.pending_delete.object_ids().to_vec();
     assert!(
         sim.substrate
-            .particle_systems_mut()
+            .particle_systems
             .pointer_expired(system_id, child_id)
     );
     assert_eq!(

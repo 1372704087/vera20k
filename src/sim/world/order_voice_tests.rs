@@ -47,7 +47,7 @@ fn retail_attack_acknowledgement_spends_the_original_singleton_main_draw() {
         .register(HouseState::new(local, 0, None, true, 0, 10));
     let type_ref = sim.interner.intern("MTNK");
     sim.substrate
-        .entities_mut()
+        .entities
         .insert(GameEntity::new_at_frame_zero_for_test(
             1,
             10,
@@ -154,7 +154,7 @@ fn scene_for_rules(
     sim.houses.register(other_house);
     let id = 1;
     sim.substrate
-        .entities_mut()
+        .entities
         .insert(GameEntity::new_at_frame_zero_for_test(
             id,
             0,
@@ -474,7 +474,7 @@ fn attack_voice_matches_native_target_slots_rng_and_queue_admission() {
             EntityCategory::Unit,
         );
         let object = rules.object(type_name).unwrap();
-        let entity = sim.substrate.entities_mut().get_mut(actor).unwrap();
+        let entity = sim.substrate.entities.get_mut(actor).unwrap();
         entity.veterancy.set_raw_for_test(NativeF32Bits::from_bits(
             input["raw_veterancy_bits"].as_u64().unwrap() as u32,
         ));
@@ -504,7 +504,7 @@ fn attack_voice_matches_native_target_slots_rng_and_queue_admission() {
                 EntityCategory::Unit
             };
             sim.substrate
-                .entities_mut()
+                .entities
                 .insert(GameEntity::new_at_frame_zero_for_test(
                     2,
                     4,
@@ -658,7 +658,7 @@ fn attack_voice_selects_for_the_committed_target_without_retargeting_the_actor()
     for (id, type_name) in [(2, "OLD"), (3, "NEW")] {
         let kind = sim.interner.intern(type_name);
         sim.substrate
-            .entities_mut()
+            .entities
             .insert(GameEntity::new_at_frame_zero_for_test(
                 id,
                 id as u16,

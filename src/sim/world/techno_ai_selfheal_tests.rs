@@ -440,7 +440,7 @@ fn missing_house_self_heal_keys_retain_constructor_defaults_and_completed_buildi
     let tank = spawn(&mut sim, &rules, "MTNK");
     for actor in [infantry, tank] {
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(actor)
             .unwrap()
             .health
@@ -492,7 +492,7 @@ fn authored_house_self_heal_divide_faults_precede_the_house_count() {
         }
         let actor = spawn(&mut sim, &rules, name);
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(actor)
             .unwrap()
             .health

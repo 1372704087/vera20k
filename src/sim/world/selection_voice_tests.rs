@@ -180,7 +180,7 @@ fn area_guard_default_voice_matches_native_pre_gate_post_gate_and_main_continuat
                 EntityCategory::Unit
             };
             sim.substrate
-                .entities_mut()
+                .entities
                 .insert(GameEntity::new_at_frame_zero_for_test(
                     id,
                     0,

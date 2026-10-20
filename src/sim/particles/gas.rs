@@ -39,7 +39,7 @@ impl Simulation {
             None,
             rules,
         )?;
-        self.substrate.particle_systems_mut().gas_cloud_system = Some(id);
+        self.substrate.particle_systems.gas_cloud_system = Some(id);
         Some(id)
     }
 
@@ -55,7 +55,7 @@ impl Simulation {
         let particle = Particle::new(kind, coords, IVec3::ZERO, rules.particle_type(kind), self);
         let id = particle.stable_id();
         self.substrate
-            .particle_systems_mut()
+            .particle_systems
             .get_mut(system)?
             .particles
             .push(particle);
@@ -86,7 +86,7 @@ fn particle(sim: &Simulation, system: u64, index: usize, id: u64) -> Option<Part
 }
 
 fn commit_particle(substrate: &mut ObjectSubstrate, system: u64, index: usize, updated: Particle) {
-    if let Some(sys) = substrate.particle_systems_mut().get_mut(system) {
+    if let Some(sys) = substrate.particle_systems.get_mut(system) {
         let slot = if sys
             .particles
             .get(index)
@@ -145,7 +145,7 @@ pub(super) fn tick_system(
                 child.velocity = p.velocity;
                 [child.drift_x, child.drift_y, child.drift_z] = [p.drift_x, p.drift_y, p.drift_z];
                 sim.substrate
-                    .particle_systems_mut()
+                    .particle_systems
                     .get_mut(system)
                     .unwrap()
                     .particles
@@ -153,7 +153,7 @@ pub(super) fn tick_system(
             }
             let parent = sim
                 .substrate
-                .particle_systems_mut()
+                .particle_systems
                 .get_mut(system)
                 .and_then(|sys| sys.remove_expired_child(id));
             if let Some(parent) = parent {

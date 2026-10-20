@@ -280,7 +280,7 @@ mod tests {
         let old = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
         assert!(sim.anim(old).unwrap().runtime().paused);
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(id)
             .unwrap()
             .health
@@ -308,12 +308,12 @@ mod tests {
         let passenger = sim.spawn_object("E1", "Neutral", 6, 6, 0, &rules).unwrap();
         sim.conceal(passenger);
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(passenger)
             .unwrap()
             .passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(id, false);
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(id)
             .unwrap()
             .passenger_role
@@ -328,7 +328,7 @@ mod tests {
             "M"
         );
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(id)
             .unwrap()
             .health
@@ -353,7 +353,7 @@ mod tests {
         // Exercise the empty transition after restoring its actual slot identity.
         let cargo = restored
             .substrate
-            .entities_mut()
+            .entities
             .get_mut(id)
             .unwrap()
             .passenger_role

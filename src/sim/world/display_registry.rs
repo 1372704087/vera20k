@@ -331,7 +331,7 @@ mod tests {
                 expected,
                 "{name}"
             );
-            sim.substrate.entities_mut().insert(entity);
+            sim.substrate.entities.insert(entity);
             sim.submit_object_display(id, DisplayLayer::GROUND, Some(&rules));
         }
         assert_eq!(
@@ -486,7 +486,7 @@ mod tests {
             );
             entity.position.set_sub_x_for_test(SimFixed::from_num(128));
             entity.position.set_sub_y_for_test(SimFixed::from_num(128));
-            sim.substrate.entities_mut().insert(entity);
+            sim.substrate.entities.insert(entity);
             sim.submit_object_display(id, DisplayLayer::GROUND, Some(&rules));
             units.push(id);
         }

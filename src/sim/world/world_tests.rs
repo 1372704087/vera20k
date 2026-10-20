@@ -385,7 +385,7 @@ fn particle_frame_boundary_fixture(frame_count: u16) -> (Simulation, RuleSet) {
         rules.particle_type(ParticleTypeId(0)),
         &mut sim,
     );
-    sim.substrate.particle_systems_mut().insert({
+    sim.substrate.particle_systems.insert({
         let mut system =
             ParticleSystem::test_fixture(stable_id, ParticleSystemTypeId(0), IVec3::ZERO);
         system.set_particles_for_test(vec![particle]);

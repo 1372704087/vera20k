@@ -346,7 +346,7 @@ impl Simulation {
                 && !self.particle_systems().contains_key(stable_id),
             "shared object id {stable_id} collided before particle-system insertion"
         );
-        self.substrate.particle_systems_mut().insert(sys);
+        self.substrate.particle_systems.insert(sys);
         self.reveal_particle_system(stable_id, Some(rules));
         Some(stable_id)
     }
@@ -408,7 +408,7 @@ impl Simulation {
         let Some(cell) = self.session.waypoint_cell(waypoint) else {
             return false;
         };
-        for (_, system) in self.substrate.particle_systems_mut().iter_mut() {
+        for (_, system) in self.substrate.particle_systems.iter_mut() {
             if !system.alive() {
                 continue;
             }
@@ -530,7 +530,7 @@ impl crate::sim::world::ObjectSubstrate {
             .get(stable_id)
             .and_then(|entity| entity.damage_smoke_system_id.system());
         if let Some(system_id) = system_id
-            && let Some(system) = self.particle_systems_mut().get_mut(system_id)
+            && let Some(system) = self.particle_systems.get_mut(system_id)
         {
             system.mark_done_spawning();
         }
@@ -909,7 +909,7 @@ mod tests {
                 .unwrap();
             let mut sys = sim
                 .substrate
-                .particle_systems_mut()
+                .particle_systems
                 .take_for_tick(sys_id)
                 .unwrap();
             assert!(spawn_particle(&mut sys, source, &rules, &mut sim), "{name}");
@@ -1027,7 +1027,7 @@ mod tests {
         *sim.particle_rng() = SimRng::new(1);
         let mut sys = sim
             .substrate
-            .particle_systems_mut()
+            .particle_systems
             .take_for_tick(sys_id)
             .unwrap();
         for _ in 0..10 {
@@ -1065,7 +1065,7 @@ mod tests {
         *sim.particle_rng() = SimRng::new(1);
         let mut sys = sim
             .substrate
-            .particle_systems_mut()
+            .particle_systems
             .take_for_tick(sys_id)
             .unwrap();
         spawn_particle(&mut sys, IVec3::ZERO, &rules, &mut sim);
@@ -1102,7 +1102,7 @@ mod tests {
         *sim.particle_rng() = SimRng::new(1);
         let mut sys = sim
             .substrate
-            .particle_systems_mut()
+            .particle_systems
             .take_for_tick(sys_id)
             .unwrap();
         assert!(!spawn_particle(&mut sys, IVec3::ZERO, &rules, &mut sim));

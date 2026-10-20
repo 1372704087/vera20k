@@ -410,7 +410,7 @@ fn retail_loaded_ifv_survives_transport_snapshot_unload_and_reentry() {
     let mut dangling = GameSnapshot::load(&bytes).unwrap().sim;
     dangling
         .substrate
-        .entities_mut()
+        .entities
         .get_mut(ifv)
         .unwrap()
         .passenger_role

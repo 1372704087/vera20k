@@ -1180,7 +1180,7 @@ mod slot_tests {
         let timer = sim.anim(replaced).unwrap().runtime().frame_timer;
         // This synthetic owner has never been marked; enter through the real
         // coordinate commit and verify its already retained slot moves in place.
-        let entity = sim.substrate.entities_mut().get_mut(id).unwrap();
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
         entity.lifecycle.set_in_limbo_for_test(true);
         entity.lifecycle.set_cell_marked_for_test(false);
         let outcome = sim.try_reveal_entity_with_context(
@@ -1500,7 +1500,7 @@ mod slot_tests {
         );
         let old = sim.entities().get(id).unwrap().building_art.anim_slots[3].unwrap();
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(id)
             .unwrap()
             .health

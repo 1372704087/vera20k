@@ -128,7 +128,7 @@ impl Simulation {
             self.houses.request_house_tech_tree_recheck(owner);
         }
         for id in logged {
-            if let Some(entity) = self.substrate.entities_mut().get_mut(id) {
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
                 entity.set_debug_logging(false);
             }
         }
@@ -272,7 +272,7 @@ impl Simulation {
             }
         }
         if pending & 2 != 0 {
-            for entity in self.substrate.entities_mut().values_mut() {
+            for entity in self.substrate.entities.values_mut() {
                 if entity.owner() == owner
                     && entity.lifecycle.object_alive()
                     && !entity.death.is_dying()
@@ -359,13 +359,13 @@ impl Simulation {
         let old = std::mem::replace(&mut self.debug_tools.logged_entities, selected.clone());
         for id in old {
             if !selected.contains(&id)
-                && let Some(entity) = self.substrate.entities_mut().get_mut(id)
+                && let Some(entity) = self.substrate.entities.get_mut(id)
             {
                 entity.set_debug_logging(false);
             }
         }
         for id in selected {
-            if let Some(entity) = self.substrate.entities_mut().get_mut(id) {
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
                 entity.set_debug_logging(true);
             }
         }
@@ -515,7 +515,7 @@ mod tests {
             false,
         );
         entity.selection.set_selected_for_test(true);
-        sim.substrate.entities_mut().insert(entity);
+        sim.substrate.entities.insert(entity);
         let hash = sim.state_hash();
         let before = crate::util::save_codec::serialize(&sim).unwrap();
         sim.set_cheat_flags(CheatFlags::default()).unwrap();
@@ -551,7 +551,7 @@ mod tests {
                 false,
             );
             entity.selection.set_selected_for_test(true);
-            sim.substrate.entities_mut().insert(entity);
+            sim.substrate.entities.insert(entity);
         }
         sim.set_debug_event_logging(true);
         assert_eq!(
@@ -562,7 +562,7 @@ mod tests {
             32
         );
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(1)
             .unwrap()
             .selection
@@ -602,7 +602,7 @@ mod tests {
         let warhead = sim.interner.intern("SA");
         for (id, house) in [(1, owner), (2, other)] {
             sim.substrate
-                .entities_mut()
+                .entities
                 .insert(GameEntity::new_at_frame_zero_for_test(
                     id,
                     1,
@@ -653,7 +653,7 @@ mod tests {
             crate::sim::world::FrameEffects::default(),
         );
         assert_eq!(sim.entities().get(2).unwrap().health.current(), 70);
-        let entity = sim.substrate.entities_mut().get_mut(1).unwrap();
+        let entity = sim.substrate.entities.get_mut(1).unwrap();
         apply_invulnerability(entity, 0, 300, InvulnKind::IronCurtain);
         let original = crate::util::save_codec::serialize(&entity.invulnerability).unwrap();
         sim.apply_debug_tools(Some(&rules));
@@ -691,7 +691,7 @@ mod tests {
         let ty = sim.interner.intern("E1");
         for (id, house) in [(1, owner), (2, enemy)] {
             sim.substrate
-                .entities_mut()
+                .entities
                 .insert(GameEntity::new_at_frame_zero_for_test(
                     id,
                     1,
@@ -715,12 +715,7 @@ mod tests {
         assert_eq!(sim.entities().get(1).unwrap().veterancy.rank(), 200);
         assert_eq!(sim.entities().get(2).unwrap().health.current(), 10);
         assert_eq!(sim.entities().get(2).unwrap().veterancy.rank(), 0);
-        sim.substrate
-            .entities_mut()
-            .get_mut(1)
-            .unwrap()
-            .health
-            .set(50);
+        sim.substrate.entities.get_mut(1).unwrap().health.set(50);
         sim.apply_debug_tools(Some(&rules));
         assert_eq!(
             sim.entities().get(1).unwrap().health.current(),
@@ -780,7 +775,7 @@ mod tests {
             1,
             false,
         );
-        sim.substrate.entities_mut().insert(entity);
+        sim.substrate.entities.insert(entity);
         sim.power_states.insert(
             owner,
             crate::sim::power_system::PowerState::settled_for_test(),

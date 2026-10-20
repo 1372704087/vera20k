@@ -115,7 +115,7 @@ fn gas_damage_can_append_animal_death_particle_to_the_ticking_system() {
     // Explicit wounded-victim prior; the lethal pulse still traverses the
     // ordinary poison receiver and the NotHuman temporary-animation branch.
     sim.substrate
-        .entities_mut()
+        .entities
         .get_mut(victim)
         .unwrap()
         .health
@@ -128,7 +128,7 @@ fn gas_damage_can_append_animal_death_particle_to_the_ticking_system() {
         .unwrap();
     let system = sim.particle_systems().gas_cloud_system().unwrap();
     sim.substrate
-        .particle_systems_mut()
+        .particle_systems
         .get_mut(system)
         .unwrap()
         .particles[0]
@@ -167,7 +167,7 @@ fn retail_gas_snapshot_retains_global_owner_motion_and_child_cleanup() {
     // Explicit near-expiry boundary exercises both authored particle types
     // without a thousand-frame save test. Native expiry controls pin ordering.
     sim.substrate
-        .particle_systems_mut()
+        .particle_systems
         .get_mut(system)
         .unwrap()
         .particles[0]
@@ -175,13 +175,13 @@ fn retail_gas_snapshot_retains_global_owner_motion_and_child_cleanup() {
     sim.session.set_binary_frame_for_test(36);
     super::system_ai::tick_particle_systems(&mut sim, &rules);
     let hash_with_owner = sim.state_hash();
-    sim.substrate.particle_systems_mut().gas_cloud_system = None;
+    sim.substrate.particle_systems.gas_cloud_system = None;
     assert_ne!(
         sim.state_hash(),
         hash_with_owner,
         "global reference reaches the state hash"
     );
-    sim.substrate.particle_systems_mut().gas_cloud_system = Some(system);
+    sim.substrate.particle_systems.gas_cloud_system = Some(system);
     sim.session
         .set_map_name_for_test("virus-cloud-continuation".into());
     let bytes = GameSnapshot::save_validated(&sim, 17, 23, "Virus continuation", 0);

@@ -97,7 +97,7 @@ pub(crate) fn emit_refinery_smoke(sim: &mut Simulation, rules: &RuleSet, buildin
             ) {
                 // Original4599CD calls6301F0 after each constructor.
                 sim.substrate
-                    .particle_systems_mut()
+                    .particle_systems
                     .get_mut(system)
                     .unwrap()
                     .override_lifetime(lifetime);
@@ -273,7 +273,7 @@ mod tests {
         entity.set_type_ref_for_test(sim.interner.intern(name));
         entity.set_owner_for_test(sim.interner.intern("Americans"));
         entity.health.set_for_test(100);
-        sim.substrate.entities_mut().insert(entity);
+        sim.substrate.entities.insert(entity);
     }
     fn refinery_sim_with_bale() -> Simulation {
         let mut sim = Simulation::new();
@@ -427,7 +427,7 @@ mod tests {
             rules.install_art_data(art);
             let mut sim = refinery_sim_with_bale();
             sim.substrate
-                .entities_mut()
+                .entities
                 .get_mut(41)
                 .unwrap()
                 .health
@@ -460,7 +460,7 @@ mod tests {
         let rules = refinery_rules_and_art();
         let mut sim = refinery_sim_with_bale();
         sim.substrate
-            .entities_mut()
+            .entities
             .get_mut(41)
             .unwrap()
             .health

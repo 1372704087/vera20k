@@ -5312,7 +5312,7 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
         assert_eq!(spark_system(&sim, 1), Some(first));
 
         sim.substrate
-            .particle_systems_mut()
+            .particle_systems
             .get_mut(first)
             .unwrap()
             .set_done_spawning_for_test(true);
@@ -5346,7 +5346,7 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
         // This is an explicit done-empty prior. Its real common AI, rather
         // than a guessed Lifetime<=0 timer, broadcasts the matching expiry.
         sim.substrate
-            .particle_systems_mut()
+            .particle_systems
             .get_mut(system_id)
             .unwrap()
             .set_done_spawning_for_test(true);

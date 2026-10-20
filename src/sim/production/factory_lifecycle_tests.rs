@@ -721,7 +721,7 @@ fn offline_backup_preserves_paid_infantry_with_system_hold() {
     };
     let sim = &mut runtime.simulation;
     sim.substrate
-        .entities_mut()
+        .entities
         .get_mut(backup)
         .unwrap()
         .set_temporal_for_test(TemporalState::warped_by_for_test(backup));

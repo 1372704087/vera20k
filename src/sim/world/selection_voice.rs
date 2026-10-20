@@ -253,7 +253,7 @@ impl Simulation {
             Self::queue_voice_request(sound, voices_enabled, human_player)
         };
         self.substrate
-            .entities_mut()
+            .entities
             .get_mut(entity_id)?
             .suppress_deploy_voice
             .clear();

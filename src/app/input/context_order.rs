@@ -279,6 +279,30 @@ pub(crate) fn attack_action(
     {
         action = AttackAction::NoMove;
     }
+    // A player's Deployer= infantryman in Doing 27..30 (Type+0xEC8,
+    // +0x6C4) keeps Attack only for a DeployFire= type (+0x6AC) whose
+    // SelectWeapon(NULL) weapon reaches the target, else NoMove: over an
+    // object CanFireAt (vt+0x3A8, Infantry51EB81..51EC11), on a Cell
+    // IsCloseEnough3D (vt+0x164 0x6F7970, which asks CanFireAt on the Cell
+    // under the Cell's centre; Infantry51F8BB..51F94E).
+    if action == AttackAction::Attack
+        && actor.category() == EntityCategory::Infantry
+        && human
+        && kind.deployer
+        && actor.infantry_deploy_doing()
+        && (!kind.deploy_fire
+            || !resolved_unit_in_range(
+                sim,
+                actor_id,
+                target,
+                Some(rules),
+                sim.resolved_terrain.as_ref(),
+                overlay_registry,
+                None,
+            ))
+    {
+        action = AttackAction::NoMove;
+    }
     // Infantry51EE3B..51EEEF: a player's Infiltrate= infantryman's Attack is
     // Capture over a building it may infiltrate, which its producers ask
     // first (Simulation::infiltrator_building_action); otherwise it is 0

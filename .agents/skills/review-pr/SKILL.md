@@ -53,8 +53,15 @@ oracles, scripts) until steps 1 and 2 are clean.
    Report each claim as native-established, Rust-tested or unverified, with the
    addresses you read.
 4. **Integrate, but only with the user's merge authority for this author.**
-   - Fixing conflicts and API skew is our job. Merge fetched `origin/main` into a
-     detached worktree of the PR head.
+   - Integrate in a reused slot, never in a new worktree: each checkout path gets
+     its own Cargo cache, so a worktree per PR rebuilds every dependency and
+     leaves 2–14 GB behind. `python <this skill>/scripts/integration_slot.py claim
+     pr<N>` prints the slot's path (`<main checkout>-wt/integration-<n>`, created
+     on first use). When every slot is held it exits 1 and names the holders; rerun
+     it with `--wait 3600` in the background rather than creating a worktree.
+   - Fixing conflicts and API skew is our job. In the slot, `git fetch origin main
+     pull/<N>/head`, `git checkout --detach <PR head SHA>`, then merge
+     `origin/main`.
    - On a snapshot clash, keep both changelog lines and take the next free
      `SNAPSHOT_VERSION`.
    - Check that both crates compile with `--lib --tests`, then run focused tests
@@ -65,7 +72,9 @@ oracles, scripts) until steps 1 and 2 are clean.
      merge method. Use an explicit `--subject`, `--body-file` and
      `--match-head-commit <actual head SHA>`. Write "Part of #N" unless the PR
      really closes N.
-   - Remove the worktree and fast-forward the main checkout.
+   - Release the slot with `integration_slot.py release pr<N>` once its work is
+     pushed or abandoned (`git merge --abort`); it refuses uncommitted work. Keep
+     the slot's worktree. Fast-forward the main checkout.
 5. **Report** briefly:
    - the malware verdict;
    - any protected-file findings;

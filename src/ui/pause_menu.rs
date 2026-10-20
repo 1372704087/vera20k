@@ -15,6 +15,7 @@
 //! | 3 | abort-mission confirm | the menu's Abort Mission button | see below |
 //! | 5 | Game Controls / Options | the menu's Options button | back to 1 |
 //! | 8 | Diplomacy (dialog 0x73) | the sidebar Diplomacy button, Tab | Return: 0 |
+//! | 9 | mission restate briefing (dialog 0x10C) | the sidebar Diplomacy button in campaign and Cooperative | Return: 0 |
 //!
 //! Two re-entry rules matter to the player and are reproduced here:
 //!
@@ -57,8 +58,7 @@
 /// restricted to the values a stock offline skirmish can reach.
 ///
 /// States deliberately absent: the surrender-and-be-scored state (gated on a
-/// WOL-only mode), the replay state, the campaign mission-restate state, the
-/// multiplayer objectives state.
+/// WOL-only mode), the replay state, the multiplayer objectives state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InGameMenuState {
     /// No modal is open — the mission runs. (gamemd: 0)
@@ -76,6 +76,8 @@ pub enum InGameMenuState {
     Keyboard,
     /// The Diplomacy dialog 0x73. (gamemd: 8)
     Diplomacy,
+    /// The mission restate briefing, dialog 0x10C. (gamemd: 9)
+    MissionBriefing,
     /// Native558DD0 browser nested beneath B5. Its mode has no independent
     /// scenario-state number: native keeps the parent hidden during this call.
     SavedGame(crate::ui::skirmish_shell::SavedSeedMode),
@@ -109,7 +111,8 @@ impl InGameMenuState {
             // The 0x73 proc resolves its command by GetDlgCtrlID(lParam)
             // (0x006581A7). IDCANCEL names no child window, so the id is 0:
             // neither Return 0x423 nor in its box tables. Escape is ignored.
-            Self::SavedGame(_) | Self::Sound | Self::Diplomacy => self,
+            // The 0x10C proc keys Return the same way (0x0065F710).
+            Self::SavedGame(_) | Self::Sound | Self::Diplomacy | Self::MissionBriefing => self,
             Self::Keyboard => Self::Options,
         }
     }

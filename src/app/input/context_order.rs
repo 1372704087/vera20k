@@ -879,12 +879,13 @@ fn command_actor_id(command: &Command) -> Option<u64> {
 /// Capability batches may remove handled actors, but must not reorder their
 /// single-object events, including each prepared factory rally. Legacy aggregate
 /// commands cannot be placed at one actor's index and keep dispatcher order.
-/// This index derives from input selection.
+/// This index derives from input selection. A MoveFlash belongs to the first
+/// receiver and stays ahead of its order ([`push_move_flash`]).
 fn restore_selection_dispatch_order(queued: &mut [CommandEnvelope], selected: &[u64]) {
-    if queued
-        .iter()
-        .any(|envelope| command_actor_id(&envelope.payload).is_none())
-    {
+    if queued.iter().any(|envelope| {
+        command_actor_id(&envelope.payload).is_none()
+            && !matches!(envelope.payload, Command::MoveFlash { .. })
+    }) {
         return;
     }
     let positions: std::collections::HashMap<_, _> = selected
@@ -892,10 +893,14 @@ fn restore_selection_dispatch_order(queued: &mut [CommandEnvelope], selected: &[
         .enumerate()
         .map(|(index, &id)| (id, index))
         .collect();
-    queued.sort_by_key(|envelope| {
-        command_actor_id(&envelope.payload)
-            .and_then(|id| positions.get(&id).copied())
-            .unwrap_or(usize::MAX)
+    queued.sort_by_key(|envelope| match envelope.payload {
+        Command::MoveFlash { .. } => (0, false),
+        _ => (
+            command_actor_id(&envelope.payload)
+                .and_then(|id| positions.get(&id).copied())
+                .unwrap_or(usize::MAX),
+            true,
+        ),
     });
 }
 
@@ -1518,6 +1523,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
     let mut rally_announce = false;
     let mut consumed_attack_action = false;
 
+    // PlanningMode's What_Action rung answers before Move (`0x00700840`),
+    // so a planning click spawns no MoveFlash.
+    let move_flash_enabled = !state.match_state.input.planning.active();
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
         let resources = &rt.resources;
         let sim = &mut rt.simulation;
@@ -1979,6 +1987,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             // same 4DE1D0 cell receiver as an ordinary Move click.
             for &stable_id in &selected_units {
                 if !selected_miner_ids.contains(&stable_id) {
+                    push_move_flash(
+                        &mut queued,
+                        move_flash_enabled,
+                        sim,
+                        &resources.rules,
+                        Some(&resources.overlay_registry),
+                        owner_id,
+                        execute_tick,
+                        &current_objects,
+                        stable_id,
+                        (target_rx, target_ry),
+                        shift_click,
+                    );
                     let Some(goal) = crate::app::input::commands::ordinary_cell_move_goal(
                         sim,
                         &resources.rules,
@@ -2356,6 +2377,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 } else if force_fire && !cell_is_shrouded {
                     // Unarmed Cell-click fall-through resolves the original
                     // clicked Cell before committing its Move event.
+                    push_move_flash(
+                        &mut queued,
+                        move_flash_enabled,
+                        sim,
+                        &resources.rules,
+                        Some(&resources.overlay_registry),
+                        owner_id,
+                        execute_tick,
+                        &current_objects,
+                        stable_id,
+                        (target_rx, target_ry),
+                        shift_click,
+                    );
                     let Some(goal) = crate::app::input::commands::ordinary_cell_move_goal(
                         sim,
                         &resources.rules,
@@ -2383,6 +2417,21 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 } else {
                     match order_mode {
                         OrderMode::Move | OrderMode::AttackMove => {
+                            if force_move_target.is_none() {
+                                push_move_flash(
+                                    &mut queued,
+                                    move_flash_enabled,
+                                    sim,
+                                    &resources.rules,
+                                    Some(&resources.overlay_registry),
+                                    owner_id,
+                                    execute_tick,
+                                    &current_objects,
+                                    stable_id,
+                                    (target_rx, target_ry),
+                                    shift_click,
+                                );
+                            }
                             let destination = match force_move_target {
                                 Some(target_id) => {
                                     crate::app::input::commands::object_move_destination(
@@ -2440,6 +2489,46 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         );
     }
     finish_order(state, queued, speaker_id) || consumed_attack_action
+}
+
+/// `FootClass::ClickedAction_Cell`'s MoveFlash (`0x004D7EB5..0x004D8065`)
+/// for one receiver of a Cell click: only the selection's first object asks
+/// ([`crate::sim::world::Simulation::cell_click_flashes_move`]), and its
+/// flash is queued before its own order, as native constructs it before the
+/// receiver's destination resolves.
+#[allow(clippy::too_many_arguments)]
+fn push_move_flash(
+    queued: &mut Vec<CommandEnvelope>,
+    enabled: bool,
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    owner_id: InternedId,
+    execute_tick: u64,
+    current_objects: &[u64],
+    receiver: u64,
+    cell: (u16, u16),
+    shift: bool,
+) {
+    if !enabled || current_objects.first() != Some(&receiver) {
+        return;
+    }
+    let flashes = sim
+        .cell_click_flashes_move(owner_id, receiver, cell, shift, rules, registry)
+        .unwrap_or_else(|cause| {
+            log::warn!("MoveFlash click input: {cause}");
+            false
+        });
+    if flashes {
+        queued.push(CommandEnvelope::new(
+            owner_id,
+            execute_tick,
+            Command::MoveFlash {
+                rx: cell.0,
+                ry: cell.1,
+            },
+        ));
+    }
 }
 
 /// The data capability shared by self-click, self-hover and the deploy key.
@@ -6062,6 +6151,10 @@ mod tests {
 #[cfg(test)]
 #[path = "context_order_selection_tests.rs"]
 mod selection_dispatch_tests;
+
+#[cfg(test)]
+#[path = "context_order_move_flash_tests.rs"]
+mod move_flash_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_bridge_tests.rs"]

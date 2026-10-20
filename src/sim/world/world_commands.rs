@@ -1528,6 +1528,9 @@ impl Simulation {
                 }
                 true
             }
+            Command::MoveFlash { rx, ry } => {
+                rules.is_some_and(|rules| self.spawn_move_flash(rules, (*rx, *ry)))
+            }
             Command::RemovePlayer { house_index } => {
                 // EventClass::Execute 0x004C7B73: IsHumanControlled
                 // (0x0050B730, House+0x1EC outside mode 0), then

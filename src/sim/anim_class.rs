@@ -1234,6 +1234,69 @@ impl Simulation {
         true
     }
 
+    /// The MoveFlash of `FootClass::ClickedAction_Cell`'s Move arm
+    /// (`0x004D7EB5..0x004D7F98`): `AnimClass(Rules+0xBB4, coord, 0, 1,
+    /// 0x600, 0, false)` at the clicked Cell's centre, on the ground
+    /// (`0x00578080`) and raised by the bridge deck when the Cell at that
+    /// coordinate (`0x00565730`) has flag 0x100. Campaign and skirmish
+    /// (GameMode 0 and 5) keep it an ordinary anim. LAN and WOL instead move
+    /// it to the local unsynced list (`0x004D7F28..0x004D7F57`,
+    /// `0x004D7FA6..0x004D8062`), which VERA does not model, so it spawns
+    /// nothing there. False when nothing is constructed.
+    pub(crate) fn spawn_move_flash(&mut self, rules: &RuleSet, cell: (u16, u16)) -> bool {
+        use crate::sim::scenario_session::ScenarioGameMode;
+        if !matches!(
+            self.session.game_mode(),
+            ScenarioGameMode::Campaign | ScenarioGameMode::Skirmish
+        ) || rules.general.move_flash.name.is_empty()
+        {
+            return false;
+        }
+        let Some(terrain) = self.resolved_terrain.as_ref() else {
+            return false;
+        };
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        // 0x004D7EC2..0x004D7EED: the signed Cell words, times 0x100, plus 0x80.
+        let centre = crate::sim::cell_kernel::cell_center(
+            crate::sim::cell_kernel::CellCoordinate {
+                x: i32::from(cell.0 as i16),
+                y: i32::from(cell.1 as i16),
+            },
+            0,
+        );
+        let Ok(mut z) = crate::sim::movement::ground_pose::query_ground_height(
+            &cells,
+            crate::sim::components::DriveCoord {
+                x: centre.x,
+                y: centre.y,
+                z: 0,
+            },
+        ) else {
+            return false;
+        };
+        if cells.flags(cells.lookup_world(centre.x, centre.y)) & 0x100 != 0 {
+            z = z.wrapping_add(crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS);
+        }
+        let world_coord = AnimWorldCoord {
+            x: centre.x,
+            y: centre.y,
+            z,
+        };
+        let type_id = self.interner.intern(&rules.general.move_flash.name);
+        let (rx, ry, sub_x, sub_y, level) = world_coord.to_cell_sub_z();
+        let descriptor = AnimClassSpawnDescriptor {
+            draw_flags: 0x600,
+            ..AnimClassSpawnDescriptor::new(type_id, rx, ry, sub_x, sub_y, level)
+        };
+        match self.spawn_anim_at_world(rules, descriptor, world_coord) {
+            Ok(_) => true,
+            Err(error) => {
+                log::debug!("MoveFlash did not construct: {error}");
+                false
+            }
+        }
+    }
+
     /// Execute58 MeteorShower6E2C40..6E2E12 (Steam3e81a617). Literal types
     /// are find-only; raw signed XY remainders precede each constructor, whose
     /// launch/Start draws are visible to the following selection. 842AFC holds
@@ -6418,6 +6481,10 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "anim_move_flash_tests.rs"]
+mod move_flash_tests;
 
 #[cfg(test)]
 #[path = "anim_meteor_tests.rs"]

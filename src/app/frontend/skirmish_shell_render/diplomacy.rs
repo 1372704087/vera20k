@@ -2,26 +2,20 @@
 //! title, Return and status line in the right-panel places, the rows and
 //! headers as ordinary children.
 
-use super::chrome::{push_flag_entry_clipped_centered, push_tinted_entry};
+use super::chrome::push_flag_entry_clipped_centered;
+use super::controls::{ControlPaint, paint_control};
 use super::in_game_shell::{self, InGameShellFrame};
 use super::pause_menu::{button_frame, button_text_rect};
 use super::text::{localized_label, push_text_draw, rect_to_text_rect};
 use super::{SHELL_CONTROL_DEPTH, SHELL_CONTROL_TEXT_DEPTH, SHELL_LABEL_TEXT_RGB};
 use crate::app::AppState;
 use crate::render::shell_text::ShellAlign;
+use crate::ui::shell::button::CheckboxFace;
 use crate::ui::shell::diplomacy::{
     DiplomacyButton, DiplomacyHeader, RETURN_LABEL, TITLE_LABEL, diplomacy_layout,
 };
 use crate::ui::shell::geom::{RectPx, ShellScale};
 use crate::ui::shell::pause_menu::PauseMenuButtonState;
-
-/// The owner-draw checkbox paints its face into an 18x18 rectangle at the
-/// control's origin (0x006163A0 WM_PAINT).
-const CHECKBOX_FACE: i32 = 18;
-
-/// `AlphaBlendRect` colour 0 at the disabled-overlay alpha 0x60
-/// (`0x0060FAB9`): each channel keeps `(255 - 0x60) / 256` of itself.
-const DISABLED_CHECKBOX_TINT: f32 = (255 - 0x60) as f32 / 256.0;
 
 pub(crate) fn render_diplomacy_shell(
     state: &mut AppState,
@@ -98,6 +92,9 @@ pub(crate) fn render_diplomacy_shell(
     }
 
     let chrome = state.frontend.skirmish_shell_chrome.as_ref();
+    let control_chrome = chrome
+        .map(|atlas| atlas.control_chrome())
+        .unwrap_or_default();
     for (row, shown) in view.rows.iter().enumerate() {
         let Some(shown) = shown else {
             continue;
@@ -134,30 +131,27 @@ pub(crate) fn render_diplomacy_shell(
         let boxes = [
             shown
                 .allies
-                .map(|allies| (allies.art(), allies.enabled, layout.allies[row])),
+                .map(|allies| (allies.face(), allies.enabled, layout.allies[row])),
             shown.chat.map(|chat| {
-                (
-                    if chat.checked {
-                        "cce_i.pcx"
-                    } else {
-                        "cue_i.pcx"
-                    },
-                    chat.enabled,
-                    layout.chat[row],
-                )
+                let face = if chat.checked {
+                    CheckboxFace::Checked
+                } else {
+                    CheckboxFace::Unchecked
+                };
+                (face, chat.enabled, layout.chat[row])
             }),
         ];
-        for (name, enabled, rect) in boxes.into_iter().flatten() {
-            if let Some(entry) = chrome.and_then(|atlas| atlas.checkbox_art(name)) {
-                let face = RectPx::new(
-                    rect.x,
-                    rect.y,
-                    (entry.pixel_size[0] as i32).min(CHECKBOX_FACE),
-                    (entry.pixel_size[1] as i32).min(CHECKBOX_FACE),
-                );
-                let tint = if enabled { 1.0 } else { DISABLED_CHECKBOX_TINT };
-                push_tinted_entry(&mut controls, entry, face, [tint; 3], SHELL_CONTROL_DEPTH);
-            }
+        for (face, enabled, rect) in boxes.into_iter().flatten() {
+            paint_control(
+                &mut controls,
+                &control_chrome,
+                ControlPaint::StatefulCheckbox {
+                    face,
+                    disabled: !enabled,
+                    rect,
+                },
+                ShellScale::RETAIL,
+            );
         }
     }
     if let Some(mode_name) = &view.mode_name {

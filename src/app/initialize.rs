@@ -544,6 +544,7 @@ impl App {
                     ),
                     message_clock: crate::ui::messages::PauseAwareClock::default(),
                     in_game_menu: crate::ui::pause_menu::InGameMenuState::default(),
+                    modal_latch: true,
                     pause_menu_has_saves: false,
                     pause_menu_interaction: Default::default(),
                     sound_dialog: None,

@@ -555,6 +555,8 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         Ok(()) => {
             let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
             state.match_state.scenario_elapsed_clock.start(now_ms);
+            // Main_Game 0x0048CE7E: State_Machine's admission latch.
+            state.match_state.match_presentation.modal_latch = true;
             state.frontend.screen = GameScreen::InGame;
             if returns_scenario_rng_to_multiplayer_shell {
                 state

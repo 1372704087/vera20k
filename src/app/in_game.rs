@@ -278,38 +278,47 @@ impl App {
     }
 
     /// `State_Machine @ 0x0048C8B0`'s admission of a requested modal
-    /// (`0x0048C8C6..0x0048C918`), before `EnterPause`. Outside campaign
-    /// (GameMode 0 skips it) the request is cleared without opening anything
-    /// while the local House has won (`+0x1F7`), lost (`+0x1F8`) or is flagged
-    /// to die (`+0x1F6`). The same test refuses a live, undefeated player
-    /// once the latch `[0x822CFC]` is clear; only the network surrender and
-    /// abort-observe paths clear it (`0x0048CAA1`, `0x0048CB22`,
-    /// `0x0048CC23`), which VERA does not reach, so the latch stays at its
-    /// `Main_Game` value 1 here.
-    fn state_machine_admits_modal(state: &AppState) -> bool {
+    /// (`0x0048C8C6..0x0048C918`), before `EnterPause`; see
+    /// [`Self::state_machine_admission`]. Writes the relatched value.
+    fn state_machine_admits_modal(state: &mut AppState) -> bool {
         let sim = state
             .match_state
             .sim_runtime
             .as_ref()
             .map(|runtime| &runtime.simulation);
-        Self::state_machine_admits(
+        let latch = Self::state_machine_admission(
             state.match_state.session.mode().is_nonzero(),
+            state.match_state.match_presentation.modal_latch,
             sim.and_then(|sim| {
                 sim.session
                     .current_house()
                     .and_then(|house| sim.houses.get(&house))
             }),
-        )
+        );
+        if let Some(latch) = latch {
+            state.match_state.match_presentation.modal_latch = latch;
+        }
+        latch.is_some()
     }
 
-    /// [`Self::state_machine_admits_modal`] on its inputs: GameMode and the
-    /// local House.
-    pub(crate) fn state_machine_admits(
+    /// Outside campaign (GameMode 0 skips the test) a requested modal is
+    /// cleared without opening while the local House has won (`+0x1F7`),
+    /// lost (`+0x1F8`) or is flagged to die (`+0x1F6`), and while the latch
+    /// `[0x822CFC]` is clear unless the House is defeated (`+0x1F5`), which
+    /// sets the latch again (`0x0048C911`). `None` refuses; `Some` admits
+    /// with the latch's new value.
+    pub(crate) fn state_machine_admission(
         game_mode_nonzero: bool,
+        latch: bool,
         local: Option<&crate::sim::house_state::HouseState>,
-    ) -> bool {
-        !game_mode_nonzero
-            || local.is_none_or(|house| !(house.has_won() || house.has_lost() || house.is_to_die()))
+    ) -> Option<bool> {
+        let Some(house) = local.filter(|_| game_mode_nonzero) else {
+            return Some(latch);
+        };
+        if house.has_won() || house.has_lost() || house.is_to_die() {
+            return None;
+        }
+        (latch || house.is_defeated()).then_some(true)
     }
 
     /// Every physical or fallback modal commits through the same state/exit owner.
@@ -335,6 +344,10 @@ impl App {
     /// event; teardown begins after the event-tail dispatcher executes it.
     fn exit_match_to_shell(state: &mut AppState) {
         log::info!("Abort Mission confirmed — queueing EXIT event");
+        // 0x0048CAA1 clears the admission latch after queueing EXIT, even
+        // when the event ring is full: until EXIT runs, State_Machine opens
+        // no modal for a player who is not defeated.
+        state.match_state.match_presentation.modal_latch = false;
         if state.match_state.scenario_exit.is_some() {
             return;
         }

@@ -178,6 +178,8 @@ pub struct SkirmishShellChromeAtlas {
 pub struct ControlChrome {
     pub checkbox_unchecked_cue_i: Option<SkirmishShellChromeEntry>,
     pub checkbox_checked_cce_i: Option<SkirmishShellChromeEntry>,
+    pub checkbox_dual_left_cce_il: Option<SkirmishShellChromeEntry>,
+    pub checkbox_dual_right_cce_ir: Option<SkirmishShellChromeEntry>,
     /// The frames of the [`TRACKBAR_FRAMES`] windows, in that order.
     pub trackbar_frames: [Option<SkirmishShellChromeEntry>; TRACKBAR_FRAMES.len()],
     /// Keyboard A3 category face, original resource138 DLU.
@@ -242,18 +244,6 @@ impl SkirmishShellChromeAtlas {
             .map(|(_, entry)| *entry)
     }
 
-    /// A checkbox face by its owner-draw PCX name (0x006163A0 WM_PAINT):
-    /// `cue_i`/`cce_i`, and the dual-state `cce_il`/`cce_ir`.
-    pub fn checkbox_art(&self, name: &str) -> Option<SkirmishShellChromeEntry> {
-        match name {
-            "cue_i.pcx" => self.checkbox_unchecked_cue_i,
-            "cce_i.pcx" => self.checkbox_checked_cce_i,
-            "cce_il.pcx" => self.checkbox_dual_left_cce_il,
-            "cce_ir.pcx" => self.checkbox_dual_right_cce_ir,
-            _ => None,
-        }
-    }
-
     /// 004E34A0 ping image 0/1/2: pingg, pingy, pingr.
     pub fn wol_ping_icon(&self, icon: u8) -> Option<SkirmishShellChromeEntry> {
         self.wol_setup_icons
@@ -304,6 +294,8 @@ impl SkirmishShellChromeAtlas {
         ControlChrome {
             checkbox_unchecked_cue_i: self.checkbox_unchecked_cue_i,
             checkbox_checked_cce_i: self.checkbox_checked_cce_i,
+            checkbox_dual_left_cce_il: self.checkbox_dual_left_cce_il,
+            checkbox_dual_right_cce_ir: self.checkbox_dual_right_cce_ir,
             trackbar_frames: self.trackbar_frames,
             combo_face_249: self.combo_face_249,
             combo_face_207: self.combo_face_207,

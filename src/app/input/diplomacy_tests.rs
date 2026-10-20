@@ -324,15 +324,38 @@ fn retail_allies_allowed_layers_by_mode_and_rows_take_the_playable_countries() {
 }
 
 /// State_Machine 0x0048C8C6: outside campaign a House flagged to die (or
-/// won, or lost) opens no modal; campaign skips the test.
+/// won, or lost) opens no modal, nor does an undefeated one once the latch
+/// is clear; campaign skips the test.
 #[test]
 fn state_machine_refuses_modals_once_the_local_house_is_flagged() {
     let mut fixture = fixture();
     let player = fixture.player;
     let house = |fixture: &Fixture| fixture.sim.houses.get(&player).cloned();
-    assert!(App::state_machine_admits(true, house(&fixture).as_ref()));
+    let live = house(&fixture);
+    assert_eq!(
+        App::state_machine_admission(true, true, live.as_ref()),
+        Some(true)
+    );
+    // A confirmed Abort cleared the latch: refused until defeated, and a
+    // defeated House relatches it.
+    assert_eq!(
+        App::state_machine_admission(true, false, live.as_ref()),
+        None
+    );
+    let mut defeated = live.clone().unwrap();
+    defeated.set_is_defeated_for_test(true);
+    assert_eq!(
+        App::state_machine_admission(true, false, Some(&defeated)),
+        Some(true)
+    );
     assert!(fixture.sim.flag_house_to_die(player));
     let flagged = house(&fixture);
-    assert!(!App::state_machine_admits(true, flagged.as_ref()));
-    assert!(App::state_machine_admits(false, flagged.as_ref()));
+    assert_eq!(
+        App::state_machine_admission(true, true, flagged.as_ref()),
+        None
+    );
+    assert_eq!(
+        App::state_machine_admission(false, false, flagged.as_ref()),
+        Some(false)
+    );
 }

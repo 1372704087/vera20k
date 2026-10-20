@@ -12,7 +12,7 @@
 //! simulation; this module owns only control identity, geometry and the
 //! pointer's help target.
 
-use super::button::ShellButtonInteraction;
+use super::button::{CheckboxFace, ShellButtonInteraction};
 use super::geom::{self, RectPx};
 use super::in_game_shell::{self, InGameShellLayout};
 
@@ -264,15 +264,8 @@ pub struct DiplomacyAlliesBox {
 }
 
 impl DiplomacyAlliesBox {
-    /// The dual-state art (0x006163A0 WM_PAINT): `cue_i` unchecked alone,
-    /// `cce_ir` unchecked but allied back, `cce_il` checked alone, `cce_i` both.
-    pub fn art(self) -> &'static str {
-        match (self.checked, self.partner) {
-            (false, false) => "cue_i.pcx",
-            (false, true) => "cce_ir.pcx",
-            (true, false) => "cce_il.pcx",
-            (true, true) => "cce_i.pcx",
-        }
+    pub fn face(self) -> CheckboxFace {
+        CheckboxFace::dual_state(self.checked, self.partner)
     }
 }
 
@@ -465,19 +458,21 @@ mod tests {
         assert_eq!(checked, (4 + 24 + 14 + 3) * 3);
     }
 
-    /// Title, Return and status line take the active right-panel placements,
-    /// as B5's title, Resume and footer do.
+    /// Title 0x694, Return 0x423 and status line 0x695 take B5's title,
+    /// Resume and footer places (0x00608D4B, 0x006097AB, 0x00601360).
     #[test]
-    fn title_return_and_status_line_use_the_right_panel_rules() {
-        for (width, height) in [(800, 600), (1024, 768)] {
+    fn title_return_and_status_line_share_the_pause_menu_placements() {
+        use crate::ui::shell::pause_menu::{PauseMenuButton, pause_menu_layout};
+        for (width, height) in [(640, 480), (800, 600), (1024, 768)] {
             let shell = shell(width, height);
             let layout = diplomacy_layout(width, height, shell, [125, 25]);
-            assert_eq!(layout.title, RectPx::new(width - 165, 2, 162, 16));
+            let pause = pause_menu_layout(width, height, shell, [125, 25]);
+            assert_eq!(layout.title, pause.title);
             assert_eq!(
                 layout.return_button,
-                RectPx::new(width - 147, shell.side3.y - 25, 125, 25)
+                pause.buttons[PauseMenuButton::Resume as usize]
             );
-            assert_eq!(layout.status_line, RectPx::new(10, height - 21, 455, 20));
+            assert_eq!(layout.status_line, pause.footer);
         }
     }
 

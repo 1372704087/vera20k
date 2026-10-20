@@ -52,7 +52,7 @@ impl WolServer {
 
     /// `0x0078686E..0x007868B5`: the name with everything through the
     /// first ':' removed, as the persona stores it.
-    fn persona_server(&self) -> &str {
+    pub(super) fn persona_server(&self) -> &str {
         self.name
             .split_once(':')
             .map_or(&self.name, |(_, rest)| rest)
@@ -337,6 +337,11 @@ impl WolVisit {
     /// (`0x0078701E`) before the WOLAPI object is created.
     fn begin_login(&mut self) {
         self.last_login_result = None;
+        self.ensure_api();
+    }
+
+    /// `0x00786390`, which answers with [`WolServiceEvent::Api`].
+    fn ensure_api(&mut self) {
         self.awaiting = Awaiting::Api;
         self.requests.push(WolServiceRequest::EnsureApi);
     }
@@ -431,7 +436,10 @@ impl WolVisit {
                 then: WolBoxThen::Leave(-2),
             },
             (Awaiting::Api, WolServiceEvent::Api(WolApiStatus::Available)) => {
-                if self.mode != Some(WolMode::CustomMatch) {
+                if !matches!(
+                    self.mode,
+                    Some(WolMode::CustomMatch | WolMode::MyInformation)
+                ) {
                     log::warn!(
                         "WOL mode {:?} after WOLAPI creation is not implemented",
                         self.mode
@@ -563,6 +571,16 @@ pub(super) fn begin_flow(state: &mut AppState) {
         return;
     };
     visit.begin_login();
+    answer_unavailable(state);
+}
+
+/// My Information's driver `0x00799D30` starts by creating the WOLAPI
+/// object; unlike the login flow it leaves `[0xB77DF8]` alone.
+pub(super) fn begin_my_information(state: &mut AppState) {
+    let Some(visit) = state.frontend.wol.as_mut() else {
+        return;
+    };
+    visit.ensure_api();
     answer_unavailable(state);
 }
 
@@ -763,7 +781,11 @@ pub(crate) fn service_event(state: &mut AppState, event: WolServiceEvent) {
             return;
         }
         WolServiceEvent::LocaleCount(count) => {
-            super::persona::locale_count(state, count);
+            if super::my_info::page_open(state) {
+                super::my_info::locale_count(state, count);
+            } else {
+                super::persona::locale_count(state, count);
+            }
             return;
         }
         event @ (WolServiceEvent::Channels { .. }
@@ -846,7 +868,16 @@ fn apply(state: &mut AppState, step: WolStep) {
             App::return_from_wol(state);
         }
         WolStep::Welcome => App::reopen_wol_welcome(state),
-        WolStep::ServersReady => after_server_list(state),
+        WolStep::ServersReady => {
+            let visit = state.frontend.wol.as_mut().expect("WOL visit");
+            if visit.mode == Some(WolMode::MyInformation) {
+                // 0x797640 closed 0xC4 itself.
+                visit.page = WolPage::Backdrop { wait: None };
+                super::my_info::open(state);
+            } else {
+                after_server_list(state);
+            }
+        }
         WolStep::OpenLogin => super::login::open(state),
         WolStep::Accepted => connect_succeeded(state),
         WolStep::AutoLoginFailed => auto_login_failed(state),

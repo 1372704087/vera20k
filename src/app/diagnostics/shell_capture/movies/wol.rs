@@ -163,6 +163,22 @@ pub enum WolTarget {
     PageReceivedReply,
     /// The same, then Back: `0x10E` again.
     PageReceivedBack,
+    /// My Information `0x114` with LastValid's stored account and persona.
+    MyInfoSteady,
+    /// `0x114` with no nickname: `GUI:Default`, unknown stats.
+    MyInfoDefault,
+    /// A preferred server picked: saved at once.
+    MyInfoServer,
+    /// A preferred country picked: saved at once.
+    MyInfoCountry,
+    /// A locale picked: saved with priority 3, unverified.
+    MyInfoLocale,
+    /// AutoLogin ticked, unticked and ticked again.
+    MyInfoAutoLogin,
+    /// Forget Account: the row and LastValid gone, Play Buddy still on.
+    MyInfoForget,
+    /// Back: `0x10E` with the selected nickname's profile.
+    MyInfoBack,
 }
 
 impl WolTarget {
@@ -181,6 +197,21 @@ impl WolTarget {
                 | Self::AutoLoginFailed
                 | Self::LoginLastValid
                 | Self::WelcomeProfile
+        ) && !self.my_info()
+    }
+
+    /// Welcome's My Information runs `0x114`.
+    fn my_info(self) -> bool {
+        matches!(
+            self,
+            Self::MyInfoSteady
+                | Self::MyInfoDefault
+                | Self::MyInfoServer
+                | Self::MyInfoCountry
+                | Self::MyInfoLocale
+                | Self::MyInfoAutoLogin
+                | Self::MyInfoForget
+                | Self::MyInfoBack
         )
     }
 
@@ -216,6 +247,12 @@ impl WolTarget {
             ),
             Self::LocaleQuery | Self::LocaleChosen => ANSWERED.into(),
             Self::PersonaPicks => format!("{ANSWERED}[tester]\n{LOCALE}Country=3\nColor=2\n"),
+            Self::MyInfoDefault => ANSWERED.into(),
+            target if target.my_info() => format!(
+                "[DefaultPersona]\nLastValid={NICKNAME}\n{ANSWERED}[tester]\nServer=Westwood\n\
+                 {LOCALE}Country=3\nColor=2\nRank=17\nPoints=1234\nWins=21\nLosses=9\n\
+                 Disconnects=1\nMatchByRes=no\nUpdateTime=12:34\nUpdateDate=10/19/26\n"
+            ),
             _ => format!("{ANSWERED}[tester]\n{LOCALE}"),
         }
     }
@@ -366,6 +403,14 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0x11e-page-received", WolTarget::PageReceived),
     ("wol-0x11e-reply", WolTarget::PageReceivedReply),
     ("wol-0x11e-back", WolTarget::PageReceivedBack),
+    ("wol-0x114-steady", WolTarget::MyInfoSteady),
+    ("wol-0x114-default", WolTarget::MyInfoDefault),
+    ("wol-0x114-server-change", WolTarget::MyInfoServer),
+    ("wol-0x114-country-change", WolTarget::MyInfoCountry),
+    ("wol-0x114-locale-change", WolTarget::MyInfoLocale),
+    ("wol-0x114-autologin", WolTarget::MyInfoAutoLogin),
+    ("wol-0x114-forget", WolTarget::MyInfoForget),
+    ("wol-0x114-back", WolTarget::MyInfoBack),
 ];
 
 /// The controlled guest of the C2 targets, the host of the C9 targets.
@@ -439,6 +484,12 @@ enum WolPhase {
     PageWelcome,
     /// `0x11E` open: its answers or its Back.
     PageReceivedAnswers,
+    /// My Information pressed: its teardown, then the driver's requests.
+    MyInfoOpening,
+    /// `0x114` opening: its entry slide runs.
+    MyInfoShown,
+    /// `0x114` Back pressed: waiting for `0x10E`.
+    MyInfoBack,
     Settle(u32),
 }
 
@@ -567,6 +618,26 @@ impl WolCapture {
                     );
                     self.event(frame, json!({"0x10E profile": texts}));
                     self.hover_settle(state);
+                    return Ok(());
+                }
+                if self.target.my_info() {
+                    state
+                        .frontend
+                        .wol
+                        .as_mut()
+                        .context("WOL visit")?
+                        .set_provider(WolProvider::Controlled);
+                    let rect = App::wol_welcome_layout(state)
+                        .page
+                        .button_rect(crate::ui::wol_shell::MY_INFORMATION)
+                        .context("My Information")?;
+                    welcome_click(state, rect);
+                    ensure!(
+                        state.frontend.shell_exit.is_some(),
+                        "My Information did not tear 0x10E down"
+                    );
+                    self.event(frame, "0x10E My Information (controlled service)");
+                    self.phase = WolPhase::MyInfoOpening;
                     return Ok(());
                 }
                 if self.target.test_service() {
@@ -1401,6 +1472,34 @@ impl WolCapture {
                     "0xD6 survived its Back"
                 );
                 self.event(frame, "0x2BC settled after 0xD6 Back");
+                self.hover_settle(state);
+            }
+            WolPhase::MyInfoOpening if state.frontend.shell_exit.is_none() => {
+                self.my_info_open(state, frame)?;
+            }
+            WolPhase::MyInfoShown
+                if rendered == PresentedShell::WolMyInformation
+                    && Self::page_settled(state, ShellSlideKind::WolMyInformation) =>
+            {
+                self.my_info_act(state, frame)?;
+            }
+            WolPhase::MyInfoBack
+                if rendered == PresentedShell::WolWelcome
+                    && Self::page_settled(state, ShellSlideKind::WolWelcome) =>
+            {
+                let texts = &state
+                    .frontend
+                    .wol
+                    .as_ref()
+                    .context("WOL visit")?
+                    .welcome_texts;
+                ensure!(
+                    texts
+                        .iter()
+                        .any(|(id, text)| *id == 0x06EF && text.contains("Alpha")),
+                    "0x10E did not show the nickname 0x114 selected: {texts:?}"
+                );
+                self.event(frame, json!({"0x10E profile": texts}));
                 self.hover_settle(state);
             }
             WolPhase::Settle(remaining) if remaining > 0 => {
@@ -3307,4 +3406,268 @@ fn setup_button(state: &mut AppState, id: u16) -> Result<()> {
         .rect;
     setup_click(state, rect);
     Ok(())
+}
+
+/// My Information `0x114`: the driver's requests, the page's init and one
+/// control per target, each checked against the model and `wolinfoMD.ini`.
+impl WolCapture {
+    fn my_info_open(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::ui::wol_shell::WolMode;
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests == [WolServiceRequest::EnsureApi],
+            "0x799D30 did not start with the WOLAPI object: {requests:?}"
+        );
+        ensure!(
+            state.frontend.wol.as_ref().and_then(|visit| visit.mode())
+                == Some(WolMode::MyInformation),
+            "My Information did not write mode 6"
+        );
+        service_event(state, WolServiceEvent::Api(WolApiStatus::Available));
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests
+                == [
+                    WolServiceRequest::ListCredentials,
+                    WolServiceRequest::FetchServers { flags: 0x2900 }
+                ],
+            "0x799D30 did not wait for the server list: {requests:?}"
+        );
+        service_event(
+            state,
+            WolServiceEvent::Credentials(vec![
+                WolCredential {
+                    slot: 1,
+                    nickname: NICKNAME.into(),
+                    password: PASSWORD.into(),
+                },
+                WolCredential {
+                    slot: 2,
+                    nickname: PEER.into(),
+                    password: PASSWORD.into(),
+                },
+            ]),
+        );
+        service_event(state, WolServiceEvent::NetStatus(0x0004_012F));
+        service_event(state, WolServiceEvent::ServerList(Ok(server_list())));
+        ensure!(
+            crate::app::shell_wol::my_info::page(state).is_some(),
+            "the server list did not open 0x114"
+        );
+        let requests = self.requests(state, frame)?;
+        ensure!(
+            requests == [WolServiceRequest::LocaleCount],
+            "0x114's locale combo did not ask for the count: {requests:?}"
+        );
+        service_event(state, WolServiceEvent::LocaleCount(38));
+        ensure!(
+            !state
+                .frontend
+                .wol
+                .as_ref()
+                .is_some_and(|visit| visit.authenticated()),
+            "My Information must not log in"
+        );
+        self.event(
+            frame,
+            "controlled WOLAPI, 2 stored accounts, 3 server records",
+        );
+        self.phase = WolPhase::MyInfoShown;
+        Ok(())
+    }
+
+    fn my_info_act(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::ui::wol_my_info::{
+            AUTO_LOGIN, BACK, COUNTRY, FORGET, HEADING, LOCALE, NICKNAME as NICKNAME_COMBO, SERVER,
+            WINS,
+        };
+        let page = crate::app::shell_wol::my_info::page(state).context("0x114")?;
+        let data: Vec<i32> = page.combos.iter().map(|combo| combo.data_or(-99)).collect();
+        let snapshot = json!({
+            "selected_data": data,
+            "server_face": page.combos[1].selected.map(|row| page.combos[1].rows[row].text.clone()),
+            "nicknames": page.combos[0].rows.iter().map(|row| row.text.clone()).collect::<Vec<_>>(),
+            "auto_login": [page.auto_login, page.auto_login_enabled],
+            "match_same_res": page.match_same_res,
+            "forget_enabled": page.forget_enabled,
+            "play_buddy_enabled": page.play_buddy_enabled,
+            "texts": page.texts,
+        });
+        if self.target == WolTarget::MyInfoDefault {
+            ensure!(
+                page.slot() == -1
+                    && !page.forget_enabled
+                    && !page.play_buddy_enabled
+                    && !page.auto_login_enabled
+                    && page
+                        .texts
+                        .iter()
+                        .any(|(id, text)| *id == HEADING && text.is_empty()),
+                "0x114 without a nickname: {snapshot}"
+            );
+        } else {
+            // Westwood is record 1 (the first row); locale 2, country 3 and
+            // colour 2 by item data.
+            ensure!(
+                data == [1, 1, 2, 3, 2]
+                    && page.forget_enabled
+                    && page.play_buddy_enabled
+                    && page.auto_login_enabled
+                    && !page.auto_login
+                    && !page.match_same_res
+                    && page
+                        .texts
+                        .iter()
+                        .any(|(id, text)| *id == WINS && text == "21"),
+                "0x114 did not fill from LastValid's persona: {snapshot}"
+            );
+        }
+        self.event(frame, json!({"0x114 init": snapshot}));
+        let file = info_file(state)?;
+        let persona = |_: &AppState| file.load_persona(NICKNAME, &|key| key.to_owned());
+        match self.target {
+            WolTarget::MyInfoServer => {
+                let row = self.my_info_pick(state, SERVER, |row| row.text == "Europe")?;
+                let saved = persona(state).server;
+                ensure!(saved == "Europe", "the server was not saved: {saved}");
+                self.event(frame, json!({"0x629 row": row, "Server": saved}));
+            }
+            WolTarget::MyInfoCountry => {
+                let row = self.my_info_pick(state, COUNTRY, |row| row.data == 5)?;
+                let saved = persona(state).country;
+                ensure!(saved == 5, "the country was not saved: {saved}");
+                self.event(frame, json!({"0x6A1 row": row, "Country": saved}));
+            }
+            WolTarget::MyInfoLocale => {
+                let row = self.my_info_pick(state, LOCALE, |row| row.data == 5)?;
+                let saved = persona(state);
+                ensure!(
+                    saved.locale == 5 && !saved.locale_verified,
+                    "the locale was not saved unverified: {saved:?}"
+                );
+                self.event(
+                    frame,
+                    json!({"0x62A row": row, "Locale": 5, "LocaleVerified": false}),
+                );
+            }
+            WolTarget::MyInfoAutoLogin => {
+                let mut seen = Vec::new();
+                for _ in 0..3 {
+                    self.my_info_check(state, AUTO_LOGIN)?;
+                    seen.push(file.auto_login());
+                }
+                let seen: Vec<&str> = seen.iter().map(String::as_str).collect();
+                ensure!(
+                    seen == [NICKNAME, "", NICKNAME],
+                    "AutoLogin did not follow the box: {seen:?}"
+                );
+                self.event(frame, json!({"0x6FF AutoLogin": seen}));
+            }
+            WolTarget::MyInfoForget => {
+                let rect = layout_button(state, FORGET)?;
+                welcome_click(state, rect);
+                let requests = self.requests(state, frame)?;
+                let page = crate::app::shell_wol::my_info::page(state).context("0x114")?;
+                let names: Vec<&str> = page.combos[0]
+                    .rows
+                    .iter()
+                    .map(|row| row.text.as_str())
+                    .collect();
+                ensure!(
+                    requests == [WolServiceRequest::ForgetCredential { slot: 1 }]
+                        && names.len() == 2
+                        && names[1] == PEER
+                        && page.slot() == -1
+                        && !page.forget_enabled
+                        && page.play_buddy_enabled
+                        && !page.auto_login_enabled
+                        && file.last_valid().is_empty()
+                        && state.frontend.wol_account.nickname == NICKNAME,
+                    "Forget did not follow 0x799692: {names:?} {requests:?}"
+                );
+                self.event(frame, json!({"0x6EB Forget": names, "LastValid": ""}));
+            }
+            WolTarget::MyInfoBack => {
+                self.my_info_pick(state, NICKNAME_COMBO, |row| row.text == PEER)?;
+                ensure!(
+                    state.frontend.wol_account.nickname == PEER,
+                    "the nickname combo did not set [0xB73E40]"
+                );
+                let rect = layout_button(state, BACK)?;
+                welcome_click(state, rect);
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "Back did not tear 0x114 down"
+                );
+                self.event(frame, "0x628 Alpha, then 0x114 Back");
+                self.phase = WolPhase::MyInfoBack;
+                return Ok(());
+            }
+            _ => {}
+        }
+        self.hover_settle(state);
+        Ok(())
+    }
+
+    /// Open `control`'s drop list by its arrow and click the first row that
+    /// `matches`; returns that row.
+    fn my_info_pick(
+        &mut self,
+        state: &mut AppState,
+        control: u16,
+        matches: impl Fn(&crate::ui::wol_my_info::MyInfoRow) -> bool,
+    ) -> Result<usize> {
+        let layout = crate::app::shell_wol::my_info::layout(state);
+        let face = layout.face(control).context("combo face")?;
+        let arrow = crate::ui::skirmish_shell::combo_arrow_hit_rect(face, layout.page.scale);
+        welcome_click(state, arrow);
+        let page = crate::app::shell_wol::my_info::page(state).context("0x114")?;
+        ensure!(
+            page.popup.control == Some(control),
+            "the drop list did not open"
+        );
+        let row = page
+            .combo(control)
+            .and_then(|combo| combo.rows.iter().position(&matches))
+            .context("no matching row")?;
+        let visible = page
+            .popup_geometry(&layout)
+            .context("drop list")?
+            .visible_rows;
+        // A row below the first page: scroll there first, as the bar would.
+        if row >= visible
+            && let crate::app::shell_wol::WolPage::MyInformation(page) =
+                &mut state.frontend.wol.as_mut().context("WOL visit")?.page
+        {
+            page.popup.top_index = row + 1 - visible;
+        }
+        let popup = crate::app::shell_wol::my_info::page(state)
+            .and_then(|page| page.popup_geometry(&layout))
+            .context("drop list")?;
+        let rect = popup.row_rect(row).context("row rect")?;
+        welcome_click(state, rect);
+        Ok(row)
+    }
+
+    /// A click on a checkbox's icon.
+    fn my_info_check(&mut self, state: &mut AppState, control: u16) -> Result<()> {
+        let layout = crate::app::shell_wol::my_info::layout(state);
+        let rect = if control == crate::ui::wol_my_info::AUTO_LOGIN {
+            layout.auto_login
+        } else {
+            layout.match_same_res
+        };
+        welcome_click(
+            state,
+            crate::ui::skirmish_shell::checkbox_icon_rect(rect, layout.page.scale),
+        );
+        Ok(())
+    }
+}
+
+fn layout_button(state: &AppState, id: u16) -> Result<RectPx> {
+    crate::app::shell_wol::my_info::layout(state)
+        .page
+        .button_rect(id)
+        .context("0x114 button")
 }

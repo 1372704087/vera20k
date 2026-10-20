@@ -780,6 +780,7 @@ impl App {
                 wol_lobby_art: None,
                 wol_options_art: None,
                 wol_auto_login_art: None,
+                wol_my_info_art: None,
                 wol_sound_options_art: None,
                 wol_lobby_globals: Default::default(),
                 wol_preferences: Default::default(),

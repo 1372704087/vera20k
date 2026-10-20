@@ -135,6 +135,8 @@ pub(crate) struct FrontendState {
     pub(crate) wol_options_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
     /// `0x0072BCA0`: AutoLoginQuery.shp through its PAL while `0x112` runs.
     pub(crate) wol_auto_login_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
+    /// My Information `0x114`'s art (`0x0072C9C0`).
+    pub(crate) wol_my_info_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
     pub(crate) wol_sound_options_art: Option<crate::render::main_menu_shell_chrome::WolPageArt>,
     /// The custom lobby's process globals (sorts, lobby number, filters).
     pub(crate) wol_lobby_globals: crate::app::shell_wol::lobby::WolLobbyGlobals,

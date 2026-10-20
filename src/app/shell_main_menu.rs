@@ -1399,6 +1399,9 @@ Details: {details}"
             ShellExitThen::WolLocaleClose(locale) => {
                 crate::app::shell_wol::persona::commit_locale(state, locale)
             }
+            ShellExitThen::WolMyInformationClose(control) => {
+                crate::app::shell_wol::my_info::commit_close(state, control)
+            }
         }
     }
 

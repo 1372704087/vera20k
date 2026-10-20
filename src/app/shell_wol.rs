@@ -14,6 +14,7 @@
 
 pub(crate) mod lobby;
 mod login;
+pub(crate) mod my_info;
 pub(crate) mod options;
 pub(crate) mod page;
 pub(crate) mod persona;
@@ -33,6 +34,7 @@ pub(crate) fn poll(state: &mut AppState) -> Option<std::time::Instant> {
         service::poll_wait(state),
         login::poll_scroll_repeat(state),
         persona::poll_scroll_repeat(state),
+        my_info::poll_scroll_repeat(state),
         page::poll_scroll_repeat(state),
         lobby::poll(state),
         test_service::poll(state),
@@ -122,6 +124,8 @@ pub(crate) enum WolPage {
     AutoLoginQuery(Box<crate::ui::wol_persona::WolAutoLoginQuery>),
     /// The locale page `0xFE` during the connect.
     Locale(Box<crate::ui::wol_persona::WolLocalePage>),
+    /// My Information `0x114` (welcome mode 6).
+    MyInformation(Box<crate::ui::wol_my_info::WolMyInfoPage>),
 }
 
 /// What follows a WOL message box.
@@ -520,6 +524,10 @@ impl App {
             persona::cursor_moved(state);
             return;
         }
+        if my_info::page_open(state) {
+            my_info::cursor_moved(state);
+            return;
+        }
         if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
             lobby::cursor_moved(state);
             return;
@@ -563,6 +571,10 @@ impl App {
             persona::mouse(state, true);
             return;
         }
+        if my_info::page_open(state) {
+            my_info::mouse(state, true);
+            return;
+        }
         if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
             lobby::mouse(state, true);
             return;
@@ -603,6 +615,10 @@ impl App {
             persona::mouse(state, false);
             return;
         }
+        if my_info::page_open(state) {
+            my_info::mouse(state, false);
+            return;
+        }
         if Self::wol_page_is_lobby(state) && Self::wol_box_feed(state).is_none() {
             lobby::mouse(state, false);
             return;
@@ -632,9 +648,9 @@ impl App {
                     .wol
                     .as_ref()
                     .is_some_and(|visit| visit.provider != WolProvider::Unavailable);
-                if controlled && mode != WolMode::CustomMatch {
-                    // Quick Match, Quick Co-op, Buddy List and My Information
-                    // behind a working WOLAPI are later chains.
+                if controlled && !matches!(mode, WolMode::CustomMatch | WolMode::MyInformation) {
+                    // Quick Match, Quick Co-op and Buddy List behind a
+                    // working WOLAPI are later chains.
                     log::warn!(
                         "WOL mode {} with a controlled service is not implemented; \
                          0x10E stays",
@@ -676,7 +692,13 @@ impl App {
         visit.mode = Some(mode);
         visit.status_help = None;
         visit.page = WolPage::Backdrop { wait: None };
-        service::begin_flow(state);
+        // Mode 6 needs no login (0x0077B3AA): its driver 0x00799D30 only
+        // ensures the WOLAPI object and waits for the server list.
+        if mode == WolMode::MyInformation {
+            service::begin_my_information(state);
+        } else {
+            service::begin_flow(state);
+        }
     }
 
     /// The login flow returned 0 (Back, or a failed connect after its box):
@@ -718,6 +740,7 @@ impl App {
         state.frontend.wol_options_art = None;
         state.frontend.wol_sound_options_art = None;
         state.frontend.wol_auto_login_art = None;
+        state.frontend.wol_my_info_art = None;
         state.frontend.shell_route = ShellRoute::MainMenu;
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);

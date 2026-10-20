@@ -742,13 +742,11 @@ pub enum SimSoundEvent {
         owner: InternedId,
         sw_type: InternedId,
     },
-    /// `HouseClass::MPlayer_Defeated @ 0x004FC0B0`, non-local branch
-    /// (`0x004FC30C..0x004FC3BC`): a house whose type is not
-    /// `MultiplayPassive` (`0x004FC30F`) was defeated. Native also skips the
-    /// line for the observer house (`0x004FC343 CMP ESI,[0xAC1198]`), which
-    /// VERA does not model. App plays `EVA_PlayerDefeated` when `house` is
-    /// not the local player (the local defeat is `EVA_YouHaveLost` via
-    /// [`SimSoundEvent::MatchOutcome`]).
+    /// `HouseClass::MPlayer_Defeated @ 0x004FC0B0` defeated a non-observer
+    /// House (`0x004FC26F` local, `0x004FC34D` remote; a remote
+    /// `MultiplayPassive` House never gets here, `0x004FC317`). The app posts
+    /// `TXT_PLAYER_DEFEATED` with the House's UI name and plays
+    /// `EVA_YouHaveLost` for the local House, `EVA_PlayerDefeated` otherwise.
     PlayerDefeated { house: InternedId },
     /// A superweapon fired. `sw_type` is the interned `[SuperWeaponTypes]`
     /// section name of the launched weapon — the discriminator the app layer

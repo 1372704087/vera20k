@@ -83,6 +83,9 @@ pub enum LanTarget {
     GuestGo,
     TransferGo,
     HostAbortReturn,
+    /// Tab opens Diplomacy over a two-human LAN match: each row shows its
+    /// own House's UI name.
+    HostDiplomacy,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -142,6 +145,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-guest-loading-first", LanTarget::GuestGo),
     ("lan-transfer-loading-first", LanTarget::TransferGo),
     ("lan-host-abort-return", LanTarget::HostAbortReturn),
+    ("lan-host-diplomacy", LanTarget::HostDiplomacy),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -2099,20 +2103,15 @@ impl LanCapture {
                             &launch.humans[peer].name,
                         )],
                     );
-                    let actual = state
-                        .match_state
-                        .match_presentation
-                        .message_list
-                        .messages()
-                        .iter()
-                        .map(|message| message.text.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                    let squash = |text: &str| text.split_whitespace().collect::<String>();
                     ensure!(
-                        actual
-                            .split_whitespace()
-                            .collect::<String>()
-                            .contains(&text.split_whitespace().collect::<String>()),
+                        state
+                            .match_state
+                            .match_presentation
+                            .message_list
+                            .messages()
+                            .iter()
+                            .any(|message| squash(&message.text) == squash(&text)),
                         "production connection-lost message missing"
                     );
                     self.route.push(json!({"frame":frame,"action":"native peer wait expired and runtime installed",
@@ -2135,6 +2134,29 @@ impl LanCapture {
                 self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session().tick(),
                     "current_house":sim.session().current_house().map(|id|sim.interner().resolve(id)),
                     "map":sim.session().map_name(),"host":state.match_state.session.host()}));
+                if self.target == LanTarget::HostDiplomacy {
+                    super::super::skirmish::press_diplomacy_tab(state)?;
+                    let view = crate::app::input::diplomacy::view(state);
+                    let names: Vec<String> = view
+                        .rows
+                        .iter()
+                        .flatten()
+                        .map(|row| row.name.clone())
+                        .collect();
+                    let expected = ["host_name", "peer_name"]
+                        .map(|key| self.inputs[key].as_str().unwrap_or_default().to_string());
+                    ensure!(
+                        expected
+                            .iter()
+                            .all(|name| names.iter().filter(|row| *row == name).count() == 1),
+                        "Diplomacy rows {names:?} do not name each human by its own handle {expected:?}"
+                    );
+                    self.route.push(
+                        json!({"frame":frame,"action":"Tab","dialog":0x73,"row_names":names}),
+                    );
+                    self.phase = LanPhase::Settle(2);
+                    return Ok(());
+                }
                 let choice = match self.target {
                     LanTarget::HostObserve => Some(crate::ui::shell::abort::AbortButton::Secondary),
                     LanTarget::HostObserveOffered => None,
@@ -2188,9 +2210,33 @@ impl LanCapture {
                         matches!(command.payload, crate::sim::command::Command::Destruct)
                     });
                     ensure!(!destructs_pending, "defeat preceded the DESTRUCT execution");
+                    // MPlayer_Defeated's local line (4FC271..4FC2DB) names the
+                    // House by its own +0x1602A, the host's handle.
+                    let template =
+                        App::csf_label(state, "TXT_PLAYER_DEFEATED", "TXT_PLAYER_DEFEATED");
+                    let line = crate::assets::csf_file::format_csf(
+                        &template,
+                        &[crate::assets::csf_file::CsfArg::Str(
+                            self.inputs["host_name"].as_str().unwrap_or_default(),
+                        )],
+                    );
+                    let rows: Vec<String> = state
+                        .match_state
+                        .match_presentation
+                        .message_list
+                        .messages()
+                        .iter()
+                        .map(|message| message.text.clone())
+                        .collect();
+                    let squash = |text: &str| text.split_whitespace().collect::<String>();
+                    ensure!(
+                        rows.iter().any(|row| squash(row) == squash(&line)),
+                        "the local defeat line {line:?} is missing from {rows:?}"
+                    );
                     self.route.push(
                         json!({"frame":frame,"action":"local House defeated after DESTRUCT",
-                        "tick":tick,"latch":state.match_state.match_presentation.modal_latch}),
+                        "tick":tick,"latch":state.match_state.match_presentation.modal_latch,
+                        "message_rows":rows}),
                     );
                     self.abort_input = Some(abort_return::AbortReturnInput::begin_choosing(
                         state,
@@ -2275,6 +2321,7 @@ impl LanCapture {
         matches!(
             self.target,
             LanTarget::HostAbortReturn
+                | LanTarget::HostDiplomacy
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn

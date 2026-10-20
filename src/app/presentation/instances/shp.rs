@@ -1417,7 +1417,7 @@ pub(crate) fn build_building_anim_instances(
         // Preserve the existing slot material selector. The parent's
         // lifecycle/viewport/body visibility is not this Anim's admission;
         // its own retained Display member and hidden byte decide that.
-        let material = DrawState::for_entity(
+        let material = DrawState::for_building_slot_anims(
             building,
             sim.session().binary_frame(),
             super::units::house_color_to_remap_row(house_color),

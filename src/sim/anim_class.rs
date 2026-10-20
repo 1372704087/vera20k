@@ -230,9 +230,9 @@ fn translucency_flag(level: i32) -> u32 {
 /// `AnimClass__DrawIt` @ 0x00423061: preserve native 25/50/75 flag values.
 pub fn anim_translucency_selection(input: AnimTranslucencyInput) -> AnimTranslucencyResult {
     let mut flags = input.base_flags;
+    // `0x00423061..0x0042307A` ORs the `+0x119` bits and falls through.
     if input.forced_translucent {
         flags |= if input.double_thick { 6 } else { 4 };
-        return AnimTranslucencyResult { draw: true, flags };
     }
     if input.translucency_detail_level > input.game_detail_level {
         return AnimTranslucencyResult { draw: true, flags };
@@ -3669,26 +3669,30 @@ mod long_tail_contract_tests {
 
     /// `0x0042319A..0x004231BC`: only an exact `Translucency=` 25, 50 or 75
     /// selects a stage; any other value draws without one.
-    /// `0x0042306B`: the `+0x119` arm draws a `DoubleThick=` type at 75%,
-    /// any other at 50%, whatever else the type sets.
+    /// `0x0042306B`: the `+0x119` arm ORs 75% for a `DoubleThick=` type,
+    /// else 50%, and falls through to the type's own arms (`0x0042307D`).
     #[test]
-    fn forced_translucency_reads_the_types_double_thick() {
-        for (double_thick, flags) in [(false, 4), (true, 6)] {
-            assert_eq!(
-                anim_translucency_selection(AnimTranslucencyInput {
-                    base_flags: 0,
-                    forced_translucent: true,
-                    double_thick,
-                    translucency_detail_level: 3,
-                    game_detail_level: 2,
-                    translucent_ramp: true,
-                    current_frame: 0,
-                    end_frame: 10,
-                    explicit_translucency: 25,
-                    instance_ramp: 15,
-                }),
-                AnimTranslucencyResult { draw: true, flags }
-            );
+    fn forced_translucency_reads_double_thick_and_falls_through() {
+        let input = |double_thick, explicit_translucency, instance_ramp| AnimTranslucencyInput {
+            base_flags: 0,
+            forced_translucent: true,
+            double_thick,
+            translucency_detail_level: 0,
+            game_detail_level: 2,
+            translucent_ramp: false,
+            current_frame: 0,
+            end_frame: 10,
+            explicit_translucency,
+            instance_ramp,
+        };
+        for (double_thick, explicit, ramp, expected) in [
+            (false, 0, 0, (true, 4)),
+            (true, 0, 0, (true, 6)),
+            (false, 25, 0, (true, 6)),
+            (false, 0, 16, (false, 4)),
+        ] {
+            let result = anim_translucency_selection(input(double_thick, explicit, ramp));
+            assert_eq!((result.draw, result.flags), expected);
         }
     }
 

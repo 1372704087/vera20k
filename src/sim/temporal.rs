@@ -73,10 +73,9 @@
 //!   its Chronosphere warp-out (60 frames). Effect: VERA keeps the object
 //!   frozen until the chain lets go; native thaws it once its warp-in ends,
 //!   or when the chain lets go before the warp.
-//! - `Mark(2)` at warp start and release (vtable `+0x124`) and the building's
-//!   animation-slot translucency/fades (`0x004521C0`/`0x00452210`, Anim+119,
-//!   distinct from the power pause at+19E) are presentation; their independent online latch is
-//!   [`GameEntity::building_online`].
+//! - `Mark(2)` at warp start and release (vtable `+0x124`) is presentation.
+//!   A building's online latch and slot-anim freeze (`0x004521C0`/`0x00452210`)
+//!   are `ObjectSubstrate::set_building_online_for_temporal`.
 //! - House `+0x1FC`, set at a building's warp start (`0x0071B13A`), release
 //!   (`0x0071AC49`, `0x0071AD17`) and erase (`0x0071AA60`), asks the House
 //!   update for the Super passes (`0x004F92F6`, `0x004F92FD`). VERA tests a

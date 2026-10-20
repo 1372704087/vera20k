@@ -10,7 +10,7 @@ use crate::sim::world::Simulation;
 use std::collections::HashMap;
 
 /// `LoadVisualAssets 0x0045F230` reads the four names from each retail war
-/// factory's art section; a building without them reads none.
+/// factory's art section; no other retail type has any.
 #[test]
 fn retail_war_factories_read_their_unload_art() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -43,7 +43,18 @@ fn retail_war_factories_read_their_unload_art() {
             "{building}"
         );
     }
-    assert_eq!(door("GAPOWR"), Default::default());
+    let mut with_door: Vec<&str> = rules
+        .all_objects()
+        .filter(|object| {
+            rules
+                .art()
+                .resolve_metadata_entry(&object.id, &object.image)
+                .is_some_and(|art| art.factory_door != Default::default())
+        })
+        .map(|object| object.id.as_str())
+        .collect();
+    with_door.sort_unstable();
+    assert_eq!(with_door, ["GAWEAP", "NAWEAP", "YAWEAP"]);
 }
 
 /// A retail Allied war factory with `product` (placed clear of its

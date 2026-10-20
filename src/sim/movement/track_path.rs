@@ -755,7 +755,9 @@ impl Simulation {
             EntityCategory::Aircraft => {
                 self.foot_null_destination(id, rules, registry, frame_effects)
             }
-            EntityCategory::Structure => self.set_building_destination(id, None, rules),
+            EntityCategory::Structure => {
+                Self::set_building_destination(&self.interner, &mut self.substrate, id, None, rules)
+            }
         }
     }
 

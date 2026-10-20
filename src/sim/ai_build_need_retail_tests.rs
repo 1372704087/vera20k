@@ -169,7 +169,7 @@ fn stock_soviet_miner_loss_admits_recovery_and_returns_to_income() {
                 })
                 .expect("the earlier retained choice reached an actual Factory");
                 assert!(
-                    available_money(sim, owner) < owed,
+                    available_money(&sim.houses, owner) < owed,
                     "genuine poor held-production prior"
                 );
                 let held_candidates: Vec<_> = sim

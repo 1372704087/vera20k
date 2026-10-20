@@ -315,11 +315,19 @@ impl Simulation {
                     .expect("native FNPC Cell coordinates");
                 cell = (center.x / 256, center.y / 256);
                 landing = if !unit && !aircraft {
-                    self.place_infantry_spot_in_cell(rules, identity, center)
-                        .unwrap_or_else(|error| {
-                            log::warn!("Chrono reinforcement subcell: {error}");
-                            None
-                        })
+                    Self::place_infantry_spot_in_cell(
+                        &self.interner,
+                        &mut self.scenario_rng,
+                        &self.substrate,
+                        &self.resolved_terrain,
+                        rules,
+                        identity,
+                        center,
+                    )
+                    .unwrap_or_else(|error| {
+                        log::warn!("Chrono reinforcement subcell: {error}");
+                        None
+                    })
                 } else {
                     Some(center)
                 };

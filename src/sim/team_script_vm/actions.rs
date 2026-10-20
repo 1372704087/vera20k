@@ -68,6 +68,7 @@ use super::super_actions::ChronoshiftTarget;
 use super::team_ai::member_is_live_joined;
 use super::{TeamScriptAction, TeamScriptRefusal, TeamScriptState, TeamTarget, script_action_at};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
+use crate::sim::intern::StringInterner;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::team_script_vm::TeamScriptVm;
 use crate::sim::world::ObjectSubstrate;
@@ -584,7 +585,13 @@ impl Simulation {
                     team.advance_pending = true;
                 }
             }
-            43 => self.team_action_wait_until_loaded(team_id, rules),
+            43 => Self::team_action_wait_until_loaded(
+                &self.interner,
+                &self.substrate,
+                &mut self.team_script_vm,
+                team_id,
+                rules,
+            ),
             46 => self.team_action_attack_enemy_building(
                 team_id,
                 action.argument,
@@ -1155,20 +1162,27 @@ impl Simulation {
     /// member (`0x006E953E`); it reads no other member state. The two retail
     /// Ivan teams (an HTK and three Crazy Ivans) never fill its five seats,
     /// so they wait here for good.
-    fn team_action_wait_until_loaded(&mut self, team_id: u64, rules: &RuleSet) {
-        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+    fn team_action_wait_until_loaded(
+        interner: &StringInterner,
+        substrate: &ObjectSubstrate,
+        team_script_vm: &mut TeamScriptVm,
+        team_id: u64,
+        rules: &RuleSet,
+    ) {
+        let Some(team) = team_script_vm.teams.get(&team_id) else {
             return;
         };
         let loading = team.members().any(|member| {
-            self.substrate.entities.get(member).is_some_and(|entity| {
-                self.object_type(entity.type_ref(), rules)
+            substrate.entities.get(member).is_some_and(|entity| {
+                interner
+                    .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| {
                         i64::from(object.passengers)
                             > i64::from(entity.passenger_role.passenger_count())
                     })
             })
         });
-        if !loading && let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+        if !loading && let Some(team) = team_script_vm.teams.get_mut(&team_id) {
             team.advance_pending = true;
         }
     }

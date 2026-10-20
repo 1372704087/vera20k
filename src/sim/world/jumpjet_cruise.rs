@@ -535,8 +535,15 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.mark(false);
         self.set_location(coord);
         self.mark(true);
-        self.sim
-            .submit_entity_display(self.stable_id, self.rules, None);
+        Simulation::submit_entity_display(
+            &self.sim.interner,
+            &self.sim.terrain_objects,
+            &mut self.sim.substrate,
+            &self.sim.resolved_terrain,
+            self.stable_id,
+            self.rules,
+            None,
+        );
     }
     fn mark(&mut self, put: bool) {
         if put {

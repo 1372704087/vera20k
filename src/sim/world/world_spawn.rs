@@ -675,7 +675,7 @@ impl Simulation {
             // Only BuildingReadINI44F8CB..44F8DB compares the current House
             // in nonzero modes, before resolving Type or entering its ctor.
             // Native controls: input_oracle/campaign_house_names.
-            let owner = self.scenario_house_named(&map_ent.owner)?;
+            let owner = Self::scenario_house_named(&self.houses, &map_ent.owner)?;
             if map_ent.category == EntityCategory::Structure
                 && self.session.game_mode_nonzero()
                 && self.session.current_house() == Some(owner)
@@ -770,8 +770,7 @@ impl Simulation {
                 crate::sim::movement::infantry_entry::InfantryEntryArgs::REPAIR,
             );
         }
-        let host = self
-            .map_coord_cell(x, y)
+        let host = Self::map_coord_cell(&self.resolved_terrain, x, y)
             .and_then(|cell| self.building_upgrade_host_at(cell, game_active));
         let installed = host.is_some_and(|host| {
             self.try_install_building_upgrade(
@@ -1132,7 +1131,13 @@ impl Simulation {
 
         let stable_id = Self::create_limbo(&mut self.substrate, &mut self.houses, ge);
         self.commit_constructor_owned_techno_children(stable_id, rules, frame_effects);
-        self.register_house_base_building(stable_id, rules);
+        Self::register_house_base_building(
+            &self.interner,
+            &self.substrate,
+            &mut self.houses,
+            stable_id,
+            rules,
+        );
         Ok(Some(stable_id))
     }
 
@@ -1453,7 +1458,13 @@ impl Simulation {
             // Infantry51E114 restores its class water sentinel after Foot.
             entity.mission_leaf.reset_infantry_water_state();
         }
-        self.allocate_building_light(stable_id, rules);
+        Self::allocate_building_light(
+            &self.interner,
+            &self.substrate,
+            &mut self.lighting_sources,
+            stable_id,
+            rules,
+        );
         Self::initialize_cloak_after_unlimbo(
             &self.interner,
             &self.session,
@@ -1979,7 +1990,13 @@ impl Simulation {
         let stable_id = Self::store_spawned_limbo(&mut self.substrate, &mut self.houses, ge);
         if let Some(rules) = rules {
             self.commit_constructor_owned_techno_children(stable_id, rules, frame_effects);
-            self.register_house_base_building(stable_id, rules);
+            Self::register_house_base_building(
+                &self.interner,
+                &self.substrate,
+                &mut self.houses,
+                stable_id,
+                rules,
+            );
         }
         (stable_id, position)
     }
@@ -2059,7 +2076,13 @@ impl Simulation {
         if matches!(outcome, RevealOutcome::Revealed { .. })
             && let Some(rules) = rules
         {
-            self.allocate_building_light(stable_id, rules);
+            Self::allocate_building_light(
+                &self.interner,
+                &self.substrate,
+                &mut self.lighting_sources,
+                stable_id,
+                rules,
+            );
             if self
                 .substrate
                 .entities
@@ -2249,7 +2272,7 @@ impl Simulation {
     ) {
         crate::sim::spawn_manager::commit_spawn_manager_pool(self, parent_id, rules, frame_effects);
         self.create_slave_manager(parent_id, rules, frame_effects);
-        self.initialize_airstrike(parent_id, rules);
+        Self::initialize_airstrike(&self.interner, &mut self.substrate, parent_id, rules);
     }
 
     /// Unit/Infantry constructor cloak ability plus UnitClass::Unlimbo's

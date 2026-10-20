@@ -219,7 +219,16 @@ fn all03_authored_nuke_order_preserves_current_timer_and_recharges_at_override()
                         int(&row["firing_type"])
                     );
                 }
-                "reset_running" => superweapon::reset_super(&mut sim, &rules, owner, "NukeSpecial"),
+                "reset_running" => superweapon::reset_super(
+                    &sim.interner,
+                    &sim.session,
+                    &mut sim.substrate,
+                    &mut sim.sound_events,
+                    &mut sim.super_weapons,
+                    &rules,
+                    owner,
+                    "NukeSpecial",
+                ),
                 "enemy_selection_prior" => {
                     // Full House enemy selection/cadence is outside the
                     // original control, which supplies the chosen enemy here.

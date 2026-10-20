@@ -237,7 +237,7 @@ impl Simulation {
                     self.substrate.set_anim_owner_house(anim, house);
                     self.substrate.anims.set_anim_house_remap(anim, house);
                 }
-                self.anim_mark_cell_occupancy(anim);
+                Self::anim_mark_cell_occupancy(&mut self.substrate, &self.resolved_terrain, anim);
             }
         }
         Some(anim)

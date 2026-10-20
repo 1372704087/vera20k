@@ -133,7 +133,7 @@ pub(crate) fn techno_refund(sim: &Simulation, rules: &RuleSet, id: u64) -> Optio
         rules,
         object,
         sim.houses.get(&owner)?,
-        &sim.house_cost_factors(owner)?,
+        &Simulation::house_cost_factors(&sim.houses, owner)?,
         sim.session.game_mode_nonzero(),
         false,
     ))

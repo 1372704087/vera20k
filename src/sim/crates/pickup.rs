@@ -455,8 +455,16 @@ pub(crate) fn pickup_crate(
     if powerup <= LAST_DISPATCHED_SLOT {
         let mut arm = powerup;
         if arm == POWERUP_UNIT {
-            let chosen = effects::choose_unit_crate_type(sim, rules, owner, preempted)
-                .map(|object| object.id.clone());
+            let chosen = effects::choose_unit_crate_type(
+                &sim.interner,
+                &sim.session,
+                &mut sim.scenario_rng,
+                &sim.houses,
+                rules,
+                owner,
+                preempted,
+            )
+            .map(|object| object.id.clone());
             let Some(type_id) = chosen else {
                 return spawn_pickup_anim(sim, rules, anim_slot, cell, receiver);
             };
@@ -600,7 +608,14 @@ pub(crate) fn pickup_crate(
                 );
             }
             POWERUP_VETERAN => {
-                effects::apply_veteran_crate(sim, rules, center, radius, magnitude);
+                effects::apply_veteran_crate(
+                    &sim.interner,
+                    &mut sim.substrate,
+                    rules,
+                    center,
+                    radius,
+                    magnitude,
+                );
                 play_crate_sound(
                     &mut sim.sound_events,
                     general.crate_promote_sound.as_deref(),

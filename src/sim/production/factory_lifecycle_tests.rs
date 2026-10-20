@@ -404,7 +404,14 @@ fn record_last_built_matches_native_class_slots_score_gate_and_rng() {
             sim.mapgen_rng =
                 SimRng::from_native_state_hex_for_test(before["mapgen"].as_str().unwrap());
 
-            super::factory_lifecycle::record_last_built(&mut sim, rules, owner, object);
+            super::factory_lifecycle::record_last_built(
+                &sim.interner,
+                &mut sim.sound_events,
+                &mut sim.houses,
+                rules,
+                owner,
+                object,
+            );
 
             for (slot, slot_name) in categories {
                 assert_eq!(
@@ -476,7 +483,14 @@ fn record_last_built_enforces_map_authored_negative_limit() {
         )
         .expect("supplied valid product for the shared Record call");
     let object = super::factory_lifecycle::BuiltObject::capture(&sim, product);
-    super::factory_lifecycle::record_last_built(&mut sim, rules, owner, object);
+    super::factory_lifecycle::record_last_built(
+        &sim.interner,
+        &mut sim.sound_events,
+        &mut sim.houses,
+        rules,
+        owner,
+        object,
+    );
     assert_eq!(sim.houses[&owner].stats().built(), 1);
     assert_eq!(
         super::can_build::can_build(&sim, rules, owner, e2, true, true),
@@ -580,7 +594,14 @@ fn record_last_built_uses_class_fallbacks_type_overrides_and_the_existing_tech_o
         let house = sim.houses.get_mut(&owner).unwrap();
         house.take_tech_recheck();
         assert!(!house.tech_recheck_pending());
-        super::factory_lifecycle::record_last_built(&mut sim, &rules, owner, object);
+        super::factory_lifecycle::record_last_built(
+            &sim.interner,
+            &mut sim.sound_events,
+            &mut sim.houses,
+            &rules,
+            owner,
+            object,
+        );
         let actual = sim
             .sound_events
             .iter()
@@ -795,7 +816,12 @@ fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
         sim.temporal_initiate_warp(attacker, Some(backup), rules, None, FrameEffects::default());
         assert!(!sim.entities().get(backup).unwrap().building_online());
         sim.techno_limbo_with_rules(barracks, rules, None);
-        sim.temporal_let_go(attacker);
+        Simulation::temporal_let_go(
+            &mut sim.substrate,
+            &mut sim.houses,
+            &mut sim.power_states,
+            attacker,
+        );
         assert!(sim.entities().get(backup).unwrap().building_online());
         let held = sim
             .production
@@ -3169,7 +3195,12 @@ fn secret_lab_fallback_capture_paid_queue_snapshot_and_loss_share_the_existing_o
     let lab = sim
         .spawn_object("LAB", "Russians", 30, 20, 0, &rules)
         .unwrap();
-    sim.assign_secret_lab_production(&rules);
+    Simulation::assign_secret_lab_production(
+        &mut sim.interner,
+        &mut sim.scenario_rng,
+        &mut sim.substrate,
+        &rules,
+    );
     let fallback = sim
         .substrate
         .entities

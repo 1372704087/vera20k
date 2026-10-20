@@ -73,6 +73,22 @@ pub(super) fn frame_segments(
     out
 }
 
+/// Original61E700's group window split: the frame starts half the drawn
+/// font cell below the window top, and the caption sits 10px in on that top
+/// line, one authored cell tall. Returns (frame, caption) for
+/// [`push_group_or_plain_frame`] and the caption text.
+pub(super) fn group_box_geometry(
+    group: RectPx,
+    drawn_cell_height: i32,
+    cell_height: i32,
+) -> (RectPx, RectPx) {
+    let top = drawn_cell_height / 2;
+    (
+        RectPx::new(group.x, group.y + top, group.w, group.h - top),
+        RectPx::new(group.x + 10, group.y, group.w - 10, cell_height),
+    )
+}
+
 pub(super) fn push_group_or_plain_frame(
     out: &mut Vec<SpriteInstance>,
     atlas: &SkirmishShellChromeAtlas,

@@ -479,6 +479,23 @@ impl Simulation {
         &self,
         command_owner: crate::sim::intern::InternedId,
     ) -> Option<CommandRecord> {
+        self.encode_header_event(command_owner, crate::sim::command::EXIT_OPCODE)
+    }
+
+    /// EVENT_DESTRUCT's header-only record: `EventClass(index, 8)`
+    /// (`0x004C66C0`) writes only the type, House and frame.
+    pub fn encode_destruct_record(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+    ) -> Option<CommandRecord> {
+        self.encode_header_event(command_owner, crate::sim::command::DESTRUCT_OPCODE)
+    }
+
+    fn encode_header_event(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+        opcode: u8,
+    ) -> Option<CommandRecord> {
         if !self.houses.contains_key(&command_owner) {
             return None;
         }
@@ -488,11 +505,12 @@ impl Simulation {
             .iter()
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
-        ExitRecord {
-            house_id,
-            frame: self.session.binary_frame(),
-        }
-        .encode()
+        CommandRecord::encode(
+            opcode,
+            i32::from(house_id),
+            self.session.binary_frame() as i32,
+            &[],
+        )
         .ok()
     }
 
@@ -626,6 +644,15 @@ impl Simulation {
                 .houses
                 .contains_key(&owner)
                 .then(|| CommandEnvelope::new(owner, execute_tick, Command::ExitMatch));
+        }
+
+        if record.opcode() == crate::sim::command::DESTRUCT_OPCODE {
+            let house_index = usize::try_from(record.house_id()).ok()?;
+            let owner = *self.houses.order().get(house_index)?;
+            return self
+                .houses
+                .contains_key(&owner)
+                .then(|| CommandEnvelope::new(owner, execute_tick, Command::Destruct));
         }
 
         let typed = SellWallAtCellRecord::decode(record)?;
@@ -1429,6 +1456,16 @@ impl Simulation {
                     return false;
                 }
                 self.house_cheer(owner, rules, frame_effects);
+                true
+            }
+            Command::Destruct => {
+                let Some(owner) = self.interner.get(command_owner) else {
+                    return false;
+                };
+                // Type-8 entry 0x004C7BDF: Flag_To_Die on the header House,
+                // with no human or mode test. Destruction waits for the
+                // House rung (Update 0x004F87C2).
+                self.flag_house_to_die(owner);
                 true
             }
             Command::ExitMatch => {

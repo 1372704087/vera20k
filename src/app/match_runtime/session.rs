@@ -129,7 +129,14 @@ enum NetworkPhase {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum NetworkLoadingRequest {
     ReportProgress(i32),
-    Disconnect { source_index: usize, reason: i32 },
+    Disconnect {
+        source_index: usize,
+        reason: i32,
+    },
+    /// The kick proposal packet `0x1C` (0x0064AAE0) to every other node.
+    ProposeKick {
+        target_source: usize,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1385,7 +1392,45 @@ impl MatchSession {
         }
     }
 
-    pub(crate) fn disconnect_network_loading_participant(&mut self, source_index: usize) -> bool {
+    /// 0x0064AAE0's kick proposal for participant `target_source`, sent to
+    /// every other connected node.
+    pub(crate) fn request_kick_proposal(&mut self, target_source: usize) {
+        if let Some(network) = self.network.as_mut()
+            && matches!(network.phase, NetworkPhase::Frozen { .. })
+        {
+            network
+                .loading_requests
+                .push(NetworkLoadingRequest::ProposeKick { target_source });
+        }
+    }
+
+    /// The frozen launch's owner key of network participant `source_index`.
+    pub(crate) fn network_source_owner(&self, source_index: usize) -> Option<String> {
+        let launch = self.network_setup()?;
+        crate::sim::scenario_bootstrap::normalized_launch_slots(launch)
+            .into_iter()
+            .find(|slot| slot.source_human_index == Some(source_index))
+            .map(|slot| slot.owner_name)
+    }
+
+    /// The network participant whose House has owner key `owner`.
+    pub(crate) fn network_owner_source(&self, owner: &str) -> Option<usize> {
+        let launch = self.network_setup()?;
+        crate::sim::scenario_bootstrap::normalized_launch_slots(launch)
+            .into_iter()
+            .find(|slot| slot.owner_name == owner)
+            .and_then(|slot| slot.source_human_index)
+    }
+
+    /// `IPXManager::Delete_Connection 0x00540F00` and the node removal of
+    /// DestroyConnection (`0x005DAA8A`, `--[0xA8B54C]`): the participant
+    /// leaves the live membership and the transport is asked to drop it.
+    /// False when it is the local player or no longer connected.
+    pub(crate) fn disconnect_network_participant(
+        &mut self,
+        source_index: usize,
+        reason: i32,
+    ) -> bool {
         let Some(network) = self.network.as_mut() else {
             return false;
         };
@@ -1403,7 +1448,7 @@ impl MatchSession {
             .loading_requests
             .push(NetworkLoadingRequest::Disconnect {
                 source_index,
-                reason: 1,
+                reason,
             });
         true
     }
@@ -1585,12 +1630,12 @@ mod tests {
             assert_eq!(session.network_connected_source_indices(), &[0, 1]);
             session.report_network_loading_progress(100);
             assert!(
-                !session.disconnect_network_loading_participant(1),
+                !session.disconnect_network_participant(1, 1),
                 "local cannot time out itself"
             );
-            assert!(session.disconnect_network_loading_participant(0));
+            assert!(session.disconnect_network_participant(0, 1));
             assert!(
-                !session.disconnect_network_loading_participant(0),
+                !session.disconnect_network_participant(0, 1),
                 "disconnect is one-shot"
             );
             assert_eq!(session.network_connected_source_indices(), &[1]);

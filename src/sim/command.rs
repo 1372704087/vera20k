@@ -29,6 +29,10 @@ pub const EXIT_OPCODE: u8 = 0x13;
 /// (`0x004C7BDF`) calls `HouseClass::Flag_To_Die 0x004FC980` on the header
 /// House, ungated.
 pub const DESTRUCT_OPCODE: u8 = 0x08;
+/// EVENT_REMOVEPLAYER: `EventClass(house, 0x23, index)` (`0x004C6720`)
+/// carries the removed House's index as its dword payload. DestroyConnection
+/// queues it for a lost connection mid-match (`0x005DA898`).
+pub const REMOVE_PLAYER_OPCODE: u8 = 0x23;
 /// House-wide Cheer, issued by AllToCheer730F30.
 pub const CHEER_OPCODE: u8 = 0x2d;
 /// Native `EventClass` opcode for a MegaMission order envelope.
@@ -811,6 +815,10 @@ pub enum Command {
     /// Observe results 3/4 (`0x0048CA34`, `0x0048CAB2`) queue it for the
     /// local House. Appended to preserve existing serialized variant indices.
     Destruct,
+    /// EVENT_REMOVEPLAYER for the House at registration index `house_index`
+    /// (`EventClass::Execute 0x004C7B73`): Flag_To_Die when it is human.
+    /// Appended to preserve existing serialized variant indices.
+    RemovePlayer { house_index: i32 },
 }
 
 impl Command {

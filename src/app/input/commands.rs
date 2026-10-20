@@ -859,7 +859,7 @@ fn pick_building_for_owner(
     None
 }
 
-pub(super) fn schedule_command_in_sim(
+pub(crate) fn schedule_command_in_sim(
     sim: &mut crate::sim::world::Simulation,
     owner: &str,
     payload: Command,
@@ -870,7 +870,10 @@ pub(super) fn schedule_command_in_sim(
     if sim.session().input_locked()
         && !matches!(
             &payload,
-            Command::SetGameSpeed { .. } | Command::ExitMatch | Command::Destruct
+            Command::SetGameSpeed { .. }
+                | Command::ExitMatch
+                | Command::Destruct
+                | Command::RemovePlayer { .. }
         )
     {
         return None;
@@ -911,6 +914,10 @@ pub(super) fn schedule_command_in_sim(
         }
         Command::Destruct => {
             let record = sim.encode_destruct_record(owner_id)?;
+            SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
+        }
+        Command::RemovePlayer { house_index } => {
+            let record = sim.encode_remove_player_record(owner_id, house_index)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
         }
         Command::SellWallAtCell { x, y } => {
@@ -1072,6 +1079,7 @@ mod tests {
     };
 
     use crate::map::entities::EntityCategory;
+    use crate::sim::intern::InternedId;
     use crate::rules::ini_parser::IniFile;
     use crate::sim::combat::{Health, TargetKind};
     use crate::sim::command::{Command, CommandEnvelope};
@@ -1200,6 +1208,87 @@ mod tests {
             None
         );
         assert_eq!(sim.interner().len(), interned_before_unknown);
+    }
+
+    fn two_human_sim() -> (Simulation, InternedId, InternedId) {
+        let mut sim = Simulation::new();
+        let local = sim.intern("Local");
+        let peer = sim.intern("Peer");
+        sim.houses_mut_for_test()
+            .register(HouseState::new(local, 0, None, true, 0, 10));
+        sim.houses_mut_for_test()
+            .register(HouseState::new(peer, 0, None, true, 0, 10));
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(local));
+        sim.session_mut_for_test().set_tick_for_test(41);
+        sim.session_mut_for_test().set_binary_frame_for_test(73);
+        (sim, local, peer)
+    }
+
+    fn run_due(sim: &mut Simulation) -> bool {
+        let due = sim.take_due_commands();
+        sim.advance_tick(&due, None, None, None, 33).frame_committed
+    }
+
+    #[test]
+    fn a_remote_exit_marks_the_house_without_quitting_or_killing_it() {
+        // Execute_DoList 0x0064C7E7 marks House+0x248 for every sender; only
+        // the local one reaches Execute's quit byte (0x004C7917).
+        let (mut sim, local, peer) = two_human_sim();
+        schedule_command_in_sim(&mut sim, "Peer", Command::ExitMatch).unwrap();
+        assert!(run_due(&mut sim), "a remote EXIT does not end the frame");
+        assert!(!sim.quit_requested());
+        assert_eq!(sim.take_executed_exit_owner(), None);
+        assert_eq!(sim.take_departed_owners(), [peer]);
+        assert!(sim.houses()[&peer].left_game());
+        // 0x005E2BA0: the local human is undefeated, so no Flag_To_Die.
+        assert!(!sim.houses()[&peer].is_to_die());
+        assert!(!sim.houses()[&local].left_game());
+
+        // The local EXIT still quits.
+        schedule_command_in_sim(&mut sim, "Local", Command::ExitMatch).unwrap();
+        assert!(!run_due(&mut sim));
+        assert!(sim.quit_requested());
+        assert_eq!(sim.take_executed_exit_owner(), Some(local));
+        assert!(sim.take_departed_owners().is_empty());
+    }
+
+    #[test]
+    fn an_exit_with_no_other_undefeated_human_flags_the_sender_to_die() {
+        let (mut sim, local, peer) = two_human_sim();
+        sim.houses_mut_for_test()
+            .get_mut(&local)
+            .unwrap()
+            .set_is_defeated_for_test(true);
+        schedule_command_in_sim(&mut sim, "Peer", Command::ExitMatch).unwrap();
+        run_due(&mut sim);
+        assert!(sim.houses()[&peer].is_to_die());
+    }
+
+    #[test]
+    fn remove_player_flags_only_a_human_house_to_die() {
+        // EventClass::Execute 0x004C7B73: IsHumanControlled, then
+        // Flag_To_Die; the payload is the House's registration index.
+        let (mut sim, _, peer) = two_human_sim();
+        let ai = sim.intern("Ai");
+        sim.houses_mut_for_test()
+            .register(HouseState::new(ai, 0, None, false, 0, 10));
+        for index in [1, 2] {
+            schedule_command_in_sim(
+                &mut sim,
+                "Local",
+                Command::RemovePlayer { house_index: index },
+            )
+            .unwrap();
+        }
+        let record = sim
+            .encode_remove_player_record(sim.interner().get("Local").unwrap(), 1)
+            .unwrap();
+        assert_eq!(record.opcode(), crate::sim::command::REMOVE_PLAYER_OPCODE);
+        assert_eq!(&record.payload()[..4], &1i32.to_le_bytes());
+        run_due(&mut sim);
+        assert!(sim.houses()[&peer].is_to_die());
+        assert!(!sim.houses()[&ai].is_to_die());
     }
 
     #[test]

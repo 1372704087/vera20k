@@ -6,6 +6,8 @@
 //! through SHELL.PAL as a presentation preference.
 //! User-requested YR parity exception: preserve this RA2 background during
 //! future parity work unless the user explicitly asks to change it.
+//! Nothing in this atlas follows the YR Loading & Menu Movie option; that
+//! option switches only the startup splash and the menu movie.
 
 use std::collections::HashMap;
 

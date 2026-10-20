@@ -544,7 +544,7 @@ fn distributed_scan_preserves_retained_bucket_order_across_reentry_and_movement(
         [TargetKind::Entity(a), TargetKind::Entity(b)]
     );
     scene.sim.substrate.aircraft_tracker_remove(a);
-    scene.sim.aircraft_tracker_add(a);
+    Simulation::aircraft_tracker_add(&scene.sim.session, &mut scene.sim.substrate, a);
     assert_eq!(
         scan(&mut scene),
         [TargetKind::Entity(b), TargetKind::Entity(a)]
@@ -573,7 +573,12 @@ fn distributed_scan_preserves_retained_bucket_order_across_reentry_and_movement(
         scan(&mut scene),
         [TargetKind::Entity(b), TargetKind::Entity(a)]
     );
-    scene.sim.aircraft_tracker_update_cell(a, (26, 24));
+    Simulation::aircraft_tracker_update_cell(
+        &scene.sim.session,
+        &mut scene.sim.substrate,
+        a,
+        (26, 24),
+    );
     let actor = scene.sim.substrate.entities.get(a).unwrap();
     assert_eq!(actor.air_tracker_cell(), (26, 24));
     assert_ne!(

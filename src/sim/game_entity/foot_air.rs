@@ -8,6 +8,8 @@
 use super::GameEntity;
 use crate::map::entities::EntityCategory;
 use crate::sim::occupancy::air_spatial_bucket_index;
+use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 
 const NATIVE_NULL_CELL: (i16, i16) = (0, 0);
@@ -98,8 +100,12 @@ impl Simulation {
     /// AircraftTracker::Add4134A0 appends the current Cell's bucket and invokes
     /// Foot's virtual+2F8 callback41C160 at4134CA, retaining that Cell in+560.
     /// BeginTakeoff4CF9B9 and Jumpjet State0 call this for an untracked Foot.
-    pub(crate) fn aircraft_tracker_add(&mut self, id: u64) {
-        let Some(entity) = self.substrate.entities.get(id) else {
+    pub(crate) fn aircraft_tracker_add(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        id: u64,
+    ) {
+        let Some(entity) = substrate.entities.get(id) else {
             return;
         };
         if entity.foot_air.air_spatial_bucket.is_some() {
@@ -109,11 +115,11 @@ impl Simulation {
         let bucket = air_spatial_bucket_index(
             entity.position.rx(),
             entity.position.ry(),
-            self.session.map_width(),
-            self.session.map_height(),
+            session.map_width(),
+            session.map_height(),
         );
-        let order = self.substrate.next_air_tracker_order.next();
-        let entities = &mut self.substrate.entities;
+        let order = substrate.next_air_tracker_order.next();
+        let entities = &mut substrate.entities;
         entities.get_mut(id).unwrap().retain_air_tracker_cell(cell);
         entities.set_air_membership(id, Some(bucket), order);
     }
@@ -121,22 +127,27 @@ impl Simulation {
     /// AircraftTracker::Update4138C0 invokes41C160 at4138DA before its bucket
     /// comparison41399A. A within-bucket Cell crossing changes+560 while
     /// retaining the vector order; a bucket crossing appends at the new tail.
-    pub(crate) fn aircraft_tracker_update_cell(&mut self, id: u64, new_cell: (i16, i16)) {
-        let Some(entity) = self.substrate.entities.get_mut(id) else {
+    pub(crate) fn aircraft_tracker_update_cell(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        id: u64,
+        new_cell: (i16, i16),
+    ) {
+        let Some(entity) = substrate.entities.get_mut(id) else {
             return;
         };
         entity.retain_air_tracker_cell(new_cell);
         let bucket = air_spatial_bucket_index(
             new_cell.0 as u16,
             new_cell.1 as u16,
-            self.session.map_width(),
-            self.session.map_height(),
+            session.map_width(),
+            session.map_height(),
         );
         if entity.foot_air.air_spatial_bucket == Some(bucket) {
             return;
         }
-        let order = self.substrate.next_air_tracker_order.next();
-        self.substrate
+        let order = substrate.next_air_tracker_order.next();
+        substrate
             .entities
             .set_air_membership(id, Some(bucket), order);
     }
@@ -236,7 +247,7 @@ mod tests {
         }
         // The native fixture starts with the foreign Foot already tracked and
         // holding Cell12,10; both independent caches are retained at12,10.
-        sim.aircraft_tracker_add(2);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 2);
         assert!(sim.substrate.set_cell_air_slot((12, 10), Some(2)));
         sim
     }
@@ -248,7 +259,7 @@ mod tests {
     #[test]
     fn native_tracker_crossings_preserve_or_append_vector_order() {
         let mut sim = native_control_world();
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         let actor_order = sim
             .substrate
             .entities
@@ -270,17 +281,17 @@ mod tests {
             Some(106)
         );
 
-        sim.aircraft_tracker_update_cell(1, (11, 10));
+        Simulation::aircraft_tracker_update_cell(&sim.session, &mut sim.substrate, 1, (11, 10));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(actor.air_tracker_cell(), (11, 10));
         assert_eq!(actor.air_spatial_enter_order(), actor_order);
-        sim.aircraft_tracker_update_cell(1, (12, 10));
+        Simulation::aircraft_tracker_update_cell(&sim.session, &mut sim.substrate, 1, (12, 10));
         let actor = sim.substrate.entities.get(1).unwrap();
         assert_eq!(actor.air_spatial_bucket(), Some(106));
         assert!(actor.air_spatial_enter_order() > foreign_order);
         let crossed_order = actor.air_spatial_enter_order();
         for cell in [(13, 10), (13, 11)] {
-            sim.aircraft_tracker_update_cell(1, cell);
+            Simulation::aircraft_tracker_update_cell(&sim.session, &mut sim.substrate, 1, cell);
             let actor = sim.substrate.entities.get(1).unwrap();
             assert_eq!(actor.air_tracker_cell(), cell);
             assert_eq!(actor.air_spatial_enter_order(), crossed_order);
@@ -301,7 +312,7 @@ mod tests {
     #[test]
     fn native_slot_claim_refusal_replacement_same_owner_and_release() {
         let mut sim = native_control_world();
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         assert!(!sim.substrate.set_cell_air_slot((12, 10), Some(1)));
         assert_eq!(sim.substrate.air_slots.holder(12, 10), Some(2));
         assert_eq!(
@@ -381,7 +392,7 @@ mod tests {
         };
 
         let mut sim = native_control_world();
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         assert!(sim.substrate.set_cell_air_slot((10, 10), Some(1)));
         sim.uninit(1);
         let retired = after("unit_uninit");

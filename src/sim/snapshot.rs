@@ -6896,7 +6896,7 @@ mod tests {
         );
         sim.substrate.entities.insert(entity);
         sim.add_entity_occupancy(id);
-        sim.aircraft_tracker_add(id);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, id);
         assert!(sim.substrate.set_cell_air_slot((10, 10), Some(id)));
         assert!(sim.substrate.set_cell_air_slot((11, 10), Some(id)));
         let retained = sim.substrate.entities.get(id).unwrap().clone();
@@ -7008,7 +7008,7 @@ mod tests {
             sim.substrate.entities.insert(entity);
             sim.add_entity_occupancy(id);
         }
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         assert!(sim.substrate.set_cell_air_slot((10, 10), Some(1)));
         assert!(sim.substrate.set_cell_air_slot((12, 10), Some(2)));
         let foreign_cache = sim.substrate.entities.get(2).unwrap().air_slot_cell();
@@ -9519,7 +9519,7 @@ mod tests {
         // `place_spawned` resolves the owner against `sim.interner`; re-intern so
         // the id is valid there (test_default uses the thread-local test interner).
         ge.set_owner_for_test(sim.interner.intern("Americans"));
-        let id = sim.create_limbo(ge);
+        let id = Simulation::create_limbo(&mut sim.substrate, &mut sim.houses, ge);
 
         let e = sim.substrate.entities.get(id).expect("entity in store");
         assert!(

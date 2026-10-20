@@ -159,7 +159,10 @@ impl JumpjetFlightHost for CruiseHost<'_> {
     /// OnBridge cleared (`0x0054D438`).
     fn grounded_reset(&mut self) {
         let location = self.location();
-        self.sim.object_raw_receiver_at(
+        Simulation::object_raw_receiver_at(
+            &mut self.sim.substrate,
+            &self.sim.path_grid,
+            &self.sim.resolved_terrain,
             self.stable_id,
             DriveCoord {
                 x: location[0],
@@ -313,10 +316,19 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         self.owner().air_tracker_cell()
     }
     fn tracker_add(&mut self) {
-        self.sim.aircraft_tracker_add(self.stable_id);
+        Simulation::aircraft_tracker_add(
+            &self.sim.session,
+            &mut self.sim.substrate,
+            self.stable_id,
+        );
     }
     fn tracker_update(&mut self, cell: (i16, i16)) {
-        self.sim.aircraft_tracker_update_cell(self.stable_id, cell);
+        Simulation::aircraft_tracker_update_cell(
+            &self.sim.session,
+            &mut self.sim.substrate,
+            self.stable_id,
+            cell,
+        );
     }
     fn claim_air_slot_at(&mut self, cell: (i16, i16)) {
         self.sim
@@ -425,7 +437,10 @@ impl JumpjetFlightHost for CruiseHost<'_> {
         })
     }
     fn begin_landing(&mut self, destination: [i32; 3]) {
-        self.sim.object_raw_receiver_at(
+        Simulation::object_raw_receiver_at(
+            &mut self.sim.substrate,
+            &self.sim.path_grid,
+            &self.sim.resolved_terrain,
             self.stable_id,
             DriveCoord {
                 x: destination[0],
@@ -872,7 +887,7 @@ mod tests {
         }
         entity.locomotor = Some(locomotor);
         sim.substrate.entities.insert(entity);
-        sim.set_object_height_unmarked(1, 500);
+        Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, 1, 500);
         sim
     }
 
@@ -928,7 +943,7 @@ mod tests {
             .with_moving_for_test(true)
             .with_landing_latched_for_test(true)
             .with_destination_for_test(DriveCoord::cell(10, 10, 0));
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         sim.substrate.air_slots.set_holder((10, 10), Some(1));
         (sim, rules, registry)
     }
@@ -1155,7 +1170,7 @@ mod tests {
                 .with_destination_for_test(JumpjetRuntime::NULL);
         }
         if state == jumpjet_flight::STATE_GROUND {
-            sim.set_object_height_unmarked(1, 0);
+            Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, 1, 0);
         }
         for frame in 0..frames {
             sim.session.set_binary_frame_for_test(1001 + frame);
@@ -1400,7 +1415,7 @@ mod tests {
                 .with_phase_for_test(jumpjet_flight::STATE_CRASH)
                 .with_flight_for_test(flight);
         }
-        sim.aircraft_tracker_add(1);
+        Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, 1);
         sim.session.set_binary_frame_for_test(1001);
         let stats = sim
             .tick_air_movement_with_cell_lists_one(

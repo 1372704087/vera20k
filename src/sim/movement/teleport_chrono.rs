@@ -135,7 +135,14 @@ impl Simulation {
         //Foot adjusts the bridge first, then prepares Unit Force_Track.
         if infantry {
             self.locomotor_mark_all_occupation_bits(id, false);
-            self.object_raw_receiver_at(id, coord, false);
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                id,
+                coord,
+                false,
+            );
             let Some(actor) = self.substrate.entities.get_mut(id) else {
                 return Ok(false);
             };
@@ -166,7 +173,14 @@ impl Simulation {
         if category == EntityCategory::Unit {
             self.locomotor_mark_all_occupation_bits(id, false);
             self.force_track(id, -1, coord, Some(rules), registry, effects);
-            self.object_raw_receiver_at(id, coord, false);
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                id,
+                coord,
+                false,
+            );
             let Some(actor) = self.substrate.entities.get_mut(id) else {
                 return Ok(false);
             };
@@ -494,7 +508,14 @@ impl Simulation {
             .and_then(|runtime| runtime.resolved_destination())
             .unwrap_or(location);
         if place {
-            self.object_raw_receiver_at(id, marked, false);
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                id,
+                marked,
+                false,
+            );
             let (ground, bridge) = self
                 .resolved_terrain
                 .as_ref()
@@ -526,8 +547,22 @@ impl Simulation {
                     runtime.set_resolved_destination(marked);
                 }
             }
-            self.object_raw_receiver_at(id, marked, true);
-            self.object_raw_receiver_at(id, marked, true);
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                id,
+                marked,
+                true,
+            );
+            Self::object_raw_receiver_at(
+                &mut self.substrate,
+                &self.path_grid,
+                &self.resolved_terrain,
+                id,
+                marked,
+                true,
+            );
             return true;
         }
         let owner_infantry = entity.category() == EntityCategory::Infantry;
@@ -564,7 +599,14 @@ impl Simulation {
             self.chrono_retarget_blocked(id, coord, location, rules);
             return false;
         }
-        self.object_raw_receiver_at(id, marked, true);
+        Self::object_raw_receiver_at(
+            &mut self.substrate,
+            &self.path_grid,
+            &self.resolved_terrain,
+            id,
+            marked,
+            true,
+        );
         true
     }
 

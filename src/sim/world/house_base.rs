@@ -10,6 +10,7 @@ use super::*;
 use crate::rules::ruleset::HouseCostFactors;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
+use crate::sim::houses::Houses;
 use crate::sim::mission::authority::EntityReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::util::native_x87::NativeF32Bits;
@@ -859,9 +860,12 @@ impl Simulation {
     /// `BuildingClass::Unlimbo`'s House+68 append (`0x00441553..0x00441594`),
     /// reached on the same path as its BuildConst append
     /// ([`Simulation::append_live_build_const`]).
-    pub(super) fn append_house_base_building(&mut self, id: u64) {
-        let Some(owner) = self
-            .substrate
+    pub(super) fn append_house_base_building(
+        substrate: &ObjectSubstrate,
+        houses: &mut Houses,
+        id: u64,
+    ) {
+        let Some(owner) = substrate
             .entities
             .get(id)
             .filter(|entity| entity.category() == EntityCategory::Structure)
@@ -869,7 +873,7 @@ impl Simulation {
         else {
             return;
         };
-        if let Some(house) = self.houses.get_mut(&owner) {
+        if let Some(house) = houses.get_mut(&owner) {
             house.base_projection_mut().append_membership(id);
         }
     }
@@ -878,7 +882,7 @@ impl Simulation {
     /// Unlimbo would make ([`Self::append_house_base_building`]).
     #[cfg(any(test, feature = "test-support"))]
     pub fn append_house_base_building_for_test(&mut self, id: u64) {
-        self.append_house_base_building(id);
+        Self::append_house_base_building(&self.substrate, &mut self.houses, id);
     }
 
     pub(super) fn join_house_base_lists(
@@ -899,9 +903,12 @@ impl Simulation {
         }
     }
 
-    pub(super) fn remove_house_base_membership(&mut self, id: u64) {
-        if !self
-            .substrate
+    pub(super) fn remove_house_base_membership(
+        substrate: &ObjectSubstrate,
+        houses: &mut Houses,
+        id: u64,
+    ) {
+        if !substrate
             .entities
             .get(id)
             .is_some_and(|entity| entity.category() == EntityCategory::Structure)
@@ -909,14 +916,18 @@ impl Simulation {
             return;
         }
         // Broadcast visits every House, including historical non-owner lists.
-        for house in self.houses.values_mut() {
+        for house in houses.values_mut() {
             house.base_projection_mut().remove_membership(id);
         }
     }
 
-    pub(super) fn release_house_base_tracking(&mut self, id: u64) {
-        if let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner())
-            && let Some(house) = self.houses.get_mut(&owner)
+    pub(super) fn release_house_base_tracking(
+        substrate: &ObjectSubstrate,
+        houses: &mut Houses,
+        id: u64,
+    ) {
+        if let Some(owner) = substrate.entities.get(id).map(|entity| entity.owner())
+            && let Some(house) = houses.get_mut(&owner)
         {
             //43BF34 changes tracking AFTER the earlier expiry/Limbo. No recalc.
             house.base_projection_mut().unregister(id);

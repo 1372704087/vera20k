@@ -313,7 +313,12 @@ impl Simulation {
             entity.selection.deselect();
         }
         if foot {
-            self.locomotor_power_off(id);
+            Self::locomotor_power_off(
+                &mut self.scenario_rng,
+                &mut self.substrate,
+                &self.resolved_terrain,
+                id,
+            );
         }
         self.latch_deactivated(id, true, rules);
     }

@@ -620,7 +620,7 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
             .with_flight_for_test(flight);
         entity.locomotor = Some(loco);
     }
-    sim.set_object_height_unmarked(2, 208);
+    Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, 2, 208);
     sim.update_object_sight_in_view(
         2,
         0,
@@ -770,7 +770,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
         .unwrap()
         .set_current_speed_for_test(SimFixed::from_num(1));
     sim.substrate.entities.get_mut(2).unwrap().locomotor = Some(loco);
-    sim.set_object_height_unmarked(2, 207);
+    Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, 2, 207);
     sim.session.set_binary_frame_for_test(119);
     sim.refresh_high_flying_sight_before_process(2, None);
     assert_eq!(
@@ -796,7 +796,7 @@ fn shroud_current_sight_live_refresh_gates_preserve_or_reload_native_timer() {
             .unwrap()
             .set_current_speed_for_test(SimFixed::from_num(0));
     }
-    sim.set_object_height_unmarked(2, 208);
+    Simulation::set_object_height_unmarked(&mut sim.substrate, &sim.resolved_terrain, 2, 208);
     sim.refresh_high_flying_sight_before_process(2, None);
     assert_eq!(
         sim.substrate

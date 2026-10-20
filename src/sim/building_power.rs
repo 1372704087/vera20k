@@ -62,7 +62,7 @@ impl Simulation {
             .unwrap()
             .building_online
             .online = false;
-        self.invalidate_house_power(owner, true);
+        Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, true);
         self.houses.request_house_tech_tree_recheck(owner);
         self.set_building_stuff_enabled(id, false, rules);
         //4523DE speaks before509140; the online arm reverses that order.
@@ -103,7 +103,7 @@ impl Simulation {
             .unwrap()
             .building_online
             .online = true;
-        self.invalidate_house_power(owner, true);
+        Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, true);
         self.houses.request_house_tech_tree_recheck(owner);
         self.set_building_stuff_enabled(id, true, rules);
         if let Some(category) = factory {

@@ -184,7 +184,12 @@ pub(crate) fn drop_payload(
             observe(Observed::Limbo(passenger));
             observe(Observed::Conceal(passenger));
         }
-        sim.techno_clear_discovery_on_conceal(passenger);
+        Simulation::techno_clear_discovery_on_conceal(
+            &sim.session,
+            &mut sim.substrate,
+            &sim.houses,
+            passenger,
+        );
         add_ammo(&mut sim.substrate, id, 1);
     }
 }
@@ -481,7 +486,9 @@ fn land_tail(
     });
     #[cfg(any(test, feature = "test-support"))]
     observe(Observed::CellAt([landing.x, landing.y, landing.z]));
-    sim.foot_neighbors_after_payload_drop(
+    Simulation::foot_neighbors_after_payload_drop(
+        &mut sim.substrate,
+        &sim.resolved_terrain,
         passenger,
         ((landing.x / 256) as i16, (landing.y / 256) as i16),
     );

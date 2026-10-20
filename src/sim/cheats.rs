@@ -268,7 +268,7 @@ impl Simulation {
             // Ask the existing House owner to refresh retained generation even
             // if the building's next live AI visit is gated.
             if healed_structure {
-                self.invalidate_house_power(owner, true);
+                Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, true);
             }
         }
         if pending & 2 != 0 {

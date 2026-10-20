@@ -480,7 +480,7 @@ impl Simulation {
         if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
             (entity.category() == EntityCategory::Structure).then_some(entity.owner())
         }) {
-            self.invalidate_house_power(owner, false); //71B126, before release
+            Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, false); //71B126, before release
             self.houses.request_house_tech_tree_recheck(owner); //71B13A
         }
         self.temporal_release_if_warping(target);
@@ -838,7 +838,12 @@ impl Simulation {
                     if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
                         (entity.category() == EntityCategory::Structure).then_some(entity.owner())
                     }) {
-                        self.invalidate_house_power(owner, false); //71AC36
+                        Self::invalidate_house_power(
+                            &self.houses,
+                            &mut self.power_states,
+                            owner,
+                            false,
+                        ); //71AC36
                         self.houses.request_house_tech_tree_recheck(owner); //71AC49
                     }
                 }
@@ -918,7 +923,7 @@ impl Simulation {
             if let Some(owner) = self.substrate.entities.get(target).and_then(|entity| {
                 (entity.category() == EntityCategory::Structure).then_some(entity.owner())
             }) {
-                self.invalidate_house_power(owner, false); //ClearWarp71AD04
+                Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, false); //ClearWarp71AD04
                 self.houses.request_house_tech_tree_recheck(owner); //71AD17
             }
             if let Some(stored) = self.substrate.temporal_link_mut(attacker) {

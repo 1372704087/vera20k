@@ -97,7 +97,13 @@ pub(crate) fn mission_enter(
     }
     // 0x004D946C..0x004D9497: the CURRENT mission's Rate (a Commence above may
     // have changed it).
-    sim.mission_rate_epilogue_for(rules, id, MissionType::Enter)
+    Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Enter,
+    )
 }
 
 /// `0x004D92ED..0x004D93E3`: with no NavCom and a waypoint queued, a

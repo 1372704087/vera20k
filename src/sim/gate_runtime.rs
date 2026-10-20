@@ -169,7 +169,13 @@ pub(crate) fn mission_open(sim: &mut Simulation, id: u64, rules: &RuleSet) -> i3
                     .get_or_insert_with(Default::default)
                     .hold_timer
                     .arm(now, hold_ticks);
-                return sim.mission_rate_epilogue_for(rules, id, MissionType::Open);
+                return Simulation::mission_rate_epilogue_for(
+                    &mut sim.scenario_rng,
+                    &sim.substrate,
+                    rules,
+                    id,
+                    MissionType::Open,
+                );
             }
             if phase == DoorPhase::Closing {
                 entity.reverse_door(now);
@@ -215,7 +221,13 @@ pub(crate) fn mission_open(sim: &mut Simulation, id: u64, rules: &RuleSet) -> i3
             } else if gate.hold_timer.due(now) {
                 entity.mission.set_handler_state(3);
             }
-            sim.mission_rate_epilogue_for(rules, id, MissionType::Open)
+            Simulation::mission_rate_epilogue_for(
+                &mut sim.scenario_rng,
+                &sim.substrate,
+                rules,
+                id,
+                MissionType::Open,
+            )
         }
         3 => {
             //44E5DA: Close, state4, no cadence RNG.
@@ -225,7 +237,13 @@ pub(crate) fn mission_open(sim: &mut Simulation, id: u64, rules: &RuleSet) -> i3
             0
         }
         //44E464: states above4 share the cadence exit44E4BA.
-        _ => sim.mission_rate_epilogue_for(rules, id, MissionType::Open),
+        _ => Simulation::mission_rate_epilogue_for(
+            &mut sim.scenario_rng,
+            &sim.substrate,
+            rules,
+            id,
+            MissionType::Open,
+        ),
     }
 }
 

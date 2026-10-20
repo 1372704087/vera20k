@@ -155,7 +155,12 @@ impl Simulation {
                 effects,
             );
             // `0x0073A52B`: ILoco+0x5C, Hover's override included.
-            self.locomotor_power_off(id);
+            Self::locomotor_power_off(
+                &mut self.scenario_rng,
+                &mut self.substrate,
+                &self.resolved_terrain,
+                id,
+            );
             return true;
         }
         let Some(entity) = self.substrate.entities.get(id) else {

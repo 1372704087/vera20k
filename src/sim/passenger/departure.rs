@@ -185,7 +185,12 @@ fn restore_departure(
         // then dispatches infantry vtable+0x11C (`TechnoClass::
         // ClearDiscoveryOnConceal @ 0x006F4A40`), which preserves the
         // discovery latch for human-controlled owners and clears it for AI.
-        sim.techno_clear_discovery_on_conceal(passenger_id);
+        Simulation::techno_clear_discovery_on_conceal(
+            &sim.session,
+            &mut sim.substrate,
+            &sim.houses,
+            passenger_id,
+        );
     }
     // Vehicle failures always re-adopt the current passenger's IFVMode. The
     // landed-aircraft compatibility path did so only before Reveal; retain that

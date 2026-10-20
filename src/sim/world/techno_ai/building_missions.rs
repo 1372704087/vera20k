@@ -99,6 +99,7 @@ use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MISSION_STUB_FRAMES, MissionId, MissionType};
 use crate::sim::projectile::ProjectilePayload;
 use crate::sim::rng::SimRng;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 
@@ -242,27 +243,30 @@ pub(super) fn update_animation(sim: &mut Simulation, id: u64, rules: Option<&Rul
 }
 
 ///43FE27's first check requires BState!=0;43FF91's second does not.
-pub(super) fn ready_commence(sim: &mut Simulation, id: u64, before_techno: bool) {
+pub(super) fn ready_commence(
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    id: u64,
+    before_techno: bool,
+) {
     if before_techno
-        && sim
-            .substrate
+        && substrate
             .entities
             .get(id)
             .is_none_or(|entity| entity.in_construction_bstate())
     {
         return;
     }
-    let _ = sim
-        .substrate
-        .mission_building_ready_commence(id, sim.session.binary_frame());
+    let _ = substrate.mission_building_ready_commence(id, session.binary_frame());
 }
 
-pub(super) fn apply_queued_body(sim: &mut Simulation, id: u64) {
-    if let Some(entity) = sim.substrate.entities.get_mut(id) {
-        entity.apply_queued_building_body(
-            sim.session.binary_frame() as i32,
-            sim.session.game_options(),
-        );
+pub(super) fn apply_queued_body(
+    session: &ScenarioSession,
+    substrate: &mut ObjectSubstrate,
+    id: u64,
+) {
+    if let Some(entity) = substrate.entities.get_mut(id) {
+        entity.apply_queued_building_body(session.binary_frame() as i32, session.game_options());
     }
 }
 
@@ -617,7 +621,13 @@ fn mission_factory_unload(
         }
         _ => {}
     }
-    sim.mission_rate_epilogue_for(rules, id, MissionType::Unload)
+    Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Unload,
+    )
 }
 
 ///Building449540: ask the head Cell's nearest object excluding the producer.

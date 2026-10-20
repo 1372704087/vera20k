@@ -49,9 +49,11 @@ use crate::sim::anim_class::AnimId;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::intern::InternedId;
 use crate::sim::radar::{RadarEventRequest, RadarEventType};
+use crate::sim::superweapon::SuperWeapons;
 use crate::sim::superweapon::cell_grid::{live_successor, native_cells_3x3, selected_cell_list};
 use crate::sim::superweapon::deck_coords;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
 /// Leptons case 3, CreateChronoAnim and case 4 each raise their anims
@@ -86,15 +88,19 @@ impl Simulation {
     /// out to its last frame and leaves, and the Super forgets it. The notify
     /// list `0x00B0F5B8` and its `+0x6C` byte only track the pointer; VERA's
     /// anim ids are never reused, so a dead anim's id finds nothing.
-    pub(crate) fn release_super_anim(&mut self, owner: InternedId, sw_type: InternedId) {
-        let Some(anim) = self
-            .super_weapons
+    pub(crate) fn release_super_anim(
+        substrate: &mut ObjectSubstrate,
+        super_weapons: &mut SuperWeapons,
+        owner: InternedId,
+        sw_type: InternedId,
+    ) {
+        let Some(anim) = super_weapons
             .instance_mut(&owner, &sw_type)
             .and_then(|instance| instance.placement_anim.take())
         else {
             return;
         };
-        if let Some(anim) = self.substrate.anims.get_mut(anim) {
+        if let Some(anim) = substrate.anims.get_mut(anim) {
             anim.end_loops();
         }
     }
@@ -112,7 +118,7 @@ fn create_chrono_anim(
     sw_type: InternedId,
     [x, y, z]: [i32; 3],
 ) {
-    sim.release_super_anim(owner, sw_type);
+    Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, sw_type);
     let coords = [x, y, z.wrapping_add(CHRONO_ANIM_Z_LIFT)];
     let anim = super::spawn_super_anim(sim, rules, &rules.general.chrono_placement_anim, coords);
     if let Some(instance) = sim.super_weapons.instance_mut(&owner, &sw_type) {
@@ -190,7 +196,7 @@ pub(super) fn launch_warp(
     }
     let [dx, dy, dz] = deck_coords(sim, target);
     let [sx, sy, sz] = deck_coords(sim, source);
-    sim.release_super_anim(owner, sw_type);
+    Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, sw_type);
     super::spawn_super_anim(
         sim,
         rules,
@@ -396,7 +402,14 @@ fn arm_chrono_warp(
             overlay_registry,
             frame_effects,
         );
-        sim.object_raw_receiver_at(id, destination, false);
+        Simulation::object_raw_receiver_at(
+            &mut sim.substrate,
+            &sim.path_grid,
+            &sim.resolved_terrain,
+            id,
+            destination,
+            false,
+        );
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
             entity.foot_occupation_enabled.resume();
         }

@@ -908,11 +908,21 @@ fn nighthawk_unloads_only_when_landed() {
     let mut fx = Fixture::new(|_, _| false);
     let shad = fx.spawn("SHAD", 20, 20, 0);
     let pax = fx.board(shad, 2);
-    fx.sim.set_object_height_unmarked(shad, 600);
+    Simulation::set_object_height_unmarked(
+        &mut fx.sim.substrate,
+        &fx.sim.resolved_terrain,
+        shad,
+        600,
+    );
     assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
     assert_eq!(fx.mission(shad), MissionId::from_known(MissionType::Unload));
     for _ in 0..30 {
-        fx.sim.set_object_height_unmarked(shad, 600);
+        Simulation::set_object_height_unmarked(
+            &mut fx.sim.substrate,
+            &fx.sim.resolved_terrain,
+            shad,
+            600,
+        );
         crate::sim::aircraft::dispatch_mission(&mut fx.sim, shad, &fx.rules, Default::default());
         fx.sim
             .session
@@ -920,7 +930,12 @@ fn nighthawk_unloads_only_when_landed() {
     }
     assert_eq!(fx.cargo_ids(shad).len(), 2, "airborne: nothing leaves");
 
-    fx.sim.set_object_height_unmarked(shad, 0);
+    Simulation::set_object_height_unmarked(
+        &mut fx.sim.substrate,
+        &fx.sim.resolved_terrain,
+        shad,
+        0,
+    );
     let pitch = |fx: &mut Fixture, angle: SimFixed| {
         fx.sim
             .substrate
@@ -978,7 +993,12 @@ fn nighthawk_ejects_five_passengers_to_scanned_neighbours() {
     let mut fx = Fixture::new(|_, _| false);
     let shad = fx.spawn("SHAD", 20, 20, 0);
     let pax = fx.board(shad, 5);
-    fx.sim.set_object_height_unmarked(shad, 0);
+    Simulation::set_object_height_unmarked(
+        &mut fx.sim.substrate,
+        &fx.sim.resolved_terrain,
+        shad,
+        0,
+    );
     assert!(fx.apply(Command::UnloadPassengers { transport_id: shad }));
 
     // (id, reveal frame, mission, destination) captured the tick each surfaces.
@@ -1406,7 +1426,12 @@ fn vehicle_passenger_off_the_playfield_exit_lands_on_raised_in_playfield_ground(
 }
 
 fn set_altitude(fx: &mut Fixture, id: u64, altitude: i32) {
-    fx.sim.set_object_height_unmarked(id, altitude);
+    Simulation::set_object_height_unmarked(
+        &mut fx.sim.substrate,
+        &fx.sim.resolved_terrain,
+        id,
+        altitude,
+    );
 }
 
 fn handler_state(fx: &Fixture, id: u64) -> u32 {

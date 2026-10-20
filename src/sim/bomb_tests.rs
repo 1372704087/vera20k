@@ -153,7 +153,14 @@ fn place(sim: &mut Simulation, rules: &RuleSet, id: u64, (x, y): (i32, i32)) {
     // Foot Mark's list hooks skip Infantry raw callbacks. Unit Mark owns
     // its own raw writes, so only Infantry needs the explicit class receiver.
     if infantry {
-        assert!(sim.object_raw_receiver_at(id, old, false));
+        assert!(crate::sim::world::Simulation::object_raw_receiver_at(
+            &mut sim.substrate,
+            &sim.path_grid,
+            &sim.resolved_terrain,
+            id,
+            old,
+            false
+        ));
     }
     assert!(sim.foot_mark_remove(
         id,
@@ -176,7 +183,14 @@ fn place(sim: &mut Simulation, rules: &RuleSet, id: u64, (x, y): (i32, i32)) {
         crate::sim::world::FrameEffects::default()
     ));
     if infantry {
-        assert!(sim.object_raw_receiver_at(id, coord, true));
+        assert!(crate::sim::world::Simulation::object_raw_receiver_at(
+            &mut sim.substrate,
+            &sim.path_grid,
+            &sim.resolved_terrain,
+            id,
+            coord,
+            true
+        ));
     }
 }
 

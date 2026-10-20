@@ -59,8 +59,10 @@ mod view_admission_tests;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::superweapon_type::SuperWeaponType;
 use crate::sim::intern::InternedId;
+use crate::sim::intern::StringInterner;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 use crate::util::native_x87::{NativeF32Bits, X87Chop53, X87Ordering};
 
@@ -200,18 +202,18 @@ pub(super) fn spawn_super_anim(
 /// (`0x004DEAF8..0x004DEB2B`) does neither. `None` for an object without a
 /// type.
 fn strength_receiver_event(
-    sim: &mut Simulation,
+    interner: &mut StringInterner,
+    substrate: &ObjectSubstrate,
     rules: &RuleSet,
     id: u64,
     warhead: &str,
     house: Option<InternedId>,
     ignore_defenses: bool,
 ) -> Option<crate::sim::combat::EntityDamageEvent> {
-    let strength = sim
-        .substrate
+    let strength = substrate
         .entities
         .get(id)
-        .and_then(|entity| sim.interner.object_type(entity.type_ref(), rules))
+        .and_then(|entity| interner.object_type(entity.type_ref(), rules))
         .map(|object| object.strength)?;
     Some(crate::sim::combat::EntityDamageEvent::direct_receiver(
         id,
@@ -219,7 +221,7 @@ fn strength_receiver_event(
         0,
         crate::sim::combat::RAD_NO_ATTACKER,
         house,
-        sim.interner.intern(warhead),
+        interner.intern(warhead),
         crate::sim::combat::ReceiverCallFlags {
             ignore_defenses,
             arg6: false,
@@ -870,9 +872,16 @@ pub(crate) fn reset_super(sim: &mut Simulation, rules: &RuleSet, owner: Interned
     if let Some(selection) = sim.paid_super_weapon_selection(owner)
         && (selection.source == type_id || selection.destination == type_id)
     {
-        sim.cancel_paid_super_weapon_selection(rules, owner, selection);
+        Simulation::cancel_paid_super_weapon_selection(
+            &mut sim.substrate,
+            &mut sim.sound_events,
+            &mut sim.super_weapons,
+            rules,
+            owner,
+            selection,
+        );
     }
-    sim.release_super_anim(owner, type_id);
+    Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, type_id);
     let frame = sim.session.binary_frame();
     if let Some(instance) = sim.super_weapons.instance_mut(&owner, &type_id) {
         instance.reset(sw, frame);
@@ -1445,7 +1454,12 @@ pub(crate) fn update_owned_supers(sim: &mut Simulation, rules: &RuleSet, owner: 
     if let Some(selection) = paid_before
         && sim.paid_super_weapon_selection(owner) != Some(selection)
     {
-        sim.release_super_anim(owner, selection.source);
+        Simulation::release_super_anim(
+            &mut sim.substrate,
+            &mut sim.super_weapons,
+            owner,
+            selection.source,
+        );
         sim.sound_events
             .emit(SimSoundEvent::SuperWeaponStatusChanged {
                 owner,
@@ -1550,7 +1564,7 @@ fn grant_super(
     }
     instance.timer_place = (sw.show_timer && !passive).then_some(place);
     if !sw.manual_control {
-        sim.release_super_anim(owner, type_id);
+        Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, type_id);
     }
     true
 }

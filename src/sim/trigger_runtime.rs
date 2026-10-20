@@ -15,7 +15,10 @@ use crate::map::events::EventCondition;
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
+use crate::sim::rng::SimRng;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::timer::CdTimer;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 const ACTION_PLAY_SOUND: i32 = 19;
@@ -1097,7 +1100,12 @@ impl Simulation {
             }));
             self.trigger_runtime.trigger_order.push(index);
             // Reset726400 runs BEFORE enabled/difficulty admission.
-            self.reset_trigger_timers(index);
+            Self::reset_trigger_timers(
+                &self.session,
+                &mut self.scenario_rng,
+                &mut self.trigger_runtime,
+                index,
+            );
             let typ = &self.trigger_runtime.definitions.trigger_types[type_index];
             let enabled = typ.enabled && typ.admits_difficulty(difficulty);
             next = typ.linked;
@@ -1114,31 +1122,34 @@ impl Simulation {
         tag_index
     }
 
-    fn reset_trigger_timers(&mut self, index: usize) {
-        let Some(trigger) = self.trigger_runtime.trigger(index) else {
+    fn reset_trigger_timers(
+        session: &ScenarioSession,
+        scenario_rng: &mut SimRng,
+        trigger_runtime: &mut TriggerRuntime,
+        index: usize,
+    ) {
+        let Some(trigger) = trigger_runtime.trigger(index) else {
             return;
         };
         let type_index = trigger.type_index;
-        let event_count = self.trigger_runtime.definitions.trigger_types[type_index]
+        let event_count = trigger_runtime.definitions.trigger_types[type_index]
             .events
             .len();
         for ordinal in 0..event_count {
-            let event = &self.trigger_runtime.definitions.trigger_types[type_index].events[ordinal];
+            let event = &trigger_runtime.definitions.trigger_types[type_index].events[ordinal];
             let duration = match event.kind {
                 13 => event.value.wrapping_mul(LOGICAL_FRAMES_PER_SECOND),
                 51 => {
                     let value = event.value;
-                    let drawn = self.scenario_rng.next_range_i32_inclusive(0, value);
+                    let drawn = scenario_rng.next_range_i32_inclusive(0, value);
                     (value / 2)
                         .wrapping_add(drawn)
                         .wrapping_mul(LOGICAL_FRAMES_PER_SECOND)
                 }
                 _ => continue,
             };
-            let trigger = self.trigger_runtime.triggers[index].as_mut().unwrap();
-            trigger
-                .timer
-                .start(self.session.binary_frame() as i32, duration);
+            let trigger = trigger_runtime.triggers[index].as_mut().unwrap();
+            trigger.timer.start(session.binary_frame() as i32, duration);
             trigger.completed &= !(1u32.wrapping_shl(ordinal as u32));
         }
     }
@@ -1340,42 +1351,41 @@ impl Simulation {
 
     /// Destructor6E8E75..6E8EAB follows member removal. Only a zero-reference
     /// Tag is queued, then the direct Team pointer is cleared without a draw.
-    pub(crate) fn clear_team_trigger_tag(&mut self, team: u64) {
-        if let Some(&tag) = self
-            .trigger_runtime
-            .attachments
-            .get(&TagAttachment::Team(team))
-            && self
-                .trigger_runtime
-                .tag(tag)
-                .is_some_and(|tag| tag.refs == 0)
+    pub(crate) fn clear_team_trigger_tag(
+        substrate: &mut ObjectSubstrate,
+        trigger_runtime: &mut TriggerRuntime,
+        team: u64,
+    ) {
+        if let Some(&tag) = trigger_runtime.attachments.get(&TagAttachment::Team(team))
+            && trigger_runtime.tag(tag).is_some_and(|tag| tag.refs == 0)
         {
-            self.mark_live_tag_for_delete(tag);
+            Self::mark_live_tag_for_delete(substrate, trigger_runtime, tag);
         }
-        self.trigger_runtime
-            .replace_trigger_tag_attachment(TagAttachment::Team(team), None);
+        trigger_runtime.replace_trigger_tag_attachment(TagAttachment::Team(team), None);
     }
 
-    fn mark_live_trigger_for_delete(&mut self, index: usize) {
-        if let Some(trigger) = self
-            .trigger_runtime
+    fn mark_live_trigger_for_delete(
+        substrate: &mut ObjectSubstrate,
+        trigger_runtime: &mut TriggerRuntime,
+        index: usize,
+    ) {
+        if let Some(trigger) = trigger_runtime
             .triggers
             .get_mut(index)
             .and_then(Option::as_mut)
         {
             trigger.pending = true;
-            self.substrate.pending_delete.queue_trigger(index);
+            substrate.pending_delete.queue_trigger(index);
         }
     }
-    fn mark_live_tag_for_delete(&mut self, index: usize) {
-        if let Some(tag) = self
-            .trigger_runtime
-            .tags
-            .get_mut(index)
-            .and_then(Option::as_mut)
-        {
+    fn mark_live_tag_for_delete(
+        substrate: &mut ObjectSubstrate,
+        trigger_runtime: &mut TriggerRuntime,
+        index: usize,
+    ) {
+        if let Some(tag) = trigger_runtime.tags.get_mut(index).and_then(Option::as_mut) {
             tag.pending = true;
-            self.substrate.pending_delete.queue_tag(index);
+            substrate.pending_delete.queue_tag(index);
         }
     }
 
@@ -1905,7 +1915,12 @@ impl Simulation {
             }
         }
         if result && persistence {
-            self.reset_trigger_timers(index);
+            Self::reset_trigger_timers(
+                &self.session,
+                &mut self.scenario_rng,
+                &mut self.trigger_runtime,
+                index,
+            );
         }
         result
     }
@@ -2345,7 +2360,11 @@ impl Simulation {
                         overlay_registry,
                         frame_effects,
                     );
-                    self.mark_live_trigger_for_delete(trigger);
+                    Self::mark_live_trigger_for_delete(
+                        &mut self.substrate,
+                        &mut self.trigger_runtime,
+                        trigger,
+                    );
                     result = true;
                     detach_attachment = true;
                     detach_all = true;
@@ -2360,7 +2379,11 @@ impl Simulation {
                             overlay_registry,
                             frame_effects,
                         );
-                        self.mark_live_trigger_for_delete(trigger);
+                        Self::mark_live_trigger_for_delete(
+                            &mut self.substrate,
+                            &mut self.trigger_runtime,
+                            trigger,
+                        );
                         result = true;
                         detach_all = true;
                     }
@@ -2458,7 +2481,12 @@ impl Simulation {
                         .iter()
                         .any(|e| events.contains(&e.kind) && e.value == index)
                     {
-                        self.reset_trigger_timers(live);
+                        Self::reset_trigger_timers(
+                            &self.session,
+                            &mut self.scenario_rng,
+                            &mut self.trigger_runtime,
+                            live,
+                        );
                     }
                 }
                 tag_ordinal += 1;
@@ -2818,7 +2846,11 @@ impl Simulation {
                             .trigger(live)
                             .is_some_and(|trigger| trigger.type_index == target)
                         {
-                            self.mark_live_trigger_for_delete(live);
+                            Self::mark_live_trigger_for_delete(
+                                &mut self.substrate,
+                                &mut self.trigger_runtime,
+                                live,
+                            );
                         }
                     }
                 }
@@ -3465,7 +3497,12 @@ impl Simulation {
                     let team_id = self
                         .interner
                         .intern(&self.trigger_runtime.definitions.team_types[team]);
-                    self.flash_teams_of_type(team_id, value.unwrap_or(0));
+                    Self::flash_teams_of_type(
+                        &mut self.substrate,
+                        &self.team_script_vm,
+                        team_id,
+                        value.unwrap_or(0),
+                    );
                 }
             }
             4 | 7 | 80 | 107 => {
@@ -3782,7 +3819,11 @@ impl Simulation {
                 let Some(waypoint) = action.waypoint_index else {
                     return false;
                 };
-                return self.trigger_mark_particle_systems_done_at_waypoint(waypoint as i32);
+                return Self::trigger_mark_particle_systems_done_at_waypoint(
+                    &self.session,
+                    &mut self.substrate,
+                    waypoint as i32,
+                );
             }
             30 => {
                 let (Some(owner), Some(value), Some(rules)) =
@@ -3944,7 +3985,12 @@ impl Simulation {
                                             .as_mut()
                                             .unwrap()
                                             .enabled = true;
-                                        self.reset_trigger_timers(live);
+                                        Self::reset_trigger_timers(
+                                            &self.session,
+                                            &mut self.scenario_rng,
+                                            &mut self.trigger_runtime,
+                                            live,
+                                        );
                                     }
                                 }
                                 ACTION_DISABLE_TRIGGER => {

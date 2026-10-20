@@ -991,7 +991,12 @@ pub(crate) fn commit_entities(
                     )
                 });
             if surfaced.is_some_and(|result| result.play_sound) && sound_enabled {
-                emit_configured_cloak_sound(world, target_id, rules);
+                emit_configured_cloak_sound(
+                    &world.substrate,
+                    &mut world.sound_events,
+                    target_id,
+                    rules,
+                );
             }
         }
 
@@ -1567,7 +1572,13 @@ pub(crate) fn handle_death(
                 // Crazy Ivan's own bomber) plants a bomb on the dying object
                 // instead of damaging (`0x00469343`), which goes off below.
                 if explodes
-                    && let Some(detonation) = super::death_weapon_detonation(world, dead_id, rules)
+                    && let Some(detonation) = super::death_weapon_detonation(
+                        &mut world.interner,
+                        &world.substrate,
+                        &world.resolved_terrain,
+                        dead_id,
+                        rules,
+                    )
                 {
                     let commit =
                         commit_projectiles(world, run, &[detonation], rules, overlay_registry);

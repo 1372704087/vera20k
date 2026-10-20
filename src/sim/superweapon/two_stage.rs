@@ -6,6 +6,9 @@
 use crate::rules::ruleset::RuleSet;
 use crate::rules::superweapon_type::SuperWeaponType;
 use crate::sim::intern::InternedId;
+use crate::sim::superweapon::SuperWeapons;
+use crate::sim::world::FrameChannel;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 use serde::{Deserialize, Serialize};
 use std::hash::{Hash, Hasher};
@@ -110,12 +113,14 @@ impl Simulation {
     /// Cancellation travels through Command like final activation. A stale
     /// cancellation cannot tear down a newer selection, even for the same SW.
     pub(crate) fn cancel_paid_super_weapon_selection(
-        &mut self,
+        substrate: &mut ObjectSubstrate,
+        sound_events: &mut FrameChannel<SimSoundEvent>,
+        super_weapons: &mut SuperWeapons,
         _rules: &RuleSet,
         owner: InternedId,
         selection: PaidSuperWeaponSelection,
     ) -> bool {
-        let Some(instance) = self.super_weapons.instance_mut(&owner, &selection.source) else {
+        let Some(instance) = super_weapons.instance_mut(&owner, &selection.source) else {
             return false;
         };
         if instance.paid_selection != Some(selection) {
@@ -125,12 +130,11 @@ impl Simulation {
         if instance.is_active && !instance.is_suspended {
             instance.is_ready = true;
         }
-        self.release_super_anim(owner, selection.source);
-        self.sound_events
-            .emit(SimSoundEvent::SuperWeaponStatusChanged {
-                owner,
-                sw_type: selection.destination,
-            });
+        Self::release_super_anim(substrate, super_weapons, owner, selection.source);
+        sound_events.emit(SimSoundEvent::SuperWeaponStatusChanged {
+            owner,
+            sw_type: selection.destination,
+        });
         // The recharge was not consumed by source selection. A later final
         // activation, rather than cancellation, owns restart/one-time loss.
         true
@@ -138,7 +142,14 @@ impl Simulation {
 
     pub(super) fn retire_paid_selections(&mut self, rules: &RuleSet, owner: InternedId) {
         if let Some(selection) = self.paid_super_weapon_selection(owner) {
-            self.cancel_paid_super_weapon_selection(rules, owner, selection);
+            Self::cancel_paid_super_weapon_selection(
+                &mut self.substrate,
+                &mut self.sound_events,
+                &mut self.super_weapons,
+                rules,
+                owner,
+                selection,
+            );
         }
     }
 }

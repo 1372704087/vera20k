@@ -451,7 +451,7 @@ fn empty_cell_cursor(
     order_mode: crate::app::presentation::render::OrderMode,
 ) -> CursorFeedbackKind {
     use crate::sim::world::MoveAction;
-    match what_action_on_cell(sim, viewer, best_id, cell, modifier, rules) {
+    match what_action_on_cell(sim, viewer, best_id, cell, modifier, rules, registry) {
         MoveAction::None => return CursorFeedbackKind::Default,
         MoveAction::NoMove => return CursorFeedbackKind::Invalid,
         MoveAction::Move => {}
@@ -525,7 +525,8 @@ fn empty_cell_cursor(
 /// asks it: DetermineAction (`0x00692610`) from `0x0069300B` sets the
 /// mouse-over argument, so the sim's [`Simulation::cell_move_action`] never
 /// asks Can_Enter_Cell here and a Cell the click will redirect shows Move.
-/// A selected rally/undeploy structure shares the building cell-order admission.
+/// A selected UndeploysInto building drops that argument and asks
+/// Can_Enter_Cell even here (`0x004475A0`).
 /// Without a local House, a resolved object or rules, or for a query the sim
 /// cannot answer (no map cells), the cursor keeps Move: VERA-internal, as a
 /// live gamemd session always has a map and a selection here.
@@ -538,6 +539,7 @@ fn what_action_on_cell(
     cell: (u16, u16),
     modifier: crate::app::input::context_order::OrderModifier,
     rules: Option<&crate::rules::ruleset::RuleSet>,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> crate::sim::world::MoveAction {
     use crate::sim::world::{CellActionQuery, MoveAction};
     // gamemd only asks the selected object's What_Action when a selection exists:
@@ -550,21 +552,11 @@ fn what_action_on_cell(
     let (Some(viewer), Some(rules)) = (viewer, rules) else {
         return MoveAction::Move;
     };
-    if let Some(entity) = sim.entities().get(id)
-        && entity.category() == crate::map::entities::EntityCategory::Structure
-    {
-        return if sim.takes_rally_point(id, sim.interner.resolve(viewer), rules) {
-            MoveAction::Move
-        } else {
-            MoveAction::None
-        };
-    }
     let query = CellActionQuery {
         mouse_over: true,
         shift: modifier == crate::app::input::context_order::OrderModifier::Shift,
     };
-    // The mouse-over query reads no overlay type: it never asks Can_Enter_Cell.
-    sim.cell_move_action(viewer, id, cell, query, rules, None)
+    sim.cell_move_action(viewer, id, cell, query, rules, registry)
         .unwrap_or(MoveAction::Move)
 }
 
@@ -2855,6 +2847,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 (9, 5),
                 modifier,
                 Some(&rules),
+                None,
             )
         };
         assert_eq!(cursor(OrderModifier::Normal), MoveAction::Move);

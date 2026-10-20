@@ -502,8 +502,8 @@ pub(crate) fn resolved_unit_in_range(
             selection_target,
         );
     }
-    // Existing terrain-free test adapter; production maps take the native
-    // 3D owner above. No terrain-free parity is claimed.
+    // A world without resolved terrain takes the shared mapless answer;
+    // production maps take the native owner above.
     let Some(actor) = sim.entities().get(actor_id) else {
         return false;
     };
@@ -533,27 +533,18 @@ pub(crate) fn resolved_unit_in_range(
     ) else {
         return false;
     };
-    let Some(point) = crate::sim::movement::ground_pose::target_get_coords(*target, sim, None)
-    else {
-        return false;
+    let techno = match *target {
+        TargetKind::Entity(id) => sim.entities().get(id),
+        TargetKind::Cell(..) => None,
     };
-    let (rx, ry, sub_x, sub_y) = (
-        (point.x / 256) as u16,
-        (point.y / 256) as u16,
-        crate::util::fixed_math::SimFixed::from_num(point.x % 256),
-        crate::util::fixed_math::SimFixed::from_num(point.y % 256),
-    );
-    let distance = crate::sim::combat::lepton_distance_sq_raw(
-        actor.position.rx(),
-        actor.position.ry(),
-        actor.position.sub_x(),
-        actor.position.sub_y(),
-        rx,
-        ry,
-        sub_x,
-        sub_y,
-    );
-    crate::sim::combat::is_within_range_leptons(distance, weapon.range_leptons)
+    let target = match techno {
+        Some(entity) => crate::sim::combat::MaplessTarget::Techno(entity),
+        None => match crate::sim::movement::ground_pose::target_get_coords(*target, sim, None) {
+            Some(point) => crate::sim::combat::MaplessTarget::Point(point),
+            None => return false,
+        },
+    };
+    crate::sim::combat::mapless_in_range(actor, target, weapon, rules, sim.interner())
 }
 
 /// Resolved attack receiver batch. These are ephemeral input decisions;
@@ -3780,6 +3771,50 @@ mod tests {
     use crate::sim::combat::Health;
     use crate::sim::game_entity::GameEntity;
     use crate::sim::world::Simulation;
+
+    /// Without resolved terrain the attack cursor asks the shared mapless
+    /// range (`sim::combat::mapless_in_range`), as the fire gate and the
+    /// threat scan do: `Range=-2` reaches across the map, and MinimumRange
+    /// refuses a target inside it.
+    #[test]
+    fn a_mapless_attack_cursor_takes_the_shared_range_answer() {
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "[InfantryTypes]\n[VehicleTypes]\n0=ASW\n1=ART\n2=MTNK\n\
+                 [AircraftTypes]\n[BuildingTypes]\n\
+                 [ASW]\nStrength=300\nPrimary=Depth\n[ART]\nStrength=300\nPrimary=Shell\n\
+                 [MTNK]\nStrength=300\n\
+                 [Depth]\nDamage=10\nROF=30\nRange=-2\nWarhead=WH\n\
+                 [Shell]\nDamage=10\nROF=30\nRange=8\nMinimumRange=3\nWarhead=WH\n\
+                 [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+            ))
+            .unwrap();
+        let mut sim = Simulation::new();
+        let mut spawn = |kind: &str, owner: &str, rx: u16, ry: u16| {
+            sim.spawn_object(kind, owner, rx, ry, 0, &rules).unwrap()
+        };
+        let asw = spawn("ASW", "Americans", 5, 5);
+        let art = spawn("ART", "Americans", 5, 7);
+        let near = spawn("MTNK", "Russians", 6, 7);
+        let mid = spawn("MTNK", "Russians", 10, 7);
+        let far = spawn("MTNK", "Russians", 40, 5);
+        assert!(sim.resolved_terrain().is_none());
+        let in_range = |actor, target| {
+            resolved_unit_in_range(
+                &sim,
+                actor,
+                &TargetKind::Entity(target),
+                Some(&rules),
+                None,
+                None,
+                None,
+            )
+        };
+        assert!(in_range(asw, far), "35 cells away");
+        assert!(!in_range(art, near), "inside MinimumRange");
+        assert!(in_range(art, mid), "5 cells away");
+        assert!(!in_range(art, far), "beyond Range");
+    }
 
     /// The native selection dispatcher clamps its shared Cell before asking
     /// receivers' What_Action and ClickedAction (`0x004AE77E`), then each Foot

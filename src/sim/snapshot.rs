@@ -1206,7 +1206,8 @@ use crate::util::save_codec;
 // the movie campaign defeat plays before its retry prompt.
 // 450 -> 451: HouseState retains House+0x1602A's UI name source (handle,
 // TXT_COMPUTER, map UIName= key or the type's UIName).
-const SNAPSHOT_VERSION: u32 = 451;
+// 451 -> 452: HouseState retains House+0x248, the executed-EXIT flag.
+const SNAPSHOT_VERSION: u32 = 452;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10055,6 +10056,7 @@ mod tests {
         // 448 -> 449: the disguise firing blink and its rules keys.
         // 449 -> 450: the retained `[Basic]` Lose movie.
         // 450 -> 451: the House UI name source.
-        assert_eq!(super::SNAPSHOT_VERSION, 451);
+        // 451 -> 452: the House left-game flag.
+        assert_eq!(super::SNAPSHOT_VERSION, 452);
     }
 }

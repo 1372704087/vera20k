@@ -86,6 +86,10 @@ pub enum LanTarget {
     /// Tab opens Diplomacy over a two-human LAN match: each row shows its
     /// own House's UI name.
     HostDiplomacy,
+    /// The peer sends EXIT during a two-human LAN match: its House is
+    /// marked, its connection dropped and `TXT_LEFT_GAME` posted, while the
+    /// match runs on and Diplomacy hides that row's chat box.
+    HostPeerLeft,
     /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
     /// the local defeat to the re-armed menu and its Observe-less B6.
     HostObserve,
@@ -146,6 +150,7 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-transfer-loading-first", LanTarget::TransferGo),
     ("lan-host-abort-return", LanTarget::HostAbortReturn),
     ("lan-host-diplomacy", LanTarget::HostDiplomacy),
+    ("lan-ingame-peer-left", LanTarget::HostPeerLeft),
     ("lan-host-observe", LanTarget::HostObserve),
     ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
@@ -241,6 +246,10 @@ enum LanPhase {
     Observing,
     /// The re-armed menu's route to B6, which stops when B6 presents.
     ObservedAbort,
+    /// A controlled peer EXIT was delivered: waiting for its execution.
+    PeerLeaving {
+        tick: u64,
+    },
     Settle(u32),
 }
 
@@ -2134,6 +2143,19 @@ impl LanCapture {
                 self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session().tick(),
                     "current_house":sim.session().current_house().map(|id|sim.interner().resolve(id)),
                     "map":sim.session().map_name(),"host":state.match_state.session.host()}));
+                if self.target == LanTarget::HostPeerLeft {
+                    crate::app::match_runtime::network_match::service_event(
+                        state,
+                        crate::app::match_runtime::network_match::NetworkMatchEvent::PeerExit {
+                            source_index: 1,
+                        },
+                    )?;
+                    let tick = sim_tick(state)?;
+                    self.route
+                        .push(json!({"frame":frame,"action":"controlled peer EXIT","tick":tick}));
+                    self.phase = LanPhase::PeerLeaving { tick };
+                    return Ok(());
+                }
                 if self.target == LanTarget::HostDiplomacy {
                     super::super::skirmish::press_diplomacy_tab(state)?;
                     let view = crate::app::input::diplomacy::view(state);
@@ -2263,6 +2285,74 @@ impl LanCapture {
                     self.phase = LanPhase::Settle(2);
                 }
             }
+            LanPhase::PeerLeaving { tick } => {
+                let sim = &state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .context("the peer's EXIT lost the runtime")?
+                    .simulation;
+                ensure!(
+                    state.match_state.scenario_exit.is_none() && !sim.quit_requested(),
+                    "a peer's EXIT ended the local match"
+                );
+                let peer_name = self.inputs["peer_name"].as_str().unwrap_or_default();
+                let peer = state
+                    .match_state
+                    .session
+                    .network_source_owner(1)
+                    .and_then(|owner| sim.interner().get(&owner))
+                    .context("the peer's House")?;
+                if !sim.houses()[&peer].left_game() {
+                    return Ok(());
+                }
+                // Wait a few frames past the execution: the match runs on.
+                if sim.session().tick() < tick + 8 {
+                    return Ok(());
+                }
+                ensure!(
+                    !sim.houses()[&peer].is_to_die() && !sim.houses()[&peer].is_defeated(),
+                    "the departed House was killed while the local human is alive"
+                );
+                ensure!(
+                    state.match_state.session.network_connected_source_indices() == [0],
+                    "the peer's connection was not dropped"
+                );
+                let template = App::csf_label(state, "TXT_LEFT_GAME", "TXT_LEFT_GAME");
+                let line = crate::assets::csf_file::format_csf(
+                    &template,
+                    &[crate::assets::csf_file::CsfArg::Str(peer_name)],
+                );
+                let rows: Vec<String> = state
+                    .match_state
+                    .match_presentation
+                    .message_list
+                    .messages()
+                    .iter()
+                    .map(|message| message.text.clone())
+                    .collect();
+                ensure!(
+                    rows.iter().filter(|row| **row == line).count() == 1,
+                    "the left-game line {line:?} is not in {rows:?} exactly once"
+                );
+                let ticked = sim.session().tick();
+                super::super::skirmish::press_diplomacy_tab(state)?;
+                let view = crate::app::input::diplomacy::view(state);
+                let peer_row = view
+                    .rows
+                    .iter()
+                    .flatten()
+                    .find(|row| row.name == peer_name)
+                    .context("the peer's Diplomacy row")?;
+                ensure!(
+                    peer_row.chat.is_none(),
+                    "Diplomacy kept the departed House's chat box"
+                );
+                self.route
+                    .push(json!({"frame":frame,"action":"peer EXIT executed",
+                    "tick":ticked,"message_rows":rows,"connected":[0],"dialog":0x73}));
+                self.phase = LanPhase::Settle(2);
+            }
             LanPhase::Leaving => {
                 if state.match_state.scenario_exit.is_some() && !self.observed_exit_cascade {
                     let sim = &state
@@ -2322,6 +2412,7 @@ impl LanCapture {
             self.target,
             LanTarget::HostAbortReturn
                 | LanTarget::HostDiplomacy
+                | LanTarget::HostPeerLeft
                 | LanTarget::HostObserve
                 | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn
@@ -2556,4 +2647,15 @@ mod tests {
         fs::remove_file(&path).unwrap();
         fs::remove_dir(root).unwrap();
     }
+}
+
+fn sim_tick(state: &AppState) -> Result<u64> {
+    Ok(state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .context("installed LAN runtime")?
+        .simulation
+        .session()
+        .tick())
 }

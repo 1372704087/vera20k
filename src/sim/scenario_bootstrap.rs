@@ -1103,6 +1103,8 @@ pub struct NormalizedSkirmishSlot {
     pub is_human: bool,
     pub observer: bool,
     pub source_human_index: Option<usize>,
+    /// A human node's handle, CreateHouses' source for House+0x1602A.
+    pub handle: Option<String>,
     pub(crate) difficulty: HouseDifficulty,
 }
 
@@ -1641,6 +1643,7 @@ pub fn normalized_launch_slots(session: &SkirmishLaunchSession) -> Vec<Normalize
             is_human: true,
             observer: human.is_observer(),
             source_human_index: Some(index),
+            handle: Some(human.name.clone()),
             difficulty: HouseDifficulty::Normal,
         });
     }
@@ -1654,6 +1657,7 @@ pub fn normalized_launch_slots(session: &SkirmishLaunchSession) -> Vec<Normalize
             is_human: false,
             observer: false,
             source_human_index: None,
+            handle: None,
             difficulty: HouseDifficulty::from_native(opponent.difficulty.as_i32())
                 .expect("native AI difficulty"),
         });
@@ -1744,6 +1748,15 @@ pub fn populate_launch_houses(
         } else {
             "Computer"
         });
+        // The same writers give a human its own node's handle and every
+        // computer TXT_COMPUTER as its UI name, in every mode.
+        if slot.is_human {
+            if let Some(handle) = &slot.handle {
+                house.set_ui_name(crate::sim::house_state::HouseUiName::handle(handle));
+            }
+        } else {
+            house.set_ui_name(crate::sim::house_state::HouseUiName::Computer);
+        }
         // `ScenarioClass::Create_Houses` passes every launch house through
         // `HouseClass::SetDifficulty` (humans with 1, `0x00688132`; computer
         // slots with their own, `0x006882B9`); Neutral and Special are never
@@ -2826,6 +2839,17 @@ pub fn initialize_map_roster_houses(
         // HouseReadINI500A62..500A7B overwrites the constructor's country ID
         // with the bounded roster entry before any object reader runs.
         house_state.initialize_scenario_name(&house.name);
+        // Read_Scenario_INI 500C5D..500D05: a non-empty `UIName=` names the
+        // House through the string table, else the type's UIName stays.
+        // Residual: native copies with wcsncpy(.., 0x20), whose zero padding
+        // runs past the 20-character field through +0x16069 (the colour
+        // index +0x16054 that the later `Color=` read defaults from, and the
+        // constructor's +0x16058..+0x16064) before terminating +0x16052.
+        // VERA keeps the visible 20 characters and none of that overrun;
+        // whether retail campaign maps set House `UIName=` is unchecked.
+        if let Some(key) = &house.ui_name {
+            house_state.set_ui_name(crate::sim::house_state::HouseUiName::Csf(key.clone()));
+        }
         house_state.resolve_multiplay_passive(rules, country_name);
         if let Some(rules) = rules {
             house_state.project_country_mults(rules, &sim.interner);
@@ -3848,6 +3872,7 @@ mod tests {
             is_human: true,
             observer: false,
             source_human_index: Some(0),
+            handle: None,
             difficulty: HouseDifficulty::Normal,
         }];
         let mut expected = SimRng::new(seed);
@@ -4402,6 +4427,83 @@ mod tests {
         );
         assert_eq!(plan_a.assignment(), plan_b.assignment());
         assert_eq!(plan_a.scenario_rng_after, plan_b.scenario_rng_after);
+    }
+
+    #[test]
+    fn map_houses_take_a_ui_name_key_or_keep_the_type_name() {
+        use crate::sim::house_state::HouseUiName;
+        let ini = crate::rules::ini_parser::IniFile::from_str(
+            "[Houses]\n0=Allies\n1=Soviets\n\
+             [Allies]\nUIName=Name:AlliedHouse\n[Soviets]\nUIName=\n",
+        );
+        let roster = crate::map::houses::parse_house_roster(&ini, &[], None);
+        let mut sim = Simulation::new();
+        initialize_map_roster_houses(&mut sim, &roster, None, Some(&ini));
+        let name = |house: &str| {
+            let id = sim.interner.get(house).unwrap();
+            sim.houses[&id].ui_name().clone()
+        };
+        assert_eq!(name("Allies"), HouseUiName::Csf("Name:AlliedHouse".into()));
+        assert_eq!(name("Soviets"), HouseUiName::TypeName);
+    }
+
+    #[test]
+    fn launch_houses_take_each_humans_handle_and_computer_ui_names() {
+        use crate::sim::house_state::HouseUiName;
+        // CreateHouses 688092..6880A4: each human its own node's handle (at
+        // most 20 wide chars), even a duplicate; 688252..688270: computers
+        // TXT_COMPUTER. Owner keys stay distinct.
+        let mut session = one_player_battle_launch("names.mmx").session().clone();
+        session.humans[0].name = "Twentyone-characters".to_string() + "X";
+        let mut peer = session.humans[0].clone();
+        peer.raw_slot_index = Some(1);
+        peer.slot.color_index = 1;
+        peer.name = "Remote".to_string();
+        let mut twin = peer.clone();
+        twin.raw_slot_index = Some(2);
+        twin.slot.color_index = 2;
+        session.humans.push(peer);
+        session.humans.push(twin);
+        session.rebuild_house_roster();
+        let launch = MatchLaunchDescriptor::from_resolved(session).unwrap();
+        let mut sim = Simulation::new();
+        initialize_skirmish_launch_houses(
+            &mut sim,
+            &HouseRoster::default(),
+            &techno_constructor_start_rules(),
+            &launch,
+        );
+        let names: Vec<_> = normalized_launch_slots(launch.session())
+            .iter()
+            .map(|slot| {
+                let owner = sim.interner.get(&slot.owner_name).unwrap();
+                (
+                    slot.owner_name.clone(),
+                    sim.houses[&owner].ui_name().clone(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            names[0].1,
+            HouseUiName::Handle("Twentyone-characters".into())
+        );
+        assert_eq!(
+            names[1],
+            ("Remote".into(), HouseUiName::Handle("Remote".into()))
+        );
+        assert_eq!(names[2].1, HouseUiName::Handle("Remote".into()));
+        assert_ne!(names[2].0, "Remote");
+        assert!(
+            names[3..]
+                .iter()
+                .all(|(_, name)| *name == HouseUiName::Computer)
+        );
+        assert_eq!(
+            HouseUiName::bounded("\u{1F600}".repeat(11).as_str())
+                .chars()
+                .count(),
+            10
+        );
     }
 
     #[test]

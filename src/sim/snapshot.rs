@@ -1204,7 +1204,9 @@ use crate::util::save_codec;
 // DisabledDisguiseDetectionPercent=.
 // 449 -> 450: the retained `[Basic]` section carries Scenario+0x1440 `Lose`,
 // the movie campaign defeat plays before its retry prompt.
-const SNAPSHOT_VERSION: u32 = 450;
+// 450 -> 451: HouseState retains House+0x1602A's UI name source (handle,
+// TXT_COMPUTER, map UIName= key or the type's UIName).
+const SNAPSHOT_VERSION: u32 = 451;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10055,6 +10057,7 @@ mod tests {
         // 447 -> 448: retained Unit firing counter through parasite release.
         // 448 -> 449: the disguise firing blink and its rules keys.
         // 449 -> 450: the retained `[Basic]` Lose movie.
-        assert_eq!(super::SNAPSHOT_VERSION, 450);
+        // 450 -> 451: the House UI name source.
+        assert_eq!(super::SNAPSHOT_VERSION, 451);
     }
 }

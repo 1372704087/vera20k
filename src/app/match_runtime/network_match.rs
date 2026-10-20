@@ -75,6 +75,8 @@ pub(crate) enum NetworkMatchEvent {
     },
     /// Chat packet `0x0C` from participant `source_index`.
     Chat { source_index: usize, text: String },
+    /// Taunt packet `0x1D`; the receiver reads only its taunt byte.
+    Taunt { byte: u8 },
 }
 
 /// `Network__DestroyConnection 0x005DA750` for participant `source_index`.
@@ -263,6 +265,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkMatchEvent) -> a
         NetworkMatchEvent::Chat { source_index, text } => {
             crate::app::input::chat::receive(state, source_index, &text);
         }
+        NetworkMatchEvent::Taunt { byte } => crate::app::input::taunt::receive(state, byte),
     }
     Ok(())
 }

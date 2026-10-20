@@ -236,8 +236,10 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             seed,
         } => {
             // 0x5E3E73..0x5E3E90: a WOL parse drops every option text while
-            // a start is pending or the game runs.
-            if dialog.wol() && super::wol::start_pending(state) {
+            // the game runs ([0xB77DC1]) or a StartGame is pending ([0xB77E28]).
+            if dialog.wol()
+                && (crate::app::shell_wol::in_match(state) || super::wol::start_pending(state))
+            {
                 return Ok(());
             }
             let before = state

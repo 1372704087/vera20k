@@ -101,23 +101,21 @@ pub(crate) fn unset_choices() -> crate::skirmish_launch::SkirmishLocalSlot {
 
 /// The guest's user-list sink `0x7A7110` after its own game join: each
 /// other user becomes the next node with unset choices
-/// (`0x7A7558..0x7A7786`); the first one added while only the local node
-/// exists is the host `[0xA8D610]` (`0x7A7627..0x7A763D`). Without an
-/// operator in the list the local leave runs (`0x7A782A..0x7A788D`) and
-/// this returns false; otherwise `0x5E9850` clears the acceptances.
+/// (`0x7A7558..0x7A7786`) but no row; rows are bound only by the host's
+/// `'L'` (`0x5E8EA0`), here [`service::NetworkSetupEvent::HostSetup`]. The
+/// first node added while only the local one exists is the host
+/// `[0xA8D610]` (`0x7A7627..0x7A763D`). Without an operator in the list the
+/// local leave runs (`0x7A782A..0x7A788D`) and this returns false;
+/// otherwise `0x5E9850` clears the acceptances.
 pub(crate) fn guest_users_listed(state: &mut AppState, users: &[(String, bool)]) -> bool {
     for (name, _) in users {
-        let session = &mut state.match_state.session;
-        let row = session
-            .network_setup()
-            .map_or(0, |launch| launch.humans.len());
         let human = crate::skirmish_launch::SkirmishHumanSlot {
-            raw_slot_index: u8::try_from(row).ok(),
+            raw_slot_index: None,
             name: name.clone(),
             slot: unset_choices(),
             role: Default::default(),
         };
-        if let Err(error) = session.add_network_participant(human) {
+        if let Err(error) = state.match_state.session.add_network_participant(human) {
             log::warn!("WOL user list: {name} has no node: {error:#}");
             continue;
         }
@@ -168,16 +166,30 @@ pub(crate) fn send_first_choices(state: &mut AppState) {
 /// The join sink `0x7A6100` for another user in this game channel. While a
 /// start is pending (`[0xB77DEC]`, `[0xB77E28]` or `[0xB77E27]`) the joiner
 /// is kicked (API+0x54) after the PlayerJoined sound and gets no node
-/// (`0x7A631E..0x7A6348`); otherwise the setup admits it with unset
-/// choices.
+/// (`0x7A631E..0x7A6348`). A guest appends an unbound node. The host binds
+/// it through `0x5E9240`: a player on the first Open row, an observer on
+/// the first open observer row when no Open player row is left
+/// (`0x5E9510`); with neither (`0x5E9560`) the joiner is kicked
+/// (`0x7A6BC7`).
+/// RESIDUAL: the host's node takes the mode's default country (mode
+/// vt+0x28) natively; it is unset here.
 pub(crate) fn user_joined(state: &mut AppState, name: String) -> anyhow::Result<()> {
-    if start_pending(state)
+    let session = &state.match_state.session;
+    let pending = start_pending(state)
         || state
             .frontend
             .network_setup_protocol
             .as_ref()
-            .is_some_and(|protocol| protocol.locked)
-    {
+            .is_some_and(|protocol| protocol.locked);
+    let row = if !session.host() {
+        Some(None)
+    } else if session.network_no_open_player_row() {
+        session.network_free_row(true).map(Some)
+    } else {
+        session.network_free_row(false).map(Some)
+    };
+    let observer = session.host() && session.network_no_open_player_row();
+    let Some(row) = row.filter(|_| !pending) else {
         let sound = state
             .rules()
             .and_then(|rules| rules.general.player_joined_sound())
@@ -185,21 +197,15 @@ pub(crate) fn user_joined(state: &mut AppState, name: String) -> anyhow::Result<
         App::play_shell_ui_sound_by_id(state, sound.as_deref());
         queue(state, NetworkSetupRequest::Kick { name });
         return Ok(());
-    }
-    let row = state
-        .match_state
-        .session
-        .network_setup()
-        .map_or(0, |launch| launch.humans.len());
-    service::service_event(
-        state,
-        service::NetworkSetupEvent::ParticipantJoined(crate::skirmish_launch::SkirmishHumanSlot {
-            raw_slot_index: u8::try_from(row).ok(),
-            name,
-            slot: unset_choices(),
-            role: Default::default(),
-        }),
-    )
+    };
+    let mut human = crate::skirmish_launch::SkirmishHumanSlot {
+        raw_slot_index: row,
+        name,
+        slot: unset_choices(),
+        role: Default::default(),
+    };
+    human.set_observer(observer);
+    service::service_event(state, service::NetworkSetupEvent::ParticipantJoined(human))
 }
 
 /// `0x785740` for another user leaving this game channel: PlayerLeft

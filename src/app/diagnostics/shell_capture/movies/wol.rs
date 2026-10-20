@@ -1772,6 +1772,28 @@ impl WolCapture {
                 self.phase = WolPhase::Rejoin;
                 return Ok(());
             }
+            WolTarget::JoinAccepted => {
+                // Before the host's 'L' (0x5E8EA0) the user-list sink's nodes
+                // (0x7A7110) hold no row, so 0x5EA3E0 marks no host.
+                let launch = state
+                    .match_state
+                    .session
+                    .network_setup()
+                    .context("C9 setup")?;
+                let rows: Vec<(String, Option<u8>)> = launch
+                    .humans
+                    .iter()
+                    .map(|human| (human.name.clone(), human.raw_slot_index))
+                    .collect();
+                let view = setup_view(state)?;
+                let marked = view.row_icons.iter().flatten().any(|icon| icon.host);
+                ensure!(
+                    rows.contains(&(PEER.to_owned(), None)) && !marked,
+                    "C9 before options must hold an unbound host and no host icon: \
+                     {rows:?} host icon {marked}"
+                );
+                self.event(frame, json!({"C9 before options": rows}));
+            }
             WolTarget::GuestAccept => {
                 setup_button(state, setup_ui::ACCEPT)?;
                 let requests = setup_requests(state);

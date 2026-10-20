@@ -312,7 +312,7 @@ impl App {
                 cursor.leave_menus(locked);
             }
         }
-        if was_open != will_be_open && !state.match_state.session.mode().is_network() {
+        if was_open != will_be_open && !state.match_state.session_mode().is_network() {
             let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
             if will_be_open
                 || state
@@ -386,7 +386,7 @@ impl App {
             .as_ref()
             .map(|runtime| &runtime.simulation);
         let latch = Self::state_machine_admission(
-            state.match_state.session.mode().is_nonzero(),
+            state.match_state.session_mode().is_nonzero(),
             state.match_state.match_presentation.modal_latch,
             sim.and_then(|sim| {
                 sim.session()

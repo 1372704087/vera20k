@@ -1259,7 +1259,7 @@ fn the_building_search_admits_by_alliance_passivity_and_enemy() {
         let russians = sim.interner.intern("Russians");
         let germans = sim.interner.intern("Germans");
         if allied {
-            sim.house_alliances
+            sim.house_alliances_mut_for_test()
                 .entry("RUSSIANS".into())
                 .or_default()
                 .insert("GERMANS".into());

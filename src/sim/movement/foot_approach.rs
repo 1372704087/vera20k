@@ -161,7 +161,7 @@ impl Simulation {
                     CrushTarget::from_entity(victim, self.session.binary_frame()),
                     |owner| {
                         crate::sim::combat::combat_weapon::is_ally_by_object(
-                            Some(&self.house_alliances),
+                            Some(self.house_alliances.as_map()),
                             &self.interner,
                             actor.owner(),
                             owner,
@@ -256,7 +256,7 @@ impl Simulation {
             self,
             &self.interner,
             self.resolved_terrain.as_ref(),
-            Some(&self.house_alliances),
+            Some(self.house_alliances.as_map()),
         )
     }
 
@@ -479,7 +479,7 @@ impl Simulation {
         let los = combat::line_of_fire::LineOfFireInputs {
             overlay_grid: self.overlay_grid.as_ref(),
             overlay_registry: registry,
-            alliances: Some(&self.house_alliances),
+            alliances: Some(self.house_alliances.as_map()),
         };
         let can_fire = if let Some(identity) = identity {
             in_range::cell_target_in_range(
@@ -500,7 +500,7 @@ impl Simulation {
                 id,
                 &target,
                 &cells,
-                Some(&self.house_alliances),
+                Some(self.house_alliances.as_map()),
                 &los,
                 Some(&target),
             )
@@ -1061,7 +1061,7 @@ impl Simulation {
             &combat::line_of_fire::LineOfFireInputs {
                 overlay_grid: self.overlay_grid.as_ref(),
                 overlay_registry: registry,
-                alliances: Some(&self.house_alliances),
+                alliances: Some(self.house_alliances.as_map()),
             },
         );
         // The ftol'd distance is an integer: under 307.2 is at most 307.

@@ -399,13 +399,13 @@ fn the_infiltration_arm_takes_only_admitted_buildings() {
     );
 
     // Is_Ally_ByObject asks the spy's house only (`0x004F9A90`).
-    let alliances = &mut sim.house_alliances;
+    let alliances = sim.house_alliances_mut_for_test();
     alliances
         .entry("RUSSIANS".to_string())
         .or_default()
         .insert("AMERICANS".to_string());
     assert!(takes(&sim, spy, plant), "only the building's house allies");
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("AMERICANS".to_string())
         .or_default()
         .insert("RUSSIANS".to_string());

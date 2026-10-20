@@ -986,7 +986,7 @@ fn a_source_event_keeps_one_notification_admission_across_logical_planes() {
         ));
     // Supplied direct alliance prestate; the test exercises source event
     // admission, not the separate diplomacy producer.
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("AMERICANS".into())
         .or_default()
         .insert("ALLIANCE".into());

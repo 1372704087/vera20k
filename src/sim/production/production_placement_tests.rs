@@ -561,11 +561,14 @@ fn modded_refinery_rules(foundation: &str, free_unit: Option<&str>) -> RuleSet {
 fn mark_allied(sim: &mut Simulation, a: &str, b: &str) {
     let a = a.to_ascii_uppercase();
     let b = b.to_ascii_uppercase();
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry(a.clone())
         .or_default()
         .insert(b.clone());
-    sim.house_alliances.entry(b).or_default().insert(a);
+    sim.house_alliances_mut_for_test()
+        .entry(b)
+        .or_default()
+        .insert(a);
 }
 
 fn ready_building(sim: &mut Simulation, rules: &RuleSet, owner: &str, type_id: &str) {

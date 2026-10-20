@@ -1245,7 +1245,7 @@ impl Simulation {
     /// as its digest from [`Self::fog_digests`].
     fn hash_fog_and_alliances(&self, fog_digests: &[u64], hasher: &mut impl Hasher) {
         self.fog.hash_state(fog_digests, hasher);
-        for (owner, allies) in &self.house_alliances {
+        for (owner, allies) in self.house_alliances.as_map() {
             owner.hash(hasher);
             for ally in allies {
                 ally.hash(hasher);

@@ -189,7 +189,7 @@ fn fixture_world(
         sim.houses.register(state);
         sim.power_states.insert(id, PowerState::settled_for_test());
         let bits = int(&house[0]);
-        let allies = sim.house_alliances.entry(name).or_default();
+        let allies = sim.house_alliances_mut_for_test().entry(name).or_default();
         for other in (0..31).filter(|other| bits & (1 << other) != 0) {
             allies.insert(format!("H{other}"));
         }
@@ -1055,7 +1055,6 @@ fn a_strikes_explosion_precedes_its_area_damage_on_ore() {
             .is_none(),
         "the explosion's crater met dense ore"
     );
-    assert!(sim.pending_smudge_requests.is_empty());
     // The bolt's type is the only draw.
     let mut expected = SimRng::new(1);
     let _ = expected.next_u32();

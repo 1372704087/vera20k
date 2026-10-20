@@ -2308,7 +2308,7 @@ impl Simulation {
                 location: location_xyz(building, terrain),
                 enemy_owned: Some(building.owner()) == enemy,
                 allied: crate::map::houses::is_allied_with(
-                    &self.house_alliances,
+                    self.house_alliances.as_map(),
                     asker,
                     self.interner.resolve(building.owner()),
                 ),

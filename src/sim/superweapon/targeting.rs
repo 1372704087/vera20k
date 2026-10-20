@@ -120,7 +120,7 @@ pub(super) fn check_with_sites(
             relation: if entity.owner() == owner {
                 HouseMask::OWNER
             } else if is_allied_with(
-                &sim.house_alliances,
+                sim.house_alliances.as_map(),
                 sim.interner.resolve(owner),
                 sim.interner.resolve(entity.owner()),
             ) {

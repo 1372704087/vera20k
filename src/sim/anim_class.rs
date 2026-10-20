@@ -1336,7 +1336,7 @@ impl Simulation {
         let config = self.sight_reveal_config(Some(rules));
         let viewers = self.reveal_viewers.direct(
             &self.fog,
-            &self.house_alliances,
+            self.house_alliances.as_map(),
             owner,
             &config,
             &self.interner,
@@ -2466,7 +2466,7 @@ impl Simulation {
     ) -> bool {
         if anim.owner_house.is_some_and(|house| {
             crate::sim::combat::combat_weapon::is_ally_by_object(
-                Some(&self.house_alliances),
+                Some(self.house_alliances.as_map()),
                 &self.interner,
                 viewer,
                 house,

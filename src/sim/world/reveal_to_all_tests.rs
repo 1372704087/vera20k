@@ -216,7 +216,7 @@ fn an_allys_building_shows_both_sights_and_takes_both_back() {
     let Some((rules, mut sim, americans)) = world() else {
         return;
     };
-    sim.house_alliances = crate::map::houses::HouseAllianceMap::from([
+    *sim.house_alliances_mut_for_test() = crate::map::houses::HouseAllianceMap::from([
         (
             "AMERICANS".to_string(),
             std::collections::BTreeSet::from(["RUSSIANS".to_string()]),
@@ -334,7 +334,7 @@ fn a_sold_allys_building_leaves_its_shared_sight_counted() {
     let Some((rules, mut sim, americans)) = world() else {
         return;
     };
-    sim.house_alliances = crate::map::houses::HouseAllianceMap::from([
+    *sim.house_alliances_mut_for_test() = crate::map::houses::HouseAllianceMap::from([
         (
             "AMERICANS".to_string(),
             std::collections::BTreeSet::from(["RUSSIANS".to_string()]),

@@ -1004,7 +1004,7 @@ mod terrain_target_tests {
             &world,
             &world.interner,
             world.resolved_terrain.as_ref(),
-            Some(&world.house_alliances),
+            Some(world.house_alliances.as_map()),
         )
         .expect("a live Terrain Object is a selection target");
         assert_eq!(weapon.unwrap().weapon_id, "105mm");

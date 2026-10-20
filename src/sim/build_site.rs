@@ -266,7 +266,7 @@ pub(crate) fn flush_for_placement(
             continue;
         };
         let allied = crate::map::houses::is_allied_with(
-            &sim.house_alliances,
+            sim.house_alliances.as_map(),
             sim.interner.resolve(object.owner()),
             sim.interner.resolve(house),
         );

@@ -633,7 +633,7 @@ fn the_genetic_mutator_target_matches_native() {
                 .register(HouseState::new(id, 0, None, false, 0, 10));
         }
         // `+0x5788` bit 2: the computer counts the third house an ally.
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(COMPUTER.to_ascii_uppercase())
             .or_default()
             .insert(ALLY.to_ascii_uppercase());
@@ -1141,7 +1141,7 @@ fn the_psychic_dominator_target_matches_native() {
             .unwrap()
             .set_enemy_house_for_test((int(&row["enemy_index"]) != -1).then_some(enemy));
         // `+0x5788` bit 2: the computer counts the third house an ally.
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(COMPUTER.to_ascii_uppercase())
             .or_default()
             .insert(ALLY.to_ascii_uppercase());

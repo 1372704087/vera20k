@@ -150,7 +150,7 @@ fn a_launch_maps_the_native_cells_for_its_house_and_allies() {
     sim.set_playfield_size_height_for_test(Some(50));
     let russians = sim.interner.intern("Russians");
     let yuri = sim.interner.intern("YuriCountry");
-    sim.house_alliances = [
+    *sim.house_alliances_mut_for_test() = [
         ("AMERICANS".to_string(), ["RUSSIANS".to_string()].into()),
         ("YURICOUNTRY".to_string(), ["AMERICANS".to_string()].into()),
     ]

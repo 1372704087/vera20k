@@ -294,7 +294,7 @@ pub(crate) fn start(
         let house = sim.houses.order()[index];
         if let Some(owner) = owner
             && crate::map::houses::is_allied_with(
-                &sim.house_alliances,
+                sim.house_alliances.as_map(),
                 sim.interner.resolve(owner),
                 sim.interner.resolve(house),
             )

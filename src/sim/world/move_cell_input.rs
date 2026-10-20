@@ -383,7 +383,7 @@ impl Simulation {
             .and_then(|cell| cell.wall_owner)
             .is_some_and(|owner| {
                 !crate::map::houses::is_allied_with(
-                    &self.house_alliances,
+                    self.house_alliances.as_map(),
                     self.interner.resolve(owner),
                     self.interner.resolve(entity.owner()),
                 )

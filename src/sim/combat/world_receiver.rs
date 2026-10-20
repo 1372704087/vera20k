@@ -754,7 +754,7 @@ pub(crate) fn commit_entities(
             rules,
             &world.interner,
             &world.houses,
-            &world.house_alliances,
+            world.house_alliances.as_map(),
             scenario_no_damage,
             current_tick,
             world.resolved_terrain.as_ref(),

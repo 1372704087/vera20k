@@ -581,8 +581,8 @@ fn retail_sov01_make_enemy_reaches_the_shared_diplomacy_owner() {
         Some(&overlay),
         FrameEffects::default(),
     ));
-    assert!(!sim.house_alliances["RUSSIANS"].contains("ARABS"));
-    assert!(!sim.house_alliances["ARABS"].contains("RUSSIANS"));
+    assert!(!sim.house_alliances.as_map()["RUSSIANS"].contains("ARABS"));
+    assert!(!sim.house_alliances.as_map()["ARABS"].contains("RUSSIANS"));
     assert_eq!(sim.session.current_house(), Some(russians));
 }
 

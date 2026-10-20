@@ -1131,7 +1131,7 @@ pub struct Simulation {
     /// written by `sim::house_diplomacy`: the scenario's install, then
     /// MakeAlly and MakeEnemy. A write during the object or fog pass must
     /// also forget [`Self::reveal_viewers`], as those writers do.
-    pub(crate) house_alliances: HouseAllianceMap,
+    pub(crate) house_alliances: crate::sim::house_diplomacy::HouseAlliances,
     /// Object substrate — the active-object order plus the monotonic id and
     /// enter-order counters. The single owner the lifecycle contract
     /// (reveal/conceal/unlimbo/uninit) mutates; entity storage and the
@@ -1221,11 +1221,6 @@ pub struct Simulation {
     /// destruction removes it.
     #[serde(default)]
     object_custom_sounds: BTreeMap<u64, String>,
-    /// Hookless-test adapter retained for old fixture callsites. Production
-    /// combat and superweapons commit smudges inline, so this remains empty and
-    /// never persists across ticks.
-    #[serde(skip)]
-    pub(crate) pending_smudge_requests: Vec<crate::sim::combat::SmudgeSpawnRequest>,
     /// Bale deposit events emitted during refinery dock unloading and consumed
     /// by the authoritative frame tail for SpecialAnim and particle creation.
     #[serde(skip)]
@@ -2303,7 +2298,7 @@ impl Simulation {
         // (0x00469C93 -> 0x00422702/0x00424D5A) accesses the live smudge map
         // before returning. Keep that authority resident through recursion.
         // Evidence: active gamemd.exe bodies and caller instructions.
-        let house_alliances = self.house_alliances.clone();
+        let house_alliances = self.house_alliances.as_map().clone();
         let current_tick = u64::from(self.session.binary_frame());
         let scenario_no_damage = self.session.no_damage();
         let mut effects = crate::sim::combat::DeathEffects::default();
@@ -2883,7 +2878,7 @@ impl Simulation {
                             .get(&listener)
                             .is_some_and(|house| house.is_human())
                         && crate::map::houses::is_allied_with(
-                            &self.house_alliances,
+                            self.house_alliances.as_map(),
                             &victim_name,
                             self.interner.resolve(listener),
                         )
@@ -3071,7 +3066,7 @@ impl Simulation {
     }
 
     pub fn house_alliances(&self) -> &HouseAllianceMap {
-        &self.house_alliances
+        self.house_alliances.as_map()
     }
 
     pub fn sound_events(&self) -> &[SimSoundEvent] {
@@ -3358,7 +3353,7 @@ impl Simulation {
 
     #[cfg(any(test, feature = "test-support"))]
     pub fn house_alliances_mut_for_test(&mut self) -> &mut HouseAllianceMap {
-        &mut self.house_alliances
+        self.house_alliances.as_map_mut_for_test()
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -3858,7 +3853,7 @@ impl Simulation {
             native_map_tubes: crate::map::tubes::NativeMapTubesState::default(),
             load_objects: LoadObjectLifecycle::default(),
             fog: FogState::default(),
-            house_alliances: HouseAllianceMap::default(),
+            house_alliances: Default::default(),
             substrate: ObjectSubstrate::new(),
             lifecycle_outputs: Vec::new(),
             unit_voice_visit_interest: Default::default(),
@@ -3884,7 +3879,6 @@ impl Simulation {
             waves: crate::sim::wave::WaveStore::new(),
             active_wave_links: BTreeMap::new(),
             object_custom_sounds: BTreeMap::new(),
-            pending_smudge_requests: Vec::new(),
             bale_events: Vec::new(),
             bunker_wall_events: Vec::new(),
             team_script_vm: TeamScriptVm::default(),
@@ -6628,7 +6622,7 @@ impl Simulation {
     fn apply_active_vision_structures(&mut self, effects: &ActiveVisionStructures) {
         vision::materialize_gap_generator_sources(
             &mut self.fog,
-            &self.house_alliances,
+            self.house_alliances.as_map(),
             &effects.gap_generators,
             &self.interner,
         );

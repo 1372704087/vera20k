@@ -1296,7 +1296,7 @@ impl Simulation {
                 };
                 //4B3B52..4B3B62: the mover's House asks about the object.
                 if crate::map::houses::is_allied_with(
-                    &self.house_alliances,
+                    self.house_alliances.as_map(),
                     self.interner.resolve(actor.owner()),
                     self.interner.resolve(target.owner()),
                 ) {

@@ -330,7 +330,7 @@ fn gsi_04_18_spy_sat_latch_and_persisted_fog_are_hash_authority() {
     let gapper = sim.interner.intern("Soviet");
     crate::sim::vision::apply_gap_generators(
         &mut sim.fog,
-        &sim.house_alliances,
+        sim.house_alliances.as_map(),
         &[(gapper, 12, 12, 3)],
         &sim.interner,
     );
@@ -468,7 +468,7 @@ fn shroud_current_sight_fresh_direct_allied_psychic_reaches_authoritative_view()
         ("ALLIANCE", "SOVIET"),
         ("SOVIET", "ALLIANCE"),
     ] {
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(left.into())
             .or_default()
             .insert(right.into());
@@ -527,7 +527,7 @@ fn shroud_current_sight_psychic_never_gapped_and_mixed_views_are_nontransitive()
             ("ALLIANCE", "SOVIET"),
             ("SOVIET", "ALLIANCE"),
         ] {
-            sim.house_alliances
+            sim.house_alliances_mut_for_test()
                 .entry(left.into())
                 .or_default()
                 .insert(right.into());
@@ -581,13 +581,13 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
     let b = sim.interner.intern("Alliance");
     let c = sim.interner.intern("Third");
     let reverse = sim.interner.intern("ReverseOnly");
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("REVERSEONLY".into())
         .or_default()
         .insert("AMERICANS".into());
     let gapper = sim.interner.intern("Soviet");
     for (left, right) in [("Americans", "Alliance"), ("Alliance", "Americans")] {
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(left.to_ascii_uppercase())
             .or_default()
             .insert(right.to_ascii_uppercase());
@@ -718,7 +718,7 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
     // A newly direct allied viewer still has its constructor-equivalent due
     // timer, even though other viewers reloaded on this same binary frame.
     for (left, right) in [("Americans", "Third"), ("Third", "Americans")] {
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(left.to_ascii_uppercase())
             .or_default()
             .insert(right.to_ascii_uppercase());
@@ -1005,11 +1005,11 @@ fn shroud_current_sight_spy_sat_replays_allied_buildings_but_not_mobile_admissio
         let (mut sim, rules, viewer) = fixture();
         let ally = sim.interner.intern("Alliance");
         let hostile = sim.interner.intern("Soviet");
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry("ALLIANCE".into())
             .or_default()
             .insert("AMERICANS".into());
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry("AMERICANS".into())
             .or_default()
             .insert("ALLIANCE".into());
@@ -1060,11 +1060,11 @@ fn shroud_current_sight_spy_sat_replays_allied_buildings_but_not_mobile_admissio
 fn reset_shroud_replays_own_sight_and_allied_buildings() {
     let (mut sim, rules, viewer) = fixture();
     let ally = sim.interner.intern("Alliance");
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("ALLIANCE".into())
         .or_default()
         .insert("AMERICANS".into());
-    sim.house_alliances
+    sim.house_alliances_mut_for_test()
         .entry("AMERICANS".into())
         .or_default()
         .insert("ALLIANCE".into());

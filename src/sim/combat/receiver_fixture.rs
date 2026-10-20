@@ -551,7 +551,7 @@ pub(crate) fn commit_damage_events(
         inline_hooks.as_deref_mut(),
         |world, run| {
             world.set_rule_handles_for_test(handles);
-            world.house_alliances = alliances.clone();
+            *world.house_alliances_mut_for_test() = alliances.clone();
             world.receiver_fixture.as_mut().unwrap().current_tick = current_tick;
             world.session.set_binary_frame_for_test(current_tick as u32);
             world_receiver::commit_entities(
@@ -603,7 +603,7 @@ pub(crate) fn commit_area_damage_receivers(
         inline_hooks.as_deref_mut(),
         |world, run| {
             world.set_rule_handles_for_test(handles);
-            world.house_alliances = alliances.clone();
+            *world.house_alliances_mut_for_test() = alliances.clone();
             world.receiver_fixture.as_mut().unwrap().current_tick = current_tick;
             world.session.set_binary_frame_for_test(current_tick as u32);
             world_receiver::commit_area(world, run, receivers, rules, overlay_registry)
@@ -648,7 +648,7 @@ pub(crate) fn handle_entity_deaths(
         inline_hooks.as_deref_mut(),
         |world, run| {
             world.set_rule_handles_for_test(handles);
-            world.house_alliances = alliances.clone();
+            *world.house_alliances_mut_for_test() = alliances.clone();
             world.receiver_fixture.as_mut().unwrap().current_tick = current_tick;
             world.session.set_no_damage_for_test(scenario_no_damage);
             world.session.set_binary_frame_for_test(current_tick as u32);
@@ -707,7 +707,7 @@ pub(crate) fn emit_projectile_detonations(
                 *world.terrain_objects.objects_mut_for_test() = view.objects.clone();
                 *world.terrain_objects.cell_index_mut_for_test() = view.cells.clone();
             }
-            world.house_alliances = house_alliances.clone();
+            *world.house_alliances_mut_for_test() = house_alliances.clone();
             world.bridge_state = bridge_state.cloned();
             world_receiver::commit_projectile_detonations_inline(
                 world,
@@ -832,7 +832,7 @@ pub(crate) fn tick_combat_with_fog_and_main_rng_with_terrain_area(
         inline_hooks,
         |world, run| {
             world.set_rule_handles_for_test(handles);
-            world.house_alliances = alliances.clone();
+            *world.house_alliances_mut_for_test() = alliances.clone();
             world.receiver_fixture.as_mut().unwrap().current_tick = current_tick;
             world.session.set_no_damage_for_test(scenario_no_damage);
             world.session.set_binary_frame_for_test(binary_frame);

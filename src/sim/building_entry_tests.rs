@@ -1788,7 +1788,7 @@ fn an_order_into_an_absorber_is_admitted_by_its_can_load() {
     assert!(!admits(&sim, tank), "a vehicle into an infantry absorber");
     assert!(!admits(&sim, guest), "an enemy house's infantryman");
     for (house, ally) in [("YURICOUNTRY", "AMERICANS"), ("AMERICANS", "YURICOUNTRY")] {
-        sim.house_alliances
+        sim.house_alliances_mut_for_test()
             .entry(house.to_string())
             .or_default()
             .insert(ally.to_string());

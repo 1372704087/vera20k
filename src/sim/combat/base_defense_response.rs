@@ -442,7 +442,7 @@ pub(crate) fn respond_to_base_attack(
     let current_frame = world.session.binary_frame() as i32;
 
     if is_allied_with(
-        &world.house_alliances,
+        world.house_alliances.as_map(),
         interner.resolve(victim_owner),
         interner.resolve(attacker_owner),
     ) || world

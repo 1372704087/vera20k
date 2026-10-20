@@ -325,7 +325,7 @@ impl Simulation {
                 &[victim],
                 &self.substrate.entities,
                 id,
-                &self.house_alliances,
+                self.house_alliances.as_map(),
                 &self.interner,
                 (coord.x, coord.y),
                 capability,

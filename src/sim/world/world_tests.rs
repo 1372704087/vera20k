@@ -4193,7 +4193,7 @@ fn one_way_alliance_does_not_end_the_game() {
         let b = insert_house_with_counts(&mut sim, "Russians", 1, 1);
         let opponent = insert_house_with_counts(&mut sim, "YuriCountry", 1, 0);
         sim.session.set_current_house_for_test(Some(a));
-        sim.house_alliances = if mutual {
+        *sim.house_alliances_mut_for_test() = if mutual {
             directed_alliances(&[("Americans", "Russians"), ("Russians", "Americans")])
         } else {
             directed_alliances(&[("Americans", "Russians")])

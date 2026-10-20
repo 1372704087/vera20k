@@ -448,7 +448,7 @@ impl Simulation {
             let enemy_planter = c4_source.filter(|&planter| {
                 sim.substrate.entities.get(planter).is_some_and(|planter| {
                     !crate::map::houses::is_allied_with(
-                        &sim.house_alliances,
+                        sim.house_alliances.as_map(),
                         owner_name,
                         sim.interner.resolve(planter.owner()),
                     )

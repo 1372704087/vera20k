@@ -480,14 +480,14 @@ fn a_computer_mcv_deploy_turns_the_computers_paranoid() {
     let mcv = sim
         .spawn_object("AMCV", "Americans", 20, 22, 128, &rules)
         .expect("spawn MCV");
-    assert!(sim.house_alliances.is_empty());
+    assert!(sim.house_alliances.as_map().is_empty());
     assert!(sim.deploy_mcv(
         mcv,
         &rules,
         None,
         crate::sim::world::FrameEffects::default()
     ));
-    let allies = |name: &str| sim.house_alliances[&name.to_ascii_uppercase()].clone();
+    let allies = |name: &str| sim.house_alliances.as_map()[&name.to_ascii_uppercase()].clone();
     assert!(allies("Americans").contains("COMPUTER2"));
     assert!(allies("Computer2").contains("AMERICANS"));
     let player = sim.interner.get("Player").unwrap();

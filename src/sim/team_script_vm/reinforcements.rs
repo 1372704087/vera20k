@@ -162,7 +162,7 @@ impl Simulation {
             .filter(|&current| {
                 placed
                     && crate::map::houses::is_allied_with(
-                        &self.house_alliances,
+                        self.house_alliances.as_map(),
                         self.interner.resolve(owner),
                         self.interner.resolve(current),
                     )
@@ -403,7 +403,7 @@ impl Simulation {
                 .current_house()
                 .filter(|&current| {
                     crate::map::houses::is_allied_with(
-                        &self.house_alliances,
+                        self.house_alliances.as_map(),
                         self.interner.resolve(owner),
                         self.interner.resolve(current),
                     )

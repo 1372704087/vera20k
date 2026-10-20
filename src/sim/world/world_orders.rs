@@ -204,7 +204,7 @@ impl Simulation {
         let target = self.substrate.entities.get(target_id)?;
         let target_type = self.object_type(target.type_ref(), rules)?;
         if !crate::map::houses::is_allied_with(
-            &self.house_alliances,
+            self.house_alliances.as_map(),
             self.interner.resolve(actor.owner()),
             self.interner.resolve(target.owner()),
         ) {
@@ -285,7 +285,7 @@ impl Simulation {
         if actor.category() != EntityCategory::Unit
             || !self.house_is_human_player(actor.owner())
             || !combat::combat_weapon::is_ally_by_object(
-                Some(&self.house_alliances),
+                Some(self.house_alliances.as_map()),
                 &self.interner,
                 target.owner(),
                 actor.owner(),
@@ -487,7 +487,7 @@ impl Simulation {
         }
         if !object.bridge_repair_hut {
             let allied = crate::map::houses::is_allied_with(
-                &self.house_alliances,
+                self.house_alliances.as_map(),
                 self.interner.resolve(actor.owner()),
                 self.interner.resolve(target.owner()),
             );
@@ -590,7 +590,7 @@ impl Simulation {
         };
         infiltrator_admits(infantry, building)
             && !crate::map::houses::is_allied_with(
-                &self.house_alliances,
+                self.house_alliances.as_map(),
                 self.interner.resolve(actor.owner()),
                 self.interner.resolve(target.owner()),
             )
@@ -820,7 +820,7 @@ impl Simulation {
         };
         if !object.bridge_repair_hut {
             let allied = crate::map::houses::is_allied_with(
-                &self.house_alliances,
+                self.house_alliances.as_map(),
                 self.interner.resolve(owner),
                 self.interner.resolve(building.owner()),
             );

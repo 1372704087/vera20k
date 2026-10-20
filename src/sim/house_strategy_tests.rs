@@ -210,7 +210,8 @@ fn the_strategy_matches_native() {
             }
         }
         let owner_name = sim.interner.resolve(owner).to_string();
-        sim.house_alliances.insert(owner_name, allies);
+        sim.house_alliances_mut_for_test()
+            .insert(owner_name, allies);
         let house = sim.houses.get_mut(&owner).unwrap();
         house.set_multiplay_passive_for_test(flag(&row["self_passive"]));
         house.set_enemy_house_for_test(

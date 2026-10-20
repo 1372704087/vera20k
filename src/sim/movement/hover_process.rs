@@ -935,7 +935,7 @@ impl Simulation {
         };
         let allied = self.substrate.entities.get(nearest).is_some_and(|object| {
             crate::map::houses::is_allied_with(
-                &self.house_alliances,
+                self.house_alliances.as_map(),
                 self.interner.resolve(entity.owner()),
                 self.interner.resolve(object.owner()),
             )

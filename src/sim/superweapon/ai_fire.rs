@@ -797,7 +797,7 @@ fn hostile_and_low(
 ) -> bool {
     object.owner() != owner
         && !is_allied_with(
-            &sim.house_alliances,
+            sim.house_alliances.as_map(),
             sim.interner.resolve(owner),
             sim.interner.resolve(object.owner()),
         )

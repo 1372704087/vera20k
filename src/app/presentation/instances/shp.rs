@@ -665,13 +665,19 @@ pub(crate) fn build_shp_instances(
                 }
             }
         } else if let Some((target, instance)) = body {
+            let shadow = (entity.category() == EntityCategory::Infantry)
+                .then(|| infantry_air_shadow_piece(atlas, entity, cells.as_ref(), [sx, sy], depth))
+                .flatten();
             ground_objects.push(PlannedObjectInstance::object(
                 parent,
-                vec![ObjectPieceInstance {
-                    target,
-                    render_z: parent.policy.render_z,
-                    instance,
-                }],
+                shadow
+                    .into_iter()
+                    .chain(std::iter::once(ObjectPieceInstance {
+                        target,
+                        render_z: parent.policy.render_z,
+                        instance,
+                    }))
+                    .collect(),
             ));
         }
 
@@ -855,6 +861,80 @@ pub(crate) fn building_embedded_shadow_piece(
             crate::render::terrain_draw::TerrainPiece::Shadow,
         ),
         instance,
+    })
+}
+
+/// The shadow `InfantryClass::DrawIt @ 0x00518F90` draws under an airborne
+/// infantry, before its body (`0x0051945D..0x0051958A`).
+///
+/// - Height is GetHeight (vtable `+0x1C8`, `0x005F5F40`). Over a structural
+///   bridge cell (`+0x140 & 0x100`) at deck height or above, it drops the deck
+///   (`0x00A8F234`, 416) when the cell's neighbour along the bridge also
+///   carries one: north (`Adjacent_Cell(0)`) with flag `0x800`, else west (6).
+/// - Only a positive height draws `INFSHDW.SHP` frame 1, at the body point
+///   lowered by `AdjustForZ(height)`, with flags `0x2601` (centred shadow
+///   edit, Z read only), gradient 0 and
+///   `a7 = -5 - AdjustForZ(Location.Z - height)`.
+/// - The DropPod locomotor's `POD.SHP` arm (`0x00519140`), which skips this
+///   shadow, is dormant in skirmish.
+fn infantry_air_shadow_piece(
+    atlas: &crate::render::sprite_atlas::SpriteAtlas,
+    entity: &crate::sim::game_entity::GameEntity,
+    cells: Option<&crate::map::resolved_terrain::NativeCellQuery<'_>>,
+    body_point: [f32; 2],
+    depth: f32,
+) -> Option<ObjectPieceInstance> {
+    use crate::map::bridge_facts::{BRIDGE_FLAG_DIRECTION_ZERO, BRIDGE_FLAG_STRUCTURAL};
+    use crate::util::lepton::BRIDGE_DECK_HEIGHT_LEPTONS;
+    use crate::util::native_x87::adjust_for_z_standard;
+    let mut height = crate::sim::movement::air_movement::queried_flight_height(entity, cells);
+    if let Some(cells) = cells {
+        let [x, y] = crate::sim::movement::ground_pose::position_world_xy(&entity.position);
+        let cell = cells.lookup_world(x, y);
+        let flags = cells.flags(cell);
+        if flags & BRIDGE_FLAG_STRUCTURAL != 0 && height >= BRIDGE_DECK_HEIGHT_LEPTONS {
+            let direction = if flags & BRIDGE_FLAG_DIRECTION_ZERO != 0 {
+                0
+            } else {
+                6
+            };
+            let (dx, dy) = crate::util::direction::DIRECTION_DELTAS[direction];
+            let (cx, cy) = cells.coord(cell);
+            let neighbour = cells.lookup((cx.wrapping_add(dx as i16), cy.wrapping_add(dy as i16)));
+            if cells.flags(neighbour) & BRIDGE_FLAG_STRUCTURAL != 0 {
+                height = height.wrapping_sub(BRIDGE_DECK_HEIGHT_LEPTONS);
+            }
+        }
+    }
+    if height <= 0 {
+        return None;
+    }
+    let entry = atlas.infantry_air_shadow()?;
+    let location_z = crate::sim::movement::ground_pose::object_world_z_leptons(entity, None);
+    Some(ObjectPieceInstance {
+        target: ObjectTexture::SpriteAtlasEdit(
+            entry.page as usize,
+            crate::render::terrain_draw::TerrainPiece::Shadow,
+        ),
+        render_z: crate::render::tactical_draw_plan::RenderZPolicy::ReadOnly,
+        instance: SpriteInstance {
+            position: [
+                body_point[0] + entry.offset_x,
+                body_point[1] + adjust_for_z_standard(height) as f32 + entry.offset_y,
+            ],
+            size: entry.pixel_size,
+            uv_origin: entry.uv_origin,
+            uv_size: entry.uv_size,
+            source_palette: entry.source_palette,
+            depth,
+            tint: crate::map::lighting::DEFAULT_TINT,
+            palette_light: crate::render::palette_light::PaletteLight::plain(53, 1000),
+            alpha: 1.0,
+            z_adjust: (-5i32).wrapping_sub(adjust_for_z_standard(location_z.wrapping_sub(height)))
+                as f32,
+            z_gradient: pack_z_gradient(ZGradient::Flat, false),
+            ..Default::default()
+        },
     })
 }
 
@@ -1877,3 +1957,7 @@ mod building_sale_draw_tests;
 #[cfg(test)]
 #[path = "factory_door_tests.rs"]
 mod factory_door_tests;
+
+#[cfg(test)]
+#[path = "infantry_air_shadow_tests.rs"]
+mod infantry_air_shadow_tests;

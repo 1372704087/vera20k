@@ -40,6 +40,11 @@ use crate::rules::ruleset::RuleSet;
 const GROWTH_PAGE_SIZE: u32 = 4096;
 const INFANTRY_FACING_STEP: u8 = crate::util::direction::FACING_UNITS_PER_DIRECTION;
 const INFANTRY_FACING_BUCKETS: u8 = 8;
+/// The shadow InfantryClass::DrawIt draws under an airborne infantry: the
+/// `INFSHDW.SHP` literal at `0x00825524`, cached at `0x00A8F244`, frame 1
+/// (`0x0051957C`).
+const INFANTRY_AIR_SHADOW_SHP: &str = "INFSHDW";
+const INFANTRY_AIR_SHADOW_FRAME: u16 = 1;
 
 fn register_effect_anim_frames(
     needed: &mut HashSet<ShpSpriteKey>,
@@ -535,6 +540,18 @@ impl SpriteAtlas {
     /// holds this sprite's texture data.
     pub fn get(&self, key: &ShpSpriteKey) -> Option<&ShpSpriteEntry> {
         self.entries.get(key)
+    }
+
+    /// [`INFANTRY_AIR_SHADOW_SHP`]'s frame 1, the shadow an airborne infantry
+    /// casts.
+    pub(crate) fn infantry_air_shadow(&self) -> Option<&ShpSpriteEntry> {
+        self.get(&ShpSpriteKey {
+            palette_context: ShpPaletteContext::GlobalAnim,
+            type_id: INFANTRY_AIR_SHADOW_SHP.to_string(),
+            facing: 0,
+            frame: INFANTRY_AIR_SHADOW_FRAME,
+            house_color: HouseColorIndex(0),
+        })
     }
 
     /// Physical frame count from the object type's resolved SHP source.
@@ -1737,6 +1754,28 @@ pub fn build_sprite_atlas(
                 "Parachute SHP {} not found in MIX archives — chute will not render",
                 shp_name
             ),
+        }
+    }
+
+    // Step 1f: the airborne infantry shadow, the literal `INFSHDW.SHP`
+    // (`0x00825524`) InfantryClass::DrawIt loads on first use and draws at
+    // frame 1 ([`INFANTRY_AIR_SHADOW_SHP`]).
+    if previous_atlas.is_none() {
+        let candidates = ["infshdw.shp".to_string(), "INFSHDW.SHP".to_string()];
+        match find_shp(asset_manager, &candidates)
+            .and_then(|(file, data)| Some((file, ShpFile::frame_count_from_bytes(data).ok()?)))
+        {
+            Some((file, frame_count)) if frame_count > INFANTRY_AIR_SHADOW_FRAME => {
+                needed.insert(ShpSpriteKey {
+                    palette_context: ShpPaletteContext::GlobalAnim,
+                    type_id: INFANTRY_AIR_SHADOW_SHP.to_string(),
+                    facing: 0,
+                    frame: INFANTRY_AIR_SHADOW_FRAME,
+                    house_color: HouseColorIndex(0),
+                });
+                shp_files.insert(INFANTRY_AIR_SHADOW_SHP.to_string(), file.to_string());
+            }
+            _ => log::warn!("INFSHDW.SHP frame 1 missing: airborne infantry draw no shadow"),
         }
     }
 

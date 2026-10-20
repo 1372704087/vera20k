@@ -523,7 +523,7 @@ fn open_dialog(state: &mut AppState, elapsed: u64) {
         .take(crate::ui::shell::connection::CONNECTION_ROWS)
         .map(|source| participant_name(session, source))
         .collect();
-    let wol = session.mode() == SessionMode::Wol;
+    let wol = state.match_state.session_mode() == SessionMode::Wol;
     let reconnecting = lowest_record(state)
         .map(|source| participant_name(&state.match_state.session, source))
         .unwrap_or_default();
@@ -634,12 +634,16 @@ fn tally_kicks(
 /// runtime decides whether a frame may run.
 pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
     let now = now_ms >> 4;
-    let session = &state.match_state.session;
-    if !session.mode().is_network() || state.match_state.sim_runtime.is_none() {
+    if state.match_state.sim_runtime.is_none() || !state.match_state.session_mode().is_network() {
         state.match_state.network_wait.wait = None;
         return WaitPass::Running;
     }
-    let connected = session.network_connected_source_indices().to_vec();
+    let mode = state.match_state.session_mode();
+    let connected = state
+        .match_state
+        .session
+        .network_connected_source_indices()
+        .to_vec();
     let network_wait = &mut state.match_state.network_wait;
     network_wait
         .stalled
@@ -648,7 +652,7 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
         if network_wait.stalled.is_empty() {
             return WaitPass::Running;
         }
-        let (dialog_after, timeout) = wait_periods(session.mode());
+        let (dialog_after, timeout) = wait_periods(mode);
         network_wait.wait = Some(ConnectionWait {
             entry: now,
             dialog_timer: BucketTimer::start(now, dialog_after),
@@ -710,7 +714,7 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
         if let Some(source) = lowest_record(state) {
             kick(state, source, ConnectionError::Lost);
         }
-        let (dialog_after, timeout) = wait_periods(state.match_state.session.mode());
+        let (dialog_after, timeout) = wait_periods(state.match_state.session_mode());
         if let Some(wait) = state.match_state.network_wait.wait.as_mut() {
             wait.dialog_timer = BucketTimer::start(now, dialog_after);
             wait.timeout_timer = BucketTimer::start(now, timeout);

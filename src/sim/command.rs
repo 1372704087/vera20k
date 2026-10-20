@@ -834,6 +834,21 @@ pub enum Command {
     /// alliance it holds, else offers one, announced. Appended to preserve
     /// existing serialized variant indices.
     Ally { house_index: i32 },
+    /// VERA extension: the saved one-use source selection, not native
+    /// SPECIAL_PLACE. Appended to preserve existing command discriminants.
+    CompletePaidSuperWeapon {
+        selection: crate::sim::superweapon::PaidSuperWeaponSelection,
+        target_rx: u16,
+        target_ry: u16,
+    },
+    CancelPaidSuperWeapon {
+        selection: crate::sim::superweapon::PaidSuperWeaponSelection,
+    },
+    BeginPaidSuperWeapon {
+        selection: crate::sim::superweapon::PaidSuperWeaponSelection,
+        target_rx: u16,
+        target_ry: u16,
+    },
 }
 
 impl Command {

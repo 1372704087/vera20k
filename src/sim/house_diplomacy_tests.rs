@@ -361,7 +361,7 @@ fn the_ally_event_toggles_and_announces_for_the_local_house() {
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
     let announced = |sim: &mut Simulation, local: usize, sender: &str, index: i32| {
         sim.session.set_current_house_for_test(Some(ids[local]));
-        sim.sound_events.clear();
+        sim.sound_events.clear_for_test();
         assert!(sim.apply_command(
             sender,
             &crate::sim::command::Command::Ally { house_index: index },

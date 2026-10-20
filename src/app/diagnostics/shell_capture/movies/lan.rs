@@ -825,7 +825,7 @@ impl LanCapture {
             }
             LanPhase::Lobby if rendered == PresentedShell::LanLobby && lobby_settled(state) => {
                 ensure!(
-                    state.match_state.session.mode() == SessionMode::Lan
+                    state.match_state.session_mode() == SessionMode::Lan
                         && state.match_state.session.network_setup().is_none(),
                     "BB acquired a competing setup"
                 );
@@ -2068,7 +2068,7 @@ impl LanCapture {
             {
                 ensure!(
                     state.frontend.lan.is_none()
-                        && state.match_state.session.mode() != SessionMode::Lan,
+                        && state.match_state.session_mode() != SessionMode::Lan,
                     "LAN survived MainMenu return"
                 );
                 self.settle(state);
@@ -2099,7 +2099,7 @@ impl LanCapture {
                 if state.frontend.screen == GameScreen::InGame && self.abort_return() =>
             {
                 ensure!(
-                    state.match_state.session.mode() == SessionMode::Lan,
+                    state.match_state.session_mode() == SessionMode::Lan,
                     "installed LAN became offline"
                 );
                 if self.target == LanTarget::LoadingTimeoutReturn {
@@ -2662,7 +2662,7 @@ impl LanCapture {
                 }
                 if rendered == PresentedShell::LanLobby && lobby_settled(state) {
                     ensure!(
-                        state.match_state.session.mode() == SessionMode::Lan
+                        state.match_state.session_mode() == SessionMode::Lan
                             && state.frontend.loading_session.is_none()
                             && !state.match_state.network_wait.waiting(),
                         "0xEA leave cleanup incomplete"
@@ -2854,7 +2854,7 @@ impl LanCapture {
                         "LAN returned without executed EXIT cascade"
                     );
                     ensure!(
-                        state.match_state.session.mode() == SessionMode::Lan
+                        state.match_state.session_mode() == SessionMode::Lan
                             && state.frontend.loading_session.is_none()
                             && state.match_state.scenario_exit.is_none()
                             && state.match_state.match_presentation.in_game_menu
@@ -3353,7 +3353,7 @@ impl LanCapture {
                 return Ok(false);
             }
             ensure!(
-                state.match_state.session.mode() == SessionMode::Lan,
+                state.match_state.session_mode() == SessionMode::Lan,
                 "network handoff became offline"
             );
             return Ok(state.frontend.screen == GameScreen::Loading
@@ -3403,7 +3403,7 @@ impl LanCapture {
     }
 }
 fn session_receipt(state: &AppState) -> Value {
-    json!({"mode":format!("{:?}",state.match_state.session.mode()),"host":state.match_state.session.host(),
+    json!({"mode":format!("{:?}",state.match_state.session_mode()),"host":state.match_state.session.host(),
         "setup":state.match_state.session.network_setup(),"seed":state.match_state.session.network_start_seed(),
         "max_ahead_frames":state.match_state.session.network_max_ahead_frames(),
         "setup_capacity":state.match_state.session.network_setup_capacity(),"observer_row":state.match_state.session.network_observer_row(),

@@ -559,7 +559,7 @@ fn sync_view(state: &mut AppState) {
     let typing = state
         .frontend
         .multiplayer_shell_runtime
-        .scroll_text(state.match_state.session.mode());
+        .scroll_text(state.match_state.session_mode());
     state
         .match_state
         .match_presentation

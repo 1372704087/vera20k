@@ -2018,9 +2018,11 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 }
             }
 
-            // The passenger rows take Alt's Move too; the objects they leave
-            // take the force-move below.
-            if (context_actions_enabled || force_move)
+            // The passenger rows take Alt's Move too, and Ctrl's tail for an
+            // unarmed receiver; the objects they leave take the force-move or
+            // the forced click below.
+            let mut consumed_entry_action = false;
+            if (context_actions_enabled || force_move || force_fire)
                 && let Some(target) = hover.as_ref()
                 && let Some(orders) = entry_orders(
                     sim,
@@ -2034,6 +2036,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 )
             {
                 consumed_building_action = true;
+                consumed_entry_action = true;
                 queued.extend(
                     orders
                         .into_iter()
@@ -2206,10 +2209,15 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             // Attack5. The ordinary MTNK fall-through below takes Move; other
             // class/shroud combinations remain part of the shared-cell audit.
             if let Some(target_id) = attack_target {
-                if matches!(
-                    modifier,
-                    OrderModifier::Normal | OrderModifier::AttackMove | OrderModifier::ForceFire
-                ) {
+                // Entries already dispatched the release.
+                if !consumed_entry_action
+                    && matches!(
+                        modifier,
+                        OrderModifier::Normal
+                            | OrderModifier::AttackMove
+                            | OrderModifier::ForceFire
+                    )
+                {
                     // A selected building is a receiver as well: when it
                     // owns the cursor, its own answer decides the release.
                     match object_click_release(
@@ -2593,13 +2601,19 @@ fn garrison_entry_orders(
 
 /// [`Simulation::entry_click_action`] under the base action the modifier and
 /// [`attack_action`] give:
-/// - Shift's ToggleSelect (8) returns first (`0x0051E453`), and Ctrl's Attack
-///   (5) and Ctrl+Alt's GuardArea (0x1A) skip every entry row;
+/// - Shift's ToggleSelect (8) returns first (`0x0051E453`), and Ctrl+Alt's
+///   GuardArea (0x1A) skips every entry row;
 /// - Alt answers Move (1) first (`0x007001E9`), in the Ctrl+Shift+Alt chord
-///   too, which only the passenger rows take;
-/// - otherwise Select (7) takes every row, and Attack none. Every other
-///   answer takes only the passenger rows: an armed player's object over
-///   another house's object (0, `0x0070056C`) or a selected one.
+///   too, which only the passenger rows take. A player's deployed `Deployer=`
+///   infantryman (Doing 27..30) answers NoMove (2) for it before them
+///   (`0x0051EB81..0x0051EBD7`);
+/// - otherwise [`attack_action`], forced under Ctrl: Select (7) takes every
+///   row, and Attack (5) none. Every other answer takes only the passenger
+///   rows: an armed player's object over another house's object (0,
+///   `0x0070056C`) or a selected one. Ctrl leaves the attack rung to the
+///   tail for an actor neither armed nor `Infiltrate=`
+///   (`0x00700444..0x00700474`), so an Engineer's Ctrl over a carrier still
+///   asks it.
 ///
 /// [`Simulation::entry_click_action`]: crate::sim::world::Simulation::entry_click_action
 pub(super) fn entry_action(
@@ -2613,24 +2627,39 @@ pub(super) fn entry_action(
 ) -> Option<crate::sim::world::EntryClickAction> {
     use crate::sim::world::EntryBaseAction;
     let base = match modifier {
-        OrderModifier::Shift | OrderModifier::ForceFire | OrderModifier::GuardArea => {
-            return None;
-        }
+        OrderModifier::Shift | OrderModifier::GuardArea => return None,
         OrderModifier::ForceMove => EntryBaseAction::Other,
         OrderModifier::AttackMove if force_move_key => EntryBaseAction::Other,
-        OrderModifier::Normal | OrderModifier::AttackMove => match attack_action(
-            sim,
-            rules,
-            actor_id,
-            &TargetKind::Entity(target_id),
-            false,
-            overlay_registry,
-        ) {
-            AttackAction::Select => EntryBaseAction::Select,
-            AttackAction::Attack => return None,
-            _ => EntryBaseAction::Other,
-        },
+        OrderModifier::Normal | OrderModifier::AttackMove | OrderModifier::ForceFire => {
+            match attack_action(
+                sim,
+                rules,
+                actor_id,
+                &TargetKind::Entity(target_id),
+                modifier == OrderModifier::ForceFire,
+                overlay_registry,
+            ) {
+                AttackAction::Select => EntryBaseAction::Select,
+                AttackAction::Attack => return None,
+                _ => EntryBaseAction::Other,
+            }
+        }
     };
+    let alt = modifier == OrderModifier::ForceMove
+        || (modifier == OrderModifier::AttackMove && force_move_key);
+    if alt
+        && sim.entities().get(actor_id).is_some_and(|actor| {
+            actor.category() == EntityCategory::Infantry
+                && sim.house_is_human_player(actor.owner())
+                && actor.infantry_deploy_doing()
+                && sim
+                    .interner()
+                    .object_type(actor.type_ref(), rules)
+                    .is_some_and(|object| object.deployer)
+        })
+    {
+        return None;
+    }
     sim.entry_click_action(actor_id, target_id, base, rules)
 }
 
@@ -2640,12 +2669,17 @@ pub(super) fn entry_action(
 /// (`0x004AE829..0x004AE85A`) asks it. Foot ClickedAction (`0x004D74E0`)
 /// sends a controllable (vt+0xA0) one mission Enter (case 3) or Eaten (case
 /// 0xB) with NULL Target and the object as Destination; NoEnter has no case
-/// and orders nothing. Without Alt the loop runs only when the object that
-/// owns the cursor ([`cursor_owner`] of `current_objects`) has one of these
-/// actions: for its Select, BandBox_LeftUp selects the object instead
-/// (`0x004AB9B0` -> `0x004ABE18`) and never reaches the dispatcher. Alt's
-/// Move is an order, so the loop always runs, and the objects it leaves take
-/// the force-move. None when no selected object takes an entry action.
+/// and orders nothing. Without Alt the loop runs only when the action of the
+/// object that owns the cursor ([`cursor_owner`] of `current_objects`) is an
+/// order: one of these, or its [`attack_action`] when the [`left_release`]
+/// of that dispatches. For its Select, or a 0 over an object the player may
+/// select, BandBox_LeftUp selects the object instead (`0x004AB9B0` ->
+/// `0x004ABE18`) and never reaches the dispatcher. A selected carrier that
+/// owns the cursor over itself answers NoMove (its rung skips itself at
+/// `0x00740312`, and `0x007403EB` turns the 0 into NoMove), so the passengers
+/// selected with it still enter. Alt's Move is an order, so the loop always
+/// runs, and the objects it leaves take the force-move. None when no
+/// selected object takes an entry action.
 fn entry_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2676,7 +2710,25 @@ fn entry_orders(
     let force_move = modifier == OrderModifier::ForceMove
         || (modifier == OrderModifier::AttackMove && force_move_key);
     if !force_move {
-        action(cursor_owner(sim, rules, current_objects, hover.stable_id)?)?;
+        let owner = cursor_owner(sim, rules, current_objects, hover.stable_id)?;
+        if action(owner).is_none()
+            && left_release(
+                sim,
+                rules,
+                attack_action(
+                    sim,
+                    rules,
+                    owner,
+                    &TargetKind::Entity(hover.stable_id),
+                    modifier == OrderModifier::ForceFire,
+                    overlay_registry,
+                )
+                .into(),
+                Some(hover.stable_id),
+            ) != LeftRelease::Dispatch
+        {
+            return None;
+        }
     }
     let mut consumed = false;
     let mut orders = Vec::new();

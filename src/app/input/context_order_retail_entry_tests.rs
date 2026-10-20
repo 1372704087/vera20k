@@ -825,3 +825,141 @@ fn alt_still_boards_a_transport() {
         Some(vec![enter(gi, ifv)])
     );
 }
+
+/// A GI selected with the player's IFV, clicking the IFV. The IFV owns the
+/// cursor (distance 0); its rung skips itself (`0x00740312`) and its 0 over
+/// the selected IFV becomes NoMove (`0x007403EB`), an order, so the release
+/// dispatches and the GI's own row sends him in.
+#[test]
+fn a_gi_selected_with_the_ifv_boards_it_when_the_ifv_is_clicked() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, ifv, _, gi) = carrier_scene(rules, "FV");
+    for id in [gi, ifv] {
+        sim.entities_mut_for_test()
+            .get_mut(id)
+            .unwrap()
+            .selection
+            .set_selected_for_test(true);
+    }
+    assert_eq!(cursor_owner(&sim, rules, &[gi, ifv], ifv), Some(ifv));
+    assert_eq!(
+        entry_action(
+            &sim,
+            rules,
+            ifv,
+            ifv,
+            OrderModifier::Normal,
+            false,
+            Some(&registry)
+        ),
+        None
+    );
+    let mut selected = vec![gi, ifv];
+    assert_eq!(
+        entry_orders(
+            &sim,
+            rules,
+            &[gi, ifv],
+            &mut selected,
+            &unit_hover(ifv),
+            OrderModifier::Normal,
+            false,
+            Some(&registry),
+        ),
+        Some(vec![enter(gi, ifv)])
+    );
+    assert_eq!(selected, [ifv]);
+}
+
+/// Ctrl leaves the attack rung for an actor neither armed nor `Infiltrate=`
+/// (`0x00700444..0x00700474`), whose tail answers Select, so an unarmed MCV's
+/// Ctrl over the player's Amphibious Transport still asks the passenger rung
+/// and enters. An armed GI's Ctrl answers Attack and skips it (retail
+/// Engineers are armed too: `Primary=DefuseKit`).
+#[test]
+fn an_unarmed_mcvs_ctrl_over_a_transport_still_enters() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, transport, _, gi) = carrier_scene(rules, "LCRF");
+    let mcv = sim
+        .spawn_object("AMCV", "Americans", 10, 16, 0, rules)
+        .expect("mcv");
+    assert_eq!(
+        carrier_cursor(
+            &sim,
+            rules,
+            &registry,
+            mcv,
+            transport,
+            OrderModifier::ForceFire
+        ),
+        Some(CursorId::Enter)
+    );
+    assert_eq!(
+        carrier_orders(
+            &sim,
+            rules,
+            &registry,
+            &[mcv],
+            transport,
+            OrderModifier::ForceFire
+        ),
+        Some(vec![enter(mcv, transport)])
+    );
+    assert_eq!(
+        entry_action(
+            &sim,
+            rules,
+            gi,
+            transport,
+            OrderModifier::ForceFire,
+            false,
+            Some(&registry)
+        ),
+        None
+    );
+}
+
+/// A player's deployed GI (Doing 27..30) answers NoMove for Alt's Move before
+/// the passenger row (`0x0051EB81..0x0051EBD7`); a plain click still asks it.
+#[test]
+fn a_deployed_gis_alt_over_the_ifv_skips_the_row() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, ifv, _, gi) = carrier_scene(rules, "FV");
+    assert!(sim.apply_command(
+        "Americans",
+        &Command::ToggleInfantryDeploy { entity_id: gi },
+        Some(rules),
+    ));
+    for _ in 0..60 {
+        if sim.entities().get(gi).unwrap().infantry_deploy_doing() {
+            break;
+        }
+        sim.advance_tick(&[], Some(rules), None, None, 67);
+    }
+    assert!(sim.entities().get(gi).unwrap().infantry_deploy_doing());
+    let action = |modifier| {
+        entry_action(
+            &sim,
+            rules,
+            gi,
+            ifv,
+            modifier,
+            modifier == OrderModifier::ForceMove,
+            Some(&registry),
+        )
+    };
+    assert_eq!(action(OrderModifier::ForceMove), None);
+    assert_eq!(
+        action(OrderModifier::Normal),
+        Some(crate::sim::world::EntryClickAction::Enter)
+    );
+}

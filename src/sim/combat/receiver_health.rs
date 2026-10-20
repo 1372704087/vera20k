@@ -267,7 +267,7 @@ pub(super) fn commit_receiver_health(
         })
         .flatten();
     let attacker_owner = event.source_house.or(live_source_owner);
-    //Steam3e81a617: Object701DF8 returns before701E12/701E32's live Type
+    //Steam gamemd: Object701DF8 returns before701E12/701E32's live Type
     //reads,701E23/701E61's live Owners and701E68's immediate anger update.
     //This precedes result5/PostMortem exits, feedback sounds and Uncloak.
     //Control-flow evidence: original701DF8..701E71; arithmetic retains the

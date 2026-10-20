@@ -265,7 +265,7 @@ fn rally_target(
     ((x, y) != NO_CELL).then_some((x as u16, y as u16))
 }
 
-/// HouseClass::AI_FindTeamTarget50D170 (Steam gamemd3e81a617..08600):
+/// HouseClass::AI_FindTeamTarget50D170 (Steam gamemd):
 /// first own Team in registration order, shared GetLeader6EC3D0, then its
 /// GreatestThreat with QuarryToThreat645BB0 and OnlyTargetHouseEnemy=true.
 /// The caller stages that true argument BEFORE GetCoords(vt48); it is not

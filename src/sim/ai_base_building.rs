@@ -785,7 +785,7 @@ pub(crate) fn suggest_new_object<'r>(
     let unit_choice = |kind: UnitChoiceKind| {
         rules.type_array_at(kind.category(), house.ai_unit_choices().get(kind))
     };
-    // Steam3e81a617..08600, two-level tables4FBE0C/4FBDF8. This one
+    // Steam gamemd, two-level tables4FBE0C/4FBDF8. This one
     // consumer and factory accounting accept object/type aliases, unlike
     // FindFactory's exact class comparison. Other RTTIs return null.
     match FactoryType::for_production_rtti(factory_rtti)? {

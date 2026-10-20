@@ -1521,7 +1521,7 @@ mod slot_tests {
     /// live Anim (owner+CC=0, inactive+19B=0). BuildingDestructor43BDC5
     /// calls ClearAnimSlot451E40(-2) only at deferred scalar destruction.
     /// Executed control: ordinary-building-destruction-research/continuation-1
-    /// cleanup-registered-output.json, gamemd SHA1cdd1180e49024fb.
+    /// cleanup-registered-output.json, gamemd.
     #[test]
     fn building_uninit_retains_ordinary_slots_until_scalar_destruction() {
         let (mut sim, rules, id) = slot_test_fixture();

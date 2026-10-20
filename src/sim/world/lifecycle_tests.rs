@@ -3416,7 +3416,7 @@ fn nested_transport_parent_expiry_preserves_its_independent_cargo() {
     let rules =
         crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(""))
             .unwrap();
-    // Steam gamemd3e81a617, TechnoPointerExpired7078B2..7078DB compares
+    // Steam gamemd, TechnoPointerExpired7078B2..7078DB compares
     // Object+90, exact Health==0 and ScenarioInit, independently of control.
     // These are controlled receiver priors, not a full transport fixture.
     for (alive, health, placement_scope, retain_inside) in [

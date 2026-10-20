@@ -4341,7 +4341,7 @@ impl Simulation {
     /// Execute59 at6DE313 uses +90 as a waypoint, not the +44 tail or an
     /// amount. Map57B790..57B860 tests121 offsets with sqrtApprox/ftol and
     /// always reduces the unchanged centre pointer, never the candidate.
-    /// Seven original executions (Steam3e81a617..08600, real and Dummy,
+    /// Seven original executions (Steam gamemd, real and Dummy,
     /// signed extremes) each observed109 ordered calls480A80(receiver,1).
     /// Packed subtraction leaves offsets independent of the centre, so reuse
     /// that constant count without adding another floating distance kernel.
@@ -5715,7 +5715,7 @@ impl Simulation {
 
     /// Original House510F60 -> Scenario510ED0, otherwise502D30. Only the
     /// literal Player@A..H selectors0x117B..0x1182 use the start-slot mapping.
-    /// Executed Steam3e81a617..08600 controls: trigger_all_change_house.json.
+    /// Executed Steam gamemd controls: trigger_all_change_house.json.
     pub(crate) fn house_by_trigger_selector(
         &self,
         selector: i32,

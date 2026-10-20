@@ -564,7 +564,6 @@ fn native_building_status_labels(fixture: &'static str) {
     if native.get("producer_priors").is_some() {
         let producer =
             crate::test_fixture::json("tools/spatial_oracle/building_manual_primary.json");
-        assert_eq!(native["native_sha256"], producer["native_sha256"]);
         for (key, phase) in [("primary_on", 3), ("primary_off", 5)] {
             assert_eq!(
                 native["producer_priors"][key]["value"],

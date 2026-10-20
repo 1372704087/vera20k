@@ -136,7 +136,7 @@ pub struct PassengerCargo {
     garrison_fire_index: u8,
     /// A transport's own passenger relation is independent of its cargo.
     /// Unit73A6EC..73A77C attaches it without clearing CargoClass+114;
-    /// Steam gamemd.exe SHA3e81a617, original Unit739EC0 instructions.
+    /// Steam gamemd.exe, original Unit739EC0 instructions.
     /// The passenger owner alone mutates this serialized relation.
     #[serde(default)]
     carrier_relation: CarrierRelation,
@@ -378,7 +378,7 @@ impl Simulation {
     /// its existing member chain without count/size admission. The caller
     /// owns transport/rider policy; this native leaf does not write +11C or
     /// OpenTopped. No member/Team removal or owner transfer is invented here.
-    /// Steam gamemd3e81a617..08600; Full65DF88 and ordinary radio admission
+    /// Steam gamemd; Full65DF88 and ordinary radio admission
     /// share PassengerCargo's prepend/recount owner.
     pub(crate) fn add_cargo_passenger_chain(
         &mut self,

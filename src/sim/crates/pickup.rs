@@ -367,7 +367,7 @@ pub(crate) fn pickup_crate(
     {
         return true;
     }
-    //Steam3e81a617:481A6D..481AC1, trigger_action_values --crate.
+    //Steam gamemd:481A6D..481AC1, trigger_action_values --crate.
     //The original EmptyCell89E748 is initialized to(0,0) by47B2F0.
     //Only an actual nonnull Tag call gates on the actor's reread Alive byte;
     //a null Tag still sets Scenario34BE, even for an already-dead input.

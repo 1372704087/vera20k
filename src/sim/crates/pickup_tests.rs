@@ -1278,7 +1278,7 @@ fn retail_cash_crate_matches_native_replacement_reward_anim_and_cleanup() {
         );
         let anim = *sim
             .anims()
-            .find(|(_, anim)| sim.resolve(anim.type_id) == "MONEY")
+            .find(|(_, anim)| sim.resolve(anim.type_id()) == "MONEY")
             .unwrap()
             .0;
         crate::sim::anim_class::trigger_tests::assert_state(&sim, anim, &row["initial_anim"], name);

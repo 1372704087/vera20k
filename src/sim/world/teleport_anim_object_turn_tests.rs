@@ -136,13 +136,13 @@ fn relocation_constructs_departure_and_arrival_warp_anims_in_the_mover_turn() {
         .anims
         .iter()
         .map(|(_, anim)| anim)
-        .filter(|anim| anim.type_id == warp_out)
+        .filter(|anim| anim.type_id() == warp_out)
         .collect();
     assert_eq!(anims.len(), 2, "one at the origin, one at the destination");
     let mut cells: Vec<_> = anims
         .iter()
         .map(|anim| {
-            let (rx, ry, _, _, z) = anim.world_coord.to_cell_sub_z();
+            let (rx, ry, _, _, z) = anim.world_coord().to_cell_sub_z();
             (rx, ry, z)
         })
         .collect();
@@ -150,11 +150,11 @@ fn relocation_constructs_departure_and_arrival_warp_anims_in_the_mover_turn() {
     // Each at the exact Location: the arrival's is the destination's (z 0).
     assert_eq!(cells, vec![(5, 5, 2), (8, 9, 0)]);
     for anim in &anims {
-        assert_eq!(anim.draw_flags, 0x600);
-        assert_eq!(anim.z_adjust, 0);
-        assert_eq!(anim.runtime.delay_remaining, 0);
+        assert_eq!(anim.draw_flags(), 0x600);
+        assert_eq!(anim.z_adjust(), 0);
+        assert_eq!(anim.runtime().delay_remaining, 0);
         assert_eq!(
-            anim.runtime.rate_reload,
+            anim.runtime().rate_reload,
             crate::rules::art_data::art_rate_to_logic_frames(120),
             "the art section's own Rate=, through the one AnimType rule"
         );

@@ -1819,9 +1819,9 @@ fn all01_due_charge_and_damage_share_the_production_house_power_phase() {
             .filter_map(|(_, id)| {
                 (*id).and_then(|id| sim.anim(id)).map(|anim| {
                     (
-                        anim.type_id,
-                        anim.runtime.current_frame,
-                        anim.runtime.paused,
+                        anim.type_id(),
+                        anim.runtime().current_frame,
+                        anim.runtime().paused,
                     )
                 })
             })
@@ -2401,14 +2401,14 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     );
     let (id, system) = sim.particle_systems().iter().next().unwrap();
     assert_eq!(
-        system.type_id,
+        system.type_id(),
         rules
             .ps_type_id_by_name(smoke["type_name"].as_str().unwrap())
             .unwrap()
     );
-    assert_eq!(json!(system.coords.to_array()), smoke["coordinate"]);
+    assert_eq!(json!(system.coords().to_array()), smoke["coordinate"]);
     assert_eq!(json!(system.native_unique_id()), smoke["native_unique_id"]);
-    assert_eq!(system.owner_entity, Some(1));
+    assert_eq!(system.owner_entity(), Some(1));
     assert_eq!(
         sim.substrate
             .entities
@@ -2418,7 +2418,7 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
             .system(),
         Some(*id)
     );
-    assert!(system.particles.is_empty(), "no particle AI visit yet");
+    assert!(system.particles().is_empty(), "no particle AI visit yet");
     for (stream, actual) in [
         ("main", sim.main_rng.native_state_hex()),
         ("scenario", sim.scenario_rng.native_state_hex()),

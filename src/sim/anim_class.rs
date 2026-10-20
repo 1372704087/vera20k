@@ -2493,11 +2493,16 @@ impl Simulation {
         }
         let terrain = self.resolved_terrain.as_ref();
         let at = anim_world_coords(anim, &self.substrate.entities, terrain);
-        let cell = crate::sim::projectile::cell_ground_coord(
-            terrain,
-            (at.x / 256) as u16,
-            (at.y / 256) as u16,
-        );
+        // The lookup stamps the fallback CellClass on a miss, as native's
+        // does. The presentation asks this, so the stamp stays private to
+        // the query: drawing must not change the simulation.
+        let cell = self.effective_shared_cell_dummy().detached(|| {
+            crate::sim::projectile::cell_ground_coord(
+                terrain,
+                (at.x / 256) as u16,
+                (at.y / 256) as u16,
+            )
+        });
         self.psychic_detection_sites(viewer, rules)
             .any(|(site, radius)| {
                 crate::util::native_x87::distance_3d_leptons(

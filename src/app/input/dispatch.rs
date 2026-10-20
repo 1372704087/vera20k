@@ -134,6 +134,12 @@ fn handle_mouse_input_inner(state: &mut AppState, button: MouseButton, btn_state
             crate::app::input::diplomacy::mouse(state, button, pressed);
             return;
         }
+        if state.match_state.match_presentation.in_game_menu
+            == crate::ui::pause_menu::InGameMenuState::MissionBriefing
+        {
+            crate::app::input::restate::mouse(state, button, pressed);
+            return;
+        }
         if matches!(
             state.match_state.match_presentation.in_game_menu,
             crate::ui::pause_menu::InGameMenuState::SavedGame(_)
@@ -766,6 +772,12 @@ pub(crate) fn handle_cursor_moved_in_game(state: &mut AppState) {
             == crate::ui::pause_menu::InGameMenuState::Diplomacy
         {
             crate::app::input::diplomacy::cursor_moved(state);
+            return;
+        }
+        if state.match_state.match_presentation.in_game_menu
+            == crate::ui::pause_menu::InGameMenuState::MissionBriefing
+        {
+            crate::app::input::restate::cursor_moved(state);
             return;
         }
         if matches!(

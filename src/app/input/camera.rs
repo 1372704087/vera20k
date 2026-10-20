@@ -1336,11 +1336,15 @@ pub(crate) fn advance_camera_ai(state: &mut AppState, mouse: (f32, f32), frame: 
     );
     let admission = CameraAiFrame {
         frame,
-        scenario_started: state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.simulation.session().started()),
+        // The restate briefing zeroes g_ScenarioStarted while it is open
+        // (0x0065F537), on the opening peer only.
+        scenario_started: state.match_state.match_presentation.in_game_menu
+            != crate::ui::pause_menu::InGameMenuState::MissionBriefing
+            && state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.simulation.session().started()),
         // The ordinary app currently admits the offline session route with
         // native replay flags0. Native playback bit2 is covered by the shared
         // owner controls; a production playback host remains a separate gap.

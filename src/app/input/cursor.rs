@@ -525,14 +525,13 @@ fn empty_cell_cursor(
 /// asks it: DetermineAction (`0x00692610`) from `0x0069300B` sets the
 /// mouse-over argument, so the sim's [`Simulation::cell_move_action`] never
 /// asks Can_Enter_Cell here and a Cell the click will redirect shows Move.
-/// A selected structure asks [`Simulation::building_cell_move_action`], as
-/// its click does: an UndeploysInto type asks Can_Enter_Cell even here.
+/// A selected UndeploysInto building drops that argument and asks
+/// Can_Enter_Cell even here (`0x004475A0`).
 /// Without a local House, a resolved object or rules, or for a query the sim
 /// cannot answer (no map cells), the cursor keeps Move: VERA-internal, as a
 /// live gamemd session always has a map and a selection here.
 ///
 /// [`Simulation::cell_move_action`]: crate::sim::world::Simulation::cell_move_action
-/// [`Simulation::building_cell_move_action`]: crate::sim::world::Simulation::building_cell_move_action
 fn what_action_on_cell(
     sim: &crate::sim::world::Simulation,
     viewer: Option<crate::sim::intern::InternedId>,
@@ -553,20 +552,11 @@ fn what_action_on_cell(
     let (Some(viewer), Some(rules)) = (viewer, rules) else {
         return MoveAction::Move;
     };
-    let shift = modifier == crate::app::input::context_order::OrderModifier::Shift;
-    if let Some(entity) = sim.entities().get(id)
-        && entity.category() == crate::map::entities::EntityCategory::Structure
-    {
-        return sim
-            .building_cell_move_action(viewer, id, cell, shift, rules, registry)
-            .unwrap_or(MoveAction::Move);
-    }
     let query = CellActionQuery {
         mouse_over: true,
-        shift,
+        shift: modifier == crate::app::input::context_order::OrderModifier::Shift,
     };
-    // The mouse-over query reads no overlay type: it never asks Can_Enter_Cell.
-    sim.cell_move_action(viewer, id, cell, query, rules, None)
+    sim.cell_move_action(viewer, id, cell, query, rules, registry)
         .unwrap_or(MoveAction::Move)
 }
 

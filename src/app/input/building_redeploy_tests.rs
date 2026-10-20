@@ -85,7 +85,7 @@ fn retail_mcvs_repack_and_follow_the_ground_click_after_deployment() {
                 .unwrap();
         }
         let (orders, announce) =
-            building_cell_orders(&sim, &rules, None, &[yard], owner, (23, 20), false);
+            building_cell_orders(&sim, &rules, None, &[yard], owner, (23, 20), false, false);
         assert!(!announce);
         assert!(
             matches!(orders.as_slice(), [Command::SetRally { .. }, Command::SellBuilding { entity_id }]
@@ -189,7 +189,8 @@ fn construction_yard_ground_orders_match_native_redeploy_admission() {
             admitted,
             "{name}"
         );
-        let (orders, _) = building_cell_orders(&sim, &rules, None, &[yard], owner, (23, 20), false);
+        let (orders, _) =
+            building_cell_orders(&sim, &rules, None, &[yard], owner, (23, 20), false, false);
         assert_eq!(!orders.is_empty(), admitted, "{name}");
     }
 }
@@ -213,19 +214,71 @@ fn yard_arena(rules: &RuleSet) -> (Simulation, InternedId) {
     (sim, owner)
 }
 
+/// The left click of a selection of buildings only, as the player's.
+fn click(
+    sim: &Simulation,
+    rules: &RuleSet,
+    selection: &[u64],
+    hover: Option<(HoverTargetKind, u64)>,
+    cell: (u16, u16),
+    modifier: OrderModifier,
+) -> BuildingClick {
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+    let hover = hover.map(|(kind, stable_id)| HoverTargetKindWithId { kind, stable_id });
+    let force_move_key = matches!(
+        modifier,
+        OrderModifier::ForceMove | OrderModifier::GuardArea
+    );
+    building_selection_click(
+        sim,
+        rules,
+        &registry,
+        selection,
+        selection,
+        sim.session.current_house().unwrap(),
+        hover.as_ref(),
+        cell,
+        modifier,
+        force_move_key,
+        true,
+        false,
+    )
+}
+
+fn rallies(click: &BuildingClick) -> Vec<u64> {
+    match click {
+        BuildingClick::Orders(orders, _) => orders
+            .iter()
+            .flat_map(|order| match order {
+                Command::SetRally { producer_ids, .. } => producer_ids.clone(),
+                _ => Vec::new(),
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn packs_up(click: &BuildingClick) -> bool {
+    matches!(click, BuildingClick::Orders(orders, _)
+        if orders.iter().any(|order| matches!(order, Command::SellBuilding { .. })))
+}
+
 /// Building What_Action_OnObject (`0x00447210`) over another House's unit
 /// is the Techno tail's Select for an unarmed factory or Construction Yard,
-/// so the click selects the unit; Building ClickedAction_Object
-/// (`0x00443410`) neither rallies nor packs up. With Alt the force-move rung
-/// answers Move: the war factory rallies at the unit's Cell, and the yard
-/// only archives it, so it still does not pack up.
+/// with or without Ctrl, so the click selects the unit; Building
+/// ClickedAction_Object (`0x00443410`) neither rallies nor packs up. With Alt
+/// the force-move rung answers Move: the war factory rallies at the unit's
+/// Cell, and the yard only archives it, so it still does not pack up.
+/// Ctrl+Alt over the player's own unit answers 0x1A, which sends nothing. An
+/// enemy the player cannot see is no object: its Cell takes the click.
 #[test]
 fn a_selected_factory_or_yard_selects_another_houses_unit_instead_of_rallying() {
+    use HoverTargetKind::{EnemyUnit, FriendlyUnit, HiddenEnemy};
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
     let rules = retail.rules;
-    let (mut sim, owner) = yard_arena(&rules);
+    let (mut sim, _) = yard_arena(&rules);
     let factory = sim
         .spawn_object("GAWEAP", "Americans", 6, 6, 0, &rules)
         .unwrap();
@@ -235,80 +288,78 @@ fn a_selected_factory_or_yard_selects_another_houses_unit_instead_of_rallying() 
     let enemy = sim
         .spawn_object("MTNK", "Russians", 20, 18, 64, &rules)
         .unwrap();
-    let registry = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+    let own = sim
+        .spawn_object("MTNK", "Americans", 20, 10, 64, &rules)
+        .unwrap();
     for selection in [vec![factory], vec![yard], vec![factory, yard]] {
-        let release = |alt| {
-            building_object_release(
-                &sim, &rules, &registry, &selection, &selection, enemy, false, alt,
-            )
-        };
-        let orders = |alt| {
-            building_click_orders(
+        let over_enemy = |modifier| {
+            click(
                 &sim,
                 &rules,
-                Some(&registry),
                 &selection,
-                owner,
-                Some(enemy),
+                Some((EnemyUnit, enemy)),
                 (20, 17),
-                false,
-                alt,
-                false,
+                modifier,
             )
-            .0
         };
-        assert_eq!(release(false), LeftRelease::Select, "{selection:?}");
-        assert!(orders(false).is_empty(), "{selection:?}");
-        assert_eq!(release(true), LeftRelease::Dispatch, "{selection:?}");
-        let alt = orders(true);
-        assert!(
-            !alt.iter()
-                .any(|order| matches!(order, Command::SellBuilding { .. })),
-            "{selection:?}: {alt:?}"
-        );
+        for modifier in [OrderModifier::Normal, OrderModifier::ForceFire] {
+            assert_eq!(over_enemy(modifier), BuildingClick::Select, "{selection:?}");
+        }
+        let alt = over_enemy(OrderModifier::ForceMove);
+        assert!(!packs_up(&alt), "{selection:?}: {alt:?}");
+        let expected = if selection.contains(&factory) {
+            vec![factory]
+        } else {
+            Vec::new()
+        };
+        assert_eq!(rallies(&alt), expected, "{selection:?}: {alt:?}");
         assert_eq!(
-            alt.iter()
-                .filter_map(|order| match order {
-                    Command::SetRally { producer_ids, .. } => Some(producer_ids.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>(),
-            if selection.contains(&factory) {
-                vec![vec![factory]]
-            } else {
-                Vec::new()
-            },
+            click(
+                &sim,
+                &rules,
+                &selection,
+                Some((FriendlyUnit, own)),
+                (20, 10),
+                OrderModifier::GuardArea,
+            ),
+            BuildingClick::Orders(Vec::new(), false),
             "{selection:?}"
+        );
+        // The hidden enemy's Cell is an ordinary ground click: the factory
+        // rallies there, and the yard finds the Cell held by the tank
+        // (Is_Clear_To_Build `0x0047C620`), so it does not pack up.
+        let hidden = click(
+            &sim,
+            &rules,
+            &selection,
+            Some((HiddenEnemy, enemy)),
+            (20, 18),
+            OrderModifier::Normal,
+        );
+        assert!(!packs_up(&hidden), "{hidden:?}");
+        assert_eq!(
+            rallies(&hidden).contains(&factory),
+            selection.contains(&factory),
+            "{hidden:?}"
         );
     }
     // The factory's rally comes from the unit's own Cell, not the clicked one.
-    let rally = building_object_orders(&sim, &rules, &[factory], enemy, true).0;
+    let alt = click(
+        &sim,
+        &rules,
+        &[factory],
+        Some((EnemyUnit, enemy)),
+        (20, 17),
+        OrderModifier::ForceMove,
+    );
     let expected = sim
         .factory_rally_cell_input(factory, (20, 18), &rules)
         .unwrap();
     assert!(
-        matches!(rally.as_slice(), [Command::SetRally { rx, ry, .. }] if Some((*rx, *ry)) == expected),
-        "{rally:?} vs {expected:?}"
-    );
-    // Ctrl+Alt over an allied object answers 0x1A, which sends nothing.
-    let ally = sim
-        .spawn_object("MTNK", "Americans", 20, 10, 64, &rules)
-        .unwrap();
-    assert!(
-        building_click_orders(
-            &sim,
-            &rules,
-            Some(&registry),
-            &[factory],
-            owner,
-            Some(ally),
-            (20, 10),
-            false,
-            true,
-            true,
-        )
-        .0
-        .is_empty()
+        matches!(&alt, BuildingClick::Orders(orders, _)
+            if matches!(orders.as_slice(), [Command::SetRally { rx, ry, .. }]
+                if Some((*rx, *ry)) == expected)),
+        "{alt:?} vs {expected:?}"
     );
 }
 
@@ -319,7 +370,7 @@ fn a_selected_factory_or_yard_selects_another_houses_unit_instead_of_rallying() 
 /// Miner's yard, which undeploys into a ResourceGatherer, always moves.
 #[test]
 fn a_yard_neither_archives_nor_packs_up_over_a_cell_it_cannot_stand_on() {
-    use crate::sim::world::MoveAction;
+    use crate::sim::world::{CellActionQuery, MoveAction};
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
@@ -334,9 +385,20 @@ fn a_yard_neither_archives_nor_packs_up_over_a_cell_it_cannot_stand_on() {
     let enemy_yard = sim
         .spawn_object("GACNST", "Russians", 4, 4, 0, &rules)
         .unwrap();
+    // The cursor's query: the mouse-over argument does not skip the test.
     let action = |id, cell, shift| {
-        sim.building_cell_move_action(owner, id, cell, shift, &rules, None)
-            .unwrap()
+        sim.cell_move_action(
+            owner,
+            id,
+            cell,
+            CellActionQuery {
+                mouse_over: true,
+                shift,
+            },
+            &rules,
+            None,
+        )
+        .unwrap()
     };
     let (land, water) = ((20, 12), (27, 27));
     assert_eq!(action(yard, land, false), MoveAction::Move);
@@ -345,12 +407,90 @@ fn a_yard_neither_archives_nor_packs_up_over_a_cell_it_cannot_stand_on() {
     assert_eq!(action(slave_yard, water, false), MoveAction::Move);
     assert_eq!(action(enemy_yard, land, false), MoveAction::None);
 
-    let orders = |cell| building_cell_orders(&sim, &rules, None, &[yard], owner, cell, false).0;
+    let ground = |cell| click(&sim, &rules, &[yard], None, cell, OrderModifier::Normal);
+    let on_land = ground(land);
     assert!(
-        matches!(orders(land).as_slice(), [Command::SetRally { .. }, Command::SellBuilding { entity_id }]
-            if *entity_id == yard),
-        "{:?}",
-        orders(land)
+        matches!(&on_land, BuildingClick::Orders(orders, _)
+            if matches!(orders.as_slice(), [Command::SetRally { .. }, Command::SellBuilding { entity_id }]
+                if *entity_id == yard)),
+        "{on_land:?}"
     );
-    assert!(orders(water).is_empty(), "{:?}", orders(water));
+    assert_eq!(ground(water), BuildingClick::Orders(Vec::new(), false));
+}
+
+/// Techno What_Action on a Cell's Ctrl+Alt guard rung (`0x00700815..0x007008A3`)
+/// answers 0x1A for the armed Slave Miner yard, which Active_Click_With_Cell
+/// ignores; a war factory's rally line turns it back into Move (`0x0044774B`).
+#[test]
+fn ctrl_alt_on_the_ground_does_not_pack_up_an_active_yard() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    let (mut sim, _) = yard_arena(&rules);
+    let slave_yard = sim
+        .spawn_object("YAREFN", "Americans", 4, 20, 0, &rules)
+        .unwrap();
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 6, 6, 0, &rules)
+        .unwrap();
+    let ground =
+        |selection: &[u64], modifier| click(&sim, &rules, selection, None, (12, 20), modifier);
+    assert!(packs_up(&ground(&[slave_yard], OrderModifier::Normal)));
+    assert_eq!(
+        ground(&[slave_yard], OrderModifier::GuardArea),
+        BuildingClick::Orders(Vec::new(), false)
+    );
+    assert_eq!(
+        rallies(&ground(&[factory], OrderModifier::GuardArea)),
+        [factory]
+    );
+}
+
+/// The selection's click loop clamps the clicked Cell to the playfield
+/// (`0x004AE77E`) before any receiver's What_Action: a yard ordered past the
+/// playfield's edge packs up toward the clamped Cell, though its cursor there
+/// shows NoMove.
+#[test]
+fn a_yard_click_past_the_playfield_edge_packs_up_toward_the_clamped_cell() {
+    use crate::sim::world::{CellActionQuery, MoveAction};
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    let (mut sim, owner) = yard_arena(&rules);
+    let yard = sim
+        .spawn_object("GACNST", "Americans", 12, 12, 0, &rules)
+        .unwrap();
+    sim.playfield_bounds = Some(crate::map::playfield::PlayfieldBounds {
+        base: 32,
+        off_fc: 4,
+        off_100: 4,
+        off_104: 20,
+        off_108: 12,
+    });
+    let cursor = |cell| {
+        sim.cell_move_action(
+            owner,
+            yard,
+            cell,
+            CellActionQuery {
+                mouse_over: true,
+                shift: false,
+            },
+            &rules,
+            None,
+        )
+        .unwrap()
+    };
+    let edge = (0..24u16)
+        .flat_map(|y| (0..24u16).map(move |x| (x, y)))
+        .find(|&cell| {
+            let clamped = sim.clamped_click_cell(cell);
+            clamped != cell && cursor(clamped) == MoveAction::Move
+        })
+        .expect("a land Cell past the playfield edge");
+    assert_eq!(cursor(edge), MoveAction::NoMove);
+    let ordered = click(&sim, &rules, &[yard], None, edge, OrderModifier::Normal);
+    assert!(packs_up(&ordered), "{edge:?}: {ordered:?}");
 }

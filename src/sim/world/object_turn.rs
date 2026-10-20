@@ -1180,6 +1180,14 @@ impl Simulation {
             // between them is unreachable).
             if let Some(rules) = rules {
                 sim.unit_ai_seek_repair(stable_id, rules, overlay_registry, object_ctx.effects);
+                // Unit73681D..73697B, the last block of UnitClass::AI.
+                crate::sim::miner::miner_system::unit_ai_nudge_off_refinery_pad(
+                    sim,
+                    stable_id,
+                    rules,
+                    overlay_registry,
+                    object_ctx.effects,
+                );
             }
         }
         if let Some(rules) = rules {

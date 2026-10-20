@@ -118,8 +118,8 @@ pub fn replay(row: &Value) -> Replay {
     let infiltrator = sim.interner.intern("H1");
     let building = sim.spawn_object("B", "H0", 37, 52, 0, &rules).unwrap();
     let house = sim.houses.get_mut(&owner).unwrap();
-    house.spy_sat_active = flag(&row["owner"]["spy_sat"]);
-    house.map_is_clear = true;
+    house.set_spy_sat_active_for_test(flag(&row["owner"]["spy_sat"]));
+    house.set_map_is_clear_for_test(true);
     sim.power_states
         .insert(owner, PowerState::settled_for_test());
     if let Some(state) = row["super"].as_object() {
@@ -134,7 +134,8 @@ pub fn replay(row: &Value) -> Replay {
             .or_default()
             .insert(sw, instance);
     }
-    sim.session.binary_frame = int(&row["frame"]) as u32;
+    sim.session
+        .set_binary_frame_for_test(int(&row["frame"]) as u32);
     sim.sound_events.clear();
     let spy = if flag(&row["own"]) {
         owner
@@ -206,7 +207,7 @@ fn infiltrate_matches_the_original() {
             "{name}: infiltrator House tech request"
         );
         assert_eq!(
-            [victim.economy.credits(), victim.economy.spent_credits()],
+            [victim.economy().credits(), victim.economy().spent_credits()],
             [
                 int(&expected["owner"]["balance"]),
                 int(&expected["owner"]["spent"])
@@ -214,7 +215,7 @@ fn infiltrate_matches_the_original() {
             "{name}: the owner's money"
         );
         assert_eq!(
-            spy.economy.credits(),
+            spy.economy().credits(),
             int(&expected["infiltrator"]["balance"]),
             "{name}: the spy's money"
         );
@@ -260,7 +261,7 @@ fn infiltrate_matches_the_original() {
             .unwrap()
             .iter()
             .any(|event| event[0] == "reset_shroud");
-        assert_eq!(!victim.map_is_clear, reshrouded, "{name}: Reset_Shroud");
+        assert_eq!(!victim.map_is_clear(), reshrouded, "{name}: Reset_Shroud");
         if let Some(state) = expected.get("super") {
             let sw = sim.interner.get("SW0").unwrap();
             let instance = &sim.super_weapons[&owner][&sw];
@@ -353,7 +354,8 @@ fn arena(rules: &RuleSet) -> (Simulation, crate::sim::pathfinding::PathGrid) {
     sim.input_delay_ticks = 0;
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.current_house = sim.interner.get("Americans");
+    sim.session
+        .set_current_house_for_test(sim.interner.get("Americans"));
     let grid = sim
         .path_grid_snapshot()
         .map(|grid| (*grid).clone())
@@ -433,7 +435,7 @@ fn run_until(
 
 fn capture(sim: &mut Simulation, actor: u64, building: u64) {
     let owner = sim.interner.get("Americans").unwrap();
-    let tick = sim.session.tick;
+    let tick = sim.session.tick();
     sim.queue_command(CommandEnvelope::new(
         owner,
         tick + 1,
@@ -489,7 +491,7 @@ fn a_spy_sent_into_an_enemy_power_plant_blacks_it_out() {
         infiltrations,
         [(russians, americans, InfiltrationEffect::Power, plant_cell)]
     );
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     let blackout = sim.power_states[&russians].blackout_timer_for_test();
     assert_eq!(blackout.duration(), 1000);
     assert!(blackout.remaining(frame as i32) > 0);
@@ -507,14 +509,14 @@ fn a_computer_spy_attacking_a_power_plant_goes_in() {
     // Off the sixteenth frame, whose AI would let go of a target the
     // unarmed spy cannot fire at before its mission runs
     // (`0x006FA472..0x006FA4CB`); a team's next update hands it back.
-    sim.session.binary_frame = 1;
+    sim.session.set_binary_frame_for_test(1);
     let spy = spawn(&mut sim, &rules, "SPY", "Russians", 6, 10);
     let plant = spawn(&mut sim, &rules, "PLANT", "Americans", 10, 10);
     let (americans, russians) = (
         sim.interner.get("Americans").unwrap(),
         sim.interner.get("Russians").unwrap(),
     );
-    let now = sim.session.binary_frame;
+    let now = sim.session.binary_frame();
     sim.mission_assign_exact(spy, MissionId::from_known(MissionType::Attack), now)
         .unwrap();
     sim.assign_target_represented(
@@ -554,7 +556,7 @@ fn a_computer_spy_attacking_a_power_plant_goes_in() {
         infiltrations,
         [(americans, russians, InfiltrationEffect::Power)]
     );
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     assert!(sim.power_states[&americans].blackout_remaining(frame) > 0);
 }
 

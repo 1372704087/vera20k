@@ -59,18 +59,18 @@ impl Simulation {
         let contenders: Vec<InternedId> = self
             .houses
             .in_order()
-            .filter(|house| !house.multiplay_passive)
-            .map(|house| house.name)
+            .filter(|house| !house.multiplay_passive())
+            .map(|house| house.name())
             .collect();
         let mut rows = Vec::with_capacity(contenders.len());
         for owner in contenders {
             let Some((country, survived, stats, raw_score)) =
                 self.houses.get(&owner).map(|house| {
                     (
-                        house.country,
-                        !house.is_defeated,
-                        house.stats,
-                        house.economy.score(),
+                        house.country(),
+                        !house.is_defeated(),
+                        house.stats(),
+                        house.economy().score(),
                     )
                 })
             else {
@@ -128,15 +128,17 @@ mod tests {
     fn insert_house(sim: &mut Simulation, fixture: HouseFixture<'_>) -> InternedId {
         let owner = sim.interner.intern(fixture.name);
         let mut house = HouseState::new(owner, 0, None, false, 0, 10);
-        house.is_defeated = fixture.defeated;
-        house.multiplay_passive = fixture.passive;
-        house.economy.set_score_for_test(fixture.score);
-        house.stats = crate::sim::house_state::MatchStatistics::from_totals_for_test(
-            fixture.units_killed,
-            fixture.buildings_killed,
-            fixture.units_lost,
-            fixture.buildings_lost,
-            fixture.built,
+        house.set_is_defeated_for_test(fixture.defeated);
+        house.set_multiplay_passive_for_test(fixture.passive);
+        house.economy_mut().set_score_for_test(fixture.score);
+        house.set_stats_for_test(
+            crate::sim::house_state::MatchStatistics::from_totals_for_test(
+                fixture.units_killed,
+                fixture.buildings_killed,
+                fixture.units_lost,
+                fixture.buildings_lost,
+                fixture.built,
+            ),
         );
         sim.houses.register(house);
         owner
@@ -301,8 +303,8 @@ mod tests {
         );
         let human = sim.interner.intern("Human");
         let mut human_house = HouseState::new(human, 0, None, true, 0, 10);
-        human_house.is_defeated = true;
-        human_house.economy.set_score_for_test(200);
+        human_house.set_is_defeated_for_test(true);
+        human_house.economy_mut().set_score_for_test(200);
         human_house.supply_outcome_state_for_test(
             false,
             true,
@@ -313,11 +315,11 @@ mod tests {
             crate::sim::timer::CdTimer::default(),
         );
         sim.houses.register(human_house);
-        sim.session.current_house = Some(human);
+        sim.session.set_current_house_for_test(Some(human));
 
         let opponent = sim.interner.intern("Opponent");
         let mut opponent_house = HouseState::new(opponent, 1, None, false, 0, 10);
-        opponent_house.economy.set_score_for_test(100);
+        opponent_house.economy_mut().set_score_for_test(100);
         sim.houses.register(opponent_house);
         sim
     }
@@ -328,7 +330,7 @@ mod tests {
         // At normal play's cadence the ending frame hashes off the interval.
         // It does not commit, so its tick stays the last committed one.
         sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
-        sim.session.tick = 7;
+        sim.session.set_tick_for_test(7);
 
         let first = sim.advance_tick(&[], None, None, None, 67);
 
@@ -372,7 +374,8 @@ mod tests {
     #[test]
     fn another_humans_ready_result_does_not_finalize_the_current_players_score() {
         let mut sim = natural_terminal_sim(0x51C0_9ABD);
-        sim.session.current_house = sim.interner.get("Opponent");
+        sim.session
+            .set_current_house_for_test(sim.interner.get("Opponent"));
         let cursor = sim.clone_scenario_rng().state();
         let tick = sim.advance_tick(&[], None, None, None, 67);
         assert!(tick.frame_committed);

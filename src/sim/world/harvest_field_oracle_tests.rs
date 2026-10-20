@@ -191,7 +191,7 @@ pub(super) fn row_scene_with(input: &Value, edit: impl FnOnce(&mut String, &mut 
         grid.place_overlay(at.0, at.1, id, ore[4].as_u64().unwrap() as u8);
         grid.recalculate_runtime_cell(s.sim.resolved_terrain.as_mut().unwrap(), registry, at);
     }
-    let frame = s.sim.session.binary_frame;
+    let frame = s.sim.session.binary_frame();
     s.sim.production.ore_growth_state = OreGrowthState::new(33, 33);
     s.sim
         .production
@@ -337,7 +337,7 @@ pub(super) fn compare_state(s: &Scene, row: &Value, context: &str) {
     );
     let owner = s.sim.interner.get("Americans").unwrap();
     assert_eq!(
-        u64::from(s.sim.houses[&owner].harvester_no_ore),
+        u64::from(s.sim.houses[&owner].harvester_no_ore()),
         native["house_no_ore"].as_u64().unwrap(),
         "{context}: House+0x242"
     );
@@ -468,7 +468,7 @@ fn mission_harvest_states_zero_and_one_match_the_original_dispatch() {
         let mut s = row_scene(input);
         compare_reach(&s, row, &context);
         let config = crate::sim::miner::MinerConfig::from_rules(&s.rules);
-        let frame = s.sim.session.binary_frame;
+        let frame = s.sim.session.binary_frame();
         crate::sim::world::dispatch_foot_mission(
             &mut s.sim,
             s.miner,

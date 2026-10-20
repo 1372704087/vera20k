@@ -34,7 +34,7 @@ fn simulation(rules: &RuleSet) -> (Simulation, InternedId) {
         .register(crate::sim::house_state::HouseState::new(
             owner, 0, None, true, 50_000, 10,
         ));
-    sim.session.current_house = Some(owner);
+    sim.session.set_current_house_for_test(Some(owner));
     sim.scenario_rng = crate::sim::rng::SimRng::new(0);
     (sim, owner)
 }
@@ -305,7 +305,7 @@ fn nonzero_rows_on_every_strip_roundtrip_prepare_commit_and_refresh() {
         .houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut_for_test()
         .add_credits(17);
     let outgoing_hash = runtime.simulation.state_hash();
     let outgoing_rng = runtime.simulation.rng_state();
@@ -322,7 +322,10 @@ fn nonzero_rows_on_every_strip_roundtrip_prepare_commit_and_refresh() {
     let strips = outgoing.cameo_strips();
     assert_eq!(strips.scroll_rows(), SAVED_SCROLL_ROWS);
     assert_eq!(strips.saved_identities(), *saved.strips());
-    assert_eq!(runtime.simulation.houses[&owner].economy.credits(), 50_000);
+    assert_eq!(
+        runtime.simulation.houses[&owner].economy().credits(),
+        50_000
+    );
     assert_eq!(outgoing.saved_order(), Some(saved.clone()));
     assert!(
         !outgoing

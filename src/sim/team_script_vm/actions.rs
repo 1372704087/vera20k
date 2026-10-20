@@ -278,7 +278,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) {
-        let current_frame = self.session.binary_frame as i32;
+        let current_frame = self.session.binary_frame() as i32;
         match action.action_id {
             0 => self.team_action_attack_quarry(
                 team_id,
@@ -557,7 +557,7 @@ impl Simulation {
                     .get(&team_id)
                     .map(TeamScriptState::owner);
                 if let Some(house) = owner.and_then(|owner| self.houses.get_mut(&owner)) {
-                    house.strategy_emergency.set_state_four();
+                    house.strategy_emergency_mut().set_state_four();
                 }
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
@@ -789,7 +789,7 @@ impl Simulation {
         };
         let members: Vec<_> = team.members().collect();
         let desired = argument.wrapping_shl(13) as u16;
-        let frame = self.session.binary_frame;
+        let frame = self.session.binary_frame();
         let mut finished = true;
         for member in members {
             let Some(entity) = self.substrate.entities.get_mut(member) else {
@@ -866,7 +866,7 @@ impl Simulation {
                 effects,
             );
         }
-        let frame = self.session.binary_frame as i32;
+        let frame = self.session.binary_frame() as i32;
         match frame.checked_rem(rules.general.patrol_scan_frames()) {
             Some(0) => {
                 if let Some(leader) = self.team_leader(team_id, rules) {
@@ -1407,7 +1407,7 @@ impl Simulation {
                 .object_type(entity.type_ref(), rules)
                 .map(|object| object.speed_type);
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)
-                .and_then(|house| house.enemy_house);
+                .and_then(|house| house.enemy_house());
             let cells = self
                 .resolved_terrain
                 .as_ref()
@@ -1451,7 +1451,7 @@ impl Simulation {
             let entity = self.substrate.entities.get(leader)?;
             let owner = entity.owner();
             let enemy = crate::sim::house_state::house_state_for_owner_id(&self.houses, owner)?
-                .enemy_house?;
+                .enemy_house()?;
             let cells = self
                 .resolved_terrain
                 .as_ref()
@@ -1574,7 +1574,7 @@ impl Simulation {
             crate::sim::house_state::house_state_for_owner_id(&self.houses, leader.owner())?;
         let terrain = self.resolved_terrain.as_ref();
         let buildings: Vec<(u64, [i32; 3])> = house
-            .base_projection
+            .base_projection()
             .buildings()
             .iter()
             .filter_map(|&id| {
@@ -2288,7 +2288,10 @@ impl Simulation {
         let mode = (argument as u32) >> 16;
         let unit_entity = self.substrate.entities.get(unit)?;
         let owner = unit_entity.owner();
-        let enemy = self.houses.get(&owner).and_then(|house| house.enemy_house);
+        let enemy = self
+            .houses
+            .get(&owner)
+            .and_then(|house| house.enemy_house());
         let asker = self.interner.resolve(owner);
         let terrain = self.resolved_terrain.as_ref();
         let buildings: Vec<TargetBuilding> = self
@@ -2311,7 +2314,7 @@ impl Simulation {
                 passive: self
                     .houses
                     .get(&building.owner())
-                    .is_some_and(|house| house.multiplay_passive),
+                    .is_some_and(|house| house.multiplay_passive()),
             })
             .collect();
         let vm = &self.team_script_vm;
@@ -2399,7 +2402,7 @@ impl Simulation {
         }
         // `0x006EB59A..0x006EB5D2`. Without a target the action finishes
         // below, and a restart after the step's advance changes nothing.
-        if attack_check_frame(self.session.binary_frame as i32)
+        if attack_check_frame(self.session.binary_frame() as i32)
             && let (Some(leader), Some(target)) = (leader, focus)
             && self.selected_weapon_fire_error(rules, leader, target.target_kind(), true, registry)
                 == FireError::Illegal

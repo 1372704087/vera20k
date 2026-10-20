@@ -776,7 +776,8 @@ fn a_missile_that_lost_its_target_retreats_for_good() {
     );
     assert_eq!(entity.mission.dispatch_timer().delay(), 1);
 
-    sim.session.binary_frame += 1;
+    sim.session
+        .set_binary_frame_for_test(sim.session.binary_frame() + 1);
     crate::sim::aircraft::dispatch_mission(&mut sim, missile, &rules, Default::default());
     let entity = sim.substrate.entities.get(missile).unwrap();
     assert_eq!(
@@ -840,7 +841,7 @@ fn missile_held_after(setup: impl FnOnce(&mut crate::sim::game_entity::GameEntit
         crate::sim::world::FrameEffects::default(),
     );
 
-    let frame = sim.session.binary_frame;
+    let frame = sim.session.binary_frame();
     let entity = sim.substrate.entities.get_mut(v3).expect("V3");
     setup(entity, frame);
     let manager = entity.spawn_manager.as_mut().expect("manager");
@@ -1061,7 +1062,7 @@ fn a_live_spawners_own_expiry_rebuilds_its_docked_missile() {
             .is_none_or(|c| c.death.is_dying() || !c.lifecycle.object_alive()),
         "the docked missile UnInits"
     );
-    let frame = sim.session.binary_frame as i32;
+    let frame = sim.session.binary_frame() as i32;
     let slot = manager(&sim).slots[0].clone();
     assert_eq!(slot.spawn, None);
     assert_eq!(slot.state, SpawnSlotState::Regenerating);
@@ -1475,7 +1476,8 @@ fn missile_flight_speed_uses_the_ra2_conversion() {
     };
     let mut fastest: f64 = 0.0;
     for _ in 0..240 {
-        sim.session.binary_frame += 1;
+        sim.session
+            .set_binary_frame_for_test(sim.session.binary_frame() + 1);
         sim.process_rocket(
             child_id,
             &rules,
@@ -2401,7 +2403,7 @@ fn a_hornet_mid_pass_keeps_its_run_through_the_managers_re_issue() {
         .unwrap()
         .slots[slot]
         .state = SpawnSlotState::Attacking;
-    let frame = sim.session.binary_frame as i32;
+    let frame = sim.session.binary_frame() as i32;
     let child = sim.substrate.entities.get_mut(hornet).unwrap();
     child
         .attack_target
@@ -2513,8 +2515,8 @@ CurleyShuffle=yes
     // The sortie needs a real Size diamond as well as its LocalSize. The
     // shared flat fixture's Size width0 admits no cell at native568300 once
     // a height is supplied; mission-only cruising Hornets can then leave.
-    sim.session.map_width = 65;
-    sim.session.map_height = 65;
+    sim.session.set_map_width_for_test(65);
+    sim.session.set_map_height_for_test(65);
     sim.install_resolved_terrain_for_new_map(crate::map::resolved_terrain::test_flat_ground_grid(
         65,
     ));
@@ -2566,7 +2568,7 @@ CurleyShuffle=yes
         }
         sim.fire_events.clear();
         sim.advance_tick(&[], Some(&rules), None, None, 67);
-        let frame = sim.session.binary_frame;
+        let frame = sim.session.binary_frame();
         for event in sim
             .fire_events
             .iter()
@@ -2763,7 +2765,7 @@ fn retail_launches(
             None,
             crate::sim::world::FrameEffects::default(),
         );
-        let frame = sim.session.binary_frame;
+        let frame = sim.session.binary_frame();
         let owner_entity = sim.substrate.entities.get(owner).unwrap();
         let child = owner_entity.spawn_manager.as_ref().unwrap().slots[slot]
             .spawn

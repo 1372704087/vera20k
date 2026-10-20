@@ -116,7 +116,7 @@ impl ParityDigest {
 
         let house_credits: Vec<i32> = houses
             .values()
-            .map(|house| house.economy.credits())
+            .map(|house| house.economy().credits())
             .collect();
 
         Self {

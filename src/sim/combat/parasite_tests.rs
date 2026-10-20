@@ -82,8 +82,8 @@ impl Arena {
         const SIZE: u16 = 32;
         let mut sim = Simulation::with_seed(7);
         sim.input_delay_ticks = 0;
-        sim.session.map_width = SIZE;
-        sim.session.map_height = SIZE;
+        sim.session.set_map_width_for_test(SIZE);
+        sim.session.set_map_height_for_test(SIZE);
         // Retail [Clear]: Foot/Track/Wheel 100%, Hover 50%, Amphibious 80%.
         let clear = crate::rules::terrain_rules::SpeedCostProfile {
             foot: Some(100),
@@ -133,7 +133,7 @@ impl Arena {
 
     fn attack(&mut self, attacker: u64, target: u64) {
         let owner = self.sim.substrate.entities.get(attacker).unwrap().owner();
-        let tick = self.sim.session.tick + 1;
+        let tick = self.sim.session.tick() + 1;
         self.sim.queue_command(CommandEnvelope::new(
             owner,
             tick,
@@ -152,7 +152,7 @@ impl Arena {
     }
 
     fn frame(&self) -> u32 {
-        self.sim.session.binary_frame
+        self.sim.session.binary_frame()
     }
 
     /// Step until `done` holds; panics after `limit` frames.
@@ -412,7 +412,7 @@ fn drone_bites_on_its_weapon_rate_until_the_host_dies_then_drops_off() {
             .get(tank)
             .map_or(0, |t| t.health.current());
         if hp != last {
-            bites.push((sim.session.binary_frame, hp));
+            bites.push((sim.session.binary_frame(), hp));
             last = hp;
         }
         hp == 0
@@ -506,7 +506,7 @@ fn a_paid_repair_radio_request_releases_the_drone_after_the_heal() {
         .houses
         .get_mut(&owner)
         .unwrap()
-        .economy
+        .economy_mut()
         .set_credits_for_test(1);
     assert_eq!(
         crate::sim::radio::receive_radio(
@@ -523,8 +523,8 @@ fn a_paid_repair_radio_request_releases_the_drone_after_the_heal() {
     assert_eq!(arena.health(tank), Some(hp + 8));
     assert!(arena.gone(drone));
     assert_eq!(arena.eater_of(tank), None);
-    assert_eq!(arena.sim.houses[&owner].economy.credits(), 0);
-    assert_eq!(arena.sim.houses[&owner].economy.spent_credits(), 1);
+    assert_eq!(arena.sim.houses[&owner].economy().credits(), 0);
+    assert_eq!(arena.sim.houses[&owner].economy().spent_credits(), 1);
 }
 
 #[test]
@@ -1033,7 +1033,10 @@ fn the_reselect_memo_stays_out_of_the_peer_hash() {
         arena.sim.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        arena.sim.session.current_house = Some(arena.sim.interner.intern(local));
+        arena
+            .sim
+            .session
+            .set_current_house_for_test(Some(arena.sim.interner.intern(local)));
         arena
             .sim
             .substrate
@@ -1143,7 +1146,7 @@ fn a_parasite_order_on_an_iron_curtained_host_is_dropped() {
         sim.substrate
             .entities
             .get(drone)
-            .is_some_and(|d| d.attack_target.target().is_none() && sim.session.tick > 2)
+            .is_some_and(|d| d.attack_target.target().is_none() && sim.session.tick() > 2)
     });
     assert!(!arena.in_limbo(drone));
     assert_eq!(arena.eater_of(tank), None);
@@ -1279,7 +1282,7 @@ fn grinder_arrival_refunds_the_infesting_drone_before_forced_release() {
         .register(crate::sim::house_state::HouseState::new(
             russian, 1, None, false, 0, 10,
         ));
-    let before = arena.sim.houses[&owner].economy.credits();
+    let before = arena.sim.houses[&owner].economy().credits();
     arena
         .sim
         .per_cell_process(
@@ -1291,7 +1294,7 @@ fn grinder_arrival_refunds_the_infesting_drone_before_forced_release() {
         )
         .unwrap();
     // Unit73A0A5 refunds the tank300, then73A13E refunds the drone200.
-    assert_eq!(arena.sim.houses[&owner].economy.credits(), before + 500);
+    assert_eq!(arena.sim.houses[&owner].economy().credits(), before + 500);
     assert!(arena.gone(tank));
     assert!(
         arena.gone(drone),

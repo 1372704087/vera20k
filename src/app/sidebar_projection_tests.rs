@@ -55,7 +55,7 @@ fn world(rules: &RuleSet, factories: &[&str]) -> (Simulation, InternedId) {
     let mut house = HouseState::new(owner, 0, None, true, 50_000, 10);
     house.project_country_mults(rules, &sim.interner);
     sim.houses.register(house);
-    sim.session.current_house = Some(owner);
+    sim.session.set_current_house_for_test(Some(owner));
     crate::sim::arena_fixture::flat_ground(&mut sim, rules);
     for (index, name) in factories.iter().enumerate() {
         let x = 4 + (index % 4) as u16 * 7;
@@ -113,13 +113,21 @@ fn superweapon_money_cameo_refresh_tracks_wallet_without_membership_rebuild() {
     assert_eq!(view.items.len(), 1);
     assert!(!view.items[0].enabled);
     let order = projection.cameo_strips().saved_identities();
-    sim.houses.get_mut(&owner).unwrap().economy.add_credits(1);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .economy_mut_for_test()
+        .add_credits(1);
     let before = sim.state_hash();
     projection.apply_cameo_draw_state(&mut view, &sim, &rules, owner, None);
     assert!(view.items[0].enabled);
     assert!(view.items[0].is_ready);
     assert_eq!(sim.state_hash(), before);
-    sim.houses.get_mut(&owner).unwrap().economy.add_credits(-1);
+    sim.houses
+        .get_mut(&owner)
+        .unwrap()
+        .economy_mut_for_test()
+        .add_credits(-1);
     projection.apply_cameo_draw_state(&mut view, &sim, &rules, owner, None);
     assert!(!view.items[0].enabled);
     assert!(view.items[0].is_ready);
@@ -978,7 +986,7 @@ fn busy_strip_draw_matches_native_pending_and_linked_controls() {
             // scheduler admits the next ordinary frame, not every queued tick.
             sim.queue_command(CommandEnvelope::new(
                 owner,
-                sim.session.tick + 100,
+                sim.session.tick() + 100,
                 Command::QueueProduction {
                     type_id: sim.interner.get(source).unwrap(),
                 },
@@ -988,14 +996,14 @@ fn busy_strip_draw_matches_native_pending_and_linked_controls() {
             sim.queue_commands([
                 CommandEnvelope::new(
                     foreign,
-                    sim.session.tick + 1,
+                    sim.session.tick() + 1,
                     Command::QueueProduction {
                         type_id: sim.interner.get(source).unwrap(),
                     },
                 ),
                 CommandEnvelope::new(
                     foreign,
-                    sim.session.tick + 1,
+                    sim.session.tick() + 1,
                     Command::SuspendProduction {
                         category: crate::sim::production::category_for_object(
                             rules.object(source).unwrap(),

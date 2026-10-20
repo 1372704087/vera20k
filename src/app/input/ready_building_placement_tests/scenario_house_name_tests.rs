@@ -77,7 +77,7 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
     let local = sim.interner.get("Computer").unwrap();
     let computer = sim.interner.get("Computer1").unwrap();
     assert_ne!(local, computer, "display handle does not merge Houses");
-    assert_eq!(sim.session.current_house, Some(local));
+    assert_eq!(sim.session.current_house(), Some(local));
     assert!(
         scene.map.entities.iter().any(|entity| {
             entity.type_id == "NAHAND"
@@ -151,7 +151,7 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
     assert!(before.items.iter().all(|item| item.type_id != "E2"));
     let capture = CommandEnvelope::new(
         local,
-        fixture.sim.session.tick + 1,
+        fixture.sim.session.tick() + 1,
         Command::CaptureBuilding {
             engineer_id,
             target_building_id: barracks_id,
@@ -204,8 +204,8 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
         "capture must unlock the retained E2 cameo"
     );
     let e2 = fixture.sim.interner.get("E2").unwrap();
-    let credits = fixture.sim.houses[&local].economy.credits();
-    let spent = fixture.sim.houses[&local].economy.spent_credits();
+    let credits = fixture.sim.houses[&local].economy().credits();
+    let spent = fixture.sim.houses[&local].economy().spent_credits();
     let cost = fixture
         .sim
         .cost_of(local, fixture.rules.object("E2").unwrap(), &fixture.rules);
@@ -241,10 +241,10 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
                 .expect("the Factory retains the paid E2 body");
             assert!(held.is_none_or(|previous| previous == id));
             held = Some(id);
-            if !saved && fixture.sim.houses[&local].economy.spent_credits() > spent {
+            if !saved && fixture.sim.houses[&local].economy().spent_credits() > spent {
                 fixture.sim.session.set_started(true);
                 roundtrip_fixture_save(&mut fixture, "scenario-house-captured-barracks");
-                assert_eq!(fixture.sim.session.current_house, Some(local));
+                assert_eq!(fixture.sim.session.current_house(), Some(local));
                 assert_eq!(
                     fixture.sim.entities().get(barracks_id).unwrap().owner(),
                     local
@@ -277,9 +277,12 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
         product.health.current(),
         fixture.rules.object("E2").unwrap().strength
     );
-    assert_eq!(fixture.sim.houses[&local].economy.credits(), credits - cost);
     assert_eq!(
-        fixture.sim.houses[&local].economy.spent_credits(),
+        fixture.sim.houses[&local].economy().credits(),
+        credits - cost
+    );
+    assert_eq!(
+        fixture.sim.houses[&local].economy().spent_credits(),
         spent + cost
     );
     for _ in 0..32 {
@@ -307,7 +310,7 @@ fn authored_computer_barracks_is_captured_and_delivers_paid_e2() {
         1
     );
     assert_eq!(
-        fixture.sim.houses[&local].economy.credits(),
+        fixture.sim.houses[&local].economy().credits(),
         credits - cost,
         "no extra product or charge after exit"
     );

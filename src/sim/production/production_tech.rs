@@ -30,7 +30,7 @@ pub fn construction_options_for_owner(
     };
     let selling =
         crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Selling);
-    for &id in house.base_projection.buildings() {
+    for &id in house.base_projection().buildings() {
         let Some(building) = sim.entities().get(id) else {
             continue;
         };
@@ -73,7 +73,7 @@ fn append_construction_options(
     let Some(building) = sim.entities().get(building_id) else {
         return;
     };
-    if sim.session.current_house != Some(building.owner())
+    if sim.session.current_house() != Some(building.owner())
         || building.lifecycle.in_limbo()
         || !building.discovery.discovered_by_current_house()
         || !building.building_online()

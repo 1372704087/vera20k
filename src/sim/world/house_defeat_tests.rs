@@ -98,7 +98,7 @@ fn sim_with_houses(sides: &[u8]) -> (Simulation, Vec<InternedId>) {
     let mut sim = Simulation::with_seed(5);
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
-    sim.session.binary_frame = 100;
+    sim.session.set_binary_frame_for_test(100);
     let houses = sides
         .iter()
         .enumerate()
@@ -120,31 +120,31 @@ fn observer_defeat_waits_for_hostile_players_then_finishes_without_loss_voice() 
     let (mut sim, owners) = sim_with_houses(&[0, 1, 2]);
     sim.session.set_game_mode(ScenarioGameMode::Lan);
     sim.session.install_network_timing(10);
-    sim.session.current_house = Some(owners[0]);
+    sim.session.set_current_house_for_test(Some(owners[0]));
     sim.session.install_multiplayer_house_identity(
         crate::skirmish_modes::MpModeClass::Battle,
         Some(owners[0]),
     );
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
-        house.is_human = true;
+        house.set_is_human_for_test(true);
         house
-            .tracking
+            .tracking_mut()
             .set_for_test(i32::from(index != 0), &[], (0, 0, 0), &[]);
     }
     sim.check_defeat(None, None);
-    assert!(sim.houses[&owners[0]].is_defeated);
+    assert!(sim.houses[&owners[0]].is_defeated());
     assert!(
         !sim.houses[&owners[0]].has_lost(),
         "observer watches the two hostile human players"
     );
-    assert!(sim.houses[&owners[0]].map_is_clear);
+    assert!(sim.houses[&owners[0]].map_is_clear());
     assert!(!sim.sound_events.iter().any(|event| matches!(event,
         SimSoundEvent::PlayerDefeated { house } if *house == owners[0])));
     sim.houses
         .get_mut(&owners[1])
         .unwrap()
-        .tracking
+        .tracking_mut()
         .set_for_test(0, &[], (0, 0, 0), &[]);
     sim.check_defeat(None, None);
     assert!(sim.houses[&owners[0]].has_lost());
@@ -173,23 +173,23 @@ fn cooperative_defeated_local_waits_for_partner_and_shares_completed_victory() {
     let (mut sim, owners) = sim_with_houses(&[0, 1, 2]);
     sim.session.set_game_mode(ScenarioGameMode::Lan);
     sim.session.install_network_timing(10);
-    sim.session.current_house = Some(owners[0]);
+    sim.session.set_current_house_for_test(Some(owners[0]));
     sim.session
         .install_multiplayer_house_identity(crate::skirmish_modes::MpModeClass::Cooperative, None);
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
-        house.is_human = index < 2;
+        house.set_is_human_for_test(index < 2);
         house
-            .tracking
+            .tracking_mut()
             .set_for_test(i32::from(index != 0), &[], (0, 0, 0), &[]);
     }
     sim.check_defeat(None, None);
-    assert!(sim.houses[&owners[0]].is_defeated);
+    assert!(sim.houses[&owners[0]].is_defeated());
     assert!(!sim.houses[&owners[0]].has_lost());
     sim.houses
         .get_mut(&owners[2])
         .unwrap()
-        .tracking
+        .tracking_mut()
         .set_for_test(0, &[], (0, 0, 0), &[]);
     sim.check_defeat(None, None);
     assert!(sim.houses[&owners[0]].has_won());
@@ -227,7 +227,8 @@ fn native_flag_result_and_savour_controls() {
             "{name}: reader input"
         );
         let mut sim = Simulation::new();
-        sim.session.binary_frame = input["frame"].as_i64().unwrap_or(100) as u32;
+        sim.session
+            .set_binary_frame_for_test(input["frame"].as_i64().unwrap_or(100) as u32);
         let mode = crate::sim::scenario_session::ScenarioGameMode::from_game_mode(
             input["game_mode"].as_i64().unwrap_or(0) as i32,
         );
@@ -251,7 +252,7 @@ fn native_flag_result_and_savour_controls() {
             timer,
         );
         sim.houses.register(house);
-        sim.session.current_house = Some(owner);
+        sim.session.set_current_house_for_test(Some(owner));
         if input["observer"].as_bool().unwrap_or(false) {
             sim.session.install_multiplayer_house_identity(
                 crate::skirmish_modes::MpModeClass::Battle,
@@ -385,8 +386,10 @@ fn native_defeat_gate_corpus() {
                 input["game_mode"].as_i64().unwrap_or(1) != 0,
             ),
         );
-        sim.session.binary_frame = input["frame"].as_i64().unwrap_or(100) as u32;
-        sim.session.game_options.short_game = input["short_game"].as_i64().unwrap_or(1) != 0;
+        sim.session
+            .set_binary_frame_for_test(input["frame"].as_i64().unwrap_or(100) as u32);
+        sim.session.game_options_mut_for_test().short_game =
+            input["short_game"].as_i64().unwrap_or(1) != 0;
         let types = ["AMCV", "SMCV", "PCV"].map(|name| sim.interner.intern(name));
         let yarefn = sim.interner.intern("YAREFN");
         let base_units: Vec<(InternedId, i32)> = input["base_units"]
@@ -405,9 +408,9 @@ fn native_defeat_gate_corpus() {
             .unwrap_or_default();
         {
             let state = sim.houses.get_mut(&house).unwrap();
-            state.is_defeated = int("defeated") != 0;
-            state.multiplay_passive = int("passive") != 0;
-            state.tracking.set_for_test(
+            state.set_is_defeated_for_test(int("defeated") != 0);
+            state.set_multiplay_passive_for_test(int("passive") != 0);
+            state.tracking_mut().set_for_test(
                 int("buildings"),
                 &base_units,
                 (
@@ -418,7 +421,7 @@ fn native_defeat_gate_corpus() {
                 &[(yarefn, int("active_yarefn"))],
             );
         }
-        let was_defeated = sim.houses[&house].is_defeated;
+        let was_defeated = sim.houses[&house].is_defeated();
 
         sim.check_defeat(Some(&rules), None);
 
@@ -429,7 +432,7 @@ fn native_defeat_gate_corpus() {
             case.events
         );
         assert_eq!(
-            !was_defeated && sim.houses[&house].is_defeated,
+            !was_defeated && sim.houses[&house].is_defeated(),
             native_defeats,
             "{name}"
         );
@@ -779,8 +782,8 @@ fn losing_the_last_building_blows_up_the_army_next_frame() {
     let rules = rules(3);
     let (mut sim, houses) = sim_with_houses(&[0, 1]);
     // MPlayer_Defeated flags only PlayerPtr (4FC5AA..6B7): the survivor is local.
-    sim.session.current_house = Some(houses[1]);
-    sim.session.game_options.short_game = true;
+    sim.session.set_current_house_for_test(Some(houses[1]));
+    sim.session.game_options_mut_for_test().short_game = true;
     let refinery = sim
         .spawn_object_at_height("GAREFN", "house0", 10, 10, 0, 0, &rules)
         .unwrap();
@@ -790,24 +793,24 @@ fn losing_the_last_building_blows_up_the_army_next_frame() {
     let enemy_base = sim
         .spawn_object_at_height("NAREFN", "house1", 30, 30, 0, 0, &rules)
         .unwrap();
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 1);
     let step = |sim: &mut Simulation| {
         sim.advance_tick(&[], Some(&rules), None, None, 67);
     };
     step(&mut sim);
-    assert!(!sim.houses[&houses[0]].is_defeated);
+    assert!(!sim.houses[&houses[0]].is_defeated());
 
     // The refinery dies; its tracking leaves with the frame-end drain.
     sim.uninit_with_rules(refinery, &rules);
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 1);
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 1);
     step(&mut sim);
-    assert_eq!(sim.houses[&houses[0]].tracking.buildings(), 0);
+    assert_eq!(sim.houses[&houses[0]].tracking().buildings(), 0);
     assert!(
-        !sim.houses[&houses[0]].is_defeated,
+        !sim.houses[&houses[0]].is_defeated(),
         "counted until its deletion"
     );
     step(&mut sim);
-    assert!(sim.houses[&houses[0]].is_defeated);
+    assert!(sim.houses[&houses[0]].is_defeated());
     assert!(sim.houses[&houses[1]].has_won());
     assert!(
         sim.substrate
@@ -817,7 +820,7 @@ fn losing_the_last_building_blows_up_the_army_next_frame() {
         "the army is blown up"
     );
     assert_eq!(
-        sim.houses[&houses[1]].stats.units_killed(),
+        sim.houses[&houses[1]].stats().units_killed(),
         0,
         "no house is credited"
     );
@@ -832,10 +835,16 @@ fn a_computer_defeat_turns_the_computers_left_paranoid() {
     let mut rules = rules(3);
     rules.general.allies_allowed = true;
     let (mut sim, houses) = sim_with_houses(&[0, 1, 1, 1]);
-    sim.session.game_options.short_game = true;
-    sim.houses.get_mut(&houses[0]).unwrap().is_human = true;
+    sim.session.game_options_mut_for_test().short_game = true;
+    sim.houses
+        .get_mut(&houses[0])
+        .unwrap()
+        .set_is_human_for_test(true);
     for computer in &houses[1..] {
-        sim.houses.get_mut(computer).unwrap().current_iq = rules.general.max_iq_levels;
+        sim.houses
+            .get_mut(computer)
+            .unwrap()
+            .set_current_iq_for_test(rules.general.max_iq_levels);
     }
     // Every house but house3 holds a counted building.
     for (n, refinery) in ["GAREFN", "NAREFN", "NAREFN"].into_iter().enumerate() {
@@ -851,12 +860,12 @@ fn a_computer_defeat_turns_the_computers_left_paranoid() {
         .unwrap();
     }
     for _ in 0..3 {
-        if sim.houses[&houses[3]].is_defeated {
+        if sim.houses[&houses[3]].is_defeated() {
             break;
         }
         sim.advance_tick(&[], Some(&rules), None, None, 67);
     }
-    assert!(sim.houses[&houses[3]].is_defeated);
+    assert!(sim.houses[&houses[3]].is_defeated());
     let allies = |n: usize| {
         sim.house_alliances
             .get(&format!("HOUSE{n}"))
@@ -872,7 +881,7 @@ fn a_computer_defeat_turns_the_computers_left_paranoid() {
         std::collections::BTreeSet::from(["HOUSE1".to_string()])
     );
     assert!(allies(0).is_empty() && allies(3).is_empty());
-    assert_eq!(sim.houses[&houses[1]].enemy_house, Some(houses[0]));
+    assert_eq!(sim.houses[&houses[1]].enemy_house(), Some(houses[0]));
 }
 
 /// Two houses on a bare 40x40 plane in a short game, `house0` the current
@@ -881,8 +890,8 @@ fn two_house_plane(rules: &RuleSet) -> (Simulation, Vec<InternedId>, [u64; 2]) {
     let (mut sim, houses) = sim_with_houses(&[0, 1]);
     sim.fog.width = 40;
     sim.fog.height = 40;
-    sim.session.game_options.short_game = true;
-    sim.session.current_house = Some(houses[0]);
+    sim.session.game_options_mut_for_test().short_game = true;
+    sim.session.set_current_house_for_test(Some(houses[0]));
     let own = sim
         .spawn_object_at_height("GAREFN", "house0", 10, 10, 0, 0, rules)
         .unwrap();
@@ -917,7 +926,7 @@ fn a_local_defeat_reveals_the_whole_map_and_keeps_the_radar_on() {
     step(&mut sim);
     step(&mut sim);
     let local = &sim.houses[&houses[0]];
-    assert!(local.is_defeated && local.map_is_clear);
+    assert!(local.is_defeated() && local.map_is_clear());
     assert!(sim.local_player_defeated());
     assert!(sim.fog.whole_map_revealed_for_owner(houses[0]));
     for (x, y) in CORNERS {
@@ -954,9 +963,9 @@ fn another_house_defeat_writes_only_its_map_clear_byte() {
     step(&mut sim);
     step(&mut sim);
     let other = &sim.houses[&houses[1]];
-    assert!(other.is_defeated && other.map_is_clear);
+    assert!(other.is_defeated() && other.map_is_clear());
     assert!(!sim.local_player_defeated());
-    assert!(!sim.houses[&houses[0]].map_is_clear);
+    assert!(!sim.houses[&houses[0]].map_is_clear());
     for house in &houses {
         assert!(!sim.fog.whole_map_revealed_for_owner(*house));
     }
@@ -980,22 +989,22 @@ fn reveal_entire_map_reveals_once_and_only_to_the_current_house() {
         "no current house, no PlayerPtr"
     );
 
-    sim.session.current_house = Some(houses[0]);
+    sim.session.set_current_house_for_test(Some(houses[0]));
     sim.reveal_entire_map(None, context);
-    assert!(!sim.houses[&houses[0]].map_is_clear);
+    assert!(!sim.houses[&houses[0]].map_is_clear());
     assert!(sim.fog.whole_map_revealed_for_owner(houses[0]));
     assert!(sim.fog.is_cell_revealed(houses[0], 7, 7));
     let plane = save_codec::serialize(&sim.fog.by_owner[&houses[0]]).unwrap();
 
     sim.reveal_entire_map(Some(houses[0]), context);
-    assert!(sim.houses[&houses[0]].map_is_clear);
+    assert!(sim.houses[&houses[0]].map_is_clear());
     assert_eq!(
         save_codec::serialize(&sim.fog.by_owner[&houses[0]]).unwrap(),
         plane
     );
 
     sim.reveal_entire_map(Some(houses[1]), context);
-    assert!(sim.houses[&houses[1]].map_is_clear);
+    assert!(sim.houses[&houses[1]].map_is_clear());
     assert!(!sim.fog.whole_map_revealed_for_owner(houses[1]));
     assert!(!sim.fog.is_cell_revealed(houses[1], 7, 7));
 }
@@ -1033,10 +1042,11 @@ fn the_civilian_house_is_asked_of_its_house_type() {
             })
             .collect();
         assert_eq!(
-            sim.houses[&houses[0]].side_index, -1,
+            sim.houses[&houses[0]].side_index(),
+            -1,
             "a registered sideless Country must not adopt the declared fallback"
         );
-        assert_eq!(sim.houses[&houses[1]].side_index, 1);
+        assert_eq!(sim.houses[&houses[1]].side_index(), 1);
         assert_eq!(
             sim.civilian_side_house(&rules),
             Some(houses[expected]),

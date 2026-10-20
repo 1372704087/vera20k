@@ -47,7 +47,7 @@ pub fn visit_paid_deso_light_lifecycle(
     // deliberately not used: the accepted capture advances ordinary22ms.
     scene.runtime.simulation.batch_path_searches();
     scene.runtime.simulation.batch_target_scans();
-    let owner = scene.sim().session.current_house.unwrap();
+    let owner = scene.sim().session.current_house().unwrap();
     assert_eq!(scene.sim().resolve(owner), local_name);
     assert_eq!(
         scene
@@ -182,7 +182,7 @@ pub fn visit_paid_deso_light_lifecycle(
                     );
                 }
                 paid_start = Some((
-                    scene.sim().houses[&owner].economy.spent_credits(),
+                    scene.sim().houses[&owner].economy().spent_credits(),
                     option.cost,
                 ));
                 assert!(!held && !delivered);
@@ -228,7 +228,7 @@ pub fn visit_paid_deso_light_lifecycle(
                 );
                 let (spent, cost) = paid_start.expect("ordinary DESO production was requested");
                 assert!(
-                    scene.sim().houses[&owner].economy.spent_credits() >= spent + cost,
+                    scene.sim().houses[&owner].economy().spent_credits() >= spent + cost,
                     "paid head must finish charging before world delivery"
                 );
                 delivered = true;
@@ -362,7 +362,7 @@ fn assert_paid_deso_lifecycle(profile_path: &'static str) {
         if let Some(output) = output {
             frames += 1;
             assert!(output.tick.frame_committed);
-            assert_eq!(scene.sim().session.total_sim_ms, frames * 22);
+            assert_eq!(scene.sim().session.total_sim_ms(), frames * 22);
         }
         if let Some(phase) = phase {
             phases.push(phase.to_owned());

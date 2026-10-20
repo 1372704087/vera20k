@@ -92,7 +92,7 @@ pub fn human_player_count(sim: &Simulation) -> i32 {
     i32::try_from(
         sim.houses
             .values()
-            .filter(|house| house.is_human && !house.multiplay_passive)
+            .filter(|house| house.is_human() && !house.multiplay_passive())
             .count(),
     )
     .unwrap_or(i32::MAX)
@@ -195,7 +195,7 @@ fn place_scenario_start_crates_with_failure(
     lighting_profile: LightingProfileUnits,
     forced_failure: ForcedPostPrecheckFailure,
 ) -> CratePlacement {
-    if !sim.session.game_options.crates {
+    if !sim.session.game_options().crates {
         return CratePlacement {
             requested: 0,
             accepted: 0,
@@ -353,7 +353,7 @@ fn place_overlay_and_init_timer(
     let (start_frame, aux, duration) = state::crate_timer_words(
         rules.crate_rules.regen,
         timer_draw,
-        sim.session.binary_frame as i32,
+        sim.session.binary_frame() as i32,
     );
     let slot = sim.crate_authority.slot_mut(slot_index);
     slot.start_frame = start_frame;
@@ -388,7 +388,7 @@ pub(crate) fn place_crate(
     };
     let lighting = sim
         .session
-        .lighting
+        .lighting()
         .profile(crate::sim::scenario_session::ScenarioLightingProfile::Normal)
         .into();
     if place_overlay_and_init_timer(
@@ -841,10 +841,10 @@ pub(crate) mod tests {
     /// `seed` positions the scenario cursor; the placer draws from there.
     pub(crate) fn sim_with_grid(seed: u64) -> Simulation {
         let mut sim = Simulation::new();
-        sim.session.seed = seed;
+        sim.session.set_seed_for_test(seed);
         sim.scenario_rng = crate::sim::rng::SimRng::new(seed);
-        sim.session.map_width = MAP;
-        sim.session.map_height = MAP;
+        sim.session.set_map_width_for_test(MAP);
+        sim.session.set_map_height_for_test(MAP);
         // Production installs MapClass authority before Post_Map_Init reaches
         // crate placement. Keep this focused fixture intentionally broad while
         // exercising the same required mode-one gate.
@@ -856,7 +856,7 @@ pub(crate) mod tests {
             off_108: 256,
         });
         sim.playfield_size_height = Some(20);
-        sim.session.game_options.crates = true;
+        sim.session.game_options_mut_for_test().crates = true;
         sim.overlay_grid = Some(OverlayGrid::new(MAP, MAP));
         sim.resolved_terrain = Some(uniform_terrain(false));
         sim
@@ -965,7 +965,7 @@ pub(crate) mod tests {
         let grid = PathGrid::test_all_passable(MAP, MAP);
         let mut sim = sim_with_grid(7);
         sim.install_fixture_path_grid(Some(&grid));
-        sim.session.game_options.crates = false;
+        sim.session.game_options_mut_for_test().crates = false;
         let rng_before = sim.scenario_rng.state();
 
         let result = place_scenario_start_crates(&mut sim, &rules, &registry, 4);
@@ -1394,13 +1394,13 @@ pub(crate) mod tests {
 
         let mut null_sim = sim_with_grid(0xA011_0001);
         null_sim.install_fixture_path_grid(Some(&grid));
-        null_sim.session.binary_frame = u32::MAX;
+        null_sim.session.set_binary_frame_for_test(u32::MAX);
         let (null_cell, mut null_replay) = first_random_cell(&null_sim);
         let timer_draw = null_replay.next_range_u32_inclusive(0, 0x7fff_fffe);
         let expected_timer = state::crate_timer_words(
             null_rules.crate_rules.regen,
             timer_draw,
-            null_sim.session.binary_frame as i32,
+            null_sim.session.binary_frame() as i32,
         );
         let null_result = place_scenario_start_crates(&mut null_sim, &null_rules, &registry, 1);
         assert_eq!((null_result.accepted, null_result.visible), (1, 0));
@@ -1684,7 +1684,7 @@ pub(crate) mod tests {
         let mut sim = sim_with_grid(0xDA7A_0020);
         sim.hash_state_every(std::num::NonZeroU64::MIN);
         // Mark is invoked below; autonomous crate spawning is outside this fixture.
-        sim.session.game_options.crates = false;
+        sim.session.game_options_mut_for_test().crates = false;
         sim.production.ore_growth_config.grows = false;
         sim.production.ore_growth_config.spreads = false;
         assert!(sim.rebuild_dynamic_navigation(&rules));
@@ -2049,11 +2049,22 @@ pub(crate) mod tests {
         incoming.session.set_game_mode(
             crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
         );
-        incoming.session.binary_frame = 100;
-        incoming.session.lighting = ScenarioLightingState::from_map(&profiles);
-        incoming.session.lighting.selected_profile = ScenarioLightingProfile::Ion;
-        incoming.session.lighting.current_ambient = profiles.ion.ambient_percent;
-        incoming.session.lighting.target_ambient = profiles.ion.ambient_percent;
+        incoming.session.set_binary_frame_for_test(100);
+        incoming
+            .session
+            .set_lighting_for_test(ScenarioLightingState::from_map(&profiles));
+        incoming
+            .session
+            .lighting_mut()
+            .set_selected_profile_for_test(ScenarioLightingProfile::Ion);
+        incoming
+            .session
+            .lighting_mut()
+            .set_current_ambient_for_test(profiles.ion.ambient_percent);
+        incoming
+            .session
+            .lighting_mut()
+            .set_target_ambient_for_test(profiles.ion.ambient_percent);
         let terrain = incoming.resolved_terrain.take().unwrap();
         incoming.install_resolved_terrain_for_new_map(terrain.clone());
         incoming
@@ -2070,8 +2081,16 @@ pub(crate) mod tests {
         };
         let bytes = GameSnapshot::save(&incoming, 0, 0, "incoming-lighting.map", 0);
         let mut outgoing = sim_with_grid(0x14_09_0008);
-        outgoing.session.lighting.normal.ambient_percent = 150;
-        outgoing.session.lighting.normal.ground_units = 50;
+        outgoing
+            .session
+            .lighting_mut()
+            .normal_mut_for_test()
+            .ambient_percent = 150;
+        outgoing
+            .session
+            .lighting_mut()
+            .normal_mut_for_test()
+            .ground_units = 50;
         let cold_main = crate::sim::rng::MainRng::new(0x14_09_0009);
 
         for in_game in [false, true] {
@@ -2086,9 +2105,9 @@ pub(crate) mod tests {
             restored
                 .restore_map_authority_after_snapshot_load(&rules, &registry, None)
                 .unwrap();
-            assert_eq!(restored.session.lighting.normal, profiles.normal.into());
+            assert_eq!(restored.session.lighting().normal(), profiles.normal.into());
             assert_eq!(
-                restored.session.lighting.selected_profile,
+                restored.session.lighting().selected_profile(),
                 ScenarioLightingProfile::Ion
             );
 
@@ -2571,6 +2590,61 @@ pub(crate) mod tests {
         }
     }
 
+#[test]
+fn crate_random_rectangle_draws_signed_reversed_ranges_then_narrows_to_i16() {
+    let mut sum_one = crate::sim::rng::SimRng::new(0x1401);
+    let mut sum_one_expected = sum_one.clone();
+    let sum_one_frame = CrateRandomFrame {
+        left: 1,
+        top: 1,
+        width: 0,
+        height: 0,
+    };
+    let sum_one_cell = draw_crate_candidate(&mut sum_one, sum_one_frame);
+    let expected_sum_one = (
+        sum_one_expected.next_range_u32_inclusive(0, 1) as i32,
+        sum_one_expected.next_range_u32_inclusive(0, 1) as i32,
+    );
+    assert_eq!(sum_one_cell, expected_sum_one);
+    assert_eq!(sum_one.state(), sum_one_expected.state());
+
+    let mut negative = crate::sim::rng::SimRng::new(0x1402);
+    let mut negative_expected = negative.clone();
+    let negative_frame = CrateRandomFrame {
+        left: i32::MAX,
+        top: i32::MIN,
+        width: -2,
+        height: -2,
+    };
+    let negative_cell = draw_crate_candidate(&mut negative, negative_frame);
+    let expected_negative = (
+        i32::MAX.wrapping_add(-3 + negative_expected.next_range_u32_inclusive(0, 3) as i32) as i16
+            as i32,
+        i32::MIN.wrapping_add(-3 + negative_expected.next_range_u32_inclusive(0, 3) as i32) as i16
+            as i32,
+    );
+    assert_eq!(negative_cell, expected_negative);
+    assert_eq!(negative.state(), negative_expected.state());
+
+    let mut wide = crate::sim::rng::SimRng::new(0x1403);
+    let mut wide_expected = wide.clone();
+    let wide_frame = CrateRandomFrame {
+        left: 30_000,
+        top: -30_000,
+        width: 70_000,
+        height: 70_000,
+    };
+    let wide_cell = draw_crate_candidate(&mut wide, wide_frame);
+    let expected_wide = (
+        30_000i32.wrapping_add(wide_expected.next_range_u32_inclusive(0, 69_999) as i32) as i16
+            as i32,
+        (-30_000i32).wrapping_add(wide_expected.next_range_u32_inclusive(0, 69_999) as i32) as i16
+            as i32,
+    );
+    assert_eq!(wide_cell, expected_wide);
+    assert_eq!(wide.state(), wide_expected.state());
+}
+
     #[test]
     fn crate_random_frame_retains_nonpositive_signed_size_for_rng_before_empty_snap() {
         let mut sim = sim_with_grid(1);
@@ -2711,14 +2785,14 @@ pub(crate) mod tests {
         let grid = PathGrid::test_all_passable(MAP, MAP);
         sim.install_fixture_path_grid(Some(&grid));
 
-        sim.session.binary_frame = 0;
+        sim.session.set_binary_frame_for_test(0);
         assert_eq!(
             snap_to_passable(&sim, (20, 20), CrateSurface::Land),
             Some((29, 11)),
             "frame zero selects the first preferred survivor, not nearest to (0,0)"
         );
 
-        sim.session.binary_frame = 1;
+        sim.session.set_binary_frame_for_test(1);
         assert_eq!(
             snap_to_passable(&sim, (20, 20), CrateSurface::Land),
             Some((11, 20)),
@@ -2755,7 +2829,7 @@ pub(crate) mod tests {
             off_104: 10,
             off_108: 6,
         });
-        sim.session.binary_frame = 0;
+        sim.session.set_binary_frame_for_test(0);
         let grid = PathGrid::test_all_passable(MAP, MAP);
         sim.install_fixture_path_grid(Some(&grid));
 
@@ -2832,7 +2906,7 @@ pub(crate) mod tests {
         let mut add = |name: &str, is_human: bool, passive: bool| {
             let id = sim.interner.intern(name);
             let mut house = HouseState::new(id, 0, None, is_human, 10_000, 10);
-            house.multiplay_passive = passive;
+            house.set_multiplay_passive_for_test(passive);
             sim.houses.register(house);
         };
         add("Local", true, false);
@@ -2862,7 +2936,7 @@ pub(crate) mod tests {
         sim.install_fixture_path_grid(Some(&grid));
         sim.playfield_bounds.as_mut().unwrap().base = 14;
         sim.playfield_size_height = Some(9);
-        sim.session.map_width = 37;
+        sim.session.set_map_width_for_test(37);
         let mut replay = sim.scenario_rng.clone();
         let expected = (
             1 + replay.next_range_u32_inclusive(0, 21) as u16,
@@ -2878,59 +2952,4 @@ pub(crate) mod tests {
         assert_ne!(expected, (0, 0), "draw lies outside the 1x1 LocalSize");
         assert_eq!(sim.scenario_rng.state(), replay.state());
     }
-}
-
-#[test]
-fn crate_random_rectangle_draws_signed_reversed_ranges_then_narrows_to_i16() {
-    let mut sum_one = crate::sim::rng::SimRng::new(0x1401);
-    let mut sum_one_expected = sum_one.clone();
-    let sum_one_frame = CrateRandomFrame {
-        left: 1,
-        top: 1,
-        width: 0,
-        height: 0,
-    };
-    let sum_one_cell = draw_crate_candidate(&mut sum_one, sum_one_frame);
-    let expected_sum_one = (
-        sum_one_expected.next_range_u32_inclusive(0, 1) as i32,
-        sum_one_expected.next_range_u32_inclusive(0, 1) as i32,
-    );
-    assert_eq!(sum_one_cell, expected_sum_one);
-    assert_eq!(sum_one.state(), sum_one_expected.state());
-
-    let mut negative = crate::sim::rng::SimRng::new(0x1402);
-    let mut negative_expected = negative.clone();
-    let negative_frame = CrateRandomFrame {
-        left: i32::MAX,
-        top: i32::MIN,
-        width: -2,
-        height: -2,
-    };
-    let negative_cell = draw_crate_candidate(&mut negative, negative_frame);
-    let expected_negative = (
-        i32::MAX.wrapping_add(-3 + negative_expected.next_range_u32_inclusive(0, 3) as i32) as i16
-            as i32,
-        i32::MIN.wrapping_add(-3 + negative_expected.next_range_u32_inclusive(0, 3) as i32) as i16
-            as i32,
-    );
-    assert_eq!(negative_cell, expected_negative);
-    assert_eq!(negative.state(), negative_expected.state());
-
-    let mut wide = crate::sim::rng::SimRng::new(0x1403);
-    let mut wide_expected = wide.clone();
-    let wide_frame = CrateRandomFrame {
-        left: 30_000,
-        top: -30_000,
-        width: 70_000,
-        height: 70_000,
-    };
-    let wide_cell = draw_crate_candidate(&mut wide, wide_frame);
-    let expected_wide = (
-        30_000i32.wrapping_add(wide_expected.next_range_u32_inclusive(0, 69_999) as i32) as i16
-            as i32,
-        (-30_000i32).wrapping_add(wide_expected.next_range_u32_inclusive(0, 69_999) as i32) as i16
-            as i32,
-    );
-    assert_eq!(wide_cell, expected_wide);
-    assert_eq!(wide.state(), wide_expected.state());
 }

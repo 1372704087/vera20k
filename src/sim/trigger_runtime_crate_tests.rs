@@ -18,7 +18,7 @@ fn fixture() -> (Simulation, RuleSet, OverlayTypeRegistry, InternedId, u64) {
     );
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
-    sim.session.game_options.crates = false;
+    sim.session.game_options_mut_for_test().crates = false;
     let owner = sim.interner.intern("Americans");
     sim.houses
         .register(crate::sim::house_state::HouseState::new(
@@ -124,7 +124,7 @@ fn authored_placement_matches_eight_original_controls_and_all_rng_streams() {
         rules.crate_rules.regen = crate::util::native_x87::NativeF64Bits::from_bits(
             input["regen_minutes"].as_f64().unwrap_or(3.0).to_bits(),
         );
-        sim.session.binary_frame = 100;
+        sim.session.set_binary_frame_for_test(100);
         sim.native_unique_ids =
             Some(crate::sim::native_identity::NativeUniqueIdCursor::test_at_current_value(1000));
         zero_slot_priors(&mut sim);
@@ -359,8 +359,15 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
                 None,
             );
         }
-        sim.houses.get_mut(&owner).unwrap().player_control = false;
-        sim.houses.get_mut(&owner).unwrap().economy.add_credits(100);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .set_player_control_for_test(false);
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut()
+            .add_credits(100);
         let other = sim.interner.intern("Russians");
         sim.houses
             .register(HouseState::new(other, 1, Some(other), false, 200, 10));
@@ -404,7 +411,7 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
             0,
             integer(&input["selection"]) as u8,
         );
-        sim.session.binary_frame = 100;
+        sim.session.set_binary_frame_for_test(100);
         supply_rng(&mut sim, &case["rng_full_before"]);
         let result = sim.pickup_crate_at(
             actor,
@@ -429,8 +436,8 @@ fn money_pickup_matches_original_reentrant_owner_alive_and_notification_controls
         }
         assert_eq!(
             json!([
-                sim.houses[&owner].economy.credits(),
-                sim.houses[&other].economy.credits()
+                sim.houses[&owner].economy().credits(),
+                sim.houses[&other].economy().credits()
             ]),
             case["balances"],
             "{name}: real AddCredits"
@@ -614,8 +621,8 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
     sim.session
         .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(false));
     sim.session.initialize_campaign_startup(1, 7, None).unwrap();
-    sim.session.game_options.crates = false;
-    sim.session.binary_frame = 0;
+    sim.session.game_options_mut_for_test().crates = false;
+    sim.session.set_binary_frame_for_test(0);
     crate::sim::scenario_bootstrap::initialize_map_roster_houses(
         &mut sim,
         &roster,
@@ -758,7 +765,10 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         .spawn_object_at_height("E1", "Americans", 20, 20, 0, 0, &rules)
         .unwrap();
     let house = sim.substrate.entities.get(actor).unwrap().owner();
-    sim.houses.get_mut(&house).unwrap().player_control = false;
+    sim.houses
+        .get_mut(&house)
+        .unwrap()
+        .set_player_control_for_test(false);
     supply_rng(&mut sim, &native["placement_controls"][0]["rng_before"]);
     let live = *sim
         .trigger_runtime
@@ -767,7 +777,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         .find(|&&live| sim.trigger_runtime.trigger(live).unwrap().type_index == typ)
         .unwrap();
     let deadline = sim.trigger_runtime.trigger(live).unwrap().timer.duration() as u32;
-    sim.session.binary_frame = deadline - 1;
+    sim.session.set_binary_frame_for_test(deadline - 1);
     poll(&mut sim, &rules, &registry);
     assert_eq!(
         sim.crate_authority
@@ -788,7 +798,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
     sim.restore_map_authority_after_snapshot_load(&rules, &registry, None)
         .unwrap();
     sim.resolve_type_handles(&rules);
-    sim.session.binary_frame = deadline;
+    sim.session.set_binary_frame_for_test(deadline);
     poll(&mut sim, &rules, &registry);
     assert_eq!(
         sim.crate_authority
@@ -806,7 +816,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         assert_eq!(cell.overlay_id, Some(wood));
         assert_eq!(cell.overlay_data, 0);
     }
-    let before = sim.houses[&house].economy.credits();
+    let before = sim.houses[&house].economy().credits();
     assert!(sim.pickup_crate_at(
         actor,
         (16, 15),
@@ -821,7 +831,7 @@ fn retail_all07_elapsed_crates_and_money_survive_save_and_notify_logic() {
         .find(|row| row["input"]["name"] == "ordinary_money")
         .unwrap();
     assert_eq!(
-        sim.houses[&house].economy.credits().wrapping_sub(before),
+        sim.houses[&house].economy().credits().wrapping_sub(before),
         integer(&ordinary["credit_calls"][0]["amount"])
     );
     assert!(sim.trigger_runtime.dirty[3]);

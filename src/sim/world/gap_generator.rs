@@ -121,7 +121,7 @@ impl Simulation {
             .get(id)
             .and_then(|entity| self.power_states.get(&entity.owner()))
             .is_some_and(|state| {
-                state.blackout_remaining(self.session.binary_frame) > 0
+                state.blackout_remaining(self.session.binary_frame()) > 0
                     || state.has_drained_power_source
             })
     }
@@ -250,7 +250,7 @@ impl Simulation {
         let spy_sat_active = self
             .houses
             .iter()
-            .filter_map(|(&owner, house)| house.spy_sat_active.then_some(owner))
+            .filter_map(|(&owner, house)| house.spy_sat_active().then_some(owner))
             .collect();
         vision::publish_gap_generator_event(
             &mut self.fog,

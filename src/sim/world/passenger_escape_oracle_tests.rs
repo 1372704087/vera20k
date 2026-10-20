@@ -146,7 +146,7 @@ fn scene(input: &Value) -> Scene {
     let human = input["human"] == true;
     let americans = sim.interner.intern("Americans");
     let mut house = crate::sim::house_state::HouseState::new(americans, 0, None, human, 0, 10);
-    house.player_control = human;
+    house.set_player_control_for_test(human);
     sim.houses.register(house);
     let foreign = sim.interner.intern("Foreign");
     sim.houses
@@ -167,10 +167,11 @@ fn scene(input: &Value) -> Scene {
     // `0x0050B6F0` in a nonzero mode); its escapees pass Select's
     // ownership gate (`0x006FBFA0`).
     if human {
-        sim.session.current_house = Some(americans);
+        sim.session.set_current_house_for_test(Some(americans));
     }
-    sim.session.binary_frame = input["frame"].as_u64().unwrap_or(200) as u32;
-    let frame = sim.session.binary_frame;
+    sim.session
+        .set_binary_frame_for_test(input["frame"].as_u64().unwrap_or(200) as u32);
+    let frame = sim.session.binary_frame();
 
     // The transport: in limbo at its coordinate, as its Mark(UP) leaves it.
     let (x, y) = input.get("cell").map_or((15, 15), cell);

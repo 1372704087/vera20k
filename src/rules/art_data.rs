@@ -1648,6 +1648,17 @@ impl ArtRegistry {
             .is_none_or(|entry| entry.can_be_hidden)
     }
 
+    /// A TechnoType's custom palette name (`Palette=`, `+0xDD0`) from the ART
+    /// section its ImageFile names (`+0x1F8`: the rules `Image=`, else the type
+    /// ID). `TechnoTypeClass::ReadINI` reads it with ReadString, capacity
+    /// 0x20, on `0x00887180` under `ESI = this+0x1F8` (`0x007157B5`,
+    /// `0x0071582B..0x0071584B`); the constructor clears it (`0x007116A7`).
+    pub fn techno_palette(&self, image: &str) -> Option<&str> {
+        self.entries
+            .get(image)
+            .and_then(|entry| entry.palette.as_deref())
+    }
+
     /// Hidden-occupancy height from art.ini `OccupyHeight=`.
     /// art.ini comments define the absent-key fallback as the section `Height=`;
     /// missing sections fall back to 2, the documented building-art default.

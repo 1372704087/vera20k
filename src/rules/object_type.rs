@@ -1876,6 +1876,14 @@ pub struct ObjectType {
     /// Gates the Behind indicator (`TechnoClass::AI_Update @ 0x006FA2A2`).
     pub can_be_hidden: bool,
 
+    /// Whether the type draws from the scenario's extra building palette
+    /// ([`RuleSet::extra_building_palette`](crate::rules::ruleset::RuleSet::extra_building_palette)):
+    /// art `Palette=` named one, so ReadINI (`0x00715852`, `0x00717820`)
+    /// pointed `+0xDF0` at its generated colour schemes. Set by
+    /// `RuleSet::project_art_data` from
+    /// [`ArtRegistry::techno_palette`](crate::rules::art_data::ArtRegistry::techno_palette).
+    pub custom_palette: bool,
+
     /// `RevealToAll=` (TechnoType `+0x5EE`): constructor `0x00710FFC` writes
     /// false; ReadINI (`0x00714382..0x00714396`) reads it with ReadBool
     /// (`0x005295F0`), the current byte as its default across reached rules
@@ -3268,6 +3276,7 @@ impl ObjectType {
             is_selectable_combatant: section.read_bool("IsSelectableCombatant", false),
             // The constructor's value; ART supplies the key (`project_art_data`).
             can_be_hidden: true,
+            custom_palette: false,
             reveal_to_all: section.read_bool("RevealToAll", false),
 
             // Naval flags

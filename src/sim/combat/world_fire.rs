@@ -1883,6 +1883,20 @@ pub(super) fn emit_admitted_fire(
     {
         world.projectiles.init_scalable(bullet_id, kind);
     }
+    // Fire741340's last step (74143E..741471): a DisguiseWhenStill= Unit
+    // (UnitType+0xD32) starts its disguise blink for the weapon's
+    // DisguiseFakeBlinkTime= (+0x13C), read by IsClearlyVisibleTo and the
+    // computer's disguise detection.
+    if snap.category == EntityCategory::Unit
+        && obj.disguise_when_still
+        && let Some(disguise) = world
+            .substrate
+            .entities
+            .get_mut(snap.stable_id)
+            .and_then(|entity| entity.disguise.as_mut())
+    {
+        disguise.start_fire_blink(binary_frame, weapon.disguise_fake_blink_time);
+    }
     Some(bullet_id)
 }
 

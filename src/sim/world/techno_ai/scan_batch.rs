@@ -48,8 +48,10 @@
 //! scan's scores (`VHPScan=`, retail `[NASAM]` only). The scan's own effects
 //! stay at the object's turn in native order: the scan frame stamp, the
 //! RandomRanged(0, 2) draw, the timer, the drop step, the assignment, the
-//! estimate debit and Foot+688's write. Greatest_Threat draws no random
-//! numbers, so the RNG stream changes only through changed picks. Each answer
+//! estimate debit and Foot+688's write. Greatest_Threat draws only for a
+//! computer's disguise detection (`0x006F851C`); an answer that drew is
+//! dropped and its object scans live, so the RNG stream changes only
+//! through changed picks. Each answer
 //! reads only the frame-start world, and its copy of the Dummy (below) starts
 //! from the shared word on whichever thread it runs, so no result depends on
 //! the thread count. Simulations start without batching; real matches and
@@ -237,7 +239,9 @@ impl Simulation {
                     pick_house,
                 })
             });
-            answer.filter(|_| !stamped).map(|answer| (id, Some(answer)))
+            answer
+                .filter(|answer| !stamped && !answer.outcome.drew_scenario_rng())
+                .map(|answer| (id, Some(answer)))
         });
         answers.sort_unstable_by_key(|&(id, _)| id);
         if let Some(batch) = self.scan_batch.as_mut() {

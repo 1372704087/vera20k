@@ -1197,7 +1197,10 @@ use crate::util::save_codec;
 // states; the session no longer carries a separate copy of that order.
 // 446 -> 447: terrain objects and ore growth leave the production state for
 // their own owners (the terrain object store, the ore growth config/state).
-const SNAPSHOT_VERSION: u32 = 447;
+// 447 -> 448: the Techno disguise state retains the firing blink timer
+// (+1EC/+1F4); WeaponType retains DisguiseFakeBlinkTime= and [General]
+// DisabledDisguiseDetectionPercent=.
+const SNAPSHOT_VERSION: u32 = 448;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10012,6 +10015,7 @@ mod tests {
         // 444 -> 445: retained per-pass BuildingType light integers.
         // 445 -> 446: the House array's registration order.
         // 446 -> 447: terrain objects and ore growth have their own owners.
-        assert_eq!(super::SNAPSHOT_VERSION, 447);
+        // 447 -> 448: the disguise firing blink and its rules keys.
+        assert_eq!(super::SNAPSHOT_VERSION, 448);
     }
 }

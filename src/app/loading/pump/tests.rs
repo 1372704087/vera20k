@@ -1934,7 +1934,15 @@ fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_instal
     result.scenario.startup = session.freeze_network_start(1).unwrap();
     result.scenario.simulation = Some(sim);
     let notices = apply_network_loading_disconnects(&mut session, &mut result, &[1]);
-    assert_eq!(notices, vec![peer]);
+    assert_eq!(
+        notices,
+        vec![
+            crate::app::match_runtime::network_match::ConnectionDestroyed {
+                owner: peer,
+                key: "TXT_CONNECTION_LOST",
+            }
+        ]
+    );
     assert_eq!(session.network_connected_source_indices(), &[0]);
     assert_eq!(
         result

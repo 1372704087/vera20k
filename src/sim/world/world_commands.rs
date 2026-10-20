@@ -491,6 +491,19 @@ impl Simulation {
         self.encode_header_event(command_owner, crate::sim::command::DESTRUCT_OPCODE)
     }
 
+    /// EVENT_REMOVEPLAYER's record: the header House is the sender, the
+    /// dword payload the removed House's index (`0x004C6720`).
+    pub fn encode_remove_player_record(
+        &self,
+        command_owner: crate::sim::intern::InternedId,
+        house_index: i32,
+    ) -> Option<CommandRecord> {
+        let mut record =
+            self.encode_header_event(command_owner, crate::sim::command::REMOVE_PLAYER_OPCODE)?;
+        record.payload_mut()[..4].copy_from_slice(&house_index.to_le_bytes());
+        Some(record)
+    }
+
     fn encode_header_event(
         &self,
         command_owner: crate::sim::intern::InternedId,
@@ -644,6 +657,21 @@ impl Simulation {
                 .houses
                 .contains_key(&owner)
                 .then(|| CommandEnvelope::new(owner, execute_tick, Command::ExitMatch));
+        }
+
+        if record.opcode() == crate::sim::command::REMOVE_PLAYER_OPCODE {
+            let house_index = usize::try_from(record.house_id()).ok()?;
+            let owner = *self.houses.order().get(house_index)?;
+            let removed = i32::from_le_bytes(record.payload()[..4].try_into().ok()?);
+            return self.houses.contains_key(&owner).then(|| {
+                CommandEnvelope::new(
+                    owner,
+                    execute_tick,
+                    Command::RemovePlayer {
+                        house_index: removed,
+                    },
+                )
+            });
         }
 
         if record.opcode() == crate::sim::command::DESTRUCT_OPCODE {
@@ -1472,16 +1500,52 @@ impl Simulation {
                 let Some(owner) = self.interner.get(command_owner) else {
                     return false;
                 };
-                if !self.houses.contains_key(&owner) {
+                let Some(house) = self.houses.get_mut(&owner) else {
+                    return false;
+                };
+                // Execute_DoList's EXIT block (0x0064C7BF..0x0064C862), for
+                // every sender: House+0x248, then Flag_To_Die when no other
+                // human House is undefeated (0x005E2BA0).
+                house.mark_left_game();
+                if self.other_undefeated_humans(owner) == 0 {
+                    self.flag_house_to_die(owner);
+                }
+                // A Simulation without a current House (diagnostic and replay
+                // drivers) has no remote senders.
+                if self.session.current_house().is_none_or(|local| local == owner) {
+                    // The local sender's EventClass__Execute (0x004C7903)
+                    // writes the termination byte at 0x004C7917. The app
+                    // consumes the owner-tagged edge after this tail.
+                    if !self.quit_requested {
+                        self.executed_exit_owner = Some(owner);
+                    }
+                    self.quit_requested = true;
+                } else {
+                    // A remote sender never reaches Execute (0x0064C91B):
+                    // the app runs DestroyConnection(house, 0) for it
+                    // (0x0064C9B1).
+                    self.departed_owners.push(owner);
+                }
+                true
+            }
+            Command::RemovePlayer { house_index } => {
+                // EventClass::Execute 0x004C7B73: IsHumanControlled
+                // (0x0050B730, House+0x1EC outside mode 0), then
+                // Flag_To_Die (0x004C7BE1).
+                let Some(owner) = usize::try_from(*house_index)
+                    .ok()
+                    .and_then(|index| self.houses.order().get(index).copied())
+                else {
+                    return false;
+                };
+                if !self
+                    .houses
+                    .get(&owner)
+                    .is_some_and(|house| house.is_human())
+                {
                     return false;
                 }
-                // EventClass__Execute @ 0x004C6CB0, opcode 0x13: the due
-                // EXIT event writes the termination byte at 0x004C7917. The
-                // app consumes the owner-tagged edge after this tail dispatch.
-                if !self.quit_requested {
-                    self.executed_exit_owner = Some(owner);
-                }
-                self.quit_requested = true;
+                self.flag_house_to_die(owner);
                 true
             }
             // `EventClass::Execute 0x004C6ED2..0x004C6F01`: a live target

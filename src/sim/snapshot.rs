@@ -1211,7 +1211,8 @@ use crate::util::save_codec;
 // layer; OverlayGrid alone holds them.
 // 452 -> 453: GameEntity retains a building's NoSurvivor byte (+0x6E0) for the
 // second SpawnSurvivors of a building that outlives its killing blow.
-const SNAPSHOT_VERSION: u32 = 453;
+// 453 -> 454: HouseState retains House+0x248, the executed-EXIT flag.
+const SNAPSHOT_VERSION: u32 = 454;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10071,6 +10072,7 @@ mod tests {
         // 450 -> 451: the House UI name source.
         // 451 -> 452: terrain records drop their overlay identity/state copy.
         // 452 -> 453: a building's NoSurvivor byte.
-        assert_eq!(super::SNAPSHOT_VERSION, 453);
+        // 453 -> 454: the House left-game flag.
+        assert_eq!(super::SNAPSHOT_VERSION, 454);
     }
 }

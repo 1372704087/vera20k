@@ -404,7 +404,7 @@ pub(crate) fn build_display_effect_instances(
             palette_context: if anim.use_cell_drawer() {
                 crate::render::sprite_atlas::ShpPaletteContext::Cell
             } else if remap_color.is_some() {
-                crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme
+                crate::render::sprite_atlas::anim_remap_context(anim)
             } else {
                 crate::render::sprite_atlas::ShpPaletteContext::GlobalAnim
             },
@@ -1266,7 +1266,7 @@ pub(crate) fn build_parachute_instances(
             crate::render::sprite_atlas::anim_remap_color(anim, sim.interner(), input.house_colors);
         let key = ShpSpriteKey {
             palette_context: if remap_color.is_some() {
-                crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme
+                crate::render::sprite_atlas::anim_remap_context(anim)
             } else {
                 crate::render::sprite_atlas::ShpPaletteContext::GlobalAnim
             },

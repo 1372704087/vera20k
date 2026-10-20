@@ -333,6 +333,9 @@ impl AnimDisplayState {
 pub enum AnimRemap {
     ColorScheme(HouseColorIndex),
     House(InternedId),
+    /// The house's scheme from the extra building palette
+    /// (`RuleSet::extra_building_palette`), Techno705D70's `+0xDF0` arm.
+    ExtraBuildingScheme(InternedId),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -851,9 +854,9 @@ impl AnimStore {
 
     /// A house's colour conversion as the anim's remap (`+0xD4`), frozen at
     /// the write; later disguise or owner changes must not recolor the anim.
-    /// Unit deploy739C1A/739DFE store the one Techno705D70 returns
-    /// (CustomPalette is not yet represented by this owner; stock SCHP uses
-    /// the house conversion); InfantryClass::ReceiveDamage's InfDeath 9 arm
+    /// Unit deploy739C1A/739DFE store the one Techno705D70 returns (its
+    /// custom-palette arm is unported there: no retail deploying Unit sets
+    /// art `Palette=`); InfantryClass::ReceiveDamage's InfDeath 9 arm
     /// the house's colour scheme's (`0x00518AB5..0x00518AC9`,
     /// `0x00518AE4..0x00518AF9`).
     pub fn set_anim_house_remap(&mut self, id: AnimId, house: InternedId) -> bool {
@@ -861,6 +864,17 @@ impl AnimStore {
             return false;
         };
         anim.remap = Some(AnimRemap::House(house));
+        true
+    }
+
+    /// [`Self::set_anim_house_remap`] from a custom-palette type: the
+    /// house's scheme from the extra building palette, as
+    /// `BuildingClass::DestructionEffects` writes it (`0x00441D2F..0x00441D41`).
+    pub fn set_anim_extra_building_remap(&mut self, id: AnimId, house: InternedId) -> bool {
+        let Some(anim) = self.get_mut(id) else {
+            return false;
+        };
+        anim.remap = Some(AnimRemap::ExtraBuildingScheme(house));
         true
     }
 

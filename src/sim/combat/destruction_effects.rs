@@ -124,6 +124,11 @@ pub enum DeathAnimFollowUp {
     /// scheme's `+0x30C` from the array `0x00B054D4`); then, house or not,
     /// the anim's MarkCellOccupancy (vt+0xF0 = `0x00426270`).
     Mutate(Option<InternedId>),
+    /// BuildingClass::DestructionEffects' DestroyAnim of a custom-palette
+    /// type (`0x00441D2F..0x00441D61`): GetRemapColour's scheme from the
+    /// extra building palette as the remap (`+0xD4`); the palette name it
+    /// copies to `+0xDC` is the scenario's one.
+    ExtraBuildingRemap(InternedId),
 }
 
 impl Simulation {
@@ -238,6 +243,11 @@ impl Simulation {
                     self.substrate.anims.set_anim_house_remap(anim, house);
                 }
                 Self::anim_mark_cell_occupancy(&mut self.substrate, &self.resolved_terrain, anim);
+            }
+            Some(DeathAnimFollowUp::ExtraBuildingRemap(house)) => {
+                self.substrate
+                    .anims
+                    .set_anim_extra_building_remap(anim, house);
             }
         }
         Some(anim)
@@ -528,7 +538,7 @@ impl Simulation {
 
         // 13. `0x00441CAC..0x00441D64`: the pick is drawn even when the entry
         // is empty; the coordinate is vt+0xAC (`0x00459EF0`, Location minus
-        // 0x80 on X and Y).
+        // 0x80 on X and Y). A custom-palette type's anim takes its scheme.
         if !object.destroy_anims.is_empty() {
             let anim = pick_death_anim(&mut self.scenario_rng, &object.destroy_anims);
             let (base, _) = crate::sim::movement::ground_pose::building_render_order_parts(
@@ -540,19 +550,18 @@ impl Simulation {
                 false,
                 false,
             );
-            self.emit_death_anim(
-                rules,
-                anims,
-                anim,
-                DeathAnimSpawn::at(
-                    AnimWorldCoord {
-                        x: base.x,
-                        y: base.y,
-                        z: base.z,
-                    },
-                    0,
-                ),
+            let spawn = DeathAnimSpawn::at(
+                AnimWorldCoord {
+                    x: base.x,
+                    y: base.y,
+                    z: base.z,
+                },
+                0,
             );
+            let follow_up = object
+                .custom_palette
+                .then_some(DeathAnimFollowUp::ExtraBuildingRemap(owner));
+            self.emit_death_anim(rules, anims, anim, DeathAnimSpawn { follow_up, ..spawn });
         }
         // `0x00441EFC..0x00441F0B`: after the Health 0 write (`0x00441F00`),
         // the killing call's IgnoreDefenses becomes NoSurvivor.

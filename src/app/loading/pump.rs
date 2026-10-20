@@ -2010,8 +2010,8 @@ pub(crate) fn after_loading_frame_presented(state: &mut AppState) {
             );
             log::debug!(target: "vera20k::loading_attempt", "install_begin");
             super::transitions::finish_fresh_scenario_read(state, *result);
-            for (owner, display) in disconnected {
-                crate::app::input::messages::post_connection_lost(state, &owner, &display);
+            for owner in disconnected {
+                crate::app::input::messages::post_house_line(state, "TXT_CONNECTION_LOST", owner);
             }
             log::debug!(target: "vera20k::loading_attempt", "install_end screen={:?} assets_available={} accepted={}", state.frontend.screen, state.process_assets.is_available(), state.match_state.startup.accepted().is_some());
         }
@@ -2025,7 +2025,7 @@ fn apply_network_loading_disconnects(
     session: &mut crate::app::match_runtime::session::MatchSession,
     result: &mut MapLoadResult,
     indices: &[usize],
-) -> Vec<(String, String)> {
+) -> Vec<crate::sim::intern::InternedId> {
     let Some(launch) = result.scenario.startup.launch_session() else {
         return Vec::new();
     };
@@ -2040,7 +2040,7 @@ fn apply_network_loading_disconnects(
             && let Some(owner) = sim.interner().get(&slot.owner_name)
         {
             sim.flag_house_to_die(owner);
-            disconnected.push((slot.owner_name.clone(), launch.humans[index].name.clone()));
+            disconnected.push(owner);
         }
     }
     disconnected

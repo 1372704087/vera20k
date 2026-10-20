@@ -1204,10 +1204,12 @@ use crate::util::save_codec;
 // DisabledDisguiseDetectionPercent=.
 // 449 -> 450: the retained `[Basic]` section carries Scenario+0x1440 `Lose`,
 // the movie campaign defeat plays before its retry prompt.
-// 450 -> 451: dynamic terrain cell records no longer carry a copy of the
+// 450 -> 451: HouseState retains House+0x1602A's UI name source (handle,
+// TXT_COMPUTER, map UIName= key or the type's UIName).
+// 451 -> 452: dynamic terrain cell records no longer carry a copy of the
 // cell's overlay identity and state byte, in its bridge facts or its bridge
 // layer; OverlayGrid alone holds them.
-const SNAPSHOT_VERSION: u32 = 451;
+const SNAPSHOT_VERSION: u32 = 452;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10061,7 +10063,8 @@ mod tests {
         // 447 -> 448: retained Unit firing counter through parasite release.
         // 448 -> 449: the disguise firing blink and its rules keys.
         // 449 -> 450: the retained `[Basic]` Lose movie.
-        // 450 -> 451: terrain records drop their overlay identity/state copy.
-        assert_eq!(super::SNAPSHOT_VERSION, 451);
+        // 450 -> 451: the House UI name source.
+        // 451 -> 452: terrain records drop their overlay identity/state copy.
+        assert_eq!(super::SNAPSHOT_VERSION, 452);
     }
 }

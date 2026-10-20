@@ -25,7 +25,7 @@ def execute(health, strength, red):
     u.mem_map(SCRATCH, 0x10000)
     u.mem_map(STACK_BASE, STACK_SIZE)
     original = bytes(u.mem_read(BEGIN, CAPTURE - BEGIN))
-    # BuildingClass's vtable; GetTechnoType (vt+0x84) reads the type at +0x520.
+    # BuildingClass's vtable; its type getters (vt+0x84, +0x88) read +0x520.
     u.mem_write(BUILDING, dwords(0x7E3EBC))
     u.mem_write(BUILDING + 0x520, dwords(TYPE))
     u.mem_write(BUILDING + 0x6C, dwords(health & 0xFFFFFFFF))
@@ -71,7 +71,7 @@ def metadata():
 
     result = provenance(
         scope='MultiEngineer Engineer damage: HealthRatio above ConditionRed and the ftol damage, 0x519DB6..0x519E82/0x519EAA',
-        assumptions=['PC53/chop with masked exceptions; the original HealthRatio 0x5F5C60, BuildingClass vt+0x84 and _ftol 0x7C5F00 execute unchanged.',
+        assumptions=['PC53/chop with masked exceptions; the original HealthRatio 0x5F5C60, BuildingClass vt+0x84/+0x88 and _ftol 0x7C5F00 execute unchanged.',
                      'ConditionRed is a supplied raw binary64 at Rules+0x1708; values other than 25% do not claim retail data.',
                      'The GameMode/MultiEngineer gates and the ReceiveDamage(C4Warhead) call are instruction evidence, not executed.'],
         substitutions=['Only data-shaped Building/type/Rules, stack/register state and ambient FPCW; no original instruction patches or callbacks.'],
@@ -79,7 +79,7 @@ def metadata():
     result['original_code'] = packet(((BEGIN, CAPTURE),))
     result['instruction_evidence_not_executed'] = packet(EVIDENCE)
     result['native_data'] = {f'{a:08X}': bytes(u.mem_read(a, n)).hex() for a, n in
-                             ((0x7E3EBC + 0x84, 4), (0x7E1738, 8), (0x7E1718, 8))}
+                             ((0x7E3EBC + 0x84, 4), (0x7E3EBC + 0x88, 4), (0x7E1738, 8), (0x7E1718, 8))}
     return result
 
 

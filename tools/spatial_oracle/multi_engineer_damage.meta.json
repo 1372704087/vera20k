@@ -9,7 +9,7 @@
   ],
   "scope": "MultiEngineer Engineer damage: HealthRatio above ConditionRed and the ftol damage, 0x519DB6..0x519E82/0x519EAA",
   "assumptions": [
-    "PC53/chop with masked exceptions; the original HealthRatio 0x5F5C60, BuildingClass vt+0x84 and _ftol 0x7C5F00 execute unchanged.",
+    "PC53/chop with masked exceptions; the original HealthRatio 0x5F5C60, BuildingClass vt+0x84/+0x88 and _ftol 0x7C5F00 execute unchanged.",
     "ConditionRed is a supplied raw binary64 at Rules+0x1708; values other than 25% do not claim retail data.",
     "The GameMode/MultiEngineer gates and the ReceiveDamage(C4Warhead) call are instruction evidence, not executed."
   ],
@@ -37,6 +37,7 @@
   },
   "native_data": {
     "007E3F40": "70326f00",
+    "007E3F44": "e09e4500",
     "007E1738": "000000000000e03f",
     "007E1718": "000000000000f03f"
   },

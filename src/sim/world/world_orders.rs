@@ -854,7 +854,7 @@ impl Simulation {
                 )
             {
                 let warhead = self.interner.intern(&rules.bridge_warheads.c4_name);
-                self.commit_direct_damage_receiver(
+                let receipt = self.commit_direct_damage_receiver(
                     rules,
                     registry,
                     combat::EntityDamageEvent::direct_receiver(
@@ -878,8 +878,8 @@ impl Simulation {
                     super::UninitContext::new(Some(rules), registry).with_effects(frame_effects),
                 );
                 return Ok(BuildingEntryResult {
+                    bridge_state_changed: receipt.bridge_state_changed,
                     return_before_foot: true,
-                    ..Default::default()
                 });
             }
             if (repair && full) || (!repair && capturable && refused_capture) {

@@ -9,12 +9,21 @@ use crate::sim::scenario_session::ScenarioGameMode;
 /// A retail GAPOWR (Strength 750) owned by the human Americans, with the
 /// session's mode and MultiEngineer option.
 fn scene(rules: &RuleSet, mode: ScenarioGameMode, multi_engineer: bool) -> (Simulation, u64) {
+    scene_with(rules, "GAPOWR", mode, multi_engineer)
+}
+
+fn scene_with(
+    rules: &RuleSet,
+    type_id: &str,
+    mode: ScenarioGameMode,
+    multi_engineer: bool,
+) -> (Simulation, u64) {
     let mut sim = crate::sim::arena_fixture::rival_arena(rules, 0x519D82);
     sim.session.set_game_mode(mode);
     sim.session.game_options_mut_for_test().multi_engineer = multi_engineer;
     let building = sim
-        .spawn_object("GAPOWR", "Americans", 10, 10, 0, rules)
-        .expect("GAPOWR spawns");
+        .spawn_object(type_id, "Americans", 10, 10, 0, rules)
+        .expect("building spawns");
     (sim, building)
 }
 
@@ -99,6 +108,30 @@ fn multi_engineers_wear_a_hostile_building_to_its_red_line_then_capture_it() {
         .set_for_test(400);
     assert!(!enter(&mut sim, rules, building));
     assert_eq!(health_and_owner(&sim, building), (93, "Americans"));
+}
+
+/// The arm precedes the `Capturable=`, Selling and warp tests
+/// (`0x00519EAA..0x00519F2F`): a selling GAPOWR and an uncapturable GAPILL
+/// above the red line are damaged too, and the Engineer is spent rather
+/// than turned away.
+#[test]
+fn multi_engineers_damage_selling_and_uncapturable_buildings_too() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, plant) = scene(rules, ScenarioGameMode::Skirmish, true);
+    sim.mission_assign_exact(plant, MissionId::from_known(MissionType::Selling), 0)
+        .unwrap();
+    assert!(!enter(&mut sim, rules, plant));
+    assert_eq!(health_and_owner(&sim, plant), (422, "Americans"));
+
+    let pillbox = rules.object("GAPILL").unwrap();
+    assert!(!pillbox.capturable);
+    let (mut sim, building) = scene_with(rules, "GAPILL", ScenarioGameMode::Skirmish, true);
+    assert!(!enter(&mut sim, rules, building));
+    // 400 - min(ftol(400 * 0.4375), 400 - ftol(400 * 0.125)) = 400 - 175.
+    assert_eq!(health_and_owner(&sim, building), (225, "Americans"));
 }
 
 /// Without the option, or in a campaign, the first Engineer captures.

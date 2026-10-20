@@ -660,23 +660,33 @@ fn a_moving_rhino_is_led() {
 
 /// An `AreaFire=` weapon fires at the cell under its Unit firer, not at the
 /// ordered target (`TechnoClass::FireAt 0x006FE140..0x006FE1D8`): a Chaos
-/// Drone told to attack a GI two cells away releases its gas around itself.
-/// The cell's ground coordinate (`0x00486840`) is the launch aim, and the
-/// drone keeps the GI as its TarCom.
+/// Drone told to attack a GI two cells east releases its gas (PsychGasCreate,
+/// CellSpread 3) around itself. A GI two cells west of the drone goes
+/// berserk; one two cells beyond the target does not. The drone keeps the
+/// target as its TarCom.
 #[test]
 fn a_chaos_drone_gasses_its_own_cell() {
     let Some(mut duel) = Duel::new() else {
         return;
     };
     let drone = duel.spawn("CAOS", "Russians", 16, 16, 64);
-    let gi = duel.spawn("E1", "Americans", 18, 16, 192);
+    let target = duel.spawn("E1", "Americans", 18, 16, 192);
+    let near_drone = duel.spawn("E1", "Americans", 14, 16, 64);
+    let past_target = duel.spawn("E1", "Americans", 20, 16, 192);
     duel.order(
         "Russians",
         Command::Attack {
             attacker_id: drone,
-            target_id: gi,
+            target_id: target,
         },
     );
+    let berserk = |duel: &Duel, id: u64| {
+        duel.sim
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| entity.berserk.is_active())
+    };
     for _ in 0..120 {
         duel.tick();
         let Some(shot) = duel
@@ -695,20 +705,28 @@ fn a_chaos_drone_gasses_its_own_cell() {
         let actor = duel.sim.substrate.entities.get(drone).unwrap();
         assert_eq!(
             actor.attack_target.target(),
-            Some(super::TargetKind::Entity(gi)),
+            Some(super::TargetKind::Entity(target)),
             "TarCom keeps the GI"
         );
-        if let Some(bullet) = duel.launched_by(drone) {
-            assert_eq!(
-                bullet.target,
-                crate::sim::projectile::ProjectileTarget::Cell { rx: 16, ry: 16 }
-            );
+        for _ in 0..4 {
+            if berserk(&duel, near_drone) {
+                break;
+            }
+            duel.tick();
         }
+        assert!(
+            berserk(&duel, near_drone),
+            "the GI beside the drone is gassed"
+        );
+        assert!(
+            !berserk(&duel, past_target),
+            "the GI beyond the target, out of the drone's spread, is not"
+        );
         return;
     }
     panic!(
         "the drone never fired; {}; {}",
         duel.actor_state(drone),
-        duel.actor_state(gi)
+        duel.actor_state(target)
     );
 }

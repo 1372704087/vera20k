@@ -1273,6 +1273,9 @@ pub(super) fn emit_admitted_fire(
         .then(|| object_get_coords(world, snap.stable_id))
         .flatten()
         .and_then(|coord| world.packed_map_cell(coord.x, coord.y));
+    // The Object local FireAt took at entry (`0x006FDD88..0x006FDDA1`),
+    // which the retarget leaves alone; the Inviso OnBridge copy reads it.
+    let entry_target = snap.target;
     let area_fire_snap;
     let (snap, (target_rx, target_ry, target_sub_x, target_sub_y)) = match area_fire_cell {
         Some((rx, ry)) => {
@@ -1657,6 +1660,10 @@ pub(super) fn emit_admitted_fire(
                     } else {
                         launch_speed.clamp(0, i32::from(u16::MAX)) as u16
                     },
+                    target_on_bridge: super::projectile_delivery::target_on_bridge(
+                        world,
+                        entry_target.projectile_target(world),
+                    ),
                 },
             );
         }

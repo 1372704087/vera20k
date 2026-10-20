@@ -357,7 +357,12 @@ impl Simulation {
             }
             ObjectKind::Projectile => {
                 let projectile = self.projectiles.get(stable_id).ok_or(missing)?;
-                ChecksumObject::new(projectile.position.x, projectile.position.y, RTTI_BULLET, 0)
+                ChecksumObject::new(
+                    projectile.position().x,
+                    projectile.position().y,
+                    RTTI_BULLET,
+                    0,
+                )
             }
             ObjectKind::Wave => {
                 let wave = self.waves.get(stable_id).ok_or(missing)?;

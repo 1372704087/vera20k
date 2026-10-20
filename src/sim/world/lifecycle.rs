@@ -2724,7 +2724,7 @@ impl Simulation {
                 .substrate
                 .spotlights
                 .get(stable_id)
-                .is_some_and(|l| l.in_logic_vector),
+                .is_some_and(|l| l.in_logic_vector()),
             ObjectKind::Smudge => false,
             ObjectKind::Anim => self
                 .substrate
@@ -2749,7 +2749,7 @@ impl Simulation {
             ObjectKind::Projectile => self
                 .projectiles
                 .get(stable_id)
-                .is_some_and(|projectile| projectile.in_logic_vector),
+                .is_some_and(|projectile| projectile.in_logic_vector()),
             ObjectKind::Wave => self
                 .waves
                 .get(stable_id)
@@ -2770,7 +2770,7 @@ impl Simulation {
         match kind {
             ObjectKind::Spotlight => {
                 if let Some(l) = self.substrate.spotlights.get_mut(stable_id) {
-                    l.in_logic_vector = member;
+                    l.mark_logic_membership(member);
                 }
             }
             ObjectKind::Smudge => assert!(!member, "Smudge {stable_id} never joins Logic"),
@@ -2794,7 +2794,7 @@ impl Simulation {
             }
             ObjectKind::Projectile => {
                 if let Some(projectile) = self.projectiles.get_mut(stable_id) {
-                    projectile.in_logic_vector = member;
+                    projectile.mark_logic_membership(member);
                 }
             }
             ObjectKind::Wave => {
@@ -3091,7 +3091,7 @@ impl Simulation {
             return;
         };
         assert!(
-            !bullet.in_logic_vector && self.substrate.display.layer_of(id).is_none(),
+            !bullet.in_logic_vector() && self.substrate.display.layer_of(id).is_none(),
             "temporary Bullet {id} must not be Fired before direct destruction"
         );
         self.substrate
@@ -4829,7 +4829,7 @@ impl Simulation {
         if !self
             .projectiles
             .iter()
-            .any(|(_, bullet)| bullet.target.object_id() == Some(target_id))
+            .any(|(_, bullet)| bullet.target().object_id() == Some(target_id))
         {
             return;
         }
@@ -5054,11 +5054,11 @@ impl Simulation {
             })
             .or_else(|| {
                 let bullet = self.projectiles.get(expired_id)?;
-                let point = bullet.position;
+                let point = bullet.position();
                 let cell = u16::try_from(crate::util::lepton::lepton_to_cell(point.x))
                     .ok()
                     .zip(u16::try_from(crate::util::lepton::lepton_to_cell(point.y)).ok());
-                Some((cell, true, bullet.payload.base_damage, false, None))
+                Some((cell, true, bullet.payload().base_damage, false, None))
             })
             .or_else(|| {
                 let tree = self.terrain_objects.objects().get(&expired_id)?;
@@ -5150,7 +5150,7 @@ impl Simulation {
             && self
                 .projectiles
                 .get(expired_id)
-                .and_then(|bullet| bullet.payload.projectile_type())
+                .and_then(|bullet| bullet.payload().projectile_type())
                 .and_then(|type_id| context.rules()?.projectile(self.interner.resolve(type_id)))
                 .is_some_and(|kind| kind.scalable)
             && self.projectiles.scalable_enrolled(expired_id);
@@ -5257,7 +5257,7 @@ impl Simulation {
                     .or_else(|| {
                         self.projectiles
                             .get(expired_id)
-                            .map(|bullet| (true, !bullet.in_logic_vector))
+                            .map(|bullet| (true, !bullet.in_logic_vector()))
                     })
                     .or_else(|| {
                         self.spotlight_alive(expired_id)
@@ -5401,7 +5401,7 @@ impl Simulation {
                 let target_matches = self
                     .projectiles
                     .get(listener_id)
-                    .is_some_and(|projectile| projectile.target.object_id() == Some(expired_id));
+                    .is_some_and(|projectile| projectile.target().object_id() == Some(expired_id));
                 let projectile_replacement_target = if target_matches {
                     self.projectile_lost_target(expired_id, context)
                 } else {
@@ -5426,7 +5426,7 @@ impl Simulation {
                 if let Some((source_id, target)) = self
                     .projectiles
                     .get(listener_id)
-                    .map(|projectile| (projectile.source_id, projectile.target))
+                    .map(|projectile| (projectile.source_id(), projectile.target()))
                 {
                     self.trace_lifecycle_for_test(
                         LifecycleTestEvent::ProjectilePointerExpiredVisited {
@@ -5668,7 +5668,7 @@ impl Simulation {
             return !terrain.is_live() && !terrain.in_logic_vector();
         }
         if let Some(projectile) = self.projectiles.get(stable_id) {
-            return !projectile.in_logic_vector;
+            return !projectile.in_logic_vector();
         }
         if let Some(wave) = self.waves.get(stable_id) {
             return !wave.in_logic_vector();

@@ -364,21 +364,21 @@ fn super_grant_one_time_nuke_uses_payload_speed_and_ground_warning_without_silo(
             .expect("one-time launch has no silo dependency");
         assert_eq!(
             (
-                bullet.launch_origin.x,
-                bullet.launch_origin.y,
-                bullet.launch_origin.z
+                bullet.launch_origin().x,
+                bullet.launch_origin().y,
+                bullet.launch_origin().z
             ),
             (2688, 2688, origin_z)
         );
         assert_eq!(
-            bullet.velocity.native().map(|n| n.bits()),
+            bullet.velocity().native().map(|n| n.bits()),
             [0xb9be6aaf04000000, 0xbd0b936000000000, 0xc059000000000000]
         );
-        assert_eq!(bullet.source_id, crate::sim::combat::RAD_NO_ATTACKER);
+        assert_eq!(bullet.source_id(), crate::sim::combat::RAD_NO_ATTACKER);
         assert_eq!(bullet.firer_house(), None);
-        assert!(!bullet.payload.bright());
+        assert!(!bullet.payload().bright());
         assert!(matches!(
-            bullet.trajectory,
+            bullet.trajectory(),
             ProjectileTrajectory::Vertical { max_speed: 77, .. }
         ));
         assert_eq!(sim.houses[&owner].nuke_target(), (0, 0));

@@ -441,7 +441,7 @@ mod tests {
             let bullets: Vec<_> = sim
                 .projectiles
                 .iter()
-                .filter(|(_, bullet)| bullet.source_id == silo)
+                .filter(|(_, bullet)| bullet.source_id() == silo)
                 .collect();
             let fire = events.iter().find(|event| event[0] == "fire");
             assert_eq!(bullets.len(), usize::from(fire.is_some()), "{row}");
@@ -453,15 +453,15 @@ mod tests {
                 .iter()
                 .map(|bits| bits.as_u64().unwrap())
                 .collect();
-            assert_eq!(velocity_bits(bullet.velocity), native_velocity, "{row}");
+            assert_eq!(velocity_bits(bullet.velocity()), native_velocity, "{row}");
             // Construct's damage and speed; the carrier's BulletType.
             let construct = events
                 .iter()
                 .find(|event| event[0] == "create_bullet")
                 .unwrap();
-            assert_eq!(bullet.payload.base_damage, int(&construct[2]), "{row}");
+            assert_eq!(bullet.payload().base_damage, int(&construct[2]), "{row}");
             assert_eq!(
-                bullet.trajectory,
+                bullet.trajectory(),
                 ProjectileTrajectory::Vertical {
                     detonation_altitude: 20000,
                     acceleration: 1,
@@ -470,7 +470,7 @@ mod tests {
                 "{row}"
             );
             assert_eq!(
-                bullet.target,
+                bullet.target(),
                 crate::sim::projectile::ProjectileTarget::Cell {
                     rx: target.0,
                     ry: target.1
@@ -497,9 +497,9 @@ mod tests {
                         assert_eq!(
                             [coord.x, coord.y, coord.z],
                             [
-                                bullet.launch_origin.x,
-                                bullet.launch_origin.y,
-                                bullet.launch_origin.z
+                                bullet.launch_origin().x,
+                                bullet.launch_origin().y,
+                                bullet.launch_origin().z
                             ],
                             "{row}"
                         );
@@ -562,9 +562,9 @@ mod tests {
         let ground = cell_ground_coord(sim.resolved_terrain.as_ref(), target.0, target.1);
         assert_eq!(
             [
-                bullet.launch_target.x,
-                bullet.launch_target.y,
-                bullet.launch_target.z
+                bullet.launch_target().x,
+                bullet.launch_target().y,
+                bullet.launch_target().z
             ],
             [ground.x, ground.y, ground.z + 416]
         );

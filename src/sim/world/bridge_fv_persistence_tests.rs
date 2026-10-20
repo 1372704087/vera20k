@@ -21,9 +21,11 @@ fn authority(sim: &Simulation, source: u64, expected_load: bool) -> Value {
             if expected_load {
                 // Original Bullet Load46AE9C..46AEB0 restarts the timer;
                 // the remaining saved guidance, launch and fuse state survives.
-                bullet.arm_timer.start(sim.session.binary_frame() as i32, 0);
+                bullet
+                    .arm_timer_mut_for_test()
+                    .start(sim.session.binary_frame() as i32, 0);
             }
-            json!({"state":bullet,"in_logic":bullet.in_logic_vector})
+            json!({"state":bullet,"in_logic":bullet.in_logic_vector()})
         })
         .collect();
     json!({
@@ -163,7 +165,7 @@ fn retail_fv_pursuit_missiles_collapse_and_guard_survive_restore() {
             1 if sim
                 .projectiles
                 .iter()
-                .filter(|(_, bullet)| bullet.source_id == source && bullet.guidance.is_some())
+                .filter(|(_, bullet)| bullet.source_id() == source && bullet.guidance().is_some())
                 .count()
                 == 2 =>
             {

@@ -557,7 +557,7 @@ fn a_strafers_bomb_leaves_at_its_weapon_speed_toward_the_target() {
     assert_eq!(weapon_speed, 76);
     let bomb = first_bullet(&mut sim, &rules);
     let [x, y, z] = bomb
-        .velocity
+        .velocity()
         .native()
         .map(|axis| f64::from_bits(axis.bits()));
     let speed = (x * x + y * y + z * z).sqrt();

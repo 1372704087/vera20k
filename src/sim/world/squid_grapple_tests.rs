@@ -229,17 +229,17 @@ impl Encounter {
                     .projectiles
                     .iter()
                     .find(|(_, bullet)| {
-                        bullet.source_id == self.squid
-                            && bullet.target
+                        bullet.source_id() == self.squid
+                            && bullet.target()
                                 == crate::sim::projectile::ProjectileTarget::Entity(self.ship)
                     })
                     .map(|(&id, bullet)| {
-                        assert!(bullet.ranged_fuse);
+                        assert!(bullet.ranged_fuse());
                         assert_eq!(
-                            bullet.arm_timer.duration(),
+                            bullet.arm_timer().duration(),
                             self.rules.projectile("SQDJUMP").unwrap().arm
                         );
-                        (id, bullet.arm_timer)
+                        (id, bullet.arm_timer())
                     })
                     .expect("the actual armed SQDJUMP remains represented after its stock launch");
                 for _ in 0..=arm.duration().max(0) {
@@ -261,9 +261,9 @@ impl Encounter {
                         self.sim.projectiles.get(bullet_id).expect(
                             "pending SQDJUMP must survive until its real fuse/impact visit",
                         );
-                    assert_eq!(pending.source_id, self.squid);
+                    assert_eq!(pending.source_id(), self.squid);
                     assert_eq!(
-                        pending.target,
+                        pending.target(),
                         crate::sim::projectile::ProjectileTarget::Entity(self.ship)
                     );
                     self.step();

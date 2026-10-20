@@ -191,22 +191,26 @@ fn only_a_damaged_idle_computer_vehicle_seeks_repair() {
     seek(&mut sim, &rules, posted);
     assert_eq!(queued(&sim, posted), MissionId::NONE);
 
-    // On AreaGuard an ArchiveTarget does not bar the seek.
-    let area = damaged_tank(
+    // Something already queued bars it.
+    let busy = damaged_tank(
         &mut sim,
         &rules,
         "HTNK",
         "Russians",
-        (14, 24),
-        MissionType::AreaGuard,
+        (14, 28),
+        MissionType::Guard,
     );
-    sim.substrate
-        .entities
-        .get_mut(area)
-        .unwrap()
-        .set_archive_target(post);
-    seek(&mut sim, &rules, area);
-    assert_eq!(queued(&sim, area), enter);
+    let move_ = MissionId::from_known(MissionType::Move);
+    let now = sim.session.binary_frame();
+    let _ = sim.mission_queue_exact(
+        busy,
+        move_,
+        0,
+        now,
+        &LiveReadyInputProvider { rules: &rules },
+    );
+    seek(&mut sim, &rules, busy);
+    assert_eq!(queued(&sim, busy), move_);
 
     let miner = damaged_tank(
         &mut sim,
@@ -218,6 +222,42 @@ fn only_a_damaged_idle_computer_vehicle_seeks_repair() {
     );
     seek(&mut sim, &rules, miner);
     assert_eq!(queued(&sim, miner), MissionId::NONE);
+}
+
+/// On AreaGuard an ArchiveTarget does not bar the seek, and the seek keeps
+/// it: only a missing one becomes the vehicle's own Cell (`0x007367B7`).
+#[test]
+fn an_area_guard_keeps_its_post_when_it_seeks_repair() {
+    let Some((mut sim, rules, _)) = scene() else {
+        return;
+    };
+    let depot = spawn(&mut sim, &rules, "GADEPT", "Russians", 24, 20);
+    let tank = damaged_tank(
+        &mut sim,
+        &rules,
+        "HTNK",
+        "Russians",
+        (14, 20),
+        MissionType::AreaGuard,
+    );
+    let post = Some(TargetKind::Cell(3, 3));
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .set_archive_target(post);
+
+    seek(&mut sim, &rules, tank);
+
+    assert_eq!(
+        queued(&sim, tank),
+        MissionId::from_known(MissionType::Enter)
+    );
+    assert_eq!(
+        sim.substrate.entities.get(tank).unwrap().archive_target(),
+        post
+    );
+    assert!(heads_for(&sim, tank, depot));
 }
 
 /// `0x00455DD0` admits any nonzero CAN_LOAD answer: the Naval Yard answers a
@@ -303,20 +343,33 @@ fn the_production_frame_sends_a_damaged_computer_tank_to_its_depot() {
         MissionType::Guard,
     );
     let enter = MissionId::from_known(MissionType::Enter);
-    let mut entered = false;
+    let guard = MissionId::from_known(MissionType::Guard);
+    // The seek follows the frame's second Ready/Commence (`0x007366FD`), so
+    // its Enter waits in the queue for the next frame's first Commence
+    // (`0x00736473`).
+    let mut seek_frame = None;
     for _ in 0..40 {
         let commands = sim.take_due_commands();
         sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
         let unit = sim.substrate.entities.get(tank).unwrap();
-        if unit.mission.current() == enter || unit.mission.queued() == enter {
-            entered = true;
+        if unit.mission.queued() == enter {
+            assert_eq!(unit.mission.current(), guard);
+            seek_frame = Some(sim.session.binary_frame());
             break;
         }
+        assert_eq!(unit.mission.current(), guard);
     }
-    assert!(entered, "the seek runs within 16 frames");
+    let seek_frame = seek_frame.expect("the seek runs within 16 frames");
+    assert_eq!((seek_frame - 1) & 0xF, 0, "frame {seek_frame}");
     assert_eq!(
         sim.substrate.entities.get(tank).unwrap().archive_target(),
         Some(TargetKind::Cell(14, 20))
+    );
+    let commands = sim.take_due_commands();
+    sim.advance_tick(&commands, Some(&rules), Some(&grid), None, 33);
+    assert_eq!(
+        sim.substrate.entities.get(tank).unwrap().mission.current(),
+        enter
     );
     assert!(heads_for(&sim, tank, depot));
 }

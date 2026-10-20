@@ -4050,7 +4050,7 @@ impl Simulation {
         &self.substrate.display
     }
 
-    /// Client-crate fixtures; in-crate code uses `entities_mut`.
+    /// Client-crate fixtures; in-crate code uses the substrate's entity store.
     #[cfg(any(test, feature = "test-support"))]
     pub fn entities_mut_for_test(&mut self) -> &mut EntityStore {
         &mut self.substrate.entities

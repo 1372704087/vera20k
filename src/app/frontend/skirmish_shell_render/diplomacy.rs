@@ -171,11 +171,10 @@ pub(crate) fn render_diplomacy_shell(
         );
         // The checkbox proc draws its caption 26 px right of the box,
         // vertically centred (0x0061663A..0x00616674).
-        let caption = layout.taunts;
         text(
             &mut texts,
             &localized_label(state, "GUI:TauntsOn", "Taunts On"),
-            RectPx::new(caption.x + 26, caption.y, caption.w - 26, caption.h),
+            crate::ui::skirmish_shell::checkbox_text_rect(layout.taunts, ShellScale::RETAIL),
             SHELL_LABEL_TEXT_RGB,
             ShellAlign::V_CENTER,
         );

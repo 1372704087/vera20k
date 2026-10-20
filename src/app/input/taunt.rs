@@ -21,21 +21,27 @@ use crate::app::AppState;
 
 /// The rate limit `[0x00825C88]`: a taunt is sent at most once per 5000 ms
 /// of `timeGetTime`.
-const TAUNT_INTERVAL_MS: u64 = 5000;
+const TAUNT_INTERVAL_MS: i32 = 5000;
 
-/// The process-static time of the last sent taunt, `[0x00825C88]`. It
-/// starts at -1 (`None`) and nothing resets it between games; its only
+/// The process-static `timeGetTime` of the last sent taunt, `[0x00825C88]`.
+/// It starts at -1 (`None`) and nothing resets it between games; its only
 /// writer runs once every gate has passed (`0x005363C6`).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) struct TauntClock {
-    last_ms: Option<u64>,
+    last_ms: Option<u32>,
 }
 
 impl TauntClock {
-    /// `last == -1 || now - last > 5000` (`0x0053637F..0x00536394`).
-    fn admits(self, now_ms: u64) -> bool {
+    /// `last == -1 || now - last > 5000`: a 32-bit subtraction and a signed
+    /// compare (`0x0053638C..0x00536394`), so the gap survives the
+    /// `timeGetTime` wrap.
+    pub(crate) fn admits(self, now_ms: u64) -> bool {
         self.last_ms
-            .is_none_or(|last| now_ms.saturating_sub(last) > TAUNT_INTERVAL_MS)
+            .is_none_or(|last| (now_ms as u32).wrapping_sub(last) as i32 > TAUNT_INTERVAL_MS)
+    }
+
+    pub(crate) fn sent(&mut self, now_ms: u64) {
+        self.last_ms = Some(now_ms as u32);
     }
 }
 
@@ -77,13 +83,13 @@ pub(crate) fn execute(state: &mut AppState, number: u8, now_ms: u64) {
                 .rules
                 .country_index(sim.interner().resolve(country))
         });
-    let shell = &mut state.frontend.multiplayer_shell_runtime;
-    if !shell.taunt_clock().admits(now_ms) || shell.taunts_on(mode) != Some(true) {
+    if !state
+        .frontend
+        .multiplayer_shell_runtime
+        .admit_taunt(mode, now_ms)
+    {
         return;
     }
-    shell.set_taunt_clock(TauntClock {
-        last_ms: Some(now_ms),
-    });
     // RESIDUAL: a House with no resolved country stands as 0; the local
     // node always has one natively (the 0x0069B8C0 assignment).
     let byte = taunt_byte(country.map_or(0, |index| index.0), number);
@@ -121,12 +127,18 @@ mod tests {
     fn the_clock_admits_the_first_taunt_then_one_per_five_seconds() {
         let fresh = TauntClock::default();
         assert!(fresh.admits(0), "-1 admits at any time");
-        let sent = TauntClock {
-            last_ms: Some(10_000),
-        };
+        let mut sent = TauntClock::default();
+        sent.sent(10_000);
         assert!(!sent.admits(15_000), "5000 ms is not more than 5000");
         assert!(sent.admits(15_001));
         assert!(!sent.admits(9_000), "an earlier time is a negative delta");
+        let mut wrapped = TauntClock::default();
+        wrapped.sent(u64::from(u32::MAX - 1_000));
+        assert!(!wrapped.admits(1u64 << 32), "1001 ms across the wrap");
+        assert!(
+            wrapped.admits((1u64 << 32) + 4_000),
+            "5001 ms across the wrap"
+        );
     }
 
     #[test]

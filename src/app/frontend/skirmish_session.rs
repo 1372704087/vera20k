@@ -242,12 +242,19 @@ impl MultiplayerShellRuntime {
         }
     }
 
-    pub(crate) fn taunt_clock(&self) -> crate::app::input::taunt::TauntClock {
-        self.taunt_clock
-    }
-
-    pub(crate) fn set_taunt_clock(&mut self, clock: crate::app::input::taunt::TauntClock) {
-        self.taunt_clock = clock;
+    /// The taunt command's last two gates and its clock write
+    /// (`0x0053637F..0x005363C6`): the 5 s clock, then the mode's TauntsOn;
+    /// only when both pass is the clock set to `now_ms`.
+    pub(crate) fn admit_taunt(
+        &mut self,
+        mode: crate::sim::scenario_session::ScenarioGameMode,
+        now_ms: u64,
+    ) -> bool {
+        let admitted = self.taunt_clock.admits(now_ms) && self.taunts_on(mode) == Some(true);
+        if admitted {
+            self.taunt_clock.sent(now_ms);
+        }
+        admitted
     }
 
     /// Diplomacy box 0x730's click writes the current mode's byte
@@ -2022,6 +2029,15 @@ WOLTaunts=junk
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Lan), Some(false));
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Wol), Some(true));
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Skirmish), None);
+        // A refused TauntsOn leaves the clock unwritten (0x005363C6 runs
+        // after the switch): the next LAN taunt is admitted at once.
+        assert!(!runtime.admit_taunt(ScenarioGameMode::Lan, 1_000));
+        assert!(!runtime.admit_taunt(ScenarioGameMode::Skirmish, 1_000));
+        assert!(runtime.admit_taunt(ScenarioGameMode::Wol, 1_000));
+        assert!(!runtime.admit_taunt(ScenarioGameMode::Wol, 6_000));
+        runtime.set_taunts_on(ScenarioGameMode::Lan, true);
+        assert!(runtime.admit_taunt(ScenarioGameMode::Lan, 6_001));
+        runtime.set_taunts_on(ScenarioGameMode::Lan, false);
         runtime.set_taunts_on(ScenarioGameMode::Wol, false);
         runtime.set_taunts_on(ScenarioGameMode::Skirmish, true);
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Lan), Some(false));

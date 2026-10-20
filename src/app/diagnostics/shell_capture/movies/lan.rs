@@ -3285,8 +3285,17 @@ impl LanCapture {
                     playing(state) != Some(true),
                     "a taunt played with TauntsOn cleared"
                 );
+                // A send past the 5 s clock is refused by the player's own
+                // TauntsOn.
+                crate::app::input::taunt::execute(
+                    state,
+                    2,
+                    crate::app::match_runtime::frame_pacer::wall_clock_ms() + 60_000,
+                );
+                let blocked = taunts(state);
+                ensure!(blocked.is_empty(), "TauntsOn off sent {blocked:?}");
                 self.route.push(
-                    json!({"frame":frame,"action":"TauntsOn cleared","caption_press_ignored":true,
+                    json!({"frame":frame,"action":"TauntsOn cleared","caption_press_ignored":true,"send_refused":true,
                     "point":point,"received_refused":true}),
                 );
                 self.phase = LanPhase::Settle(2);

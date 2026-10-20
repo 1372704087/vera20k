@@ -471,10 +471,6 @@ pub(super) fn finish_random_map_generation_owners(
     let continuation = generated.take_mapgen_continuation();
     retention.publish_mapgen_continuation(resident_simulation, continuation);
     runtime.replay_random_map_preview_construction(&generated.construction_trace);
-    runtime.stage_generated_starts(crate::app::loading::composition::scenario_start_staging(
-        &generated.map_file,
-        &generated.start_waypoints,
-    ));
     retention.finish_generation(generated);
     modal.finish_generate(preview);
     accept_on_finish
@@ -585,6 +581,17 @@ pub(super) fn accept_random_map_setup_owners(
         return None;
     };
     runtime.remember_random_map_options(&options);
+    // 0x0058B830 writes the 'W' staging at each Generate. VERA stages it
+    // from the accepted candidate, the host's own load authority, so the 'W'
+    // and the host's start cells always agree.
+    // RESIDUAL: natively a later Generate that is cancelled still overwrites
+    // Scenario +0x11C0, which both the host's load and the 'W' then read.
+    if let Some(generated) = retention.candidate.as_ref() {
+        runtime.stage_generated_starts(crate::app::loading::composition::scenario_start_staging(
+            &generated.map_file,
+            &generated.start_waypoints,
+        ));
+    }
     retention.accept_setup(RANDMAP_SED_FILE);
     dismiss_random_map_setup_owners(modal, retention, ra2_dir);
     Some(*options)
@@ -1571,6 +1578,12 @@ mod tests {
             accept_random_map_setup_owners(&mut runtime, &mut modal, &mut retention, Some(&base))
                 .expect("generated modal accepts");
         assert!(img_path.exists(), "common teardown must publish .img first");
+        // OK stages the accepted map's starts for the LAN 'W' (0x0058B830).
+        let accepted_staging = runtime.start_staging();
+        assert_eq!(
+            accepted_staging.defined_cells().collect::<Vec<_>>(),
+            vec![(0, (10, 20))]
+        );
         assert!(!sed_path.exists(), ".SED cannot precede common teardown");
         std::fs::write(&sed_path, committed.to_sed_bytes()).expect("write accepted seed");
         assert!(sed_path.exists());
@@ -1579,7 +1592,7 @@ mod tests {
         // caller, so it updates only .img.
         std::fs::remove_file(&sed_path).expect("remove accepted seed fixture");
         let mut cancel_retention = RandomMapGenerationRetention::default();
-        cancel_retention.finish_generation(generated_preview(0x413, 10));
+        cancel_retention.finish_generation(generated_preview(0x413, 12));
         let mut cancel_modal = Some(crate::ui::skirmish_shell::RandomMapSetupModalState::open(
             crate::map::rmg::RmgOptions {
                 seed: 0x413,
@@ -1600,6 +1613,11 @@ mod tests {
         );
         assert!(img_path.exists());
         assert!(!sed_path.exists());
+        assert_eq!(
+            runtime.start_staging(),
+            accepted_staging,
+            "a cancelled Generate leaves the 'W' staging on the accepted map"
+        );
 
         std::fs::remove_file(&img_path).expect("remove preview fixture");
         std::fs::remove_dir(&base).expect("remove teardown fixture directory");

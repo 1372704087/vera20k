@@ -749,7 +749,15 @@ impl LanCapture {
             .filter(|waypoint| waypoint.index < 8)
             .map(|waypoint| (waypoint.index as u8, waypoint.rx, waypoint.ry))
             .collect();
-        let staging = crate::app::loading::composition::scenario_start_staging(map, &starts);
+        let mut staging = crate::app::loading::composition::scenario_start_staging(map, &starts);
+        // The guest's starts must come from the 'W', not from its own
+        // regeneration: the controlled host swaps slots 0 and 1.
+        ensure!(
+            staging.cells[0] != staging.cells[1],
+            "the controlled swap must change the starts"
+        );
+        staging.pairs.swap(0, 1);
+        staging.cells.swap(0, 1);
         ensure!(
             staging.count >= options.num_players,
             "controlled random map staged {} starts",
@@ -758,7 +766,7 @@ impl LanCapture {
         let image = crate::assets::pcx_file::encode_direct_rgb(64, 32, &[96; 64 * 32 * 3])?;
         self.route.push(json!({"controlled_random_map":{"seed":options.seed,
             "sed_bytes":sed.len(),"w":staging.to_w_text(),
-            "boundary":"controlled host generation through the production loader; flat RandMap.img stand-in"}}));
+            "boundary":"controlled host generation through the production loader, slots 0 and 1 swapped in the W; flat RandMap.img stand-in"}}));
         self.random_map_host = Some(ControlledRandomMap {
             digest: options.native_digest(),
             capacity: options.num_players,
@@ -2535,7 +2543,7 @@ impl LanCapture {
                             .collect();
                         ensure!(
                             starts == staged,
-                            "guest starts {starts:?} are not the host's 'W' cells {staged:?}"
+                            "guest starts {starts:?} are not the host's swapped 'W' cells {staged:?}"
                         );
                     }
                     self.route

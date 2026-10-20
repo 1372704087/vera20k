@@ -568,9 +568,9 @@ impl FireQuery for WorldQuery<'_, '_> {
         let Some(weapon) = subject.weapon_at(subject.weapon_index) else {
             return false;
         };
-        let Some((rx, ry, sub_x, sub_y)) = subject.target_point() else {
+        if subject.target_point().is_none() {
             return false;
-        };
+        }
         let firer = subject.firer;
         match subject.terrain() {
             // GetFireError6FCCEE calls InRange with its original target. A Cell
@@ -620,19 +620,26 @@ impl FireQuery for WorldQuery<'_, '_> {
                     },
                 )
             }),
-            None => super::is_within_range_leptons(
-                super::lepton_distance_sq_raw(
-                    firer.position.rx(),
-                    firer.position.ry(),
-                    firer.position.sub_x(),
-                    firer.position.sub_y(),
-                    rx,
-                    ry,
-                    sub_x,
-                    sub_y,
-                ),
-                weapon.range_leptons,
-            ),
+            None => {
+                let target = match self.target.entity {
+                    Some(entity) => in_range::MaplessTarget::Techno(entity),
+                    None => match crate::sim::movement::ground_pose::target_get_coords(
+                        target,
+                        subject.world,
+                        None,
+                    ) {
+                        Some(point) => in_range::MaplessTarget::Point(point),
+                        None => return false,
+                    },
+                };
+                in_range::mapless_in_range(
+                    firer,
+                    target,
+                    weapon,
+                    subject.rules,
+                    &subject.world.interner,
+                )
+            }
         }
     }
 

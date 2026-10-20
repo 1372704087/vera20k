@@ -86,6 +86,7 @@
 
 use std::ops::ControlFlow;
 
+use super::armor_index;
 use super::combat_targeting::AttackerSnapshot;
 use super::combat_weapon::{
     AttackerFacts, SelectedWeapon, attacker_facts, controlled_transport_house, get_weapon,
@@ -95,7 +96,6 @@ use super::combat_weapon::{
 };
 use super::threat_mask::{self, InfantryScanner};
 use super::threat_range::{ScanRange, scan_range};
-use super::{armor_index, is_within_range_leptons, lepton_distance_sq_raw};
 use crate::map::cell_index::{NativeCellIdentity, square_ring_cells};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::HouseAllianceMap;
@@ -2284,18 +2284,12 @@ fn evaluate_candidate(
                         &ctx.los,
                     )
                 }
-                None => is_within_range_leptons(
-                    lepton_distance_sq_raw(
-                        ctx.attacker.pos_rx,
-                        ctx.attacker.pos_ry,
-                        ctx.attacker.sub_x,
-                        ctx.attacker.sub_y,
-                        candidate.position.rx(),
-                        candidate.position.ry(),
-                        candidate.position.sub_x(),
-                        candidate.position.sub_y(),
-                    ),
-                    selected.weapon.range_leptons,
+                None => super::in_range::mapless_in_range(
+                    ctx.scanner,
+                    super::in_range::MaplessTarget::Techno(candidate),
+                    selected.weapon,
+                    ctx.rules,
+                    ctx.interner,
                 ),
             },
             _ => unarmed_range_ok(),

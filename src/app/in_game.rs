@@ -27,16 +27,7 @@ impl App {
     }
 
     pub(super) fn return_to_main_menu(state: &mut AppState) {
-        state.match_state.input.planning.reset();
-        let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
-        crate::app::radar_movie::retire(state, wall_ms);
-        crate::app::chrono_screen::retire(state, wall_ms);
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
-            // Main_Game48CCC0 clears ScenarioStarted[A8ED5C] at48CEBF
-            // after the match returns (EBX=0 from48CCD4). The runtime may
-            // remain retained, but Tag destruction must see a stopped session.
-            // Source: original gamemd.exe instructions, SHA2561cdd1180..84298c.
-            runtime.simulation.session.set_started(false);
             // Main55D283 calls BattleControlTerminated686570 on shell return;
             // its retained Scenario mission counter resets to the ctor's 1.
             runtime
@@ -44,6 +35,31 @@ impl App {
                 .session
                 .reset_campaign_mission_counter_on_shell_exit();
         }
+        Self::retire_running_scenario(state);
+        state.frontend.screen = GameScreen::MainMenu;
+        Self::resume_shell_after_match(state);
+        log::info!("Returned to the shell");
+    }
+
+    /// Stop a running scenario without an outcome teardown: its world,
+    /// modal, audio and diagnostic owners, leaving the runtime retained.
+    /// Shared by the EXIT return and the campaign restart (`0x006863E0`
+    /// stops the elapsed clock, theme, sounds and speech before
+    /// Start_Scenario).
+    fn retire_running_scenario(state: &mut AppState) {
+        state.match_state.input.planning.reset();
+        let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
+        crate::app::radar_movie::retire(state, wall_ms);
+        crate::app::chrono_screen::retire(state, wall_ms);
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            // Main_Game48CCC0 clears ScenarioStarted[A8ED5C] at48CEBF
+            // after the match returns (EBX=0 from48CCD4); the restart clears
+            // it at686424. The runtime may remain retained, but Tag
+            // destruction must see a stopped session.
+            // Source: original gamemd.exe instructions, SHA2561cdd1180..84298c.
+            runtime.simulation.session.set_started(false);
+        }
+        state.match_state.scenario_restart_requested = false;
         state.match_state.debug_pause = false;
         state.match_state.match_presentation.in_game_menu =
             crate::ui::pause_menu::InGameMenuState::Closed;
@@ -70,11 +86,101 @@ impl App {
         }
         state.audio.set_master_output_scale(1.0);
         state.match_state.match_audio.reset_for_new_match();
-        state.frontend.screen = GameScreen::MainMenu;
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
-        Self::resume_shell_after_match(state);
-        log::info!("Returned to the shell");
+    }
+
+    /// Start_Scenario's inputs for the installed campaign mission again
+    /// (Scenario+0x125C, DL 0, Scenario+0x34CC). `None` for a restored saved
+    /// game, which carries no campaign index.
+    pub(super) fn prepare_campaign_restart(
+        state: &AppState,
+    ) -> Option<crate::app::match_bootstrap::PreparedCampaignStartup> {
+        let campaign = state.match_state.startup.installed_campaign()?;
+        let game_speed = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map_or(state.persistence.options_profile.game_speed, |runtime| {
+                runtime.simulation.session.game_options().game_speed
+            });
+        Some(campaign.restart(
+            state.persistence.options_profile.difficulty,
+            game_speed,
+            &mut crate::app::match_bootstrap::OrdinaryMatchSeedClock,
+        ))
+    }
+
+    /// `0x006863E0`, the termination router's restart arm: tear the running
+    /// mission down without fade, movie, prompt or score, then Start_Scenario
+    /// on the same map through the one campaign start path.
+    ///
+    /// Residuals: the 60-bucket network wait after Start_Scenario is not
+    /// ported (campaign is single-player). 6863E0 stops the elapsed clock
+    /// into its +0x61C accumulator; no zeroing of that accumulator on this
+    /// path was found, so native score time may run across a restart, while
+    /// VERA starts a fresh clock (unproven, not player-visible until a won
+    /// mission's score).
+    fn restart_campaign_scenario(state: &mut AppState) {
+        let Some(startup) = Self::prepare_campaign_restart(state) else {
+            log::warn!("Restart has no installed campaign start; returning to the shell");
+            Self::return_to_main_menu(state);
+            return;
+        };
+        log::info!("Restarting campaign mission {}", startup.scenario());
+        // The router clears all four termination bytes before 6863E0: an
+        // executed EXIT edge cannot follow the restart into the shell.
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            let _ = runtime.simulation.take_executed_exit_owner();
+        }
+        Self::retire_running_scenario(state);
+        // No tactical frame runs again: the Intro/Brief movie or loading owns
+        // the screen until the restarted mission is installed.
+        state.frontend.screen = GameScreen::MainMenu;
+        Self::start_campaign_scenario(
+            state,
+            crate::app::loading::pump::LoadingRequest::campaign(startup),
+        );
+    }
+
+    /// Consume the restart request through the termination router: a ready
+    /// local outcome outranks it, and an outcome or exit teardown already in
+    /// progress has consumed the request with the other termination bytes.
+    pub(super) fn consume_scenario_restart_request(state: &mut AppState) {
+        if !std::mem::take(&mut state.match_state.scenario_restart_requested) {
+            return;
+        }
+        let outcome_ready =
+            state.match_state.scenario_outcome.is_some() || Self::local_outcome_exit_ready(state);
+        let route = crate::app::match_runtime::scenario_exit::route_scenario_termination(
+            crate::app::match_runtime::scenario_exit::TerminationRequests {
+                outcome_ready,
+                restart: true,
+                exit: false,
+            },
+        );
+        if state.match_state.scenario_exit.is_some()
+            || route != Some(crate::app::match_runtime::scenario_exit::TerminationRoute::Restart)
+        {
+            log::info!("Restart request dropped by a higher-priority scenario termination");
+            return;
+        }
+        Self::restart_campaign_scenario(state);
+    }
+
+    fn local_outcome_exit_ready(state: &AppState) -> bool {
+        let Some(sim) = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation)
+        else {
+            return false;
+        };
+        crate::app::input::commands::preferred_local_owner(state)
+            .as_deref()
+            .and_then(|owner| sim.interner.get(owner))
+            .is_some_and(|owner| sim.ready_outcome_for_owner(owner).is_some())
     }
 
     /// Apply one foreground-activation edge.
@@ -331,6 +437,15 @@ impl App {
             ModalOutcome::Stay => {}
             ModalOutcome::Enter(next) => Self::enter_in_game_menu_state(state, next),
             ModalOutcome::LeaveMatch => Self::exit_match_to_shell(state),
+            ModalOutcome::RestartScenario => {
+                // State machine48CB2E raises8B41C0 and the modal state
+                // returns to 0; the router consumes it on the next pass.
+                state.match_state.scenario_restart_requested = true;
+                Self::enter_in_game_menu_state(
+                    state,
+                    crate::ui::pause_menu::InGameMenuState::Closed,
+                );
+            }
         }
     }
 
@@ -381,15 +496,7 @@ impl App {
                 .map(|rt| &rt.simulation)
                 .and_then(|sim| sim.interner.get(owner))
         });
-        let local_outcome_exit_ready = local_owner_id.is_some_and(|owner| {
-            state
-                .match_state
-                .sim_runtime
-                .as_ref()
-                .map(|rt| &rt.simulation)
-                .and_then(|sim| sim.ready_outcome_for_owner(owner))
-                .is_some()
-        });
+        let local_outcome_exit_ready = Self::local_outcome_exit_ready(state);
         let executed_owner = state
             .match_state
             .sim_runtime
@@ -403,12 +510,14 @@ impl App {
             log::warn!("Ignoring executed EXIT event not owned by the local player");
             return;
         }
-        if matches!(
-            crate::app::match_runtime::scenario_exit::arbitrate_executed_exit(
-                local_outcome_exit_ready
-            ),
-            crate::app::match_runtime::scenario_exit::ExecutedExitDisposition::Outcome
-        ) {
+        if crate::app::match_runtime::scenario_exit::route_scenario_termination(
+            crate::app::match_runtime::scenario_exit::TerminationRequests {
+                outcome_ready: local_outcome_exit_ready,
+                exit: true,
+                ..Default::default()
+            },
+        ) != Some(crate::app::match_runtime::scenario_exit::TerminationRoute::Exit)
+        {
             // Main_Game observes the ready victory/loss route first. The EXIT
             // edge is still consumed, but cannot clear or replace that route.
             return;
@@ -547,12 +656,9 @@ impl App {
             Some(
                 crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignVictoryContinue,
             ) => Self::leave_mission_result_screen(state),
-            Some(
-                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignDefeat {
-                    title,
-                    detail,
-                },
-            ) => Self::open_campaign_defeat_fallback(state, title, detail),
+            Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignDefeat) => {
+                Self::begin_campaign_defeat(state)
+            }
             Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::MainMenu) => {
                 Self::return_to_main_menu(state);
             }

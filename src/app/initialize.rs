@@ -613,6 +613,7 @@ impl App {
                 loaded_map_hash: None,
                 scenario_outcome: None,
                 scenario_exit: None,
+                scenario_restart_requested: false,
                 scenario_elapsed_clock:
                     crate::app::match_runtime::frame_pacer::ScenarioElapsedClock::new(),
                 configured_input_delay_ticks: input_delay_ticks,
@@ -676,7 +677,7 @@ impl App {
                 shell_exit: None,
                 quit_cascade: None,
                 startup_splash,
-                exit_confirm_modal: None,
+                shell_message_box: None,
                 options_dialog: None,
                 keyboard_dialog: None,
                 movie_list: None,

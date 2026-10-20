@@ -688,11 +688,14 @@ impl ApplicationHandler for App {
                     // not on the stack and keep the direct close.
                     if Self::main_menu_dialog_open(state) {
                         if is_escape {
-                            if state.frontend.exit_confirm_modal.is_some() {
-                                if !Self::route_exit_confirm_modal_key(state, ShellKey::Escape) {
+                            if state.frontend.shell_message_box.is_some() {
+                                if !Self::route_shell_message_box_key(state, ShellKey::Escape) {
                                     // Defensive: on_key only fails with an
-                                    // empty route — still close consistently.
-                                    Self::close_exit_confirm_modal_from_controller(state);
+                                    // empty route — still answer IDCANCEL.
+                                    Self::resolve_shell_message_box(
+                                        state,
+                                        crate::ui::shell::modal::ModalResult::MessageBox(1),
+                                    );
                                     state.platform.window.request_redraw();
                                 }
                             } else if launcher_options_consumes_escape(
@@ -948,7 +951,7 @@ impl ApplicationHandler for App {
                     && !Self::native_skirmish_shell_active(state)
                     // While the SHP quit-confirm modal owns the controller, the menu
                     // move handler must not re-activate 0xE2 and reset the gesture.
-                    && state.frontend.exit_confirm_modal.is_none()
+                    && state.frontend.shell_message_box.is_none()
                 {
                     Self::handle_main_menu_shell_mouse_move(state);
                 }
@@ -1067,15 +1070,15 @@ impl ApplicationHandler for App {
                         Self::handle_launcher_options_mouse(state, Some(btn_state.is_pressed()));
                         return;
                     }
-                    if state.frontend.exit_confirm_modal.is_some()
+                    if state.frontend.shell_message_box.is_some()
                         && state.frontend.screen == GameScreen::MainMenu
                         && state.frontend.main_menu_shell_error.is_none()
                         && button == MouseButton::Left
                     {
                         if btn_state.is_pressed() {
-                            Self::handle_exit_confirm_modal_mouse_down(state);
+                            Self::handle_shell_message_box_mouse_down(state);
                         } else {
-                            Self::handle_exit_confirm_modal_mouse_up(state);
+                            Self::handle_shell_message_box_mouse_up(state);
                         }
                     }
                     return;

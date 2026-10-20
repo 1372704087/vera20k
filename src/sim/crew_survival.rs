@@ -124,7 +124,8 @@ use crate::sim::world::{
     UninitContext,
 };
 use crate::util::fixed_math::SimFixed;
-use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF64Bits};
+use crate::util::native_random::unit_draw_threshold;
+use crate::util::native_x87::NativeF64Bits;
 
 /// Phase B's in-cell request `(cell.x*256+0x80, cell.y*256+0xA4)`: 36 leptons
 /// south of the centre, inside the 60-lepton centre radius, so
@@ -206,19 +207,11 @@ pub(crate) fn foundation_cells(rx: u16, ry: u16, foundation: &str) -> Vec<(u16, 
         .collect()
 }
 
-/// `r * 1/0x7FFFFFFE < CrewEscape` in the native x87 order
-/// (`0x00738218..0x0073822D`: FILD, FMUL `0x007E3570`, FCOMP `Rules+0x5C0`,
-/// then `TEST AH,1` on C0, which an unordered compare also sets). For the
-/// stock 50% it is exactly `r < 0x40000000`.
+/// The unit gate against `CrewEscape=` (`0x00738218..0x0073822D`: FILD,
+/// FMUL `0x007E3570`, FCOMP `Rules+0x5C0`, `TEST AH,1`). For the stock 50% it
+/// is `r < 0x40000000`.
 fn crew_escapes(roll: u32, crew_escape: NativeF64Bits) -> bool {
-    let scaled = X87::mul(
-        X87::load_i32(roll as i32),
-        X87::load_f64(crate::sim::rng::RANDOM_RANGED_UNIT_SCALE),
-    );
-    matches!(
-        X87::compare(scaled, X87::load_f64(crew_escape)),
-        MaskedX87Ordering::Less | MaskedX87Ordering::Unordered
-    )
+    roll < unit_draw_threshold(f64::from_bits(crew_escape.bits()))
 }
 
 /// Where a crewman or an escaping passenger Unlimboes

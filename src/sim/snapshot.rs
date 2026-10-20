@@ -1199,7 +1199,10 @@ use crate::util::save_codec;
 // their own owners (the terrain object store, the ore growth config/state).
 // 447 -> 448: GameEntity retains UnitClass's signed firing counter across
 // LimboLaunch/parasite release. Its positional entity payload grows by a dword.
-const SNAPSHOT_VERSION: u32 = 448;
+// 448 -> 449: the Techno disguise state retains the firing blink timer
+// (+1EC/+1F4); WeaponType retains DisguiseFakeBlinkTime= and [General]
+// DisabledDisguiseDetectionPercent=.
+const SNAPSHOT_VERSION: u32 = 449;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10037,6 +10040,7 @@ mod tests {
         // 445 -> 446: the House array's registration order.
         // 446 -> 447: terrain objects and ore growth have their own owners.
         // 447 -> 448: retained Unit firing counter through parasite release.
-        assert_eq!(super::SNAPSHOT_VERSION, 448);
+        // 448 -> 449: the disguise firing blink and its rules keys.
+        assert_eq!(super::SNAPSHOT_VERSION, 449);
     }
 }

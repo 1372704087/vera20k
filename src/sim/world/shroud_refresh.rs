@@ -6,6 +6,7 @@ use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::resolved_terrain::{AllocatedCellOrder, ROW_NEIGHBORS};
 use crate::rules::ruleset::RuleSet;
+use crate::sim::intern::InternedId;
 use crate::sim::vision::FogState;
 use crate::sim::{pathfinding::PathGrid, vision};
 
@@ -118,6 +119,53 @@ fn with_first_cell_receiver<T>(
 }
 
 impl Simulation {
+    /// The movement step that drops another house's object from the player's
+    /// selection over the player's shroud: a selected object (`+0x83`) whose
+    /// owner fails the locomotor's owner test is deselected (vt+0x150) when
+    /// its Location is shrouded on the player's map (`MapClass::IsShrouded @
+    /// 0x00586360`, [`vision::point_is_shrouded`]). The fog arm's
+    /// `MapClass::IsFogged @ 0x005865E0` is `xor al, al; ret 4`, so it never
+    /// deselects. Without a player house or map nothing is asked.
+    ///
+    /// Three movement steps run it, each with its own owner test:
+    /// - Foot's `PerCellProcess` (`0x004D8DA7..0x004D8DF5`), on every Unit
+    ///   and Infantry cell arrival, and Fly's `Horizontal_Step`
+    ///   (`0x004CF55D..0x004CF5EC`) ask `0x0050B6F0`
+    ///   ([`Self::house_is_human_player`]);
+    /// - Jumpjet's `Process` (`0x0054B07D..0x0054B10C`) compares the owner
+    ///   with PlayerPtr (`0x00A83D4C`).
+    ///
+    /// In skirmish both tests answer alike.
+    pub(crate) fn deselect_over_player_shroud(
+        &mut self,
+        id: u64,
+        player_owned: impl FnOnce(&Self, InternedId) -> bool,
+    ) {
+        let (Some(player), Some(terrain)) =
+            (self.session.current_house(), self.resolved_terrain.as_ref())
+        else {
+            return;
+        };
+        let Some(entity) = self
+            .substrate
+            .entities
+            .get(id)
+            .filter(|entity| entity.selection.is_selected())
+        else {
+            return;
+        };
+        if player_owned(self, entity.owner()) {
+            return;
+        }
+        let location = crate::sim::movement::ground_pose::object_location(entity, Some(terrain));
+        let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+        if vision::point_is_shrouded(&self.fog, &cells, player, location)
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+        {
+            entity.selection.deselect();
+        }
+    }
+
     /// Original Execute1016DE8B7 ->6E1A70 ->567F70 ->578100. Action+90
     /// names the waypoint; current Player+240 gates both local conceal and
     /// the immediate whole-map update independently of the Trigger House.

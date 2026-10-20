@@ -430,3 +430,151 @@ fn allied_object_click_dispatches_the_existing_move_receiver() {
         "NoMove2 still dispatches a Move through the existing destination owner: {command:?}"
     );
 }
+
+/// Infantry and Building cursor owners take their own What_Action over
+/// another allied House's tank too. Techno's tail answers 0 for an armed
+/// human player's object (`0x0070056C..0x0070059B`): a GI's Infantry tail
+/// turns it into NoMove (`0x0051F05E..0x0051F08B`), which dispatches a move
+/// near the tank, and a Pillbox's Building What_Action keeps it
+/// (`0x0044750D`): the arrow, whose release still selects the tank. Retail
+/// arms the Engineer (`Primary=DefuseKit`), so it answers NoMove too; an
+/// unarmed civilian keeps Techno's Select. Over the player's own tank all
+/// answer Select.
+#[test]
+fn allied_object_infantry_and_building_owners_answer_their_own_tails() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &battle.processed_rules,
+        Some(&battle.fixed_art),
+    );
+    let rows = [
+        ("E1", "ally", CursorId::NoMove, LeftRelease::Dispatch),
+        ("ENGINEER", "ally", CursorId::NoMove, LeftRelease::Dispatch),
+        ("CIV1", "ally", CursorId::Select, LeftRelease::Select),
+        ("GAPILL", "ally", CursorId::Default, LeftRelease::Select),
+        ("E1", "own", CursorId::Select, LeftRelease::Select),
+        ("CIV1", "own", CursorId::Select, LeftRelease::Select),
+        ("GAPILL", "own", CursorId::Select, LeftRelease::Select),
+    ];
+    for (kind, relation, cursor, release) in rows {
+        let (sim, actor, target) = object_pair(&battle.rules, kind, relation);
+        let hover = picked_target(&sim, &battle.rules, target);
+        assert_eq!(hover.kind, HoverTargetKind::FriendlyUnit);
+        assert!(object_action_answers_friendly(
+            &sim,
+            &[actor],
+            actor,
+            target
+        ));
+        let feedback = crate::app::input::cursor::capability_cursor_for_hover(
+            &sim,
+            &[actor],
+            Some(actor),
+            &hover,
+            Some(&battle.rules),
+            Some(&overlays),
+            OrderModifier::Normal,
+            false,
+        );
+        assert_eq!(
+            crate::app::input::cursor::cursor_id_for_feedback(feedback),
+            Some(cursor),
+            "{kind} over {relation}"
+        );
+        assert_eq!(
+            object_click_release(
+                &sim,
+                &battle.rules,
+                &[actor],
+                &[actor],
+                target,
+                &overlays,
+                false
+            ),
+            release,
+            "{kind} over {relation}"
+        );
+    }
+    let (sim, gi, tank) = object_pair(&battle.rules, "E1", "ally");
+    let owner = sim.entities().get(gi).unwrap().owner();
+    let command = object_attack_click_command(
+        &sim,
+        &battle.rules,
+        &overlays,
+        owner,
+        OrderMode::Move,
+        OrderModifier::Normal,
+        false,
+        gi,
+        tank,
+    );
+    assert!(
+        matches!(command, Some(Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. }) if entity_id == gi),
+        "the GI's NoMove moves him near the tank: {command:?}"
+    );
+}
+
+/// A selected building over another selected own building answers 0
+/// (Techno `0x007005BF`, kept by Building `0x0044750D`), so the arrow shows
+/// and the click neither selects nor orders.
+#[test]
+fn a_building_over_another_selected_building_does_nothing() {
+    let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &battle.processed_rules,
+        Some(&battle.fixed_art),
+    );
+    let (mut sim, pillbox, _) = object_pair(&battle.rules, "GAPILL", "own");
+    let other = sim
+        .spawn_object("GAPILL", "Americans", 10, 14, 0, &battle.rules)
+        .unwrap();
+    sim.entities_mut_for_test()
+        .get_mut(other)
+        .unwrap()
+        .selection
+        .set_selected_for_test(true);
+    let selected = [pillbox, other];
+    let hover = HoverTargetKindWithId {
+        kind: HoverTargetKind::FriendlyStructure,
+        stable_id: other,
+    };
+    let owner = sim.entities().get(pillbox).unwrap().owner();
+    let best = cursor_owner(&sim, &battle.rules, &selected, other).expect("a cursor owner");
+    let feedback = crate::app::input::cursor::capability_cursor_for_hover(
+        &sim,
+        &selected,
+        Some(best),
+        &hover,
+        Some(&battle.rules),
+        Some(&overlays),
+        OrderModifier::Normal,
+        false,
+    );
+    assert_eq!(
+        crate::app::input::cursor::cursor_id_for_feedback(feedback),
+        Some(CursorId::Default)
+    );
+    assert_eq!(
+        building_selection_click(
+            &sim,
+            &battle.rules,
+            &overlays,
+            &selected,
+            &selected,
+            owner,
+            Some(&hover),
+            (10, 14),
+            OrderModifier::Normal,
+            false,
+            true,
+            false,
+        ),
+        BuildingClick::Nothing
+    );
+}

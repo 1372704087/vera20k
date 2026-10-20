@@ -386,26 +386,27 @@ pub(crate) fn attack_action(
 }
 
 /// Whether the cursor owner `actor_id`'s own What_Action decides a click or
-/// hover over the friendly object `target_id`, rather than the friendly
-/// selection route: a Unit's (`0x007403EB`) and an Aircraft's. Over an own
-/// object that is not selected the Techno base answers Select (7) as the
-/// selection route would; otherwise an Aircraft's 0 becomes its Cell action
-/// (`0x00417D7C`). A lone selected Aircraft over itself is Techno's Self
-/// (`0x007000B9..0x007000DF`), which an Aircraft carrying no passengers
-/// turns into 0 (`0x00417DCD..0x00417DF4`), so it keeps the selection route.
+/// hover over the friendly object `target_id` ([`attack_action`]), rather
+/// than the friendly selection route. Every class's does. Over an own object
+/// that is not selected the Techno tail answers Select (7) as the selection
+/// route would. An armed human player's object over another house's object,
+/// an ally's too, answers 0 there (`0x0070056C..0x0070059B`), as it does
+/// over a selected object (`0x007005BF`). A Unit (`0x007403EB`) or an
+/// Infantryman (`0x0051F05E..0x0051F08B`) it may control turns that 0 into
+/// NoMove, an Aircraft into its Cell action (`0x00417D7C`), and a Building
+/// keeps it (`0x0044750D`), the arrow. A lone selected Aircraft over itself
+/// is Techno's Self (`0x007000B9..0x007000DF`), which an Aircraft carrying no
+/// passengers turns into 0 (`0x00417DCD..0x00417DF4`), so it keeps the
+/// selection route.
 pub(super) fn object_action_answers_friendly(
     sim: &crate::sim::world::Simulation,
     selected: &[u64],
     actor_id: u64,
     target_id: u64,
 ) -> bool {
-    sim.entities()
-        .get(actor_id)
-        .is_some_and(|actor| match actor.category() {
-            EntityCategory::Unit => true,
-            EntityCategory::Aircraft => selected != [target_id],
-            _ => false,
-        })
+    sim.entities().get(actor_id).is_some_and(|actor| {
+        actor.category() != EntityCategory::Aircraft || selected != [target_id]
+    })
 }
 
 /// The target is an object whose type is `Immune=` (`+0x233`), which the
@@ -2132,11 +2133,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     return finish_order(state, queued, speaker_id);
                 }
             }
-            // Ordinary Unit What_Action distinguishes a different allied
+            // The cursor owner's What_Action distinguishes a different allied
             // House from an own object. Preserve Shift's earlier toggle-select
-            // answer and the existing other-class capability routes. The
-            // shared release below, not display friendliness, decides Select
-            // versus dispatch for this Unit route.
+            // answer and the capability routes above. The shared release
+            // below, not display friendliness, decides Select versus dispatch.
             let friendly_unit_action = clicked_friendly
                 && hover.as_ref().is_some_and(|target| {
                     cursor_owner(sim, &resources.rules, &current_objects, target.stable_id)
@@ -3305,9 +3305,12 @@ enum BuildingClick {
 
 /// A left click for a selection of buildings only, after the attack
 /// receivers have been taken out of `receivers`: a lone building's self
-/// action, a selection click on the player's own or an allied object, the
-/// release over another object ([`building_object_release`]), then each
-/// building's own orders ([`building_click_orders`]).
+/// action, Shift's toggle on the player's own or an allied object, the
+/// release over an object ([`building_object_release`]), then each
+/// building's own orders ([`building_click_orders`]). Over the player's own
+/// or an allied object the cursor owner's What_Action decides the release
+/// too ([`object_action_answers_friendly`]): Select or 0 selects an object
+/// the player may select and has not, and nothing else happens.
 #[allow(clippy::too_many_arguments)]
 fn building_selection_click(
     sim: &crate::sim::world::Simulation,
@@ -3338,7 +3341,11 @@ fn building_selection_click(
             HoverTargetKind::FriendlyUnit | HoverTargetKind::FriendlyStructure
         )
     });
-    if select_friendly_clicks && clicked_friendly && context_actions_enabled {
+    if select_friendly_clicks
+        && clicked_friendly
+        && context_actions_enabled
+        && (modifier == OrderModifier::Shift || consumed_attack_action)
+    {
         return if consumed_attack_action {
             BuildingClick::Orders(Vec::new(), false)
         } else {

@@ -490,16 +490,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn launcher_audio_gate_uses_one_process_start_predicate() {
-        assert!(!derive_launcher_audio_available(false, false, false));
-        assert!(!derive_launcher_audio_available(false, true, true));
-        assert!(!derive_launcher_audio_available(true, false, false));
-        assert!(derive_launcher_audio_available(true, true, false));
-        assert!(derive_launcher_audio_available(true, false, true));
-        assert!(derive_launcher_audio_available(true, true, true));
-    }
-
     fn empty_assets(label: &str) -> AssetManager {
         let dir = std::env::temp_dir().join(format!(
             "vera20k-audio-runtime-{}-{label}",

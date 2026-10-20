@@ -2409,8 +2409,10 @@ mod tests {
 
         // ReadINI reads CanBeHidden from the type's ART section (0x007121EB):
         // retail artmd sets it False on GAPOWR, so the hidden power plant
-        // takes no anim. GAPILL's section leaves the constructor's true.
+        // takes no anim. GAPILL's section leaves the constructor's true, and
+        // GASPYSAT has no section of its own (its Image GASPST says False).
         assert!(!rules.object("GAPOWR").unwrap().can_be_hidden);
+        assert!(rules.object("GASPYSAT").unwrap().can_be_hidden);
         behind_indicator_step(&mut sim, power, &rules);
         assert_eq!(
             sim.substrate.entities.get(power).unwrap().behind_anim(),

@@ -166,15 +166,8 @@ impl DamageConsequences {
         // returning to the caller's animation/cluster tail. Delivery carries
         // only the resulting frame notification, never deferred gameplay.
         let bridge_state_changed = effects.bridge_state_changed;
+        #[cfg(any(test, feature = "test-support"))]
         debug_assert!(effects.tiberium_reduction_requests.is_empty());
-        for request in &effects.tiberium_reduction_requests {
-            world.reduce_tiberium_at_with_native_context(
-                (request.rx, request.ry),
-                request.amount,
-                Some(rules),
-                overlay_registry,
-            );
-        }
         for detonation in effects.rad_detonations.drain(..) {
             world.radiation.apply_detonation(
                 detonation,

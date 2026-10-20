@@ -214,6 +214,18 @@ pub(crate) fn unit_ai_clear_harvesting(sim: &mut Simulation, id: u64) {
 /// one (`0x0065AE30`, vt+0x274(3)), takes the Cell NearbyLocation finds
 /// near the refinery (`0x00703590`) as its destination (vt+0x480(cell, 1))
 /// and queues Move to commence now (vt+0x1E8(2, 1)).
+///
+/// A normal unload is safe: DOCK_NOW queues Unload (`0x0043C788`), which
+/// restarts the mission clock, and this block follows the frame's second
+/// Commence. Before DOCK_NOW a docking miner is still on Enter, whose clock
+/// started when Harvest handed over (state 3).
+///
+/// RESIDUAL (timing, not ported logic): a computer miner whose Enter began
+/// more than 300 frames before it stands still on the pad, in the turn
+/// before DOCK_NOW, is sent off and docks again. This needs VERA's Enter,
+/// warp and queue timing to match native to match retail. Trigger: a Chrono
+/// Miner warping from far off (`ChronoHarvTooFarDistance=50`), or a War
+/// Miner waiting behind others. Frequency: unmeasured.
 pub(crate) fn unit_ai_nudge_off_refinery_pad(
     sim: &mut Simulation,
     id: u64,
@@ -263,12 +275,7 @@ pub(crate) fn unit_ai_nudge_off_refinery_pad(
     if in_contact {
         radio::transmit_to_contact(sim, id, RadioMessage::Break, Some(rules), frame_effects);
     }
-    if let Some(exit) = sim
-        .techno_nearby_location(id, Some(refinery), rules)
-        .and_then(|(x, y)| Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?)))
-    {
-        assign_miner_cell_destination(sim, rules, id, exit, overlay_registry, frame_effects);
-    }
+    drive_off_refinery(sim, rules, id, refinery, overlay_registry, frame_effects);
     let now = sim.session.binary_frame();
     let _ = sim.mission_queue_exact(
         id,
@@ -880,21 +887,42 @@ fn handle_going_to_idle(
                     .is_some_and(|kind| kind.refinery)
             })
         })
-        && let Some(exit) = sim
-            .techno_nearby_location(snap.entity_id, Some(refinery_sid), rules)
-            .and_then(|(x, y)| Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?)))
     {
-        assign_miner_cell_destination(
+        drive_off_refinery(
             sim,
             rules,
             snap.entity_id,
-            exit,
+            refinery_sid,
             overlay_registry,
             frame_effects,
         );
     }
     queue_guard_from_harvest(sim, snap);
     true
+}
+
+/// vt+0x480(cell, 1) to the Cell NearbyLocation finds near `refinery`
+/// (`0x00703590`), as Mission_Harvest state 4 (`0x0073EF1F..`) and the
+/// stuck-harvester nudge (`0x0073690A..0x0073696D`) send a miner off its pad.
+///
+/// RESIDUAL: native always calls the setter with `Map[cell]`; VERA skips it
+/// when NearbyLocation finds no Cell or one outside the path grid
+/// ([`assign_miner_cell_destination`]). Trigger: no passable Cell in reach
+/// of the refinery. Frequency: none seen.
+fn drive_off_refinery(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    refinery: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    frame_effects: FrameEffects<'_>,
+) {
+    if let Some(exit) = sim
+        .techno_nearby_location(id, Some(refinery), rules)
+        .and_then(|(x, y)| Some((u16::try_from(x).ok()?, u16::try_from(y).ok()?)))
+    {
+        assign_miner_cell_destination(sim, rules, id, exit, overlay_registry, frame_effects);
+    }
 }
 
 /// `Queue_Mission(Guard, 0)` from inside the Harvest handler (preamble and

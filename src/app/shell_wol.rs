@@ -20,8 +20,8 @@ mod test_service;
 
 pub(crate) use login::{combo_popup, login_layout, open_login_art};
 pub(crate) use service::{
-    WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList, WolServiceEvent,
-    WolServiceRequest, service_event,
+    NET_STATUS_LOST, WolApiStatus, WolLoginAccepted, WolProvider, WolServer, WolServerList,
+    WolServiceEvent, WolServiceRequest, service_event,
 };
 
 /// The wait box's reveal timer and the login drop list's scroll repeats;
@@ -162,6 +162,15 @@ pub(crate) struct WolVisit {
     /// the match and cleared on runner entry (`0x00787973`); the chat sinks
     /// show nothing while it is set.
     in_game: bool,
+    /// `![0xB77DC0]`: connected to a server. A WOLAPI creation
+    /// (`0x00786485`) and a failed login clear it, a connect sets it, and a
+    /// lost connection outside a match clears it.
+    connected: bool,
+    /// `[0xB77DC2]`: the connection was lost. The next runner entry logs in
+    /// again (`0x007879B6`); a successful login clears it (`0x007A559D`).
+    disconnected: bool,
+    /// That re-login continues a post-match runner.
+    relogin_postmatch: bool,
     /// `[0xB76E28]`: the name the last locate (`0x0078A470`) asked for; the
     /// find sink formats its answer with it and clears it.
     locate_name: Option<String>,
@@ -197,6 +206,9 @@ impl WolVisit {
             motd: None,
             last_pager: None,
             in_game: false,
+            connected: false,
+            disconnected: false,
+            relogin_postmatch: false,
             locate_name: None,
             ladder_ranks: Default::default(),
             locales: Default::default(),

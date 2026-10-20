@@ -868,7 +868,10 @@ pub(super) fn schedule_command_in_sim(
     // gates. Escape's modal remains usable: its speed/exit records have
     // their existing authoritative owners and are not tactical orders.
     if sim.session.input_locked()
-        && !matches!(&payload, Command::SetGameSpeed { .. } | Command::ExitMatch)
+        && !matches!(
+            &payload,
+            Command::SetGameSpeed { .. } | Command::ExitMatch | Command::Destruct
+        )
     {
         return None;
     }
@@ -904,6 +907,10 @@ pub(super) fn schedule_command_in_sim(
         }
         Command::ExitMatch => {
             let record = sim.encode_exit_record(owner_id)?;
+            SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
+        }
+        Command::Destruct => {
+            let record = sim.encode_destruct_record(owner_id)?;
             SynchronizedCommand::opaque(record).decode_for_simulation(sim, execute_tick)?
         }
         Command::SellWallAtCell { x, y } => {
@@ -1249,6 +1256,75 @@ mod tests {
             None,
             "repeated drains cannot duplicate the cascade trigger"
         );
+    }
+
+    /// B6 results 3/4 queue EVENT_DESTRUCT: a header-only type-8 record whose
+    /// execution (0x004C7BDF) flags the header House to die with no human
+    /// gate and starts no match outcome.
+    #[test]
+    fn destruct_queues_a_header_only_type_8_event_that_flags_the_house_to_die() {
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        let ai = sim.interner.intern("Ai");
+        sim.houses
+            .register(HouseState::new(local, 0, None, true, 0, 10));
+        sim.houses
+            .register(HouseState::new(ai, 1, None, false, 0, 10));
+        sim.session.set_tick_for_test(41);
+        sim.session.set_binary_frame_for_test(73);
+
+        let record = sim.encode_destruct_record(local).expect("record");
+        assert_eq!(record.opcode(), crate::sim::command::DESTRUCT_OPCODE);
+        assert_eq!(record.house_id(), 0);
+        assert_eq!(record.frame_stamp(), 73);
+        assert!(record.payload().iter().all(|byte| *byte == 0));
+
+        assert_eq!(
+            schedule_command_in_sim(&mut sim, "Local", Command::Destruct),
+            Some(41)
+        );
+        assert_eq!(
+            schedule_command_in_sim(&mut sim, "Ai", Command::Destruct),
+            Some(41)
+        );
+        let pending = sim.pending_command_snapshot();
+        assert_eq!(pending.len(), 2);
+        assert!(pending.iter().all(|c| c.payload == Command::Destruct));
+        assert!(!sim.houses[&local].is_to_die());
+
+        let due = sim.take_due_commands();
+        let result = sim.advance_tick(&due, None, None, None, 33);
+        assert_eq!(result.executed_commands, 2);
+        assert!(sim.houses[&local].is_to_die());
+        assert!(sim.houses[&ai].is_to_die());
+        assert!(!sim.quit_requested);
+        assert_eq!(sim.houses[&local].outcome(), None);
+    }
+
+    #[test]
+    fn leave_beside_observe_runs_destruct_before_exit_in_one_frame() {
+        // 48CA34: result 3 queues DESTRUCT, then Queue_Exit; both execute in
+        // the same frame in queue order.
+        let mut sim = Simulation::new();
+        let local = sim.interner.intern("Local");
+        sim.houses
+            .register(HouseState::new(local, 0, None, true, 0, 10));
+        sim.session.set_tick_for_test(41);
+        sim.session.set_current_house_for_test(Some(local));
+        schedule_command_in_sim(&mut sim, "Local", Command::Destruct).unwrap();
+        schedule_command_in_sim(&mut sim, "Local", Command::ExitMatch).unwrap();
+        let order: Vec<_> = sim
+            .pending_command_snapshot()
+            .iter()
+            .map(|c| c.payload.clone())
+            .collect();
+        assert_eq!(order, [Command::Destruct, Command::ExitMatch]);
+
+        let due = sim.take_due_commands();
+        let result = sim.advance_tick(&due, None, None, None, 33);
+        assert_eq!(result.executed_commands, 2);
+        assert!(sim.houses[&local].is_to_die());
+        assert_eq!(sim.take_executed_exit_owner(), Some(local));
     }
 
     #[test]

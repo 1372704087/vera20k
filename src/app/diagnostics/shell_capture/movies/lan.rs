@@ -83,6 +83,11 @@ pub enum LanTarget {
     GuestGo,
     TransferGo,
     HostAbortReturn,
+    /// B6 Observe in a two-human LAN match, through the executed DESTRUCT and
+    /// the local defeat to the re-armed menu and its Observe-less B6.
+    HostObserve,
+    /// The same three-human match stopped on B6 with Observe offered.
+    HostObserveOffered,
     GuestAbortReturn,
     RemoteLoadingProgress,
     HostObserver,
@@ -137,6 +142,8 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-guest-loading-first", LanTarget::GuestGo),
     ("lan-transfer-loading-first", LanTarget::TransferGo),
     ("lan-host-abort-return", LanTarget::HostAbortReturn),
+    ("lan-host-observe", LanTarget::HostObserve),
+    ("lan-host-observe-offered", LanTarget::HostObserveOffered),
     (
         "lan-loading-timeout-return",
         LanTarget::LoadingTimeoutReturn,
@@ -226,6 +233,10 @@ enum LanPhase {
     RemoteProgress,
     AbortInput,
     Leaving,
+    /// After Observe: the match runs on until the local House is defeated.
+    Observing,
+    /// The re-armed menu's route to B6, which stops when B6 presents.
+    ObservedAbort,
     Settle(u32),
 }
 
@@ -268,11 +279,18 @@ impl LanCapture {
     pub(super) fn timeout(&self) -> Duration {
         // Original peer wait is3600 wall-clock buckets (57.6s). Only this
         // diagnostic budget grows; loading retains its production timer.
-        Duration::from_secs(if self.target == LanTarget::LoadingTimeoutReturn {
-            120
-        } else {
-            60
-        })
+        Duration::from_secs(
+            if matches!(
+                self.target,
+                LanTarget::LoadingTimeoutReturn
+                    | LanTarget::HostObserve
+                    | LanTarget::HostObserveOffered
+            ) {
+                120
+            } else {
+                60
+            },
+        )
     }
     fn event(&mut self, frame: u32, action: &str) {
         log::debug!("LAN capture {:?} frame {frame}: {action}", self.target);
@@ -1057,13 +1075,45 @@ impl LanCapture {
                         self.settle(state);
                     }
                     _ => {
+                        if self.observe() {
+                            // Observe needs a third live House; the default
+                            // map seats two. Commit a larger one through the
+                            // production Use Map owner.
+                            let mode_id = state
+                                .match_state
+                                .session
+                                .network_setup()
+                                .context("BC")?
+                                .mode
+                                .id;
+                            let index = state
+                                .frontend
+                                .scenario_catalog
+                                .shell_maps()
+                                .iter()
+                                .position(|map| map.player_capacity >= 3)
+                                .context("a map for three players")?;
+                            crate::app::shell_network_setup::commit_map_selection(
+                                state, mode_id, index,
+                            )?;
+                            let file = state
+                                .match_state
+                                .session
+                                .network_setup()
+                                .and_then(|launch| launch.selected_map_file.clone());
+                            self.route.push(json!({"frame":frame,
+                                "action":"three-player map committed through Use Map","map":file}));
+                        }
                         setup::service_event(
                             state,
                             NetworkSetupEvent::ParticipantJoined(self.human(false)?),
                         )?;
                         if matches!(
                             self.target,
-                            LanTarget::HostObserverGo | LanTarget::ParticipantLeft
+                            LanTarget::HostObserverGo
+                                | LanTarget::ParticipantLeft
+                                | LanTarget::HostObserve
+                                | LanTarget::HostObserveOffered
                         ) {
                             let mut second = self.human(false)?;
                             second.name = self.inputs["observer_peer"]["name"]
@@ -1091,6 +1141,9 @@ impl LanCapture {
                                 .session
                                 .network_setup()
                                 .context("observer roster")?;
+                            // Observe needs a third live House, so its
+                            // second peer plays; elsewhere the host observes.
+                            let players = if self.observe() { 3 } else { 2 };
                             ensure!(
                                 launch.humans.len() == 3
                                     && launch
@@ -1098,7 +1151,7 @@ impl LanCapture {
                                         .iter()
                                         .filter(|human| !human.is_observer())
                                         .count()
-                                        == 2
+                                        == players
                                     && launch
                                         .humans
                                         .iter()
@@ -1195,10 +1248,15 @@ impl LanCapture {
                         if self.target == LanTarget::HostMissingMap {
                             self.settle(state);
                         } else {
+                            let requests = self.drain_requests(state);
                             ensure!(
-                                self.drain_requests(state)
-                                    .contains(&NetworkSetupRequest::RequestAcceptance),
-                                "host did not request readiness"
+                                requests.contains(&NetworkSetupRequest::RequestAcceptance),
+                                "host did not request readiness: {requests:?}; chat {:?}",
+                                state
+                                    .frontend
+                                    .multiplayer_setup
+                                    .as_ref()
+                                    .map(|setup| &setup.chat.lines)
                             );
                             if self.target == LanTarget::HostReadiness {
                                 self.settle(state);
@@ -1218,7 +1276,7 @@ impl LanCapture {
                         accepted: true,
                     },
                 )?;
-                if self.target == LanTarget::HostObserverGo {
+                if self.target == LanTarget::HostObserverGo || self.observe() {
                     setup::service_event(
                         state,
                         NetworkSetupEvent::PlayerReady {
@@ -2077,10 +2135,16 @@ impl LanCapture {
                 self.observed_runtime = Some(json!({"mode":"Lan", "tick":sim.session.tick(),
                     "current_house":sim.session.current_house().map(|id|sim.interner.resolve(id)),
                     "map":sim.session.map_name(),"host":state.match_state.session.host()}));
-                self.abort_input = Some(abort_return::AbortReturnInput::begin(
+                let choice = match self.target {
+                    LanTarget::HostObserve => Some(crate::ui::shell::abort::AbortButton::Secondary),
+                    LanTarget::HostObserveOffered => None,
+                    _ => Some(crate::ui::shell::abort::AbortButton::Leave),
+                };
+                self.abort_input = Some(abort_return::AbortReturnInput::begin_choosing(
                     state,
                     &mut self.route,
                     frame,
+                    choice,
                 )?);
                 self.phase = LanPhase::AbortInput;
             }
@@ -2091,7 +2155,66 @@ impl LanCapture {
                     .context("LAN abort input")?
                     .after_present(state, &mut self.route, frame)?
                 {
-                    self.phase = LanPhase::Leaving;
+                    self.phase = match self.target {
+                        LanTarget::HostObserve => LanPhase::Observing,
+                        LanTarget::HostObserveOffered => {
+                            let layout = crate::app::input::abort::current_abort_layout(state)
+                                .context("B6 geometry")?;
+                            ensure!(
+                                layout.secondary_kind
+                                    == crate::ui::shell::abort::AbortSecondary::Observe,
+                                "three live humans were not offered Observe"
+                            );
+                            LanPhase::Settle(2)
+                        }
+                        _ => LanPhase::Leaving,
+                    };
+                }
+            }
+            LanPhase::Observing => {
+                let sim = &state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .context("Observe lost its installed runtime")?
+                    .simulation;
+                ensure!(
+                    state.match_state.scenario_exit.is_none() && !sim.quit_requested,
+                    "Observe ended the match"
+                );
+                if sim.local_player_defeated() {
+                    let tick = sim.session.tick();
+                    let destructs_pending = sim.pending_command_snapshot().iter().any(|command| {
+                        matches!(command.payload, crate::sim::command::Command::Destruct)
+                    });
+                    ensure!(!destructs_pending, "defeat preceded the DESTRUCT execution");
+                    self.route.push(
+                        json!({"frame":frame,"action":"local House defeated after DESTRUCT",
+                        "tick":tick,"latch":state.match_state.match_presentation.modal_latch}),
+                    );
+                    self.abort_input = Some(abort_return::AbortReturnInput::begin_choosing(
+                        state,
+                        &mut self.route,
+                        frame,
+                        None,
+                    )?);
+                    self.phase = LanPhase::ObservedAbort;
+                }
+            }
+            LanPhase::ObservedAbort => {
+                if self
+                    .abort_input
+                    .as_mut()
+                    .context("LAN observed abort input")?
+                    .after_present(state, &mut self.route, frame)?
+                {
+                    let layout = crate::app::input::abort::current_abort_layout(state)
+                        .context("B6 geometry after defeat")?;
+                    ensure!(
+                        layout.secondary_kind == crate::ui::shell::abort::AbortSecondary::Hidden,
+                        "a defeated House was offered Observe"
+                    );
+                    self.phase = LanPhase::Settle(2);
                 }
             }
             LanPhase::Leaving => {
@@ -2141,10 +2264,19 @@ impl LanCapture {
         }
         Ok(())
     }
+    /// The three-human Observe captures.
+    fn observe(&self) -> bool {
+        matches!(
+            self.target,
+            LanTarget::HostObserve | LanTarget::HostObserveOffered
+        )
+    }
     fn abort_return(&self) -> bool {
         matches!(
             self.target,
             LanTarget::HostAbortReturn
+                | LanTarget::HostObserve
+                | LanTarget::HostObserveOffered
                 | LanTarget::GuestAbortReturn
                 | LanTarget::LoadingTimeoutReturn
         )

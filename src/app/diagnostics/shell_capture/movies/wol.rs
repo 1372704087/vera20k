@@ -72,8 +72,12 @@ pub enum WolTarget {
     GuestAccept,
     /// C9 Back: Leave, then the channel-left event rejoins the chat lobby.
     GuestBack,
-    /// A started WOL match left through B5/B6: the chat lobby rejoined.
+    /// A started WOL match left through FF/B6: the chat lobby rejoined.
     AbortReturn,
+    /// A started WOL match's FF menu after a physical speed-trackbar jump.
+    InternetMenu,
+    /// FF's Game Controls press opens BBB over the running WOL match.
+    GameControls,
     /// `0x113` Back: the channel left and a fresh `0x10E` settled.
     LobbyBack,
     /// The Options page's offline test service: login to a settled 0x113.
@@ -125,6 +129,16 @@ impl WolTarget {
                 | Self::SetupChat
                 | Self::SetupStart
                 | Self::AbortReturn
+                | Self::InternetMenu
+                | Self::GameControls
+        )
+    }
+
+    /// The started match runs past loading.
+    fn in_match(self) -> bool {
+        matches!(
+            self,
+            Self::AbortReturn | Self::InternetMenu | Self::GameControls
         )
     }
 }
@@ -155,6 +169,8 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-c9-accept", WolTarget::GuestAccept),
     ("wol-c9-back", WolTarget::GuestBack),
     ("wol-abort-return", WolTarget::AbortReturn),
+    ("wol-0xff-menu", WolTarget::InternetMenu),
+    ("wol-game-controls", WolTarget::GameControls),
     ("wol-test-service-lobby", WolTarget::TestServiceLobby),
     ("wol-test-service-create", WolTarget::TestServiceCreate),
     ("wol-test-service-join", WolTarget::TestServiceJoin),
@@ -236,11 +252,7 @@ impl WolCapture {
 
     pub(super) fn timeout(&self) -> Duration {
         // The abort return loads and runs a retail map first.
-        Duration::from_secs(if self.target == WolTarget::AbortReturn {
-            120
-        } else {
-            60
-        })
+        Duration::from_secs(if self.target.in_match() { 120 } else { 60 })
     }
 
     fn event(&mut self, frame: u32, action: impl Into<Value>) {
@@ -280,7 +292,7 @@ impl WolCapture {
             state.frontend.main_menu_shell_error.is_none(),
             "WOL capture encountered the shell fallback"
         );
-        if self.target == WolTarget::AbortReturn
+        if self.target.in_match()
             && self.phase == WolPhase::Loading
             && state.frontend.screen == GameScreen::Loading
         {
@@ -660,8 +672,7 @@ impl WolCapture {
                 self.lobby_settled(state, frame)?;
             }
             WolPhase::Loading
-                if self.target == WolTarget::AbortReturn
-                    && state.frontend.screen == GameScreen::InGame =>
+                if self.target.in_match() && state.frontend.screen == GameScreen::InGame =>
             {
                 let sim = &state
                     .match_state
@@ -676,11 +687,17 @@ impl WolCapture {
                     "the WOL runtime was not admitted"
                 );
                 self.event(frame, "WOL match installed");
-                self.abort_input = Some(abort_return::AbortReturnInput::begin(
-                    state,
-                    &mut self.route,
-                    frame,
-                )?);
+                self.abort_input = Some(match self.target {
+                    WolTarget::InternetMenu => {
+                        abort_return::AbortReturnInput::begin_menu(state, &mut self.route, frame)?
+                    }
+                    WolTarget::GameControls => abort_return::AbortReturnInput::begin_game_controls(
+                        state,
+                        &mut self.route,
+                        frame,
+                    )?,
+                    _ => abort_return::AbortReturnInput::begin(state, &mut self.route, frame)?,
+                });
                 self.phase = WolPhase::AbortInput;
             }
             WolPhase::AbortInput => {
@@ -690,7 +707,19 @@ impl WolCapture {
                     .context("WOL abort input")?
                     .after_present(state, &mut self.route, frame)?
                 {
-                    self.phase = WolPhase::MatchLeaving;
+                    self.phase = if matches!(
+                        self.target,
+                        WolTarget::InternetMenu | WolTarget::GameControls
+                    ) {
+                        ensure!(
+                            crate::app::input::pause_menu::current_template(state)
+                                == crate::ui::shell::pause_menu::PauseMenuTemplate::Internet,
+                            "a WOL match did not open FF"
+                        );
+                        WolPhase::Settle(2)
+                    } else {
+                        WolPhase::MatchLeaving
+                    };
                 }
             }
             WolPhase::MatchLeaving => {
@@ -848,7 +877,10 @@ impl WolCapture {
                         self.event(frame, "C2 Start refused: guest not ready");
                     }
                     WolTarget::SetupChat => self.setup_chat(state, frame)?,
-                    WolTarget::SetupStart | WolTarget::AbortReturn => {
+                    WolTarget::SetupStart
+                    | WolTarget::AbortReturn
+                    | WolTarget::InternetMenu
+                    | WolTarget::GameControls => {
                         self.start(state, frame)?;
                         return Ok(());
                     }
@@ -1374,14 +1406,14 @@ impl WolCapture {
     }
 
     pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
-        self.target == WolTarget::AbortReturn
+        self.target.in_match()
             && self.phase == WolPhase::Loading
             && state.frontend.screen == GameScreen::InGame
     }
 
     pub(super) fn ready(&self, state: &AppState) -> Result<bool> {
         if self.phase == WolPhase::Loading {
-            if self.target == WolTarget::AbortReturn {
+            if self.target.in_match() {
                 return Ok(false);
             }
             ensure!(
@@ -1404,6 +1436,15 @@ impl WolCapture {
                 .lobby()
                 .is_some_and(|lobby| !lobby.shown || lobby.covered || lobby.ui.popup.is_some())
         }) || state.frontend.shell_route.network_setup();
+        if let Some(menu) = match self.target {
+            WolTarget::InternetMenu => Some(crate::ui::pause_menu::InGameMenuState::Menu),
+            WolTarget::GameControls => Some(crate::ui::pause_menu::InGameMenuState::Options),
+            _ => None,
+        } {
+            return Ok(self.phase == WolPhase::Settle(0)
+                && state.frontend.screen == GameScreen::InGame
+                && state.match_state.match_presentation.in_game_menu == menu);
+        }
         Ok(self.phase == WolPhase::Settle(0)
             && state.frontend.shell_exit.is_none()
             && (backdrop || state.frontend.shell_status_line.is_terminal())

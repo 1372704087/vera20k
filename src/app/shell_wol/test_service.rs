@@ -81,8 +81,8 @@ fn pending(state: &AppState) -> bool {
         .is_some_and(|visit| !visit.requests.is_empty())
 }
 
-/// The WOL setup's own requests; this service answers a locate and the
-/// guest's leave.
+/// The WOL setup's own requests; this service answers a locate, the
+/// guest's leave and, as the joined game's host, the guest's choices.
 fn setup_requests(state: &mut AppState) -> Vec<NetworkSetupRequest> {
     if state.match_state.session_mode() != SessionMode::Wol
         || !state.frontend.shell_route.network_setup()
@@ -103,6 +103,14 @@ fn answer_setup(state: &mut AppState, request: NetworkSetupRequest) {
         service_event(state, WolServiceEvent::Located(result));
         return;
     }
+    if let NetworkSetupRequest::PlayerChoices { slot, observer, .. } = request {
+        if !state.match_state.session.host()
+            && let Err(error) = host_options(state, slot, observer)
+        {
+            log::warn!("WOL test service: host options refused: {error:#}");
+        }
+        return;
+    }
     // C9 Back waits for the leave's OnPart; C2 Back closes at once.
     if request == NetworkSetupRequest::Leave
         && !state.match_state.session.host()
@@ -111,6 +119,78 @@ fn answer_setup(state: &mut AppState, request: NetworkSetupRequest) {
     {
         log::warn!("WOL test service: channel left refused: {error:#}");
     }
+}
+
+/// The stand-in host's seed in its full options.
+const HOST_SEED: u32 = 0x5EED_0001;
+
+/// The joined game's stand-in host answers the guest's `R` with its full
+/// options: the first map for four the mode admits, the host on row 0 with a fixed
+/// pick, the guest on row 1 with its choices (start and team as sent).
+fn host_options(
+    state: &mut AppState,
+    slot: crate::skirmish_launch::SkirmishLocalSlot,
+    observer: bool,
+) -> anyhow::Result<()> {
+    let mut launch = state
+        .match_state
+        .session
+        .network_setup()
+        .ok_or_else(|| anyhow::anyhow!("no joined setup"))?
+        .clone();
+    let mode = state
+        .frontend
+        .skirmish_modes
+        .iter()
+        .find(|mode| mode.id == launch.mode.id)
+        .ok_or_else(|| anyhow::anyhow!("no setup mode"))?;
+    let file = state
+        .frontend
+        .scenario_catalog
+        .records()
+        .iter()
+        .find(|record| {
+            crate::map::skirmish_scenarios::record_matches_mode(record, mode)
+                && record.player_capacity >= 4
+        })
+        .map(|record| record.file_name.clone())
+        .ok_or_else(|| anyhow::anyhow!("no map for the stand-in host"))?;
+    let local = launch.local_player_index;
+    let mut next_row = 2;
+    for (index, human) in launch.humans.iter_mut().enumerate() {
+        if index == local {
+            human.raw_slot_index = Some(1);
+            human.slot = slot.clone();
+            human.set_observer(observer);
+        } else if index == 1 {
+            human.raw_slot_index = Some(0);
+            human.slot = crate::skirmish_launch::SkirmishLocalSlot {
+                country: crate::skirmish_launch::LaunchCountry::from_country_index(5),
+                country_random: false,
+                color_index: 2,
+                color_random: false,
+                start_position: crate::skirmish_launch::LaunchStartPosition::Auto,
+                team: crate::skirmish_launch::LaunchTeam::None,
+            };
+        } else {
+            human.raw_slot_index = Some(next_row);
+            next_row += 1;
+        }
+    }
+    launch.selected_map_file = Some(file.clone());
+    launch.rebuild_house_roster();
+    let map_metadata = crate::app::shell_network_setup::local_map_metadata(state, &file)?;
+    crate::app::shell_network_setup::service_event(
+        state,
+        NetworkSetupEvent::HostSetup {
+            launch,
+            map_metadata,
+            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
+            observer_row: None,
+            cooperative_difficulty: 0,
+            seed: Some(HOST_SEED),
+        },
+    )
 }
 
 fn answer(state: &mut AppState, request: WolServiceRequest) {

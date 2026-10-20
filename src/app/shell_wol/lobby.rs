@@ -25,6 +25,7 @@ use std::time::{Duration, Instant};
 use super::WolPage;
 use super::service::{self, WolServiceEvent, WolServiceRequest};
 use crate::app::frontend::{shell_layout, shell_transition};
+use crate::app::shell_network_setup as setup;
 use crate::app::{App, AppState};
 use crate::ui::lan_shell::{LanChatLine, LanEditKey};
 use crate::ui::main_menu_dialogs::options::LauncherCue;
@@ -1485,6 +1486,28 @@ fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
         }
         // [0x8316A4] = 7 until the host's "O<n>" arrives.
         App::open_wol_joined_setup(state, local, Some(7));
+        // The user-list sink 0x7A7110: the others as nodes, then the
+        // persona's Country and Color as the MultiPlayer picks
+        // (0x69B760/0x69B7E0) and the first R.
+        let me = nickname(state);
+        let users: Vec<(String, bool)> = lobby(state)
+            .map(|lobby| {
+                lobby
+                    .members
+                    .iter()
+                    .filter(|member| !member.name.eq_ignore_ascii_case(&me))
+                    .map(|member| (member.name.clone(), member.flags & MEMBER_OPERATOR != 0))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if setup::guest_users_listed(state, &users) {
+            let persona = super::persona::load(state, &me);
+            state
+                .frontend
+                .multiplayer_shell_runtime
+                .set_side_and_color(persona.country, persona.color);
+            setup::send_first_choices(state);
+        }
         return;
     }
     // A chat lobby: its number, the TXT_JOINED_S line, the controls back
@@ -1684,20 +1707,43 @@ pub(super) fn service_event(state: &mut AppState, event: WolServiceEvent) {
             let sort = state.frontend.wol_lobby_globals.player_sort;
             let lobby = lobby_mut(state).expect("checked");
             if lobby.current.is_some() {
+                let name = member.name.clone();
                 insert_member(&mut lobby.members, member, sort);
                 refill_players(state);
+                if in_setup_channel(state)
+                    && let Err(error) = setup::user_joined(state, name)
+                {
+                    log::warn!("WOL game-channel join: {error:#}");
+                }
             }
         }
         WolServiceEvent::UserLeft(name) => {
             let lobby = lobby_mut(state).expect("checked");
+            let operator = lobby
+                .members
+                .iter()
+                .any(|member| member.name == name && member.flags & MEMBER_OPERATOR != 0);
             lobby.members.retain(|member| member.name != name);
             refill_players(state);
+            if in_setup_channel(state)
+                && let Err(error) = setup::user_left(state, &name, operator)
+            {
+                log::warn!("WOL game-channel leave: {error:#}");
+            }
         }
         WolServiceEvent::ChannelLeft => leave_finished(state, true),
         WolServiceEvent::Created(result) => created(state, result),
         other => log::debug!("WOL event not for the lobby: {other:?}"),
     }
     state.platform.window.request_redraw();
+}
+
+/// The runner is in a game channel with C2/C9 open over the hidden `0x113`.
+fn in_setup_channel(state: &AppState) -> bool {
+    state.frontend.shell_route.network_setup()
+        && lobby(state)
+            .and_then(|lobby| lobby.current.as_ref())
+            .is_some_and(|current| current.kind == GAME_CHANNEL)
 }
 
 fn lobby_postmatch(state: &AppState) -> bool {
@@ -1940,12 +1986,13 @@ pub(super) fn net_status(state: &mut AppState, status: u32) {
 /// This user: `TXT_YOURE_KICKED` with the channel's name and the kicker in
 /// a box, whose close moves the lobby pick on (`[0xB77DD4]`) and runs the
 /// leave tail `0x00785740`. Another user: `TXT_USER_KICKED` in the
-/// transcript, then its leave from the users.
-/// RESIDUAL: a game channel's kick (C2/C9: `TXT_CHANNEL_FULL`, the line in
-/// the hidden `0x113`, the setup's leave) is not ported. Another user's
-/// line is skipped natively when `0x005E9510` finds no open slot among the
-/// session nodes, which in a chat lobby depends on what the last setup
-/// left; it is always shown here.
+/// transcript, then its leave from the users. In a game channel this user's
+/// line (`TXT_CHANNEL_FULL` when the session is over-full) goes to the
+/// hidden `0x113`'s transcript (`0x7AB824..0x7AB850`) and the local leave
+/// closes C2/C9; another user's line goes to C2/C9.
+/// RESIDUAL: in a chat lobby another user's line is skipped natively when
+/// `0x005E9510` finds no open slot among the session nodes, which there
+/// depends on what the last setup left; it is always shown here.
 pub(super) fn kicked(state: &mut AppState, channel: WolChannel, user: WolMember, by: WolMember) {
     if state
         .frontend
@@ -1958,15 +2005,50 @@ pub(super) fn kicked(state: &mut AppState, channel: WolChannel, user: WolMember,
     let Some(lobby) = lobby(state) else {
         return;
     };
+    use crate::assets::csf_file::{CsfArg, format_csf};
     if lobby
         .current
         .as_ref()
         .is_some_and(|current| current.kind != 0)
     {
-        log::warn!("WOL game-channel kick is not ported");
+        if !state.frontend.shell_route.network_setup() {
+            return;
+        }
+        if user.flags & MEMBER_LOCAL != 0 {
+            let key = setup::kicked_key(state);
+            let text = format_csf(
+                &csf(state, key),
+                &[CsfArg::Str(&channel.name), CsfArg::Str(&by.name)],
+            );
+            crate::app::shell_lan::append_wol_lobby_chat(
+                state,
+                LanChatLine {
+                    text: text.encode_utf16().collect(),
+                    color: u32::MAX,
+                },
+            );
+            if let Some(lobby) = lobby_mut(state) {
+                lobby.members.clear();
+            }
+            setup::local_left(state);
+            return;
+        }
+        let text = format_csf(
+            &csf(state, "TXT_USER_KICKED"),
+            &[
+                CsfArg::Str(&user.name),
+                CsfArg::Str(&channel.name),
+                CsfArg::Str(&by.name),
+            ],
+        );
+        if let Some(lobby) = lobby_mut(state) {
+            lobby.members.retain(|member| member.name != user.name);
+        }
+        if let Err(error) = setup::user_kicked(state, &user.name, text) {
+            log::warn!("WOL game-channel kick: {error:#}");
+        }
         return;
     }
-    use crate::assets::csf_file::{CsfArg, format_csf};
     if user.flags & MEMBER_LOCAL != 0 {
         let text = format_csf(
             &csf(state, "TXT_YOURE_KICKED"),

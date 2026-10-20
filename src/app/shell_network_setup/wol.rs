@@ -36,13 +36,15 @@ pub(super) fn resident_seed(state: &AppState) -> u32 {
 
 impl App {
     /// The chat join sink `007A6100` creates C9 (`0x7A6256`) for a joined
-    /// game channel. Like BD, the host's options arrive later; unlike BD,
-    /// C9 never disables Accept and the sink's `005E9850` enables it.
+    /// game channel with the local node's choices unset (`0x7A5890`). Like
+    /// BD, the host's options arrive later; unlike BD, C9 never disables
+    /// Accept and the sink's `005E9850` enables it.
     pub(crate) fn open_wol_joined_setup(
         state: &mut AppState,
-        local: crate::skirmish_launch::SkirmishHumanSlot,
+        mut local: crate::skirmish_launch::SkirmishHumanSlot,
         observer_row: Option<u8>,
     ) {
+        local.slot = unset_choices();
         let Some(mode) = state.frontend.skirmish_modes.first().cloned() else {
             return;
         };
@@ -81,6 +83,203 @@ impl App {
             protocol.accept_eligible = true;
         }
     }
+}
+
+/// A node's choices before the host's options: country, color, start and
+/// team all -2 (Random), as the join sink `0x7A5890` builds the local node
+/// and the user-list sink `0x7A7558..0x7A7786` every other one.
+pub(crate) fn unset_choices() -> crate::skirmish_launch::SkirmishLocalSlot {
+    crate::skirmish_launch::SkirmishLocalSlot {
+        country: crate::skirmish_launch::LaunchCountry::from_country_index(0),
+        country_random: true,
+        color_index: 0,
+        color_random: true,
+        start_position: crate::skirmish_launch::LaunchStartPosition::Auto,
+        team: crate::skirmish_launch::LaunchTeam::None,
+    }
+}
+
+/// The guest's user-list sink `0x7A7110` after its own game join: each
+/// other user becomes the next node with unset choices
+/// (`0x7A7558..0x7A7786`); the first one added while only the local node
+/// exists is the host `[0xA8D610]` (`0x7A7627..0x7A763D`). Without an
+/// operator in the list the local leave runs (`0x7A782A..0x7A788D`) and
+/// this returns false; otherwise `0x5E9850` clears the acceptances.
+pub(crate) fn guest_users_listed(state: &mut AppState, users: &[(String, bool)]) -> bool {
+    for (name, _) in users {
+        let session = &mut state.match_state.session;
+        let row = session
+            .network_setup()
+            .map_or(0, |launch| launch.humans.len());
+        let human = crate::skirmish_launch::SkirmishHumanSlot {
+            raw_slot_index: u8::try_from(row).ok(),
+            name: name.clone(),
+            slot: unset_choices(),
+            role: Default::default(),
+        };
+        if let Err(error) = session.add_network_participant(human) {
+            log::warn!("WOL user list: {name} has no node: {error:#}");
+            continue;
+        }
+        if let Some(protocol) = state.frontend.network_setup_protocol.as_mut()
+            && protocol.wol_host.is_none()
+        {
+            protocol.wol_host = Some(name.clone());
+        }
+    }
+    if !users.iter().any(|(_, operator)| *operator) {
+        local_left(state);
+        return false;
+    }
+    if let Err(error) = clear_guest_acceptance(state) {
+        log::warn!("WOL user list: {error:#}");
+    }
+    true
+}
+
+/// The guest's first `R` to the host after the user list
+/// (`0x7A7981..0x7A7AFD`): the MultiPlayer Country and Color the persona
+/// just set, start and team -2; the observer preference sends the
+/// observer's.
+pub(crate) fn send_first_choices(state: &mut AppState) {
+    let local = state.frontend.multiplayer_shell_runtime.local_participant();
+    let Some(row) = state
+        .match_state
+        .session
+        .network_setup()
+        .and_then(|launch| launch.local_player().raw_slot_index)
+    else {
+        return;
+    };
+    let observer = local.is_observer();
+    let mut slot = local.slot;
+    slot.start_position = crate::skirmish_launch::LaunchStartPosition::Auto;
+    slot.team = crate::skirmish_launch::LaunchTeam::None;
+    queue(
+        state,
+        NetworkSetupRequest::PlayerChoices {
+            row,
+            slot,
+            observer,
+        },
+    );
+}
+
+/// The join sink `0x7A6100` for another user in this game channel. While a
+/// start is pending (`[0xB77DEC]`, `[0xB77E28]` or `[0xB77E27]`) the joiner
+/// is kicked (API+0x54) after the PlayerJoined sound and gets no node
+/// (`0x7A631E..0x7A6348`); otherwise the setup admits it with unset
+/// choices.
+pub(crate) fn user_joined(state: &mut AppState, name: String) -> anyhow::Result<()> {
+    if start_pending(state)
+        || state
+            .frontend
+            .network_setup_protocol
+            .as_ref()
+            .is_some_and(|protocol| protocol.locked)
+    {
+        let sound = state
+            .rules()
+            .and_then(|rules| rules.general.player_joined_sound())
+            .map(str::to_owned);
+        App::play_shell_ui_sound_by_id(state, sound.as_deref());
+        queue(state, NetworkSetupRequest::Kick { name });
+        return Ok(());
+    }
+    let row = state
+        .match_state
+        .session
+        .network_setup()
+        .map_or(0, |launch| launch.humans.len());
+    service::service_event(
+        state,
+        service::NetworkSetupEvent::ParticipantJoined(crate::skirmish_launch::SkirmishHumanSlot {
+            raw_slot_index: u8::try_from(row).ok(),
+            name,
+            slot: unset_choices(),
+            role: Default::default(),
+        }),
+    )
+}
+
+/// `0x785740` for another user leaving this game channel: PlayerLeft
+/// (`0x785764..0x785788`); after OnGameStart nothing more. Its node goes;
+/// the ready records clear and C9's Accept enables (`0x785C64..0x785CF5`);
+/// a guest whose operator left leaves the channel itself
+/// (`0x785CFA..0x785D1C`); the host republishes (`0x785D1F..0x785E81`).
+pub(crate) fn user_left(state: &mut AppState, name: &str, operator: bool) -> anyhow::Result<()> {
+    play_player_left(state);
+    if state
+        .frontend
+        .network_setup_protocol
+        .as_ref()
+        .is_some_and(|protocol| protocol.locked)
+    {
+        return Ok(());
+    }
+    let Some(index) = state
+        .match_state
+        .session
+        .network_setup()
+        .and_then(|launch| launch.humans.iter().position(|human| human.name == name))
+    else {
+        return Ok(());
+    };
+    service::service_event(state, service::NetworkSetupEvent::ParticipantLeft { index })?;
+    clear_guest_acceptance(state)?;
+    if state.match_state.session.host() {
+        queue(state, NetworkSetupRequest::PublishOptions);
+        queue(state, NetworkSetupRequest::Advertise);
+    } else if operator {
+        queue(state, NetworkSetupRequest::Leave);
+    }
+    Ok(())
+}
+
+/// The kick sink `0x7AB670` for another user in this game channel: its
+/// `TXT_USER_KICKED` line in C2/C9 unless `0x5E9510` finds no Open player
+/// row (`0x7AB860..0x7AB8AD`), then its leave.
+pub(crate) fn user_kicked(state: &mut AppState, name: &str, line: String) -> anyhow::Result<()> {
+    if !state.match_state.session.network_no_open_player_row() {
+        crate::app::shell_lan::append_chat(
+            state,
+            LanChatLine {
+                text: line.encode_utf16().collect(),
+                color: u32::MAX,
+            },
+        );
+    }
+    user_left(state, name, false)
+}
+
+/// The kick sink for this user: `TXT_CHANNEL_FULL` when the session is
+/// over-full (`0x5E95E0`), else `TXT_YOURE_KICKED`.
+pub(crate) fn kicked_key(state: &AppState) -> &'static str {
+    if state.match_state.session.network_over_capacity() {
+        "TXT_CHANNEL_FULL"
+    } else {
+        "TXT_YOURE_KICKED"
+    }
+}
+
+/// `0x785740`'s local tail for C9: PlayerLeft (`0x785764`), then C9 closes
+/// (`CloseAndPop`) and the lobby rejoins (`0x788A30`). No box.
+pub(crate) fn local_left(state: &mut AppState) {
+    play_player_left(state);
+    let dialog = super::dialog(state);
+    App::leave_shell_dialog(
+        state,
+        shell_transition::ShellExitThen::NetworkSetupBack(dialog),
+    );
+}
+
+/// `0x750920(Rules+0x6BC)` while in a channel (`[0xB76B10]` != 0).
+fn play_player_left(state: &mut AppState) {
+    let sound = state
+        .rules()
+        .and_then(|rules| rules.general.player_left_sound())
+        .map(str::to_owned);
+    App::play_shell_ui_sound_by_id(state, sound.as_deref());
 }
 
 fn queue(state: &mut AppState, request: NetworkSetupRequest) {

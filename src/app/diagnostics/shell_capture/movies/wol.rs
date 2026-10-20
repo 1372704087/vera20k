@@ -206,6 +206,17 @@ pub enum WolTarget {
     BuddyFromLobby,
     /// `0x114` Play Buddy, the login, then Back: `0x114` again.
     BuddyFromMyInfo,
+    /// Test service: Join on Tanya's game; the guest's first R, then the
+    /// host's options: Tanya on row 0 under the host marker.
+    GuestHostOptions,
+    /// The same, then the host leaves: the guest leaves, C9 closes and
+    /// `0x113` settles again, no box.
+    GuestHostLeft,
+    /// The same, then this guest is kicked: `TXT_YOURE_KICKED` in `0x113`.
+    GuestKicked,
+    /// The same, then another user joins and is kicked: its row and the
+    /// `TXT_USER_KICKED` line in C9.
+    GuestUserKicked,
 }
 
 impl WolTarget {
@@ -307,9 +318,21 @@ impl WolTarget {
         )
     }
 
+    /// Test service: C9 in Tanya's game with the host's options.
+    fn guest_service(self) -> bool {
+        matches!(
+            self,
+            Self::GuestHostOptions
+                | Self::GuestHostLeft
+                | Self::GuestKicked
+                | Self::GuestUserKicked
+        )
+    }
+
     /// The production test service answers instead of the capture.
     fn test_service(self) -> bool {
         self.buddy()
+            || self.guest_service()
             || matches!(
                 self,
                 Self::TestServiceLobby
@@ -475,6 +498,10 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0x116-back-to-welcome", WolTarget::BuddyBack),
     ("wol-0x116-back-to-lobby", WolTarget::BuddyFromLobby),
     ("wol-0x116-back-to-my-info", WolTarget::BuddyFromMyInfo),
+    ("wol-c9-host-options", WolTarget::GuestHostOptions),
+    ("wol-c9-host-left", WolTarget::GuestHostLeft),
+    ("wol-c9-kicked", WolTarget::GuestKicked),
+    ("wol-c9-user-kicked", WolTarget::GuestUserKicked),
 ];
 
 /// The controlled guest of the C2 targets, the host of the C9 targets.
@@ -1517,7 +1544,37 @@ impl WolCapture {
                     self.phase = WolPhase::PageWelcome;
                     return Ok(());
                 }
-                if self.target == WolTarget::TestServiceJoin {
+                if self.target == WolTarget::TestServiceJoin || self.target.guest_service() {
+                    if self.rejoined {
+                        self.event(frame, "0x113 settled after C9 closed");
+                        let lobby = Self::lobby(state)?;
+                        let lines: Vec<String> = lobby
+                            .ui
+                            .chat
+                            .lines
+                            .iter()
+                            .map(|line| String::from_utf16_lossy(&line.text))
+                            .collect();
+                        if self.target == WolTarget::GuestKicked {
+                            let kicked =
+                                App::csf_label(state, "TXT_YOURE_KICKED", "TXT_YOURE_KICKED");
+                            let expected = crate::assets::csf_file::format_csf(
+                                &kicked,
+                                &[
+                                    crate::assets::csf_file::CsfArg::Str("Tanya's_game"),
+                                    crate::assets::csf_file::CsfArg::Str("Tanya"),
+                                ],
+                            );
+                            ensure!(
+                                lines.contains(&expected),
+                                "the kick line did not reach 0x113: {lines:?}"
+                            );
+                        }
+                        ensure!(lobby.message().is_none(), "C9's close showed a box");
+                        self.event(frame, json!({"0x113 transcript": lines}));
+                        self.hover_settle(state);
+                        return Ok(());
+                    }
                     game_row_click(state, 0)?;
                     let layout = crate::app::shell_wol::lobby::layout(state);
                     lobby_button(state, &layout, lobby_ui::JOIN)?;
@@ -1529,7 +1586,10 @@ impl WolCapture {
             }
             WolPhase::ServiceSetup
                 if rendered == PresentedShell::NetworkSetup
-                    && wol_setup_settled(state, self.target != WolTarget::TestServiceJoin) =>
+                    && wol_setup_settled(
+                        state,
+                        self.target != WolTarget::TestServiceJoin && !self.target.guest_service(),
+                    ) =>
             {
                 ensure!(
                     state
@@ -1540,6 +1600,9 @@ impl WolCapture {
                     "C2/C9 did not open for the local user"
                 );
                 self.event(frame, "C2/C9 settled from the test service");
+                if self.target.guest_service() {
+                    return self.guest_options(state, frame);
+                }
                 if self.target == WolTarget::SetupPage {
                     setup_button(state, crate::ui::multiplayer_setup::PAGE)?;
                     self.page_input(state, frame, true)?;
@@ -1722,8 +1785,15 @@ impl WolCapture {
             WolTarget::GuestBack => {
                 setup_button(state, setup_ui::BACK)?;
                 let requests = setup_requests(state);
+                // The user-list sink's first R (0x7A7A5D) precedes Back's leave.
                 ensure!(
-                    requests == [NetworkSetupRequest::Leave] && state.frontend.shell_exit.is_none(),
+                    matches!(
+                        requests.as_slice(),
+                        [
+                            NetworkSetupRequest::PlayerChoices { row: 0, .. },
+                            NetworkSetupRequest::Leave
+                        ]
+                    ) && state.frontend.shell_exit.is_none(),
                     "C9 Back must leave the channel and wait: {requests:?}"
                 );
                 setup::service_event(state, NetworkSetupEvent::ChannelLeft)?;
@@ -4122,6 +4192,117 @@ impl WolCapture {
             );
         }
         self.hover_settle(state);
+        Ok(())
+    }
+}
+
+/// C9 in the test service's game: the host's options, then the target's
+/// departure or kick through the production lobby sinks.
+impl WolCapture {
+    fn guest_options(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let launch = state
+            .match_state
+            .session
+            .network_setup()
+            .context("C9 setup")?;
+        let rows: Vec<(String, Option<u8>)> = launch
+            .humans
+            .iter()
+            .map(|human| (human.name.clone(), human.raw_slot_index))
+            .collect();
+        let map = launch.selected_map_file.clone();
+        let view = setup_view(state)?;
+        let host_icon = view.row_icons[0].as_ref().is_some_and(|icon| icon.host)
+            && !view.row_icons[1].as_ref().is_some_and(|icon| icon.host);
+        ensure!(
+            map.is_some()
+                && rows
+                    == [
+                        (NICKNAME.to_owned(), Some(1)),
+                        ("Tanya".to_owned(), Some(0))
+                    ]
+                && host_icon,
+            "C9 did not take the host's options: {rows:?} {map:?} host icon {host_icon}"
+        );
+        self.event(frame, json!({"host options": {"map": map, "rows": rows}}));
+        let channel = WolChannel {
+            kind: GAME_CHANNEL,
+            name: "Tanya's_game".into(),
+            ..Default::default()
+        };
+        match self.target {
+            WolTarget::GuestHostLeft => {
+                crate::app::shell_wol::service_event(
+                    state,
+                    WolServiceEvent::UserLeft("Tanya".into()),
+                );
+                self.event(frame, "the host left the game channel");
+                self.rejoined = true;
+                self.phase = WolPhase::ServiceLobby;
+                return Ok(());
+            }
+            WolTarget::GuestKicked => {
+                crate::app::shell_wol::service_event(
+                    state,
+                    WolServiceEvent::Kicked {
+                        channel,
+                        user: member(NICKNAME, crate::ui::wol_lobby::MEMBER_LOCAL, ""),
+                        by: member("Tanya", MEMBER_OPERATOR, ""),
+                    },
+                );
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "the kick did not close C9"
+                );
+                self.event(frame, "this guest kicked by the host");
+                self.rejoined = true;
+                self.phase = WolPhase::ServiceLobby;
+                return Ok(());
+            }
+            WolTarget::GuestUserKicked => {
+                crate::app::shell_wol::service_event(
+                    state,
+                    WolServiceEvent::UserJoined(member("Boris", 0, "")),
+                );
+                let joined = state
+                    .match_state
+                    .session
+                    .network_setup()
+                    .is_some_and(|launch| launch.humans.iter().any(|human| human.name == "Boris"));
+                ensure!(joined, "Boris's join added no row");
+                crate::app::shell_wol::service_event(
+                    state,
+                    WolServiceEvent::Kicked {
+                        channel: channel.clone(),
+                        user: member("Boris", 0, ""),
+                        by: member("Tanya", MEMBER_OPERATOR, ""),
+                    },
+                );
+                let kicked = App::csf_label(state, "TXT_USER_KICKED", "TXT_USER_KICKED");
+                let expected = crate::assets::csf_file::format_csf(
+                    &kicked,
+                    &[
+                        crate::assets::csf_file::CsfArg::Str("Boris"),
+                        crate::assets::csf_file::CsfArg::Str("Tanya's_game"),
+                        crate::assets::csf_file::CsfArg::Str("Tanya"),
+                    ],
+                );
+                let gone = state
+                    .match_state
+                    .session
+                    .network_setup()
+                    .is_some_and(|launch| !launch.humans.iter().any(|human| human.name == "Boris"));
+                ensure!(
+                    gone && setup_chat_has(state, &expected)?,
+                    "Boris's kick: row gone {gone}, line {expected:?}"
+                );
+                self.event(frame, "Boris joined, then was kicked");
+            }
+            _ => {}
+        }
+        MoviesCapture::restore_neutral_pointer(state);
+        crate::app::input::multiplayer_setup::cursor_moved(state);
+        self.settle();
         Ok(())
     }
 }

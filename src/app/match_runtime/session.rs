@@ -1243,6 +1243,40 @@ impl MatchSession {
         }
     }
 
+    /// `0x005E9510`: no Open player row among the first
+    /// min(`[0xA8B548]`, `[0xA8BB0C]`) rows (the admitted row capacity),
+    /// unless the observer row is 0 and the row past them is Open.
+    pub(crate) fn network_no_open_player_row(&self) -> bool {
+        let Some(limit) = self.network_setup_capacity() else {
+            return false;
+        };
+        let open = |row: i32| {
+            u8::try_from(row)
+                .ok()
+                .and_then(|row| self.network_vacancy(row))
+                == Some(NetworkVacancy::Open)
+        };
+        if (0..limit).any(open) {
+            return false;
+        }
+        !(self.network_observer_row() == Some(0) && limit < 8 && open(limit))
+    }
+
+    /// `0x005E95E0`: the nodes, less an observer on the observer row, are
+    /// more than the admitted row capacity.
+    pub(crate) fn network_over_capacity(&self) -> bool {
+        let (Some(launch), Some(limit)) = (self.network_setup(), self.network_setup_capacity())
+        else {
+            return false;
+        };
+        let observer_row = self.network_observer_row();
+        let observer_present = launch
+            .humans
+            .iter()
+            .any(|human| human.is_observer() && human.raw_slot_index == observer_row);
+        launch.humans.len() as i32 - i32::from(observer_present) > limit
+    }
+
     pub(crate) fn network_player_ready(&self, index: usize) -> bool {
         match self.network.as_ref().map(|network| &network.phase) {
             Some(NetworkPhase::Setup { admission, .. }) => {
@@ -1872,6 +1906,45 @@ mod tests {
         assert_eq!(setup.local_player_index, 0);
         assert_eq!(setup.required_start_count(), 2);
         assert!(setup.house_roster_is_consistent());
+    }
+
+    #[test]
+    fn open_rows_and_over_capacity_follow_the_wol_slot_tests() {
+        // 0x5E9510 and 0x5E95E0 against the admitted row capacity.
+        let mut session = MatchSession::default();
+        session.enter_network(super::NetworkReturnContext::Wol);
+        let launch = network_fixture();
+        session
+            .accept_network_setup(launch.clone(), false, Some(7))
+            .unwrap();
+        let mut vacancies = [super::NetworkVacancy::Open; 8];
+        session
+            .accept_network_host_setup(launch.clone(), vacancies, 4, None)
+            .unwrap();
+        assert!(!session.network_no_open_player_row());
+        assert!(!session.network_over_capacity());
+        // Two humans fill a two-row map: no Open row, not over-full.
+        session
+            .accept_network_host_setup(launch.clone(), vacancies, 2, None)
+            .unwrap();
+        assert!(session.network_no_open_player_row());
+        assert!(!session.network_over_capacity());
+        // Closed rows are not Open.
+        vacancies[2] = super::NetworkVacancy::Closed;
+        vacancies[3] = super::NetworkVacancy::Closed;
+        session
+            .accept_network_host_setup(launch.clone(), vacancies, 4, None)
+            .unwrap();
+        assert!(session.network_no_open_player_row());
+        // A third node on a two-row map is over-full.
+        session
+            .accept_network_host_setup(launch, [super::NetworkVacancy::Open; 8], 2, None)
+            .unwrap();
+        let mut third = session.network_setup().unwrap().humans[0].clone();
+        third.name = "Third".into();
+        third.raw_slot_index = Some(2);
+        session.add_network_participant(third).unwrap();
+        assert!(session.network_over_capacity());
     }
 
     #[test]

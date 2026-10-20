@@ -167,7 +167,7 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
         actor.navigation.set_nav_com_aux_for_test(aux);
         assert_eq!(before["navigation"]["queue_count"], 0);
         actor.navigation.clear_nav_queue();
-        actor.navigation.path_replay.set_directions_for_test(
+        actor.navigation.path_replay_mut().set_directions_for_test(
             before["navigation"]["path"]
                 .as_array()
                 .unwrap()
@@ -175,11 +175,11 @@ fn fixture(row: &Value, state: &Value, rules: &RuleSet) -> SuppliedFootFixture {
                 .map(|value| signed(value) as u8)
                 .collect(),
         );
-        actor.navigation.path_replay.set_reference_cell(Some((
+        actor.navigation.path_replay_mut().set_reference_cell(Some((
             signed(&before["navigation"]["reference_cell"][0]) as i16,
             signed(&before["navigation"]["reference_cell"][1]) as i16,
         )));
-        let path = &mut actor.navigation.path_runtime;
+        let path = actor.navigation.path_runtime_mut();
         path.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(
             signed(&before["navigation"]["movement_timer"][0]),
             signed(&before["navigation"]["movement_timer"][2]),
@@ -253,7 +253,7 @@ fn assert_state(f: &mut SuppliedFootFixture, row: &Value, state: &Value) {
             "{name}: navigation vector"
         );
         assert_eq!(
-            actor.navigation.path_replay.directions(),
+            actor.navigation.path_replay().directions(),
             expected["navigation"]["path"]
                 .as_array()
                 .unwrap()
@@ -263,14 +263,14 @@ fn assert_state(f: &mut SuppliedFootFixture, row: &Value, state: &Value) {
             "{name}: retained path suffix"
         );
         assert_eq!(
-            actor.navigation.path_replay.reference_cell(),
+            actor.navigation.path_replay().reference_cell(),
             Some((
                 signed(&expected["navigation"]["reference_cell"][0]) as i16,
                 signed(&expected["navigation"]["reference_cell"][1]) as i16
             )),
             "{name}: reference Cell"
         );
-        let path = &actor.navigation.path_runtime;
+        let path = actor.navigation.path_runtime();
         for (timer, field) in [
             (path.movement_timer(), "movement_timer"),
             (path.blocked_timer(), "blocked_timer"),

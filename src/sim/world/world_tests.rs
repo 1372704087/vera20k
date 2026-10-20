@@ -5403,7 +5403,7 @@ fn gsi_04_05_stop_preserves_committed_drive_until_reserved_head_finishes() {
     assert!(
         stopped
             .navigation
-            .path_replay
+            .path_replay()
             .remaining_directions()
             .is_empty()
     );
@@ -5596,7 +5596,7 @@ fn gsi_13_06_stop_preserves_committed_ship_segment_and_speed_state() {
     assert!(
         stopped
             .navigation
-            .path_replay
+            .path_replay()
             .remaining_directions()
             .is_empty()
     );
@@ -7189,11 +7189,11 @@ fn unit_route_beside_building(
 /// object has no order or no installed words.
 fn found_route(e: &GameEntity, start: (u16, u16)) -> Vec<(u16, u16)> {
     if crate::sim::movement::motion_query::is_moving(&e) != Some(true)
-        || e.navigation.path_replay.directions().is_empty()
+        || e.navigation.path_replay().directions().is_empty()
     {
         return Vec::new();
     }
-    e.navigation.path_replay.installed_cells(start)
+    e.navigation.path_replay().installed_cells(start)
 }
 
 /// Find_Path's search calls the Unit's own +1AC for every neighbour
@@ -7313,8 +7313,8 @@ fn stacking_motion_state(sim: &Simulation, id: u64) -> String {
             e.position.ry(),
             e.position.sub_x(),
             e.position.sub_y(),
-            e.navigation.path_replay.route_cells(),
-            e.navigation.path_replay.remaining_directions().len(),
+            e.navigation.path_replay().route_cells(),
+            e.navigation.path_replay().remaining_directions().len(),
             crate::sim::movement::movement_goal_cell(e)
         ),
     };
@@ -8075,7 +8075,7 @@ fn repro_two_moving_vehicles_pass_through_each_other() {
             .entities
             .get(id)
             .filter(|e| crate::sim::movement::motion_query::is_moving(&e) == Some(true))
-            .map(|e| e.navigation.path_replay.route_cells())
+            .map(|e| e.navigation.path_replay().route_cells())
             .unwrap_or_default()
     };
     let mut previous_paths = [path_of(&sim, west), path_of(&sim, east)];

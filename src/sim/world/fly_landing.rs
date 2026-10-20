@@ -599,10 +599,11 @@ mod tests {
         fly.set_target_speed(SimFixed::lit("0.75"));
         fly.set_current_speed(SimFixed::lit("0.5"));
         e.flight_attitude=serde_json::from_value::<FlightAttitude>(serde_json::json!({"pitch":SimFixed::from_num(input["owner_float_2e8"].as_f64().unwrap_or(0.0))})).unwrap();
-        e.navigation.neighbor_state =
-            serde_json::from_value(serde_json::json!({"cell": before["neighbor_cell"]})).unwrap();
+        e.navigation.set_neighbor_state_for_test(
+            serde_json::from_value(serde_json::json!({"cell": before["neighbor_cell"]})).unwrap(),
+        );
         e.navigation
-            .path_runtime
+            .path_runtime_mut()
             .set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(0, 0));
         if input["air_registered"].as_bool().unwrap_or(true) {
             sim.aircraft_tracker_add(id);
@@ -1044,7 +1045,7 @@ mod tests {
                 "{}",
                 row["input"]
             );
-            let timer = e.navigation.path_runtime.blocked_timer();
+            let timer = e.navigation.path_runtime().blocked_timer();
             assert_eq!(
                 serde_json::json!([timer.start_frame(), timer.duration()]),
                 after["path_timer"],

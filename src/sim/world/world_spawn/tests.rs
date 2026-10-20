@@ -1237,20 +1237,20 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
     );
     let (&authored_id, source) = authored
         .lighting_sources
-        .buildings
+        .buildings()
         .first_key_value()
         .unwrap();
     assert!(source.active);
     assert_eq!((source.rx, source.ry), (6, 5));
-    assert_eq!(authored.lighting_sources.pending.len(), 1);
+    assert_eq!(authored.lighting_sources.pending().len(), 1);
     authored.discard_lighting_events();
     authored.set_building_light_active(authored_id, false);
     authored.allocate_building_light(authored_id, &rules);
     assert!(
-        !authored.lighting_sources.buildings[&authored_id].active,
+        !authored.lighting_sources.buildings()[&authored_id].active,
         "a repeated construction callback must not activate an existing614"
     );
-    assert_eq!(authored.lighting_sources.pending.len(), 1);
+    assert_eq!(authored.lighting_sources.pending().len(), 1);
 
     let mut held = Simulation::with_seed(0x1a42);
     install_constructor_test_playfield(&mut held);
@@ -1266,8 +1266,8 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
             crate::sim::world::FrameEffects::default(),
         )
         .expect("construct held lamp");
-    assert!(held.lighting_sources.buildings.is_empty());
-    assert!(held.lighting_sources.pending.is_empty());
+    assert!(held.lighting_sources.buildings().is_empty());
+    assert!(held.lighting_sources.pending().is_empty());
     assert!(
         held.reveal_constructed_object_at_height(
             held_id,
@@ -1281,8 +1281,8 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
         )
         .is_none()
     );
-    assert!(held.lighting_sources.buildings.is_empty());
-    assert!(held.lighting_sources.pending.is_empty());
+    assert!(held.lighting_sources.buildings().is_empty());
+    assert!(held.lighting_sources.pending().is_empty());
     let rng_after_constructor = held.scenario_rng.logical_state();
     assert_eq!(
         held.reveal_constructed_object_at_height(
@@ -1298,8 +1298,8 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
         Some(held_id)
     );
     assert_eq!(held.scenario_rng.logical_state(), rng_after_constructor);
-    assert!(held.lighting_sources.buildings[&held_id].active);
-    assert_eq!(held.lighting_sources.pending.len(), 1);
+    assert!(held.lighting_sources.buildings()[&held_id].active);
+    assert_eq!(held.lighting_sources.pending().len(), 1);
 
     let mut failed_new = Simulation::with_seed(0x1a43);
     install_constructor_test_playfield(&mut failed_new);
@@ -1308,8 +1308,8 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
             .spawn_object_at_height("GALITE", "Americans", 1, 1, 0, 0, &rules)
             .is_none()
     );
-    assert!(failed_new.lighting_sources.buildings.is_empty());
-    assert!(failed_new.lighting_sources.pending.is_empty());
+    assert!(failed_new.lighting_sources.buildings().is_empty());
+    assert!(failed_new.lighting_sources.pending().is_empty());
 }
 
 fn install_constructor_test_playfield(sim: &mut Simulation) {

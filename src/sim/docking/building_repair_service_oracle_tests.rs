@@ -469,7 +469,7 @@ fn scene(golden: &Value, row: &Value) -> Scene {
         }
         if row["foot_before"].is_object() {
             let foot = &row["foot_before"];
-            let path = &mut unit.navigation.path_runtime;
+            let path = unit.navigation.path_runtime_mut();
             path.set_movement_timer_for_test(CdTimer::from_raw(
                 int(&foot["movement_timer"][0]),
                 int(&foot["movement_timer"][1]),

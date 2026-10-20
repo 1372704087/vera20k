@@ -44,11 +44,12 @@ fn stopped(sim: &mut Simulation, rules: &RuleSet, cell: (u16, u16), head: Option
     let tank = sim.substrate.entities.get_mut(id).unwrap();
     tank.foot_speed.set_speed_fraction(SIM_ZERO);
     tank.body_facing = FacingClass::new(0, 0);
-    tank.navigation.path_replay = FootPathQueue::for_test(
-        head.into_iter().collect(),
-        0,
-        Some((cell.0 as i16, cell.1 as i16)),
-    );
+    tank.navigation
+        .set_path_replay_for_test(FootPathQueue::for_test(
+            head.into_iter().collect(),
+            0,
+            Some((cell.0 as i16, cell.1 as i16)),
+        ));
     id
 }
 
@@ -68,13 +69,13 @@ fn jams(sim: &Simulation, cell: (u16, u16)) -> bool {
 }
 
 fn set_head(sim: &mut Simulation, id: u64, head: Option<u8>) {
-    let queue = &mut sim
+    let queue = sim
         .substrate
         .entities
         .get_mut(id)
         .unwrap()
         .navigation
-        .path_replay;
+        .path_replay_mut();
     queue.set_directions_for_test(head.into_iter().collect());
     queue.set_cursor(0);
 }
@@ -239,7 +240,7 @@ fn a_jammed_chain_detours_the_route_and_a_clear_one_runs_through() {
             .get(tank)
             .unwrap()
             .navigation
-            .path_replay
+            .path_replay()
             .route_cells();
         assert_eq!(route.contains(&(10, 10)), through, "head {head}: {route:?}");
         assert_eq!(route.last(), Some(&(11, 10)));
@@ -271,7 +272,7 @@ fn the_native_hills_controls_price_as_the_live_chain() {
         .get_mut(tank)
         .unwrap()
         .navigation
-        .path_replay
+        .path_replay_mut()
         .set_directions_for_test(vec![NORTH, NORTH]);
     let controls = packet["costs"].as_array().unwrap();
     assert_eq!(controls.len(), 6);

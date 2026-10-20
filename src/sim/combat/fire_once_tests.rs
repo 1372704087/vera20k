@@ -141,9 +141,9 @@ fn fixture(row: &Value, rules: &RuleSet) -> (Simulation, Vec<u64>, [u64; 2], Opt
                 }));
             actor
                 .navigation
-                .path_runtime
+                .path_runtime_mut()
                 .set_movement_timer_for_test(timer(&before["movement_timer"]));
-            actor.navigation.path_replay.set_directions_for_test(
+            actor.navigation.path_replay_mut().set_directions_for_test(
                 before["path"]
                     .as_array()
                     .unwrap()
@@ -278,7 +278,7 @@ fn assert_boundary(
             "{name}: dispatch"
         );
         assert_eq!(
-            actor.navigation.path_runtime.movement_timer(),
+            actor.navigation.path_runtime().movement_timer(),
             timer(&after["movement_timer"]),
             "{name}: movement"
         );
@@ -318,7 +318,7 @@ fn assert_boundary(
             .map(|value| u8::try_from(integer(value)).unwrap())
             .collect();
         assert_eq!(
-            actor.navigation.path_replay.remaining_directions(),
+            actor.navigation.path_replay().remaining_directions(),
             directions,
             "{name}: path"
         );

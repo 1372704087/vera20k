@@ -3690,9 +3690,14 @@ mod tests {
                 victim.navigation.set_nav_com_aux_for_test(Some(
                     crate::sim::components::NavTargetRef::cell(1, 1),
                 ));
-                victim.navigation.path_replay =
-                    FootPathQueue::for_test(vec![2, 3, 4, 5], 0, Some((9, 8)));
-                let path = &mut victim.navigation.path_runtime;
+                victim
+                    .navigation
+                    .set_path_replay_for_test(FootPathQueue::for_test(
+                        vec![2, 3, 4, 5],
+                        0,
+                        Some((9, 8)),
+                    ));
+                let path = victim.navigation.path_runtime_mut();
                 path.set_movement_timer_for_test(CdTimer::started(50, 5));
                 path.set_blocked_timer_for_test(CdTimer::started(40, 6));
                 path.set_path_blocked(true);
@@ -3901,7 +3906,7 @@ mod tests {
                 },
                 setter: {
                     let loco = victim.locomotor.as_ref().unwrap();
-                    let path = &victim.navigation.path_runtime;
+                    let path = victim.navigation.path_runtime();
                     let coord = |value: Option<crate::sim::components::DriveCoord>| {
                         value.map_or([0, 0, 0], |v| [v.x + 1280, v.y + 1280, v.z])
                     };
@@ -3914,8 +3919,8 @@ mod tests {
                     serde_json::json!({
                         "nav": nav, "aux": if victim.navigation.nav_com_aux().is_none() { 0 } else { 123 },
                         "destination": coord(loco.walk_destination()), "head": coord(loco.step_head()),
-                        "queue": victim.navigation.path_replay.directions().iter().map(|&v| if v == 255 { -1 } else { i32::from(v) }).collect::<Vec<_>>(),
-                        "reference": victim.navigation.path_replay.reference_cell(),
+                        "queue": victim.navigation.path_replay().directions().iter().map(|&v| if v == 255 { -1 } else { i32::from(v) }).collect::<Vec<_>>(),
+                        "reference": victim.navigation.path_replay().reference_cell(),
                         "queued_mission": victim.mission.queued().raw(),
                         "facing": u32::from(victim.body_facing.destination()) * 65537,
                         "moving": u8::from(loco.walk_is_moving().unwrap()), "powered": u8::from(loco.is_powered()),

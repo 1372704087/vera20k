@@ -1774,13 +1774,13 @@ mod tests {
         let terrain = flat_terrain(2, 2);
         let mut zone_grid = square_zone_grid(&terrain);
         {
-            let base = zone_grid.base_topology_mut();
-            base.movement_classes = vec![0; 4];
-            base.zone_ids = vec![2, 3, 4, 5];
+            let base = zone_grid.base_topology_mut_for_test();
+            *base.movement_classes_mut_for_test() = vec![0; 4];
+            *base.zone_ids_mut_for_test() = vec![2, 3, 4, 5];
             let row = MovementZone::Normal.matrix_row().unwrap();
-            base.raw_zone_ids_by_row[row].resize(6, 0);
-            base.raw_zone_ids_by_row[row][0] = 10;
-            base.raw_zone_ids_by_row[row][4] = 44;
+            base.raw_zone_ids_by_row_mut_for_test()[row].resize(6, 0);
+            base.raw_zone_ids_by_row_mut_for_test()[row][0] = 10;
+            base.raw_zone_ids_by_row_mut_for_test()[row][4] = 44;
         }
         let _ = get_cellclass_fallback(Some(&terrain), -1, 0);
 
@@ -1803,12 +1803,12 @@ mod tests {
         let mut terrain = flat_terrain(2, 2);
         let mut zone_grid = square_zone_grid(&terrain);
         {
-            let base = zone_grid.base_topology_mut();
-            base.movement_classes = vec![0; 4];
-            base.zone_ids = vec![2, 3, 4, 5];
+            let base = zone_grid.base_topology_mut_for_test();
+            *base.movement_classes_mut_for_test() = vec![0; 4];
+            *base.zone_ids_mut_for_test() = vec![2, 3, 4, 5];
             let row = MovementZone::Normal.matrix_row().unwrap();
-            base.raw_zone_ids_by_row[row].resize(6, 0);
-            base.raw_zone_ids_by_row[row][3] = 77;
+            base.raw_zone_ids_by_row_mut_for_test()[row].resize(6, 0);
+            base.raw_zone_ids_by_row_mut_for_test()[row][3] = 77;
         }
         terrain.test_set_native_allocated_cells(&[(0, 0)]);
 
@@ -1825,13 +1825,17 @@ mod tests {
         assert_eq!(terrain.dummy_cell_requested_coord(), (1, 0));
 
         let row = MovementZone::Normal.matrix_row().unwrap();
-        zone_grid.base_topology_mut().raw_zone_ids_by_row[row][3] = 1;
+        zone_grid
+            .base_topology_mut_for_test()
+            .raw_zone_ids_by_row_mut_for_test()[row][3] = 1;
         assert!(
             !check(77, &zone_grid),
             "raw reserved label 1 stays distinct"
         );
         assert_eq!(terrain.dummy_cell_requested_coord(), (1, 0));
-        zone_grid.base_topology_mut().raw_zone_ids_by_row[row][3] = u16::MAX;
+        zone_grid
+            .base_topology_mut_for_test()
+            .raw_zone_ids_by_row_mut_for_test()[row][3] = u16::MAX;
         assert!(!check(77, &zone_grid), "raw 0xffff stays distinct");
         assert_eq!(
             terrain.dummy_cell_requested_coord(),
@@ -1844,10 +1848,17 @@ mod tests {
     fn gsi_04_01_bridge_required_zone_uses_raw_labels_and_missing_record_dword() {
         let mut terrain = flat_terrain(2, 2);
         let mut zone_grid = square_zone_grid(&terrain);
-        let cluster = zone_grid.base_topology_mut().zone_ids[0] as usize;
+        let cluster = zone_grid
+            .base_topology_mut_for_test()
+            .zone_ids_mut_for_test()[0] as usize;
         let row = MovementZone::Normal.matrix_row().unwrap();
-        zone_grid.base_topology_mut().raw_zone_ids_by_row[row].resize(cluster + 1, 0);
-        zone_grid.base_topology_mut().raw_zone_ids_by_row[row][cluster] = 91;
+        zone_grid
+            .base_topology_mut_for_test()
+            .raw_zone_ids_by_row_mut_for_test()[row]
+            .resize(cluster + 1, 0);
+        zone_grid
+            .base_topology_mut_for_test()
+            .raw_zone_ids_by_row_mut_for_test()[row][cluster] = 91;
         let check = |terrain: &ResolvedTerrainGrid, zones: &ZoneGrid, required, bridge| {
             let mut ctx = clear_passability_context(CellRect::single(0, 0), Some(terrain));
             ctx.zone_grid = Some(zones);
@@ -1859,7 +1870,9 @@ mod tests {
         //Cell still returns its raw row, without the flattened-map projection.
         assert!(check(&terrain, &zone_grid, 91, true));
         assert!(!check(&terrain, &zone_grid, 92, true));
-        zone_grid.base_topology_mut().raw_zone_ids_by_row[row][cluster] = u16::MAX;
+        zone_grid
+            .base_topology_mut_for_test()
+            .raw_zone_ids_by_row_mut_for_test()[row][cluster] = u16::MAX;
         assert!(check(&terrain, &zone_grid, 0xFFFF, true));
         terrain.cells_mut_for_test()[0].bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
         assert_eq!(

@@ -409,7 +409,7 @@ impl Simulation {
             .substrate
             .entities
             .get(owner)
-            .map(|o| o.navigation.neighbor_state.cell())
+            .map(|o| o.navigation.neighbor_state().cell())
         else {
             return;
         };

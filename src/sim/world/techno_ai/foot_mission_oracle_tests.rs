@@ -728,7 +728,7 @@ impl SuppliedFootFixture {
                             .map(|pointer| NavTargetRef::from(target(pointer).unwrap()))
                             .collect(),
                     );
-                    entity.navigation.path_replay.set_directions_for_test(
+                    entity.navigation.path_replay_mut().set_directions_for_test(
                         before["path"]
                             .as_array()
                             .unwrap()
@@ -736,11 +736,14 @@ impl SuppliedFootFixture {
                             .map(|direction| signed(direction) as u8)
                             .collect(),
                     );
-                    entity.navigation.path_replay.set_reference_cell(Some((
-                        signed(&before["reference_cell"][0]) as i16,
-                        signed(&before["reference_cell"][1]) as i16,
-                    )));
-                    let path = &mut entity.navigation.path_runtime;
+                    entity
+                        .navigation
+                        .path_replay_mut()
+                        .set_reference_cell(Some((
+                            signed(&before["reference_cell"][0]) as i16,
+                            signed(&before["reference_cell"][1]) as i16,
+                        )));
+                    let path = entity.navigation.path_runtime_mut();
                     path.set_movement_timer_for_test(crate::sim::timer::CdTimer::from_raw(
                         signed(&before["movement_timer_words"][0]),
                         signed(&before["movement_timer_words"][2]),
@@ -1560,12 +1563,12 @@ fn assert_destination_projection(fixture: &SuppliedFootFixture, row: &Value) {
         "{name}: Foot NavComAux"
     );
     assert_eq!(
-        actor.navigation.path_replay.cursor(),
+        actor.navigation.path_replay().cursor(),
         0,
         "{name}: unchanged supplied path cursor"
     );
     assert_eq!(
-        actor.navigation.path_replay.directions(),
+        actor.navigation.path_replay().directions(),
         expected["path"]
             .as_array()
             .unwrap()
@@ -1575,7 +1578,7 @@ fn assert_destination_projection(fixture: &SuppliedFootFixture, row: &Value) {
         "{name}: live path head and preserved backing suffix"
     );
     assert_eq!(
-        actor.navigation.path_replay.reference_cell(),
+        actor.navigation.path_replay().reference_cell(),
         Some((
             signed(&expected["reference_cell"][0]) as i16,
             signed(&expected["reference_cell"][1]) as i16,
@@ -1595,7 +1598,7 @@ fn assert_destination_projection(fixture: &SuppliedFootFixture, row: &Value) {
         "{name}: Unit clear versus Infantry preserved navigation vector"
     );
     // Compare live vector entries, not C++ allocator/vtable/backing residues.
-    let path = &actor.navigation.path_runtime;
+    let path = actor.navigation.path_runtime();
     for (actual, key) in [
         (path.movement_timer(), "movement_timer_words"),
         (path.blocked_timer(), "blocked_timer_words"),

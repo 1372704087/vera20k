@@ -4165,8 +4165,8 @@ mod tests {
     }
 
     fn assert_zone_grids_equivalent(a: &ZoneGrid, b: &ZoneGrid) {
-        assert_eq!(a.width, b.width);
-        assert_eq!(a.height, b.height);
+        assert_eq!(a.width(), b.width());
+        assert_eq!(a.height(), b.height());
         for &mz in MovementZone::all_ground() {
             let map_a = a.map_for(mz).expect("zone map exists for movement zone");
             let map_b = b.map_for(mz).expect("zone map exists for movement zone");
@@ -4185,8 +4185,8 @@ mod tests {
                 }
             }
             assert_eq!(map_a.zone_count(), map_b.zone_count());
-            for y in 0..a.height {
-                for x in 0..a.width {
+            for y in 0..a.height() {
+                for x in 0..a.width() {
                     assert_eq!(
                         map_a.zone_at(x, y, MovementLayer::Ground),
                         map_b.zone_at(x, y, MovementLayer::Ground),
@@ -4646,7 +4646,7 @@ mod tests {
         let ruin = sim.interner.intern("CAOUTP");
         let mut grid = crate::sim::overlay_grid::OverlayGrid::new(3, 3);
         grid.place_overlay(1, 2, 0xEF, 4);
-        grid.cell_mut(1, 2).rubble_building_type = Some(ruin);
+        grid.cell_mut_for_test(1, 2).rubble_building_type = Some(ruin);
         grid.place_overlay(2, 2, 0xEF, 0);
         sim.overlay_grid = Some(grid);
 
@@ -4661,14 +4661,14 @@ mod tests {
     #[test]
     fn phase14_crate_authority_roundtrips_visible_and_ghost_slots() {
         let mut sim = Simulation::with_seed(0);
-        *sim.crate_authority.slot_mut(0) = crate::sim::crates::CrateSlot {
+        *sim.crate_authority.slot_mut_for_test(0) = crate::sim::crates::CrateSlot {
             start_frame: 17,
             aux: 0x40b5_1800,
             duration: 3375,
             cell_x: 6,
             cell_y: 9,
         };
-        *sim.crate_authority.slot_mut(1) = crate::sim::crates::CrateSlot {
+        *sim.crate_authority.slot_mut_for_test(1) = crate::sim::crates::CrateSlot {
             start_frame: -2,
             aux: u32::MAX,
             duration: i32::MIN,

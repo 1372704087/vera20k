@@ -354,7 +354,7 @@ impl Calls {
             .collect();
         let lighting = sim
             .lighting_sources
-            .pending
+            .pending()
             .iter()
             .filter(|event| matches!(event, LightingEvent::Global { .. }))
             .count();

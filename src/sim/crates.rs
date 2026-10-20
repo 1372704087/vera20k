@@ -344,21 +344,14 @@ fn place_overlay_and_init_timer(
     // `CrateSlot__PlaceOverlayAndInitTimer @ 0x004A17C0`: accepted ghosts
     // and visible overlays both write the packed coordinate before drawing
     // and installing start/aux/duration timer words.
-    {
-        let slot = sim.crate_authority.slot_mut(slot_index);
-        slot.cell_x = cell.0 as i16;
-        slot.cell_y = cell.1 as i16;
-    }
+    sim.crate_authority.claim(slot_index, cell);
     let timer_draw = sim.scenario_rng.next_range_u32_inclusive(0, 0x7fff_fffe);
-    let (start_frame, aux, duration) = state::crate_timer_words(
+    let words = state::crate_timer_words(
         rules.crate_rules.regen,
         timer_draw,
         sim.session.binary_frame() as i32,
     );
-    let slot = sim.crate_authority.slot_mut(slot_index);
-    slot.start_frame = start_frame;
-    slot.aux = aux;
-    slot.duration = duration;
+    sim.crate_authority.install_timer(slot_index, words);
     Some(accepted)
 }
 
@@ -1892,7 +1885,7 @@ pub(crate) mod tests {
         let rubble = sim.interner.intern("RetainedRubble");
         {
             let grid = sim.overlay_grid.as_mut().unwrap();
-            let target = grid.cell_mut(cell.0, cell.1);
+            let target = grid.cell_mut_for_test(cell.0, cell.1);
             target.wall_owner = Some(retained_owner);
             target.rubble_building_type = Some(rubble);
             target.overlay_data = u8::MAX;
@@ -2075,7 +2068,7 @@ pub(crate) mod tests {
             .as_mut()
             .unwrap()
             .place_overlay(12, 13, 0, 1);
-        *incoming.crate_authority.slot_mut(0) = state::CrateSlot {
+        *incoming.crate_authority.slot_mut_for_test(0) = state::CrateSlot {
             start_frame: 0,
             aux: 0,
             duration: 0,

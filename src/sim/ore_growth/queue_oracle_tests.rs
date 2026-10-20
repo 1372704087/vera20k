@@ -343,7 +343,7 @@ pub(crate) fn supplied_fixture(row: &Value) -> SuppliedFixture {
             c["density"].as_u64().unwrap() as u8,
         );
         if let Some(raw) = c["overlay"].as_i64() {
-            grid.cell_mut(cell.0, cell.1).overlay_id = u8::try_from(raw).ok();
+            grid.cell_mut_for_test(cell.0, cell.1).overlay_id = u8::try_from(raw).ok();
         }
         if natural {
             grid.recalculate_runtime_cell(&mut terrain, &registry, cell);

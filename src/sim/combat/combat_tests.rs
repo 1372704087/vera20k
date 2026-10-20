@@ -1364,16 +1364,21 @@ fn retail_gassed_infantry_drops_its_fire_and_path() {
             man.mission_leaf.set_infantry_doing_verified(0).unwrap();
             man.mission_leaf.set_foot_firing_sequence(1);
             man.navigation
-                .path_replay
+                .path_replay_mut()
                 .set_directions_for_test(vec![0, 1, 2]);
-            man.navigation.path_replay.set_cursor(0);
+            man.navigation.path_replay_mut().set_cursor(0);
         },
     );
     let man = sim.substrate.entities.get(ids[0]).unwrap();
     assert!(man.berserk.is_active());
     assert!(man.attack_target.target().is_none());
     assert_eq!(man.mission_leaf.foot_firing_sequence_latch(), 0);
-    assert!(man.navigation.path_replay.remaining_directions().is_empty());
+    assert!(
+        man.navigation
+            .path_replay()
+            .remaining_directions()
+            .is_empty()
+    );
 }
 
 /// Through the frame's object AI: a berserk computer GI's time runs down one
@@ -7792,7 +7797,7 @@ fn irradiate(
         sim.session.theater(),
         &rules.radiation,
         sim.resolved_terrain.as_ref(),
-        &mut sim.lighting_sources.pending,
+        &mut sim.lighting_sources,
     );
 }
 
@@ -8318,12 +8323,8 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
     // Decay the site below RadLevel/3 (= 166): effective = remaining×500/500
     // drops below 166 once remaining < 167.
     for frame in 3..=340 {
-        sim.radiation.tick_decay(
-            frame,
-            &rules.radiation,
-            None,
-            &mut sim.lighting_sources.pending,
-        );
+        sim.radiation
+            .tick_decay(frame, &rules.radiation, None, &mut sim.lighting_sources);
     }
     let site = sim.radiation.site_at((10, 10)).expect("site still alive");
     assert!(crate::sim::radiation::RadiationState::current_site_level(site) < 500 / 3);

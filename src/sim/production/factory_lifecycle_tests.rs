@@ -789,7 +789,9 @@ fn offline_backup_recovery_distinguishes_saved_system_and_user_holds() {
             .unwrap();
         if user_hold {
             assert!(super::suspend_production(
-                sim,
+                &sim.interner,
+                &mut sim.production,
+                &sim.session,
                 "Russians",
                 ProductionCategory::Infantry
             ));

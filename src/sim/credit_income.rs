@@ -22,7 +22,9 @@ use crate::sim::intern::InternedId;
 #[cfg(any(test, feature = "test-support"))]
 use crate::sim::mission::MissionType;
 use crate::sim::movement::locomotor::MovementLayer;
+use crate::sim::power_system::PowerStates;
 use crate::sim::timer::CdTimer;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 
 /// `BuildingClass+0x6D0`/`+0x6D8` ProduceCash timer (oil derricks).
@@ -279,9 +281,14 @@ pub(crate) fn produce_cash_step(sim: &mut Simulation, stable_id: u64, rules: &Ru
 /// suppresses the drained output.
 ///
 /// Returns whether the link was made.
-pub(crate) fn install_drain_link(sim: &mut Simulation, drainer_id: u64, victim_id: u64) -> bool {
-    let Some((rx, ry)) = sim
-        .substrate
+pub(crate) fn install_drain_link(
+    substrate: &mut ObjectSubstrate,
+    houses: &Houses,
+    power_states: &mut PowerStates,
+    drainer_id: u64,
+    victim_id: u64,
+) -> bool {
+    let Some((rx, ry)) = substrate
         .entities
         .get(drainer_id)
         .map(|entity| (entity.position.rx(), entity.position.ry()))
@@ -289,28 +296,26 @@ pub(crate) fn install_drain_link(sim: &mut Simulation, drainer_id: u64, victim_i
         return false;
     };
     // 70FD8D: first ground Building, before any reciprocal-link writes.
-    if sim
-        .substrate
+    if substrate
         .occupancy
         .first_building_on_layer(rx, ry, MovementLayer::Ground)
         != Some(victim_id)
     {
         return false;
     }
-    if let Some(victim) = sim.substrate.entities.get_mut(victim_id) {
+    if let Some(victim) = substrate.entities.get_mut(victim_id) {
         victim.drain.draining_me = Some(drainer_id);
     }
-    if let Some(drainer) = sim.substrate.entities.get_mut(drainer_id) {
+    if let Some(drainer) = substrate.entities.get_mut(drainer_id) {
         drainer.drain.target = Some(victim_id);
     }
-    if let Some(owner) = sim
-        .substrate
+    if let Some(owner) = substrate
         .entities
         .get(victim_id)
         .map(|victim| victim.owner())
     {
         //70FDAC, before capture release/animation/team callbacks.
-        sim.invalidate_house_power(owner, false);
+        Simulation::invalidate_house_power(houses, power_states, owner, false);
     }
     true
 }
@@ -397,7 +402,7 @@ pub(crate) fn stop_drain(sim: &mut Simulation, drainer_id: u64, rules: Option<&R
     {
         victim.drain.draining_me = None;
         let owner = victim.owner();
-        sim.invalidate_house_power(owner, false); //70FE93 /6FA217
+        Simulation::invalidate_house_power(&sim.houses, &mut sim.power_states, owner, false); //70FE93 /6FA217
     }
     if let Some(drainer) = sim.substrate.entities.get_mut(drainer_id) {
         drainer.drain.target = None;
@@ -433,7 +438,7 @@ pub(crate) fn clear_drain_links_on_expiry(
     {
         victim.drain.draining_me = None;
         let owner = victim.owner();
-        sim.invalidate_house_power(owner, false); //7020AA /70789F
+        Simulation::invalidate_house_power(&sim.houses, &mut sim.power_states, owner, false); //7020AA /70789F
     }
     if let Some(drainer_id) = draining_me
         && sim
@@ -452,7 +457,7 @@ pub(crate) fn clear_drain_links_on_expiry(
             .get(expired_id)
             .map(|entity| entity.owner());
         if let Some(owner) = owner {
-            sim.invalidate_house_power(owner, false);
+            Simulation::invalidate_house_power(&sim.houses, &mut sim.power_states, owner, false);
         } //7020FB /70791D
     }
     if let Some(entity) = sim.substrate.entities.get_mut(expired_id) {
@@ -713,7 +718,13 @@ mod tests {
         let disc = sim
             .spawn_object("DISK", "YuriCountry", 22, 21, 0, &rules)
             .unwrap();
-        assert!(!install_drain_link(&mut sim, disc, refinery));
+        assert!(!install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disc,
+            refinery
+        ));
         assert_eq!(sim.entities().get(disc).unwrap().drain.target(), None);
         assert_eq!(
             sim.entities().get(refinery).unwrap().drain.draining_me(),
@@ -741,7 +752,13 @@ mod tests {
             .death
             .set_dying_for_test(true);
         assert!(
-            install_drain_link(&mut sim, disc, refinery),
+            install_drain_link(
+                &mut sim.substrate,
+                &sim.houses,
+                &mut sim.power_states,
+                disc,
+                refinery
+            ),
             "still on the ground list"
         );
         sim.session.set_binary_frame_for_test(2);
@@ -769,7 +786,13 @@ mod tests {
             None
         );
         assert!(
-            !install_drain_link(&mut sim, disc, refinery),
+            !install_drain_link(
+                &mut sim.substrate,
+                &sim.houses,
+                &mut sim.power_states,
+                disc,
+                refinery
+            ),
             "stored but unlisted"
         );
     }
@@ -949,7 +972,13 @@ mod tests {
                 .first_building_on_layer(21, 21, MovementLayer::Ground),
             Some(refinery)
         );
-        assert!(install_drain_link(&mut sim, disk, refinery));
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            refinery
+        ));
         assert_eq!(
             sim.substrate.entities.get(disk).unwrap().drain.target,
             Some(refinery)
@@ -1007,7 +1036,13 @@ mod tests {
         let disk = sim
             .spawn_object("DISK", "YuriCountry", 21, 21, 0, &rules)
             .expect("disc spawns");
-        assert!(install_drain_link(&mut sim, disk, plant));
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            plant
+        ));
         run_ticks(&mut sim, &rules, 150);
         assert_eq!(credits(&sim, americans), 75, "no credits leave a GAPOWR");
         assert_eq!(credits(&sim, yuri), 500);
@@ -1142,14 +1177,26 @@ mod tests {
         let disk = sim
             .spawn_object("DISK", "YuriCountry", 30, 30, 0, &rules)
             .expect("disc spawns");
-        assert!(!install_drain_link(&mut sim, disk, plant));
+        assert!(!install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            plant
+        ));
         assert_eq!(
             sim.substrate.entities.get(plant).unwrap().drain.draining_me,
             None
         );
 
         move_disc(&mut sim, disk, 20, 21);
-        assert!(install_drain_link(&mut sim, disk, plant));
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            plant
+        ));
         attach_drain_anim(&mut sim, disk, &rules);
         let anim = assert_drain_anim(&sim, disk);
         run_ticks(&mut sim, &rules, 40);
@@ -1181,7 +1228,13 @@ mod tests {
 
         // The victim's expiry drops both halves and the drainer's ray.
         move_disc(&mut sim, disk, 20, 21);
-        assert!(install_drain_link(&mut sim, disk, plant));
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            plant
+        ));
         attach_drain_anim(&mut sim, disk, &rules);
         let anim = assert_drain_anim(&sim, disk);
         sim.uninit_with_rules(plant, &rules);
@@ -1193,7 +1246,13 @@ mod tests {
         let plant = sim
             .spawn_object("GAPOWR", "Americans", 20, 20, 0, &rules)
             .expect("power plant spawns");
-        assert!(install_drain_link(&mut sim, disk, plant));
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            plant
+        ));
         attach_drain_anim(&mut sim, disk, &rules);
         let anim = assert_drain_anim(&sim, disk);
         sim.uninit_with_rules(disk, &rules);

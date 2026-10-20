@@ -12,6 +12,7 @@ use std::collections::BTreeSet;
 use super::{SimSoundEvent, Simulation, SimulationWallRuntimeHost};
 use crate::map::entities::EntityCategory;
 use crate::map::houses::are_houses_friendly;
+use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
@@ -22,12 +23,14 @@ use crate::sim::command::{
     MegaMissionRecord, MegaMissionTarget, ScatterRecord, SellWallAtCellRecord,
 };
 use crate::sim::mission::MissionType;
+use crate::sim::overlay_grid::OverlayGrid;
 use crate::sim::overlay_grid::{
     OverlayRecalcOutcome, RecomputeResult, runtime_wall_cleanup_visit_at,
 };
 use crate::sim::passenger;
 use crate::sim::pathfinding::PathGrid;
 use crate::sim::pathfinding::zone_incremental::ZoneRepairKind;
+use crate::sim::pathfinding::zone_map::ZoneGrid;
 use crate::sim::production;
 
 #[cfg(any(test, feature = "test-support"))]
@@ -728,13 +731,15 @@ impl Simulation {
     /// path view and the retained base movement-class topology. Zone ID
     /// assignment remains owned by the ordered native repair callback.
     fn refresh_wall_sale_recalc_prefix(
-        &mut self,
+        world_zone_grid: &mut Option<ZoneGrid>,
+        resolved_terrain: &Option<ResolvedTerrainGrid>,
+        overlay_grid: &Option<OverlayGrid>,
         tail_grid: &mut Option<PathGrid>,
         rx: u16,
         ry: u16,
         navigation_changed: bool,
     ) {
-        let Some(terrain) = self.resolved_terrain.as_ref() else {
+        let Some(terrain) = resolved_terrain.as_ref() else {
             return;
         };
 
@@ -745,11 +750,11 @@ impl Simulation {
                 *tail_grid = None;
             }
             if let (Some(tail), Some(cell)) = (tail_grid.as_mut(), terrain.cell(rx, ry)) {
-                let _ = tail.refresh_resolved_cell(cell, self.overlay_grid.as_ref(), false);
+                let _ = tail.refresh_resolved_cell(cell, overlay_grid.as_ref(), false);
             }
         }
 
-        if let Some(zone_grid) = self.zone_grid.as_mut() {
+        if let Some(zone_grid) = world_zone_grid.as_mut() {
             let _ = zone_grid.refresh_base_cell_attributes_at(terrain, rx, ry);
         }
     }
@@ -869,7 +874,15 @@ impl Simulation {
         } else {
             false
         };
-        self.refresh_wall_sale_recalc_prefix(&mut tail_grid, rx, ry, sold_navigation_changed);
+        Self::refresh_wall_sale_recalc_prefix(
+            &mut self.zone_grid,
+            &self.resolved_terrain,
+            &self.overlay_grid,
+            &mut tail_grid,
+            rx,
+            ry,
+            sold_navigation_changed,
+        );
 
         // Selling invokes exactly one PostDestructionWallCleanup at the sold
         // cell: N, E, S, W, self. It is not damage's four-cardinal fan-out.
@@ -920,7 +933,15 @@ impl Simulation {
                 }
                 _ => OverlayRecalcOutcome::default(),
             };
-            self.refresh_wall_sale_recalc_prefix(&mut tail_grid, nx, ny, recalc.navigation_changed);
+            Self::refresh_wall_sale_recalc_prefix(
+                &mut self.zone_grid,
+                &self.resolved_terrain,
+                &self.overlay_grid,
+                &mut tail_grid,
+                nx,
+                ny,
+                recalc.navigation_changed,
+            );
             let cleanup_zone_changed = recalc.zone_changed;
             if cleanup_zone_changed && let Some(prefix_grid) = tail_grid.as_ref() {
                 self.repair_wall_sale_zone_prefix(
@@ -2127,7 +2148,14 @@ impl Simulation {
                     return false;
                 };
                 let owner = self.interner.intern(command_owner);
-                self.cancel_paid_super_weapon_selection(rules, owner, *selection)
+                Self::cancel_paid_super_weapon_selection(
+                    &mut self.substrate,
+                    &mut self.sound_events,
+                    &mut self.super_weapons,
+                    rules,
+                    owner,
+                    *selection,
+                )
             }
             Command::BeginPaidSuperWeapon {
                 selection,

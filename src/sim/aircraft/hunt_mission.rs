@@ -201,7 +201,12 @@ impl HuntHost for WorldHunt<'_> {
     }
 
     fn epilogue(&mut self) -> i32 {
-        self.sim
-            .mission_rate_epilogue_for(self.rules, self.id, MissionType::Hunt)
+        Simulation::mission_rate_epilogue_for(
+            &mut self.sim.scenario_rng,
+            &self.sim.substrate,
+            self.rules,
+            self.id,
+            MissionType::Hunt,
+        )
     }
 }

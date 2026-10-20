@@ -1418,7 +1418,13 @@ fn evaluate_foot_hunt(
     {
         let _ = sim.infantry_idle_action(id, rules, ctx.overlay_registry, ctx.effects);
     }
-    MissionHandlerEvaluation::cadence(sim.mission_rate_epilogue_for(rules, id, MissionType::Hunt))
+    MissionHandlerEvaluation::cadence(Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Hunt,
+    ))
 }
 
 /// Whether Mission_Hunt scans (`0x004D5367`): its type is not `StupidHunt=`.

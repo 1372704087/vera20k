@@ -1087,7 +1087,12 @@ fn native_ready_prerequisites_use_the_building_commence_owner() {
         for step in row["steps"].as_array().unwrap() {
             match step["entry"].as_str().unwrap() {
                 "0x5b3060" => scene.visit_depot(),
-                "0x43ff91" => super::ready_commence(&mut scene.sim, scene.depot, false),
+                "0x43ff91" => super::ready_commence(
+                    &scene.sim.session,
+                    &mut scene.sim.substrate,
+                    scene.depot,
+                    false,
+                ),
                 "0x43c2d0" => {
                     let reply = radio::receive_radio(
                         &mut scene.sim,

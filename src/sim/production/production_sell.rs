@@ -349,7 +349,7 @@ pub fn sell_stage_zero(
         .get(id)
         .map(|building| building.owner())
     {
-        sim.invalidate_house_power(owner, true);
+        Simulation::invalidate_house_power(&sim.houses, &mut sim.power_states, owner, true);
     }
     if let Some(rules) = rules
         && qualifying_undeploy(sim, rules, id)

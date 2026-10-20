@@ -1232,7 +1232,13 @@ impl Simulation {
                 == Some(crate::sim::world::display_layers::DisplayLayer::SURFACE);
             if self.unregister_non_entity_object(bullet) {
                 self.projectiles.set_owner(bullet, firer);
-                self.construct_bullet_scheme(bullet, rules);
+                Self::construct_bullet_scheme(
+                    &self.interner,
+                    &self.substrate,
+                    &mut self.projectiles,
+                    bullet,
+                    rules,
+                );
                 let registered = self.register_projectile(bullet, flat);
                 debug_assert!(registered);
             }

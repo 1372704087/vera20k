@@ -195,7 +195,13 @@ pub(crate) fn mission_hunt_deploy(
         }
         _ => {}
     }
-    sim.mission_rate_epilogue_for(rules, id, MissionType::Hunt)
+    Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Hunt,
+    )
 }
 
 /// `UnitClass::TryToDeploy @ 0x00738D30`: true when the unit may deploy where
@@ -405,7 +411,13 @@ pub(crate) fn mission_unload(
         }
         _ => {}
     }
-    sim.mission_rate_epilogue_for(rules, id, MissionType::Unload)
+    Simulation::mission_rate_epilogue_for(
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        rules,
+        id,
+        MissionType::Unload,
+    )
 }
 
 // Kept as the production result seam so original interior-block oracle outputs

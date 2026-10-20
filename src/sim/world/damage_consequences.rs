@@ -214,7 +214,7 @@ impl DamageConsequences {
         world.dispatch_unit_lost_events(&effects.unit_lost_events);
         debug_assert!(effects.smudge_spawn_requests.is_empty());
         if ordinary {
-            world.flush_smudge_dirty();
+            Simulation::flush_smudge_dirty(&mut world.smudge_grid, &mut world.dirty_cells);
         }
         DamageCommitReceipt {
             area_result: None,

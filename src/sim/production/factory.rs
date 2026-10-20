@@ -1931,9 +1931,12 @@ mod tests {
                 Some(&rules),
             );
             sim.substrate.entities.insert(producer);
-            sim.update_house_tracking(1, |tracking, entity| {
-                tracking.increment_factory_count(entity)
-            });
+            crate::sim::world::Simulation::update_house_tracking(
+                &mut sim.substrate,
+                &mut sim.houses,
+                1,
+                |tracking, entity| tracking.increment_factory_count(entity),
+            );
             let mut power = PowerState::default();
             power.set_total_output_for_test(input["power_output"].as_i64().unwrap() as i32);
             power.set_total_drain_for_test(input["power_drain"].as_i64().unwrap() as i32);

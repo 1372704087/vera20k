@@ -144,7 +144,14 @@ pub fn publish_production_changes(sim: &mut Simulation, rules: &RuleSet) {
         else {
             continue;
         };
-        factory_lifecycle::publish_completion(sim, rules, owner, category);
+        factory_lifecycle::publish_completion(
+            &sim.interner,
+            &mut sim.production,
+            &mut sim.sound_events,
+            rules,
+            owner,
+            category,
+        );
         if sim.object_type(type_id, rules).is_some_and(|object| {
             object.category != crate::rules::object_type::ObjectCategory::Building
         }) {

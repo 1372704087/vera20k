@@ -69,7 +69,9 @@ use crate::sim::combat::veterancy::has_weapon_ability;
 use crate::sim::components::{DriveCoord, NavTargetRef};
 use crate::sim::game_entity::GameEntity;
 use crate::sim::movement::locomotor::MovementLayer;
+use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::world::FrameEffects;
+use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::Simulation;
 use crate::util::direction::TUBE_STEP_DIRECTION;
 use crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
@@ -237,7 +239,13 @@ impl Simulation {
         // recursion's (the retries at 0x4B397F, 0x4B4480 and the 0x4B4541
         // tail, the second stage's re-entries at 0x4B41B3 and 0x4B420B),
         // unless it is the Foot's first request in a frame the batch answered.
-        if self.defer_path_search(id, super::path_batch::WaitingRequest::NoQueue) {
+        if Self::defer_path_search(
+            &mut self.path_batch,
+            &self.resolved_terrain,
+            &self.overlay_grid,
+            id,
+            super::path_batch::WaitingRequest::NoQueue,
+        ) {
             return Ok(false);
         }
         let request = self.track_path_request(call, destination, 0)?;
@@ -333,7 +341,12 @@ impl Simulation {
             .get(id)
             .ok_or("retired Drive/Ship fresh owner")?;
         if !fresh_heading_ready(actor.body_facing_current(frame), direction) {
-            self.track_do_turn(id, u16::from(direction) << 13);
+            Self::track_do_turn(
+                &self.session,
+                &mut self.substrate,
+                id,
+                u16::from(direction) << 13,
+            );
             return Ok(false);
         }
         //4B345B..4B34D1: Mark0, Unit+1AC(cell, dir, height, 0, 1), Mark1.
@@ -396,7 +409,7 @@ impl Simulation {
                     //4B3AD3..4B3AFE then 4B4541: drop the head, expire the
                     //movement timer and recurse.
                     self.substrate.clear_path_head(id);
-                    self.expire_movement_timer(id);
+                    Self::expire_movement_timer(&self.session, &mut self.substrate, id);
                     return self
                         .track_process_movement(&call.with_args(ProcessMovementArgs::RETRY));
                 }
@@ -420,7 +433,7 @@ impl Simulation {
                 if retry.is_some() {
                     //4B3721..4B373D then 4B4541.
                     self.substrate.clear_path_head(id);
-                    self.expire_movement_timer(id);
+                    Self::expire_movement_timer(&self.session, &mut self.substrate, id);
                     return self
                         .track_process_movement(&call.with_args(ProcessMovementArgs::RETRY));
                 }
@@ -448,11 +461,11 @@ impl Simulation {
                 //4B3607 then4B3AA1..4B3ACE / 6A30F3..6A311D. The sound
                 //guard is NOT cleared before the possible code7 recursion.
                 self.substrate.clear_track_head_of(id);
-                self.play_foot_path_scold(id, rules);
+                Self::play_foot_path_scold(&self.substrate, &mut self.sound_events, id, rules);
                 if retry.is_some() {
                     //4B3BF6..4B3C21 then 4B4541.
                     self.substrate.clear_path_head(id);
-                    self.expire_movement_timer(id);
+                    Self::expire_movement_timer(&self.session, &mut self.substrate, id);
                     return self
                         .track_process_movement(&call.with_args(ProcessMovementArgs::RETRY));
                 }
@@ -495,7 +508,10 @@ impl Simulation {
             .ok_or("Drive/Ship code-2 ladder without a track locomotor")?;
         // A batched re-path waits for the next frame's batch as if the timer
         // still ran (`path_batch`, a proposed deviation).
-        if self.defer_path_search(
+        if Self::defer_path_search(
+            &mut self.path_batch,
+            &self.resolved_terrain,
+            &self.overlay_grid,
             id,
             super::path_batch::WaitingRequest::Code2Ladder { urgency },
         ) {
@@ -752,7 +768,7 @@ impl Simulation {
                 if retry.is_some() {
                     //4B424E..4B426E then 4B4541.
                     self.substrate.clear_path_head(id);
-                    self.expire_movement_timer(id);
+                    Self::expire_movement_timer(&self.session, &mut self.substrate, id);
                     return self
                         .track_process_movement(&call.with_args(ProcessMovementArgs::RETRY));
                 }
@@ -789,7 +805,7 @@ impl Simulation {
                 if retry.is_some() {
                     //4B4521..4B453D then 4B4541.
                     self.substrate.clear_path_head(id);
-                    self.expire_movement_timer(id);
+                    Self::expire_movement_timer(&self.session, &mut self.substrate, id);
                     return self
                         .track_process_movement(&call.with_args(ProcessMovementArgs::RETRY));
                 }
@@ -985,17 +1001,22 @@ impl Simulation {
     }
 
     /// Foot+640 = (Frame, 0) before a retry recursion (0x4B4541..0x4B4548).
-    fn expire_movement_timer(&mut self, id: u64) {
-        let frame = self.session.binary_frame();
-        if let Some(actor) = self.substrate.entities.get_mut(id) {
+    fn expire_movement_timer(session: &ScenarioSession, substrate: &mut ObjectSubstrate, id: u64) {
+        let frame = session.binary_frame();
+        if let Some(actor) = substrate.entities.get_mut(id) {
             actor.navigation.path_runtime_mut().start_movement(frame, 0);
         }
     }
 
     /// Do_Turn 0x4B0EF0: FacingClass::Set 0x4C9220 on the body facing.
-    fn track_do_turn(&mut self, id: u64, desired: u16) {
-        let frame = self.session.binary_frame();
-        let Some(actor) = self.substrate.entities.get_mut(id) else {
+    fn track_do_turn(
+        session: &ScenarioSession,
+        substrate: &mut ObjectSubstrate,
+        id: u64,
+        desired: u16,
+    ) {
+        let frame = session.binary_frame();
+        let Some(actor) = substrate.entities.get_mut(id) else {
             return;
         };
         super::drive_do_turn(actor, desired, frame);

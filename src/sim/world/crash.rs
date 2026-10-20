@@ -514,7 +514,14 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
-        crate::sim::combat::death_weapon_detonation(self, id, rules).is_some_and(|detonation| {
+        crate::sim::combat::death_weapon_detonation(
+            &mut self.interner,
+            &self.substrate,
+            &self.resolved_terrain,
+            id,
+            rules,
+        )
+        .is_some_and(|detonation| {
             self.commit_logic_projectile_detonations(
                 rules,
                 overlay_registry,

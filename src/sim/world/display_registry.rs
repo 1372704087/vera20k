@@ -14,7 +14,10 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::locomotor_type::LocomotorKind;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::game_entity::GameEntity;
+use crate::sim::intern::StringInterner;
 use crate::sim::movement::ground_pose::{building_render_order_parts, position_world_coord};
+use crate::sim::terrain_object::TerrainObjectStore;
+use crate::sim::world::ObjectSubstrate;
 
 /// Foot4DB7E0 / Aircraft41ADC0 dispatch to the active locomotor. Fly4CFCF0
 /// reads physical GetHeight, Jumpjet54B8D0 additionally reads structural
@@ -246,17 +249,22 @@ impl Simulation {
         }
     }
 
-    pub(super) fn sort_display_ground(&mut self, rules: Option<&RuleSet>) {
-        self.substrate.forget_changed_ground_keys(rules);
+    pub(super) fn sort_display_ground(
+        world_interner: &StringInterner,
+        terrain_objects: &TerrainObjectStore,
+        substrate: &mut ObjectSubstrate,
+        rules: Option<&RuleSet>,
+    ) {
+        substrate.forget_changed_ground_keys(rules);
         let view = GroundSortView {
-            entities: &self.substrate.entities,
-            anims: &self.substrate.anims,
-            particles: &self.substrate.particle_systems,
-            terrain: self.terrain_objects.objects(),
-            interner: &self.interner,
+            entities: &substrate.entities,
+            anims: &substrate.anims,
+            particles: &substrate.particle_systems,
+            terrain: terrain_objects.objects(),
+            interner: world_interner,
             rules,
         };
-        self.substrate.display.sort_ground_pass(&view);
+        substrate.display.sort_ground_pass(&view);
     }
 }
 
@@ -586,7 +594,12 @@ mod tests {
                 _ => {
                     let scan_rules = (next(3) != 0).then_some(&rules);
                     let mut expected = copy(&sim.substrate.display);
-                    sim.sort_display_ground(scan_rules);
+                    Simulation::sort_display_ground(
+                        &sim.interner,
+                        &sim.terrain_objects,
+                        &mut sim.substrate,
+                        scan_rules,
+                    );
                     expected.sort_ground_pass(&|id| live(&sim, scan_rules, id));
                     assert_eq!(
                         sim.substrate.display.members(DisplayLayer::GROUND),

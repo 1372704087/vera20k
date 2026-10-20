@@ -870,9 +870,16 @@ pub(crate) fn reset_super(sim: &mut Simulation, rules: &RuleSet, owner: Interned
     if let Some(selection) = sim.paid_super_weapon_selection(owner)
         && (selection.source == type_id || selection.destination == type_id)
     {
-        sim.cancel_paid_super_weapon_selection(rules, owner, selection);
+        Simulation::cancel_paid_super_weapon_selection(
+            &mut sim.substrate,
+            &mut sim.sound_events,
+            &mut sim.super_weapons,
+            rules,
+            owner,
+            selection,
+        );
     }
-    sim.release_super_anim(owner, type_id);
+    Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, type_id);
     let frame = sim.session.binary_frame();
     if let Some(instance) = sim.super_weapons.instance_mut(&owner, &type_id) {
         instance.reset(sw, frame);
@@ -1445,7 +1452,12 @@ pub(crate) fn update_owned_supers(sim: &mut Simulation, rules: &RuleSet, owner: 
     if let Some(selection) = paid_before
         && sim.paid_super_weapon_selection(owner) != Some(selection)
     {
-        sim.release_super_anim(owner, selection.source);
+        Simulation::release_super_anim(
+            &mut sim.substrate,
+            &mut sim.super_weapons,
+            owner,
+            selection.source,
+        );
         sim.sound_events
             .emit(SimSoundEvent::SuperWeaponStatusChanged {
                 owner,
@@ -1550,7 +1562,7 @@ fn grant_super(
     }
     instance.timer_place = (sw.show_timer && !passive).then_some(place);
     if !sw.manual_control {
-        sim.release_super_anim(owner, type_id);
+        Simulation::release_super_anim(&mut sim.substrate, &mut sim.super_weapons, owner, type_id);
     }
     true
 }

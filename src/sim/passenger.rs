@@ -909,7 +909,7 @@ pub(crate) fn board_passenger(
         return false;
     }
     if absorber_entry {
-        sim.account_infantry_absorber_entry(pax_id);
+        Simulation::account_infantry_absorber_entry(&mut sim.substrate, &mut sim.houses, pax_id);
     }
     match arm {
         BoardingArm::InfantryBuilding if !infantry_absorb => {
@@ -924,7 +924,12 @@ pub(crate) fn board_passenger(
             );
         }
         BoardingArm::InfantryBuilding if extra_power => {
-            sim.invalidate_house_power(carrier_owner, false);
+            Simulation::invalidate_house_power(
+                &sim.houses,
+                &mut sim.power_states,
+                carrier_owner,
+                false,
+            );
         }
         _ => {}
     }
@@ -953,7 +958,11 @@ pub(crate) fn board_passenger(
         // the entry's House+0x2F4 removal and +0x439 skip byte through the
         // owner a successful unload uses.
         if absorber_entry {
-            sim.restore_absorbed_infantry_tracking(pax_id);
+            Simulation::restore_absorbed_infantry_tracking(
+                &mut sim.substrate,
+                &mut sim.houses,
+                pax_id,
+            );
         }
         let _ = sim.reveal_entity_with_context(pax_id, context);
         return false;
@@ -971,7 +980,12 @@ pub(crate) fn board_passenger(
     }
     if arm.building() {
         if arm == BoardingArm::UnitAbsorber && extra_power {
-            sim.invalidate_house_power(carrier_owner, false);
+            Simulation::invalidate_house_power(
+                &sim.houses,
+                &mut sim.power_states,
+                carrier_owner,
+                false,
+            );
         }
     } else {
         // `TechnoClass::AddPassenger @ 0x00710670` (Infantry `0x0051A46E`,
@@ -1222,7 +1236,9 @@ fn rearm_transferred_gunner(sim: &mut Simulation, rules: &RuleSet, receiver: u64
         ..Default::default()
     };
     let rof = crate::sim::combat::world_fire::snapshot_get_rof(
-        sim,
+        &mut sim.scenario_rng,
+        &sim.substrate,
+        &sim.houses,
         rules,
         &snapshot,
         object,

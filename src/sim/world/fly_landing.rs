@@ -11,7 +11,7 @@ use crate::util::fixed_math::SIM_ZERO;
 
 impl Simulation {
     pub(crate) fn finish_fly_takeoff_entry(&mut self, id: u64, rules: Option<&RuleSet>) {
-        self.aircraft_tracker_add(id);
+        Self::aircraft_tracker_add(&self.session, &mut self.substrate, id);
         let Some(e) = self.substrate.entities.get_mut(id) else {
             return;
         };
@@ -607,7 +607,7 @@ mod tests {
             .path_runtime_mut()
             .set_blocked_timer_for_test(crate::sim::timer::CdTimer::from_raw(0, 0));
         if input["air_registered"].as_bool().unwrap_or(true) {
-            sim.aircraft_tracker_add(id);
+            Simulation::aircraft_tracker_add(&sim.session, &mut sim.substrate, id);
         }
         sim.add_entity_occupancy(id);
         sim.submit_entity_display(id, Some(&rules), None);

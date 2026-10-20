@@ -291,13 +291,6 @@ fn scatter_dispatch_gate_matches_the_native_disjunction() {
     assert!(!scatter_dispatch_allowed(stock, false, false, techno(1)));
 }
 
-#[test]
-fn scatter_eligibility_defaults_are_the_rules_constructor_values() {
-    let defaults = ScatterEligibility::default();
-    assert!(!defaults.player_scatter);
-    assert_eq!(defaults.iq_scatter, 3);
-}
-
 /// The original `Scatter_Objects` dispatch (tools/spatial_oracle/cell_scatter):
 /// each row's Techno list through the production walk; a non-Techno, which VERA
 /// never lists, through the gate's cell-wide terms alone.

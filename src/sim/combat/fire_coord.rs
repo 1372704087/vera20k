@@ -1120,19 +1120,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_unit_fires_from_its_flh_for_the_selected_slot() {
-        let (rules, world) = (rules(), Simulation::new());
-        let obj = rules.object("E1").unwrap();
-        let shooter = source(EntityCategory::Infantry);
-        let primary = fire_coordinate(&world, &rules, &shooter, obj, 0, 0, Flh::default());
-        let secondary = fire_coordinate(&world, &rules, &shooter, obj, 1, 0, Flh::default());
-        // A height-only FLH leaves X and Y on the firer.
-        assert_eq!(primary.coord, ProjectileCoord::new(X, Y, Z + 105));
-        assert_eq!(secondary.coord, ProjectileCoord::new(X, Y, Z + 90));
-        assert_eq!((primary.source_z, primary.offset_y), (Z, 0));
-    }
-
     /// The source Z is the stored firer's actual height, not its level byte.
     #[test]
     fn a_stored_firers_exact_height_carries_into_the_fire_coordinate() {

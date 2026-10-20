@@ -343,6 +343,19 @@ impl Simulation {
                         &mut self.sound_events,
                     );
                 }
+                // The victim's vtable `+0x170` (`0x007418E5`): a Unit's
+                // `0x00746D60` runs Death_Explosion (`0x00738680`), then
+                // FreeAllMindControlCaptures (`0x00710460`), which is all the
+                // other classes run; VERA releases captives in the victim's
+                // UnInit below.
+                if self
+                    .substrate
+                    .entities
+                    .get(victim)
+                    .is_some_and(|entity| entity.category() == EntityCategory::Unit)
+                {
+                    self.unit_death_explosion(rules, victim, &mut Vec::new());
+                }
                 // `UnitClass::Crush_Or_Prescatter_Cell @ 0x007416A0`: the
                 // victim records its kill by the crusher (vtable `+0xE0`,
                 // `0x007418F0`) and is UnInit (vtable `+0xF8`, `0x00741910`),
@@ -1426,6 +1439,10 @@ impl Simulation {
 #[cfg(test)]
 #[path = "per_cell_exit_tests.rs"]
 mod exit_tests;
+
+#[cfg(test)]
+#[path = "per_cell_crush_tests.rs"]
+mod crush_tests;
 
 #[cfg(test)]
 mod discovery_tests {

@@ -516,10 +516,10 @@ impl CrushTarget {
 /// `UnitClass::Death_Explosion` with its Scenario picks and anims, then the
 /// same release), `Record_The_Kill` (score, trigger events, EVA and the
 /// crusher's veterancy, which this engine now pays), then unmark, limbo and
-/// `UnInit`; no smudge. A crushed vehicle's `Death_Explosion` is not run
-/// here (residual in `combat/destruction_effects.rs`).
+/// `UnInit`; no smudge. `Simulation::per_cell_process` runs them in that
+/// order.
 ///
-/// RESIDUAL (GSI-08.17) — two real gaps sit underneath it.
+/// GSI-08.17 named two more gaps underneath it; both are closed.
 /// - **Overlay crushing — CLOSED.** `Per_Cell_Process @ 0x0073AFD4` flattens any
 ///   overlay whose `ObjectTypeClass::Crushable=` (`+0x22D`) is set, and a
 ///   `MovementZone=CrusherAll` type (stock: the Battle Fortress alone) also
@@ -529,8 +529,9 @@ impl CrushTarget {
 ///   This block previously described the rule correctly while listing it as
 ///   open, and the gate it describes was for a while implemented as a Drive
 ///   locomotor test instead.
-/// - **Mind-control release.** A crushed controller does not free its captives
-///   here, so their ownership stays with a dead object.
+/// - **Mind-control release — CLOSED.** A crushed controller frees its
+///   captives in its UnInit (`FootClass::UnInit @ 0x004DE5DD`), the same frame
+///   (`sim::capture_manager`).
 pub fn can_crush(
     capability: CrushCapability,
     target: CrushTarget,

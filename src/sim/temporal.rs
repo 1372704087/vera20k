@@ -748,8 +748,26 @@ impl Simulation {
         // attacker's house (FreeSlaves, no supplied house). Its UnInit and
         // owner-change callbacks share this object turn's map inputs.
         self.free_slaves(target, Some(head), None, rules, registry, effects);
-        if category != EntityCategory::Structure
-            && let Some(entity) = self.substrate.entities.get(target)
+        if category == EntityCategory::Structure {
+            // 0x0071AA3A vtable +0x3B8: `BuildingClass::Death_Announcement @
+            // 0x0044D760`. A current player's building (`0x0050B6F0`) pushes
+            // the Cell of its +4C coordinate (`0x00447E90`, no requester)
+            // onto the Spacebar ring (`0x00660B80`); no EVA, no radar event.
+            if let Some(entity) = self.substrate.entities.get(target)
+                && self.house_is_human_player(entity.owner())
+                && let Ok(coord) = self.navigation_target_coordinate(
+                    crate::sim::components::NavTargetRef::Object { id: target },
+                    None,
+                    rules,
+                )
+            {
+                self.publish_trigger_effects(vec![
+                    crate::sim::trigger_runtime::TriggerEffect::RecentEventCell {
+                        cell: ((coord.x / 256) as i16, (coord.y / 256) as i16),
+                    },
+                ]);
+            }
+        } else if let Some(entity) = self.substrate.entities.get(target)
             && let Some(object) = self.object_type(entity.type_ref(), rules)
             && let Some(event) = crate::sim::combat::death_announcement_event(
                 object,

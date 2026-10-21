@@ -1471,14 +1471,14 @@ impl WolCapture {
                             && key.is_empty(),
                         "unexpected created channel {channel:?}"
                     );
-                    // 0x0077E7A0 at Create: the local hash, no AI and an
-                    // open observer slot before any setup.
+                    // 0x0077E7A0 at Create: the local hash and the slots
+                    // WOL entry left (0x005E8B60): no AI, no observer slot.
                     let hash = crate::app::shell_wol::lobby::local_ini_hash(state);
                     ensure!(
                         hash.is_some()
                             && channel
                                 .ex_info
-                                .starts_with(&format!("25,{},0,0,1,", hash.unwrap_or(0))),
+                                .starts_with(&format!("25,{},0,0,0,", hash.unwrap_or(0))),
                         "unexpected created exInfo {:?} for hash {hash:?}",
                         channel.ex_info
                     );

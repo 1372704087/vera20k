@@ -483,6 +483,35 @@ mod tests {
         );
     }
 
+    /// The production install over the retail sources against the native
+    /// run of `0x00679D90`/`0x00679ED0`/`0x00679EC0`
+    /// (tools/storage_oracle/ini_crc).
+    #[test]
+    fn retail_ini_hashes_match_the_native_composite() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let mut process = ProcessAssets::new_with_ini_config(
+            MediaArchiveMode::STOCK_DIGITAL,
+            false,
+            Default::default(),
+        );
+        process.initialize_sources_if_needed(&assets).unwrap();
+        let modes = crate::skirmish_modes::skirmish_modes_from_assets(&assets).unwrap();
+        process.install_native_ini_hashes(&assets, &modes);
+        let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/storage_oracle/ini_crc.json",
+        ))
+        .unwrap();
+        let composite = &corpus["composite"];
+        let value = |key: &str| composite[key]["unsigned"].as_u64().unwrap() as u32;
+        let hashes = process.native_ini_hashes().expect("retail INI hashes");
+        assert_eq!(
+            (hashes.rules, hashes.ai, hashes.art),
+            (value("rules"), value("ai"), value("art"))
+        );
+    }
+
     fn test_manager(label: &str) -> AssetManager {
         let dir = std::env::temp_dir().join(format!(
             "vera20k-process-assets-{}-{label}",

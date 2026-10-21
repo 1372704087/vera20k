@@ -1312,15 +1312,15 @@ fn created_channel(
     }
 }
 
-/// `0x0077E7A0` at Create, before any setup of this visit: the hash, then
-/// `0x005E94D0`/`0x005E9580`/`!0x005E9560` over the slot array
-/// `[0xA8DA90]` and the scenario `[0xA8B8E0]` (the record at
-/// `[0xA8B254]`, as `SelectScenario` `0x005E7BF0` copies it).
-/// RESIDUAL: native reads the slot array as the process last left it.
-/// VERA publishes its never-initialized state (no AI, observer slot
-/// open and free: null slots and sentinels), which differs after an
-/// earlier setup in the same process. The C2 republish (`0x0078F000`)
-/// that replaces it is not ported (chain H).
+/// `0x0077E7A0` at Create: the hash, then `0x005E94D0`/`0x005E9580`/
+/// `!0x005E9560` over the slot array `[0xA8DA90]`, and the scenario
+/// `[0xA8B8E0]` (the record at `[0xA8B254]`, as `SelectScenario`
+/// `0x005E7BF0` copies it). WOL entry (`0x00786390` -> `0x005E8B60`)
+/// fills every slot with the Open or Closed sentinel: no AI, no observer
+/// and no open observer slot.
+/// RESIDUAL: a setup earlier in the visit leaves its own slots, which
+/// native publishes instead; the C2 republish (`0x0078F000`) that
+/// replaces the record is not ported (chain H).
 fn create_ex_info(state: &AppState) -> String {
     let index = state.frontend.multiplayer_shell_runtime.scenario_index();
     let scenario = state
@@ -1335,7 +1335,7 @@ fn create_ex_info(state: &AppState) -> String {
         hash: local_ini_hash(state).unwrap_or(0),
         ai_players: 0,
         observer_taken: 0,
-        observer_open: 1,
+        observer_open: 0,
         scenario,
     }
     .write()

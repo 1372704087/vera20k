@@ -288,6 +288,9 @@ impl IniFile {
     /// reaches it without an LF, and `LoadFromStraw` discards the line read
     /// on that call: a last line without a line feed is not loaded.
     /// Executed controls: tools/storage_oracle/ini_crc (`unterminated_last_*`).
+    /// RESIDUAL: loading into an INI that already holds sections (the
+    /// `0x00525BFA` arm, e.g. loose `*.PKT` files at `0x00699B58`) puts that
+    /// last entry before testing the flag; VERA has no such merge load.
     pub fn from_bytes(data: &[u8]) -> Result<Self, RulesError> {
         let complete = data
             .iter()

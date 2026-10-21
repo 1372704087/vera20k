@@ -28,6 +28,7 @@ use crate::render::shell_paint::{
 use crate::render::shell_text::ShellAlign;
 use crate::ui::shell::geom::{ShellScale, centred_in_window};
 use crate::ui::shell::menu_page::{MenuPageButtonRect, MenuPageLayout, MenuPageSpec};
+use crate::ui::shell::slide::PanelArt;
 use crate::ui::wol_shell::{
     BOX_NO, BOX_OK, BOX_YES, StaticAlign, WAIT_CHECK_STATUS, WAIT_DISCONNECT, WOL_LOBBY_TITLE_KEY,
     WOL_WELCOME_PAGE, WolBoxButtons,
@@ -323,7 +324,11 @@ pub(crate) fn render_wol_page(
             .and_then(|_| state.frontend.shell_first_paint_slide.clone())
     });
     let page_statics = painted.kind().is_some() && !leaving;
-    let monitor_frame = if page_statics {
+    // The chat lobby 0x113 has no warning monitor (template static 0x71C;
+    // 0x60AB71..0x60AC9E lists the family dialogs carrying it) but has the
+    // +0xD5 top panel instead; every other painted WOL page is the reverse.
+    let top_panel = matches!(painted, Painted::Lobby(_));
+    let monitor_frame = if page_statics && !top_panel {
         crate::app::frontend::menu_page_render::paint_shell_monitor(state)
     } else {
         None
@@ -434,6 +439,13 @@ pub(crate) fn render_wol_page(
         Some(page.lower_strip),
         screen_w,
     ));
+    if top_panel && painted.kind().is_some() {
+        let art = match &wave {
+            Some(wave) => wave.panel_art(),
+            None => vec![PanelArt::Sdtp(1)],
+        };
+        sprites.extend(shell_paint::paint_top_panel(chrome, page.right_panel, &art));
+    }
     sprites.extend(monitor_frame.and_then(|frame| {
         shell_paint::paint_warning_monitor(chrome, page.warning_monitor, frame, scale)
     }));

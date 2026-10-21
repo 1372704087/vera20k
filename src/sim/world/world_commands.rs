@@ -2186,12 +2186,54 @@ impl Simulation {
         self.object_select(stable_id, false, context)
     }
 
+    /// `TechnoClass::Select @ 0x006FBFA0`'s gate (`0x006FBFA3..0x006FBFC3`):
+    /// the current house has discovered the object (`+0x41B`) or its owner
+    /// is the human player (`HouseClass::IsHumanPlayer @ 0x0050B6F0`). Its
+    /// third arm, a zero main window handle (`0x00B73550`), never holds in a
+    /// running game. Every Select of a Techno passes it, the input owner's
+    /// planning partners included.
+    pub fn techno_select_admits(&self, stable_id: u64) -> bool {
+        self.substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| {
+                entity.discovery.discovered_by_current_house()
+                    || self.house_is_human_player(entity.owner())
+            })
+    }
+
+    /// `ObjectClass::Select @ 0x005F4520` into a non-empty selection whose
+    /// first object (current-objects `[0]`) is `first`
+    /// (`0x005F45AF..0x005F45F8`): Unselect_All (`0x0048DC90`) runs unless
+    /// both owners are the human player (`0x0050B6F0`), so a selection holds
+    /// either the player's objects or one other object. Both Select owners
+    /// decide with this: the input ledger, which knows `[0]`, and
+    /// [`Self::object_select`].
+    pub fn select_unselects_all(&self, first: u64, new: u64) -> bool {
+        let human = |id: u64| {
+            self.substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| self.house_is_human_player(entity.owner()))
+        };
+        let first_human = human(first);
+        first_human != human(new) || !first_human
+    }
+
     /// `ObjectClass::Select @ 0x005F4520` and the Selected tag event that
     /// `TechnoClass::Select` raises after it (`0x006FBFD0..0x006FBFE4`). A
-    /// Select the game makes itself (`logic`) also reports its insertion into
-    /// the current-objects vector ([`LifecycleOutput::ObjectSelected`]),
-    /// before the tag event can Select anything else; an input Select's
-    /// ledger entry already exists.
+    /// Select the game makes itself (`logic`) first runs Unselect_All
+    /// (`0x0048DC90`: Deselect `0x005F44A0` of every selected object) when
+    /// [`Self::select_unselects_all`] says so, then reports its insertion
+    /// into the current-objects vector ([`LifecycleOutput::ObjectSelected`]),
+    /// before the tag event can Select anything else. An input Select arrives
+    /// as a snapshot its owner already resolved.
+    ///
+    /// The simulation keeps selected bytes, not the vector's order, so this
+    /// reads the first selected object in store order as `[0]`. Every
+    /// Select keeps a selection all the player's or a single other object,
+    /// so any member answers as `[0]` would; they differ only if a selected
+    /// object changed owner and stayed selected.
     ///
     /// [`LifecycleOutput::ObjectSelected`]: super::LifecycleOutput::ObjectSelected
     fn object_select(
@@ -2209,6 +2251,21 @@ impl Simulation {
         {
             return false;
         }
+        if logic {
+            let first = self
+                .substrate
+                .entities
+                .values()
+                .find(|entity| entity.selection.is_selected())
+                .map(|entity| entity.stable_id());
+            if first.is_some_and(|first| self.select_unselects_all(first, stable_id)) {
+                for id in self.substrate.entities.keys_sorted() {
+                    if let Some(entity) = self.substrate.entities.get_mut(id) {
+                        entity.selection.deselect();
+                    }
+                }
+            }
+        }
         let Some(entity) = self.substrate.entities.get_mut(stable_id) else {
             return false;
         };
@@ -2223,11 +2280,10 @@ impl Simulation {
         true
     }
 
-    /// `TechnoClass::Select @ 0x006FBFA0` (vt+0x14C) for a logic caller that
-    /// re-selects one of its own objects: an object the current house has
-    /// not discovered (`+0x41B`) and does not own as its human player is
-    /// refused (the graphical client's gate); then ObjectClass::Select and
-    /// the tag event ([`Self::object_select`]); then, for a human player's
+    /// `TechnoClass::Select @ 0x006FBFA0` (vt+0x14C) for a logic caller: an
+    /// object [`Self::techno_select_admits`] refuses is not selected; then
+    /// ObjectClass::Select and the tag event ([`Self::object_select`]);
+    /// then, for a human player's
     /// or passive house's object while the selection-voice latch
     /// `0x00822CF2` is set (`0x006FBFF4..0x006FC018`), VoiceSelect (vt+0x360)
     /// through [`Self::selection_voice_request`]; last, the planning-node add
@@ -2242,15 +2298,7 @@ impl Simulation {
         voice_latch: bool,
         context: super::UninitContext<'_>,
     ) -> bool {
-        let Some(entity) = self.substrate.entities.get(stable_id) else {
-            return false;
-        };
-        if !entity.discovery.discovered_by_current_house()
-            && !self.house_is_human_player(entity.owner())
-        {
-            return false;
-        }
-        if !self.object_select(stable_id, true, context) {
+        if !self.techno_select_admits(stable_id) || !self.object_select(stable_id, true, context) {
             return false;
         }
         let rules = context.rules();

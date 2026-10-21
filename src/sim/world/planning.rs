@@ -479,7 +479,7 @@ impl Simulation {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn encode_plan_connect_record(
+    pub fn encode_plan_connect_record(
         &self,
         owner: InternedId,
         actor_id: u64,
@@ -1011,19 +1011,16 @@ impl Simulation {
         self.planning.select_expanding = false;
     }
 
-    /// Connect639740 expands each selected actor's tail group in encounter
-    /// order. A selected actor without a path contributes only itself.
-    pub fn planning_connect_actors(&self, owner: InternedId, selected: &[u64]) -> Vec<u64> {
+    /// `0x0063AD50` expands each selected Techno's tail group (token via
+    /// `0x00705D20`, node vector at count-1) in encounter order, whatever its
+    /// owner (`0x0063ADB0..0x0063AEBC`); a selected actor without a path or
+    /// tail contributes only itself (`0x0063ADF0`, `0x0063AEC0`). The
+    /// connect event's receiver checks only the node's house.
+    pub fn planning_connect_actors(&self, selected: &[u64]) -> Vec<u64> {
         let mut actors = Vec::new();
         let mut seen = BTreeSet::new();
         for &actor in selected {
-            let tail = self.planning_tail_node(actor).filter(|_| {
-                self.substrate
-                    .entities
-                    .get(actor)
-                    .is_some_and(|entity| entity.owner() == owner)
-            });
-            if let Some(node) = tail {
+            if let Some(node) = self.planning_tail_node(actor) {
                 for &member in node.live_members.values() {
                     if seen.insert(member) {
                         actors.push(member);

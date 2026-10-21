@@ -160,7 +160,7 @@ impl Simulation {
                 id,
                 crate::sim::combat::KillSource::Techno(attacker),
                 crate::sim::combat::KillCallback::Terminal,
-                UninitContext::new(Some(rules), registry).with_effects(frame_effects),
+                UninitContext::new(rules, registry).with_effects(frame_effects),
             );
             if let Some(entity) = self.substrate.entities.get_mut(id)
                 && !entity.lift.swap_active()
@@ -175,17 +175,17 @@ impl Simulation {
             self,
             id,
             crate::sim::radio::RadioMessage::Break,
-            Some(rules),
+            rules,
             frame_effects,
         );
         self.techno_death_stun(
             id,
-            UninitContext::new(Some(rules), registry).with_effects(frame_effects),
+            UninitContext::new(rules, registry).with_effects(frame_effects),
         );
         self.kill_passengers(
             id,
             attacker,
-            UninitContext::new(Some(rules), registry).with_effects(frame_effects),
+            UninitContext::new(rules, registry).with_effects(frame_effects),
         );
         if category != EntityCategory::Infantry && !self.object_placement_scope_active() {
             let sideways = self.scenario_rng.next_range_i32_inclusive(0, 0x7FFF_FFFE);
@@ -234,7 +234,7 @@ impl Simulation {
     pub(super) fn fly_crash_fall(
         &mut self,
         id: u64,
-        rules: Option<&RuleSet>,
+        rules: &RuleSet,
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
@@ -310,7 +310,7 @@ impl Simulation {
             return false;
         }
         self.substrate.aircraft_tracker_remove(id);
-        self.set_object_height(id, 0, Some(rules), overlay_registry, frame_effects);
+        self.set_object_height(id, 0, rules, overlay_registry, frame_effects);
         let bridge_state_changed =
             self.fire_death_weapon(id, rules, overlay_registry, frame_effects);
         Self::play_crash_impact_sound(
@@ -323,7 +323,7 @@ impl Simulation {
         );
         self.uninit_with_context(
             id,
-            UninitContext::new(Some(rules), overlay_registry).with_effects(frame_effects),
+            UninitContext::new(rules, overlay_registry).with_effects(frame_effects),
         );
         bridge_state_changed
     }
@@ -386,7 +386,7 @@ impl Simulation {
                 false
             }
         } else if crashable {
-            self.set_object_height(id, 0, Some(rules), overlay_registry, frame_effects);
+            self.set_object_height(id, 0, rules, overlay_registry, frame_effects);
             let bridge_state_changed = if balloon_hover {
                 self.fire_death_weapon(id, rules, overlay_registry, frame_effects)
             } else {
@@ -395,7 +395,7 @@ impl Simulation {
             };
             self.uninit_with_context(
                 id,
-                UninitContext::new(Some(rules), overlay_registry).with_effects(frame_effects),
+                UninitContext::new(rules, overlay_registry).with_effects(frame_effects),
             );
             bridge_state_changed
         } else if self
@@ -506,7 +506,7 @@ impl Simulation {
                 self.record_manipulated_kill(
                     id,
                     id,
-                    UninitContext::new(Some(rules), registry).with_effects(effects),
+                    UninitContext::new(rules, registry).with_effects(effects),
                 );
             }
             if let Some(weapon) = weapon {
@@ -554,7 +554,7 @@ impl Simulation {
         if self.substrate.entities.contains(id) {
             self.uninit_with_context(
                 id,
-                UninitContext::new(Some(rules), registry).with_effects(effects),
+                UninitContext::new(rules, registry).with_effects(effects),
             );
         }
         bridge_state_changed

@@ -74,7 +74,7 @@ fn country_and_spy_starting_veterancy_follow_original_class_gates() {
             &sim.houses,
             &mut actor,
             Some(object),
-            Some(&rules),
+            &rules,
             construction::ComponentOrigin::Runtime,
         );
         assert_eq!(

@@ -370,7 +370,13 @@ mod tests {
         let scenario_rng_before = sim.scenario_rng().state();
         let main_rng_before = sim.main_rng().state();
 
-        apply_launch_shroud_option(&mut sim, crate::sim::world::UninitContext::new(None, None));
+        apply_launch_shroud_option(
+            &mut sim,
+            crate::sim::world::UninitContext::new(
+                crate::rules::ruleset::RuleSet::empty_for_test(),
+                None,
+            ),
+        );
 
         for (rx, ry) in [(0, 0), (7, 0), (0, 5), (7, 5), (3, 2)] {
             assert!(sim.fog().is_cell_revealed(local, rx, ry));
@@ -392,7 +398,10 @@ mod tests {
         shrouded
             .houses_mut_for_test()
             .register(HouseState::new(human, 0, None, true, 10_000, 10));
-        let context = crate::sim::world::UninitContext::new(None, None);
+        let context = crate::sim::world::UninitContext::new(
+            crate::rules::ruleset::RuleSet::empty_for_test(),
+            None,
+        );
         apply_launch_shroud_option(&mut shrouded, context);
         assert!(!shrouded.fog().is_cell_revealed(human, 7, 5));
 

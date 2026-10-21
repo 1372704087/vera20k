@@ -126,7 +126,6 @@ fn visible_object_under_point(state: &AppState, world_x: f32, world_y: f32) -> O
         world_y,
         &owner,
         state.match_state.sandbox_full_visibility,
-        state.rules(),
     )
     .map(|hover| hover.stable_id)
 }

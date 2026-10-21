@@ -254,7 +254,7 @@ fn bunker_dispatch_matches_separate_native_force_then_owner_speed_write() {
             UNIT,
             selector,
             supplied(case),
-            None,
+            crate::rules::ruleset::RuleSet::empty_for_test(),
             None,
             crate::sim::world::FrameEffects::default()
         ));

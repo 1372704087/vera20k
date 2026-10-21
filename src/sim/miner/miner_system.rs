@@ -17,7 +17,7 @@ use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::miner::{CargoBale, Miner, MinerConfig, MinerState, ResourceType};
-use crate::sim::mission::authority::EntityReadyInputProvider;
+use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::locomotor::MovementLayer;
 use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
@@ -287,7 +287,7 @@ pub(crate) fn unit_ai_nudge_off_refinery_pad(
         return;
     };
     if in_contact {
-        radio::transmit_to_contact(sim, id, RadioMessage::Break, Some(rules), frame_effects);
+        radio::transmit_to_contact(sim, id, RadioMessage::Break, rules, frame_effects);
     }
     drive_off_refinery(sim, rules, id, refinery, overlay_registry, frame_effects);
     let now = sim.session.binary_frame();
@@ -324,7 +324,7 @@ pub(super) fn process_miner(
     // through the empty loop; both houses end on Guard, so the human test is
     // inert and not modelled.
     if !house_owns_dock_instance(sim, rules, snap) {
-        queue_guard_from_harvest(sim, snap);
+        queue_guard_from_harvest(sim, snap, rules);
         snap.dispatch_delay = DISPATCH_NEXT_FRAME;
         return;
     }
@@ -341,7 +341,7 @@ pub(super) fn process_miner(
             handle_return(sim, rules, snap, frame_effects);
             arm_rate_epilogue(&mut sim.scenario_rng, &sim.substrate, rules, snap);
         }
-        MinerState::Dock => handle_handoff(sim, snap),
+        MinerState::Dock => handle_handoff(sim, snap, rules),
         MinerState::WaitNoOre => {
             handle_going_to_idle(sim, rules, overlay_registry, snap, frame_effects);
             // Native state 4 has no `return 1` exit: every dispatch falls
@@ -425,7 +425,7 @@ fn harvest_looking(
                 .is_some_and(|loco| loco.active_kind() == LocomotorKind::Teleport)
     });
     if teleport_with_nav {
-        sim.set_unit_null_destination(id, Some(rules), None, frame_effects);
+        sim.set_unit_null_destination(id, rules, None, frame_effects);
     }
     let range = super::ore_scan::scan_cells(rules.general.tiberium_long_scan);
     if super::ore_scan::search_for_tiberium_and_move(
@@ -669,7 +669,7 @@ fn harvest_ore_tick(
         &mut sim.dirty_cells,
         cell,
         request,
-        Some(rules),
+        rules,
         overlay_registry,
     );
     let Some(resource_type) = reduction
@@ -755,7 +755,7 @@ fn handle_return(
             bay,
             RadioMessage::Hello,
             RadioPayload::default(),
-            None,
+            rules,
             frame_effects,
         ) == RadioResponse::Roger
     {
@@ -781,7 +781,7 @@ fn handle_return(
             );
         }
         None => {
-            sim.assign_null_destination(id, Some(rules), None, frame_effects);
+            sim.assign_null_destination(id, rules, None, frame_effects);
         }
     }
 }
@@ -824,14 +824,14 @@ fn refinery_staging_cell(sim: &Simulation, rules: &RuleSet, bay: u64) -> Option<
 
 /// Mission_Harvest state 3 (`0x0073EE8A`): `Queue_Mission(Enter, 0); return
 /// 1`. UnitClass::AI's Ready/Commence step promotes it.
-fn handle_handoff(sim: &mut Simulation, snap: &MinerSnapshot) {
+fn handle_handoff(sim: &mut Simulation, snap: &MinerSnapshot, rules: &RuleSet) {
     let now = sim.session.binary_frame();
     let _ = sim.mission_queue_exact(
         snap.entity_id,
         MissionId::from_known(MissionType::Enter),
         0,
         now,
-        &EntityReadyInputProvider,
+        &LiveReadyInputProvider { rules },
     );
 }
 
@@ -911,7 +911,7 @@ fn handle_going_to_idle(
             frame_effects,
         );
     }
-    queue_guard_from_harvest(sim, snap);
+    queue_guard_from_harvest(sim, snap, rules);
 }
 
 /// vt+0x480(cell, 1) to the Cell NearbyLocation finds near `refinery`
@@ -940,14 +940,14 @@ fn drive_off_refinery(
 
 /// `Queue_Mission(Guard, 0)` from inside the Harvest handler (preamble and
 /// state 4). No Commence: the host's Ready-to-Commence step promotes it.
-fn queue_guard_from_harvest(sim: &mut Simulation, snap: &MinerSnapshot) {
+fn queue_guard_from_harvest(sim: &mut Simulation, snap: &MinerSnapshot, rules: &RuleSet) {
     let now = sim.session.binary_frame();
     let _ = sim.mission_queue_exact(
         snap.entity_id,
         MissionId::from_known(MissionType::Guard),
         0,
         now,
-        &EntityReadyInputProvider,
+        &LiveReadyInputProvider { rules },
     );
 }
 
@@ -1004,7 +1004,7 @@ pub(crate) fn extract_bale(
         dirty_cells,
         cell,
         1,
-        Some(rules),
+        rules,
         overlay_registry,
     );
     if outcome.removed_amount == 0 {
@@ -1186,7 +1186,7 @@ fn scan_docking_type(
             sid,
             crate::sim::radio::RadioMessage::CanEnter,
             crate::sim::radio::RadioPayload::docking_query(ignore_dock_capacity),
-            Some(rules),
+            rules,
             frame_effects,
         ) != crate::sim::radio::RadioResponse::Roger
         {
@@ -1260,7 +1260,7 @@ pub(crate) fn assign_miner_cell_destination(
         Some(crate::sim::components::NavTargetRef::cell(
             target.0, target.1,
         )),
-        Some(rules),
+        rules,
         overlay_registry,
         frame_effects,
     ) {

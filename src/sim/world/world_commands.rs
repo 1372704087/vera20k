@@ -147,7 +147,7 @@ impl Simulation {
             self.sound_events.emit(SimSoundEvent::VocCentered {
                 sound_id: sound_id.to_owned(),
             });
-            effects.flush_sound(self, Some(rules));
+            effects.flush_sound(self, rules);
         }
     }
 
@@ -968,7 +968,7 @@ impl Simulation {
 
         // House4FD018 calls70D4A0, not7258D0 pointer expiry: Restore runs
         // before the conditional target clear, then Team targets detach.
-        self.stop_all_targeting_cell(rx, ry, Some(rules), Some(overlays), effects);
+        self.stop_all_targeting_cell(rx, ry, rules, Some(overlays), effects);
 
         if let Some(tail_grid) = tail_grid {
             if self.zone_grid.is_some() {
@@ -999,7 +999,7 @@ impl Simulation {
         self.apply_command_with_overlays(
             command_owner,
             cmd,
-            rules,
+            rules.unwrap_or(crate::rules::ruleset::RuleSet::empty_for_test()),
             None,
             crate::sim::world::FrameEffects::default(),
         )
@@ -1009,7 +1009,7 @@ impl Simulation {
         &mut self,
         command_owner: &str,
         cmd: &Command,
-        rules: Option<&RuleSet>,
+        rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
@@ -1090,9 +1090,6 @@ impl Simulation {
                 if !admitted {
                     return false;
                 }
-                let Some(rules) = rules else {
-                    return false;
-                };
                 // Native also writes +6B2. Its observed consumers are class
                 // CRC4DBD60 and raw native Save/Load41035E/4103CD, not active
                 // peer checksum64DAB0. No unread Rust bookkeeping shadow is
@@ -1203,13 +1200,12 @@ impl Simulation {
                 // `0x004C75FE..0x004C7624`: a `BalloonHover=` type takes both
                 // again. Its setter's arm (`0x00741983`) kept the NavCom while
                 // the Target stood; without the Target this one clears it.
-                let balloon = rules.is_some_and(|rules| {
-                    self.substrate
-                        .entities
-                        .get(*entity_id)
-                        .and_then(|entity| self.object_type(entity.type_ref(), rules))
-                        .is_some_and(|object| object.balloon_hover)
-                });
+                let balloon = self
+                    .substrate
+                    .entities
+                    .get(*entity_id)
+                    .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                    .is_some_and(|object| object.balloon_hover);
                 if balloon {
                     self.assign_null_destination(
                         *entity_id,
@@ -1267,21 +1263,17 @@ impl Simulation {
                 //
                 // `0x004C7639..0x004C7650`: an open-topped transport's riders
                 // let go of their targets too.
-                if let Some(rules) = rules {
-                    self.open_topped_passengers_take_target(
-                        *entity_id,
-                        None,
-                        rules,
-                        overlay_registry,
-                        frame_effects,
-                    );
-                }
-                self.commit_stop_miner_guard(*entity_id);
+                self.open_topped_passengers_take_target(
+                    *entity_id,
+                    None,
+                    rules,
+                    overlay_registry,
+                    frame_effects,
+                );
+                self.commit_stop_miner_guard(*entity_id, rules);
                 // `0x004C769C..0x004C76AC`: Stop takes a Slave Miner off its
                 // hunt (`sim::slave_manager`).
-                if let Some(rules) = rules {
-                    self.reset_slave_manager(*entity_id, rules, frame_effects);
-                }
+                self.reset_slave_manager(*entity_id, rules, frame_effects);
                 true
             }
             // A Cell target is the Ctrl click on the ground.
@@ -1341,7 +1333,6 @@ impl Simulation {
                 )
                 .accepted(),
             Command::DeployMcv { entity_id } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;
                 }
@@ -1352,7 +1343,6 @@ impl Simulation {
             // keep it. The cell-click path sends SetRally followed by
             // SellBuilding, preserving native event1E/16.
             Command::UndeployBuilding { entity_id } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;
                 }
@@ -1368,7 +1358,6 @@ impl Simulation {
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;
                 }
-                let Some(rules) = rules else { return false };
                 let Some(actor) = self.substrate.entities.get(*entity_id) else {
                     return false;
                 };
@@ -1384,7 +1373,7 @@ impl Simulation {
                     MissionType::Unload,
                     None,
                     None,
-                    Some(rules),
+                    rules,
                     overlay_registry,
                     frame_effects,
                 )
@@ -1398,7 +1387,6 @@ impl Simulation {
             // Production events act on the event's own house (the
             // EventClass header's house id); the payload names no owner.
             Command::QueueProduction { type_id } => {
-                let Some(rules) = rules else { return false };
                 let type_s = self.interner.resolve(*type_id).to_string();
                 production::enqueue_by_type(
                     self,
@@ -1431,12 +1419,9 @@ impl Simulation {
                     return false;
                 }
                 // The issuer adds no ownership/online/limbo/HP admission.
-                rules.is_some_and(|rules| {
-                    production::toggle_factory_primary(self, rules, *entity_id)
-                })
+                production::toggle_factory_primary(self, rules, *entity_id)
             }
             Command::CycleProducerFocus { category } => {
-                let Some(rules) = rules else { return false };
                 production::cycle_active_producer_for_owner_category(
                     self,
                     rules,
@@ -1445,7 +1430,6 @@ impl Simulation {
                 )
             }
             Command::PlaceReadyBuilding { type_id, rx, ry } => {
-                let Some(rules) = rules else { return false };
                 let type_s = self.interner.resolve(*type_id).to_string();
                 production::place_production_with_overlays(
                     self,
@@ -1460,9 +1444,6 @@ impl Simulation {
                 )
             }
             Command::PlaceProducedMobile { category } => {
-                let Some(rules) = rules else {
-                    return false;
-                };
                 production::place_production_with_overlays(
                     self,
                     rules,
@@ -1475,7 +1456,6 @@ impl Simulation {
                 )
             }
             Command::CancelProductionByType { type_id, all } => {
-                let Some(rules) = rules else { return false };
                 let type_s = self.interner.resolve(*type_id).to_string();
                 production::cancel_production_for_owner(
                     self,
@@ -1493,7 +1473,6 @@ impl Simulation {
             // owner must be the event's house (`0x004C6F45`); a building
             // takes `Sell_Back(-1)` (`0x004C6FA2`).
             Command::SellBuilding { entity_id } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *entity_id) {
                     return false;
                 }
@@ -1507,7 +1486,7 @@ impl Simulation {
                 )
             }
             Command::SellWallAtCell { x, y } => {
-                let (Some(rules), Some(overlays)) = (rules, overlay_registry) else {
+                let Some(overlays) = overlay_registry else {
                     return false;
                 };
                 // Event 0x4C6FC4 passes 0; ordinary SELL remains audible.
@@ -1520,7 +1499,7 @@ impl Simulation {
             // Stuff flag, factory queue refresh, EVA line for a human house). The
             // dispatch has no owner check, and none is added here.
             Command::SetBuildingOnLine { entity_id, on } => {
-                let (Some(rules), Some(owner)) = (rules, self.interner.get(command_owner)) else {
+                let Some(owner) = self.interner.get(command_owner) else {
                     return false;
                 };
                 if !self.houses.contains_key(&owner) {
@@ -1550,7 +1529,7 @@ impl Simulation {
             // EventClass tail, before any House check.
             Command::LiveGameSpeed { speed } => self.session.apply_in_game_speed(*speed),
             Command::Cheer => {
-                let (Some(owner), Some(rules)) = (self.interner.get(command_owner), rules) else {
+                let Some(owner) = self.interner.get(command_owner) else {
                     return false;
                 };
                 if !self.houses.contains_key(&owner) {
@@ -1605,18 +1584,15 @@ impl Simulation {
                 }
                 true
             }
-            Command::MoveFlash { rx, ry } => {
-                rules.is_some_and(|rules| self.spawn_move_flash(rules, (*rx, *ry)))
-            }
+            Command::MoveFlash { rx, ry } => self.spawn_move_flash(rules, (*rx, *ry)),
             Command::Ally { house_index } => {
                 // EventClass::Execute 0x004C6DEE..0x004C6E23: no admission
                 // gate; the sender toggles on its own mask, announced.
-                let (Some(owner), Some(other), Some(rules)) = (
+                let (Some(owner), Some(other)) = (
                     self.interner.get(command_owner),
                     usize::try_from(*house_index)
                         .ok()
                         .and_then(|index| self.houses.order().get(index).copied()),
-                    rules,
                 ) else {
                     return false;
                 };
@@ -1664,14 +1640,12 @@ impl Simulation {
                 {
                     return false;
                 }
-                rules.is_some_and(|rules| {
-                    production::toggle_repair(
-                        self,
-                        rules,
-                        *entity_id,
-                        production::RepairControl::Toggle,
-                    )
-                })
+                production::toggle_repair(
+                    self,
+                    rules,
+                    *entity_id,
+                    production::RepairControl::Toggle,
+                )
             }
             Command::UnloadPassengers { transport_id } => {
                 if !self.entity_owned_by_id(command_owner, *transport_id) {
@@ -1738,7 +1712,6 @@ impl Simulation {
                         // Vehicle/aircraft transports unload through the Unload
                         // mission (`UnitClass::Mission_Unload @ 0x0073D630`
                         // transport branch; Aircraft slot `0x004151E0`).
-                        let Some(rules) = rules else { return false };
                         let is_transport = self
                             .substrate
                             .entities
@@ -1796,7 +1769,7 @@ impl Simulation {
                             MissionType::Unload,
                             None,
                             None,
-                            Some(rules),
+                            rules,
                             overlay_registry,
                             frame_effects,
                         )
@@ -1809,7 +1782,6 @@ impl Simulation {
                 attacker_id,
                 target_building_id,
             } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *attacker_id) {
                     return false;
                 }
@@ -1890,7 +1862,7 @@ impl Simulation {
                     MissionType::Sabotage,
                     None,
                     Some(combat::TargetKind::Entity(*target_building_id)),
-                    Some(rules),
+                    rules,
                     overlay_registry,
                     frame_effects,
                 )
@@ -1900,7 +1872,6 @@ impl Simulation {
                 engineer_id,
                 target_building_id,
             } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *engineer_id) {
                     return false;
                 }
@@ -1939,7 +1910,7 @@ impl Simulation {
                     MissionType::Capture,
                     None,
                     Some(combat::TargetKind::Entity(*target_building_id)),
-                    Some(rules),
+                    rules,
                     overlay_registry,
                     frame_effects,
                 )
@@ -1950,7 +1921,6 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                let Some(rules) = rules else { return false };
                 // The SPECIAL_PLACE event (`EventClass::Execute 0x004C78D6`).
                 let owner = self.interner.intern(command_owner);
                 self.fire_super_weapon(
@@ -1968,9 +1938,6 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                let Some(rules) = rules else {
-                    return false;
-                };
                 let owner = self.interner.intern(command_owner);
                 self.fire_super_weapon_selected(
                     rules,
@@ -1984,9 +1951,6 @@ impl Simulation {
                 )
             }
             Command::CancelPaidSuperWeapon { selection } => {
-                let Some(rules) = rules else {
-                    return false;
-                };
                 let owner = self.interner.intern(command_owner);
                 Self::cancel_paid_super_weapon_selection(
                     &mut self.substrate,
@@ -2002,9 +1966,6 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                let Some(rules) = rules else {
-                    return false;
-                };
                 let owner = self.interner.intern(command_owner);
                 self.fire_super_weapon_selected(
                     rules,
@@ -2018,7 +1979,6 @@ impl Simulation {
                 )
             }
             Command::EjectBunker { bunker_id } => {
-                let Some(rules) = rules else { return false };
                 if !self.entity_owned_by_id(command_owner, *bunker_id) {
                     return false;
                 }
@@ -2055,11 +2015,8 @@ impl Simulation {
         producer_ids: &[u64],
         rx: u16,
         ry: u16,
-        rules: Option<&RuleSet>,
+        rules: &RuleSet,
     ) -> bool {
-        let Some(rules) = rules else {
-            return true;
-        };
         let mut ids = producer_ids.to_vec();
         ids.sort_unstable();
         ids.dedup();
@@ -2136,7 +2093,7 @@ impl Simulation {
     /// Its disguise arm (+C8 with a NULL +D0(1)) is
     /// [`crate::sim::game_entity::GameEntity::disguise_hides_house_from`]; it
     /// does not treat current fog as selectability.
-    pub fn object_is_selectable(&self, stable_id: u64, rules: Option<&RuleSet>) -> bool {
+    pub fn object_is_selectable(&self, stable_id: u64, rules: &RuleSet) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
         };
@@ -2155,25 +2112,22 @@ impl Simulation {
         }) {
             return false;
         }
-        rules.is_none_or(|r| {
-            self.interner
-                .object_type(entity.type_ref(), r)
-                .is_none_or(|object| object.selectable)
-        })
+        self.interner
+            .object_type(entity.type_ref(), rules)
+            .is_none_or(|object| object.selectable)
     }
 
     /// Object5F4520's state/type admission, shared by provisional local input
     /// and committed selection. Membership and pending placement are caller
     /// state: input checks its newest ledger/placement, the sim its stored bit.
     /// Original does not read Alive or Health here; search/click callers do.
-    pub fn can_select_object(&self, stable_id: u64, rules: Option<&RuleSet>) -> bool {
+    pub fn can_select_object(&self, stable_id: u64, rules: &RuleSet) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
         };
         !entity.lifecycle.in_limbo()
             && self.object_is_selectable(stable_id, rules)
-            && !(entity.is_mission_only()
-                && rules.is_some_and(|rules| self.techno_player_controllable(stable_id, rules)))
+            && !(entity.is_mission_only() && self.techno_player_controllable(stable_id, rules))
             && !entity.is_warped_out()
     }
 
@@ -2237,9 +2191,8 @@ impl Simulation {
         if !self.try_select_object(stable_id, context) {
             return false;
         }
-        if let Some(rules) = context.rules()
-            && let Some(sound_id) = self.selection_voice_request(rules, stable_id, voice_latch)
-        {
+        let rules = context.rules();
+        if let Some(sound_id) = self.selection_voice_request(rules, stable_id, voice_latch) {
             let sound_id = sound_id.to_owned();
             self.sound_events.emit(SimSoundEvent::UnitVoiceRequested {
                 owner: stable_id,
@@ -2503,7 +2456,7 @@ impl Simulation {
         mission: MissionType,
         target: Option<combat::TargetKind>,
         destination: Option<combat::TargetKind>,
-        rules: Option<&RuleSet>,
+        rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> MegaMissionExecution {
@@ -2605,7 +2558,7 @@ impl Simulation {
         ) {
             log::warn!("MegaMission destination {entity_id}: {cause}");
         }
-        if let (Some(target), Some(rules)) = (target, rules) {
+        if let Some(target) = target {
             self.open_topped_passengers_take_target(
                 entity_id,
                 Some(target),

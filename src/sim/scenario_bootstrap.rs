@@ -1543,7 +1543,7 @@ fn apply_resolved_skirmish_launch_session(
 
     apply_launch_shroud_option(
         sim,
-        crate::sim::world::UninitContext::new(Some(rules), overlay_registry),
+        crate::sim::world::UninitContext::new(rules, overlay_registry),
     );
 
     SkirmishLaunchApplyResult {
@@ -1729,7 +1729,7 @@ pub fn populate_special_houses(sim: &mut Simulation, house_roster: &HouseRoster,
         // is always concrete here — the roster's `Country=` when the map named
         // one, otherwise the special house's own `[Countries]` entry, which is
         // what this house is being built as.
-        house.resolve_multiplay_passive(Some(rules), Some(country_name));
+        house.resolve_multiplay_passive(rules, Some(country_name));
         house.project_country_mults(rules, &sim.interner);
         sim.houses.register(house);
     }
@@ -1809,7 +1809,7 @@ pub fn populate_launch_houses(
                 sim.session.set_computer_slot_has_team();
             }
         }
-        house.resolve_multiplay_passive(Some(rules), Some(country_name));
+        house.resolve_multiplay_passive(rules, Some(country_name));
         house.project_country_mults(rules, &sim.interner);
         sim.houses.register(house);
     }
@@ -2048,11 +2048,7 @@ fn place_starting_object_near_base(
         }
     }
 
-    sim.discard_constructed_limbo(
-        stable_id,
-        Some(rules),
-        crate::sim::world::FrameEffects::default(),
-    );
+    sim.discard_constructed_limbo(stable_id, rules, crate::sim::world::FrameEffects::default());
     None
 }
 
@@ -2588,7 +2584,7 @@ impl ScenarioBootstrapRng {
                 initialize_map_roster_houses(
                     &mut simulation,
                     house_roster,
-                    Some(rules),
+                    rules,
                     Some(&map_data.ini),
                 );
                 initialize_campaign_current_house(
@@ -2791,7 +2787,7 @@ pub fn initialize_campaign_current_house(
 pub fn initialize_map_roster_houses(
     sim: &mut Simulation,
     house_roster: &HouseRoster,
-    rules: Option<&RuleSet>,
+    rules: &RuleSet,
     map_ini: Option<&crate::rules::ini_parser::IniFile>,
 ) {
     assert!(
@@ -2804,7 +2800,7 @@ pub fn initialize_map_roster_houses(
     let campaign_difficulties = sim.session.campaign_house_difficulties();
     if campaign_difficulties.is_some() {
         assert!(
-            rules.is_some() && map_ini.is_some(),
+            map_ini.is_some(),
             "campaign Houses require admitted map/rules"
         );
         assert!(
@@ -2816,17 +2812,15 @@ pub fn initialize_map_roster_houses(
     let mission_counter = sim.session.campaign_mission_counter().unwrap_or(1);
     for house in &house_roster.houses {
         let country_name = rules
-            .and_then(|rules| rules.scenario_country_name(house.country.as_deref()))
+            .scenario_country_name(house.country.as_deref())
             .or(house.country.as_deref());
         let fallback_side = crate::sim::house_state::side_index_from_name(house.side.as_deref());
-        let side_idx = rules.map_or(fallback_side, |rules| {
-            crate::sim::house_state::resolve_house_side_index(
-                rules,
-                country_name,
-                house.side.as_deref(),
-                fallback_side,
-            )
-        });
+        let side_idx = crate::sim::house_state::resolve_house_side_index(
+            rules,
+            country_name,
+            house.side.as_deref(),
+            fallback_side,
+        );
         let name_id = sim.interner.intern(&house.name);
         let country_id = country_name.map(|c| sim.interner.intern(c));
         let mut house_state = crate::sim::house_state::HouseState::new(
@@ -2843,16 +2837,13 @@ pub fn initialize_map_roster_houses(
         });
         // Every native House constructs its whole Supers vector before map
         // objects. Only the admitted campaign prefix has a measured ID cursor.
-        if let Some(rules) = rules {
-            crate::sim::superweapon::construct_house_supers(
-                sim,
-                rules,
-                name_id,
-                campaign_house_id.is_some(),
-            );
-        }
+        crate::sim::superweapon::construct_house_supers(
+            sim,
+            rules,
+            name_id,
+            campaign_house_id.is_some(),
+        );
         if let Some((_, computer_difficulty)) = campaign_difficulties {
-            let rules = rules.expect("admitted campaign rules");
             let draw = draw_house_constructor_timer(&mut sim.scenario_rng);
             house_state.bind_native_construction(
                 campaign_house_id.expect("admitted campaign House ID"),
@@ -2877,9 +2868,7 @@ pub fn initialize_map_roster_houses(
             house_state.set_ui_name(crate::sim::house_state::HouseUiName::Csf(key.clone()));
         }
         house_state.resolve_multiplay_passive(rules, country_name);
-        if let Some(rules) = rules {
-            house_state.project_country_mults(rules, &sim.interner);
-        }
+        house_state.project_country_mults(rules, &sim.interner);
         // Registration admits distinct House names only.
         sim.houses.register(house_state);
     }
@@ -2901,19 +2890,17 @@ pub fn initialize_map_roster_houses(
             house_state.initialize_scenario_parameters(
                 house.read_scenario_parameters(ini, mission_counter),
                 campaign_difficulties.map(|(player, _)| player),
-                rules.map(|rules| &rules.general),
+                Some(&rules.general),
             );
             house_state
                 .team_creation_mut()
                 .read_scenario_ratio(ini.section_or_empty(&house.name));
-            if let Some(rules) = rules {
-                let temporary_delay = house_state
-                    .difficulty_value(&rules.general.team_delays)
-                    .wrapping_add((index as i32).wrapping_mul(175));
-                house_state
-                    .team_creation_mut()
-                    .restart(frame, temporary_delay);
-            }
+            let temporary_delay = house_state
+                .difficulty_value(&rules.general.team_delays)
+                .wrapping_add((index as i32).wrapping_mul(175));
+            house_state
+                .team_creation_mut()
+                .restart(frame, temporary_delay);
         }
         house_state.base_plan_mut().read_scenario(
             house.base_plan.percent_built,
@@ -2932,13 +2919,8 @@ pub fn initialize_map_roster_houses(
         // house section, defaults it to zero, and changes a value above
         // MaxIQLevels to literal one before storing it as both the authored
         // IQ (+0x1D0) and CurrentIQ (+0x24C) (0x00500DBA..0x00500DC0).
-        house_state.install_scenario_iq(rules.map_or_else(
-            || house.iq,
-            |rules| house.scenario_current_iq(rules.general.max_iq_levels),
-        ));
-        if let Some(rules) = rules
-            && let Some((player, computer)) = campaign_difficulties
-        {
+        house_state.install_scenario_iq(house.scenario_current_iq(rules.general.max_iq_levels));
+        if let Some((player, computer)) = campaign_difficulties {
             let difficulty = if house_state.is_controlled_by_human(false) {
                 player
             } else {
@@ -2961,7 +2943,7 @@ pub fn initialize_map_roster_houses(
             crate::sim::house_diplomacy::HouseAllianceAdmission::ScenarioInitialization {
                 roster: house_roster,
             },
-            rules.expect("admitted campaign rules"),
+            rules,
         );
     }
 }
@@ -3481,7 +3463,12 @@ mod tests {
             "[Houses]\n7=Zulu\n2=Alpha\n9=1234567890123456789\n[Zulu]\n[Alpha]\n[1234567890123456789]\n",
         );
         let roster = crate::map::houses::parse_house_roster(&map, &[], None);
-        initialize_map_roster_houses(&mut sim, &roster, None, None);
+        initialize_map_roster_houses(
+            &mut sim,
+            &roster,
+            crate::rules::ruleset::RuleSet::empty_for_test(),
+            None,
+        );
         let first = sim.interner.get("Zulu").unwrap();
         let second = sim.interner.get("Alpha").unwrap();
         let capped = sim.interner.get("1234567890123456789").unwrap();
@@ -3809,7 +3796,7 @@ mod tests {
                     &map,
                     &terrain,
                     "TEMPERATE",
-                    Some(&rules),
+                    &rules,
                     Some(&overlays),
                     Some(&overlay_grid),
                     crate::map::basic::BridgeDestroyabilityMode::SkirmishOrMultiplayer {
@@ -4749,7 +4736,12 @@ mod tests {
         );
         let roster = crate::map::houses::parse_house_roster(&ini, &[], None);
         let mut sim = Simulation::new();
-        initialize_map_roster_houses(&mut sim, &roster, None, Some(&ini));
+        initialize_map_roster_houses(
+            &mut sim,
+            &roster,
+            crate::rules::ruleset::RuleSet::empty_for_test(),
+            Some(&ini),
+        );
         let name = |house: &str| {
             let id = sim.interner.get(house).unwrap();
             sim.houses[&id].ui_name().clone()

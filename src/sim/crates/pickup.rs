@@ -377,7 +377,7 @@ pub(crate) fn pickup_crate(
             49,
             Some(actor_id),
             None,
-            crate::sim::world::UninitContext::new(Some(rules), Some(registry))
+            crate::sim::world::UninitContext::new(rules, Some(registry))
                 .with_effects(frame_effects),
         );
         if had_tag

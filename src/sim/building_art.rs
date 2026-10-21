@@ -721,14 +721,8 @@ impl Simulation {
     /// Grinding's Special10 restores Active3 before the general slot callback.
     /// The reverse index skips listeners whose slot array cannot name this Anim.
     /// Evidence: tools/spatial_oracle/building_slot_replacement.expiry.{json,md}.
-    pub(crate) fn building_anim_pointer_expired(&mut self, expired: u64, rules: Option<&RuleSet>) {
+    pub(crate) fn building_anim_pointer_expired(&mut self, expired: u64, rules: &RuleSet) {
         let Some((owner, slot)) = self.anim(expired).and_then(|anim| anim.building_slot()) else {
-            return;
-        };
-        let Some(rules) = rules else {
-            // Rules-less teardown is the defensive destructor route; ordinary
-            // Anim AI and service destruction always carry the live RuleSet.
-            self.substrate.clear_building_anim_reference(expired);
             return;
         };
         let Some(entity) = self.substrate.entities.get(owner) else {

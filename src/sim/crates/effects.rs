@@ -485,6 +485,6 @@ pub(super) fn place_unit_crate(
             return UnitCrateOutcome::Placed;
         }
     }
-    sim.discard_constructed_limbo(id, Some(rules), frame_effects);
+    sim.discard_constructed_limbo(id, rules, frame_effects);
     UnitCrateOutcome::FellBackToMoney
 }

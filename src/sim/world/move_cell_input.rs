@@ -661,12 +661,16 @@ impl Simulation {
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
     ) -> MoveAction {
-        let Some(target_entity) = self.substrate.entities.get(target) else {
-            return action;
-        };
         let action = if action == MoveAction::None {
-            let coords =
-                ground_pose::object_get_coords(target_entity, self.resolved_terrain.as_ref());
+            let cells = self
+                .resolved_terrain
+                .as_ref()
+                .map(NativeCellQuery::canonical);
+            let Some(coords) =
+                ground_pose::target_get_coords(TargetKind::Entity(target), self, cells.as_ref())
+            else {
+                return action;
+            };
             let cell = ((coords.x / 256) as u16, (coords.y / 256) as u16);
             let query = CellActionQuery {
                 mouse_over: false,
@@ -750,11 +754,6 @@ impl Simulation {
         if refused || entity.berserk.is_active() {
             return Ok(None);
         }
-        let target_entity = self
-            .substrate
-            .entities
-            .get(target)
-            .ok_or("Move click target disappeared")?;
         let map = self.click_map()?;
         let terrain = map.cells.terrain();
         let open = |cell| {
@@ -762,7 +761,10 @@ impl Simulation {
                 &self.fog, terrain, viewer, cell,
             ))
         };
-        let coords = ground_pose::object_get_coords(target_entity, Some(terrain));
+        // The object's vt+0x48: a Techno's, or a Terrain object's under Ctrl.
+        let coords =
+            ground_pose::target_get_coords(TargetKind::Entity(target), self, Some(&map.cells))
+                .ok_or("Move click target disappeared")?;
         if action == MoveAction::NoMove
             && crate::sim::vision::coordinate_is_shrouded(&map.cells, coords, &open)?
             && !object.move_to_shroud

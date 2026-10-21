@@ -138,18 +138,18 @@ pub(crate) fn issue_order(
         sim,
         id,
         crate::sim::radio::RadioMessage::Break,
-        Some(rules),
+        rules,
         effects,
     );
     // Queue's same-mission guard keeps the handler and timer on a repeated D.
-    sim.assign_null_destination(id, Some(rules), None, effects);
-    let _ = sim.assign_target_represented(id, None, Some(rules), None, effects);
+    sim.assign_null_destination(id, rules, None, effects);
+    let _ = sim.assign_target_represented(id, None, rules, None, effects);
     sim.mission_queue_exact(
         id,
         MissionId::from_known(MissionType::Unload),
         0,
         sim.session.binary_frame(),
-        &crate::sim::mission::authority::EntityReadyInputProvider,
+        &crate::sim::mission::authority::LiveReadyInputProvider { rules },
     )
     .is_ok()
 }
@@ -214,7 +214,7 @@ impl Simulation {
             self.assign_target_represented(
                 id,
                 Some(TargetKind::Cell(rx, ry)),
-                Some(rules),
+                rules,
                 overlay_registry,
                 effects,
             )
@@ -437,7 +437,7 @@ impl Simulation {
     pub(crate) fn infantry_pending_deploy_stop_callback(
         &mut self,
         id: u64,
-        rules: Option<&RuleSet>,
+        rules: &RuleSet,
         effects: FrameEffects<'_>,
     ) -> Result<(), String> {
         let actor = self
@@ -452,7 +452,6 @@ impl Simulation {
         {
             return Ok(());
         }
-        let rules = rules.ok_or("pending deployment Stop callback requires rules")?;
         self.substrate
             .entities
             .get_mut(id)
@@ -568,7 +567,7 @@ impl Simulation {
                     self.assign_target_represented(
                         id,
                         Some(TargetKind::Cell(at.0 as u16, at.1 as u16)),
-                        Some(rules),
+                        rules,
                         None,
                         effects,
                     )
@@ -586,7 +585,7 @@ impl Simulation {
                 self.session.binary_frame(),
             )
             .map_err(|cause| format!("Infantry Unload Guard: {cause}"))?;
-        self.assign_destination_represented(id, None, Some(rules), None, effects)
+        self.assign_destination_represented(id, None, rules, None, effects)
             .map_err(|cause| format!("Infantry Unload destination: {cause}"))?;
         Ok(if delay > -1 { delay } else { 450 })
     }

@@ -466,21 +466,26 @@ pub(crate) fn attack_action(
     if action == AttackAction::None
         && let TargetKind::Entity(target_id) = *target
     {
-        action = match sim.foot_object_class_action(
-            actor.owner(),
-            actor_id,
-            target_id,
-            crate::sim::world::MoveAction::None,
-            rules,
-            overlay_registry,
-        ) {
-            // Harvest is a Unit's Cell answer, never an object's.
-            crate::sim::world::MoveAction::None | crate::sim::world::MoveAction::Harvest => {
-                AttackAction::None
-            }
-            crate::sim::world::MoveAction::Move => AttackAction::Move,
-            crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
-        };
+        action =
+            if aircraft_cell_attack_under_object(sim, rules, actor_id, target_id, overlay_registry)
+            {
+                AttackAction::Attack
+            } else {
+                match sim.foot_object_class_action(
+                    actor.owner(),
+                    actor_id,
+                    target_id,
+                    crate::sim::world::MoveAction::None,
+                    rules,
+                    overlay_registry,
+                ) {
+                    // Harvest is a Unit's Cell answer, never an object's.
+                    crate::sim::world::MoveAction::None
+                    | crate::sim::world::MoveAction::Harvest => AttackAction::None,
+                    crate::sim::world::MoveAction::Move => AttackAction::Move,
+                    crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
+                }
+            };
     }
     // Attack over an Immune= type (vt+0x88 +0x233) is NoMove at the end of
     // the Unit (74041B..74049A) and Aircraft (417F4A..417F63) object
@@ -542,6 +547,55 @@ pub(crate) fn attack_action(
         }
     }
     action
+}
+
+/// Whether an Aircraft's 0 over the object `target_id` becomes Attack. The
+/// Aircraft wrapper asks its own What_Action on the Cell under the object
+/// (`0x00417D7C..0x00417DCB`, [`Simulation::aircraft_object_query_cell`]):
+/// Aircraft `0x00417F80`, a human player's only, through Foot's shroud wrapper
+/// (`0x004DDDE0`) to Techno `0x00700600`, whose unforced Attack rung
+/// (`0x007008A6..0x007009F1`, [`Simulation::cell_attack_rung_admits`])
+/// answers over a destroyable cliff or another house's Wall its `Wall=`
+/// warhead may hit (retail Harrier and Black Eagle warheads have it), with
+/// the forced shot's tail at the Cell. A shrouded Cell takes the Attack back
+/// (`0x004DDE64..0x004DDEBE`). Aircraft `0x00417FB1` and `0x00417DCD` keep
+/// it only with a weapon in slot 0 (vt+0x3F8). The Immune rung then
+/// tests the object (`0x00417F4A`), and the click sends the Attack to Foot
+/// `0x004D74E0` as an attack on the object ([`object_attack_click_command`]).
+///
+/// RESIDUAL: the slot-0 test stands on the rung's current weapon. Trigger: an
+/// aircraft type with a Secondary but no Primary weapon (none in retail, whose
+/// aircraft all carry a Primary). Effect: Attack where native answers 0.
+///
+/// [`Simulation::aircraft_object_query_cell`]: crate::sim::world::Simulation::aircraft_object_query_cell
+/// [`Simulation::cell_attack_rung_admits`]: crate::sim::world::Simulation::cell_attack_rung_admits
+fn aircraft_cell_attack_under_object(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    target_id: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> bool {
+    let Some(actor) = sim
+        .entities()
+        .get(actor_id)
+        .filter(|actor| actor.category() == EntityCategory::Aircraft)
+    else {
+        return false;
+    };
+    let Some(cell) = sim.aircraft_object_query_cell(target_id) else {
+        return false;
+    };
+    sim.clicked_cell_is_shrouded(actor.owner(), cell) == Ok(false)
+        && sim.cell_attack_rung_admits(actor_id, cell, rules, overlay_registry)
+        && attack_action(
+            sim,
+            rules,
+            actor_id,
+            &TargetKind::Cell(cell.0, cell.1),
+            true,
+            overlay_registry,
+        ) == AttackAction::Attack
 }
 
 /// Whether the cursor owner `actor_id`'s own What_Action decides a click or
@@ -5100,6 +5154,152 @@ mod tests {
             cursor(harrier, HoverTargetKind::FriendlyUnit),
             CursorFeedbackKind::Default
         );
+    }
+
+    /// The Harrier's Cell query under the object (`0x00417D7C..0x00417DCB`)
+    /// reaches Techno's unforced Cell Attack rung (`0x007008A6..0x007009F1`):
+    /// over an enemy Kirov in flight above another house's GAWALL, which the
+    /// Harrier's `ORCAAP` (`Wall=yes`) may hit, the answer is Attack, not
+    /// Move: the attack cursor, and the click attacks the Kirov (Aircraft
+    /// `0x00417BD0` -> Foot `0x004D74E0`). The allied Rocketeer over such a
+    /// wall answers Attack too. Over the player's own wall it stays Move.
+    #[test]
+    fn a_harrier_over_a_flier_above_an_enemy_wall_answers_attack() {
+        use crate::app::types::CursorFeedbackKind;
+        let patch = crate::rules::ini_parser::IniFile::from_str("[DISK]\nImmune=yes\n");
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map_with_patch(
+            "Hills.mmx",
+            &patch,
+        ) else {
+            return;
+        };
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+            &retail.processed_rules,
+            Some(retail.fixed_art.as_ref()),
+        );
+        let wall = overlays.id_for_name("GAWALL").expect("retail GAWALL");
+        let (mut sim, rules, _) = Simulation::walk_cell_input_test_scene_with(retail.rules, false);
+        let owner = sim.interner().get("Local").unwrap();
+        let harrier = sim.spawn_object("ORCA", "Local", 5, 4, 0, &rules).unwrap();
+        let kirov = sim.spawn_object("ZEP", "Enemy", 7, 6, 0, &rules).unwrap();
+        let rocketeer = sim
+            .spawn_object("JUMPJET", "Ally", 6, 8, 0, &rules)
+            .unwrap();
+        let own_wall_kirov = sim.spawn_object("ZEP", "Enemy", 10, 6, 0, &rules).unwrap();
+        let shrouded_kirov = sim.spawn_object("ZEP", "Enemy", 12, 6, 0, &rules).unwrap();
+        let disc = sim.spawn_object("DISK", "Enemy", 9, 9, 0, &rules).unwrap();
+        for flier in [kirov, rocketeer, own_wall_kirov, shrouded_kirov, disc] {
+            sim.entities_mut_for_test()
+                .get_mut(flier)
+                .unwrap()
+                .position
+                .set_exact_z_leptons_for_test(Some(700));
+        }
+        for (asker, other) in [("LOCAL", "ALLY"), ("ALLY", "LOCAL")] {
+            sim.house_alliances_mut_for_test()
+                .entry(asker.to_string())
+                .or_default()
+                .insert(other.to_string());
+        }
+        let enemy = sim.interner().get("Enemy").unwrap();
+        let (width, height) = {
+            let terrain = sim.resolved_terrain().unwrap();
+            (terrain.width(), terrain.height())
+        };
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(width, height);
+        for cell in [(7, 6), (6, 8), (12, 6), (9, 9)] {
+            grid.place_owned_wall(cell.0, cell.1, wall, 0, enemy);
+        }
+        grid.place_owned_wall(10, 6, wall, 0, owner);
+        *sim.overlay_grid_mut_for_test() = Some(grid);
+        sim.resolve_type_handles(&rules);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(16, 16);
+        sim.fog_mut_for_test().reveal_cells_for_owner(
+            owner,
+            (0..16)
+                .flat_map(|y| (0..16).map(move |x| (x, y)))
+                .filter(|&cell| cell != (12, 6)),
+        );
+        let action = |target| {
+            attack_action(
+                &sim,
+                &rules,
+                harrier,
+                &TargetKind::Entity(target),
+                false,
+                Some(&overlays),
+            )
+        };
+        let cursor = |target, kind| {
+            crate::app::input::cursor::capability_cursor_for_hover(
+                &sim,
+                &[harrier],
+                Some(harrier),
+                &HoverTargetKindWithId {
+                    kind,
+                    stable_id: target,
+                },
+                Some(&rules),
+                Some(&overlays),
+                OrderModifier::Normal,
+                false,
+                false,
+            )
+        };
+        let click = |target| {
+            object_attack_click_command(
+                &sim,
+                &rules,
+                &overlays,
+                owner,
+                OrderMode::Move,
+                OrderModifier::Normal,
+                false,
+                harrier,
+                target,
+            )
+        };
+        // The ally's Rocketeer is a friend: without the wall it would be the
+        // Move of `a_harrier_moves_to_an_object_it_may_not_attack`.
+        for (target, kind) in [
+            (kirov, HoverTargetKind::EnemyUnit),
+            (rocketeer, HoverTargetKind::FriendlyUnit),
+        ] {
+            assert_eq!(action(target), AttackAction::Attack);
+            assert!(
+                matches!(
+                    cursor(target, kind),
+                    CursorFeedbackKind::EnemyUnit | CursorFeedbackKind::EnemyOutOfRange
+                ),
+                "{:?}",
+                cursor(target, kind)
+            );
+            assert_eq!(
+                object_click_release(
+                    &sim,
+                    &rules,
+                    &[harrier],
+                    &[harrier],
+                    target,
+                    &overlays,
+                    false
+                ),
+                LeftRelease::Dispatch
+            );
+            assert_eq!(
+                click(target),
+                Some(Command::Attack {
+                    attacker_id: harrier,
+                    target_id: target,
+                })
+            );
+        }
+        // The player's own wall admits no rung; the shroud wrapper takes the
+        // Attack back over a shrouded Cell; Attack over an `Immune=` object is
+        // NoMove (`0x00417F4A`).
+        assert_eq!(action(own_wall_kirov), AttackAction::Move);
+        assert_ne!(action(shrouded_kirov), AttackAction::Attack);
+        assert_eq!(action(disc), AttackAction::NoMove);
     }
 
     /// Unit (`0x0074041B..0x0074049A`) and Infantry

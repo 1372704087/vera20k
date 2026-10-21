@@ -958,6 +958,11 @@ fn attack_branch_orders(
             AttackAction::Attack => {
                 consumed_attack_action = true;
                 let payload = match attack_target {
+                    // RESIDUAL: in the attack-move mode ClickedMission
+                    // promotes this Attack as well (`0x006FFC09..0x006FFC1E`),
+                    // to an attack-move with the Cell as its target, which
+                    // VERA does not model. Trigger: Ctrl on the ground in the
+                    // attack-move mode. Rare.
                     TargetKind::Cell(target_rx, target_ry) => Command::ForceAttackCell {
                         attacker_id: id,
                         target_rx,
@@ -990,10 +995,13 @@ fn attack_branch_orders(
                                 select_fallback = true;
                                 continue;
                             }
-                            _ => Command::Attack {
-                                attacker_id: id,
+                            _ => object_click_payload(
+                                order_mode,
+                                OrderModifier::Normal,
+                                entity_can_attack_move(sim, Some(rules), id),
+                                id,
                                 target_id,
-                            },
+                            ),
                         }
                     }
                 };
@@ -1560,7 +1568,10 @@ fn move_click_command(
 /// type predicate, and the event keeps the clicked object as its target
 /// (`0x004D76B1..0x004D76C1`). `Assign_Target_Command` stores it as MegaTarget
 /// and answers Attack, so the unit attacks it as an attack-mover; a member
-/// whose type refuses attack-move commits the plain attack.
+/// whose type refuses attack-move commits the plain attack. A forced
+/// Attack is promoted too: in the attack-move mode (`0x00B0FE58`, set by
+/// `0x00731AF0`) `Is_Attack_Move_Chord_Active @ 0x00731BF0` passes before
+/// it reads any key, so Ctrl there attack-moves onto the object.
 pub(crate) fn object_click_payload(
     order_mode: OrderMode,
     modifier: OrderModifier,
@@ -1568,12 +1579,6 @@ pub(crate) fn object_click_payload(
     attacker_id: u64,
     target_id: u64,
 ) -> Command {
-    if modifier == OrderModifier::ForceFire {
-        return Command::Attack {
-            attacker_id,
-            target_id,
-        };
-    }
     if modifier == OrderModifier::GuardArea {
         return Command::Guard {
             entity_id: attacker_id,
@@ -6044,19 +6049,24 @@ mod tests {
                 target_id: 2,
             }
         );
-        // Plain click, force fire and guard area are untouched by the promotion.
-        assert_eq!(
-            object_click_payload(OrderMode::Move, OrderModifier::Normal, true, 1, 2),
-            Command::Attack {
-                attacker_id: 1,
-                target_id: 2,
-            }
-        );
+        // Plain click and guard area are untouched by the promotion; force
+        // fire is promoted only in the attack-move mode, whose chord test
+        // passes before any key read (`0x00731BF0`).
+        for modifier in [OrderModifier::Normal, OrderModifier::ForceFire] {
+            assert_eq!(
+                object_click_payload(OrderMode::Move, modifier, true, 1, 2),
+                Command::Attack {
+                    attacker_id: 1,
+                    target_id: 2,
+                }
+            );
+        }
         assert_eq!(
             object_click_payload(OrderMode::AttackMove, OrderModifier::ForceFire, true, 1, 2),
-            Command::Attack {
-                attacker_id: 1,
-                target_id: 2,
+            Command::AttackMove {
+                entity_id: 1,
+                target: Some(TargetKind::Entity(2)),
+                destination: None,
             }
         );
         assert_eq!(

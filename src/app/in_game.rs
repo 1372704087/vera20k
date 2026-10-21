@@ -80,6 +80,7 @@ impl App {
         state.match_state.match_presentation.in_game_options_anchor = None;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.surrender_buttons = Default::default();
         state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.restate = Default::default();
         state.match_state.match_presentation.sound_dialog = None;
@@ -348,6 +349,7 @@ impl App {
         state.match_state.match_presentation.in_game_menu = next;
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
+        state.match_state.match_presentation.surrender_buttons = Default::default();
         state.match_state.match_presentation.diplomacy = Default::default();
         state.match_state.match_presentation.restate = Default::default();
         state.match_state.match_presentation.sound_dialog = None;

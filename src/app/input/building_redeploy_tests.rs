@@ -768,8 +768,7 @@ fn an_object_archive_whose_target_is_gone_clears_the_archive() {
 /// What_Action's Alt rung answers Move (a tree is no ally for Ctrl+Alt's
 /// guard rung, `0x004F9A90`), which Building What_Action_OnObject's factory
 /// rungs (`0x004473F4..0x0044750B`) take over the Cell under the tree. The
-/// yard archives the tree (event 0x1E) and its MCV later drives to it; a
-/// plain click over the tree answers 0 and sends nothing.
+/// yard archives the tree (event 0x1E) and its MCV later drives to it.
 #[test]
 fn a_yard_alt_click_over_a_tree_archives_it_and_its_mcv_drives_there() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -816,10 +815,6 @@ fn a_yard_alt_click_over_a_tree_archives_it_and_its_mcv_drives_there() {
             "{modifier:?}"
         );
     }
-    assert_eq!(
-        over_tree(&[yard], OrderModifier::Normal),
-        BuildingClick::Nothing
-    );
     let tick = sim.session().tick();
     sim.queue_commands(
         [

@@ -1252,6 +1252,13 @@ fn emit_entity_order_voice(
 /// admitted an event; an empty batch must not fall through to selection clear.
 /// Friendly click-selection and an empty selection never enter this boundary.
 /// Evidence: tools/procedural_drawing_oracle/action_lines.
+/// A click that queued a move (`moved`) ends the sticky attack-move mode.
+fn consume_order_mode(state: &mut AppState, queued: &[CommandEnvelope], moved: bool) {
+    if !queued.is_empty() && moved && state.match_state.input.queued_order_mode != OrderMode::Move {
+        state.match_state.input.queued_order_mode = OrderMode::Move;
+    }
+}
+
 fn finish_order(
     state: &mut AppState,
     queued: Vec<CommandEnvelope>,
@@ -2109,18 +2116,21 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         // Attack-capable Ctrl receivers, including fixed/occupied buildings,
         // resolve the same action as the cursor before the legacy rally/mobile
         // split. Non-attack capabilities keep their existing handlers below.
-        // A plain, Ctrl or Ctrl+Shift click over a Terrain object takes each
-        // receiver's What_Action on the object (`terrain_object_feedback`
-        // for the cursor). Shift, Alt and Ctrl+Alt took its key rungs
-        // ([`object_key_action`]): a building's are its own orders below.
+        // Over a Terrain object the cursor owner's key rungs answer first
+        // ([`object_key_action`]): Alt's Move dispatches each receiver's own
+        // (a building's are its own orders below). When they refuse, as for
+        // a plain, Ctrl or Ctrl+Shift click, each receiver takes its
+        // What_Action on the object (`terrain_object_feedback` for the
+        // cursor).
         let hover_terrain = match hover_object {
             Some(HoverObject::Terrain(id)) => Some(id),
             _ => None,
         };
-        let terrain_target = hover_terrain.filter(|_| {
-            force_fire
-                || (!force_move
-                    && matches!(modifier, OrderModifier::Normal | OrderModifier::AttackMove))
+        let terrain_target = hover_terrain.filter(|&terrain| {
+            cursor_owner(sim, &resources.rules, &current_objects, terrain).is_none_or(|owner| {
+                object_key_action(sim, &resources.rules, owner, None, modifier, force_move_key)
+                    .is_none()
+            })
         });
         let attack_target = match (hover_object, terrain_target) {
             (Some(HoverObject::Techno(target)), _) => TargetKind::Entity(target.stable_id),
@@ -2254,6 +2264,18 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             .filter(|id| !attack_receivers.contains(id))
             .collect();
         if selected_ids.is_empty() {
+            // A move near a Terrain object uses up the sticky mode as a move
+            // on the ground does (below).
+            let moved = terrain_target.is_some()
+                && queued.iter().any(|envelope| {
+                    matches!(
+                        envelope.payload,
+                        Command::Move { .. }
+                            | Command::MoveToObject { .. }
+                            | Command::AttackMove { .. }
+                    )
+                });
+            consume_order_mode(state, &queued, moved);
             let sent = finish_order(state, queued, speaker_id);
             return sent || (consumed_attack_action && !select_fallback);
         }
@@ -2749,12 +2771,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         }
     }
 
-    if !queued.is_empty()
-        && consumed_order_mode
-        && state.match_state.input.queued_order_mode != OrderMode::Move
-    {
-        state.match_state.input.queued_order_mode = OrderMode::Move;
-    }
+    consume_order_mode(state, &queued, consumed_order_mode);
     if rally_announce && !state.match_state.input.planning.active() {
         crate::app::input::dispatch::push_local_eva(
             state,

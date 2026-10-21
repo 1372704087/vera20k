@@ -355,16 +355,10 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         };
         return Some(promote_attack_move_feedback(kind, attack_move));
     }
-    // A plain, Ctrl or Ctrl+Shift hover over a Terrain object asks the
-    // object.
+    // When they refuse, as under a plain, Ctrl or Ctrl+Shift hover, the
+    // object's later rungs answer.
     let forced = modifier == crate::app::input::context_order::OrderModifier::ForceFire;
     if let Some(HoverObject::Terrain(terrain_id)) = hover_object
-        && matches!(
-            modifier,
-            crate::app::input::context_order::OrderModifier::Normal
-                | crate::app::input::context_order::OrderModifier::ForceFire
-                | crate::app::input::context_order::OrderModifier::AttackMove
-        )
         && let Some(feedback) = best_id.and_then(|id| {
             terrain_object_feedback(
                 sim,
@@ -427,7 +421,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     ))
 }
 
-/// A plain or Ctrl hover over a Terrain object: the resolved object's
+/// A hover over a Terrain object that no key rung answered: the resolved object's
 /// What_Action on it ([`attack_action`](super::context_order::attack_action)),
 /// then Infantry's weapon cursors and Crazy Ivan arm (`0x0051EA59..`).
 /// Unforced, the Techno rung refuses a Terrain object that is not a legal
@@ -1103,11 +1097,10 @@ fn key_move_feedback(
     actor_id: u64,
     target: u64,
 ) -> CursorFeedbackKind {
-    let factory_refuses = sim
-        .entities()
-        .get(actor_id)
-        .is_some_and(|actor| actor.category() == crate::map::entities::EntityCategory::Structure)
-        && sim
+    let factory_refuses =
+        sim.entities().get(actor_id).is_some_and(|actor| {
+            actor.category() == crate::map::entities::EntityCategory::Structure
+        }) && sim
             .building_object_move_action(actor_id, target, rules)
             .is_ok_and(|action| action == crate::sim::world::MoveAction::NoMove);
     if factory_refuses {

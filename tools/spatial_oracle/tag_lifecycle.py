@@ -482,6 +482,23 @@ def execute(case):
     u.mem_write(SCRATCH+0x4F000, dwords(HOUSE))
     u.mem_write(HOUSE+0x34, dwords(HOUSE_TYPE))
     u.mem_write(HOUSE_TYPE+0xB4, dwords(0,0))
+    spy = spy_type = None
+    spy_dispatch_states = []
+    if case.get('spy_actor',False):
+        # Explicit original-layout actor/type priors. The shared lifecycle
+        # owner still executes real Tag/Trigger construction and dispatch;
+        # these fields do not claim an Infantry/Type/House constructor.
+        from tools.spatial_oracle.engineer_repair_admission import INF_VTABLE
+        spy,spy_type=SCRATCH+0xC0000,SCRATCH+0xC2000
+        u.mem_write(spy,bytes(0x800));u.mem_write(spy,dwords(INF_VTABLE))
+        u.mem_write(spy+0x21C,dwords(HOUSE))
+        u.mem_write(spy+0x518,dwords(spy_type,HOUSE))
+        u.mem_write(spy+0x6C0,dwords(spy_type))
+        u.mem_write(spy+0x90,b'\1')
+        u.mem_write(spy+0x9C,dwords(50*256,60*256,0))
+        u.mem_write(spy_type,bytes(0xED0));u.mem_write(spy_type,dwords(0x7EB610))
+        u.mem_write(spy_type+0xDF8,dwords(5));u.mem_write(spy_type+0xEC4,b'\1')
+        u.mem_write(0xA83D4C,dwords(HOUSE));u.mem_write(HOUSE+0x30,dwords(20))
     house_funds = case.get('house_funds')
     observe_object_cleanup = case.get('observe_object_cleanup',False)
     if house_funds is not None:
@@ -600,6 +617,10 @@ def execute(case):
     ranges = [(0x6E4DE0,0x6E5AA0),(0x725FA0,0x726B00),(0x71E940,0x71FA40),
               (0x7258D0,0x725D90),(0x5F3900,0x5F3B40),(0x55AFB0,0x55B205),
               (0x6DD8B0,0x6E45D0),(0x689670,0x689A90)]
+    if spy is not None:
+        ranges.extend(((0x522640,0x5226BB),(0x5226C0,0x522705),
+                       (0x4F9A50,0x4F9AB0),(0x524D60,0x524D67),
+                       (0x502D30,0x502D61)))
     if case.get('mixed_deferred_queue',False):
         ranges.extend(((0x5F3B80,0x5F3E00),(0x5F6690,0x5F66A0),(0x5F6DC0,0x5F6DF0)))
     if house_funds is not None:
@@ -739,12 +760,16 @@ def execute(case):
             u.mem_write(base+16,dwords(len(pointers)))
         elif kind=='attach_object':
             returned=f.call(0x5F5B50,objects[args[0]],[tags[args[1]] if args[1]>=0 else 0])&255
-        elif kind=='dispatch':
+        elif kind in ('dispatch','dispatch_spy'):
             tag_index,event = args[:2]
             xy = args[2] if len(args)>2 else [0,0]
             force = args[3] if len(args)>3 else 0
-            obj = objects[args[4]] if len(args)>4 else 0
+            obj = spy if kind=='dispatch_spy' else objects[args[4]] if len(args)>4 else 0
+            if kind=='dispatch_spy':assert spy is not None
             returned = f.call(0x6E53A0,tags[tag_index],[event,obj,int.from_bytes(packed(*xy),'little'),force,0])&255
+            if kind=='dispatch_spy':
+                spy_dispatch_states.append(dict(kind=event,tag=tags[tag_index],
+                    cell_tag=u32(u,cell(*xy)+0x3C),tag_pending=u.mem_read(tags[tag_index]+0x34,1)[0]))
         elif kind=='global' or kind=='local':
             returned = f.call(0x689670 if kind=='global' else 0x689910,SCENARIO,args)&255
         elif kind=='action':
@@ -792,6 +817,8 @@ def execute(case):
     u.hook_del(hook)
     assert code == [bytes(u.mem_read(a,b-a)) for a,b in ranges]
     result=dict(input=case,history=history,allocations=allocations,calls=calls)
+    if spy is not None:
+        result.update(native_dispatch_states=spy_dispatch_states,code_unchanged=True)
     if observe_object_cleanup:
         result.update(full_rng_before=cleanup_rng_before,
             full_rng_after_history=CampaignReader.rng_state(cleanup_rng_view),
@@ -1337,12 +1364,12 @@ def damage_source_event_metadata():
             'has_occurred':0x71E940,'source_house_index_compare':0x71EE57})
 
 
-def generate_entered_cell_events():
-    """Original1/59 predicates plus the bounded cached-Tag arrival slice."""
+def generate_entered_cell_events(*, spy=False):
+    """Original1/59 predicates and shared optional53/54 cached-Tag slice."""
     from tools.native_oracle import NATIVE_FPCW
     from tools.spatial_oracle.building_body_rules import SP
-    m = PowerEventControls()
-    for kind in (1,59):
+    m = PowerEventControls(reader_inputs=() if spy else None)
+    for kind in (() if spy else (1,59)):
         for actor in (0,1,2,None):
             m.predicate(f'entered{kind}_actor{actor}',f'1,{kind},0,0',raised=kind,actor_index=actor)
         m.predicate(f'entered{kind}_wildcard',f'1,{kind},0,-1',raised=kind,actor_index=1)
@@ -1352,6 +1379,7 @@ def generate_entered_cell_events():
     m.assert_unchanged()
     u = m.u
     selected_cell,tag = m.arena+0x8A000,m.arena+0x8B000
+    agent_type,other_type=m.arena+0x8C000,m.arena+0x8D000
     rows = []
     active = {}
     def observe(vm,pc,size,data):
@@ -1372,27 +1400,46 @@ def generate_entered_cell_events():
                 if active['mutation']=='detach_after1':vm.mem_write(selected_cell+0x3C,dwords(0))
                 elif active['mutation']=='move_after1':vm.mem_write(m.actor+0x9C,dwords(8*256,9*256,0))
                 elif active['mutation']=='clear_alive_after1':vm.mem_write(m.actor+0x90,b'\0')
+            if spy:
+                if kind==59 and active['mutation']=='enable_agent_after59':
+                    vm.mem_write(agent_type+0xEC4,b'\1')
+                if kind==53:
+                    if active['mutation']=='clear_agent_after53':vm.mem_write(agent_type+0xEC4,b'\0')
+                    elif active['mutation']=='replace_type_after53':vm.mem_write(m.actor+0x6C0,dwords(other_type))
+                    elif active['mutation']=='clear_alive_after53':vm.mem_write(m.actor+0x90,b'\0')
+                    elif active['mutation']=='move_after53':vm.mem_write(m.actor+0x9C,dwords(8*256,9*256,0))
+                    elif active['mutation']=='detach_after53':vm.mem_write(selected_cell+0x3C,dwords(0))
             vm.reg_write(UC_X86_REG_EAX,1)
             vm.reg_write(UC_X86_REG_ESP,sp+24)
             vm.reg_write(UC_X86_REG_EIP,struct.unpack('<I',vm.mem_read(sp,4))[0])
     u.hook_add(UC_HOOK_CODE,observe)
-    body_before = bytes(u.mem_read(0x4D8978,0x4D8A14-0x4D8978))
+    end=0x4D8A70 if spy else 0x4D8A14
+    body_before = bytes(u.mem_read(0x4D8978,end-0x4D8978))
     getter_before = bytes(u.mem_read(0x41BEA0,0x2C))
-    for name,flags,on_bridge,has_tag,mutation in (
+    cases=(
         ('ordinary',0,False,True,'none'),('no_tag',0,False,False,'none'),
         ('bridge_ground',0x100,False,True,'none'),('bridge_on',0x100,True,True,'none'),
         ('alternate_bridge_ground',0x400,False,True,'none'),
         ('cached_after_detach',0,False,True,'detach_after1'),
         ('reread_cell_after_move',0,False,True,'move_after1'),
-        ('no_alive_gate_between_raises',0,False,True,'clear_alive_after1')):
+        ('no_alive_gate_between_raises',0,False,True,'clear_alive_after1'))
+    if spy:
+        cases=[(mutation,0,False,True,mutation) for mutation in (
+            'none','non_agent','enable_agent_after59','clear_agent_after53',
+            'replace_type_after53','clear_alive_after53','move_after53','detach_after53')]
+    for name,flags,on_bridge,has_tag,mutation in cases:
         u.mem_write(selected_cell,bytes(0x180))
         u.mem_write(selected_cell+0x140,dwords(flags))
         u.mem_write(selected_cell+0x3C,dwords(tag if has_tag else 0))
         u.mem_write(m.actor+0x9C,dwords(3*256,4*256,0))
         u.mem_write(m.actor+0x8C,bytes([on_bridge]));u.mem_write(m.actor+0x90,b'\1')
+        if spy:
+            u.mem_write(agent_type,bytes(0xED0));u.mem_write(other_type,bytes(0xED0))
+            u.mem_write(agent_type+0xEC4,bytes([mutation not in ('non_agent','enable_agent_after59')]))
+            u.mem_write(m.actor+0x6C0,dwords(agent_type))
         u.reg_write(UC_X86_REG_ESI,m.actor);u.reg_write(UC_X86_REG_ESP,SP)
         active.clear();active.update(mutation=mutation,calls=[],lookups=[])
-        stop=run_checked(u,0x4D8978,(0x4D8A14,0x4D8A70),count=1000)
+        stop=run_checked(u,0x4D8978,(end,0x4D8A70),count=1000)
         rows.append(dict(name=name,inputs=dict(flags=flags,on_bridge=on_bridge,tag=has_tag,mutation=mutation),
             calls=list(active['calls']),lookups=list(active['lookups']),stop=hex(stop)))
     active.clear()
@@ -1414,6 +1461,95 @@ def entered_cell_event_metadata():
         substitutions=['Existing FlagsFixture transport. Explicit recorded Map pointer and Tag callback sinks; no original GetMapCoords getter or selected caller instruction is replaced.'],
         entry_points={'has_occurred':0x71E940,'entered_special':0x71F1BD,
             'foot_cell_tag_slice':0x4D8978,'map_coords':0x41BEA0,'map_callout':0x5657A0,'tag_callout':0x6E53A0})
+
+
+def generate_spy_entry_events():
+    """Original53 identity predicates, cached53/54 caller and linked lifetime.
+
+    Infantry PerCell4D8A14 checks Agent once. HasOccurred71ECF5 resolves
+    Country502D30 and forced DisplayOwner5226C0, not the actor's real House.
+    The existing lifecycle owner independently runs real53/54 Tag actions.
+    """
+    from tools.native_oracle import NATIVE_FPCW
+    m=PowerEventControls(reader_inputs=(),extra_calls=(0x5226C0,0x4F9A50))
+    spans=((0x5226C0,0x522705),(0x4F9A50,0x4F9AB0),(0x71F950,0x71FA40))
+    m.SPANS=[*m.SPANS,*spans]
+    m.original.extend(bytes(m.u.mem_read(a,b-a)) for a,b in spans)
+    # value, worn House, PlayerPtr; supplied House Country bindings are0/7/0.
+    cases=[
+        ('worn_first_country0',0,0,0,{}),('worn_other_country7',7,1,0,{}),
+        ('wrong_worn_house',0,1,0,{}),('same_country_different_house',0,2,0,{}),
+        ('duplicate_country_reordered',0,2,0,dict(order=(2,1,0))),
+        ('fallback_player',7,None,1,{}),('fallback_player_wrong_duplicate',0,None,2,{}),
+        ('forced_ignores_allied_owner',7,1,0,dict(disguised=True)),
+        ('forced_ignores_raw_disguised',7,1,0,{}),
+        ('null_display_house',0,None,None,{}),('minus_one_not_wildcard',-1,0,0,{}),
+        ('unregistered_country',999,0,0,{}),('wrong_raise',0,0,0,dict(raised=54)),
+        ('map_editor_gate',0,0,0,dict(scenario_init=True)),
+        ('null_actor',0,0,0,dict(actor_index=None)),
+        ('initial_persistence_survives_mismatch',0,1,0,dict(initial_persistence=1)),
+        ('incoming_house_irrelevant',0,0,0,dict(house_index=1))]
+    for name,value,worn,player,options in cases:
+        options=dict(options);disguised=options.pop('disguised',False)
+        m.u.mem_write(m.actor+0x51C,dwords(m.houses[worn] if worn is not None else 0))
+        m.u.mem_write(0xA83D4C,dwords(m.houses[player] if player is not None else 0))
+        m.u.mem_write(m.actor+0x1D8,bytes([disguised]))
+        before=bytes(m.u.mem_read(m.timer,12))
+        m.predicate(name,f'1,53,0,{value}',**dict(
+            dict(house_index=None,raised=53,actor_index=0),**options))
+        row=m.predicates[-1]
+        row.update(display_house=worn,current_player=player,raw_disguised=disguised,
+            initial_persistence=options.get('initial_persistence',0),
+            forced_getter_calls=[dict(pc=call['pc'],forced=call['arg0'])
+                for call in row['calls'] if call['pc']=='0x005226C0'],
+            timer_unchanged=before==bytes(m.u.mem_read(m.timer,12)))
+        assert row['timer_unchanged'] and row['event54']==struct.unpack('<i',dwords(0xABCD1234))[0]
+    classification=[]
+    for kind in (53,54):
+        m.u.mem_write(m.event+0x2C,dwords(kind))
+        classification.append(dict(kind=kind,state_a=m.fixture.call(0x71F950,[],ecx=m.event)&255,
+                                   state_b=m.fixture.call(0x71F9C0,[],ecx=m.event)&255))
+    m.assert_unchanged()
+    arrivals=generate_entered_cell_events(spy=True)
+    linked=execute(dict(name='repeat0_linked_spy53_then54_same_cached_tag',repeat=0,
+        lifecycle=True,spy_actor=True,
+        triggers=[dict(events=[[53,0]],actions=[[56,7]]),
+                  dict(events=[[54,5]],actions=[[56,8]])],
+        operations=[['shared'],['attach_cell',0,50,60],
+                    ['dispatch_spy',0,53,[50,60]],['dispatch_spy',0,54,[50,60]],
+                    ['dispatch_spy',0,53,[50,60]]]))
+    linked['checkpoints']=dict(after53=2,after54=3,after53again=4)
+    assert linked['history'][2]['locals']==[7] and linked['history'][3]['locals']==[7,8]
+    assert linked['history'][4]['actions']==linked['history'][3]['actions']
+    assert all(row['cell_tag']==0 and row['tag_pending']==0 for row in linked['native_dispatch_states'])
+    return dict(schema_version=1,native_fpcw=f'0x{NATIVE_FPCW:X}',
+        predicate_controls=m.predicates,classification=classification,
+        arrival_controls=arrivals['arrival_controls'],linked_history=linked,
+        actor=m.actor,tag=arrivals['tag'],houses=m.houses,code_unchanged=True)
+
+
+def spy_entry_event_metadata():
+    return provenance(
+        scope='17 unchanged original53 predicates,53/54 StateA/B,8 Foot4D8978..4D8A70 caller-slice controls and one real repeat0 linked53/54 Tag/action history. Not full PerCell, Spy construction/death, a retail-authored53 map or whole-game parity.',
+        assumptions=[
+            'PowerEventControls/FlagsFixture executes the original counted TEvent reader, HasOccurred71E940, first-Country House502D30, forced Infantry DisplayOwner5226C0 and IsAllied4F9A50. Supplied House+30 identities20/21/22 and Country bindings0/7/0 distinguish House identity from Country identity; their constructors and ownership/disguise writers do not execute.',
+            '53 requires matching raise, actor, value!=-1 and first matching registered Country House. GetDisplayOwner(1) reads retained worn House even with raw Disguised false, otherwise PlayerPtr; it is called twice for nonnull results. Match sets caller persistence1; failure preserves it. Event+54 sentinel and timer bytes stay unchanged. This leaf contains no RNG or detach; no general zero-timer/RNG/detach claim extends to Tag actions.',
+            'Caller controls reuse the entered-cell slice owner. Real GetMapCoords41BEA0 and4D8A14 Agent/Infantry admission execute; supplied Map5657A0 and recorded Tag6E53A0 sinks apply named changes. After53, clearing Agent/Alive, replacing Type or detaching CellTag does not suppress54; moving changes54 Location. These sinks establish caller rereads, not the behavior of actual mutation actions.',
+            'The independent linked history reuses execute: original Tag/Trigger constructors, real53/54 predicates and Infantry forced identity/type/index getters, Register/Spring, Action56 SetLocal, ReplaceTag, pointer-expiry and deferred enqueue execute. Resolved definitions and an unregistered original-layout Spy/Type/House are supplied priors. The same caller-supplied Tag receives53 then54 then53; it is not a Foot execution or a physical Infantry constructor.',
+            'With repeat0,53 sets local7 and marks only its Trigger pending. CellTag is immediately0 and Tag refs0 but Tag.pending stays0, so the cached Tag still dispatches54 to the other Trigger, setting local8. Both Triggers then pending; a further53 executes no action. Queue counts2 then4 include the duplicated Tag ticket; no queue drain, TAction70 immediate free/UAF or general destruction parity is claimed. Existing next_random is a terminal continuation probe outside history.'],
+        substitutions=['Existing FlagsFixture/execute platform allocation/CRT transport and explicit actor/type/House/resolved-definition priors. Arrival slice only: recorded Map and Tag callout sinks with named field mutations. No selected predicate, forced getter, Tag lifecycle instruction, action or RNG return is replaced.'],
+        entry_points=dict(has_occurred=0x71E940,spy_house_compare=0x71ECF5,
+            spy_type_compare=0x71ED59,house_country=0x502D30,display_owner=0x5226C0,
+            disguise_type=0x522640,infantry_type_index=0x524D60,house_allied=0x4F9A50,
+            foot_slice=0x4D8978,agent_admission=0x4D8A14,raise53=0x4D8A4B,raise54=0x4D8A6B,
+            map_coords=0x41BEA0,tag_process=0x6E53A0,register=0x7264C0,spring=0x7265C0,
+            trigger_destroy=0x726720,pointer_expiry=0x7258D0,set_local=0x689910))
+
+
+def spy_entry_event_source_paths():
+    return dict(power_event_source_paths(),
+        lifecycle_fixture=Path(__file__).with_name('aircraft_fire_location.py'),
+        infantry_layout=Path(__file__).with_name('engineer_repair_admission.py'))
 
 
 def generate_line_events():
@@ -2863,7 +2999,11 @@ def damage_event_source_paths():
 if __name__=='__main__':
     import sys
     args=sys.argv[1:]
-    if '--damage-events' in args:
+    if '--spy-entry-events' in args:
+        args.remove('--spy-entry-events')
+        finish_vectors(generate_spy_entry_events,Path(__file__).with_name('trigger_spy_entry_events.json'),
+                       provenance=spy_entry_event_metadata,source_paths=spy_entry_event_source_paths(),argv=args)
+    elif '--damage-events' in args:
         args.remove('--damage-events')
         finish_vectors(generate_damage_events,Path(__file__).with_name('trigger_damage_events.json'),
                        provenance=damage_event_metadata,source_paths=damage_event_source_paths(),argv=args)

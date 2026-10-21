@@ -134,24 +134,19 @@ begin
 end;
 
 { The folder of a `"path"  "<folder>"` line of Steam's libraryfolders.vdf, with
-  its doubled backslashes undone, or empty for any other line. }
+  its doubled backslashes undone, or empty for any other line. The folder only
+  passes through Inno's String functions: through Pascal Script's Copy and
+  Trim, the characters the system code page lacks became question marks. }
 function SteamLibraryPath(Line: String): String;
 var
-  Rest, Folder: String;
-  Quote: Integer;
+  Fields: TArrayOfString;
+  Folder: String;
 begin
   Result := '';
-  Rest := Trim(Line);
-  if CompareText(Copy(Rest, 1, 6), '"path"') <> 0 then
-    Exit;
-  Rest := Trim(Copy(Rest, 7, Length(Rest)));
-  if Copy(Rest, 1, 1) <> '"' then
-    Exit;
-  Rest := Copy(Rest, 2, Length(Rest));
-  Quote := Pos('"', Rest);
-  if Quote > 1 then
+  Fields := StringSplitEx(Line, [#9, ' '], '"', stExcludeEmpty);
+  if (GetArrayLength(Fields) = 2) and (CompareText(Fields[0], '"path"') = 0) then
   begin
-    Folder := Copy(Rest, 1, Quote - 1);
+    Folder := RemoveQuotes(Fields[1]);
     StringChangeEx(Folder, '\\', '\', True);
     Result := Folder;
   end;

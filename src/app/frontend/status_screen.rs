@@ -79,7 +79,8 @@ impl Buttons {
             GameScreen::MainMenu if state.frontend.main_menu_shell_error.is_some() => Some(Self::QUIT),
             GameScreen::MissionResult { .. }
                 if !App::score_shell_active(state)
-                    && !App::campaign_score_shell_active(state) =>
+                    && !App::campaign_score_shell_active(state)
+                    && !crate::app::input::coop_score::active(state) =>
             {
                 Some(Self::BACK_TO_MENU)
             }

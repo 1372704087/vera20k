@@ -793,6 +793,7 @@ impl App {
                 wol_preferences: Default::default(),
                 score_page: None,
                 campaign_score_page: None,
+                coop_score_page: None,
                 score_art: None,
                 campaign_score_art: None,
                 finished_game_count: 0,

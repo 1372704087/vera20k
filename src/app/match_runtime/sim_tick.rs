@@ -166,12 +166,18 @@ pub(crate) fn drive_local_player_outcome_voice_wait(state: &mut AppState, wall_m
         .scenario_elapsed_clock
         .stop_buckets(wall_ms);
     let elapsed_seconds = elapsed_score_ticks / 60;
+    // 0x0055D0C5: the router runs the mode's +0xA0 before GameExit.
+    let cooperative = crate::app::cooperative_round::applies(state);
+    if cooperative {
+        crate::app::cooperative_round::mission_ended(state, elapsed_score_ticks);
+    }
     let title = crate::app::match_runtime::scenario_exit::outcome_title(outcome).to_string();
     let detail = crate::app::match_runtime::scenario_exit::outcome_detail(outcome).to_string();
     let destination = crate::app::match_runtime::scenario_exit::scenario_exit_destination(
         state.match_state.session_mode(),
         outcome,
         state.match_state.map_basic.skip_score.unwrap_or(false),
+        cooperative,
         title,
         detail,
         || build_campaign_score_screen_model(state, elapsed_score_ticks),

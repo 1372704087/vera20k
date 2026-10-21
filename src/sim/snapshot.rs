@@ -1245,7 +1245,9 @@ use crate::util::save_codec;
 // Approaching link, ArriveWait enum variant and installing_unit payload.
 // Enum ordinals and the positional building runtime payload both change.
 // 467 -> 468: retained Country ParentCountry+98 in processed Rules records.
-const SNAPSHOT_VERSION: u32 = 468;
+// 468 -> 469: retained Country VeteranInfantry/VeteranUnits/VeteranAircraft
+// type lists in processed Rules records.
+const SNAPSHOT_VERSION: u32 = 469;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -10248,6 +10250,7 @@ mod tests {
         // 465 -> 466: retained Techno constructor house for capture-sale policy.
         // 466 -> 467: remove duplicate bunker approach state.
         // 467 -> 468: retained Country ParentCountry+98.
-        assert_eq!(super::SNAPSHOT_VERSION, 468);
+        // 468 -> 469: retained Country starting-veterancy lists.
+        assert_eq!(super::SNAPSHOT_VERSION, 469);
     }
 }

@@ -27,7 +27,8 @@ use crate::rules::error::RulesError;
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::mission_data::MissionControl;
 use crate::rules::native_processing::{
-    ProcessedRulesLayers, RulesLayerStack, house_type_index_of_name,
+    CountryProjection, CountryVeterancyLists, ProcessedRulesLayers, RulesLayerStack,
+    house_type_index_of_name,
 };
 use crate::rules::object_type::{BuildCategory, FactoryType, ObjectCategory, ObjectType};
 use crate::rules::particle_system_type::{ParticleSystemType, ParticleSystemTypeId};
@@ -65,6 +66,8 @@ mod multiplayer_rules_tests;
 pub struct CountryRules {
     /// Immutable projection of retained HouseType+98, never merged-text inheritance.
     parent_country: String,
+    /// Retained HouseType+14C/+168/+184 lists projected by their process owner.
+    veteran_types: CountryVeterancyLists,
     /// Native HouseType+C0, initialized0 at51141C and read through
     /// ReadColor474A90 at51193D with the current index as default. The
     /// Process owner supplies the typed value from each actual catalog pass.
@@ -169,6 +172,7 @@ impl Default for CountryRules {
         // wipe out all ore income for any house built from the default. The neutral 1.0
         // multiplier is `INCOME_PPM_SCALE`, not 0.
         Self {
+            veteran_types: CountryVeterancyLists::default(),
             color_scheme: 0,
             parent_country: String::new(),
             multiplay: false,
@@ -199,8 +203,9 @@ impl Default for CountryRules {
 impl CountryRules {
     fn from_ini_section(section: &crate::rules::ini_parser::IniSection) -> Self {
         Self {
-            // Filled from the typed Process receipt, never by resolving an
-            // earlier projected string against the final Colors registry.
+            // Filled from the typed Process receipt; neither veteran lists
+            // nor earlier Color strings are re-resolved against final catalogs.
+            veteran_types: CountryVeterancyLists::default(),
             color_scheme: 0,
             parent_country: String::new(),
             multiplay: section.read_bool("Multiplay", Self::default().multiplay),
@@ -5768,9 +5773,8 @@ impl RuleSet {
     /// slices and are not claimed by this hash yet.
     pub fn simulation_config_hash(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // v33: retained Country+98 governs Owner admission independently
-        // of the current merged INI and actual Country restriction bits.
-        b"rules-simulation-config-v33".hash(&mut hasher);
+        // v34: retain Country starting-veterancy type membership across Rules passes.
+        b"rules-simulation-config-v34".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
         b"country-parent-v1".hash(&mut hasher);
         // The native parent lookup scans registration order and checks Name
@@ -5783,6 +5787,12 @@ impl RuleSet {
                 (id, &country.name, &country.parent_country)
             })
             .collect::<Vec<_>>()
+            .hash(&mut hasher);
+        b"country-starting-veterancy-v1".hash(&mut hasher);
+        self.countries
+            .iter()
+            .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
+            .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
         self.object_list
             .iter()
@@ -6576,7 +6586,7 @@ impl RuleSet {
     /// localized UIName; the app catalog owns that presentation check.
     pub(crate) fn refresh_country_side_projection<'a>(
         &mut self,
-        countries: impl Iterator<Item = (&'a str, &'a IniSection, i32, i32, &'a str)>,
+        countries: impl Iterator<Item = CountryProjection<'a>>,
         sides: impl Iterator<Item = &'a str>,
     ) {
         let projection = project_country_side_registry(countries, sides);
@@ -6586,6 +6596,15 @@ impl RuleSet {
         self.side_ids = projection.side_ids;
         self.side_indices = projection.side_indices;
         self.country_sides = projection.country_sides;
+    }
+
+    /// Native Country veteran-list membership uses the current HouseType,
+    /// not ParentCountry, and is independent of Trainable/Naval/spy state.
+    /// Starting-rank callers: Infantry517CE7, Unit735604/746827,
+    /// Aircraft413F98. Building construction reads no such list.
+    pub fn country_starts_veteran(&self, country: &str, object: &ObjectType) -> bool {
+        self.country_rules(country)
+            .is_some_and(|rules| rules.veteran_types.contains(object.category, &object.id))
     }
 
     pub fn country_multiplay(&self, id: &str) -> bool {
@@ -7545,10 +7564,16 @@ impl RuleSet {
 fn parse_registry(ini: &IniFile, section_name: &str) -> Vec<String> {
     match ini.section(section_name) {
         Some(section) => {
+            // Every caller consumes NativeRulesRegistryState::finish's
+            // projected stored IDs. The original registry ReadString32 and
+            // constructor410800 truncation already ran there. Re-reading
+            // them would trim valid list-created IDs such as " TWO" and lose
+            // the Type pointer identity retained by Country veteran lists.
             let raw: Vec<String> = section
-                .keys()
-                .map(|key| section.read_string(key, "", 32))
+                .registry_ids()
+                .into_iter()
                 .filter(|value| !value.is_empty())
+                .map(str::to_owned)
                 .collect();
             // TypeClass identity is case-insensitive find-or-allocate. Preserve
             // declaration order while keeping the first spelling of an identity.
@@ -7590,7 +7615,7 @@ struct ProjectedCountrySideRegistry {
 /// reached-pass order; reconstructing those decisions from merged text would
 /// invent Countries, lose prior Side vectors and change allocation chronology.
 fn project_country_side_registry<'a>(
-    countries: impl Iterator<Item = (&'a str, &'a IniSection, i32, i32, &'a str)>,
+    countries: impl Iterator<Item = CountryProjection<'a>>,
     sides: impl Iterator<Item = &'a str>,
 ) -> ProjectedCountrySideRegistry {
     let side_ids: Vec<String> = sides.map(str::to_owned).collect();
@@ -7606,7 +7631,7 @@ fn project_country_side_registry<'a>(
     let mut country_indices = HashMap::new();
     let mut country_sides = Vec::new();
     let mut rules = HashMap::new();
-    for (id, section, color, side, parent) in countries {
+    for (id, section, color, side, parent, veteran) in countries {
         let index = CountryIdx(
             u16::try_from(country_ids.len()).expect("[Countries] exceeds u16 identity space"),
         );
@@ -7623,6 +7648,7 @@ fn project_country_side_registry<'a>(
             let mut fields = CountryRules::from_ini_section(section);
             fields.color_scheme = color;
             fields.parent_country = parent.to_owned();
+            fields.veteran_types = veteran.clone();
             fields
         });
     }
@@ -11085,8 +11111,11 @@ Projectile=Invisible
         ))
         .expect("BuildConst whitespace rules");
 
-        assert_eq!(rules.build_const_types, ["GACNST"]);
+        // BuildingType FindOrAllocate (`0x004653C0`) compares whole IDs, so
+        // " NACNST" allocates its own type rather than aliasing NACNST.
+        assert_eq!(rules.build_const_types, ["GACNST", " NACNST"]);
         assert!(rules.object("GACNST").unwrap().build_const_eligible);
+        assert!(rules.object(" NACNST").unwrap().build_const_eligible);
         assert!(
             !rules.object("NACNST").unwrap().build_const_eligible,
             "the internally space-prefixed token must not alias registered NACNST"
@@ -11166,15 +11195,16 @@ Projectile=Invisible
         assert_eq!(rules.build_barracks_types, ["BAR"]);
         assert_eq!(
             rules.build_tech_types,
-            ["TECH"],
-            "the internally space-prefixed token is not individually trimmed"
+            ["TECH", " TECH"],
+            "the internally space-prefixed token is not trimmed; it allocates its own type"
         );
         assert_eq!(rules.build_weapons_types, ["WEAP"]);
         assert_eq!(rules.build_radar_types, ["RAD", "RAD"]);
         assert_eq!(
             rules.harvester_unit_types,
-            ["HARV", "HARV"],
-            "sentinels are omitted, duplicates retained, and a space-prefixed Unit token is unresolved"
+            ["HARV", "HARV", " AUNIT"],
+            "sentinels are omitted, duplicates retained, and a space-prefixed Unit token \
+             allocates its own UnitType (`0x007480D0`)"
         );
         assert!(rules.object("CON").unwrap().build_const_eligible);
         assert!(!rules.object("POISON").unwrap().build_const_eligible);

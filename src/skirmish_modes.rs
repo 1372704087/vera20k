@@ -491,5 +491,10 @@ mod tests {
             stock_skirmish_modes(),
             "every consumed roster and override field"
         );
+        // The WOL room filter's retail inputs (FillModeList 5D6203..37).
+        let by_class = |class| modes.iter().find(|mode| mode.class == class).unwrap();
+        assert!(!by_class(MpModeClass::FreeForAll).wonline_clan_tournament_allowed);
+        assert!(by_class(MpModeClass::FreeForAll).wonline_tournament_allowed);
+        assert!(!by_class(MpModeClass::Cooperative).wonline_tournament_allowed);
     }
 }

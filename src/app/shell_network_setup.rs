@@ -302,6 +302,11 @@ impl App {
                 .clone(),
             state.frontend.skirmish_shell_state.trackbar_bounds,
             observe,
+            if dialog.wol() {
+                crate::app::shell_wol::lobby::room(state)
+            } else {
+                Default::default()
+            },
         );
         let (launch, vacancies) = match result {
             Ok(value) => value,

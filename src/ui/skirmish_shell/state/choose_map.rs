@@ -148,8 +148,8 @@ impl ChooseMapContext {
         }
     }
 
-    /// `IsValidMap` (`0x005D63E0`): a tournament or clan room lists only
-    /// official maps and random maps (`0x005D63FF..0x005D6416`).
+    /// `IsValidMap`'s room test (`0x005D6409`): a tournament or clan room
+    /// lists only official maps and the random map.
     fn official_only(self) -> bool {
         matches!(
             self,
@@ -259,12 +259,8 @@ impl ChooseMapModalState {
     fn build_map_list(&mut self, modes: &[SkirmishGameMode], records: &[SkirmishScenarioRecord]) {
         let mode = mode_by_id(modes, self.selected_mode_id);
         self.filtered_record_indices = mode
-            .map(|mode| filter_records_for_mode(records, mode))
+            .map(|mode| filter_records_for_mode(records, mode, self.official_only))
             .unwrap_or_default();
-        if self.official_only {
-            self.filtered_record_indices
-                .retain(|index| records[*index].official);
-        }
         self.random_maps_allowed = mode.is_some_and(|mode| mode.random_maps_allowed);
         self.map_scroll.cancel();
     }

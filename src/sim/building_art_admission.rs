@@ -96,7 +96,8 @@ impl Simulation {
         }
     }
 
-    /// Original450A86..450B34: a non-naval UnitRepair building whose
+    /// `BuildingClass::UpdateAnimation @ 0x004509D0`, its depot block
+    /// `0x00450A86..0x00450B34`: a non-naval UnitRepair building whose
     /// Get_Mission (vt+0x184: current, else queued) is not Repair but which
     /// still holds slot 8 or 11 (ProductionAnim, SpecialAnimTwo) raises its
     /// arm: SpecialAnimThree, damaged at ConditionYellow, into slot 12, then

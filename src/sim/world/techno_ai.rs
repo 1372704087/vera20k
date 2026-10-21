@@ -782,6 +782,8 @@ fn techno_ai_shell(
             // at43FE56. A yellow-crossing selfheal must not retire damage
             // fire one native frame early.
             crate::sim::credit_income::produce_cash_step(sim, id, rules);
+            // UpdateAnimation's depot raise (`0x00450A86..0x00450B34`) runs
+            // just before its InfantryAbsorb block (`0x00450B34`).
             sim.update_depot_raise_anim(id, rules);
             sim.update_building_absorb_anim(id, rules);
             sim.update_building_storage_anims(id, rules);

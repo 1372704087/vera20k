@@ -3746,20 +3746,14 @@ fn building_object_release(
 }
 
 /// Building ClickedAction_Object (`0x00443410`) for each selected building
-/// whose action over `target` is Move ([`building_moves_over_object`]). An
+/// whose action over `target` is Move: the force-move rung
+/// ([`building_moves_over_object`]) and the building's own factory rungs
+/// ([`Simulation::building_object_move_action`]); a NoMove sends nothing. An
 /// Infantry, Unit or Aircraft factory (Type+0xEB8, `0x0044361B..0x0044363A`)
 /// sets its rally point from the Cell under the object's GetCoords
 /// (`0x0044368D..0x004436D8`, Building443860, [`Simulation::factory_rally_cell_input`]).
 /// Any other building, a Construction Yard among them, archives the object
 /// (event 0x1E, `0x0044363C..0x00443688`) and never packs up.
-///
-/// RESIDUAL: Building What_Action_OnObject's NoMove rungs for a ground
-/// factory (`0x0044748E..0x0044750B`) are not asked: IsInSameZoneAsCoords
-/// (vt+0x2CC, `0x00707F60`) toward the object's Cell, then that Cell's zone
-/// type (`+0x4C`) when it has no high bridge (`+0x140 & 0x100`). Trigger:
-/// Alt+click over an object with a war factory or barracks selected. Effect:
-/// VERA sets a rally native refuses (an object on a building or across
-/// water), and the cursor shows Move for native's NoMove. Rare.
 ///
 /// RESIDUAL: the non-factory's archive of the object (event 0x1E) is not
 /// sent; its ArchiveTarget keeps the earlier value. Trigger: Alt+click over
@@ -3770,6 +3764,7 @@ fn building_object_release(
 /// its MCV to the old point. Rare.
 ///
 /// [`Simulation::factory_rally_cell_input`]: crate::sim::world::Simulation::factory_rally_cell_input
+/// [`Simulation::building_object_move_action`]: crate::sim::world::Simulation::building_object_move_action
 fn building_object_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -3803,6 +3798,14 @@ fn building_object_orders(
             )
         {
             continue;
+        }
+        match sim.building_object_move_action(id, target, rules) {
+            Ok(crate::sim::world::MoveAction::Move) => {}
+            Ok(_) => continue,
+            Err(error) => {
+                log::warn!("building object input: {error}");
+                continue;
+            }
         }
         match sim.factory_rally_cell_input(id, cell, rules) {
             Ok(Some((rx, ry))) => {

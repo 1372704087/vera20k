@@ -17,10 +17,13 @@ name: Release
 #                that testers played. Publishes the same archives as release
 #                v<version>, checked against their checksums and build
 #                provenance and never rebuilt: the stable toolchain can change
-#                between runs. Its notes list the commits since the previous
-#                release. It is a draft, for notes written for players; once
-#                published, it is the repository's Latest release. Then raise the
-#                Cargo.toml version, so later dev builds carry the next one.
+#                between runs. Only their names change, to plain
+#                vera20k-<version>-<platform> ones. Its notes list the commits
+#                since the previous release. It is a draft, for notes written for
+#                players; once published, it is the repository's Latest release.
+#                Then raise the Cargo.toml version, so later dev builds carry the
+#                next one; a dev build refuses to start until it is above every
+#                release.
 #
 # The job that creates a tag also publishes its release: GitHub suppresses
 # `on: push` for refs written with GITHUB_TOKEN, so a tag created by a job can
@@ -95,6 +98,16 @@ jobs:
           version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)"
           if [ -z "$version" ]; then
             echo "No [package] version found in Cargo.toml" >&2
+            exit 1
+          fi
+          # A dev build is a pre-release of its version, which sorts before that
+          # version's release. After a release, a dev build of the same or a
+          # lower version would look older than the release it follows.
+          released="$(git ls-remote --tags --refs origin 'refs/tags/v*' \
+            | sed -n 's|.*refs/tags/v\([0-9]*\.[0-9]*\.[0-9]*\)$|\1|p' | sort -V | tail -n 1)"
+          if [ -n "$released" ] \
+            && [ "$(printf '%s\n' "$released" "$version" | sort -V | tail -n 1)" = "$released" ]; then
+            echo "::error::v$released is released; raise the version in Cargo.toml above $released before the next dev build."
             exit 1
           fi
           # UTC keeps archive names identical for maintainers in any timezone.
@@ -178,18 +191,21 @@ jobs:
           VERSION: ${{ needs.prepare.outputs.version }}
           STAMP: ${{ needs.prepare.outputs.stamp }}
           SHA7: ${{ needs.prepare.outputs.sha }}
-          TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           set -euo pipefail
           # Name = version + platform + build time + the commit built. The time
           # keeps two builds of one Cargo.toml version apart; the short sha makes
-          # a downloaded archive traceable to its commit.
+          # a downloaded archive traceable to its commit. A release drops both
+          # (the promote job).
           name="vera20k-${VERSION}-${{ matrix.target }}-${STAMP}-${SHA7}"
           mkdir -p "dist/$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           cp "target/shipping/${{ matrix.program }}" config.toml.example LICENSE-GPL \
             dist/THIRD_PARTY_LICENSES.html "dist/$name/"
-          sed "s/@VERSION@/${TAG}/" .github/release/README.txt.in > "dist/$name/README.txt"
+          # The README names the version and build, which stay true when a
+          # release republishes this archive.
+          sed -e "s/@VERSION@/${VERSION}/" -e "s/@BUILD@/${STAMP}/" \
+            .github/release/README.txt.in > "dist/$name/README.txt"
 
           # Files sit at the archive root so they can be extracted straight into
           # the game folder.
@@ -206,7 +222,7 @@ jobs:
         shell: pwsh
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
-          TAG: ${{ needs.prepare.outputs.tag }}
+          STAMP: ${{ needs.prepare.outputs.stamp }}
           NAME: ${{ steps.package.outputs.name }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -214,7 +230,7 @@ jobs:
           $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
           if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
           $dist = (Resolve-Path dist).Path
-          & $iscc "/DAppVersion=$env:VERSION" "/DReleaseTag=$env:TAG" `
+          & $iscc "/DAppVersion=$env:VERSION" "/DBuild=$env:STAMP" `
             "/DPackageDir=$dist\$env:NAME" "/DOutputDir=$dist" `
             "/DOutputBaseFilename=$env:NAME-setup" .github\release\windows\vera20k.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
@@ -550,6 +566,22 @@ jobs:
             gh attestation verify "$archive" --repo "$GITHUB_REPOSITORY" > /dev/null
             echo "provenance verified: $archive"
           done
+          # Plain release names: vera20k-<version>-<platform>[-setup].<ext>,
+          # without the dev build's time and commit. Only the names change, so
+          # the checksums are listed again under them, and the provenance,
+          # which is bound to each file's contents, still verifies.
+          version_re="${version//./\\.}"
+          for archive in $listed; do
+            plain="$(sed -E "s/^(vera20k-$version_re-[a-z0-9]+-[a-z0-9]+)-$stamp-[0-9a-f]{7,40}(-setup\.exe|\.zip|\.tar\.gz|\.dmg)$/\1\2/" <<< "$archive")"
+            if [ "$plain" = "$archive" ] || [ -e "$plain" ]; then
+              echo "!! cannot give $archive a plain release name" >&2
+              exit 1
+            fi
+            mv "$archive" "$plain"
+            echo "renamed: $archive -> $plain"
+          done
+          sha256sum vera20k-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
           {
             echo "tag=v$version"
             echo "version=$version"

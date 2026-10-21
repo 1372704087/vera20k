@@ -1466,6 +1466,8 @@ impl MoviesCapture {
                 CampaignStartTarget::Restart(RestartTarget::DefeatPrompt) => "defeat-replay-prompt",
                 CampaignStartTarget::Restart(RestartTarget::DefeatReplayed) => "defeat-replayed",
                 CampaignStartTarget::Restart(RestartTarget::Restate) => "restate",
+                CampaignStartTarget::Restart(RestartTarget::SavedVictory) =>
+                    "saved-victory-next-mission",
                 CampaignStartTarget::Restart(RestartTarget::SavedAbortRestarted) =>
                     "saved-abort-restarted",
                 CampaignStartTarget::Restart(RestartTarget::MenuDefeatReplayed) =>

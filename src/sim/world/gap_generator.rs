@@ -282,11 +282,13 @@ impl Simulation {
     }
 
     /// Whose `+0x269` gates the off edge's removal and super-charge reset
-    /// (`0x00454B9B`): native reads the running client's own copy, set by
+    /// (`0x00454B9B`): native reads the running client's own copy, written by
     /// gap add `0x006FB170` (`0x006FB1CD`) and remove `0x006FB470`
-    /// (`0x006FB4BB`) only while PlayerPtr (`0x00A83D4C`) is set. In a
-    /// single-client game that client is the current House, so its viewer's
-    /// deposit decides. `None` asks whether any viewer holds a deposit.
+    /// (`0x006FB4BB`). Their PlayerPtr (`0x00A83D4C`) test passes on every
+    /// client in play, so the copies differ only through the reveal and
+    /// alliance brackets below. In a single-client game the running client is
+    /// the current House, so its viewer's deposit decides. `None` asks
+    /// whether any viewer holds a deposit.
     ///
     /// Residual: `None` for a network game, where the current House is
     /// client-local (absent from the peer hash) and must not decide the
@@ -299,7 +301,10 @@ impl Simulation {
     ///    the generator is operational. The remove bracket (`0x004F9B9A`,
     ///    before the ally bit) takes the gap arm on the new ally's client and
     ///    the re-add bracket (`0x004F9F4F`) takes the allied-Building arm, so
-    ///    that client keeps 0 until the generator's next on edge.
+    ///    that client keeps 0 until a later add on it: the generator's next on
+    ///    edge, the Mission_Unload toggle's re-add (`0x0044E29D..0x0044E36B`),
+    ///    a Make_Enemy re-add bracket (`0x004FA1E3`) or an owner change's
+    ///    remove/re-add (`0x00448260`).
     /// 2. Trigger: a one-client map transition (Reveal or Reset_Shroud for
     ///    PlayerPtr: SpySat gain or loss, a reveal crate, a trigger) after the
     ///    generator stops being operational and before its Update edge; the
@@ -307,9 +312,10 @@ impl Simulation {
     ///
     /// Effect in a network game: a client holding 0 keeps the charge and the
     /// extra drain where VERA drops both; downstream, the kept drain can hold
-    /// the owner in low power on that client. Frequency: rare (an alliance
-    /// with a charged generator's owner, then its power loss before its next
-    /// on edge; or the same-frame coincidence of case 2).
+    /// the owner in low power on that client. Frequency: rare. Case 1 needs
+    /// an alliance with a charged generator's owner followed by its power
+    /// loss with none of those re-adds in between (an owner toggling the
+    /// charge already re-adds); case 2 needs a same-frame coincidence.
     fn gap_supercharge_deciding_client(&self) -> Option<InternedId> {
         if self.session.game_mode().is_network() {
             return None;

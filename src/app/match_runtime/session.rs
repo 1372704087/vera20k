@@ -1601,6 +1601,15 @@ impl MatchSession {
         }
     }
 
+    /// The WOL start terms: the setup's, then the frozen start's.
+    pub(crate) fn network_wol_start(&self) -> Option<&WolStartTerms> {
+        let network = self.network.as_ref()?;
+        match &network.phase {
+            NetworkPhase::Frozen { startup, .. } => Some(startup.wol_start()),
+            _ => Some(&network.wol_start),
+        }
+    }
+
     pub(crate) fn network_max_ahead_frames(&self) -> Option<i32> {
         self.network.as_ref()?.max_ahead_frames
     }
@@ -1859,11 +1868,13 @@ impl MatchSession {
 
 /// What a WOL start hands the match: OnGameStart's `[0xB779C4]` (the
 /// channel's tournament value, 2 in a clan room) and Start Game Now's two
-/// clan name lists `[0xB77A04]`/`[0xB76568]`.
+/// clan name lists `[0xB77A04]`/`[0xB76568]`; `quick_coop` is the WOL mode
+/// `[0xA8B244] == 2`, which scenario load reads at `0x0068755E`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct WolStartTerms {
     pub(crate) tournament: i32,
     pub(crate) squad_lists: [Vec<String>; 2],
+    pub(crate) quick_coop: bool,
 }
 
 /// A WOL game channel's kind from its record: tournament `+0x14` and the

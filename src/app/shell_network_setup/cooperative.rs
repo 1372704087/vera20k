@@ -1,4 +1,5 @@
-//! The LAN setup's Cooperative campaign: MPCooperative's slots (vtable
+//! The setup's Cooperative campaign (LAN, and WOL where wired: Use Map,
+//! the host's join, Quick Co-op): MPCooperative's slots (vtable
 //! `0x007EE27C`) at their native call sites in the setup, Choose Map, the
 //! host's join and the guest's packets. The progress itself belongs to the
 //! runtime's `CooperativeProgressState`; this module only reads the session
@@ -18,7 +19,7 @@ use crate::skirmish_modes::MpModeClass;
 struct SlotInputs {
     scenarios: Vec<String>,
     nodes: Vec<String>,
-    current: Option<usize>,
+    current: usize,
     chooser_on_top: bool,
 }
 
@@ -45,13 +46,7 @@ impl SlotInputs {
                 .map(|record| record.file_name.clone())
                 .collect(),
             nodes,
-            current: launch
-                .and_then(|launch| launch.selected_map_file.as_deref())
-                .and_then(|file| {
-                    records
-                        .iter()
-                        .position(|record| record.file_name.eq_ignore_ascii_case(file))
-                }),
+            current: state.frontend.multiplayer_shell_runtime.scenario_index(),
             chooser_on_top: state
                 .frontend
                 .skirmish_shell_state
@@ -152,9 +147,7 @@ pub(super) fn host_opened(state: &mut AppState) -> anyhow::Result<()> {
         return Ok(());
     }
     let inputs = SlotInputs::read(state);
-    let Some(current) = inputs.current else {
-        return Ok(());
-    };
+    let current = inputs.current;
     let host_setup = host_setup_open(state);
     let selected = {
         let parts = state.frontend.multiplayer_shell_runtime.cooperative_parts();
@@ -224,7 +217,12 @@ fn select_scenario(state: &mut AppState, index: usize) -> anyhow::Result<()> {
         .match_state
         .session
         .select_network_map(mode, file.clone(), capacity)?;
-    debug_assert!(removed.is_empty(), "a new host has no remote peers");
+    debug_assert!(removed.is_empty(), "a Cooperative map seats both players");
+    // +0x20 writes [0xA8B254] before the selection.
+    state
+        .frontend
+        .multiplayer_shell_runtime
+        .set_scenario_index(index);
     let metadata = super::local_map_metadata(state, &file)?;
     state
         .match_state
@@ -296,9 +294,7 @@ pub(super) fn map_used(state: &mut AppState, mode_changed: bool, row: usize) -> 
         return Ok(());
     }
     let inputs = SlotInputs::read(state);
-    let Some(current) = inputs.current else {
-        return Ok(());
-    };
+    let current = inputs.current;
     let host_setup = host_setup_open(state);
     let setup = setup_open(state);
     let refresh = {
@@ -325,7 +321,8 @@ pub(super) fn map_used(state: &mut AppState, mode_changed: bool, row: usize) -> 
     publish(state, published)
 }
 
-/// The host's LAN join accept (`0x005E1BF2` → `0x005E2FA0`): the chooser's
+/// The host's join accept (LAN `0x005E1BF2`, WOL `0x007A6E5A`) →
+/// `0x005E2FA0`: the chooser's
 /// selected mode when Choose Map is on top, else the current one, gets
 /// `+0x94`, which makes the record if needed, binds the two names and
 /// publishes it. Ordinary modes' `+0x94` does nothing.
@@ -407,26 +404,38 @@ pub(super) fn campaign_received(state: &mut AppState, text: &str) -> anyhow::Res
     Ok(())
 }
 
-/// The guest's options parse on a mode change to Cooperative
-/// (`0x005E541D..0x005E5466`): `+0x20` with no host dialog (BD), drawing
-/// for a missing record on the guest's own scenario, then `+0x7C`.
-pub(super) fn guest_mode_entered(state: &mut AppState) -> anyhow::Result<()> {
+/// An options parse that changes the mode (`0x005E541D..0x005E5466`):
+/// the new mode's `+0x20`, then `+0x7C`, which only repaints. A setup
+/// dialog's guest (BD, C9) and both Quick Co-op machines run it; none has
+/// the host's setup on the shell stack. A missing record draws on
+/// `[0xA8B254]`'s scenario. The Quick Co-op host's options name no map it
+/// keeps: `+0x20` may select the first map's scenario
+/// (`0x005C1B79..0x005C1BA1`), which the later lookup at `0x007A6E0B`
+/// selects again. The countries refresh only with a setup dialog.
+pub(super) fn mode_entered(state: &mut AppState) -> anyhow::Result<()> {
     if !current(state) {
         return Ok(());
     }
     let inputs = SlotInputs::read(state);
-    let Some(current) = inputs.current else {
-        return Ok(());
-    };
-    {
+    let current = inputs.current;
+    let host_setup = host_setup_open(state);
+    let selected = {
         let parts = state.frontend.multiplayer_shell_runtime.cooperative_parts();
         inputs.with(|context, _| {
-            // A guest's +0x20 selects a scenario only for itself; the
-            // host's options name the map.
             parts
                 .progress
-                .enter_mode(parts.registry, parts.rng, context, current, false)
-        });
+                .enter_mode(parts.registry, parts.rng, context, current, host_setup)
+        })
+    };
+    // RESIDUAL: a guest's own SelectScenario is not ported; the host's
+    // options name its map.
+    if let Some(index) = selected
+        && state.match_state.session.host()
+    {
+        select_scenario(state, index)?;
     }
-    refresh_countries(state)
+    if setup_open(state) {
+        refresh_countries(state)?;
+    }
+    Ok(())
 }

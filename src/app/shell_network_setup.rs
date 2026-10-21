@@ -524,6 +524,9 @@ fn install_setup(
     state.frontend.lan = None;
     state.frontend.multiplayer_setup = Some(MultiplayerSetupState::default());
     state.frontend.network_setup_protocol = Some(NetworkSetupProtocol::new(dialog, quick_match));
+    if !quick_match {
+        note_scenario(state);
+    }
     if quick_match {
         // 0x117 stays up and takes the lines; no dialog opens.
         state.platform.window.request_redraw();
@@ -539,6 +542,33 @@ fn install_setup(
     shell_transition::invalidate_main_menu_dialog_instance(state);
     state.platform.window.request_redraw();
     Ok(())
+}
+
+/// `[0xA8B254]` after a setup dialog's map change (BC `0x005ED668`, Use Map
+/// `0x005E7370`, C2 `0x00790DFE`, C9 `0x00792978`): the selected map's
+/// record. A setup with no map yet leaves it. Quick Match's setup has no
+/// dialog and never writes it.
+pub(super) fn note_scenario(state: &mut AppState) {
+    let Some(index) = state
+        .match_state
+        .session
+        .network_setup()
+        .and_then(|launch| launch.selected_map_file.as_deref())
+        .and_then(|file| {
+            state
+                .frontend
+                .scenario_catalog
+                .records()
+                .iter()
+                .position(|record| record.file_name.eq_ignore_ascii_case(file))
+        })
+    else {
+        return;
+    };
+    state
+        .frontend
+        .multiplayer_shell_runtime
+        .set_scenario_index(index);
 }
 
 pub(crate) fn show_statics(state: &mut AppState) {

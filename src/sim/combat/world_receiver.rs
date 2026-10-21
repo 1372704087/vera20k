@@ -1548,9 +1548,11 @@ pub(crate) fn handle_death(
                         let [x, y] = crate::sim::movement::ground_pose::object_center_xy(entity);
                         (x, y)
                     });
-                // Techno702232..70227B skips this block only for a low
-                // dropped bomb over water; ordinary water deaths still throw.
-                if world.dropped_bomb_water_death_location(dead_id).is_none() {
+                // Techno702232..70227B jumps to 0x702672 for a low dropped
+                // bomb over water, past the debris, KillPassengers and the
+                // death weapon; ordinary water deaths still run them.
+                let low_water_bomb = world.dropped_bomb_water_death_location(dead_id).is_some();
+                if !low_water_bomb {
                     throw_debris_for_death(
                         world,
                         obj,
@@ -1576,7 +1578,8 @@ pub(crate) fn handle_death(
                         &world.interner,
                     )
                 });
-                let explodes = death_arm_explodes(obj, veterancy, numbered_weapon);
+                let explodes =
+                    !low_water_bomb && death_arm_explodes(obj, veterancy, numbered_weapon);
                 if explodes && callbacks_enabled(world) {
                     let attacker = killing_attacker(world, damage_events, dead_id);
                     world.kill_passengers(

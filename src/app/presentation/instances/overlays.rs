@@ -430,7 +430,10 @@ pub(crate) fn build_display_effect_instances(
         }
         // DrawIt423055..42305D resolves the ordinary source as AC + AnimType.Start,
         // just as the building-slot caller. Special draw arms retain their
-        // existing frame selection until their own renderer is ported.
+        // existing frame selection until their own renderer is ported, and so
+        // does a HasBounce ground shadow ahead of them, which natively takes
+        // AC + Start in every arm (4233CD). Residual: no retail Tiled or RING1
+        // type sets Bouncer=, IsMeteor= or Start=.
         let start = if super::anim_draw::ordinary_anim_type(type_name, config) {
             config.map_or(0, |config| config.start)
         } else {

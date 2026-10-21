@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use crate::app::AppState;
 use crate::app::input::commands::preferred_local_owner_name;
+use crate::app::input::entity_pick::HoverObject;
 use crate::app::presentation::instances::CellVisibilityState;
 use crate::app::types::{
     CursorFeedbackKind, CursorId, HoverTargetKind, ScrollDir, SoftwareCursorFrame,
@@ -295,14 +296,14 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             modifier,
         ));
     }
-    let hover = crate::app::input::entity_pick::hover_target_at_point(
+    let hover_object = crate::app::input::entity_pick::hover_object_at_point(
         crate::app::input::entity_pick::presented(state, sim),
         world_x,
         world_y,
         &owner,
         state.match_state.sandbox_full_visibility,
-        state.rules(),
     );
+    let hover = hover_object.and_then(HoverObject::techno);
     if selected.is_empty() {
         return no_selection_cursor(hover.as_ref());
     }
@@ -310,12 +311,10 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // shows that object's action, for the cell branch as well as the object
     // branch. Resolve it before the split so every branch below reads the same
     // object instead of taking `.any()` over the selection.
-    let action_target = hover
-        .as_ref()
-        .and_then(|h| sim.entities().get(h.stable_id))
-        .map_or(ActionDistanceTarget::CellCentre(hover_rx, hover_ry), |e| {
-            ActionDistanceTarget::Object(e.stable_id())
-        });
+    let action_target = hover_object.map_or(
+        ActionDistanceTarget::CellCentre(hover_rx, hover_ry),
+        |object| ActionDistanceTarget::Object(object.id()),
+    );
     let best_id = select_best_for_action(sim, &selected, action_target, state.rules());
 
     if let Some(hover) = hover.as_ref() {
@@ -338,6 +337,26 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         ));
     }
 
+    // A plain or Ctrl hover over a Terrain object asks the object.
+    let forced = modifier == crate::app::input::context_order::OrderModifier::ForceFire;
+    if let Some(HoverObject::Terrain(terrain_id)) = hover_object
+        && (forced
+            || (modifier == crate::app::input::context_order::OrderModifier::Normal
+                && state.match_state.input.queued_order_mode == crate::app::types::OrderMode::Move))
+        && let Some(feedback) = best_id.and_then(|id| {
+            terrain_object_feedback(
+                sim,
+                id,
+                terrain_id,
+                forced,
+                selected.len(),
+                state.rules(),
+                state.overlay_registry(),
+            )
+        })
+    {
+        return Some(feedback);
+    }
     // Force-fire override: with Ctrl held the cell path takes the attack branch
     // over allies, own units and empty ground. Ctrl+Shift is attack-move and
     // Ctrl+Alt is guard area — neither force-fires — so this reads the resolved
@@ -349,7 +368,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // every ACTION_ATTACK arm when it fails. It consults ONE weapon slot, so
     // `Primary=`/`Secondary=` is the wrong test for a `TurretCount>0` type —
     // it hid the force-fire cursor for the Prism Tank and the Gattling Cannon.
-    if modifier == crate::app::input::context_order::OrderModifier::ForceFire {
+    if forced {
         let target = combat::TargetKind::Cell(hover_rx, hover_ry);
         if let Some(feedback) = best_id.and_then(|id| {
             force_fire_feedback(
@@ -384,6 +403,64 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         (hover_rx, hover_ry),
         modifier,
     ))
+}
+
+/// A plain or Ctrl hover over a Terrain object: the resolved object's
+/// What_Action on it ([`attack_action`](super::context_order::attack_action)),
+/// then Infantry's weapon cursors and Crazy Ivan arm (`0x0051EA59..`).
+/// Unforced, the Techno rung refuses a Terrain object that is not a legal
+/// target, and every class's tail turns that 0 into its own answer: NoMove
+/// for a player's Unit (`0x0073FD50`) or Infantryman (`0x0051F05E`), an
+/// Aircraft's Cell action under the object (`0x00417D7C`), and 0 for a
+/// Building (`0x00447210`), which shows no rally. With Ctrl an armed object
+/// answers Attack, which an `Immune=` type turns into NoMove.
+///
+/// RESIDUALS, each a rare chord or unit over a Terrain object:
+/// - Shift, Alt, Ctrl+Alt and Ctrl+Shift answer the Cell. Native: Select
+///   (`0x00700107`), Move (`0x007001E9..0x00700217`), Move, and the
+///   unforced NoMove. VERA's sticky attack-move mode answers the Cell too.
+/// - A player's Crazy Ivan with Ctrl: native answers IvanBomb
+///   (`0x0051EB48..0x0051EB66`) on every Terrain object, which are all
+///   `Bombable=` (ObjectType ctor `+0x22E`; no retail TerrainType clears it),
+///   and plants a bomb on it. VERA attaches no bomb to Terrain; it answers
+///   NoIvanBomb and sends nothing.
+pub(crate) fn terrain_object_feedback(
+    sim: &crate::sim::world::Simulation,
+    actor_id: u64,
+    terrain_id: u64,
+    forced: bool,
+    selected_count: usize,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> Option<CursorFeedbackKind> {
+    let target = combat::TargetKind::Entity(terrain_id);
+    let action = super::context_order::attack_action(
+        sim,
+        rules?,
+        actor_id,
+        &target,
+        forced,
+        overlay_registry,
+    );
+    let kind = action_feedback(
+        sim,
+        actor_id,
+        &target,
+        action,
+        selected_count,
+        rules,
+        overlay_registry,
+    )
+    .unwrap_or(CursorFeedbackKind::Default);
+    let is_ivan = sim
+        .entities()
+        .get(actor_id)
+        .and_then(|actor| rules.and_then(|r| sim.interner().object_type(actor.type_ref(), r)))
+        .is_some_and(|object| object.ivan);
+    Some(
+        infantry_weapon_feedback(sim, rules, actor_id, terrain_id, kind)
+            .unwrap_or_else(|| ivan_attack_feedback(kind, is_ivan, None, None)),
+    )
 }
 
 /// Techno What_Action on a Cell's unforced Attack rung
@@ -786,9 +863,10 @@ pub(super) fn capability_cursor_for_hover(
                 overlay_registry,
             ) {
                 let kind = kind.unwrap_or(CursorFeedbackKind::Default);
-                return infantry_weapon_feedback(sim, rules, best_id, hover, kind).unwrap_or_else(
-                    || ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj),
-                );
+                return infantry_weapon_feedback(sim, rules, best_id, hover.stable_id, kind)
+                    .unwrap_or_else(|| {
+                        ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
+                    });
             }
         }
 
@@ -848,7 +926,7 @@ pub(super) fn capability_cursor_for_hover(
             } else {
                 CursorFeedbackKind::EnemyOutOfRange
             };
-            return infantry_weapon_feedback(sim, Some(rules), best_id, hover, kind)
+            return infantry_weapon_feedback(sim, Some(rules), best_id, hover.stable_id, kind)
                 .unwrap_or_else(|| {
                     ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
                 });
@@ -959,7 +1037,7 @@ pub(super) fn capability_cursor_for_hover(
                 CursorFeedbackKind::EnemyOutOfRange
             };
             best_id
-                .and_then(|id| infantry_weapon_feedback(sim, rules, id, hover, kind))
+                .and_then(|id| infantry_weapon_feedback(sim, rules, id, hover.stable_id, kind))
                 .unwrap_or_else(|| {
                     ivan_attack_feedback(kind, best_is_ivan, hovered_entity, hovered_obj)
                 })
@@ -991,7 +1069,7 @@ fn infantry_weapon_feedback(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     actor_id: u64,
-    hover: &crate::app::input::entity_pick::HoverTargetKindWithId,
+    target_id: u64,
     base: CursorFeedbackKind,
 ) -> Option<CursorFeedbackKind> {
     use super::context_order::InfantryAttackAction;
@@ -1004,8 +1082,7 @@ fn infantry_weapon_feedback(
         return None;
     }
     Some(
-        match super::context_order::infantry_attack_action(sim, rules?, actor_id, hover.stable_id)?
-        {
+        match super::context_order::infantry_attack_action(sim, rules?, actor_id, target_id)? {
             InfantryAttackAction::Attack => base,
             InfantryAttackAction::Sabotage | InfantryAttackAction::WeaponDemolish => {
                 CursorFeedbackKind::Demolish
@@ -1163,7 +1240,29 @@ fn force_fire_feedback(
         // caller resolves that tail, separately from the clicked query.
         return None;
     }
-    Some(match action {
+    Some(action_feedback(
+        sim,
+        actor_id,
+        target,
+        action,
+        selected_count,
+        rules,
+        overlay_registry,
+    ))
+}
+
+/// The cursor row of an attack-rung answer; None is Action0, the arrow.
+fn action_feedback(
+    sim: &crate::sim::world::Simulation,
+    actor_id: u64,
+    target: &combat::TargetKind,
+    action: super::context_order::AttackAction,
+    selected_count: usize,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> Option<CursorFeedbackKind> {
+    use super::context_order::AttackAction;
+    match action {
         AttackAction::None => None,
         AttackAction::NoMove => Some(CursorFeedbackKind::Invalid),
         AttackAction::Rally | AttackAction::Move => Some(CursorFeedbackKind::Move),
@@ -1182,7 +1281,7 @@ fn force_fire_feedback(
                 CursorFeedbackKind::EnemyOutOfRange
             },
         ),
-    })
+    }
 }
 
 /// What the object resolver measures its candidates' distance to.
@@ -1193,7 +1292,7 @@ fn force_fire_feedback(
 pub(crate) enum ActionDistanceTarget {
     /// Cell centre, in cell coordinates.
     CellCentre(u16, u16),
-    /// A specific object's GetCoords.
+    /// A specific object's GetCoords: a Techno's or a Terrain object's.
     Object(u64),
 }
 
@@ -1233,7 +1332,12 @@ pub(crate) fn select_best_for_action(
             [centre(cx), centre(cy), 0]
         }
         ActionDistanceTarget::Object(id) => {
-            let coords = object_get_coords(sim.entities().get(id)?, terrain);
+            let cells = terrain.map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+            let coords = crate::sim::movement::ground_pose::target_get_coords(
+                combat::TargetKind::Entity(id),
+                sim,
+                cells.as_ref(),
+            )?;
             [coords.x, coords.y, coords.z]
         }
     };

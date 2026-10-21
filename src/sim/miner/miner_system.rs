@@ -20,11 +20,9 @@ use crate::sim::miner::{CargoBale, Miner, MinerConfig, MinerState, ResourceType}
 use crate::sim::mission::authority::LiveReadyInputProvider;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::locomotor::MovementLayer;
-use crate::sim::pathfinding::zone_map::{ZONE_INVALID, ZoneGrid};
 use crate::sim::radio::{self, RadioMessage, RadioPayload, RadioResponse};
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
-use crate::util::direction::DIRECTION_DELTAS;
 
 use crate::sim::intern::InternedId;
 
@@ -1111,7 +1109,7 @@ pub(crate) fn find_docking_bay_of_type(
 ///   them through `Contacts::has_free_or` (actual-slot oracle controls);
 /// - `MapClass::Can_Reach_Zone` from the requester's cell to the building's
 ///   `GetCoords` cell, skipped for an Aircraft (`WhatAmI() == 2`,
-///   0x004DEF20) — see `refinery_zone_reachable`;
+///   0x004DEF20) — see [`dock_zone_reachable`];
 /// - `Receive_Radio(0xF)` must return 1 — the shared building radio receiver;
 /// - distance `FUN_005F6500`: `dx² + dy²` in leptons between both objects'
 ///   `GetCoords` (Z ignored), 32-bit wrapping `IMUL`/`ADD`; the candidate
@@ -1127,19 +1125,13 @@ fn scan_docking_type(
     ignore_dock_capacity: bool,
     frame_effects: FrameEffects<'_>,
 ) -> Option<(u64, i32)> {
-    let (owner, own_x, own_y, own_cell, unit_mz, aircraft) = {
+    let (owner, own_x, own_y, aircraft) = {
         let entity = sim.substrate.entities.get(requester)?;
         let coords = object_get_coords(entity, sim.resolved_terrain.as_ref());
         (
             entity.owner(),
             coords.x,
             coords.y,
-            (entity.position.rx(), entity.position.ry()),
-            entity
-                .locomotor
-                .as_ref()
-                .map(|loc| loc.movement_zone())
-                .unwrap_or(MovementZone::Normal),
             entity.category() == EntityCategory::Aircraft,
         )
     };
@@ -1181,17 +1173,12 @@ fn scan_docking_type(
         if !wide && !entity.radio_contacts.has_free_or(requester) {
             continue;
         }
-        if !aircraft {
-            let dock = refinery_dock_cell(entity.position.rx(), entity.position.ry());
-            if !refinery_zone_reachable(
-                sim,
-                sim.substrate.entities.get(requester)?,
-                unit_mz,
-                own_cell,
-                dock,
-            ) {
-                continue;
-            }
+        // `BuildingClass::GetCoords @ 0x00447AC0`: foundation centre, the
+        // point the zone gate and the distance measure to, and the same point
+        // the state-2 too-far test measures to.
+        let centre = object_get_coords(entity, sim.resolved_terrain.as_ref());
+        if !aircraft && !dock_zone_reachable(sim, rules, requester, centre) {
+            continue;
         }
         if crate::sim::radio::transmit(
             sim,
@@ -1205,14 +1192,6 @@ fn scan_docking_type(
         {
             continue;
         }
-        let entity = sim
-            .substrate
-            .entities
-            .get(sid)
-            .expect("read-only CAN_LOAD retains candidate");
-        // `BuildingClass::GetCoords @ 0x00447AC0`: foundation centre, the
-        // same point the state-2 too-far test measures to.
-        let centre = object_get_coords(entity, sim.resolved_terrain.as_ref());
         let dx = own_x.wrapping_sub(centre.x);
         let dy = own_y.wrapping_sub(centre.y);
         let distance = dy.wrapping_mul(dy).wrapping_add(dx.wrapping_mul(dx));
@@ -1224,90 +1203,37 @@ fn scan_docking_type(
     found.map(|found| (found, nearest))
 }
 
-/// `MapClass::Can_Reach_Zone` gate of the scanner `FUN_004DEE80`, called
-/// natively with the unit type's MovementZone, the miner's cell and the
-/// building's `GetCoords` cell. VERA's zone map marks building footprints
-/// `ZONE_INVALID`, so the probe targets the refinery's dock cell and its 8
-/// neighbours instead of the foundation centre — VERA-internal
-/// approximation, gamemd equivalent UNCHECKED for the exact probed cell.
-/// Without a zone grid or a valid miner anchor the gate is skipped.
-fn refinery_zone_reachable(
-    sim: &Simulation,
-    miner: &crate::sim::game_entity::GameEntity,
-    mz: MovementZone,
-    miner_cell: (u16, u16),
-    dock: (u16, u16),
-) -> bool {
-    let Some(zone_grid) = sim.zone_grid.as_ref() else {
-        return true;
-    };
-    let Some(anchor) = effective_zone_cell(zone_grid, mz, miner_cell.0, miner_cell.1) else {
-        return true;
-    };
-    let layer = miner.movement_layer_or_ground();
-    zone_grid.can_reach(mz, anchor, layer, dock, layer)
-        || neighbour_reachable(zone_grid, mz, layer, anchor, dock)
-}
-
-/// The dock pad a refinery at NW `(rx, ry)` sends its miner to
-/// ([`crate::sim::radio::receive::dock_pad_cell`]).
-pub(crate) fn refinery_dock_cell(rx: u16, ry: u16) -> (u16, u16) {
-    crate::sim::radio::receive::dock_pad_cell(rx, ry)
-}
-
-/// Return a cell whose zone serves as the harvester's anchor for the
-/// refinery-dock zone gate.
+/// The `MapClass::Can_Reach_Zone @ 0x0056D100` gate of the scanner
+/// `FUN_004DEE80` (`0x004DEF29..0x004DEFDD`): from the cell of the
+/// requester's `vt+0x4C` coordinate on its ShouldBeOnBridge layer, with its
+/// type's MovementZone ([`harvest_reach`], the request Is_Cell_Harvestable
+/// makes), to the cell of the building's GetCoords (`building`), with no
+/// destination bridge and no fringe shortcut. Native re-queries the source
+/// for each candidate. A world without native zone topology, or a requester
+/// without a navigation coordinate, skips the gate.
 ///
-/// The harvester's own cell may be on Tiberium (impassable in the path grid,
-/// hence `ZONE_INVALID`); when so, probe its 8 neighbors and return the
-/// first cell with a valid zone. Returns `None` if neither the harvester's
-/// cell nor any neighbor has a valid zone — the gate is then skipped.
-fn effective_zone_cell(
-    zone_grid: &ZoneGrid,
-    mz: MovementZone,
-    rx: u16,
-    ry: u16,
-) -> Option<(u16, u16)> {
-    let zone_map = zone_grid.map_for(mz)?;
-    if zone_map.zone_at(rx, ry, MovementLayer::Ground) != ZONE_INVALID {
-        return Some((rx, ry));
-    }
-    for &(dx, dy) in &DIRECTION_DELTAS {
-        let nx = (rx as i32) + dx;
-        let ny = (ry as i32) + dy;
-        if nx < 0 || ny < 0 || nx > u16::MAX as i32 || ny > u16::MAX as i32 {
-            continue;
-        }
-        let (nx, ny) = (nx as u16, ny as u16);
-        if zone_map.zone_at(nx, ny, MovementLayer::Ground) != ZONE_INVALID {
-            return Some((nx, ny));
-        }
-    }
-    None
-}
-
-/// True if any 8-neighbor of `cell` is in the harvester's connected zone
-/// component: the refinery-dock gate probes the dock cell's neighbours, as
-/// VERA's zone map marks building footprint cells `ZONE_INVALID`.
-fn neighbour_reachable(
-    zone_grid: &ZoneGrid,
-    mz: MovementZone,
-    layer: MovementLayer,
-    harvester_zone_cell: (u16, u16),
-    cell: (u16, u16),
+/// [`harvest_reach`]: crate::sim::miner::ore_scan::harvest_reach
+fn dock_zone_reachable(
+    sim: &Simulation,
+    rules: &RuleSet,
+    requester: u64,
+    building: crate::sim::components::DriveCoord,
 ) -> bool {
-    for &(dx, dy) in &DIRECTION_DELTAS {
-        let nx = (cell.0 as i32) + dx;
-        let ny = (cell.1 as i32) + dy;
-        if nx < 0 || ny < 0 || nx > u16::MAX as i32 || ny > u16::MAX as i32 {
-            continue;
-        }
-        let (nx, ny) = (nx as u16, ny as u16);
-        if zone_grid.can_reach(mz, harvester_zone_cell, layer, (nx, ny), layer) {
-            return true;
-        }
-    }
-    false
+    let (Some(terrain), Some(reach)) = (
+        sim.resolved_terrain.as_ref(),
+        crate::sim::miner::ore_scan::harvest_reach(sim, rules, requester),
+    ) else {
+        return true;
+    };
+    // `CDQ; AND EDX,0xFF; ADD; SAR 8` (`0x004DEF3B..0x004DEF5A`).
+    let cell = crate::util::lepton::lepton_to_cell_packed;
+    reach
+        .reaches(
+            sim,
+            &crate::map::resolved_terrain::NativeCellQuery::canonical(terrain),
+            (cell(building.x), cell(building.y)),
+        )
+        .unwrap_or(true)
 }
 
 /// A miner's `vt+0x480(cell, 1)` through the class setter: Search_For_Tiberium

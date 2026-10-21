@@ -1,6 +1,6 @@
 """Checked retail startup slope matrices shared by native fixtures.
 
-The pinned image supplies the original CRT/control-word and matrix initializer
+The loaded image supplies the original CRT/control-word and matrix initializer
 bodies. A reset-style FPCW, scratch stack and return sentinel are supplied; this
 does not execute complete Windows startup. No behavioral hooks or code patches
 are installed. Each call completes before the next initializer uses its state.

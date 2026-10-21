@@ -88,8 +88,8 @@ def generate():
         row = next(row for row in rows if row[:8] == [name, 1, stage, 1, 0, 0, 0, 1])
         if row[8:] != ['boundary_terminal', 1, 0, stage]:
             raise OracleError(f'Stock-shaped shadow endpoint changed: {row}')
-    # Preserve the original recorded disassembly span. The whole image digest
-    # additionally identifies bytes outside this prefix, including later stops.
+    # Preserve the original recorded disassembly span. Later stops execute from
+    # the loaded image without a recorded digest.
     raw = bytes(machine.mem_read(ENTRY, 0x4247B7 - ENTRY))
     native = [f'{instruction.address:08X}: {instruction.mnemonic} {instruction.op_str}'
               for instruction in Cs(CS_ARCH_X86, CS_MODE_32).disasm(raw, ENTRY)]

@@ -1241,7 +1241,10 @@ use crate::util::save_codec;
 // keeps a DoubleThick copy; DrawIt reads the type's.
 // 465 -> 466: retain Techno's constructor house independently of its current
 // owner; Building ChangeOwner uses it to decide the computer capture sale.
-const SNAPSHOT_VERSION: u32 = 466;
+// 466 -> 467: bunker entry uses radio contacts, removing the separate
+// Approaching link, ArriveWait enum variant and installing_unit payload.
+// Enum ordinals and the positional building runtime payload both change.
+const SNAPSHOT_VERSION: u32 = 467;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2620,26 +2623,12 @@ fn restore_object_references(
                 target_id,
             )?;
         }
-        if let BunkerLink::Approaching(target_id) | BunkerLink::Installed(target_id) =
-            entity.bunker.link()
-        {
+        if let BunkerLink::Installed(target_id) = entity.bunker.link() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
                 "bunker_link",
-                "EntityStore",
-                target_id,
-            )?;
-        }
-        if let Some(runtime) = entity.bunker_runtime.as_ref()
-            && let Some(target_id) = runtime.installing_unit()
-        {
-            require_resolved_reference(
-                entity_ids.contains(&target_id),
-                "EntityStore",
-                entity_id,
-                "bunker_runtime.installing_unit",
                 "EntityStore",
                 target_id,
             )?;
@@ -10256,6 +10245,7 @@ mod tests {
         // 463 -> 464: retained InfantryType sequence sound pairs.
         // 464 -> 465: the Anim Temporal erase pause.
         // 465 -> 466: retained Techno constructor house for capture-sale policy.
-        assert_eq!(super::SNAPSHOT_VERSION, 466);
+        // 466 -> 467: remove duplicate bunker approach state.
+        assert_eq!(super::SNAPSHOT_VERSION, 467);
     }
 }

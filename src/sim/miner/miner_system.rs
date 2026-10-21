@@ -1219,31 +1219,19 @@ fn dock_zone_reachable(
     requester: u64,
     building: crate::sim::components::DriveCoord,
 ) -> bool {
-    use crate::sim::pathfinding::zone_map::ZoneQueryCell;
-    let (Some(zones), Some(terrain), Some(bounds), Some(height)) = (
-        sim.zone_grid.as_ref(),
+    let (Some(terrain), Some(reach)) = (
         sim.resolved_terrain.as_ref(),
-        sim.playfield_bounds(),
-        sim.playfield_size_height(),
+        crate::sim::miner::ore_scan::harvest_reach(sim, rules, requester),
     ) else {
-        return true;
-    };
-    let Some(reach) = crate::sim::miner::ore_scan::harvest_reach(sim, rules, requester) else {
         return true;
     };
     // `CDQ; AND EDX,0xFF; ADD; SAR 8` (`0x004DEF3B..0x004DEF5A`).
     let cell = crate::util::lepton::lepton_to_cell_packed;
-    zones
-        .can_reach_native(
+    reach
+        .reaches(
+            sim,
             &crate::map::resolved_terrain::NativeCellQuery::canonical(terrain),
-            ZoneQueryCell::Copied((reach.source.0 as i16, reach.source.1 as i16)),
-            ZoneQueryCell::Copied((cell(building.x), cell(building.y))),
-            reach.movement_zone.unwrap_or(MovementZone::Invalid),
-            reach.source_on_bridge,
-            false,
-            false,
-            bounds,
-            (bounds.base, height),
+            (cell(building.x), cell(building.y)),
         )
         .unwrap_or(true)
 }

@@ -3,8 +3,8 @@
 `fast_scroll.py` executes the retail `gamemd.exe` through the shared
 [`native_oracle`](../native_oracle.md) loader and checked runner. It never reads
 VERA's camera implementation or computes a second scrolling algorithm. Its JSON
-contains native observations, and the sidecar identifies the executable,
-Unicorn version, producer/shared-runner hashes, substitutions and payload hash.
+contains native observations, and the sidecar records the substitutions and
+payload hash.
 
 ```sh
 python -m tools.input_oracle.fast_scroll --check

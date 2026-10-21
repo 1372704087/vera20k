@@ -115,7 +115,7 @@ component priors. Actual Cell lighting produces the top scalar; its floor pixels
 are cleared before the separate wall raster. The erased row reuses the existing
 Tactical loop's actual `-1` admission and observes no body/shadow calls; its map
 and visibility transport boundaries remain explicit. This does not claim a whole
-Tactical frame or GPU composition. Sidecars record the binary and reproduction command;
+Tactical frame or GPU composition. Sidecars record the reproduction command;
 validation receipts remain external.
 
 `python -m tools.spatial_oracle.anytown_damage.mtnk_attack --authored-fence-driveover --write`

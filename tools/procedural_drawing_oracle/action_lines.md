@@ -2,7 +2,7 @@
 
 `action_lines.py` executes original retail `gamemd.exe` for the selected local
 ordinary ground Unit Move and Attack routes. `action_lines.json` is the executable result;
-`action_lines.meta.json` pins the binary and every reused fixture source. It is
+`action_lines.meta.json` records its scope, assumptions and replay command. It is
 native evidence for bounded prepared inputs, not a native Scenario or production
 rendering capture. The implementation and production validation remain separate.
 

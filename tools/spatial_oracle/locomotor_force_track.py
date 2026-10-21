@@ -575,7 +575,7 @@ def bunker_install_metadata():
     return provenance(
         scope='Original bunker installation coordinate/facing/selector and Force_Track producers, bounded states1/2; native retail NATBNK Foundation reader',
         assumptions=[
-            'Same physical supported gamemd image as this sidecar identity; original Building/BuildingType/Unit vtables, Drive/base and Facing constructors, Facing Set_ROT/Snap/Set/Current/IsRotating execute',
+            'The configured physical gamemd image; original Building/BuildingType/Unit vtables, Drive/base and Facing constructors, Facing Set_ROT/Snap/Set/Current/IsRotating execute',
             'State1 begins459069 after candidate lookup, radio/contact admission, footprint clearance and scatter; ESI Building and EBP Unit are supplied. State1 writes state2; state2 begins459101 with that retained object/facing state',
             'Global frame100 is supplied, then advanced directly to original timer start+duration. Original waiting gate executes when duration is positive. Full frame scheduling, per-frame movement and intermediate turning are excluded',
             'Original Building447AC0 computes Foundation center;459069..4590F9 computes desired16 through original atan2/ftol/Set;459101..4591CE reads Current16, selects track, calls GetCoords/Drive Force_Track and writes speed/state3',

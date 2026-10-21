@@ -295,7 +295,7 @@ def metadata():
         ],
         substitutions=[
             'Reuse all physical reader, cell/TMP/Terrain preparation, bounded allocation/free, display, shroud and waterfall animation seams declared by frozen Navigation. No new native gameplay seam is introduced during581F50.',
-            'The successful LoadContent callsite is instruction-established and byte-checked against the pinned binary. This is a hierarchy-rebuild execution comparison, not a full native save/load run.',
+            'The successful LoadContent callsite is instruction-established and byte-checked against the loaded binary. This is a hierarchy-rebuild execution comparison, not a full native save/load run.',
         ],
         entry_points={'load_content': 0x67E730, 'load_hierarchy_call': 0x67E8CD,
                       'retained_save_block': 0x5BE727, 'retained_load_block': 0x5BE355,

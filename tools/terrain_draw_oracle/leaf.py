@@ -1,6 +1,6 @@
 """Original TREE ordinary body/shadow leaf semantics on synthetic surface data.
 
-Set VERA20K_GAMEMD_EXE or RA2_DIR to the pinned executable. No retail assets
+Set VERA20K_GAMEMD_EXE or RA2_DIR to the retail executable. No retail assets
 are copied. Prepared Convert/A/Z tables isolate pixel compare/write behavior;
 the full draw caller and row walker are separate evidence boundaries.
 """

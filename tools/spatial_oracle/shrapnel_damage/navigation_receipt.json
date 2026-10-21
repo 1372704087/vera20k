@@ -262,7 +262,7 @@
     "src/sim/world/bridge_wood_damage_tests.rs::retail_wood_force_fire_collapses_then_engineer_rebuilds"
   ],
   "reproduction": {
-    "environment": "Run from the repository root with PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.; configure SHA-pinned gamemd, RA2_DIR and VERA20K_SHRAPNEL_INPUTS as navigation.md describes. Shared Anytown replay additionally needs VERA20K_ANYTOWN_INPUTS.",
+    "environment": "Run from the repository root with PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.; configure gamemd.exe, RA2_DIR and VERA20K_SHRAPNEL_INPUTS as navigation.md describes. Shared Anytown replay additionally needs VERA20K_ANYTOWN_INPUTS.",
     "native": [
       "python -m tools.spatial_oracle.shrapnel_damage.navigation --write",
       "python -m tools.spatial_oracle.shrapnel_damage.navigation --check",

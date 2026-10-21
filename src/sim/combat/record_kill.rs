@@ -145,10 +145,8 @@ impl KillSource {
 /// ReceiveDamage; passengers dying with their transport through
 /// `Simulation::kill_passengers`.
 ///
-/// NOT routed yet: an absorbed passenger whose sell or survivor ejection
-/// fails is UnInit without the RecordKill before it (Mission_Selling
-/// `0x0044A573`, SpawnSurvivors `0x00442FE5`), so it books no Loss (nor,
-/// for SpawnSurvivors, the killer's credit).
+/// An absorbed passenger that cannot leave its building reaches it in
+/// `Simulation::eject_absorbed_passengers`.
 fn record_the_kill(
     entities: &mut EntityStore,
     houses: &mut crate::sim::houses::Houses,

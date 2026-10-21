@@ -381,7 +381,14 @@ impl Simulation {
 
         // Phase A (0x00442DF2..0x00443011): every absorbed passenger advances
         // the foundation cursor that Phase B then continues from.
-        let cursor = self.eject_absorbed_passengers(rules, registry, building_id, &cells, effects);
+        let cursor = self.eject_absorbed_passengers(
+            rules,
+            registry,
+            building_id,
+            c4_source,
+            &cells,
+            effects,
+        );
 
         // Phase B (0x00443017..0x004433F4): nothing at all, smudges
         // included, when no survivor is owed.
@@ -515,11 +522,17 @@ impl Simulation {
     /// the Map lookup resolves to MapClass's off-map cell
     /// (`tools/spatial_oracle/building_sale.json` `c_absorbed_five`, a full
     /// Bio Reactor). Returns the cursor.
+    ///
+    /// `killer` is the RecordKill source of a passenger that cannot leave:
+    /// SpawnSurvivors' argument, the building's C4AppliedBy (`+0x540`,
+    /// pushed at `0x00441F12` and `0x004400CB`; kept only when it is a
+    /// Techno, `0x00442FC5..0x00442FDE`), and none for a sale (`0x0044A56F`).
     pub(crate) fn eject_absorbed_passengers(
         &mut self,
         rules: &RuleSet,
         registry: Option<&OverlayTypeRegistry>,
         building_id: u64,
+        killer: Option<u64>,
         cells: &[(u16, u16)],
         effects: FrameEffects<'_>,
     ) -> usize {
@@ -551,6 +564,7 @@ impl Simulation {
                 passenger,
                 cell,
                 no_survivor,
+                killer,
                 effects,
             );
         }
@@ -562,7 +576,9 @@ impl Simulation {
     /// cell; the result is overwritten), then every passenger Unlimboes at
     /// the building Location in priority mode (no second draw), Scatters, and
     /// Hunts for a computer building owner. NoSurvivor or a refused Unlimbo
-    /// UnInits it instead.
+    /// records its kill by `killer` (vt+0xE0) and UnInits it instead
+    /// (SpawnSurvivors `0x00442FE5`, Mission_Selling `0x0044A573`).
+    #[allow(clippy::too_many_arguments)]
     fn eject_absorbed_passenger(
         &mut self,
         rules: &RuleSet,
@@ -571,6 +587,7 @@ impl Simulation {
         passenger: u64,
         cell: Option<(u16, u16)>,
         no_survivor: bool,
+        killer: Option<u64>,
         effects: FrameEffects<'_>,
     ) {
         let Some(infantry) = self
@@ -646,8 +663,9 @@ impl Simulation {
                     )
                 });
             if !revealed {
-                sim.uninit_with_context(
+                sim.record_kill_and_uninit(
                     passenger,
+                    killer,
                     UninitContext::new(rules, registry).with_effects(effects),
                 );
                 return;

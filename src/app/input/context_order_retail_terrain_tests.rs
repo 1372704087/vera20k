@@ -428,3 +428,59 @@ fn ctrl_shift_over_a_tree_attack_moves_near_it() {
         );
     }
 }
+
+/// The release over a tree is the cursor owner's answer (`0x004AB9B0`): a
+/// player's tank answers NoMove, which dispatches; a war factory answers 0,
+/// and since no TerrainType is selectable (`0x0071DB18`) the click does
+/// nothing at all.
+#[test]
+fn the_cursor_owner_decides_the_release_over_a_tree() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, tank, _, tree) = scene(rules, "TREE01");
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 20, 4, 0, rules)
+        .expect("war factory");
+    for (selection, release) in [
+        ([tank], LeftRelease::Dispatch),
+        ([factory], LeftRelease::Nothing),
+    ] {
+        assert_eq!(
+            object_click_release(&sim, rules, &selection, &selection, tree, &registry, false),
+            release,
+            "{selection:?}"
+        );
+    }
+}
+
+/// Ctrl+Alt over a tree with a Pillbox owning the cursor: a building no
+/// player orders refuses the guard and Alt rungs (vt+0xA0), and the later
+/// rungs still see Ctrl (`0x00700048..0x00700072`), so the Pillbox answers
+/// its forced Attack in range and the release dispatches.
+#[test]
+fn ctrl_alt_over_a_tree_forces_a_pillbox_that_takes_no_key_rung() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, _, _, tree) = scene(rules, "TREE01");
+    let pillbox = sim
+        .spawn_object("GAPILL", "Americans", 15, 15, 0, rules)
+        .expect("pillbox");
+    assert_eq!(
+        object_key_action(&sim, rules, pillbox, None, OrderModifier::GuardArea, true),
+        None
+    );
+    assert!(terrain_forced(OrderModifier::GuardArea));
+    assert!(!terrain_forced(OrderModifier::AttackMove));
+    assert_eq!(
+        cursor(&sim, rules, &registry, pillbox, tree, true),
+        Some(CursorFeedbackKind::EnemyUnit)
+    );
+    assert_eq!(
+        object_click_release(&sim, rules, &[pillbox], &[pillbox], tree, &registry, true),
+        LeftRelease::Dispatch
+    );
+}

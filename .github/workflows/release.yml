@@ -4,13 +4,15 @@ name: Release
 # project changes too fast for every main commit to be a release, so there are
 # two kinds, both started by hand:
 #
-#   dev build -- dispatch with `promote` empty. Builds all platforms, names every
-#                archive after its build time and the commit it was built from,
-#                tags it v<Cargo.toml version>-<build time>, and lists the
-#                commits since the previous release of either kind. Publishes a
-#                draft pre-release by default, so a bad build is discarded
-#                instead of shipped. Only the newest published dev builds are
-#                kept.
+#   dev build -- dispatch with `promote` empty. Builds all platforms and runs the
+#                library tests on each at the same time; nothing is tagged or
+#                published unless every build and every test run passes (publish
+#                mode `none` runs them too). Names every archive after its build
+#                time and the commit it was built from, tags it v<Cargo.toml
+#                version>-<build time>, and lists the commits since the previous
+#                release of either kind. Publishes a draft pre-release by
+#                default, so a bad build is discarded instead of shipped. Only
+#                the newest published dev builds are kept.
 #   release   -- dispatch with `promote` set to the tag of a published dev build
 #                that testers played. Publishes the same archives as release
 #                v<version>, checked against their checksums and build
@@ -336,23 +338,45 @@ jobs:
             dist/*.dmg
           if-no-files-found: error
 
+  # The library tests on each platform a dev build ships, from the commit it
+  # builds. No CI runs by itself, so this is where a change first has to pass on
+  # Windows and Linux before it reaches testers. They run beside the builds,
+  # and `publish` needs them. As in the per-platform workflows, there is no
+  # retail game data here: retail-data tests print SKIPPED and pass.
+  test:
+    # A release republishes a tested dev build's files; only a dev build tests.
+    if: inputs.promote == ''
+    strategy:
+      fail-fast: false
+      matrix:
+        # The per-platform workflows' runners. Linux tests on the current Ubuntu,
+        # not the build's 22.04: rust-cache keys on the OS family, not its
+        # version, so a cache saved on the newer image could hand 22.04 build
+        # scripts linked against a glibc it lacks.
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    uses: ./.github/workflows/test.yml
+    with:
+      os: ${{ matrix.os }}
+
   publish:
     name: publish
-    needs: [prepare, build]
+    needs: [prepare, build, test]
     # "none" stops here, with the archives left as workflow artifacts.
     if: needs.prepare.outputs.publish != 'none'
     #
-    # MAINTENANCE DECISION, left to the maintainers: `needs: build` means one
-    # platform failing stops the release. That is deliberate -- a release that
-    # silently lacks macOS is worse than no release -- but hosted runners do
-    # drop jobs ("not acquired by Runner of type hosted"), and then a fully
-    # built Windows and Linux are discarded too.
+    # MAINTENANCE DECISION, left to the maintainers: `needs: [build, test]`
+    # means one platform failing to build or to pass its tests stops the
+    # release. That is deliberate -- a release that silently lacks macOS is
+    # worse than no release -- but hosted runners do drop jobs ("not acquired
+    # by Runner of type hosted"), and then a fully built Windows and Linux are
+    # discarded too.
     #
-    # To publish whatever succeeded instead, add `always()` to the condition
-    # above and assert the expected archives exist before `gh release create`;
-    # the Checksums step already fails on a missing file. The trade-off is that
-    # a capacity failure would ship a release missing a platform, so the
-    # assertion has to name all three.
+    # To publish whatever built instead, make the condition above `always() &&
+    # needs.prepare.outputs.publish != 'none' && needs.test.result ==
+    # 'success'`, so the tests still have to pass, and assert the expected
+    # archives exist before `gh release create`; the Checksums step already
+    # fails on a missing file. The trade-off is that a capacity failure would
+    # ship a release missing a platform, so the assertion has to name all three.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:

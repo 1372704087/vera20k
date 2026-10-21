@@ -192,6 +192,26 @@ pub fn remove_ini_keys(content: &[u8], section: &str, keys: &[&str]) -> Vec<u8> 
     out
 }
 
+/// Replace a whole section: every occurrence of `[section]` and its lines is
+/// dropped, then the section is appended with `values` in order. This is a
+/// CCINIClass `Clear(section)` followed by its puts and one file save,
+/// which re-creates the section after the others.
+pub fn replace_ini_section(content: &[u8], section: &str, values: &[(&str, &str)]) -> Vec<u8> {
+    let target_section = section.trim();
+    let mut in_target_section = false;
+    let mut kept = Vec::with_capacity(content.len());
+    for (text, terminator) in split_lines(content) {
+        if let Some(name) = std::str::from_utf8(text).ok().and_then(section_header_name) {
+            in_target_section = name.eq_ignore_ascii_case(target_section);
+        }
+        if !in_target_section {
+            kept.extend_from_slice(text);
+            kept.extend_from_slice(terminator);
+        }
+    }
+    set_ini_values(&kept, section, values)
+}
+
 /// Terminator for lines this writer *adds* (an inserted key or a created
 /// section): always CRLF, the convention the original game's settings writer
 /// (Win32 `WritePrivateProfileString`) emits regardless of the file's existing
@@ -412,6 +432,16 @@ ShortGame=yes\r\n"
         assert_eq!(
             out,
             b"[VERA]\r\nYROriginalStyle=no\r\n[Other]\r\nRA2Look=keep\r\n[VERA]suffix\r\nRA2Look=keep under malformed header\r\nYROriginalStyle=no"
+        );
+    }
+
+    #[test]
+    fn replacing_a_section_drops_its_old_keys_and_appends_it_last() {
+        let input = b"[AB]\r\nStale=1\r\nCurrentMap=0\r\n[Other]\r\nX=1\r\n";
+        let out = replace_ini_section(input, "AB", &[("CurrentMap", "1"), ("Time", "60")]);
+        assert_eq!(
+            s(out),
+            "[Other]\r\nX=1\r\n[AB]\r\nCurrentMap=1\r\nTime=60\r\n"
         );
     }
 }

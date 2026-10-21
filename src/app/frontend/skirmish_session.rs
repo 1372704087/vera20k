@@ -227,11 +227,11 @@ impl MultiplayerShellRuntime {
     }
 
     fn update_local_preference_bytes(&self, existing: &[u8]) -> Vec<u8> {
-        let name = usize::try_from(self.local_preferences.side)
-            .ok()
-            .and_then(|index| self.cooperative_country_roster.get(index))
-            .map_or("<random>", |country| country.id.as_str());
-        self.local_preferences.update_ini_bytes(existing, name)
+        let name = cooperative::house_type_text(
+            self.local_preferences.side,
+            &self.cooperative_country_roster,
+        );
+        self.local_preferences.update_ini_bytes(existing, &name)
     }
 
     /// Add_Message's typing-reveal gate for a session mode

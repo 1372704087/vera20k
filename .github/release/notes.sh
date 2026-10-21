@@ -129,8 +129,8 @@ EOF
 On Windows, the installer is easiest: it finds your Yuri's Revenge folder and
 sets everything up. On macOS, open the \`.dmg\` and drag VERA20k into
 Applications. The first time, macOS blocks it because Apple has not notarized
-it: click Done, then Open Anyway in System Settings > Privacy & Security. It
-then finds your Yuri's Revenge folder, or asks for it.
+it: click Done, then Open Anyway in System Settings > Privacy & Security
+within the hour. It then finds your Yuri's Revenge folder, or asks for it.
 Otherwise, extract an archive straight into your Yuri's Revenge folder, or keep
 it in its own folder and point \`config.toml\` at the game (see the README.txt
 inside).

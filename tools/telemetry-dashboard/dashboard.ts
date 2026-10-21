@@ -252,66 +252,74 @@ const ALERT_IDS = [
   "alert-errors",
 ];
 
-/** Header anomaly badges, so a stalled or erroring match is visible from any
- *  view. Every criterion is a reading the engine already publishes — its tick
- *  budget line, the batch pass's own left-out count, an error-level record —
- *  so a badge states a fact rather than a threshold this panel invented. */
+/** A chip's dash means the engine published no reading for it — a demo stream
+ *  carries no debug block, an uncapped speed no budget, serial pathfinding no
+ *  batch pass. It is deliberately not a zero. */
+const NO_READING = "—";
+
+function outcomeChip(session: SessionContext): string {
+  const key = session.local_outcome === "Victory" ? "hdr.victory" : "hdr.defeat";
+  return session.local_owner ? `${session.local_owner} · ${t(key)}` : t(key);
+}
+
+/** The header's standing status chips, so a stalled or erroring match is
+ *  visible from any view and the row never changes width to say so. Every
+ *  criterion is a reading the engine already publishes — its tick budget line,
+ *  the batch pass's own left-out count, an error-level record — so a chip
+ *  states a fact rather than a threshold this panel invented. */
 function updateAlerts(snapshot: TelemetrySnapshot): void {
-  const alerts: { id: string; text: string; cls: string; tip?: string }[] = [];
-  if (snapshot.debug?.overlays.paused) {
-    alerts.push({ id: "alert-paused", text: t("hdr.paused"), cls: "badge pause warn" });
-  }
-  const outcome = snapshot.session?.local_outcome;
-  if (outcome) {
-    const key = outcome === "Victory" ? "hdr.victory" : "hdr.defeat";
-    const owner = snapshot.session?.local_owner;
-    alerts.push({
-      id: "alert-outcome",
-      text: owner ? `${owner} · ${t(key)}` : t(key),
-      cls: `badge ${outcome === "Victory" ? "good" : "bad"}`,
-    });
-  }
+  const paused = snapshot.debug?.overlays.paused ?? null;
+  const session = snapshot.session;
   const timing = snapshot.timing;
-  if (timing && timing.budget_ms !== null && timing.p99_ms > timing.budget_ms) {
-    alerts.push({
-      id: "alert-p99",
-      text: t("alert.p99", { p99: fmt(timing.p99_ms), budget: fmt(timing.budget_ms) }),
-      cls: "badge bad",
-      tip: t("alert.p99Tip"),
-    });
-  }
   const batch = snapshot.path_batch;
-  if (batch && batch.left_out > 0) {
-    alerts.push({
-      id: "alert-path",
-      text: t("alert.path", { n: thousands(batch.left_out) }),
+  const chips: Record<string, { text: string; cls: string; tip?: string }> = {
+    "alert-paused": paused
+      ? { text: t("hdr.paused"), cls: "badge pause warn" }
+      : { text: paused === null ? NO_READING : t("alert.running"), cls: "badge" },
+    "alert-outcome": session?.local_outcome
+      ? {
+          text: outcomeChip(session),
+          cls: `badge ${session.local_outcome === "Victory" ? "good" : "bad"}`,
+        }
+      : { text: session ? t("alert.undecided") : NO_READING, cls: "badge" },
+    "alert-p99": {
+      text: timing
+        ? t("alert.p99", {
+            p99: fmt(timing.p99_ms),
+            budget: timing.budget_ms === null ? NO_READING : fmt(timing.budget_ms),
+          })
+        : `p99 ${NO_READING}`,
+      cls:
+        timing && timing.budget_ms !== null && timing.p99_ms > timing.budget_ms
+          ? "badge bad"
+          : "badge",
+      tip: t("alert.p99Tip"),
+    },
+    "alert-path": {
+      text: t("alert.path", { n: batch ? thousands(batch.left_out) : NO_READING }),
       // A pass that dropped more registrations than it searched is the case
       // where the queue is growing, not merely capped.
-      cls: batch.left_out > batch.searched ? "badge bad" : "badge warn",
+      cls: !batch || batch.left_out === 0
+        ? "badge"
+        : batch.left_out > batch.searched
+          ? "badge bad"
+          : "badge warn",
       tip: t("alert.pathTip"),
-    });
-  }
-  if (logErrors > 0) {
-    alerts.push({
-      id: "alert-errors",
+    },
+    "alert-errors": {
       text: t("alert.errors", { n: thousands(logErrors) }),
-      cls: "badge bad",
+      cls: logErrors > 0 ? "badge bad" : "badge",
       tip: t("alert.errorsGo"),
-    });
-  }
+    },
+  };
   for (const id of ALERT_IDS) {
     const badge = document.getElementById(id);
-    if (!badge) continue;
-    const hit = alerts.find((alert) => alert.id === id);
-    badge.hidden = hit === undefined;
-    if (hit) {
-      badge.textContent = hit.text;
-      badge.className = hit.cls;
-      badge.title = hit.tip ?? hit.text;
-    }
+    const chip = chips[id];
+    if (!badge || !chip) continue;
+    badge.textContent = chip.text;
+    badge.className = chip.cls;
+    badge.title = chip.tip ?? chip.text;
   }
-  const box = document.getElementById("alerts");
-  if (box) box.hidden = alerts.length === 0;
 }
 
 function updateCost(snapshot: TelemetrySnapshot): void {

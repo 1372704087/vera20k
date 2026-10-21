@@ -189,7 +189,6 @@
   /* Anomaly badges. They carry the same three states as the panels' readings,
      so a red pill here and a red cell there mean the same thing. */
   #alerts { display: flex; align-items: center; gap: 6px; }
-  #alerts[hidden] { display: none; }
   .badge {
     font-size: 10.5px; letter-spacing: 0.06em; white-space: nowrap;
     text-transform: uppercase;

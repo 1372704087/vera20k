@@ -64,15 +64,15 @@
     <button data-locale="fr">FR</button>
   </span>
 
-  <!-- Second row: the live readings and the anomaly badges. The row is always
-       there, so an alert arriving never resizes the wall under the bar. -->
+  <!-- Second row: the live readings and the standing status chips. Both rows
+       are always there, so an alert arriving never resizes the wall below. -->
   <div id="readings">
-    <span id="alerts" hidden>
-      <span class="badge pause" id="alert-paused" hidden></span>
-      <span class="badge" id="alert-outcome" hidden></span>
-      <span class="badge" id="alert-p99" hidden></span>
-      <span class="badge" id="alert-path" hidden></span>
-      <button class="badge" id="alert-errors" type="button" hidden></button>
+    <span id="alerts">
+      <span class="badge" id="alert-paused">—</span>
+      <span class="badge" id="alert-outcome">—</span>
+      <span class="badge" id="alert-p99">—</span>
+      <span class="badge" id="alert-path">—</span>
+      <button class="badge" id="alert-errors" type="button">—</button>
     </span>
     <div class="head-meta">
       <span class="meta"><span data-i18n="hdr.schema">schema</span> <b id="version">-</b></span>

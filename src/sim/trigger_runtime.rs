@@ -1997,7 +1997,8 @@ impl Simulation {
 
     /// Original Tag6E53A0 attached-object ingress. `subject` chooses the
     /// attachment; `actor` and `source` keep the caller's distinct objects.
-    /// Discovery6F4A18, Infantry519B53/519F44/51A025 use this same funnel.
+    /// Discovery6F4A18, Infantry519725/51978B/519B53/519F44/51A025/51A26A/
+    /// 51A51C use this same funnel.
     /// Returns whether the caller had a nonnull Tag, independently of whether
     /// an action fired. Pickup481A7F skips its Alive reread without a Tag.
     pub(crate) fn dispatch_object_tag_event(

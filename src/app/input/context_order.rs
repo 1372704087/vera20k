@@ -958,11 +958,13 @@ fn attack_branch_orders(
             AttackAction::Attack => {
                 consumed_attack_action = true;
                 let payload = match attack_target {
-                    // RESIDUAL: in the attack-move mode ClickedMission
-                    // promotes this Attack as well (`0x006FFC09..0x006FFC1E`),
-                    // to an attack-move with the Cell as its target, which
-                    // VERA does not model. Trigger: Ctrl on the ground in the
-                    // attack-move mode. Rare.
+                    // RESIDUAL: under the attack-move chord or mode
+                    // ClickedMission promotes this Attack as well, whatever
+                    // its target (`0x006FFC09..0x006FFC1E`), to an
+                    // attack-move with the Cell as its target, which VERA
+                    // does not model. Trigger: Ctrl on the ground in the
+                    // mode, or the unforced Cell rung (an enemy wall) under
+                    // the chord or in the mode. Rare.
                     TargetKind::Cell(target_rx, target_ry) => Command::ForceAttackCell {
                         attacker_id: id,
                         target_rx,
@@ -1260,13 +1262,6 @@ fn emit_entity_order_voice(
 /// admitted an event; an empty batch must not fall through to selection clear.
 /// Friendly click-selection and an empty selection never enter this boundary.
 /// Evidence: tools/procedural_drawing_oracle/action_lines.
-/// A click that queued a move (`moved`) ends the sticky attack-move mode.
-fn consume_order_mode(state: &mut AppState, queued: &[CommandEnvelope], moved: bool) {
-    if !queued.is_empty() && moved && state.match_state.input.queued_order_mode != OrderMode::Move {
-        state.match_state.input.queued_order_mode = OrderMode::Move;
-    }
-}
-
 fn finish_order(
     state: &mut AppState,
     queued: Vec<CommandEnvelope>,
@@ -1877,7 +1872,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         .unwrap_or_default();
 
     let mut queued: Vec<CommandEnvelope> = Vec::new();
-    let mut consumed_order_mode = false;
     // The one object that speaks the order-ack line. Retail lets only the first
     // entry of the selection array speak.
     let mut speaker_id: Option<u64> = None;
@@ -2281,18 +2275,6 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             .filter(|id| !attack_receivers.contains(id))
             .collect();
         if selected_ids.is_empty() {
-            // A move near a Terrain object uses up the sticky mode as a move
-            // on the ground does (below).
-            let moved = terrain_target.is_some()
-                && queued.iter().any(|envelope| {
-                    matches!(
-                        envelope.payload,
-                        Command::Move { .. }
-                            | Command::MoveToObject { .. }
-                            | Command::AttackMove { .. }
-                    )
-                });
-            consume_order_mode(state, &queued, moved);
             let sent = finish_order(state, queued, speaker_id);
             return sent || (consumed_attack_action && !select_fallback);
         }
@@ -2777,18 +2759,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 };
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, payload));
             }
-            // A MoveFlash alone is no order: Resolve_Move_Order_Cell can
-            // still refuse every receiver after it.
-            if queued
-                .iter()
-                .any(|envelope| !matches!(envelope.payload, Command::MoveFlash { .. }))
-            {
-                consumed_order_mode = true;
-            }
         }
     }
 
-    consume_order_mode(state, &queued, consumed_order_mode);
     if rally_announce && !state.match_state.input.planning.active() {
         crate::app::input::dispatch::push_local_eva(
             state,

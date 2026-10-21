@@ -6,7 +6,6 @@ python -m tools.voxel_oracle.building_barrel --check (or explicit --write)
 original Render core at its 43DA80 matrix, reading the physical models from
 the configured install's MIX archives.
 """
-from functools import lru_cache
 from pathlib import Path
 import hashlib
 import struct
@@ -17,7 +16,7 @@ from unicorn.x86_const import (
     UC_X86_REG_EIP, UC_X86_REG_ESP,
 )
 from tools.native_oracle import (
-    SCRATCH, RET_MAGIC, configured_gamemd, finish_vectors, provenance, run_checked,
+    SCRATCH, RET_MAGIC, finish_vectors, provenance, run_checked,
 )
 from tools.voxel_oracle.barrel_pitch import draw_frame, facing_class, bits
 from tools.voxel_oracle.lighting import native_camera
@@ -206,35 +205,19 @@ STOCK_GUNS = (('GTGCAN', 'GTGCANTUR', 'GTGCANBARL'), ('NAFLAK', 'FLAKTUR', None)
               ('YAGGUN', None, 'YAGGUN'), ('CAOUTP', None, 'OUTP'), ('CAEAST02', None, 'CAHEAD'))
 
 
-@lru_cache(maxsize=1)
-def retail_tables():
-    """YR's localmd.mix ahead of RA2's local.mix, from the configured install."""
-    from tools.sidebar_oracle import stock
-    root = configured_gamemd().parent
-    return [(f'{top} -> {inner}', stock.mix(stock.mix((root / top).read_bytes())[stock.mix_hash(inner)]))
-            for top, inner in (('ra2md.mix', 'localmd.mix'), ('ra2.mix', 'local.mix'))]
-
-
-def retail_file(name):
-    from tools.sidebar_oracle import stock
-    for archive, table in retail_tables():
-        if (raw := table.get(stock.mix_hash(name))) is not None:
-            return archive, raw
-    raise FileNotFoundError(name)
-
-
 def gun_raster():
     """Each stock gun part's original 754510 raster at its 43DA80 matrix.
 
     The crop is what 706ED0 blits through 4AF2A0 and 6C89E0 stores for 707480:
     rect[2..5] of the fixed 256x256 raster buffer, drawn at point + rect[0..1].
     """
+    from tools.sidebar_oracle.stock import local_file
     from tools.voxel_oracle.raster import render_native
     assets, files = {}, {}
 
     def read(name):
         if name not in files:
-            archive, raw = retail_file(name)
+            archive, raw = local_file(name)
             files[name] = raw
             assets[name] = dict(archive=archive, bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest())
         return files[name]

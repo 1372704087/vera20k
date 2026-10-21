@@ -296,7 +296,38 @@ pub(crate) fn attack_action(
         }
         TargetKind::Cell(..) => human,
     };
-    let mut action = if admitted
+    // TechnoClass::What_Action_OnObject's tail (`0x0070056C..0x007005E6`):
+    // Select over an object the player may select that is not selected,
+    // unless an armed player's object points at another House's, or at its
+    // own loaner. The warp arm (`0x006FFF03..0x006FFF8A`) asks the same
+    // without the target's own warp test (`0x007005CD`).
+    let selects = |target_id: u64, warp_test: bool| {
+        sim.entities().get(target_id).is_some_and(|object| {
+            !(armed && human && object.owner() != actor.owner())
+                && !(actor.is_mission_only() && actor.discovery.owned_by_current_house())
+                && sim.object_is_selectable(target_id, rules)
+                && !object.selection.is_selected()
+                && !(warp_test && object.is_warped_out())
+        })
+    };
+    // An object being warped out (vt+0x1D4) answers before the attack rung:
+    // 0 on a Cell (`0x00700731`; warping in too, `0x00700743`), and over an
+    // object the tail's Select, else 0. A berserk one answers 0 before that
+    // (`0x006FFEC9`). The class tails below still run on the answer; none
+    // turns its 0 into NoMove, as the object is not controllable (vt+0xA0,
+    // `0x00700C40`), but a Building's Cell tail still answers its rally.
+    let warping =
+        actor.is_warped_out() || (actor.is_warping_in() && matches!(target, TargetKind::Cell(..)));
+    let mut action = if warping {
+        match *target {
+            TargetKind::Entity(target_id)
+                if !actor.berserk.is_active() && selects(target_id, false) =>
+            {
+                AttackAction::Select
+            }
+            _ => AttackAction::None,
+        }
+    } else if admitted
         && (sim.techno_player_controllable(actor_id, rules)
             || resolved_unit_in_range(
                 sim,
@@ -322,12 +353,7 @@ pub(crate) fn attack_action(
     {
         AttackAction::Attack
     } else if let TargetKind::Entity(target_id) = *target
-        && let Some(object) = sim.entities().get(target_id)
-        && !(armed && human && object.owner() != actor.owner())
-        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house())
-        && sim.object_is_selectable(target_id, rules)
-        && !object.selection.is_selected()
-        && !object.is_warped_out()
+        && selects(target_id, true)
     {
         AttackAction::Select
     } else {
@@ -359,6 +385,23 @@ pub(crate) fn attack_action(
         && sim.terrain_objects().get(target_id).is_some()
     {
         action = AttackAction::None;
+    }
+    // UnitClass::What_Action_OnObject 0x0073FE48: a Unit that is not IsActive
+    // (0x007010D0; a Robot Tank without its control) turns Foot's Attack over
+    // an object into Move where it may crush it (a crusher, and
+    // Is_Crushable_By 0x005F6CD0), otherwise Select (0x0073FE3B).
+    if action == AttackAction::Attack
+        && actor.category() == EntityCategory::Unit
+        && let TargetKind::Entity(target_id) = *target
+        && !sim.techno_is_active(actor_id, rules)
+    {
+        action = if crate::sim::combat::veterancy::is_crusher(actor.veterancy.rank_kind(), kind)
+            && sim.object_crushable_by_unit(actor_id, target_id, rules)
+        {
+            AttackAction::Move
+        } else {
+            AttackAction::Select
+        };
     }
     // Unit74077F..7407E5 /740389..7403E8: the fully deployed
     // SimpleDeployer repeats SelectWeapon(NULL), then range. This returns
@@ -2678,7 +2721,9 @@ pub(super) fn self_click_command(
     planning: bool,
 ) -> Option<Command> {
     let target = hover?;
-    if planning_refuses_self(sim, local_owner, selected_ids, target, planning) {
+    if planning_refuses_self(sim, local_owner, selected_ids, target, planning)
+        || self_is_warped_out(sim, target)
+    {
         return None;
     }
     self_action(sim, rules, local_owner, selected_ids, target)
@@ -2700,25 +2745,36 @@ pub(super) fn self_answers_no_deploy(
     target: &HoverTargetKindWithId,
     planning: bool,
 ) -> bool {
-    self_deploy_is_refused(
-        sim,
-        rules,
-        registry,
-        local_owner,
-        selected_ids,
-        target,
-        planning,
-    ) || (selected_ids == [target.stable_id]
-        && sim.entities().get(target.stable_id).is_some_and(|entity| {
-            entity.owner() == local_owner
-                && sim
-                    .interner()
-                    .object_type(entity.type_ref(), rules)
-                    .is_some_and(|object| {
-                        self_deploy_is_blocked(entity, object)
-                            || is_simple_deploy_unit(entity, object)
-                    })
-        }))
+    !self_is_warped_out(sim, target)
+        && (self_deploy_is_refused(
+            sim,
+            rules,
+            registry,
+            local_owner,
+            selected_ids,
+            target,
+            planning,
+        ) || (selected_ids == [target.stable_id]
+            && sim.entities().get(target.stable_id).is_some_and(|entity| {
+                entity.owner() == local_owner
+                    && sim
+                        .interner()
+                        .object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| {
+                            self_deploy_is_blocked(entity, object)
+                                || is_simple_deploy_unit(entity, object)
+                        })
+            })))
+}
+
+/// Techno's warp arm (`0x006FFF03..0x006FFF8A`) precedes the self rung
+/// (`0x007000B9`): an object being warped out (a Chronosphere's warp-out,
+/// which leaves it selected) answers 0 over itself, as it is selected, so it
+/// neither deploys nor answers NoDeploy.
+fn self_is_warped_out(sim: &crate::sim::world::Simulation, target: &HoverTargetKindWithId) -> bool {
+    sim.entities()
+        .get(target.stable_id)
+        .is_some_and(|entity| entity.is_warped_out())
 }
 
 /// The release of the lone selected Unit or Infantryman `target` clicked by
@@ -6870,6 +6926,10 @@ mod retail_entry_tests;
 #[cfg(test)]
 #[path = "context_order_retail_terrain_tests.rs"]
 mod retail_terrain_tests;
+
+#[cfg(test)]
+#[path = "context_order_retail_inactive_unit_tests.rs"]
+mod retail_inactive_unit_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_self_deploy_tests.rs"]

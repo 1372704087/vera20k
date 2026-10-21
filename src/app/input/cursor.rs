@@ -667,10 +667,12 @@ pub(super) fn capability_cursor_for_hover(
 ) -> CursorFeedbackKind {
     use super::context_order::OrderModifier;
     use crate::map::entities::EntityCategory;
+    // Techno's berserk exit and warp arm (`0x006FFEC9`, `0x006FFF03`)
+    // precede its key reads (`0x00700006`).
     if modifier == OrderModifier::Shift
         && !best_id
             .and_then(|id| sim.entities().get(id))
-            .is_some_and(|actor| actor.berserk.is_active())
+            .is_some_and(|actor| actor.berserk.is_active() || actor.is_warped_out())
     {
         return CursorFeedbackKind::Select;
     }
@@ -709,6 +711,7 @@ pub(super) fn capability_cursor_for_hover(
         && let (Some(rules), Some(entity)) = (rules, hovered_entity)
         && sim.session().current_house() == Some(entity.owner())
         && !entity.berserk.is_active()
+        && !entity.is_warped_out()
     {
         if super::context_order::self_click_command(
             sim,
@@ -968,6 +971,11 @@ pub(super) fn capability_cursor_for_hover(
                     EntityCategory::Aircraft | EntityCategory::Structure
                 )
             })
+        // Unit `0x007403EB` and Infantry `0x0051F05E` make that 0 NoMove
+        // only for an object they may control (vt+0xA0); else it stays 0.
+        && best_id
+            .zip(rules)
+            .is_none_or(|(id, rules)| sim.techno_player_controllable(id, rules))
     {
         return CursorFeedbackKind::Invalid;
     }

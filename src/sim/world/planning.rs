@@ -961,9 +961,11 @@ impl Simulation {
     /// (`0x00AC4CF4`): the members of `actor`'s tail node (token `+0x514` via
     /// `0x00705D20`, node vector `+0x8` at count-1 `+0x14`) in encounter
     /// order (node `+0x4`, `+0x10`), whatever their owner, `actor` included.
-    /// Native skips a member whose IsSelected `+0x83` is already set; the
-    /// input selection owner, which expands its own Selects, applies that
-    /// and the `0x00AC4CF6` guard itself.
+    /// Native skips a member whose IsSelected `+0x83` is already set. The
+    /// input selection owner expands its own Selects and applies that skip,
+    /// TechnoClass::Select's gate, Unselect_All and the `0x00AC4CF6` guard
+    /// to that expansion only; a Select one of their tag events starts is
+    /// the game's own (see the residual at `apply_selection_snapshot`).
     pub fn planning_select_partners(&self, actor: u64, planning_mode: bool) -> Vec<u64> {
         if !planning_mode {
             return Vec::new();

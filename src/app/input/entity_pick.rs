@@ -304,16 +304,13 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     // on the clicked object at all.
     //
     // That first test is only half the decision. The arm's add branch calls the
-    // clicked object's vtable `+0x14C` Select (TechnoClass vtable base
-    // 0x007F4960, slot 0x007F4AAC = `TechnoClass__Select` 0x006FBFA0), which
-    // always reaches `ObjectClass__Select` 0x005F4520. With a non-empty
-    // selection that body compares `IsHumanPlayer` of the NEW object against
-    // `IsHumanPlayer` of `CurrentObjects[0]` (0x005F45D2/0x005F45DF): differing
-    // answers fall to `Unselect_All_With_Mode_Reset` 0x0048DC90 at 0x005F45F8,
-    // and equal answers keep the selection only when that answer was true
-    // (0x005F45EF/0x005F45F6). So the selection survives a shift-click only when
-    // BOTH sides are the local player's — shift-clicking an enemy while your own
-    // army is selected drains the army and leaves the enemy alone selected.
+    // clicked object's vtable `+0x14C` Select (`TechnoClass__Select`
+    // 0x006FBFA0, 0x004ABDBA), whose `ObjectClass__Select` 0x005F4520 runs
+    // `Unselect_All_With_Mode_Reset` 0x0048DC90 (0x005F45AF..0x005F45F8) when
+    // the new object is not the player's. The selection ledger owns that Select
+    // (`resolve_selection_mutation`): shift-clicking an enemy while your own
+    // army is selected drains the army and leaves the enemy alone selected,
+    // and an enemy that Select refuses leaves the army selected.
     //
     // VERA-internal: gamemd always has a `g_PlayerPtr`, so it has no answer for
     // "the local house is unknown". Sandbox and test callers pass no owner, and
@@ -330,9 +327,8 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
         .first()
         .and_then(|id| entities.get(*id))
         .is_some_and(owner_is_local);
-    let picked_is_local = owner_is_local(picked);
 
-    if !additive || current_selection.is_empty() || !selection_is_local || !picked_is_local {
+    if !additive || current_selection.is_empty() || !selection_is_local {
         return Some(SelectionMutation {
             clear: true,
             select: admitted.then_some(picked_sid).into_iter().collect(),

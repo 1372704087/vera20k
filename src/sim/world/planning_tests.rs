@@ -1745,7 +1745,8 @@ impl crate::sim::world::LocalPlanningBoundary for PlanningMode {
 /// 0x005F4520` runs Unselect_All (`0x0048DC90`) when its owner's human status
 /// differs from the first selected object's or that one is not the
 /// player's (`0x005F45AF..0x005F45F8`). Members [player 1, enemy 2, player
-/// 3]: the enemy drains the actor and the player's member drains the enemy.
+/// 3]: the enemy drains the actor and the player's member drains the enemy,
+/// each Deselect (`0x005F44A0`) releasing Follow.
 #[test]
 fn a_tail_node_enemy_passes_the_select_gate_and_unselects_all() {
     for discovered in [true, false] {
@@ -1786,23 +1787,37 @@ fn a_tail_node_enemy_passes_the_select_gate_and_unselects_all() {
                     .is_selected()
             })
             .collect();
-        let selects: Vec<u64> = sim
+        // Each Unselect_All Deselect releases Follow (`0x005F4503..
+        // 0x005F4513`) before the draining Select inserts its object.
+        let outputs: Vec<(&str, u64)> = sim
             .lifecycle_outputs
             .as_slice()
             .iter()
             .filter_map(|output| match output {
                 crate::sim::world::LifecycleOutput::ObjectSelected { stable_id } => {
-                    Some(*stable_id)
+                    Some(("select", *stable_id))
+                }
+                crate::sim::world::LifecycleOutput::FollowReleased { stable_id } => {
+                    Some(("release", *stable_id))
                 }
                 _ => None,
             })
             .collect();
         if discovered {
             assert_eq!(selected, [3]);
-            assert_eq!(selects, [1, 2, 3]);
+            assert_eq!(
+                outputs,
+                [
+                    ("select", 1),
+                    ("release", 1),
+                    ("select", 2),
+                    ("release", 2),
+                    ("select", 3)
+                ]
+            );
         } else {
             assert_eq!(selected, [1, 3], "an undiscovered enemy is refused");
-            assert_eq!(selects, [1, 3]);
+            assert_eq!(outputs, [("select", 1), ("select", 3)]);
         }
     }
 }

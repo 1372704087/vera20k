@@ -2230,6 +2230,18 @@ pub(crate) fn selection_order_for_world(
             .collect();
         // Native Selects all write the one vector at once, so a logic Select
         // joins the provisional ledger too.
+        //
+        // RESIDUAL: native commits an input Select at input time, before any
+        // later logic Select; here the queued snapshot commits after it.
+        // Trigger: a logic Select (crew, escaping passenger, released
+        // parasite or their planning partners) while a selection snapshot
+        // is queued. Effect: this ledger holds that object beside the
+        // input's members, even across owners, and the logic Select's
+        // Unselect_All tests and drains the older committed selection; then
+        // the snapshot deselects the object, which native keeps (alone,
+        // across owners). Frequency: only within a selection input's command
+        // latency. Downstream risk: the selection, its Follow and the next
+        // orders' recipients.
         let mut members = ordered.iter().copied().collect();
         admit_logic_selects(&mut ordered, &mut members, sim, rules, logic_selects, false);
         return (ordered.into(), true);
@@ -2367,24 +2379,52 @@ fn resolve_selection_mutation(
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut successful_adds = Vec::new();
     let mut first_select_adds = 0;
-    // Object5F4520's admission against the newest ledger and placement.
-    let admits = |id: u64, members: &HashSet<u64>| {
-        !placement_armed
-            && !members.contains(&id)
-            && rules.is_some_and(|rules| sim.can_select_object(id, rules))
-    };
-    let select =
-        |id: u64, ordered: &mut VecDeque<u64>, members: &mut HashSet<u64>, adds: &mut Vec<u64>| {
-            if !admits(id, members) {
-                return false;
+    // Every input Select is vt+0x14C, TechnoClass::Select (0x006FBFA0 in
+    // each Techno vtable; click 0x004ABDBA/0x004ABE72, band 0x004AC2F1,
+    // team 0x00731344/0x0073156C, the type, combatant, category and
+    // next-object walks): its gate (`techno_select_admits`), then
+    // ObjectClass::Select (0x005F4520, called only from 0x006FBFC7): the
+    // admission against the newest ledger and placement and, into a
+    // non-empty selection, Unselect_All (0x0048DC90 at 0x005F45F8,
+    // `select_unselects_all`) against the ledger's first entry, whose
+    // Deselects (0x005F44A0) release Follow, before the insert. So the
+    // player's object drains another house's selection, and the reverse.
+    let select = |id: u64,
+                  ordered: &mut VecDeque<u64>,
+                  members: &mut HashSet<u64>,
+                  adds: &mut Vec<u64>,
+                  follow_target: &mut Option<u64>| {
+        if placement_armed
+            || members.contains(&id)
+            || !sim.techno_select_admits(id)
+            || !rules.is_some_and(|rules| sim.can_select_object(id, rules))
+        {
+            return false;
+        }
+        if ordered
+            .front()
+            .is_some_and(|&first| sim.select_unselects_all(first, id))
+        {
+            for removed in ordered.drain(..) {
+                members.remove(&removed);
+                if *follow_target == Some(removed) {
+                    *follow_target = None;
+                }
             }
-            members.insert(id);
-            adds.push(id);
-            insert_selected_id(ordered, id, sim, rules);
-            true
-        };
+        }
+        members.insert(id);
+        adds.push(id);
+        insert_selected_id(ordered, id, sim, rules);
+        true
+    };
     for &id in &mutation.select {
-        if !select(id, &mut ordered, &mut members, &mut successful_adds) {
+        if !select(
+            id,
+            &mut ordered,
+            &mut members,
+            &mut successful_adds,
+            &mut follow_target,
+        ) {
             continue;
         }
         native_selection_mode_reset = true;
@@ -2393,26 +2433,16 @@ fn resolve_selection_mutation(
         // nested Selects do not expand again (AC4CF6). They run before the
         // band-box callback clears the voice latch (0x004AC2FB), so they
         // speak with their Select. A connect (0x0063AD50) can put another
-        // house's object on the player's node, so each partner passes
-        // 6FBFA0's gate and, when 5F4520 admits it, Unselect_All
-        // (0x005F45AF..0x005F45F8) against the ledger's first object first.
+        // house's object on the player's node; its Select drains the ledger
+        // like any other.
         for member in sim.planning_select_partners(id, planning_active) {
-            if !sim.techno_select_admits(member) {
-                continue;
-            }
-            if admits(member, &members)
-                && ordered
-                    .front()
-                    .is_some_and(|&first| sim.select_unselects_all(first, member))
-            {
-                for removed in ordered.drain(..) {
-                    members.remove(&removed);
-                    if follow_target == Some(removed) {
-                        follow_target = None;
-                    }
-                }
-            }
-            select(member, &mut ordered, &mut members, &mut successful_adds);
+            select(
+                member,
+                &mut ordered,
+                &mut members,
+                &mut successful_adds,
+                &mut follow_target,
+            );
         }
         if first_select_adds == 0 {
             first_select_adds = successful_adds.len();
@@ -2798,6 +2828,80 @@ mod item83_selection_order_tests {
         assert!(effects.successful_adds.is_empty());
     }
 
+    /// The current human house `Local` with units 42, 43 and 44 and a
+    /// computer house `Enemy` with units 50 and 51, out of Limbo; the
+    /// `discovered` enemy units have `+0x41B` set.
+    fn two_house_fixture(discovered: &[u64]) -> (Simulation, RuleSet) {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=TESTUNIT\n[TESTUNIT]\n",
+        ))
+        .expect("selection fixture rules");
+        let mut sim = Simulation::new();
+        let local = sim.intern("Local");
+        let enemy = sim.intern("Enemy");
+        let kind = sim.intern("TESTUNIT");
+        for (house, index, human) in [(local, 0, true), (enemy, 1, false)] {
+            sim.houses_mut_for_test()
+                .register(crate::sim::house_state::HouseState::new(
+                    house, index, None, human, 0, 10,
+                ));
+        }
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(local));
+        for (id, owner) in [
+            (42, local),
+            (43, local),
+            (44, local),
+            (50, enemy),
+            (51, enemy),
+        ] {
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                id,
+                1,
+                1,
+                0,
+                0,
+                owner,
+                Health::new(100),
+                kind,
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            );
+            entity.lifecycle.set_in_limbo_for_test(false);
+            entity
+                .discovery
+                .set_discovered_by_current_house_for_test(discovered.contains(&id));
+            sim.entities_mut_for_test().insert(entity);
+        }
+        (sim, rules)
+    }
+
+    /// Put each actor on the player's node at (5, 7) in turn: the player's
+    /// by a planned move, another house's by a connect (`0x0063AD50`).
+    fn plan_to_shared_node(sim: &mut Simulation, rules: &RuleSet, actors: &[u64]) {
+        use crate::sim::command::Command;
+        let local = sim.intern("Local");
+        for &actor in actors {
+            let record = if sim.house_is_human_player(sim.entities().get(actor).unwrap().owner()) {
+                sim.encode_planning_order_record(
+                    local,
+                    &Command::Move {
+                        entity_id: actor,
+                        target_rx: 5,
+                        target_ry: 7,
+                    },
+                )
+            } else {
+                sim.encode_plan_connect_record(local, actor, (5, 7))
+            }
+            .unwrap();
+            let command = sim.decode_native_command_record(&record, 0).unwrap();
+            assert!(sim.apply_command("Local", &command.payload, Some(rules)));
+        }
+    }
+
     /// A connect (`0x0063AD50`) can put another house's object on the
     /// player's node. Each partner Select passes TechnoClass::Select's gate
     /// (`0x006FBFA3..0x006FBFC3`: discovered `+0x41B` or the human player's)
@@ -2806,69 +2910,9 @@ mod item83_selection_order_tests {
     #[test]
     fn a_planning_partner_of_another_house_passes_the_select_gate_and_unselects_all() {
         use super::{SelectionMutation, resolve_selection_mutation};
-        use crate::sim::command::Command;
-        let rules =
-            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
-                "[VehicleTypes]\n0=TESTUNIT\n[TESTUNIT]\n",
-            ))
-            .expect("selection fixture rules");
         for discovered in [true, false] {
-            let mut sim = Simulation::new();
-            let local = sim.intern("Local");
-            let enemy = sim.intern("Enemy");
-            let kind = sim.intern("TESTUNIT");
-            for (house, index, human) in [(local, 0, true), (enemy, 1, false)] {
-                sim.houses_mut_for_test()
-                    .register(crate::sim::house_state::HouseState::new(
-                        house, index, None, human, 0, 10,
-                    ));
-            }
-            sim.session_mut_for_test()
-                .set_current_house_for_test(Some(local));
-            for (id, owner) in [(42, local), (43, local), (50, enemy), (51, enemy)] {
-                let mut entity = GameEntity::new_at_frame_zero_for_test(
-                    id,
-                    1,
-                    1,
-                    0,
-                    0,
-                    owner,
-                    Health::new(100),
-                    kind,
-                    EntityCategory::Unit,
-                    0,
-                    5,
-                    false,
-                );
-                entity.lifecycle.set_in_limbo_for_test(false);
-                entity
-                    .discovery
-                    .set_discovered_by_current_house_for_test(id == 50 && discovered);
-                sim.entities_mut_for_test().insert(entity);
-            }
-            let apply = |sim: &mut Simulation, record| {
-                let command = sim.decode_native_command_record(&record, 0).unwrap();
-                assert!(sim.apply_command("Local", &command.payload, Some(&rules)));
-            };
-            let move_to = |sim: &mut Simulation, id| {
-                sim.encode_planning_order_record(
-                    local,
-                    &Command::Move {
-                        entity_id: id,
-                        target_rx: 5,
-                        target_ry: 7,
-                    },
-                )
-                .unwrap()
-            };
-            let record = move_to(&mut sim, 42);
-            apply(&mut sim, record);
-            let record = sim.encode_plan_connect_record(local, 50, (5, 7)).unwrap();
-            apply(&mut sim, record);
-            let record = move_to(&mut sim, 43);
-            apply(&mut sim, record);
-            let record = sim.encode_plan_connect_record(local, 51, (5, 7)).unwrap();
-            apply(&mut sim, record);
+            let (mut sim, rules) = two_house_fixture(if discovered { &[50] } else { &[] });
+            plan_to_shared_node(&mut sim, &rules, &[42, 50, 43, 51]);
             assert_eq!(sim.planning_select_partners(42, true), [42, 50, 43, 51]);
             let effects = resolve_selection_mutation(
                 &sim,
@@ -2892,6 +2936,132 @@ mod item83_selection_order_tests {
                 assert_eq!(effects.ordered, [42, 43]);
                 assert_eq!(effects.successful_adds, [42, 43]);
             }
+        }
+    }
+
+    /// Recall (`0x007311C0`) clears, then Selects each member through
+    /// vt+0x14C (`0x00731344`). When the first member's tail node ends on
+    /// another house's discovered object, that partner is left alone in the
+    /// selection, and the next member's own Select drains it
+    /// (`0x005F45AF..0x005F45F8`).
+    #[test]
+    fn a_later_member_select_drains_another_houses_planning_partner() {
+        use super::{SelectionMutation, resolve_selection_mutation};
+        let (mut sim, rules) = two_house_fixture(&[50]);
+        plan_to_shared_node(&mut sim, &rules, &[42, 50]);
+        assert_eq!(sim.planning_select_partners(42, true), [42, 50]);
+        let effects = resolve_selection_mutation(
+            &sim,
+            Some(&rules),
+            vec![],
+            None,
+            false,
+            true,
+            &SelectionMutation {
+                clear: true,
+                select: vec![42, 44],
+                ..Default::default()
+            },
+        );
+        assert_eq!(effects.ordered, [44]);
+        assert_eq!(effects.successful_adds, [42, 50, 44]);
+    }
+
+    /// The band callback (`0x004AC2B0`) Selects only the player's objects
+    /// (vt+0x14C at `0x004AC2F1`), and a Shift drag skips the clear. A
+    /// selected enemy is current-objects `[0]`, so the first Select runs
+    /// Unselect_All (`0x005F45F8`), whose Deselect also releases Follow.
+    #[test]
+    fn a_shift_band_over_own_units_drains_a_selected_enemy() {
+        use super::{SelectionMutation, resolve_selection_mutation};
+        let (sim, rules) = two_house_fixture(&[50]);
+        let order: Vec<u64> = sim
+            .entities()
+            .values()
+            .map(|entity| entity.stable_id())
+            .collect();
+        let mutation = crate::app::input::entity_pick::compute_box_selection_snapshot(
+            sim.entities(),
+            &order,
+            &order,
+            &[50],
+            None,
+            Some("Local"),
+            -1.0e6,
+            -1.0e6,
+            1.0e6,
+            1.0e6,
+            true,
+            Some(&rules),
+            None,
+            Some(sim.interner()),
+        )
+        .expect("the band caught objects");
+        assert_eq!(
+            mutation,
+            SelectionMutation {
+                select: vec![42, 43, 44],
+                ..Default::default()
+            }
+        );
+        let effects = resolve_selection_mutation(
+            &sim,
+            Some(&rules),
+            vec![50],
+            Some(50),
+            false,
+            false,
+            &mutation,
+        );
+        assert_eq!(effects.ordered, [42, 43, 44]);
+        assert_eq!(effects.successful_adds, [42, 43, 44]);
+        assert_eq!(effects.follow_target, None);
+    }
+
+    /// A Shift click while the player's units are selected is the toggle
+    /// arm's Select (`0x004ABDBA`), which clears nothing itself. For an enemy
+    /// its ObjectClass::Select drains the units (`0x005F45AF..0x005F45F8`);
+    /// TechnoClass::Select's gate (`0x006FBFA3..0x006FBFC3`) refuses an
+    /// undiscovered one first, which leaves them selected.
+    #[test]
+    fn a_shift_click_on_an_enemy_selects_it_through_select() {
+        use super::{SelectionMutation, resolve_selection_mutation};
+        let (sim, rules) = two_house_fixture(&[50]);
+        for (enemy, ordered) in [(50, vec![50]), (51, vec![42, 43])] {
+            let (x, y) = crate::render::locomotor_visual::screen_position(
+                sim.entities().get(enemy).unwrap(),
+            );
+            let mutation = crate::app::input::entity_pick::compute_click_selection_snapshot(
+                sim.entities(),
+                &[enemy],
+                &[42, 43],
+                None,
+                Some("Local"),
+                x,
+                y,
+                true,
+                Some(&rules),
+                Some(sim.interner()),
+            )
+            .expect("the click picked the enemy");
+            assert_eq!(
+                mutation,
+                SelectionMutation {
+                    select: vec![enemy],
+                    ..Default::default()
+                }
+            );
+            let effects = resolve_selection_mutation(
+                &sim,
+                Some(&rules),
+                vec![42, 43],
+                Some(42),
+                false,
+                false,
+                &mutation,
+            );
+            assert_eq!(effects.ordered, ordered, "enemy {enemy}");
+            assert_eq!(effects.follow_target, (enemy == 51).then_some(42));
         }
     }
 }
@@ -4491,22 +4661,45 @@ mod control_group_tests {
     }
 
     #[test]
-    fn shift_group_add_preserves_a_legitimately_selected_enemy() {
+    fn shift_group_add_drains_a_selected_enemy() {
         use crate::sim::world::Simulation;
 
+        let rules = crate::rules::ruleset::RuleSet::from_ini(
+            &crate::rules::ini_parser::IniFile::from_str("[VehicleTypes]\n0=MTNK\n[MTNK]\n"),
+        )
+        .expect("group fixture rules");
         let mut sim = Simulation::new();
         let local = house(&mut sim, "Local", false, true);
         let enemy = house(&mut sim, "Enemy", false, false);
         group_entity(&mut sim, 10, local);
         group_entity(&mut sim, 11, enemy);
+        for id in [10, 11] {
+            let entity = sim.entities_mut_for_test().get_mut(id).unwrap();
+            entity.lifecycle.set_in_limbo_for_test(false);
+        }
 
         let live_group = live_group_members(Some(&sim), &[10, 11]);
         assert_eq!(live_group, [10], "only eligible group members are recalled");
-        assert_eq!(
-            append_group_members_to_selection(vec![11], &live_group),
-            [11, 10],
-            "Shift+digit keeps the ordinary click-selected enemy and adds the eligible group"
+        // AddTeam (0x007314C0) clears nothing and Selects each eligible
+        // member (vt+0x14C at 0x0073156C); the click-selected enemy is
+        // current-objects [0], so that Select's Unselect_All
+        // (0x005F45AF..0x005F45F8) drains it.
+        let calls = append_group_members_to_selection(vec![11], &live_group);
+        assert_eq!(calls, [11, 10]);
+        let effects = super::resolve_selection_mutation(
+            &sim,
+            Some(&rules),
+            vec![11],
+            None,
+            false,
+            false,
+            &super::SelectionMutation {
+                select: calls,
+                ..Default::default()
+            },
         );
+        assert_eq!(effects.ordered, [10]);
+        assert_eq!(effects.successful_adds, [10]);
     }
 
     #[test]

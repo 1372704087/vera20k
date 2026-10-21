@@ -2106,6 +2106,23 @@ impl Simulation {
     /// selection, but does not retroactively remove an existing one.
     /// VERA-only: applies the local `Command::Select` snapshot, its source of truth, to
     /// IsSelected `Object+0x83` through `Deselect @ 0x005F44A0` and `Select @ 0x005F4520`.
+    ///
+    /// RESIDUAL: the input ledger resolves a mutation's Select calls, their
+    /// planning expansion (`0x00637840`) and Unselect_All drains included;
+    /// this then Selects only the final new members, in vector order, with
+    /// the `0x00AC4CF6` guard clear. So (a) a Select a partner's Selected tag
+    /// event (33) starts expands its own tail node, where native's guard
+    /// returns early; (b) an object Selected and then drained within one
+    /// mutation raises no event 33 (native raises one per Select,
+    /// `0x006FBFE4`); (c) the new members' events run in vector order, not
+    /// call order. Trigger: a tag with event 33 on a planning partner (a);
+    /// on an object a later Select of the same mutation drains, which takes
+    /// another house's object on the player's planning node (b); or on two
+    /// objects one mutation selects (c). Effect: extra partners selected, or
+    /// a missing or reordered event 33 and the actions it runs (RNG draws
+    /// included). Frequency: rare; needs Selected triggers, and (a, b)
+    /// Planning Mode. Downstream risk: the selection's later orders, and
+    /// whatever those trigger actions change.
     fn apply_selection_snapshot(
         &mut self,
         stable_ids: &[u64],
@@ -2174,9 +2191,11 @@ impl Simulation {
 
     /// Commit an input-admitted Techno selection through Object5F4520, then
     /// its successful Techno6FBFD0..6FBFE4 Event33 callback (Steam gamemd).
-    /// The app's picking/navigation owner admits discovery+41B and House50B6F0
-    /// before emitting the ordered Select command. Keep the graphical-client
-    /// B73550 gate there: replaying this command must not depend on a renderer.
+    /// The app's input ledger applies TechnoClass::Select's gate
+    /// ([`Self::techno_select_admits`]) and Unselect_All
+    /// ([`Self::select_unselects_all`]) before emitting the ordered Select
+    /// command. Keep the graphical-client B73550 gate there: replaying this
+    /// command must not depend on a renderer.
     /// Raw lifecycle Select writers use Selection::select and do not raise33.
     pub(crate) fn try_select_object(
         &mut self,
@@ -2190,8 +2209,9 @@ impl Simulation {
     /// the current house has discovered the object (`+0x41B`) or its owner
     /// is the human player (`HouseClass::IsHumanPlayer @ 0x0050B6F0`). Its
     /// third arm, a zero main window handle (`0x00B73550`), never holds in a
-    /// running game. Every Select of a Techno passes it, the input owner's
-    /// planning partners included.
+    /// running game. Every Select of a Techno passes it: the game's own
+    /// ([`Self::techno_select`]) and each Select the app's input ledger
+    /// resolves, planning partners included.
     pub fn techno_select_admits(&self, stable_id: u64) -> bool {
         self.substrate
             .entities
@@ -2223,7 +2243,8 @@ impl Simulation {
     /// `ObjectClass::Select @ 0x005F4520` and the Selected tag event that
     /// `TechnoClass::Select` raises after it (`0x006FBFD0..0x006FBFE4`). A
     /// Select the game makes itself (`logic`) first runs Unselect_All
-    /// (`0x0048DC90`: Deselect `0x005F44A0` of every selected object) when
+    /// (`0x0048DC90`: Deselect `0x005F44A0` of every selected object, each
+    /// releasing Follow, [`LifecycleOutput::FollowReleased`]) when
     /// [`Self::select_unselects_all`] says so, then reports its insertion
     /// into the current-objects vector ([`LifecycleOutput::ObjectSelected`]),
     /// before the tag event can Select anything else. An input Select arrives
@@ -2236,6 +2257,7 @@ impl Simulation {
     /// object changed owner and stayed selected.
     ///
     /// [`LifecycleOutput::ObjectSelected`]: super::LifecycleOutput::ObjectSelected
+    /// [`LifecycleOutput::FollowReleased`]: super::LifecycleOutput::FollowReleased
     fn object_select(
         &mut self,
         stable_id: u64,
@@ -2260,8 +2282,13 @@ impl Simulation {
                 .map(|entity| entity.stable_id());
             if first.is_some_and(|first| self.select_unselects_all(first, stable_id)) {
                 for id in self.substrate.entities.keys_sorted() {
-                    if let Some(entity) = self.substrate.entities.get_mut(id) {
+                    if let Some(entity) = self.substrate.entities.get_mut(id)
+                        && entity.selection.is_selected()
+                    {
                         entity.selection.deselect();
+                        // Deselect's Follow release (`0x005F4503..0x005F4513`).
+                        self.lifecycle_outputs
+                            .emit(super::LifecycleOutput::FollowReleased { stable_id: id });
                     }
                 }
             }

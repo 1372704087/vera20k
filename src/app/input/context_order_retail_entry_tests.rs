@@ -13,7 +13,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
 use crate::sim::world::Simulation;
 
-fn arena(rules: &RuleSet) -> Simulation {
+pub(super) fn arena(rules: &RuleSet) -> Simulation {
     let mut sim = Simulation::new();
     for (name, side) in [("Americans", 0), ("Russians", 1)] {
         let owner = sim.intern(name);
@@ -301,7 +301,7 @@ fn the_alt_chord_moves_rather_than_grinds() {
     );
 }
 
-fn retail() -> Option<(
+pub(super) fn retail() -> Option<(
     crate::rules::retail_ini_fixture::RetailBattleRules,
     crate::rules::overlay_types::OverlayTypeRegistry,
 )> {
@@ -546,7 +546,6 @@ fn screen_overlap_with_hovering_rocketeer_keeps_bunker_enter_action() {
         y + 16.,
         "Americans",
         true,
-        Some(rules),
     )
     .expect("bunker platform target");
     assert_eq!(picked, hover(bunker));
@@ -559,7 +558,6 @@ fn screen_overlap_with_hovering_rocketeer_keeps_bunker_enter_action() {
             air_y,
             "Americans",
             true,
-            Some(rules),
         )
         .map(|hover| hover.stable_id),
         Some(rocketeer),

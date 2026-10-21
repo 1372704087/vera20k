@@ -74,19 +74,13 @@ fn object_pair(rules: &RuleSet, actor_kind: &str, relation: &str) -> (Simulation
     (sim, actor, target)
 }
 
-fn picked_target(sim: &Simulation, rules: &RuleSet, target: u64) -> HoverTargetKindWithId {
+fn picked_target(sim: &Simulation, target: u64) -> HoverTargetKindWithId {
     let (x, y) = crate::app::presentation::instances::interpolated_screen_position_entity(
         sim.entities().get(target).unwrap(),
     );
-    let hover = crate::app::input::entity_pick::hover_target_at_point(
-        sim,
-        x,
-        y,
-        "Americans",
-        false,
-        Some(rules),
-    )
-    .expect("revealed ordinary tank is picked");
+    let hover =
+        crate::app::input::entity_pick::hover_target_at_point(sim, x, y, "Americans", false)
+            .expect("revealed ordinary tank is picked");
     assert_eq!(hover.stable_id, target);
     hover
 }
@@ -153,7 +147,7 @@ fn allied_object_ivan_cursor_consumes_the_canonical_grant() {
     let Some((battle, sim, actor, target)) = ivan_grant_scene() else {
         return;
     };
-    let hover = picked_target(&sim, &battle.rules, target);
+    let hover = picked_target(&sim, target);
     assert_eq!(hover.kind, HoverTargetKind::FriendlyUnit);
     assert_eq!(
         crate::app::input::cursor::capability_cursor_for_hover(
@@ -362,7 +356,7 @@ fn allied_object_cursor_does_not_offer_selection_for_another_allied_house() {
         Some(&battle.fixed_art),
     );
     let (sim, actor, target) = object_pair(&battle.rules, "MTNK", "ally");
-    let hover = picked_target(&sim, &battle.rules, target);
+    let hover = picked_target(&sim, target);
     assert_eq!(hover.kind, HoverTargetKind::FriendlyUnit);
     let feedback = crate::app::input::cursor::capability_cursor_for_hover(
         &sim,
@@ -463,7 +457,7 @@ fn allied_object_infantry_and_building_owners_answer_their_own_tails() {
     ];
     for (kind, relation, cursor, release) in rows {
         let (sim, actor, target) = object_pair(&battle.rules, kind, relation);
-        let hover = picked_target(&sim, &battle.rules, target);
+        let hover = picked_target(&sim, target);
         assert_eq!(hover.kind, HoverTargetKind::FriendlyUnit);
         assert!(object_action_answers_friendly(
             &sim,
@@ -685,7 +679,7 @@ fn a_ground_owner_moves_onto_an_ally_worn_as_a_tree() {
     );
     for kind in ["E1", "MTNK"] {
         let (mut sim, actor, target) = object_pair(&battle.rules, kind, "ally");
-        let hover = picked_target(&sim, &battle.rules, target);
+        let hover = picked_target(&sim, target);
         let tree = sim.intern("TREE01");
         let mut disguise = crate::sim::cloak_disguise::DisguiseRuntime::new(0);
         disguise.acquire(0, Some(tree), None);

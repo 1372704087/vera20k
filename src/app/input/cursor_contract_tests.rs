@@ -355,21 +355,8 @@ fn native_infantry_weapon_suffix_controls_match_shared_action_owner() {
         } else {
             CursorFeedbackKind::EnemyUnit
         };
-        let feedback = infantry_weapon_feedback(
-            &sim,
-            Some(&rules),
-            actor,
-            &HoverTargetKindWithId {
-                stable_id: target,
-                kind: if building {
-                    HoverTargetKind::EnemyStructure
-                } else {
-                    HoverTargetKind::EnemyUnit
-                },
-            },
-            base,
-        )
-        .unwrap_or(base);
+        let feedback =
+            infantry_weapon_feedback(&sim, Some(&rules), actor, target, base).unwrap_or(base);
         let expected = match row["output"]["cursor_row"].as_u64().unwrap() {
             17 => CursorId::Select,
             20 => CursorId::Attack,

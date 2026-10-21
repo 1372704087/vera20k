@@ -14,7 +14,7 @@ use crate::app::input::commands::preferred_local_owner;
 use crate::app::input::dispatch::{
     is_alt_held, is_ctrl_held, is_shift_held, selected_stable_ids_in_order,
 };
-use crate::app::input::entity_pick::{HoverTargetKindWithId, hover_target_at_point};
+use crate::app::input::entity_pick::{HoverObject, HoverTargetKindWithId, hover_object_at_point};
 use crate::app::types::{HoverTargetKind, OrderMode};
 use crate::map::entities::EntityCategory;
 use crate::sim::combat::TargetKind;
@@ -426,8 +426,9 @@ pub(super) fn object_action_answers_friendly(
     })
 }
 
-/// The target is an object whose type is `Immune=` (`+0x233`), which every
-/// class's object action turns from Attack into NoMove.
+/// The target is an object whose type (vt+0x88) is `Immune=` (`+0x233`),
+/// which every class's object action turns from Attack into NoMove: a
+/// Techno's, or a Terrain object's TerrainType.
 fn target_is_immune(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -436,10 +437,18 @@ fn target_is_immune(
     let TargetKind::Entity(id) = *target else {
         return false;
     };
-    sim.entities()
+    if let Some(target) = sim.entities().get(id) {
+        return sim
+            .interner()
+            .object_type(target.type_ref(), rules)
+            .is_some_and(|target| target.immune);
+    }
+    sim.terrain_objects()
         .get(id)
-        .and_then(|target| sim.interner().object_type(target.type_ref(), rules))
-        .is_some_and(|target| target.immune)
+        .and_then(|terrain| {
+            rules.terrain_object_type_case_insensitive(sim.interner().resolve(terrain.type_ref()))
+        })
+        .is_some_and(|terrain| terrain.immune)
 }
 
 /// [`attack_action`] for an armed actor: the Ctrl branch (`forced`), and a
@@ -1551,7 +1560,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 selected_units.push(sid);
             }
         }
-        let hover = hover_target_at_point(
+        let hover_object = hover_object_at_point(
             crate::app::input::entity_pick::PresentedWorld {
                 sim,
                 interpolation: &state.match_state.match_presentation.interpolation,
@@ -1560,8 +1569,8 @@ pub(crate) fn try_queue_context_order_at_screen_point(
             world_y,
             &owner,
             state.match_state.sandbox_full_visibility,
-            Some(&resources.rules),
         );
+        let hover = hover_object.and_then(HoverObject::techno);
         // Techno700082 -> Action8 precedes Infantry/Unit class actions.
         // Let the selection consumer handle Shift over a visible object;
         // bare ground still reaches its immediate Move. Berserk-only groups
@@ -1749,11 +1758,14 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         // Attack-capable Ctrl receivers, including fixed/occupied buildings,
         // resolve the same action as the cursor before the legacy rally/mobile
         // split. Non-attack capabilities keep their existing handlers below.
-        let attack_target = hover
-            .as_ref()
-            .map_or(TargetKind::Cell(target_rx, target_ry), |target| {
-                TargetKind::Entity(target.stable_id)
-            });
+        // Ctrl over a Terrain object takes Techno What_Action_OnObject's
+        // forced Attack rung (`0x006FFEC0`). Other chords over one answer its
+        // Cell (residuals at `forced_terrain_feedback`).
+        let attack_target = match hover_object {
+            Some(HoverObject::Techno(target)) => TargetKind::Entity(target.stable_id),
+            Some(HoverObject::Terrain(id)) if force_fire => TargetKind::Entity(id),
+            _ => TargetKind::Cell(target_rx, target_ry),
+        };
         let enemy_object = hover.as_ref().is_some_and(|target| {
             matches!(
                 target.kind,
@@ -2980,20 +2992,27 @@ pub(super) fn infantry_attack_action(
     if object.engineer {
         return Some(InfantryAttackAction::NoMove);
     }
-    let target = sim.entities().get(target_id)?;
-    let hover = HoverTargetKindWithId {
-        stable_id: target_id,
-        kind: if target.category() == EntityCategory::Structure {
-            HoverTargetKind::EnemyStructure
-        } else {
-            HoverTargetKind::EnemyUnit
-        },
-    };
-    if let Some(c4) = infantry_c4_action(sim, rules, actor_id, &hover, true) {
-        return Some(match c4 {
-            InfantryC4Action::Sabotage => InfantryAttackAction::Sabotage,
-            InfantryC4Action::Attack => InfantryAttackAction::Attack,
-        });
+    // The target is a Techno or, under Ctrl, a Terrain object, which the C4
+    // and weapon-cursor arms below read as no building and no Unit.
+    let target = sim.entities().get(target_id);
+    if target.is_none() && sim.terrain_objects().get(target_id).is_none() {
+        return None;
+    }
+    if let Some(target) = target {
+        let hover = HoverTargetKindWithId {
+            stable_id: target_id,
+            kind: if target.category() == EntityCategory::Structure {
+                HoverTargetKind::EnemyStructure
+            } else {
+                HoverTargetKind::EnemyUnit
+            },
+        };
+        if let Some(c4) = infantry_c4_action(sim, rules, actor_id, &hover, true) {
+            return Some(match c4 {
+                InfantryC4Action::Sabotage => InfantryAttackAction::Sabotage,
+                InfantryC4Action::Attack => InfantryAttackAction::Attack,
+            });
+        }
     }
     let cells = sim
         .resolved_terrain()
@@ -3012,9 +3031,10 @@ pub(super) fn infantry_attack_action(
     let weapon = weapon?.weapon;
     if weapon.sabotage_cursor {
         return Some(
-            if target.category() == EntityCategory::Unit
-                && target.bunker.link().installed_in().is_some()
-            {
+            if target.is_some_and(|target| {
+                target.category() == EntityCategory::Unit
+                    && target.bunker.link().installed_in().is_some()
+            }) {
                 InfantryAttackAction::Select
             } else {
                 InfantryAttackAction::WeaponDemolish
@@ -3024,11 +3044,13 @@ pub(super) fn infantry_attack_action(
     // Infantry51EAD2..51EB21: anything but a C4-able building keeps Attack
     // and returns before the tail below.
     if weapon.mig_attack_cursor {
-        let air_strike = target.category() == EntityCategory::Structure
-            && sim
-                .interner()
-                .object_type(target.type_ref(), rules)
-                .is_some_and(|building| building.can_c4 && !building.invisible_in_game);
+        let air_strike = target.is_some_and(|target| {
+            target.category() == EntityCategory::Structure
+                && sim
+                    .interner()
+                    .object_type(target.type_ref(), rules)
+                    .is_some_and(|building| building.can_c4 && !building.invisible_in_game)
+        });
         return Some(if air_strike {
             InfantryAttackAction::AirStrike
         } else {
@@ -3312,9 +3334,11 @@ fn ivan_cannot_bomb(
         .get(actor_id)
         .and_then(|e| sim.interner().object_type(e.type_ref(), rules))
         .is_some_and(|o| o.ivan);
+    // A Terrain object carries no bomb in VERA: refused, as its cursor is
+    // (residual at `forced_terrain_feedback`).
     is_ivan
-        && sim.entities().get(target_id).is_some_and(|target| {
-            ivan_bomb_refused(target, sim.interner().object_type(target.type_ref(), rules))
+        && !sim.entities().get(target_id).is_some_and(|target| {
+            !ivan_bomb_refused(target, sim.interner().object_type(target.type_ref(), rules))
         })
 }
 
@@ -6654,6 +6678,10 @@ mod retail_garrison_tests;
 #[cfg(test)]
 #[path = "context_order_retail_entry_tests.rs"]
 mod retail_entry_tests;
+
+#[cfg(test)]
+#[path = "context_order_retail_terrain_tests.rs"]
+mod retail_terrain_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_self_deploy_tests.rs"]

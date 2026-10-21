@@ -47,9 +47,6 @@ mod area_guard_tests;
 #[path = "player_scatter_tests.rs"]
 mod player_scatter_tests;
 
-/// Click radius for single-click selection (pixels in world space).
-pub(crate) const CLICK_SELECT_RADIUS: f32 = 30.0;
-
 /// Handle mouse button press/release for selection and move commands.
 ///
 /// The in-game gadget walk runs FIRST (study G22/A8): chrome buttons + cameos
@@ -438,9 +435,6 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     preferred_local_owner_name(state).as_deref(),
                                     world_x,
                                     world_y,
-                                    CLICK_SELECT_RADIUS,
-                                    state.rules(),
-                                    Some(sim.houses()),
                                     Some(sim.interner()),
                                     sim.resolved_terrain(),
                                 );
@@ -465,10 +459,8 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                         preferred_local_owner_name(state).as_deref(),
                                         world_x,
                                         world_y,
-                                        CLICK_SELECT_RADIUS,
                                         shift,
                                         state.rules(),
-                                        Some(sim.houses()),
                                         Some(sim.interner()),
                                         sim.playfield_bounds().is_some(),
                                         sim.resolved_terrain(),
@@ -484,10 +476,8 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                                     preferred_local_owner_name(state).as_deref(),
                                     world_x,
                                     world_y,
-                                    CLICK_SELECT_RADIUS,
                                     shift,
                                     state.rules(),
-                                    Some(sim.houses()),
                                     Some(sim.interner()),
                                     sim.playfield_bounds().is_some(),
                                     sim.resolved_terrain(),

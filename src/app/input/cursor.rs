@@ -337,6 +337,25 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         ));
     }
 
+    // Shift, Alt and Ctrl+Alt over a Terrain object take the object's key
+    // rungs ([`super::context_order::object_key_action`]).
+    if let Some(HoverObject::Terrain(_)) = hover_object
+        && let (Some(id), Some(rules)) = (best_id, state.rules())
+        && let Some(action) =
+            super::context_order::object_key_action(sim, rules, id, None, modifier, force_move_key)
+    {
+        let kind = match action {
+            super::context_order::ObjectKeyAction::ToggleSelect => CursorFeedbackKind::Select,
+            super::context_order::ObjectKeyAction::GuardArea => CursorFeedbackKind::GuardArea,
+            super::context_order::ObjectKeyAction::Move => CursorFeedbackKind::Move,
+        };
+        return Some(promote_attack_move_feedback(
+            kind,
+            modifier == super::context_order::OrderModifier::AttackMove
+                || state.match_state.input.queued_order_mode
+                    == crate::app::types::OrderMode::AttackMove,
+        ));
+    }
     // A plain or Ctrl hover over a Terrain object asks the object.
     let forced = modifier == crate::app::input::context_order::OrderModifier::ForceFire;
     if let Some(HoverObject::Terrain(terrain_id)) = hover_object
@@ -415,10 +434,12 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
 /// Building (`0x00447210`), which shows no rally. With Ctrl an armed object
 /// answers Attack, which an `Immune=` type turns into NoMove.
 ///
+/// Shift, Alt and Ctrl+Alt answer before it
+/// ([`super::context_order::object_key_action`]).
+///
 /// RESIDUALS, each a rare chord or unit over a Terrain object:
-/// - Shift, Alt, Ctrl+Alt and Ctrl+Shift answer the Cell. Native: Select
-///   (`0x00700107`), Move (`0x007001E9..0x00700217`), Move, and the
-///   unforced NoMove. VERA's sticky attack-move mode answers the Cell too.
+/// - Ctrl+Shift and VERA's sticky attack-move mode answer the Cell. Native:
+///   the unforced answer (NoMove for a player's Unit or Infantryman).
 /// - A player's Crazy Ivan with Ctrl: native answers IvanBomb
 ///   (`0x0051EB48..0x0051EB66`) on every Terrain object, which are all
 ///   `Bombable=` (ObjectType ctor `+0x22E`; no retail TerrainType clears it),
@@ -668,13 +689,19 @@ pub(super) fn capability_cursor_for_hover(
 ) -> CursorFeedbackKind {
     use super::context_order::OrderModifier;
     use crate::map::entities::EntityCategory;
-    // Techno's berserk exit and warp arm (`0x006FFEC9`, `0x006FFF03`)
-    // precede its key reads (`0x00700006`).
-    if modifier == OrderModifier::Shift
-        && !best_id
-            .and_then(|id| sim.entities().get(id))
-            .is_some_and(|actor| actor.berserk.is_active() || actor.is_warped_out())
-    {
+    // Techno's key rungs ([`super::context_order::object_key_action`]):
+    // Shift answers ToggleSelect before every class row.
+    let key_action = rules.and_then(|rules| {
+        super::context_order::object_key_action(
+            sim,
+            rules,
+            best_id?,
+            Some(hover.stable_id),
+            modifier,
+            force_move_key,
+        )
+    });
+    if key_action == Some(super::context_order::ObjectKeyAction::ToggleSelect) {
         return CursorFeedbackKind::Select;
     }
 
@@ -841,23 +868,11 @@ pub(super) fn capability_cursor_for_hover(
             return CursorFeedbackKind::Enter;
         }
 
-        if modifier == OrderModifier::GuardArea
-            && rules.is_some_and(|rules| {
-                super::context_order::guard_area_admitted(
-                    sim,
-                    rules,
-                    best_id,
-                    Some(hover.stable_id),
-                )
-            })
-        {
+        if key_action == Some(super::context_order::ObjectKeyAction::GuardArea) {
             return CursorFeedbackKind::GuardArea;
         }
-        if (modifier == OrderModifier::GuardArea
-            || modifier == OrderModifier::ForceMove
-            || (modifier == OrderModifier::AttackMove && force_move_key))
+        if key_action == Some(super::context_order::ObjectKeyAction::Move)
             && let Some(rules) = rules
-            && sim.techno_player_controllable(best_id, rules)
         {
             // A factory's own rungs over the object (`0x0044744E..0x0044750B`).
             let factory_refuses = sel_entity.category() == EntityCategory::Structure

@@ -65,12 +65,19 @@
 //! to its post (`0x004D6ECB`, the post being `Map[Location]` archived at
 //! `0x004D6DB9`) and its Approach (`0x004D6F32`, a ring cell) leave a cell
 //! NavCom, and the next scan or retaliation can hand it a building.
-//! Queue_Mission and Commence (`0x005B35E0`) leave the NavCom alone,
+//! Queue_Mission (`0x005B35E0`) and Commence (`0x005B3570`) leave the
+//! NavCom alone,
 //! `TechnoClass::AI`'s illegal-target drop spares Sabotage
 //! (`0x006FA472..0x006FA4CB`), and Mission_Capture keeps an existing NavCom
 //! (`0x004D4B57..0x004D4B5F`, `0x004D4BC7..0x004D4BCF`). The Walk runs
 //! Per_Cell_Process(2) on reaching that cell before it lets the destination
 //! go (`0x0075BE3C`, then `0x0075BEF0..0x0075BF38`), so the arm fires there.
+//! A moving infantryman is not ready to commence (`0x00521B60`) unless on
+//! Guard, Hunt or a targetless Attack, so AreaGuard's queued Sabotage
+//! commits only in Per_Cell_Process's tail Commence (`0x0051A8C5`), after
+//! the C4 arms: queued during the last step, it commits in the NavCom
+//! cell's own visit, the Walk then drops the NavCom (`0x0075BF29`) and the
+//! building route takes over.
 
 use crate::map::resolved_terrain::NativeCellQuery;
 use crate::rules::overlay_types::OverlayTypeRegistry;

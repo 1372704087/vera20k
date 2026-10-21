@@ -531,8 +531,10 @@ impl Simulation {
         );
         if reply != crate::sim::radio::RadioResponse::Queued {
             // RESIDUAL: `0x0073AAF7..0x0073AB66` is not ported. These are the
-            // replies other than Queued (0x17) from a tethered dock (a
-            // refinery, service depot or bunker; a war factory answers 0x17).
+            // replies other than Queued (0x17) to a tethered Unit's message 8,
+            // including 0 with no contact. Only a refinery and a non-naval war
+            // factory tether a Unit (radio 0x18, `0x0043CACE`, `0x004445E3`),
+            // and a war factory answers 0x17.
             // - A Harvester or Weeder with an archive queues Harvest (0) and is
             //   sent to the archive, which then clears. Without an archive and
             //   NavCom it Scatters (NULL, 1, 0).

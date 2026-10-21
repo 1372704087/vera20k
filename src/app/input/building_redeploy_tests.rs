@@ -502,6 +502,8 @@ fn a_yard_click_whose_rally_search_misses_archives_its_own_cell() {
         .unwrap()
         .set_archive_target(Some(TargetKind::Cell(12, 12)));
     let own = sim.object_coords_cell(yard).unwrap();
+    // GetCoords of the 4x4 yard at (6,6): 6*256 + 128 + 3*128 = 8*256.
+    assert_eq!(own, (8, 8));
     // The force-move key answers Move over water (`0x00700B03`).
     let ordered = click(&sim, &rules, &[yard], None, (56, 56), OrderModifier::Shift);
     let BuildingClick::Orders(orders, false) = ordered else {
@@ -528,6 +530,22 @@ fn a_yard_click_whose_rally_search_misses_archives_its_own_cell() {
     assert_eq!(
         sim.entities().get(yard).map(|yard| yard.archive_target()),
         Some(Some(TargetKind::Cell(own.0, own.1)))
+    );
+    // A war factory's missed search sends no rally but still announces
+    // (`0x00443A89` -> `0x00443A2B`).
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 0, 11, 0, &rules)
+        .unwrap();
+    assert_eq!(
+        click(
+            &sim,
+            &rules,
+            &[factory],
+            None,
+            (56, 56),
+            OrderModifier::Shift
+        ),
+        BuildingClick::Orders(Vec::new(), true)
     );
 }
 

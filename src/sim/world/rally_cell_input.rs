@@ -75,8 +75,10 @@ impl Simulation {
         // `Type+0x16B9`, owner IsControlledByHuman, GameMode, the MCV-redeploy
         // option, not mind-controlled): it archives the Cell under its own
         // GetCoords (vt+0x48 -> Map565730, `0x00443ABE..0x00443B4B`, event
-        // 0x1E), so the MCV it packs into stays. No announcement follows
-        // either way. The click owner still queues the following SELL.
+        // 0x1E), so the MCV it packs into stays. A yard never announces
+        // (`0x00443A4B` refuses ConstructionYard); any other factory's miss
+        // still reaches the announcement (`0x00443A89` -> `0x00443A2B`),
+        // which the click owner plays. It also queues the following SELL.
         let redeploy_yard = object.construction_yard
             && self.session.game_mode_nonzero()
             && self.construction_yard_redeploy_core_gate(entity);

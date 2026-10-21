@@ -3877,7 +3877,8 @@ fn shot_is_illegal(
 /// UndeploysInto type. A failed FNPC emits no archive but still queues SELL,
 /// retaining an earlier archive, except that a Construction Yard archives its
 /// own Cell ([`crate::sim::world::Simulation::factory_rally_cell_input`]). A
-/// factory announces only its queued rally.
+/// factory announces its rally click whether or not the search found a Cell
+/// (`0x00443A7B..0x00443A89` jumps to the announcement at `0x00443A2B`).
 ///
 /// The click loop clamps the Cell to the playfield first
 /// ([`crate::sim::world::Simulation::clamped_click_cell`]), then asks each
@@ -3925,15 +3926,18 @@ fn building_cell_orders(
             continue;
         }
         match sim.factory_rally_cell_input(id, cell, rules) {
-            Ok(Some((rx, ry))) => {
-                orders.push(Command::SetRally {
-                    rx,
-                    ry,
-                    producer_ids: vec![id],
-                });
+            Ok(found) => {
+                if let Some((rx, ry)) = found {
+                    orders.push(Command::SetRally {
+                        rx,
+                        ry,
+                        producer_ids: vec![id],
+                    });
+                }
+                // A missed search still reaches the announcement
+                // (`0x00443977` -> `0x00443A7B` -> `0x00443A2B`).
                 announce |= crate::app::match_runtime::eva_producers::rally_point_announces(object);
             }
-            Ok(None) => {}
             Err(error) => log::warn!("building cell input: {error}"),
         }
         if object.undeploys_into.is_some() {
@@ -4196,15 +4200,18 @@ fn building_object_orders(
             }
         }
         match sim.factory_rally_cell_input(id, cell, rules) {
-            Ok(Some((rx, ry))) => {
-                orders.push(Command::SetRally {
-                    rx,
-                    ry,
-                    producer_ids: vec![id],
-                });
+            Ok(found) => {
+                if let Some((rx, ry)) = found {
+                    orders.push(Command::SetRally {
+                        rx,
+                        ry,
+                        producer_ids: vec![id],
+                    });
+                }
+                // A missed search still reaches the announcement
+                // (`0x00443977` -> `0x00443A7B` -> `0x00443A2B`).
                 announce |= crate::app::match_runtime::eva_producers::rally_point_announces(object);
             }
-            Ok(None) => {}
             Err(error) => log::warn!("building object input: {error}"),
         }
     }

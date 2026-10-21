@@ -5804,6 +5804,20 @@ mod tests {
     }
 
     #[test]
+    fn quick_coop_picker_third_house_of_three_takes_the_last_start_without_a_draw() {
+        // N = 3, k = 2, AI: RandomRanged(0, 0) returns at min == max
+        // (0x0065C7EF) without consuming the stream.
+        let starts = &quick_coop_row()[..3];
+        let mut rng = SimRng::new(9);
+        let before = rng.state();
+        assert_eq!(
+            choose_quick_coop_start(starts, &[true, true, false], false, &mut rng),
+            2
+        );
+        assert_eq!(rng.state(), before);
+    }
+
+    #[test]
     fn quick_coop_picker_gives_an_ai_on_an_empty_table_the_first_start() {
         let starts = quick_coop_row();
         let mut rng = SimRng::new(7);

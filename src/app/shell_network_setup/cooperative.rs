@@ -158,7 +158,7 @@ pub(super) fn host_opened(state: &mut AppState) -> anyhow::Result<()> {
         })
     };
     if let Some(index) = selected.filter(|index| *index != current) {
-        select_scenario(state, index)?;
+        select_scenario(state, index, true)?;
     }
     refresh_rows(state, false)?;
     let inputs = SlotInputs::read(state);
@@ -183,9 +183,16 @@ pub(super) fn host_opened(state: &mut AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `MPGameOptions__SelectScenario` from `+0x20`: the scenario its record's
-/// first map names becomes the setup's map.
-fn select_scenario(state: &mut AppState, index: usize) -> anyhow::Result<()> {
+/// `MPGameOptions__SelectScenario` (`0x005E7BF0`) from `+0x20`: the
+/// scenario its record's first map names becomes the setup's map. It writes
+/// only the map globals and the row count `[0xA8BB0C]`, keeping every row,
+/// start and team. `bc_open` adds what BC's init runs after its helper,
+/// the capacity pass `0x005EC3A0` at `0x005DED73`; ChooseMap's port carries
+/// it.
+/// RESIDUAL: that port also resets starts and teams (`0x005EE6A0`,
+/// `0x005EE510`), which BC's init is not traced to run; its rows are the
+/// defaults then.
+fn select_scenario(state: &mut AppState, index: usize, bc_open: bool) -> anyhow::Result<()> {
     let Some(file) = state
         .frontend
         .scenario_catalog
@@ -206,18 +213,25 @@ fn select_scenario(state: &mut AppState, index: usize) -> anyhow::Result<()> {
         log::warn!("Cooperative selected {file}, which has no loadable map entry");
         return Ok(());
     };
-    let mode = state
-        .match_state
-        .session
-        .network_setup()
-        .expect("admitted setup")
-        .mode
-        .clone();
-    let removed = state
-        .match_state
-        .session
-        .select_network_map(mode, file.clone(), capacity)?;
-    debug_assert!(removed.is_empty(), "a Cooperative map seats both players");
+    if bc_open {
+        let mode = state
+            .match_state
+            .session
+            .network_setup()
+            .expect("admitted setup")
+            .mode
+            .clone();
+        let removed = state
+            .match_state
+            .session
+            .select_network_map(mode, file.clone(), capacity)?;
+        debug_assert!(removed.is_empty(), "a Cooperative map seats both players");
+    } else {
+        state
+            .match_state
+            .session
+            .select_network_scenario(file.clone(), capacity)?;
+    }
     // +0x20 writes [0xA8B254] before the selection.
     state
         .frontend
@@ -432,7 +446,7 @@ pub(super) fn mode_entered(state: &mut AppState) -> anyhow::Result<()> {
     if let Some(index) = selected
         && state.match_state.session.host()
     {
-        select_scenario(state, index)?;
+        select_scenario(state, index, false)?;
     }
     if setup_open(state) {
         refresh_countries(state)?;

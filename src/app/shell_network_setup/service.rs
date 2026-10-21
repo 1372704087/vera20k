@@ -456,11 +456,6 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
                 local_map.as_deref(),
                 map_changed,
             )?;
-            // A setup dialog's guest (BD, C9 0x00792978) takes the host's
-            // map into [0xA8B254]; Quick Match's parse writes none.
-            if !quick_match {
-                super::note_scenario(state);
-            }
             // 0x5E542B..0x5E5466: a changed mode's +9C/+20, then +7C.
             if mode_changed {
                 super::cooperative::mode_entered(state)?;

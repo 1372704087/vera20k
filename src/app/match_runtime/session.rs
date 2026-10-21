@@ -1170,6 +1170,38 @@ impl MatchSession {
         }
     }
 
+    /// `MPGameOptions__SelectScenario` (`0x005E7BF0`): the map file and the
+    /// row count `[0xA8BB0C]` (the map's players, capped by the mode and
+    /// the WOL room) only. Unlike ChooseMap it re-cuts no rows and keeps
+    /// every start and team.
+    pub(crate) fn select_network_scenario(
+        &mut self,
+        file: String,
+        capacity: i32,
+    ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !file.is_empty() && capacity > 0,
+            "map requires a valid participant capacity"
+        );
+        let network = self
+            .network
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("no network visit"))?;
+        let session_mode = network.return_context.session_mode();
+        let room = network.room;
+        let NetworkPhase::Setup {
+            launch,
+            capacity: rows,
+            ..
+        } = &mut network.phase
+        else {
+            anyhow::bail!("network setup is not editable");
+        };
+        *rows = row_capacity(session_mode, room, &launch.mode, capacity);
+        launch.selected_map_file = Some(file);
+        Ok(())
+    }
+
     /// Accepted BC ChooseMap5DE520: atomic map/mode selection followed by
     /// capacity5EC3A0, starts5EE6A0 and all-row team defaults5EE510(-1).
     /// Unbound human nodes are returned for service Kick intents. Their source
@@ -2324,6 +2356,34 @@ mod tests {
         // Use Map's refresh (`+0x18`) takes every row.
         session.reset_network_countries(None, true).unwrap();
         assert_eq!(ai_country(&session), (LaunchCountry::Yuri, true));
+    }
+
+    #[test]
+    fn select_scenario_keeps_rows_starts_and_teams() {
+        use crate::skirmish_launch::{LaunchStartPosition, LaunchTeam};
+        let mut session = MatchSession::default();
+        session.enter_network(super::NetworkReturnContext::LanLobby);
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        launch.humans[0].slot.start_position = LaunchStartPosition::Position(3);
+        launch.humans[1].slot.team = LaunchTeam::Team(2);
+        session
+            .accept_network_setup(launch.clone(), true, None)
+            .unwrap();
+        let before = session.network_setup().unwrap().clone();
+        assert_eq!(
+            before.humans[0].slot.start_position,
+            LaunchStartPosition::Position(3)
+        );
+        // 0x005E7BF0 writes the map and [0xA8BB0C], nothing in the rows.
+        session
+            .select_network_scenario("C1A01MD.MAP".into(), 4)
+            .unwrap();
+        let after = session.network_setup().unwrap();
+        assert_eq!(after.selected_map_file.as_deref(), Some("C1A01MD.MAP"));
+        assert_eq!(session.network_setup_capacity(), Some(4));
+        assert_eq!(after.humans, before.humans);
+        assert_eq!(after.opponents, before.opponents);
     }
 
     #[test]

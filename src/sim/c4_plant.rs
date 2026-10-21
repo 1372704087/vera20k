@@ -417,13 +417,23 @@ impl Simulation {
         if !at_nav_com {
             return Ok(C4Arrival::default());
         }
-        let frame = self.session.binary_frame();
-        let octant =
-            crate::util::direction_tables::dir_from_facing16(infantry.body_facing_current(frame));
         let mut bridge_state_changed =
             self.c4_cell_blast(Some(id), location, rules, registry, effects);
         self.foot_stop_driver(id, rules, registry, effects)
             .map_err(|cause| frame_error(self, cause))?;
+        // Native re-reads Location (+0x9C) and the facing (+0x388) after the
+        // first blast and Stop_Driver (`0x0051A6D0..0x0051A71D`), and again
+        // before each sourceless blast (`0x0051A76C`, `0x0051A7A3`).
+        let location = self
+            .foot_current_coordinate(id)
+            .map_err(|cause| frame_error(self, cause))?;
+        let frame = self.session.binary_frame();
+        let octant = crate::util::direction_tables::dir_from_facing16(
+            self.substrate
+                .entities
+                .get(id)
+                .map_or(0, |infantry| infantry.body_facing_current(frame)),
+        );
         let (dx, dy) = crate::util::direction_tables::LEPTON_DELTAS[usize::from(octant)];
         let away_from = DriveCoord {
             x: location.x.wrapping_add(dx),
@@ -460,8 +470,12 @@ impl Simulation {
         if marks {
             self.foot_mark_put(id, rules, registry, effects);
         }
-        bridge_state_changed |= self.c4_cell_blast(None, location, rules, registry, effects);
-        bridge_state_changed |= self.c4_cell_blast(None, location, rules, registry, effects);
+        for _ in 0..2 {
+            let location = self
+                .foot_current_coordinate(id)
+                .map_err(|cause| frame_error(self, cause))?;
+            bridge_state_changed |= self.c4_cell_blast(None, location, rules, registry, effects);
+        }
         let alive = self
             .substrate
             .entities

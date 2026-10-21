@@ -226,6 +226,15 @@ impl App {
             .with_fullscreen(fullscreen)
             .with_visible(window_visible)
             .with_active(window_visible);
+        // The Wayland app ID and X11 class, which the AppImage's desktop entry
+        // names (StartupWMClass), so docks show its icon for the window.
+        // Unset, Wayland has none and X11 takes the name the program was
+        // started by: an AppImage's own file name, version included.
+        #[cfg(target_os = "linux")]
+        {
+            use winit::platform::wayland::WindowAttributesExtWayland as _;
+            window_attrs = window_attrs.with_name("vera20k", "vera20k");
+        }
         // macOS full screen hides the menu bar and Dock instead of revealing
         // them at the edges the player scrolls against, where the system would
         // draw its own cursor over the game's. winit applies this to its own

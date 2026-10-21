@@ -203,7 +203,8 @@ impl App {
     }
 
     /// Before the window opens, ask for the Yuri's Revenge folder until
-    /// config.toml names one: a launch from the macOS app bundle.
+    /// config.toml names one: a launch from the macOS app bundle or the Linux
+    /// AppImage.
     pub fn ask_for_game_folder_first(&mut self) {
         self.ask_for_game_folder = true;
     }

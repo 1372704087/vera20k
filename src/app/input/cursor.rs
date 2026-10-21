@@ -849,9 +849,19 @@ pub(super) fn capability_cursor_for_hover(
         if (modifier == OrderModifier::GuardArea
             || modifier == OrderModifier::ForceMove
             || (modifier == OrderModifier::AttackMove && force_move_key))
-            && rules.is_some_and(|rules| sim.techno_player_controllable(best_id, rules))
+            && let Some(rules) = rules
+            && sim.techno_player_controllable(best_id, rules)
         {
-            return CursorFeedbackKind::Move;
+            // A factory's own rungs over the object (`0x0044744E..0x0044750B`).
+            let factory_refuses = sel_entity.category() == EntityCategory::Structure
+                && sim
+                    .building_object_move_action(best_id, hover.stable_id, rules)
+                    .is_ok_and(|action| action == crate::sim::world::MoveAction::NoMove);
+            return if factory_refuses {
+                CursorFeedbackKind::Invalid
+            } else {
+                CursorFeedbackKind::Move
+            };
         }
         if modifier == OrderModifier::ForceFire {
             if let Some(kind) = force_fire_feedback(

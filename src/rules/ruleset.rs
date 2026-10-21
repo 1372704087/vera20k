@@ -4931,6 +4931,17 @@ impl RuleSet {
         Self::from_rules_layers(&RulesLayerStack::new(ini.clone()))
     }
 
+    /// The rules an empty `RULESMD.INI` reads to: every key at its reader
+    /// default and no types. Fixtures that exercise no rules data pass it
+    /// where the game passes the scenario's rules.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn empty_for_test() -> &'static RuleSet {
+        static EMPTY: std::sync::OnceLock<RuleSet> = std::sync::OnceLock::new();
+        EMPTY.get_or_init(|| {
+            RuleSet::from_ini(&IniFile::from_str("")).expect("an empty rules INI reads")
+        })
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub fn from_ini_with_fixed_art_for_test(
         ini: &IniFile,

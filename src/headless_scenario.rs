@@ -548,7 +548,7 @@ mod retail_construction_tests {
             map,
             &resolved,
             theater_name,
-            rules,
+            rules.unwrap_or(crate::rules::ruleset::RuleSet::empty_for_test()),
             None,
             None,
             bridge_destroyability_mode,
@@ -847,12 +847,7 @@ mod retail_construction_tests {
                 "{name} final bound LoopEnd"
             );
             assert!(anim.use_cell_drawer());
-            assert!(
-                scenario
-                    .sim()
-                    .anim_display_layer(*id, Some(rules))
-                    .is_some()
-            );
+            assert!(scenario.sim().anim_display_layer(*id, rules).is_some());
         }
         assert!(
             terrain_anims > 0,
@@ -2364,7 +2359,7 @@ mod retail_construction_tests {
         sim.assign_target_represented(
             rhino,
             Some(TargetKind::Entity(gi)),
-            Some(rules),
+            rules,
             None,
             crate::sim::world::FrameEffects::default(),
         )
@@ -2697,7 +2692,7 @@ mod retail_construction_tests {
         sim.assign_target_represented(
             tanya,
             Some(TargetKind::Entity(reactor)),
-            Some(rules),
+            rules,
             None,
             FrameEffects::default(),
         )

@@ -1919,7 +1919,7 @@ fn stop_retains_the_legionnaires_victim_until_attack_dispatch() {
     assert!(sim.apply_command_with_overlays(
         "Russians",
         &Command::Stop { entity_id: cleg },
-        Some(&rules),
+        &rules,
         None,
         crate::sim::world::FrameEffects::default(),
     ));
@@ -2167,7 +2167,7 @@ fn a_warped_building_cannot_be_captured() {
         sim.run_walk_boundary(
             engineer,
             head,
-            Some(&rules),
+            &rules,
             None,
             crate::sim::world::FrameEffects::default(),
         );
@@ -2183,7 +2183,7 @@ fn a_warped_building_cannot_be_captured() {
             !sim.run_completed_walk_step(
                 engineer,
                 head,
-                Some(&rules),
+                &rules,
                 None,
                 crate::sim::world::FrameEffects::default()
             )

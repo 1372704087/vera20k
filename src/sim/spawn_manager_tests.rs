@@ -2248,7 +2248,7 @@ fn a_null_target_drops_the_managers_queued_retarget() {
     sim.assign_target_represented(
         dred,
         None,
-        Some(&rules),
+        &rules,
         None,
         crate::sim::world::FrameEffects::default(),
     )

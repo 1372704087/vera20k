@@ -168,7 +168,7 @@ fn can_load(sim: &mut Simulation, rules: &RuleSet, from: u64, building: u64) -> 
         building,
         RadioMessage::CanEnter,
         RadioPayload::default(),
-        Some(rules),
+        rules,
         FrameEffects::default(),
     )
 }
@@ -996,7 +996,7 @@ fn a_blocked_bio_reactor_restores_and_retries_its_cargo_head() {
             &sim.substrate.raw_cell_occupation,
             &sim.substrate.occupancy,
             &sim.substrate.entities,
-            Some(&rules),
+            &rules,
             &sim.interner,
             &mut expected_rng,
             crate::sim::components::DriveCoord::cell(exit.0, exit.1, 0),
@@ -1105,7 +1105,7 @@ fn a_bio_reactor_unlimbo_failure_keeps_the_placement_draw_and_restores_cargo() {
             &sim.substrate.raw_cell_occupation,
             &sim.substrate.occupancy,
             &sim.substrate.entities,
-            Some(&rules),
+            &rules,
             &sim.interner,
             &mut expected_rng,
             crate::sim::components::DriveCoord::cell(exit.0, exit.1, 0),
@@ -1342,7 +1342,7 @@ fn a_bio_reactor_relaxed_scan_wraps_from_octant_seven() {
             &sim.substrate.raw_cell_occupation,
             &sim.substrate.occupancy,
             &sim.substrate.entities,
-            Some(&rules),
+            &rules,
             &sim.interner,
             &mut expected_rng,
             crate::sim::components::DriveCoord::cell(north.0, north.1, 0),
@@ -1629,7 +1629,7 @@ fn a_full_bio_reactor_takes_an_arriving_contact() {
     let _ = sim.assign_destination_represented(
         foot,
         Some(NavTargetRef::object(reactor)),
-        Some(&rules),
+        &rules,
         None,
         FrameEffects::default(),
     );
@@ -1638,7 +1638,7 @@ fn a_full_bio_reactor_takes_an_arriving_contact() {
     sim.foot_set_location_marked(
         foot,
         cell_centre(16, 10),
-        Some(&rules),
+        &rules,
         None,
         FrameEffects::default(),
     );
@@ -1646,7 +1646,7 @@ fn a_full_bio_reactor_takes_an_arriving_contact() {
     sim.per_cell_process(
         foot,
         crate::sim::movement::PerCellReason::Arrival,
-        Some(&rules),
+        &rules,
         None,
         FrameEffects::default(),
     )
@@ -1694,7 +1694,7 @@ fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
     sim.foot_set_location_marked(
         tank,
         cell_centre(16, 10),
-        Some(&rules),
+        &rules,
         None,
         FrameEffects::default(),
     );
@@ -1702,7 +1702,7 @@ fn a_unit_absorber_takes_a_unit_arriving_on_its_foundation() {
     sim.per_cell_process(
         tank,
         crate::sim::movement::PerCellReason::Arrival,
-        Some(&rules),
+        &rules,
         None,
         FrameEffects::default(),
     )
@@ -2190,7 +2190,7 @@ fn the_nearest_free_own_tank_bunker_takes_the_tank() {
             contacted,
             RadioMessage::Hello,
             RadioPayload::default(),
-            Some(&rules),
+            &rules,
             FrameEffects::default(),
         ),
         RadioResponse::Roger
@@ -2691,7 +2691,7 @@ fn script64_enters_a_neutral_civilian_building_outside_the_own_house_list() {
     let neutral = sim.interner.intern("Neutral");
     let mut house = HouseState::new(neutral, 2, Some(neutral), false, 0, 10);
     house.set_multiplay_passive_for_test(crate::sim::house_state::resolve_multiplay_passive(
-        Some(&rules),
+        &rules,
         Some("Neutral"),
     ));
     assert!(house.multiplay_passive(), "production Country reader");
@@ -2831,7 +2831,7 @@ fn retail_all01_script64_conscript_admits_a_map_civilian_garrison() {
     let neutral = sim.interner.intern("Neutral");
     let mut house = HouseState::new(neutral, 2, Some(neutral), false, 0, 10);
     house.set_multiplay_passive_for_test(crate::sim::house_state::resolve_multiplay_passive(
-        Some(&rules),
+        &rules,
         Some("Neutral"),
     ));
     assert!(

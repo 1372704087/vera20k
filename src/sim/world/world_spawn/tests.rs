@@ -56,11 +56,9 @@ fn infantry_unlimbo_placement_matches_original_coordinate_and_rng_controls() {
             crate::util::fixed_math::SimFixed::from_num(y % 256),
         );
         let result = if input["priority"].as_u64() == Some(0) {
-            sim.infantry_unlimbo_position(requested, Some(&rules))
+            sim.infantry_unlimbo_position(requested, &rules)
         } else {
-            sim.with_object_placement_scope(|sim| {
-                sim.infantry_unlimbo_position(requested, Some(&rules))
-            })
+            sim.with_object_placement_scope(|sim| sim.infantry_unlimbo_position(requested, &rules))
         };
         let foot = row["events"]
             .as_array()
@@ -233,11 +231,9 @@ fn infantry_unlimbo_matches_native_gate_incoming_membership_and_signed_xy() {
             xyz[1].as_i64().unwrap() as i32,
         ]);
         let positioned = if input["priority"] == 0 {
-            sim.infantry_unlimbo_position(requested, Some(&rules))
+            sim.infantry_unlimbo_position(requested, &rules)
         } else {
-            sim.with_object_placement_scope(|sim| {
-                sim.infantry_unlimbo_position(requested, Some(&rules))
-            })
+            sim.with_object_placement_scope(|sim| sim.infantry_unlimbo_position(requested, &rules))
         };
         assert_eq!(positioned.is_some(), row["result"] == 1, "{name}");
         if let Some(position) = positioned {
@@ -565,7 +561,7 @@ fn building_contact_constructor_matches_original_slots_before_hello() {
             &sim.houses,
             &mut entity,
             rules.object("BASE"),
-            Some(&rules),
+            &rules,
             construction::ComponentOrigin::Runtime,
         );
         check(&entity);
@@ -633,7 +629,7 @@ fn building_contact_constructor_matches_original_slots_before_hello() {
                     base_id,
                     crate::sim::radio::RadioMessage::Hello,
                     crate::sim::radio::RadioPayload::default(),
-                    Some(&rules),
+                    &rules,
                     crate::sim::world::FrameEffects::default(),
                 ),
                 crate::sim::radio::RadioResponse::Roger
@@ -808,7 +804,7 @@ fn discovery_owner_entry_and_lifetime_match_original_history_blocks() {
         );
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
             entity,
-            Some(&rules),
+            &rules,
             None,
             crate::sim::world::FrameEffects::default(),
         );
@@ -1113,7 +1109,7 @@ fn exact_sight_zero_survives_save_and_rules_less_reentry() {
         assert_eq!(entity.sight.is_zero(), sight == 0);
         let (id, outcome) = sim.unlimbo_after_constructor_managers(
             entity,
-            Some(&rules),
+            &rules,
             None,
             crate::sim::world::FrameEffects::default(),
         );
@@ -1521,7 +1517,7 @@ fn techno_constructor_live_overlay_context_admits_ore_and_structural_bridge() {
                     ..map_entity("MTNK", EntityCategory::Unit, bridge_cell)
                 },
             ],
-            Some(&rules),
+            &rules,
             None,
             Some(&registry),
         ),
@@ -1649,7 +1645,7 @@ fn techno_constructor_wall_rejection_precedes_mutation_and_keeps_graph_draws_spe
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert!(sim.discard_constructed_limbo(
         parent_id,
-        Some(&rules),
+        &rules,
         crate::sim::world::FrameEffects::default()
     ));
     assert!(sim.substrate.entities.is_empty());
@@ -1834,7 +1830,7 @@ fn techno_constructor_manager_pools_draw_parent_then_children_and_cancel_as_one_
         let after_constructor = sim.scenario_rng.logical_state();
         assert!(sim.discard_constructed_limbo(
             parent_id,
-            Some(&rules),
+            &rules,
             crate::sim::world::FrameEffects::default()
         ));
         assert!(sim.substrate.entities.is_empty());
@@ -1890,7 +1886,7 @@ fn techno_constructor_manager_pools_draw_parent_then_children_and_cancel_as_one_
         let after_constructor = sim.scenario_rng.logical_state();
         assert!(sim.discard_constructed_limbo(
             parent_id,
-            Some(&rules),
+            &rules,
             crate::sim::world::FrameEffects::default()
         ));
         assert!(sim.substrate.entities.is_empty());
@@ -2362,7 +2358,7 @@ fn techno_constructor_failed_reveal_keeps_one_draw_and_reuses_identity() {
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     assert!(sim.discard_constructed_limbo(
         stable_id,
-        Some(&rules),
+        &rules,
         crate::sim::world::FrameEffects::default()
     ));
     assert!(sim.substrate.entities.get(stable_id).is_none());

@@ -181,7 +181,7 @@ pub fn dispatch_production_changes_for_tests(
     let due = sim.take_due_commands();
     let (_, spawned) = sim.apply_due_commands(
         &due,
-        Some(rules),
+        rules,
         sim.session.tick().saturating_add(1),
         overlay_registry,
         crate::sim::world::FrameEffects::default(),
@@ -371,7 +371,7 @@ fn exit_naval(
         if let Err(cause) = sim.assign_destination_represented(
             spawned,
             Some(crate::sim::components::NavTargetRef::cell(tx, ty)),
-            Some(rules),
+            rules,
             overlay_registry,
             effects,
         ) {
@@ -387,7 +387,7 @@ fn exit_naval(
     }
     // 44443F..44447A: the explicit outer marks repeat Cell list/raw
     // occupation effects, even though Unlimbo already placed this ship.
-    sim.foot_mark_remove(spawned, Some(rules), overlay_registry, effects);
+    sim.foot_mark_remove(spawned, rules, overlay_registry, effects);
     let coord = crate::sim::movement::target_cell_coord(
         cell.0,
         cell.1,
@@ -396,8 +396,8 @@ fn exit_naval(
             .map(crate::map::resolved_terrain::NativeCellQuery::canonical)
             .as_ref(),
     );
-    sim.foot_set_location_marked(spawned, coord, Some(rules), overlay_registry, effects);
-    sim.foot_mark_put(spawned, Some(rules), overlay_registry, effects);
+    sim.foot_set_location_marked(spawned, coord, rules, overlay_registry, effects);
+    sim.foot_mark_put(spawned, rules, overlay_registry, effects);
     BuildingExit::Placed
 }
 
@@ -525,14 +525,14 @@ fn exit_land(
         )?;
         // The native successful suffix44459F..4445C9 re-marks around the
         // second coordinate write. Use the shared Mark/SetLocation owners.
-        let context = crate::sim::world::UninitContext::new(Some(rules), overlay_registry)
-            .with_effects(effects);
+        let context =
+            crate::sim::world::UninitContext::new(rules, overlay_registry).with_effects(effects);
         sim.unmark_entity_remove(spawned, context);
         crate::sim::movement::ground_pose::foot_set_location(
             &mut sim.substrate.entities,
             spawned,
             coord,
-            Some(rules),
+            rules,
             &sim.interner,
         );
         sim.mark_entity_put(spawned, context);
@@ -753,7 +753,7 @@ fn infantry_exit_tail(
         if let Err(cause) = sim.assign_destination_represented(
             spawned,
             Some(crate::sim::components::NavTargetRef::cell(dock.0, dock.1)),
-            Some(rules),
+            rules,
             overlay_registry,
             effects,
         ) {
@@ -769,7 +769,7 @@ fn infantry_exit_tail(
         spawned,
         crate::sim::radio::RadioMessage::Hello,
         crate::sim::radio::RadioPayload::default(),
-        Some(rules),
+        rules,
         effects,
     ) == crate::sim::radio::RadioResponse::Roger
     {
@@ -779,7 +779,7 @@ fn infantry_exit_tail(
             spawned,
             crate::sim::radio::RadioMessage::TetherBack,
             crate::sim::radio::RadioPayload::default(),
-            Some(rules),
+            rules,
             effects,
         );
     }
@@ -891,7 +891,7 @@ fn generic_exit_tail(
     if let Err(cause) = sim.assign_destination_represented(
         spawned,
         Some(crate::sim::components::NavTargetRef::cell(dock.0, dock.1)),
-        Some(rules),
+        rules,
         overlay_registry,
         effects,
     ) {
@@ -943,7 +943,7 @@ fn exit_aircraft(
     if !linkable {
         return BuildingExit::Failed;
     }
-    sim.set_object_z(stable_id, 0, Some(rules), overlay_registry, effects);
+    sim.set_object_z(stable_id, 0, rules, overlay_registry, effects);
     let dock_coordinate = |sim: &Simulation| {
         crate::sim::movement::building_dock_coordinate(
             &sim.substrate.entities,
@@ -972,12 +972,12 @@ fn exit_aircraft(
                 spawned,
                 message,
                 RadioPayload::default(),
-                Some(rules),
+                rules,
                 effects,
             );
         }
         let pad = dock_coordinate(sim);
-        sim.foot_set_location_marked(spawned, pad, Some(rules), overlay_registry, effects);
+        sim.foot_set_location_marked(spawned, pad, rules, overlay_registry, effects);
         sim.substrate.set_aircraft_dock(spawned, Some(producer_id));
         let rally = sim
             .substrate

@@ -652,7 +652,7 @@ fn retail_tank_let_go_over_a_unit_crashes_onto_it() {
         let frame = sim
             .advance_app_frame(
                 &commands,
-                Some(&rules),
+                &rules,
                 None,
                 33,
                 crate::sim::world::TickLane::Ordinary,
@@ -1017,6 +1017,43 @@ fn retail_locomotor_arm_admission() {
         "a grounded release lets the lift end"
     );
     assert!(!released.crash.is_crashing() && !released.drop_credit.being_manipulated());
+}
+
+/// The lift queues Guard to commence (`0x00710386`) after leaving the team,
+/// whose `Enter_Idle_Mode` queued a Move toward the firer (`0x00738970`). So
+/// the Queue writes Guard and asks the Unit's `Is_Ready_To_Commence`
+/// (`0x00744270`): a human's tank clear of any factory commences it at once
+/// (#2318: a readiness without rules answered not ready and left Guard queued
+/// for the next frame). A computer house's tank queues Hunt over either
+/// answer.
+#[test]
+fn retail_lifted_team_member_commences_guard_at_once() {
+    let Some(rules) = retail_rules() else {
+        return;
+    };
+    let (mut sim, _) = arena(&rules);
+    let magnetron = spawn(&mut sim, &rules, "TELE", "Russians", 10, 16);
+    let tank = spawn(&mut sim, &rules, "MTNK", "Americans", 16, 16);
+    let owner = sim.interner.intern("Americans");
+    let script = sim.interner.intern("LIFTED TEAM");
+    sim.team_script_vm.create_team(owner, script, vec![tank], 0);
+    sim.locomotor_detonation(
+        magnetron,
+        LocomotorShotTarget::Object(tank),
+        4,
+        LocomotorKind::Jumpjet,
+        &rules,
+        None,
+        FrameEffects::default(),
+    );
+    let lifted = entity(&sim, tank);
+    assert!(lifted.lift.swap_active());
+    assert_eq!(sim.team_script_vm.team_for_member(tank), None);
+    assert_eq!(
+        lifted.mission.current(),
+        MissionId::from_known(MissionType::Guard)
+    );
+    assert_eq!(lifted.mission.queued(), MissionId::NONE);
 }
 
 /// The actual detonation arm reads the fractional MTNK Size through the

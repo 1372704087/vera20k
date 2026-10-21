@@ -197,7 +197,7 @@ fn place_garrison_passenger_at_cell(
     // publication and Foot4D72F4 coefficient copy. Keep the enclosing borrowed
     // MapClass/overlay context and supply the RuleSet this receiver already has.
     // 4580AF..4580BD passes direction0; successful alive Techno6F6DAA snaps it.
-    let context = context.requiring_rules(rules).with_unlimbo_facing(Some(0));
+    let context = context.with_unlimbo_facing(Some(0));
     let reveal = sim.try_reveal_entity_with_context(
         passenger_id,
         RevealRequest {
@@ -229,7 +229,7 @@ fn place_garrison_passenger_at_cell(
     sim.assign_target_represented(
         passenger_id,
         None,
-        Some(rules),
+        rules,
         context.registry(),
         context.effects(),
     )
@@ -246,13 +246,13 @@ fn place_garrison_passenger_at_cell(
     if mode == GarrisonEjectMode::Hunt {
         // 45811B..45813E: Scatter completes first, then Remove(-1,0)
         // and QueueMission(Hunt,0). Do not replace Scatter with Hunt.
-        sim.leave_team(passenger_id, false, Some(rules), context.effects());
+        sim.leave_team(passenger_id, false, rules, context.effects());
         sim.mission_queue_exact(
             passenger_id,
             crate::sim::mission::MissionId::from_known(crate::sim::mission::MissionType::Hunt),
             0,
             sim.session.binary_frame(),
-            &crate::sim::mission::authority::EntityReadyInputProvider,
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
         )
         .expect("a revealed garrison occupant can queue Hunt");
     }
@@ -362,7 +362,7 @@ pub(crate) fn eject_destruction_garrison(
     rules: &RuleSet,
     event: &DestroyedGarrisonBuilding,
 ) -> usize {
-    eject_destruction_garrison_with_context(sim, rules, event, UninitContext::default())
+    eject_destruction_garrison_with_context(sim, rules, event, UninitContext::with_rules(rules))
 }
 
 pub(crate) fn eject_destruction_garrison_with_context(
@@ -462,7 +462,7 @@ pub(crate) fn sell_building_occupants(
         height,
         &passenger_ids,
         mode,
-        UninitContext::new(Some(rules), registry).with_effects(frame_effects),
+        UninitContext::new(rules, registry).with_effects(frame_effects),
     );
 
     if let Some(building) = sim.substrate.entities.get_mut(building_id)

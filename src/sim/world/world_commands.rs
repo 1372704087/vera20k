@@ -2206,6 +2206,17 @@ impl Simulation {
     /// Select too, without expanding again (the `0x00AC4CF6` guard). A
     /// passenger or parasite keeps its path through Limbo, so a reselected
     /// escapee or released parasite pulls in its node's partners.
+    ///
+    /// RESIDUALS:
+    /// - Native adds each partner to the selection vector right after this
+    ///   object, in node order; the app admits sim-selected objects in
+    ///   entity-store order. Effect: the vector's order (Tab cycling, first
+    ///   entry) can differ. Frequency: planning-mode logic reselects only.
+    /// - Native's guard covers the whole partner loop, so a Select started by
+    ///   a partner's Selected tag event (33) does not expand; here the guard
+    ///   is structural and such a nested Select would expand. Trigger: a
+    ///   partner's Selected trigger whose action frees a path-holding
+    ///   passenger. Frequency: not measured; needs map triggers.
     pub(crate) fn techno_select(
         &mut self,
         stable_id: u64,

@@ -96,10 +96,8 @@
 //!   hijacker arm is unreachable.
 //! - The crewman takes the vehicle's tag (`0x006E57C0`/`0x005F5B50`): VERA
 //!   has no per-object tags.
-//! - A refused passenger's kill credit to a Techno C4AppliedBy (vt+0xE0)
-//!   before its UnInit. A UnitAbsorb passenger (no stock building) leaves
-//!   without its Scatter in Phase A and with it in a sale; VERA scatters
-//!   neither.
+//! - A UnitAbsorb passenger (no stock building) leaves without its Scatter
+//!   in Phase A and with it in a sale; VERA scatters neither.
 //! - Nominal crew retain Infantry+6D9: death443127 sets it before Unlimbo
 //!   when Building+6E9 is set; sale44A747 sets it after successful Unlimbo.
 //!   Added_To_Game502C3C skips only the active infantry increment, while
@@ -576,8 +574,10 @@ impl Simulation {
     /// cell; the result is overwritten), then every passenger Unlimboes at
     /// the building Location in priority mode (no second draw), Scatters, and
     /// Hunts for a computer building owner. NoSurvivor or a refused Unlimbo
-    /// records its kill by `killer` (vt+0xE0) and UnInits it instead
-    /// (SpawnSurvivors `0x00442FE5`, Mission_Selling `0x0044A573`).
+    /// records its kill by `killer` (vt+0xE0) and removes it instead:
+    /// SpawnSurvivors UnInits it (`0x00442FE5`, vt+0xF8), Mission_Selling
+    /// deletes it (`0x0044A573`, vt+0x20, whose destructor also leaves its
+    /// team), and VERA UnInits both.
     #[allow(clippy::too_many_arguments)]
     fn eject_absorbed_passenger(
         &mut self,

@@ -28,7 +28,7 @@ from unicorn.x86_const import (
 )
 from tools.native_oracle import (
     NativeCallTrace, RET_MAGIC, SCRATCH, STACK_BASE, STACK_SIZE, finish_vectors,
-    image_sha256, load_image, provenance, run_checked,
+    load_image, provenance, run_checked,
 )
 from tools.spatial_oracle.map_queries import dwords, packed
 
@@ -611,7 +611,7 @@ def generate_hover_mark_all():
                            on_bridge=on_bridge, stop_first=stop_first, mode=mode)
                 native = OriginalForceTrack(dict(bridge=structural))
                 rows.append(native.hover_mark_all(row))
-    return dict(schema=1, native_sha256=image_sha256(), cases=rows)
+    return dict(schema=1, cases=rows)
 
 
 def hover_mark_all_metadata():

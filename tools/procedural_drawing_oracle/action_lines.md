@@ -68,7 +68,7 @@ Four `attack_production_cases` replay captured stationary/moving Attack inputs
 and their unselected controls through the existing Tactical batch loop. The
 matched release receipts supply source1374 and target1386 MTNK coordinates,
 selection, TarCom/NavCom, timer frames and raw opt-in `action_line_inputs`.
-Profile, receipt, BGRA frame and executable hashes are pinned. The prepared
+Profile, receipt, BGRA frame and VERA release-build hashes are pinned. The prepared
 native current-speed queries reproduce source17/target0 for the stationary
 pair and source5/target17 for the moving pair. The source's latter applied
 fraction is exactly19661/65536; Housef32 and cratef64 inputs retain their bits.

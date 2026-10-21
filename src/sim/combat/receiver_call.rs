@@ -229,10 +229,24 @@ pub(super) fn resolve_receive_damage(
     let distance_leptons = event.distance_leptons;
     let receiver_flags = event.receiver_flags;
     let target = entities.get(event.target_id)?;
+    let target_type = interner.object_type(target.type_ref(), rules);
+    let target_is_building = target.category() == EntityCategory::Structure;
+    // `BuildingClass::ReceiveDamage @ 0x00442230`, `0x004423A3..0x004423E4`:
+    // a `BridgeRepairHut=` type (`+0x16B6`) that is also `Immune=` (`+0x233`)
+    // returns 0 here, after the wrapper's attacker bookkeeping and base
+    // response (already executed by commit_entities) and before the Health0
+    // test and `TechnoClass::ReceiveDamage`. ignoreDefenses does not reach
+    // it (only the `LaserFence=` gate at `0x00442368` reads it), so the
+    // forced C4 of BlowUpBridge (`0x0047DDAE`) leaves the hut untouched.
+    if target_is_building
+        && target_type.is_some_and(|object| object.bridge_repair_hut && object.immune)
+    {
+        return None;
+    }
     // Building442230 returns before Techno for Health0, after its wrapper
     // response (already executed by commit_entities). Infantry/Unit instead
     // delegate and can re-enter Techno's fatal tail at zero Health.
-    if target.category() == EntityCategory::Structure && target.health.current() == 0 {
+    if target_is_building && target.health.current() == 0 {
         return None;
     }
     // Residual: a null warhead (the empty name) finds no WarheadType, so the
@@ -248,7 +262,6 @@ pub(super) fn resolve_receive_damage(
     // death's C4 area damage matches native, which returns on the null
     // warhead (DamageArea 489280 at 4892D7).
     let warhead = rules.warhead(interner.resolve(event.warhead_ref))?;
-    let target_type = interner.object_type(target.type_ref(), rules);
     let source = (event.attacker_id != RAD_NO_ATTACKER)
         .then(|| entities.get(event.attacker_id))
         .flatten();
@@ -279,7 +292,6 @@ pub(super) fn resolve_receive_damage(
     let attacker_is_allied = source_house.is_some_and(|owner| allied(owner, target.owner()));
     let source_house_is_allied = source_house.is_some_and(|owner| allied(target.owner(), owner));
 
-    let target_is_building = target.category() == EntityCategory::Structure;
     let target_view = damage::TargetDamageView {
         current_hp: target.health.current(),
         object_immune: target_type.is_some_and(|object| object.immune),

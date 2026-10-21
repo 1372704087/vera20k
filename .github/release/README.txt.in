@@ -28,8 +28,11 @@ protects from writing, use the second option.
 
 REQUIREMENTS
   A GPU with Vulkan, DirectX 12 or Metal.
-  Windows: SmartScreen may warn about an unknown app; choose More info, then
-    Run anyway.
+  Windows: VERA20k is not code-signed yet. SmartScreen may warn about an
+    unknown app; choose More info, then Run anyway. Smart App Control, which
+    some Windows 11 PCs have on, blocks unsigned programs outright: there,
+    VERA20k runs only with it turned off, in Windows Security > App & browser
+    control > Smart App Control settings.
   macOS: VERA20k is not notarized by Apple yet, so macOS blocks it the first
     time you open it. Click Done, open System Settings > Privacy & Security,
     scroll down, click Open Anyway, enter your password and confirm. The

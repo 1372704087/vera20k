@@ -157,10 +157,17 @@
   .nav-item.on svg { filter: drop-shadow(0 0 5px rgba(111, 183, 255, 0.7)); }
 
   /* Right cluster: readings, link state and language. */
+  /* The bar's second row: badges, readings and the link pill. It takes the
+     whole line on purpose — the wall under a fixed-height bar never moves
+     when an alert arrives or clears. */
+  #readings {
+    display: flex; align-items: center; gap: 14px;
+    flex-basis: 100%; min-width: 0; flex-wrap: wrap;
+  }
   .head-meta {
     display: flex; align-items: center; gap: 14px;
     margin-left: auto; padding-left: 12px;
-    min-width: 0; overflow: hidden;
+    min-width: 0;
   }
   header .meta {
     color: var(--dim); font-variant-numeric: tabular-nums; letter-spacing: 0.06em;
@@ -173,15 +180,15 @@
     text-shadow: 0 0 12px rgba(111, 183, 255, 0.4);
     margin-left: 2px;
   }
-  /* A map name is the longest reading here, so it clips before the numbers
-     that frame the match do. The full text stays in the element's title. */
+  /* A map name is the longest reading here, and the one a reader can always get
+     from the title, so it clips before the numbers that frame the match do. */
   #session {
     display: inline-block; vertical-align: bottom;
-    max-width: 24ch; overflow: hidden; text-overflow: ellipsis;
+    max-width: 40ch; overflow: hidden; text-overflow: ellipsis;
   }
   /* Anomaly badges. They carry the same three states as the panels' readings,
      so a red pill here and a red cell there mean the same thing. */
-  #alerts { display: flex; align-items: center; gap: 6px; margin-left: 12px; }
+  #alerts { display: flex; align-items: center; gap: 6px; }
   #alerts[hidden] { display: none; }
   .badge {
     font-size: 10.5px; letter-spacing: 0.06em; white-space: nowrap;
@@ -226,7 +233,7 @@
   }
   #dot.open { color: var(--green); animation: pulse 2.4s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: 0.45; } }
-  #lang { display: flex; gap: 3px; margin-left: 12px; }
+  #lang { display: flex; gap: 3px; margin-left: auto; }
   #lang button {
     background: rgba(255, 255, 255, 0.05); color: var(--dim);
     border: 1px solid var(--line); border-radius: 6px;
@@ -1313,8 +1320,7 @@
   /* The wall's 300px + flexible + 360px columns cannot keep their shapes below
      this, so every panel takes a full track and the wall itself scrolls. */
   @media (max-width: 1180px) {
-    #nav { align-self: center; order: 3; }
-    .head-meta { margin-left: 0; flex-wrap: wrap; row-gap: 4px; }
+    .head-meta { flex-wrap: wrap; row-gap: 4px; }
     .panel-btn, #lang button { white-space: nowrap; }
 
     main, main.detail, main.report, main.logs {

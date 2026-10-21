@@ -197,12 +197,13 @@ function updateHeader(snapshot) {
     if (build)
         build.textContent = session ? session.build_stamp : "";
 }
-/** Which match a stream belongs to: `skirmish · DeepFrze.map · speed 6`. */
+/** Which match a stream belongs to: `skirmish · speed 6 · DeepFrze.map`. The
+ *  map name goes last because it is the one field long enough to clip. */
 function sessionReading(session) {
     return [
         session.game_mode,
-        session.map_name,
         `${t("hdr.speed")} ${session.game_speed}`,
+        session.map_name,
     ].join(" · ");
 }
 const ALERT_IDS = [

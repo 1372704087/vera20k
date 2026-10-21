@@ -4743,6 +4743,19 @@ impl WolCapture {
             preview(state)
         );
         self.event(frame, "offer acked, Preview.bin taken, no further P");
+        // Another guest's Z3 hides even this preview; the next public text,
+        // here the host's A1, restores it (0x7A8227..0x7A824E).
+        setup::service_event(state, NetworkSetupEvent::PreviewUnavailable)?;
+        ensure!(
+            preview(state).2 == (true, true),
+            "Z3 did not hide the received preview"
+        );
+        setup::player_ready(state, "Tanya", 1)?;
+        ensure!(
+            preview(state).2 == (false, false),
+            "the host's A1 did not restore 0x468"
+        );
+        self.event(frame, "Z3 hid the preview; the host's A1 restored it");
         Ok(())
     }
 

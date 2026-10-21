@@ -1611,17 +1611,21 @@ impl Simulation {
             Command::RemovePlayer { house_index } => {
                 // EventClass::Execute 0x004C7B73: IsHumanControlled
                 // (0x0050B730, House+0x1EC outside mode 0), then
-                // Flag_To_Die (0x004C7BE1).
+                // Flag_To_Die (0x004C7BE1). A WOL tournament game skips the
+                // human test (0x004C7BBF..0x004C7BCE).
+                // RESIDUAL: mode 4's ladder-stats call (0x004C7BA0..0x004C7BBA)
+                // is backend.
                 let Some(owner) = usize::try_from(*house_index)
                     .ok()
                     .and_then(|index| self.houses.order().get(index).copied())
                 else {
                     return false;
                 };
-                if !self
-                    .houses
-                    .get(&owner)
-                    .is_some_and(|house| house.is_human())
+                if !self.session.wol_tournament_game()
+                    && !self
+                        .houses
+                        .get(&owner)
+                        .is_some_and(|house| house.is_human())
                 {
                     return false;
                 }

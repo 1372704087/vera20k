@@ -802,6 +802,20 @@ pub struct ScenarioSession {
     /// reader (`0x0050166D`).
     #[serde(default)]
     computer_slot_has_team: bool,
+    /// `[0xB779C4]`: OnGameStart's copy of the WOL channel's tournament
+    /// value `+0x14`, or 2 in a clan room (`0x007A7D0E..0x007A7D49`). Its
+    /// in-match readers all gate on GameMode 4 ([`Self::wol_tournament_game`]).
+    #[serde(default)]
+    wol_tournament: i32,
+    /// `[0xB77A04]`/`[0xB76568]`: Start Game Now's two clan name lists
+    /// (`0x00795250..0x0079546E`), read by [`Simulation::apply_squad_alliances`].
+    #[serde(default)]
+    wol_squad_lists: [Vec<String>; 2],
+    /// Scenario flags bit `0x400` (FixedAlliance): set by Apply_Squad_Alliances
+    /// (`0x0069B4DB..0x0069B4E5`); it refuses the Ally requests `0x00731840`
+    /// and `0x007318F0`.
+    #[serde(default)]
+    fixed_alliance: bool,
     /// Persistent fixed-integer global-light configuration and transition state.
     lighting: ScenarioLightingState,
     /// Saved match authority for Building and Tile animation coordinates.
@@ -1171,6 +1185,33 @@ impl ScenarioSession {
         self.computer_slot_has_team = true;
     }
 
+    /// The WOL start's tournament value and clan name lists, installed with
+    /// the accepted network start.
+    pub fn install_wol_start(&mut self, tournament: i32, squad_lists: [Vec<String>; 2]) {
+        self.wol_tournament = tournament;
+        self.wol_squad_lists = squad_lists;
+    }
+
+    /// GameMode 4 and `[0xB779C4]` nonzero: the gate every in-match reader
+    /// of the tournament value tests (`0x004F16C0`, `0x0064AB6A`,
+    /// `0x005DA8F7`, `0x004C7BBF`).
+    pub fn wol_tournament_game(&self) -> bool {
+        self.game_mode == ScenarioGameMode::Wol && self.wol_tournament != 0
+    }
+
+    pub(crate) fn wol_squad_lists(&self) -> &[Vec<String>; 2] {
+        &self.wol_squad_lists
+    }
+
+    /// Scenario flag `0x400`.
+    pub const fn fixed_alliance(&self) -> bool {
+        self.fixed_alliance
+    }
+
+    pub(crate) fn set_fixed_alliance(&mut self, fixed: bool) {
+        self.fixed_alliance = fixed;
+    }
+
     pub const fn input_locked(&self) -> bool {
         self.input_locked
     }
@@ -1380,6 +1421,13 @@ impl ScenarioSession {
         if s.computer_slot_has_team {
             b"scenario-computer-slot-team-v1".hash(hasher);
         }
+        if s.wol_tournament != 0 {
+            b"scenario-wol-tournament-v1".hash(hasher);
+            s.wol_tournament.hash(hasher);
+        }
+        if s.fixed_alliance {
+            b"scenario-fixed-alliance-v1".hash(hasher);
+        }
         (s.map_width, s.map_height).hash(hasher);
         s.mp_start_waypoints.len().hash(hasher);
         for (idx, cell) in &s.mp_start_waypoints {
@@ -1531,6 +1579,9 @@ impl ScenarioSession {
             tiberium_spreads_flag: desc.tiberium_spreads_flag,
             harvester_immune: desc.harvester_immune,
             computer_slot_has_team: false,
+            wol_tournament: 0,
+            wol_squad_lists: Default::default(),
+            fixed_alliance: false,
             lighting: desc.lighting,
             pixel_conversion_bounds: desc.pixel_conversion_bounds,
             map_width: desc.map_width,

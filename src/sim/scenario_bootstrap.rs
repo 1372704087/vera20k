@@ -1759,14 +1759,27 @@ pub fn populate_launch_houses(
         );
         // The House constructor builds its whole Supers vector.
         crate::sim::superweapon::construct_house_supers(sim, rules, name_id, false);
-        // Offline CreateHouses68804A..688092 /688210..688252 overwrite the
-        // constructor name independently of the participant display handle.
-        // Every computer keeps the same native name; its internal key stays
-        // distinct, so FromName can select the first array entry.
-        house.initialize_scenario_name(if slot.is_human {
-            "<human player>"
-        } else {
-            "Computer"
+        // CreateHouses overwrites the constructor name independently of the
+        // display handle: GameMode 4 gives a human its node's name narrowed
+        // to 20 bytes (0x687FCE..0x688043), other modes "<human player>"
+        // (0x68804A..0x688092); every computer gets "Computer"
+        // (0x688210..0x688252). Every computer keeps the same native name;
+        // its internal key stays distinct, so FromName can select the first
+        // array entry.
+        // RESIDUAL: the node name's wide-to-narrow conversion (0x7B7F90) is
+        // taken as the handle's first 20 characters; WOL nicknames are ASCII.
+        let wol_handle = slot
+            .handle
+            .as_deref()
+            .filter(|_| {
+                slot.is_human
+                    && sim.session.game_mode() == crate::sim::scenario_session::ScenarioGameMode::Wol
+            })
+            .map(|handle| handle.chars().take(20).collect::<String>());
+        house.initialize_scenario_name(match (&wol_handle, slot.is_human) {
+            (Some(handle), _) => handle,
+            (None, true) => "<human player>",
+            (None, false) => "Computer",
         });
         // The same writers give a human its own node's handle and every
         // computer TXT_COMPUTER as its UI name, in every mode.

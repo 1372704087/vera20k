@@ -2026,21 +2026,21 @@ impl Simulation {
     }
 
     /// The object click's event 0x1E for a non-factory building
-    /// ([`Command::ArchiveObject`]): `EventClass::Execute @ 0x004C6DAA`
-    /// skips a dead building (`+0x90`) and otherwise archives the target,
-    /// null when it no longer exists (`TargetClass::As_Abstract @
-    /// 0x006E6E20`). The owner test is VERA's command admission.
+    /// ([`Command::ArchiveObject`]), `EventClass::Execute @ 0x004C6DAA`: the
+    /// resolved building's planning tokens are cleared (`0x006386E0`, event
+    /// NULL), a dead building (`+0x90`) is skipped, and otherwise it archives
+    /// the target as the event resolves it ([`Self::resolve_event_token`]):
+    /// null when the object no longer exists. The owner test is VERA's
+    /// command admission.
     ///
     /// [`Command::ArchiveObject`]: crate::sim::command::Command::ArchiveObject
     fn archive_object(&mut self, command_owner: &str, entity_id: u64, target_id: u64) -> bool {
         if !self.entity_owned_by_id(command_owner, entity_id) {
             return false;
         }
-        let target = self
-            .substrate
-            .entities
-            .get(target_id)
-            .map(|_| crate::sim::combat::TargetKind::Entity(target_id));
+        self.planning_detach_actor(entity_id);
+        let target =
+            self.resolve_event_token(Some(crate::sim::combat::TargetKind::Entity(target_id)));
         let Some(building) = self
             .substrate
             .entities

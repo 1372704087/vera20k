@@ -1039,6 +1039,7 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         | Command::ToggleInfantryDeploy { entity_id }
         | Command::DeployMcv { entity_id }
         | Command::UndeployBuilding { entity_id }
+        | Command::ArchiveObject { entity_id, .. }
         | Command::Stop { entity_id } => Some(*entity_id),
         Command::Attack { attacker_id, .. }
         | Command::ForceAttackCell { attacker_id, .. }

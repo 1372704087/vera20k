@@ -658,6 +658,8 @@ mod tests {
         assert!(!in_app_bundle(Path::new("/Contents/MacOS/vera20k")));
     }
 
+    // Linux paths, which Windows does not take as absolute.
+    #[cfg(unix)]
     #[test]
     fn only_an_executable_inside_its_own_app_image_counts() {
         let mount = Path::new("/tmp/.mount_VERA20kXyZ");
@@ -670,6 +672,8 @@ mod tests {
         assert!(!in_app_image(Path::new("usr/bin/vera20k"), Path::new("")));
     }
 
+    // Linux paths, which Windows does not take as absolute.
+    #[cfg(unix)]
     #[test]
     fn the_linux_data_folder_follows_xdg_data_home() {
         let home = Path::new("/home/<you>");

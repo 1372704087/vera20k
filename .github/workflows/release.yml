@@ -217,6 +217,8 @@ jobs:
       # a broken installer stops the release here instead of reaching players.
       - name: Test the Windows installer
         if: runner.os == 'Windows'
+        # A dialog left open in a silent install waits forever.
+        timeout-minutes: 10
         shell: pwsh
         env:
           NAME: ${{ steps.package.outputs.name }}

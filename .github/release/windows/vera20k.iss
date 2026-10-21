@@ -161,22 +161,17 @@ begin
   GameDirPage.Values[0] := InitialGameDir();
 end;
 
+{ A silent install calls this too, for every page, and exits when it returns
+  False. /SUPPRESSMSGBOXES silences only SuppressibleMsgBox, not MsgBox. }
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
   if (CurPageID = GameDirPage.ID) and not IsGameDir(GameDir()) then
   begin
-    MsgBox(FmtMessage(CustomMessage('GameDirMissing'), [GameDir()]), mbError, MB_OK);
+    SuppressibleMsgBox(FmtMessage(CustomMessage('GameDirMissing'), [GameDir()]),
+      mbError, MB_OK, IDOK);
     Result := False;
   end;
-end;
-
-{ Also reached by a silent install, which shows no pages. }
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-begin
-  Result := '';
-  if not IsGameDir(GameDir()) then
-    Result := FmtMessage(CustomMessage('GameDirMissing'), [GameDir()]);
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);

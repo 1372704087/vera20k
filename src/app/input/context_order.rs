@@ -3665,9 +3665,10 @@ fn cursor_owner(
 /// `0x004ABDF5` reads `+0x230`, which the constructor clears at
 /// `0x0071DB18`), and the other receivers' orders are dropped.
 ///
-/// RESIDUAL: a map's `Selectable=yes` on a TerrainType (ObjectType ReadINI
-/// `0x005F948C`) would let that 0 select the tree; VERA never selects a
-/// Terrain object. The retail rules set none.
+/// DORMANT: a `Selectable=yes` TerrainType (ObjectType ReadINI `0x005F948C`)
+/// would let that 0 select the tree; VERA never selects a Terrain object.
+/// Neither RULESMD nor any of the 177 stock skirmish maps sets the key on a
+/// TerrainType (census through the production map loader).
 ///
 /// A release that selects hands the click to the selection's click pick,
 /// which asks the same `Tactical::PickObjectAtScreenPoint` port

@@ -242,6 +242,17 @@ pub enum WolTarget {
     /// The same change, then the host's offer: the guest acks, takes
     /// `Preview.bin`, and the next options text asks for nothing.
     GuestPreviewReceived,
+    /// Test service: Join on Boris's tournament game: C9 holds two rows;
+    /// after Accept, host options without a preview take it back.
+    GuestTournamentRows,
+    /// Test service: Create with the clan box (the user's squad): C2's
+    /// lockout holds Short Game on, the team column is hidden.
+    ClanLockout,
+    /// The same, then Start with the stand-in guest in no squad:
+    /// `TXT_CLAN_NOSTART`.
+    ClanNoStart,
+    /// The same, then Choose Map: no FreeForAll, official maps only.
+    ClanChooseMap,
 }
 
 impl WolTarget {
@@ -343,6 +354,23 @@ impl WolTarget {
         )
     }
 
+    /// Test service: Create with the clan box.
+    fn clan(self) -> bool {
+        matches!(
+            self,
+            Self::ClanLockout | Self::ClanNoStart | Self::ClanChooseMap
+        )
+    }
+
+    /// The stand-in host whose game the C9 targets join.
+    fn guest_host(self) -> &'static str {
+        if self == Self::GuestTournamentRows {
+            "Boris"
+        } else {
+            "Tanya"
+        }
+    }
+
     /// Test service: C9 in Tanya's game with the host's options.
     fn guest_service(self) -> bool {
         matches!(
@@ -353,6 +381,7 @@ impl WolTarget {
                 | Self::GuestUserKicked
                 | Self::GuestNoPreview
                 | Self::GuestPreviewReceived
+                | Self::GuestTournamentRows
         )
     }
 
@@ -370,6 +399,9 @@ impl WolTarget {
                     | Self::GuestKick
                     | Self::ScenariosMismatch
                     | Self::MismatchOk
+                    | Self::ClanLockout
+                    | Self::ClanNoStart
+                    | Self::ClanChooseMap
                     | Self::PageDialog
                     | Self::PageFindStatus
                     | Self::PageUserGone
@@ -543,6 +575,10 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-c9-user-kicked", WolTarget::GuestUserKicked),
     ("wol-c9-nat-no-preview", WolTarget::GuestNoPreview),
     ("wol-c9-preview-received", WolTarget::GuestPreviewReceived),
+    ("wol-c9-tournament-rows", WolTarget::GuestTournamentRows),
+    ("wol-c2-clan-lockout", WolTarget::ClanLockout),
+    ("wol-c2-clan-nostart", WolTarget::ClanNoStart),
+    ("wol-choose-map-clan-filter", WolTarget::ClanChooseMap),
 ];
 
 /// The controlled guest of the C2 targets, the host of the C9 targets.
@@ -1599,6 +1635,9 @@ impl WolCapture {
                         | WolTarget::GuestKick
                         | WolTarget::ScenariosMismatch
                         | WolTarget::MismatchOk
+                        | WolTarget::ClanLockout
+                        | WolTarget::ClanNoStart
+                        | WolTarget::ClanChooseMap
                 ) {
                     let layout = crate::app::shell_wol::lobby::layout(state);
                     lobby_button(state, &layout, lobby_ui::CREATE)?;
@@ -1606,8 +1645,23 @@ impl WolCapture {
                         state.renderer.gpu.config.width as i32,
                         state.renderer.gpu.config.height as i32,
                     );
-                    let ok = crate::ui::shell::modal::wol_create_game_layout(width, height).ok;
-                    welcome_click(state, ok);
+                    let create = crate::ui::shell::modal::wol_create_game_layout(width, height);
+                    if self.target.clan() {
+                        // 0x78DF35: the clan box is enabled by the squad id.
+                        ensure!(
+                            crate::app::shell_wol::lobby::squad_id(state) == 7,
+                            "the stand-in squad did not reach [0xB77DE4]"
+                        );
+                        welcome_click(
+                            state,
+                            crate::ui::skirmish_shell::checkbox_icon_rect(
+                                create.clan,
+                                crate::ui::shell::geom::ShellScale::RETAIL,
+                            ),
+                        );
+                        self.event(frame, "0xC3 clan box (squad 7)");
+                    }
+                    welcome_click(state, create.ok);
                     self.event(frame, "0xC3 OK (test service)");
                     self.phase = WolPhase::ServiceSetup;
                     return Ok(());
@@ -1659,10 +1713,17 @@ impl WolCapture {
                         self.hover_settle(state);
                         return Ok(());
                     }
-                    game_row_click(state, 0)?;
+                    let host = self.target.guest_host();
+                    let row = Self::lobby(state)?
+                        .ui
+                        .game_rows
+                        .iter()
+                        .position(|row| row.name == format!("{host}'s_game"))
+                        .context("the stand-in host's game")?;
+                    game_row_click(state, row)?;
                     let layout = crate::app::shell_wol::lobby::layout(state);
                     lobby_button(state, &layout, lobby_ui::JOIN)?;
-                    self.event(frame, "Join on Tanya's_game (test service)");
+                    self.event(frame, format!("Join on {host}'s_game (test service)"));
                     self.phase = WolPhase::ServiceSetup;
                     return Ok(());
                 }
@@ -1699,6 +1760,9 @@ impl WolCapture {
                         | WolTarget::GuestKick
                         | WolTarget::ScenariosMismatch
                         | WolTarget::MismatchOk
+                        | WolTarget::ClanLockout
+                        | WolTarget::ClanNoStart
+                        | WolTarget::ClanChooseMap
                 ) {
                     return self.service_host(state, frame);
                 }
@@ -2349,15 +2413,17 @@ impl WolCapture {
             );
             requests.drain(..sent.len());
         }
-        // 0x00787BC8 restarts the buddy mirror before TXT_REQ_CHANLIST: the
-        // buddy list, then the game list with automatic pings.
-        let [apply @ .., buddies, game_list, list] = requests.as_slice() else {
+        // 0x00787B33 asks for the user's squad, then 0x00787BC8 restarts
+        // the buddy mirror before TXT_REQ_CHANLIST: the buddy list, then the
+        // game list with automatic pings.
+        let [apply @ .., squad, buddies, game_list, list] = requests.as_slice() else {
             bail!("the runner sent too little: {requests:?}");
         };
         let passes = if self.rejoined { 2 } else { 1 };
         ensure!(
             apply.len() == 2 * passes
                 && apply.chunks(2).all(|pair| pair == Self::applied(state))
+                && *squad == WolServiceRequest::SquadInfo { id: 0 }
                 && *buddies == WolServiceRequest::ListBuddies
                 && *game_list
                     == WolServiceRequest::ListChannels {
@@ -3661,6 +3727,7 @@ impl WolCapture {
 fn member(name: &str, flags: u32, tag: &str) -> WolMember {
     WolMember {
         flags,
+        squad: 0,
         name: name.into(),
         clan_name: if tag.is_empty() {
             String::new()
@@ -3868,6 +3935,28 @@ fn login_click(state: &mut AppState, rect: RectPx) {
 
 fn setup_view(state: &AppState) -> Result<crate::ui::multiplayer_setup::SetupView> {
     setup::view(state).context("C2/C9 view")
+}
+
+/// The joined game's host options again, naming a version of its map this
+/// guest cannot verify (another digest).
+fn unverified_host_options(state: &AppState) -> Result<NetworkSetupEvent> {
+    let launch = state
+        .match_state
+        .session
+        .network_setup()
+        .context("C9 setup")?
+        .clone();
+    let file = launch.selected_map_file.clone().context("host map")?;
+    let mut map_metadata = crate::app::shell_network_setup::local_map_metadata(state, &file)?;
+    map_metadata.digest = "another version".into();
+    Ok(NetworkSetupEvent::HostSetup {
+        launch,
+        map_metadata,
+        vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
+        observer_row: None,
+        cooperative_difficulty: 0,
+        seed: state.match_state.session.network_start_seed(),
+    })
 }
 
 fn setup_requests(state: &mut AppState) -> Vec<NetworkSetupRequest> {
@@ -4591,6 +4680,9 @@ impl WolCapture {
                     self.event(frame, json!({"guest plays again": {"row": 1}}));
                 }
             }
+            WolTarget::ClanLockout | WolTarget::ClanNoStart | WolTarget::ClanChooseMap => {
+                return self.clan_room(state, frame);
+            }
             WolTarget::ScenariosMismatch | WolTarget::MismatchOk => {
                 setup_button(state, crate::ui::multiplayer_setup::START)?;
                 self.event(frame, "C2 Start with the stand-in guest");
@@ -4608,6 +4700,149 @@ impl WolCapture {
                 self.event(frame, "C2 kicks the stand-in guest");
                 self.phase = WolPhase::GuestKicked;
                 return Ok(());
+            }
+            _ => {}
+        }
+        MoviesCapture::restore_neutral_pointer(state);
+        crate::app::input::multiplayer_setup::cursor_moved(state);
+        self.settle();
+        Ok(())
+    }
+
+    /// C9 in Boris's tournament room: two rows (`0x005EC408`, `0x005E6440`).
+    /// After Accept, host options this guest cannot preview take the
+    /// acceptance back (`0x007A8145..0x007A8196`).
+    fn guest_tournament(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        let session = &state.match_state.session;
+        ensure!(
+            session.network_room().tournament
+                && session.network_setup_capacity() == Some(2)
+                && session.network_row_limit() == Some(2),
+            "the tournament room's rows: {:?} capacity {:?} limit {:?}",
+            session.network_room(),
+            session.network_setup_capacity(),
+            session.network_row_limit()
+        );
+        self.event(frame, json!({"tournament room": {"rows": 2}}));
+        setup::apply_action(state, crate::ui::multiplayer_setup::SetupAction::Accept);
+        let local = |state: &AppState| {
+            let session = &state.match_state.session;
+            session
+                .network_setup()
+                .is_some_and(|launch| session.network_player_ready(launch.local_player_index))
+        };
+        ensure!(
+            local(state) && setup_requests(state) == [NetworkSetupRequest::Ready(true)],
+            "Accept did not send A1"
+        );
+        let options = unverified_host_options(state)?;
+        setup::service_event(state, options)?;
+        let requests = setup_requests(state);
+        let view = setup_view(state)?;
+        ensure!(
+            !local(state)
+                && !view.enabled(crate::ui::multiplayer_setup::ACCEPT)
+                && requests.contains(&NetworkSetupRequest::Ready(false))
+                && requests.contains(&NetworkSetupRequest::RequestPreview),
+            "the tournament room did not take the acceptance back: {requests:?}"
+        );
+        self.event(
+            frame,
+            "host options without a preview: A0, Accept disabled, P",
+        );
+        Ok(())
+    }
+
+    /// C2 in a clan room: the lockout, the hidden team column, an even row
+    /// count; then the start gate or the chooser's filters.
+    fn clan_room(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        use crate::ui::multiplayer_setup::{CHECKBOXES, SetupColumn};
+        let session = &state.match_state.session;
+        let launch = session.network_setup().context("C2")?;
+        let options = launch.options.clone();
+        let room = session.network_room();
+        let capacity = session.network_setup_capacity();
+        let view = setup_view(state)?;
+        let team_hidden = view
+            .combos
+            .iter()
+            .filter(|combo| {
+                SetupColumn::decode(combo.id).is_some_and(|(column, _)| column == SetupColumn::Team)
+            })
+            .all(|combo| !combo.visible);
+        ensure!(
+            room.clan
+                && options.short_game
+                && options.bases
+                && CHECKBOXES[0] == 0x54E
+                && view.checks[0]
+                && !view.enabled(0x54E)
+                && team_hidden
+                && !view.team_header
+                && capacity.is_some_and(|capacity| capacity % 2 == 0),
+            "C2's clan room: {room:?} short game {} enabled {} teams hidden {team_hidden} capacity {capacity:?}",
+            options.short_game,
+            view.enabled(0x54E)
+        );
+        self.event(
+            frame,
+            json!({"clan room": {"short game": "on, disabled", "team column": "hidden", "capacity": capacity}}),
+        );
+        match self.target {
+            WolTarget::ClanNoStart => {
+                setup_requests(state);
+                setup_button(state, crate::ui::multiplayer_setup::START)?;
+                let text = App::csf_label(state, "TXT_CLAN_NOSTART", "TXT_CLAN_NOSTART");
+                let requests = setup_requests(state);
+                // The line wraps; its first row starts the text.
+                let lines: Vec<String> = state
+                    .frontend
+                    .multiplayer_setup
+                    .as_ref()
+                    .context("C2")?
+                    .chat
+                    .lines
+                    .iter()
+                    .map(|line| String::from_utf16_lossy(&line.text))
+                    .collect();
+                ensure!(
+                    lines
+                        .iter()
+                        .any(|line| line.len() > 10 && text.starts_with(line.trim_end()))
+                        && !requests.iter().any(|request| matches!(
+                            request,
+                            NetworkSetupRequest::StartGame { .. }
+                        )),
+                    "Start in the clan room with a guest in no squad: {requests:?} {lines:?}"
+                );
+                self.event(frame, "Start: TXT_CLAN_NOSTART");
+            }
+            WolTarget::ClanChooseMap => {
+                crate::app::shell_network_setup::open_choose_map(state);
+                let modal = state
+                    .frontend
+                    .skirmish_shell_state
+                    .choose_map_modal
+                    .as_ref()
+                    .context("the chooser")?;
+                let modes = &state.frontend.skirmish_modes;
+                let listed: Vec<_> = modal
+                    .mode_rows()
+                    .iter()
+                    .filter_map(|id| crate::skirmish_modes::mode_by_id(modes, *id))
+                    .map(|mode| mode.class)
+                    .collect();
+                let records = state.frontend.scenario_catalog.records();
+                ensure!(
+                    !listed.contains(&crate::skirmish_modes::MpModeClass::FreeForAll)
+                        && listed.contains(&crate::skirmish_modes::MpModeClass::Battle)
+                        && modal
+                            .filtered_record_indices
+                            .iter()
+                            .all(|index| records[*index].official),
+                    "the clan room's chooser: {listed:?}"
+                );
+                self.event(frame, json!({"chooser modes": format!("{listed:?}")}));
             }
             _ => {}
         }
@@ -4637,28 +4872,15 @@ impl WolCapture {
             "the host's first map did not preview locally: {:?}",
             preview(state)
         );
-        let launch = state
+        let file = state
             .match_state
             .session
             .network_setup()
-            .context("C9 setup")?
-            .clone();
-        let file = launch.selected_map_file.clone().context("host map")?;
-        let mut map_metadata = crate::app::shell_network_setup::local_map_metadata(state, &file)?;
-        map_metadata.digest = "another version".into();
-        let seed = state.match_state.session.network_start_seed();
+            .and_then(|launch| launch.selected_map_file.clone())
+            .context("host map")?;
         let publish = |state: &mut AppState| {
-            setup::service_event(
-                state,
-                NetworkSetupEvent::HostSetup {
-                    launch: launch.clone(),
-                    map_metadata: map_metadata.clone(),
-                    vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
-                    observer_row: None,
-                    cooperative_difficulty: 0,
-                    seed,
-                },
-            )?;
+            let options = unverified_host_options(state)?;
+            setup::service_event(state, options)?;
             let requests = setup_requests(state);
             Ok::<_, anyhow::Error>(
                 requests
@@ -4779,7 +5001,7 @@ impl WolCapture {
                 && rows
                     == [
                         (NICKNAME.to_owned(), Some(1)),
-                        ("Tanya".to_owned(), Some(0))
+                        (self.target.guest_host().to_owned(), Some(0))
                     ]
                 && host_icon,
             "C9 did not take the host's options: {rows:?} {map:?} host icon {host_icon}"
@@ -4861,6 +5083,7 @@ impl WolCapture {
             WolTarget::GuestNoPreview | WolTarget::GuestPreviewReceived => {
                 self.guest_preview(state, frame)?;
             }
+            WolTarget::GuestTournamentRows => self.guest_tournament(state, frame)?,
             _ => {}
         }
         MoviesCapture::restore_neutral_pointer(state);

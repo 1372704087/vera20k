@@ -340,8 +340,9 @@ fn guest_sink_tail(state: &mut AppState) {
 /// download running it asks again on each options text, unrestamped,
 /// unless the map verifies (`0x007A802B..0x007A80D7`). A verified mixfile
 /// map has its own preview and returned above (`0x007A80EF..0x007A8143`).
-/// RESIDUAL: the clan/tournament auto-unaccept that follows
-/// (`0x007A8145..0x007A8196`) is chain H4's. The 900-bucket branch reads
+/// Then, unless the map is `RandMap.Sed` (`0x007A80DD..0x007A80E9`), an
+/// accepted user in a tournament or clan room takes its acceptance back:
+/// `A0`, and Accept disabled (`0x007A8145..0x007A8196`). The 900-bucket branch reads
 /// the verification of the last map change; native verifies again
 /// (`0x007A8090..0x007A80AF`), which differs only when a map arrives
 /// without a change, and WOL transfers no map here.
@@ -351,12 +352,23 @@ pub(super) fn options_preview(state: &mut AppState, new_scenario: bool) {
     ) as u32;
     let globals = &mut state.frontend.wol_lobby_globals;
     let stamp = *globals.preview_stamp.get_or_insert(now);
-    let map_named = state
+    let file = state
         .match_state
         .session
         .network_setup()
-        .and_then(|launch| launch.selected_map_file.as_deref())
-        .is_some_and(|file| !file.is_empty());
+        .and_then(|launch| launch.selected_map_file.as_deref());
+    let map_named = file.is_some_and(|file| !file.is_empty());
+    let random = file
+        .is_some_and(|file| file.eq_ignore_ascii_case(crate::map::skirmish_scenarios::RANDMAP_SED));
+    let room = state.match_state.session.network_room();
+    let local = state
+        .match_state
+        .session
+        .network_setup()
+        .map(|launch| launch.local_player_index);
+    let unaccept = !random
+        && room.tournament_or_clan()
+        && local.is_some_and(|index| state.match_state.session.network_player_ready(index));
     let protocol = state
         .frontend
         .network_setup_protocol
@@ -379,8 +391,21 @@ pub(super) fn options_preview(state: &mut AppState, new_scenario: bool) {
             request = true;
         }
     }
+    if unaccept {
+        protocol.accept_eligible = false;
+        protocol.requests.push(NetworkSetupRequest::Ready(false));
+    }
     if request {
         protocol.requests.push(NetworkSetupRequest::RequestPreview);
+    }
+    if unaccept
+        && let Some(index) = local
+        && let Err(error) = state
+            .match_state
+            .session
+            .set_network_player_ready(index, false)
+    {
+        log::warn!("WOL room unaccept: {error:#}");
     }
 }
 

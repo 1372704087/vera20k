@@ -2056,8 +2056,7 @@ def metadata():
 
 
 def source_paths():
-    # Reuse the existing Mission's transitive inventory, preserving its historical
-    # receipt. New outputs bind current source hashes without republishing old ones.
+    # Reuse the existing Mission's transitive inventory for the run's source check.
     paths = foot_missions.source_paths()
     # The native run executes no Rust; the Rust consumers' own tests compare them.
     for relative in ('tools/spatial_oracle/anytown_damage/unit_unlimbo.py',

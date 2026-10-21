@@ -1576,11 +1576,40 @@ def metadata():
  return result
 
 
+# The Mission producer's transitive module inventory, which its historical
+# receipt recorded; the run's source check covers it.
+MISSION_SOURCES=(
+  'tools/native_oracle.py', 'tools/projectile_oracle/bridge_render_inputs.py',
+  'tools/projectile_oracle/flat_art.py', 'tools/projectile_oracle/guided_step.py',
+  'tools/projectile_oracle/ifv_bridge_impact.py', 'tools/projectile_oracle/ifv_fire_coord.py',
+  'tools/projectile_oracle/ifv_impact.py', 'tools/projectile_oracle/ifv_launch.py',
+  'tools/projectile_oracle/ifv_select_anim.py', 'tools/projectile_oracle/ordinary_collision.py',
+  'tools/rmg_oracle/gen_rng_vectors.py', 'tools/rmg_oracle/harness.py',
+  'tools/rules_oracle/bridge_anim_inputs.py', 'tools/rules_oracle/bridge_anim_lists.py',
+  'tools/rules_oracle/bridge_child_sound.py', 'tools/rules_oracle/theater_general_reader.py',
+  'tools/spatial_oracle/__init__.py', 'tools/spatial_oracle/anytown_damage/__init__.py',
+  'tools/spatial_oracle/anytown_damage/anytown_geometry.py',
+  'tools/spatial_oracle/anytown_damage/anytown_resident.py',
+  'tools/spatial_oracle/anytown_damage/inputs.py',
+  'tools/spatial_oracle/anytown_damage/mission.py',
+  'tools/spatial_oracle/anytown_damage/mission_counter.py',
+  'tools/spatial_oracle/anytown_damage/mission_interleaving.py',
+  'tools/spatial_oracle/anytown_damage/mission_publication.py',
+  'tools/spatial_oracle/anytown_damage/mission_test_vectors.py',
+  'tools/spatial_oracle/anytown_damage/mtnk_attack.py',
+  'tools/spatial_oracle/anytown_damage/next_family_native.py',
+  'tools/spatial_oracle/anytown_damage/publication.py', 'tools/spatial_oracle/bridge_rim.py',
+  'tools/spatial_oracle/building_body_rules.py', 'tools/spatial_oracle/map_queries.py',
+  'tools/spatial_oracle/mapgen_range.py', 'tools/spatial_oracle/shrapnel_repair/__init__.py',
+  'tools/spatial_oracle/shrapnel_repair/map_facts.py',
+  'tools/spatial_oracle/shrapnel_repair/packet_io.py',
+  'tools/spatial_oracle/shrapnel_repair/production_inputs.py',
+  'tools/spatial_oracle/shrapnel_repair/retail_inputs.py',
+  'tools/spatial_oracle/shrapnel_repair/shrapnel_repair.py')
+
+
 def source_paths():
- # Preserve the old historical receipt and use its transitive module inventory
- # as current source identity; never rewrite the historic source hashes.
- receipt=json.loads((HERE/'mission_receipt.json').read_text())
- paths={name:REPO/name for name in receipt['imported_sources']}
+ paths={name:REPO/name for name in MISSION_SOURCES}
  for relative in ('tools/spatial_oracle/anytown_damage/foot_missions.py',
                   'tools/spatial_oracle/bridge_target_composed.py',
                   'tools/spatial_oracle/locomotor_at_coord.py',
@@ -1674,7 +1703,7 @@ def capture_metadata():
    capture_ranged_call=0x4D4C97,rng_seed=0x65C6D0,rng_ranged=0x65C7E0,
    ranged_raw_store=0x65C84B,dispatch_timer_start=0x5B331B,dispatch_timer_duration=0x5B3324),
   assumptions=[
-   'Replay from the checkout: python -m tools.spatial_oracle.anytown_damage.mission --foot-capture --check (or --write to accept newly executed native outputs). Select the original supported gamemd.exe through VERA20K_GAMEMD_EXE or RA2_DIR. The sidecar pins that binary; no repository source hashes are persisted.',
+   'Replay from the checkout: python -m tools.spatial_oracle.anytown_damage.mission --foot-capture --check (or --write to accept newly executed native outputs). Select the original supported gamemd.exe through VERA20K_GAMEMD_EXE or RA2_DIR. Neither that binary nor repository sources are hashed.',
    'Use the separate physical sparse caches VERA20K_SHRAPNEL_INPUTS and VERA20K_ANYTOWN_INPUTS declared by tools/spatial_oracle/anytown_damage/retail_manifest.json. The former supplies original RULESMD/ARTMD/SOUNDMD/MPBattleMD reader bootstrap; the latter supplies XMP03T4.MAP and the existing physical crop/asset dependencies. Keep LANGRULE absent for these stock controls. layers records actual physical file hashes, selected Capture bytes and native Rate results.',
    'The existing FootMissions VM executes original MissionControl, E1 type, Infantry/Foot/Techno and Walk construction, physical selected readers and successful original E1 Unlimbo/registration, retaining its explicit Ready fixture baseline. An additive Capture reader pass runs the existing original679C92..679CAF MissionControl loop through5B3760 in physical RULESMD, optional LANGRULE, MPBattleMD and XMP03T4 order; older Foot corpora are not generated or rewritten.',
    'Controls supply current mission8, queued-1, status0, NULL Target and nonNULL Building NavCom at retained absolute frame1 after initialization. The Building is a supplied allocated identity with original7E3EBC vtable, not native construction or placement. On this NULL Target/nonNULL NavCom/controlled-human E1 path, original Capture only tests NavCom against NULL and never dereferences its Building identity. Original5B3060 dispatches the unchanged Infantry vtable+214 to4D4B20, including current Rate multiplication/ftol, actual Scenario65C7E0 rejection retries and real timer writes.',

@@ -883,21 +883,35 @@ fn a_bio_reactor_releases_its_absorbed_infantry_before_its_crew() {
     }
 }
 
-/// NoSurvivor refuses the absorbed passengers' Unlimbo: they are removed,
-/// though each infantryman's placement draw is still spent.
+/// NoSurvivor refuses the absorbed passengers' Unlimbo: each is recorded as
+/// killed by the building's C4 planter (SpawnSurvivors' argument,
+/// `0x00442FE5`) and removed, though each infantryman's placement draw is
+/// still spent.
 #[test]
 fn no_survivor_uninits_the_absorbed_infantry() {
     let rules = rules();
     let mut sim = sim_with_houses(9);
+    let planter = spawn(&mut sim, &rules, "E2", "Russians", 30, 30);
     let reactor = spawn(&mut sim, &rules, "YAPOWR", "Americans", 10, 10);
     let absorbed = load_absorbed(&mut sim, &rules, reactor, 2);
     let mut replay = sim.scenario_rng.clone();
-    sim.substrate
-        .entities
-        .get_mut(reactor)
-        .unwrap()
-        .no_survivor
-        .set_for_test(true);
+    let reactor_entity = sim.substrate.entities.get_mut(reactor).unwrap();
+    reactor_entity.no_survivor.set_for_test(true);
+    reactor_entity.pending_c4_detonation.set_for_test(Some(
+        crate::sim::c4_plant::PendingC4Detonation::new(
+            crate::sim::timer::CdTimer::started(0, 100),
+            Some(planter),
+        ),
+    ));
+    let stats = |sim: &Simulation, house: &str| {
+        let id = sim.interner.get(house).unwrap();
+        *sim.houses[&id].stats()
+    };
+    let (lost, killed) = (
+        stats(&sim, "Americans").units_lost(),
+        stats(&sim, "Russians").units_killed(),
+    );
+    sim.clear_lifecycle_test_events_for_test();
     sim.spawn_building_survivors(
         &rules,
         None,
@@ -909,7 +923,7 @@ fn no_survivor_uninits_the_absorbed_infantry() {
         let _overwritten_row = replay.next_range_u32(4);
     }
     assert_eq!(sim.scenario_rng.state(), replay.state());
-    for id in absorbed {
+    for &id in &absorbed {
         assert!(
             sim.substrate
                 .entities
@@ -917,7 +931,19 @@ fn no_survivor_uninits_the_absorbed_infantry() {
                 .is_none_or(|entity| !entity.lifecycle.object_alive()),
             "absorbed passenger {id} is removed"
         );
+        assert!(
+            sim.lifecycle_test_events_for_test()
+                .iter()
+                .any(|event| matches!(
+                    event,
+                    crate::sim::world::LifecycleTestEvent::RecordKillBookkeeping { stable_id }
+                        if *stable_id == id
+                )),
+            "absorbed passenger {id} has its kill recorded"
+        );
     }
+    assert_eq!(stats(&sim, "Americans").units_lost(), lost + 2);
+    assert_eq!(stats(&sim, "Russians").units_killed(), killed + 2);
 }
 
 /// The vehicle crew block: the CrewEscape draw, then for an escape the

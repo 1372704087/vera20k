@@ -1719,6 +1719,11 @@ fn emit_building_anims(
                     },
                     viewport,
                     legacy_policy: policy.render_z,
+                    bounce_drop_px: super::anim_draw::anim_bounce_drop_px(
+                        sim,
+                        instance,
+                        [coord.x, coord.y, coord.z],
+                    ),
                     body: SpriteInstance {
                         depth: anim_depth,
                         tint: anim_tint,

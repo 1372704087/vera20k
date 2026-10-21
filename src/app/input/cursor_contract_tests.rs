@@ -248,6 +248,7 @@ fn retail_cell_chords_have_their_native_cursors() {
 /// Techno's Ctrl+Alt rung (`0x00700815..0x007008A3`) answers GuardArea on
 /// mapped ground. Over shroud a Foot's wrapper (`0x004DDE64..0x004DDEBE`)
 /// makes it Move for a MoveToShroud type, and the click asks the same rung.
+/// A berserk tank never reaches it.
 #[test]
 fn retail_ctrl_alt_over_shroud_is_a_move_for_a_foot() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -260,9 +261,9 @@ fn retail_ctrl_alt_over_shroud_is_a_move_for_a_foot() {
         .unwrap();
     let owner = sim.interner().get("Americans").unwrap();
     reveal_rows(&mut sim, owner, 20);
-    let cursor = |cell| {
+    let cursor = |sim: &Simulation, cell| {
         cursor_id_for_feedback(empty_cell_cursor(
-            &sim,
+            sim,
             Some(rules),
             None,
             sim.session().current_house(),
@@ -272,13 +273,27 @@ fn retail_ctrl_alt_over_shroud_is_a_move_for_a_foot() {
             crate::app::types::OrderMode::Move,
         ))
     };
-    assert_eq!(cursor((10, 10)), Some(CursorId::GuardArea));
-    assert_eq!(cursor((10, 30)), Some(CursorId::Move));
-    let guards = |shrouded| {
-        crate::app::input::context_order::cell_guard_area_action(&sim, rules, tank, shrouded)
+    let guards = |sim: &Simulation, cell| {
+        crate::app::input::context_order::cell_guard_area_action(
+            sim,
+            rules,
+            tank,
+            Some(owner),
+            cell,
+        )
     };
-    assert!(guards(false));
-    assert!(!guards(true));
+    assert_eq!(cursor(&sim, (10, 10)), Some(CursorId::GuardArea));
+    assert_eq!(cursor(&sim, (10, 30)), Some(CursorId::Move));
+    assert!(guards(&sim, (10, 10)));
+    assert!(!guards(&sim, (10, 30)));
+    // A berserk tank answers 0 before the rung (`0x00700609`): the arrow.
+    sim.entities_mut_for_test()
+        .get_mut(tank)
+        .unwrap()
+        .berserk
+        .set_active_for_test(true);
+    assert!(!guards(&sim, (10, 10)));
+    assert_eq!(cursor(&sim, (10, 10)), Some(CursorId::Default));
 }
 
 #[test]

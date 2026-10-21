@@ -546,12 +546,7 @@ fn empty_cell_cursor(
     use crate::sim::world::MoveAction;
     if modifier == super::context_order::OrderModifier::GuardArea
         && let (Some(rules), Some(id)) = (rules, best_id)
-        && super::context_order::cell_guard_area_action(
-            sim,
-            rules,
-            id,
-            viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true)),
-        )
+        && super::context_order::cell_guard_area_action(sim, rules, id, viewer, cell)
     {
         return CursorFeedbackKind::GuardArea;
     }

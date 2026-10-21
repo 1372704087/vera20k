@@ -1968,7 +1968,6 @@ impl Simulation {
                             building_id: stable_id,
                             rx: entity.position.rx(),
                             ry: entity.position.ry(),
-                            z: entity.position.z(),
                             foundation_w,
                             foundation_h,
                             passenger_ids,

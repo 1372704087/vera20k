@@ -1395,6 +1395,69 @@ fn an_aircraft_unlimbo_asks_the_aircraft_entry_query() {
     assert!(reveal(true, false).is_some());
 }
 
+/// No layer of an Aircraft's Unlimbo refuses on the playfield: Aircraft
+/// (`0x00414310`) asks IsCellInPlayfield (`0x005785F0` -> `0x00578460`, at
+/// `0x00414352`) only for its Z, Techno (`0x006F6CA0`) only to write
+/// `+0x3D5` and clear `+0x41B`, and Foot (`0x004D7170`) and Object
+/// (`0x005F4EC0`) do not ask. An Aircraft its class query admits is placed
+/// on a map cell outside the playfield.
+#[test]
+fn an_admitted_aircraft_takes_no_playfield_gate() {
+    let rules = constructor_rules();
+    let mut sim = Simulation::with_seed(0x1a45);
+    install_constructor_test_playfield(&mut sim);
+    install_constructor_flat_terrain(&mut sim);
+    install_american_house(&mut sim);
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
+    let (rx, ry) = (0..10u16)
+        .flat_map(|ry| (0..10u16).map(move |rx| (rx, ry)))
+        .find(|&(rx, ry)| {
+            !crate::sim::cell_rect::cell_is_in_playfield_height_aware(
+                (i32::from(rx), i32::from(ry)),
+                sim.playfield_bounds,
+                sim.resolved_terrain.as_ref(),
+            )
+        })
+        .expect("a map cell outside the playfield");
+    let held = sim
+        .construct_object_limbo_at_height(
+            "ORCA",
+            "Americans",
+            0,
+            0,
+            0,
+            0,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .expect("construct held aircraft");
+    assert!(
+        sim.reveal_constructed_object_at_height(
+            held,
+            rx,
+            ry,
+            0,
+            0,
+            PlacementEvidence::EvaluateMark,
+            &rules,
+            crate::sim::world::FrameEffects::default(),
+        )
+        .is_some()
+    );
+    // Off the playfield, the same query raises it to FlightLevel above the
+    // floor (`0x0041436C..0x0041438B`).
+    let aircraft = sim.substrate.entities.get(held).expect("placed aircraft");
+    let flight_level = sim
+        .object_type(aircraft.type_ref(), &rules)
+        .expect("ORCA")
+        .flight_level(rules.general.flight_level);
+    assert_eq!(
+        crate::sim::movement::ground_pose::position_world_coord(&aircraft.position).z,
+        flight_level
+    );
+}
+
 fn assert_generated_projection_rejects_before_mutation(
     seed: u64,
     entities: &[MapEntity],

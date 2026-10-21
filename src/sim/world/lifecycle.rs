@@ -462,15 +462,23 @@ pub enum PlacementEvidence {
     RejectedEarly,
     MarkFailed,
     MarkSucceeded,
-    /// Run the modeled `ObjectClass::Reveal @ 0x005F4EC0` playfield admission
-    /// and Mark(PUT) transaction. Production Unit Unlimbo uses this after its
-    /// class-specific exact-zero CanEnter admission; fixed/runtime constructors
-    /// use it so a later placement rejection can retain the spent constructor.
+    /// An Unlimbo request for the class admission
+    /// ([`Simulation::unlimbo_class_entry`]), which fixed/runtime constructors
+    /// use so a later placement rejection can retain the spent constructor.
+    /// What reaches Reveal unconverted (a building, or a map-less fixture)
+    /// runs VERA's playfield gate before Mark(PUT); see
+    /// `reveal_position_is_in_playfield`.
     EvaluateMark,
-    /// Object5F4F1B accepted Foot admission: either the one class +1AC
-    /// receiver returned zero or the caller's A8E7AC scope skipped it.
+    /// Object5F4F1B accepted a Foot's admission (Unit, Infantry or Aircraft):
+    /// either its class +1AC receiver returned zero or the caller's A8E7AC
+    /// scope skipped it. No playfield gate follows: no Unlimbo layer refuses
+    /// on IsCellInPlayfield (`0x00578460`). Aircraft (`0x00414310`) asks it
+    /// (through `0x005785F0`, at `0x00414352`) only for the Unlimbo Z,
+    /// Infantry (`0x0051E06B`) only for its placement arm, and Techno only to
+    /// write `+0x3D5` (`0x006F6CF9`) and clear `+0x41B` (`0x006F6EA4`); Foot
+    /// (`0x004D7170`) and Object (`0x005F4EC0`) do not ask.
     /// Query-local height/list outputs never establish the object's pose.
-    UnitEntryAdmitted,
+    FootEntryAdmitted,
 }
 
 impl Simulation {
@@ -2075,10 +2083,24 @@ impl Simulation {
             .is_some_and(|entity| entity.lifecycle.cell_marked)
     }
 
-    /// Shared mode-one playfield gate from active
-    /// `ObjectClass::Reveal @ 0x005F4EC0` before Mark(PUT). A normal constructed
-    /// scenario always has MapClass bounds; unbounded synthetic fixtures retain
-    /// their historical permissive behavior.
+    /// IsCellInPlayfield (`0x00578460`, mode 1) of the Reveal position's
+    /// origin Cell. Unbounded synthetic fixtures retain their historical
+    /// permissive behavior. Two consumers:
+    /// - an aircraft's Unlimbo Z ([`Self::unlimbo_z`]), as AircraftClass::
+    ///   Unlimbo asks it through `0x005785F0` (`0x00414352`);
+    /// - VERA's gate before Mark(PUT) for [`PlacementEvidence::EvaluateMark`]
+    ///   outside the `0x00A8E7AC` scope.
+    ///
+    /// RESIDUAL (#2393): the gate has no native counterpart. No Unlimbo layer
+    /// refuses on the playfield: Building (`0x00440580..0x004415E6`), Techno
+    /// (`0x006F6CA0`) and Object (`0x005F4EC0`), nor the Foot layers (see
+    /// [`PlacementEvidence::FootEntryAdmitted`]). With rules only a building
+    /// reaches it, since a Foot's admission comes back converted. Trigger: a
+    /// building revealed outside the scope whose origin Cell is outside the
+    /// playfield. Effect: the placement fails here, where native's Unlimbo
+    /// places it unless its caller refused first; those callers' own checks
+    /// were not traced. Frequency not counted. Downstream, the caller's
+    /// failure path runs instead of a placed building.
     fn reveal_position_is_in_playfield(
         &self,
         position: RevealPosition,

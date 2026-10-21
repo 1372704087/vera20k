@@ -57,14 +57,18 @@ done < <(git log --no-merges --max-count="$CHANGELOG_LIMIT" \
   --pretty=tformat:'%H%x09%s' "$base..$COMMIT")
 n="$(printf '%s' "$commits" | grep -c '^- ' || true)"
 
-# One row per archive, in a fixed platform order. Every archive needs a row, so
-# a new kind of download cannot reach players unlabelled.
+# One row per download, in a fixed order. Every download needs a row, so a new
+# kind cannot reach players unlabelled.
 rows=""
 row_count=0
-for spec in 'windows-x64:Windows x64' 'linux-x64:Linux x64' 'macos-arm64:macOS Apple Silicon'; do
-  key="${spec%%:*}"
-  label="${spec#*:}"
-  for file in "$DIST"/vera20k-*-"$key"-*; do
+for spec in '*-windows-x64-*-setup.exe|Windows x64 installer' \
+            '*-windows-x64-*.zip|Windows x64' \
+            '*-linux-x64-*.tar.gz|Linux x64' \
+            '*-macos-arm64-*.tar.gz|macOS Apple Silicon'; do
+  pattern="${spec%%|*}"
+  label="${spec#*|}"
+  # shellcheck disable=SC2086 # the pattern is a glob
+  for file in "$DIST"/vera20k-$pattern; do
     if [ ! -f "$file" ]; then continue; fi
     rows+="| \`$(basename "$file")\` | $label |"$'\n'
     row_count=$((row_count + 1))
@@ -72,7 +76,7 @@ for spec in 'windows-x64:Windows x64' 'linux-x64:Linux x64' 'macos-arm64:macOS A
 done
 archive_count="$(find "$DIST" -maxdepth 1 -type f -name 'vera20k-*' | wc -l | tr -d ' ')"
 if [ "$row_count" -ne "$archive_count" ]; then
-  echo "!! $DIST holds $archive_count archives but only $row_count have a platform row" >&2
+  echo "!! $DIST holds $archive_count downloads but only $row_count have a row" >&2
   exit 1
 fi
 
@@ -121,17 +125,19 @@ EOF
 
 ### Downloads
 
-Extract the archive straight into your Yuri's Revenge folder, or keep it in
-its own folder and point \`config.toml\` at the game (see the README.txt inside).
+On Windows, the installer is easiest: it finds your Yuri's Revenge folder and
+sets everything up. Otherwise, extract an archive straight into your Yuri's
+Revenge folder, or keep it in its own folder and point \`config.toml\` at the game
+(see the README.txt inside).
 
-| archive | platform |
+| download | platform |
 |---|---|
 $rows
-\`SHA256SUMS.txt\` lists every archive's checksum. Builds are signed with
+\`SHA256SUMS.txt\` lists every download's checksum. Builds are signed with
 GitHub build provenance; verify one with:
 
 \`\`\`sh
-gh attestation verify <archive> --repo $GITHUB_REPOSITORY
+gh attestation verify <download> --repo $GITHUB_REPOSITORY
 \`\`\`
 
 VERA20k is licensed under the GNU General Public License version 3.

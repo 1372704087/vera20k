@@ -961,7 +961,8 @@ fn attack_branch_orders(
                     // Under the attack-move chord or mode ClickedMission
                     // promotes this Attack whatever its target
                     // (`0x006FFC09..0x006FFC1E`): an attack-move with the
-                    // Cell as its target and no destination.
+                    // Cell as its target and no destination, the tokens Foot
+                    // ClickedAction_Cell sends (`0x004D80E9..0x004D80FF`).
                     TargetKind::Cell(target_rx, target_ry)
                         if order_mode == OrderMode::AttackMove
                             && entity_can_attack_move(sim, Some(rules), id) =>

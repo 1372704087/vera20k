@@ -328,6 +328,17 @@ fn a_crazy_ivan_under_ctrl_bombs_a_tree_without_planting_a_bomb() {
         cursor(&sim, rules, &registry, ivan, tree, false),
         Some(CursorFeedbackKind::Invalid)
     );
+    // Unforced the answer is NoMove, so the Ivan arm is skipped
+    // (`0x0051EA6F`) and he moves near the tree like any infantryman.
+    let plain = attack_branch_orders(
+        &sim,
+        rules,
+        &[ivan],
+        TargetKind::Entity(tree),
+        false,
+        &registry,
+    );
+    assert_moves_near(&plain.commands, &[ivan]);
     let dispatch = attack_branch_orders(
         &sim,
         rules,

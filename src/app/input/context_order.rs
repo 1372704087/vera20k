@@ -883,13 +883,6 @@ fn attack_branch_orders(
         if !(force_fire || is_structure || terrain) {
             continue;
         }
-        if let TargetKind::Entity(target_id) = attack_target
-            && ivan_cannot_bomb(sim, rules, id, target_id)
-        {
-            attack_receivers.insert(id);
-            consumed_attack_action = true;
-            continue;
-        }
         let action = if terrain {
             Some(attack_action(
                 sim,
@@ -913,6 +906,16 @@ fn attack_branch_orders(
             continue;
         };
         if action == AttackAction::Rally {
+            continue;
+        }
+        // NoIvanBomb (`0x0051EB24`) is only reached from an Attack answer
+        // (`0x0051EA6F`, `0x0051EB33`); it orders nothing.
+        if action == AttackAction::Attack
+            && let TargetKind::Entity(target_id) = attack_target
+            && ivan_cannot_bomb(sim, rules, id, target_id)
+        {
+            attack_receivers.insert(id);
+            consumed_attack_action = true;
             continue;
         }
         if action == AttackAction::None && matches!(attack_target, TargetKind::Cell(..)) {

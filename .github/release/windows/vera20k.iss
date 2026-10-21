@@ -5,13 +5,15 @@
 ;        /DOutputDir=<dir> /DOutputBaseFilename=<name> vera20k.iss
 ;
 ; It installs the files of the Windows archive for the current user, without an
-; administrator prompt, and asks for the Yuri's Revenge folder. It writes
-; config.toml beside the program with that folder as ra2_dir and the install
-; folder as settings_dir. Shortcuts start the program in its install folder, so
-; logs, saves, replays and its RA2MD.INI stay there and never touch the game
-; folder, which may be read-only or shared with the original game.
+; administrator prompt, and asks for the Yuri's Revenge folder, offering the one
+; it finds (DetectGameDir). It writes config.toml beside the program with that
+; folder as ra2_dir and the install folder as settings_dir. Shortcuts start the
+; program in its install folder, so logs, saves, replays and its RA2MD.INI stay
+; there and never touch the game folder, which may be read-only or shared with
+; the original game.
 ;
-; A silent install takes the game folder from /GAMEDIR=<folder>.
+; A silent install takes the game folder from /GAMEDIR=<folder>, or else uses
+; the one it would offer.
 ;
 ; ChineseSimplified.isl is Inno Setup's own translation, from jrsoftware/issrc at
 ; 6ef32198e (Files/Languages); the Inno Setup 6 compiler does not ship it.
@@ -42,6 +44,9 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
 ShowLanguageDialog=auto
+; Rendered from .github/release/icon.svg by icon.sh beside this script.
+SetupIconFile={#SourcePath}vera20k.ico
+WizardSmallImageFile={#SourcePath}wizard-small.png
 UninstallDisplayIcon={app}\vera20k.exe
 UninstallDisplayName=VERA20k
 SourceDir={#PackageDir}
@@ -96,12 +101,14 @@ begin
     and FileExists(AddBackslash(Dir) + 'ra2.mix');
 end;
 
-function RegistryDir(SubKey, ValueName: String; IsExecutable: Boolean): String;
+{ The folder a registry value names, or empty without the value. A value naming
+  a program gives that program's folder. }
+function RegistryDir(RootKey: Integer; SubKey, ValueName: String; IsExecutable: Boolean): String;
 var
   Value: String;
 begin
   Result := '';
-  if RegQueryStringValue(HKLM32, SubKey, ValueName, Value) then
+  if RegQueryStringValue(RootKey, SubKey, ValueName, Value) then
   begin
     if IsExecutable then
       Value := ExtractFileDir(Value);
@@ -109,33 +116,106 @@ begin
   end;
 end;
 
-{ The places CnCNet's Yuri's Revenge installer looks (CnCNet/cncnet-yr-client-package,
-  tools/build-installer/inno/installer.twig), in its order: the Westwood, First
-  Decade and Origin/EA registry entries, then their default folders under both
-  Program Files folders. Empty when none holds the game. }
+procedure AddCandidate(var Candidates: TArrayOfString; Dir: String);
+var
+  Count: Integer;
+begin
+  Count := GetArrayLength(Candidates);
+  SetArrayLength(Candidates, Count + 1);
+  Candidates[Count] := Dir;
+end;
+
+{ A machine-wide entry, in the registry view of 32-bit programs, then 64-bit ones. }
+procedure AddMachineEntry(var Candidates: TArrayOfString; SubKey, ValueName: String;
+  IsExecutable: Boolean);
+begin
+  AddCandidate(Candidates, RegistryDir(HKLM32, SubKey, ValueName, IsExecutable));
+  AddCandidate(Candidates, RegistryDir(HKLM64, SubKey, ValueName, IsExecutable));
+end;
+
+{ The folder of a `"path"  "<folder>"` line of Steam's libraryfolders.vdf, with
+  its doubled backslashes undone, or empty for any other line. The folder only
+  passes through Inno's String functions: through Pascal Script's Copy and
+  Trim, the characters the system code page lacks became question marks. }
+function SteamLibraryPath(Line: String): String;
+var
+  Fields: TArrayOfString;
+  Folder: String;
+begin
+  Result := '';
+  Fields := StringSplitEx(Line, [#9, ' '], '"', stExcludeEmpty);
+  if (GetArrayLength(Fields) = 2) and (CompareText(Fields[0], '"path"') = 0) then
+  begin
+    Folder := RemoveQuotes(Fields[1]);
+    StringChangeEx(Folder, '\\', '\', True);
+    Result := Folder;
+  end;
+end;
+
+{ Steam installs Red Alert 2 and Yuri's Revenge, app 2229850, in
+  steamapps\common\Command & Conquer Red Alert II (its installdir) of a library.
+  The libraries are Steam's own folder and each "path" of its
+  steamapps\libraryfolders.vdf, the files OpenRA's SteamSourceResolver reads.
+  Steam names its folder with forward slashes in HKCU and backslashes in HKLM. }
+procedure AddSteamLibraries(var Candidates: TArrayOfString; Steam: String);
+var
+  Lines: TArrayOfString;
+  I: Integer;
+  Folder: String;
+begin
+  if Steam = '' then
+    Exit;
+  StringChangeEx(Steam, '/', '\', True);
+  Log('Steam folder: ' + Steam);
+  AddCandidate(Candidates, AddBackslash(Steam) + 'steamapps\common\Command & Conquer Red Alert II');
+  if LoadStringsFromFile(AddBackslash(Steam) + 'steamapps\libraryfolders.vdf', Lines) then
+    for I := 0 to GetArrayLength(Lines) - 1 do
+    begin
+      Folder := SteamLibraryPath(Lines[I]);
+      if Folder <> '' then
+      begin
+        Log('Steam library: ' + Folder);
+        AddCandidate(Candidates, AddBackslash(Folder) + 'steamapps\common\Command & Conquer Red Alert II');
+      end;
+    end;
+end;
+
+{ Where Yuri's Revenge may be, first found first: the registry entries of the
+  original game, The First Decade and Origin/EA, then the Steam libraries, then
+  the default folders of The First Decade, Origin and the EA app. Empty when
+  none holds the game. }
 function DetectGameDir(): String;
 var
   Candidates: TArrayOfString;
   I: Integer;
 begin
-  SetArrayLength(Candidates, 11);
-  Candidates[0] := RegistryDir('SOFTWARE\Westwood\Red Alert 2', 'InstallPath', True);
-  Candidates[1] := RegistryDir('SOFTWARE\Westwood\Yuri''s Revenge', 'InstallPath', True);
-  Candidates[2] := RegistryDir('Software\Electronic Arts\EA Games\Command and Conquer The First Decade', 'r2_folder', False);
-  Candidates[3] := RegistryDir('Software\EA Games\Command and Conquer Red Alert II', 'Install Dir', False);
-  Candidates[4] := ExpandConstant('{commonpf32}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2');
-  Candidates[5] := ExpandConstant('{commonpf64}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2');
-  Candidates[6] := ExpandConstant('{commonpf32}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2');
-  Candidates[7] := ExpandConstant('{commonpf64}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2');
-  Candidates[8] := ExpandConstant('{commonpf32}\Origin Games\Command and Conquer Red Alert II');
-  Candidates[9] := ExpandConstant('{commonpf64}\Origin Games\Command and Conquer Red Alert II');
-  Candidates[10] := 'C:\Westwood\RA2';
+  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Red Alert 2', 'InstallPath', True);
+  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Yuri''s Revenge', 'InstallPath', True);
+  AddMachineEntry(Candidates, 'Software\Electronic Arts\EA Games\Command and Conquer The First Decade', 'r2_folder', False);
+  AddMachineEntry(Candidates, 'Software\EA Games\Command and Conquer Red Alert II', 'Install Dir', False);
+  AddSteamLibraries(Candidates, RegistryDir(HKCU, 'Software\Valve\Steam', 'SteamPath', False));
+  AddSteamLibraries(Candidates, RegistryDir(HKLM32, 'SOFTWARE\Valve\Steam', 'InstallPath', False));
+  AddSteamLibraries(Candidates, RegistryDir(HKLM64, 'SOFTWARE\Valve\Steam', 'InstallPath', False));
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\Origin Games\Command and Conquer Red Alert II'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\Origin Games\Command and Conquer Red Alert II'));
+  { The EA app's default games folder, with the folder name HasanForge/
+    redalert2-recomp's README gives an EA app install. }
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command and Conquer Red Alert II'));
+  AddCandidate(Candidates, 'C:\Westwood\RA2');
   Result := '';
   for I := 0 to GetArrayLength(Candidates) - 1 do
-    if IsGameDir(Candidates[I]) then
+    if Candidates[I] <> '' then
     begin
-      Result := Candidates[I];
-      Exit;
+      Log('Looking for Yuri''s Revenge in ' + Candidates[I]);
+      if IsGameDir(Candidates[I]) then
+      begin
+        Result := Candidates[I];
+        Exit;
+      end;
     end;
 end;
 

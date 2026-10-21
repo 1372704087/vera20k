@@ -242,6 +242,7 @@ jobs:
         timeout-minutes: 10
         shell: pwsh
         env:
+          VERSION: ${{ needs.prepare.outputs.version }}
           NAME: ${{ steps.package.outputs.name }}
         run: |
           $ErrorActionPreference = 'Stop'
@@ -250,20 +251,32 @@ jobs:
           $app = Join-Path $root 'VERA20k'
           $log = Join-Path $root 'setup.log'
           New-Item -ItemType Directory -Force $root | Out-Null
+          # Without a game folder, setup takes the one from before or finds one.
           function Install([string]$Game) {
-            $p = Start-Process $setup -Wait -PassThru -ArgumentList @('/VERYSILENT',
-              '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"", "/DIR=`"$app`"", "/GAMEDIR=`"$Game`"")
+            $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"",
+              "/DIR=`"$app`"")
+            if ($Game) { $arguments += "/GAMEDIR=`"$Game`"" }
+            $p = Start-Process $setup -Wait -PassThru -ArgumentList $arguments
             return $p.ExitCode
           }
           # Only the two masters the installer checks; nothing here is game data.
-          function New-Game([string]$Name) {
-            $dir = Join-Path $root $Name
-            New-Item -ItemType Directory -Force $dir | Out-Null
-            foreach ($f in 'ra2md.mix', 'ra2.mix') { Set-Content (Join-Path $dir $f) '' }
-            return $dir
+          function New-Game([string]$Dir) {
+            if (-not [IO.Path]::IsPathRooted($Dir)) { $Dir = Join-Path $root $Dir }
+            New-Item -ItemType Directory -Force $Dir | Out-Null
+            foreach ($f in 'ra2md.mix', 'ra2.mix') { Set-Content (Join-Path $Dir $f) '' }
+            return $Dir
           }
           function Read-Config { Get-Content (Join-Path $app 'config.toml') -Raw -Encoding utf8 }
           function Ra2Dir([string]$Dir) { 'ra2_dir = "' + ($Dir -replace '\\', '/') + '"' }
+          # A setup that found the wrong folder shows where it looked (its log).
+          function Assert-Found([string]$Dir) {
+            $config = Read-Config
+            if (-not $config.Contains((Ra2Dir $Dir))) {
+              Get-Content $log -Encoding utf8 | Select-String 'Steam|Yuri'
+              $config -split "`n" | Select-String '^ra2_dir'
+              throw "setup did not find $Dir"
+            }
+          }
           # Non-ASCII from code points, so the script's own encoding cannot matter.
           $yuri = -join [char[]](0x5C24, 0x91CC, 0x7684, 0x590D, 0x4EC7)
           $commander = -join [char[]](0x6307, 0x6325, 0x5B98)
@@ -285,6 +298,17 @@ jobs:
           $config = Read-Config
           if (-not $config.Contains((Ra2Dir $first))) { throw "config.toml lacks $(Ra2Dir $first)" }
           if ($config -notmatch '(?m)^settings_dir = "\."\r?$') { throw 'config.toml lacks settings_dir = "."' }
+          # The program carries its icon and version details (build.rs).
+          $exe = Join-Path $app 'vera20k.exe'
+          Add-Type -Namespace Win32 -Name Shell -MemberDefinition @'
+          [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+          public static extern uint ExtractIconEx(string file, int index, IntPtr[] large, IntPtr[] small, uint count);
+          '@
+          if ([Win32.Shell]::ExtractIconEx($exe, -1, $null, $null, 0) -lt 1) { throw 'vera20k.exe has no icon' }
+          $details = (Get-Item $exe).VersionInfo
+          if ($details.ProductName -ne 'VERA20k' -or $details.ProductVersion -ne $env:VERSION) {
+            throw "vera20k.exe names itself $($details.ProductName) $($details.ProductVersion)"
+          }
 
           # An upgrade moves ra2_dir only, keeping the player's own settings.
           [IO.File]::AppendAllText((Join-Path $app 'config.toml'),
@@ -304,14 +328,44 @@ jobs:
           $p = Start-Process (Join-Path $app 'unins000.exe') -Wait -PassThru `
             -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
           if ($p.ExitCode -ne 0) { throw "uninstall failed with exit code $($p.ExitCode)" }
-          # The uninstaller finishes in a copy of itself; give it time to.
+          # The uninstaller finishes in a copy of itself, which deletes the
+          # uninstaller last; give it time to. Until then, a new setup could
+          # still read the uninstalled one's game folder.
           $deadline = (Get-Date).AddSeconds(60)
-          while ((Test-Path (Join-Path $app 'vera20k.exe')) -and (Get-Date) -lt $deadline) {
+          while ((Test-Path (Join-Path $app 'unins000.exe')) -and (Get-Date) -lt $deadline) {
             Start-Sleep -Milliseconds 500
           }
+          if (Test-Path (Join-Path $app 'unins000.exe')) { throw 'uninstall did not finish' }
           if (Test-Path (Join-Path $app 'vera20k.exe')) { throw 'uninstall left vera20k.exe behind' }
           if (-not (Test-Path (Join-Path $app 'config.toml'))) { throw 'uninstall removed config.toml' }
-          Write-Output 'Installer: refused, installed, upgraded and uninstalled as expected.'
+
+          # With nothing from before, setup finds the game: in a Steam library
+          # before the EA app's default folder. Steam records its folder with
+          # forward slashes, and lists its libraries in UTF-8 with doubled
+          # backslashes.
+          $eaGame = New-Game (Join-Path $env:ProgramFiles 'EA Games\Command and Conquer Red Alert II')
+          $steam = Join-Path $root 'Steam'
+          $library = Join-Path $root "library $yuri"
+          $steamGame = New-Game "library $yuri\steamapps\common\Command & Conquer Red Alert II"
+          New-Item -ItemType Directory -Force (Join-Path $steam 'steamapps') | Out-Null
+          New-Item -Force 'HKCU:\Software\Valve\Steam' | Out-Null
+          Set-ItemProperty 'HKCU:\Software\Valve\Steam' SteamPath ($steam -replace '\\', '/')
+          $libraries = "`"libraryfolders`"`n{`n"
+          foreach ($i in 0, 1) {
+            $folder = @($steam, $library)[$i] -replace '\\', '\\'
+            $libraries += "`t`"$i`"`n`t{`n`t`t`"path`"`t`t`"$folder`"`n`t`t`"label`"`t`t`"`"`n`t}`n"
+          }
+          [IO.File]::WriteAllText((Join-Path $steam 'steamapps\libraryfolders.vdf'), "$libraries}`n",
+            [Text.UTF8Encoding]::new($false))
+          $code = Install ''
+          if ($code -ne 0) { Get-Content $log; throw "setup failed to find the Steam game: exit code $code" }
+          Assert-Found $steamGame
+          # Without the game there, setup moves on to the EA app's folder.
+          Remove-Item (Join-Path $steamGame '*.mix')
+          $code = Install ''
+          if ($code -ne 0) { Get-Content $log; throw "setup failed to find the EA app game: exit code $code" }
+          Assert-Found $eaGame
+          Write-Output 'Installer: refused, installed, upgraded, uninstalled and found the game as expected.'
       # macOS also gets the program as VERA20k.app on a disk image: it keeps its
       # files in ~/Library/Application Support/VERA20k and finds or asks for the
       # Yuri's Revenge folder on its first launch (.github/release/macos).

@@ -129,7 +129,9 @@ EOF
 ### Downloads
 
 On Windows, the installer is easiest: it finds your Yuri's Revenge folder and
-sets everything up. On macOS, open the \`.dmg\` and drag VERA20k into
+sets everything up. VERA20k is not code-signed yet, so SmartScreen may warn
+about an unknown app: choose More info, then Run anyway. On macOS, open the
+\`.dmg\` and drag VERA20k into
 Applications. The first time, macOS blocks it because Apple has not notarized
 it: click Done, then Open Anyway in System Settings > Privacy & Security
 within the hour. It then finds your Yuri's Revenge folder, or asks for it.

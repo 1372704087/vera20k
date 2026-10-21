@@ -454,7 +454,21 @@ pub(crate) fn build_display_effect_instances(
         ) else {
             continue;
         };
-        let alpha = anim_translucency_source_alpha(flags);
+        // Ordinary DrawIt422CA0 -> 4AED70 carries Convert's selector into
+        // the packed RGB565 blitter, rather than alpha-blending the source.
+        // Original full draw controls: spatial_oracle/anim_translucency.
+        let (alpha, draw_state) = if remap_color.is_none()
+            && super::anim_draw::ordinary_anim_type(type_name, config)
+        {
+            (
+                1.0,
+                crate::render::draw_state::DrawState::from_native_selector(0, (flags & 6) as u8),
+            )
+        } else {
+            // Separate native draw arms and remapped compatibility sources
+            // without native palette metadata retain their existing material.
+            (anim_translucency_source_alpha(flags), Default::default())
+        };
         let (origin_y, world_height) = (input.axis.origin_y, input.axis.world_height);
         let fire_depth = super::helpers::compute_sprite_depth_params_lifted(
             origin_y,
@@ -474,6 +488,7 @@ pub(crate) fn build_display_effect_instances(
             tint,
             palette_light,
             alpha,
+            draw_state,
             // YDrawOffset is baked into the atlas offset, so it must also
             // ride the Z term to keep Z on the un-offset row, as natively.
             z_adjust: super::helpers::lifted_z_adjust(
@@ -563,8 +578,7 @@ pub(super) fn anim_instance_alpha_with_flags(
     .map(anim_translucency_source_alpha)
 }
 
-/// Keep DrawIt's selected flags for both the body and its later shadow.
-/// The alpha-only helper remains available to the separate legacy callers.
+/// Keep DrawIt's selected flags for the body material and its later shadow.
 pub(super) fn anim_instance_flags(
     config: Option<&AnimTypeRuntimeConfig>,
     base_flags: u32,

@@ -205,7 +205,7 @@ def physical_assets(*, body=False, ore=False, tile=False, placement=False, radar
 
 def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=False,
             wall_types=(), wall_materials=(), radiation=False, snow=False, rubble=False, crate=False,
-            ore_slopes=False):
+            native_format_masks=False, ore_slopes=False):
     assert not ore_slopes or ore
     assert sum((body, ore, placement, wall, radiation, rubble, crate)) <= 1
     assert wall or not (wall_types or wall_materials)
@@ -241,7 +241,7 @@ def prepare(*, body=False, ore=False, placement=False, ore_natural=False, wall=F
                              | ({'CAHSE05', 'SROCK01'} if rubble else set() if ore or wall or radiation or crate else {'BRIDGE', 'BRIDGB'}))
     m = PaletteReader(art)
     m.assets.update(assets)
-    initialize(m, ordinary=ore, early_temperat=placement)
+    initialize(m, ordinary=ore, early_temperat=placement, native_format_masks=native_format_masks)
     u = m.u
     u.mem_map(MEM, 0x200000)
     if placement:

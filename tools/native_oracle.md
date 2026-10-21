@@ -1,5 +1,25 @@
 # Native comparison workflow
 
+### Ordinary animation translucency
+
+`python -m tools.spatial_oracle.anim_translucency --check` runs physical FlakWH
+selection and SMKPUFF's original reader, constructor, AI, DrawIt and RGB565 raster.
+Three supplied background/A surfaces at four actual stages retain full color
+outputs and checked unchanged Z/A planes. The actual Display-effect emitter,
+lowering and GPU consumer is `anim_translucency_gpu_tests`; building-slot
+temporal state and complete battles are outside the comparison.
+See [inputs and boundaries](spatial_oracle/anim_translucency.md).
+
+### Building-slot animation translucency
+
+`python -m tools.spatial_oracle.building_anim_translucency --check` runs
+physical GAPOWR/GAPOWR_A readers and slot construction, a populated temporal
+notice, whole LetGo, AI and complete no-shadow animation draws. Three supplied
+surfaces cover all eight loop frames and replacement during erasure: 78 full
+color/Z/A outputs. Compact lossless planes accompany a complete raw archive.
+The ordinary CLEG Attack/Stop lifecycle and actual slot-emitter GPU comparison
+are separate tests. See [inputs and boundaries](spatial_oracle/building_anim_translucency.md).
+
 ### Mind-control attacked-object events
 
 `python -m tools.spatial_oracle.mind_control_tags --check` runs eleven original

@@ -1652,6 +1652,27 @@ fn emit_building_anims(
         // builder clears it independently for the later shadow.
         let policy = BlitPolicy::z_read(SpriteEncoding::Plain);
         let palette_light = palette_light.with_colour_word(anim_word(anim_id));
+        // DrawIt422CA0 -> 4AED70 retains the Anim's Convert selector. Reducing
+        // it to alpha loses the indexed palette/A lookup and packed RGB565
+        // blend (spatial_oracle/building_anim_translucency). The inherited
+        // cloak/offset/effect composition is a separate, unresolved owner.
+        // The shared pass builder replaces this material for the shadow.
+        let (alpha, draw_state) = if flags & 6 != 0
+            && super::anim_draw::ordinary_anim_type(anim_name, Some(runtime_config))
+            && anim_entry.is_some_and(|entry| entry.source_palette != 0)
+            && palette_light.rows() != 0
+            && draw_state
+                == (DrawState {
+                    remap_row: draw_state.remap_row,
+                    ..DrawState::default()
+                }) {
+            (
+                1.0,
+                DrawState::from_native_selector(draw_state.remap_row, (flags & 6) as u8),
+            )
+        } else {
+            (alpha, draw_state)
+        };
         objects.push(PlannedObjectInstance::object(
             parent,
             super::anim_draw::anim_draw_pieces(
@@ -2035,6 +2056,12 @@ mod tests {
 #[cfg(test)]
 #[path = "building_anim_tests.rs"]
 mod building_anim_tests;
+
+#[cfg(test)]
+#[path = "building_anim_translucency_gpu_tests.rs"]
+mod building_anim_translucency_gpu_tests;
+#[cfg(test)]
+pub(crate) use building_anim_translucency_gpu_tests::{PLANT_OWNER, SlotScene};
 
 #[cfg(test)]
 #[path = "building_sale_draw_tests.rs"]

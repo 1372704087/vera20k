@@ -1424,6 +1424,17 @@ pub(super) fn object_key_action(
         .then_some(ObjectKeyAction::Move)
 }
 
+/// Whether What_Action's later rungs over a Terrain object see Ctrl: it sets
+/// the forced flag even with Alt held (`0x00700048..0x00700072`), so Ctrl
+/// and Ctrl+Alt force, while Ctrl+Shift clears it for the Shift test
+/// (`0x007000AC..0x007000B4`).
+pub(super) fn terrain_forced(modifier: OrderModifier) -> bool {
+    matches!(
+        modifier,
+        OrderModifier::ForceFire | OrderModifier::GuardArea
+    )
+}
+
 /// The object under the click as [`object_key_action`] takes it: a Techno
 /// the player may see (`hover`; an enemy the player cannot see is no object
 /// to click) or a Terrain object, with the Techno's id as its target.
@@ -2132,6 +2143,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     .is_none()
             })
         });
+        // Ctrl+Alt over a Terrain object whose key rungs refused still holds
+        // Ctrl for the later rungs ([`terrain_forced`]).
+        let object_forced = force_fire || (terrain_target.is_some() && terrain_forced(modifier));
         let attack_target = match (hover_object, terrain_target) {
             (Some(HoverObject::Techno(target)), _) => TargetKind::Entity(target.stable_id),
             (_, Some(id)) => TargetKind::Entity(id),
@@ -2168,7 +2182,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &resources.rules,
                 &receivers,
                 attack_target,
-                force_fire,
+                object_forced,
                 order_mode,
                 &resources.overlay_registry,
             )
@@ -2237,9 +2251,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         );
         let attack_receivers = attack_dispatch.receivers;
         let select_fallback = attack_dispatch.select_fallback;
-        if terrain_target.is_none()
-            && let TargetKind::Entity(target_id) = attack_target
-        {
+        if let TargetKind::Entity(target_id) = attack_target {
             let receivers: Vec<u64> = attack_receivers.iter().copied().collect();
             match object_click_release(
                 sim,
@@ -2248,7 +2260,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &receivers,
                 target_id,
                 &resources.overlay_registry,
-                force_fire,
+                object_forced,
             ) {
                 LeftRelease::Select => return false,
                 LeftRelease::Nothing => return true,
@@ -3651,21 +3663,25 @@ fn cursor_owner(
     )
 }
 
-/// The left release over another house's object: [`left_release`] of the
-/// [`attack_action`] of the object that owns the cursor ([`cursor_owner`]),
-/// when it is one of the `receivers`; any other owner answered in an earlier
-/// arm, whose release dispatches. The click asks it twice: for the attack
+/// The left release over another house's object or a Terrain object:
+/// [`left_release`] of the [`attack_action`] of the object that owns the
+/// cursor ([`cursor_owner`]), when it is one of the `receivers`; any other
+/// owner answered in an earlier arm, whose release dispatches. The click asks it twice: for the attack
 /// branch's receivers right after that branch, where an armed owner's 0 over
 /// another house's object out of its range (Techno `0x0070056C..0x007005E6`,
 /// kept by Building `0x0044750D`) selects the object and sends nothing, the
 /// other receivers' orders included (`0x004ABE18`, `0x004ABE88`); then for
 /// the receivers left.
 ///
-/// RESIDUAL: over a Terrain object the attack branch's receivers keep their
-/// own answers. Native decides that release from the owner too (a 0 over a
-/// tree the player may not select does nothing, `0x004AC294`). Trigger: an
-/// armed building with another object selected, clicking a tree. Effect:
-/// the other object's order is sent. Rare.
+/// Over a Terrain object the owner decides the same way: its 0 (an unarmed
+/// building's, or an armed one's out of range) does nothing
+/// (`0x004AC294`), since no retail TerrainType is selectable (vt+0x138 at
+/// `0x004ABDF5` reads `+0x230`, which the constructor clears at
+/// `0x0071DB18`), and the other receivers' orders are dropped.
+///
+/// RESIDUAL: a map's `Selectable=yes` on a TerrainType (ObjectType ReadINI
+/// `0x005F948C`) would let that 0 select the tree; VERA never selects a
+/// Terrain object. The retail rules set none.
 ///
 /// A release that selects hands the click to the selection's click pick,
 /// which asks the same `Tactical::PickObjectAtScreenPoint` port

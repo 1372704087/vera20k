@@ -56,6 +56,9 @@ env:
   # VCRUNTIME140.dll, which Windows does not ship. x86-64 Windows only.
   CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER: rust-lld
   CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_RUSTFLAGS: -C target-feature=+crt-static
+  # The oldest macOS the Mac build runs on, for rustc, for the C code built
+  # with it, and for the app's Info.plist (.github/release/macos/app.sh).
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
 
 jobs:
   # One cheap job decides the names and the publish mode, so all platform jobs
@@ -300,6 +303,7 @@ jobs:
         if: runner.os == 'macOS'
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
+          STAMP: ${{ needs.prepare.outputs.stamp }}
           NAME: ${{ steps.package.outputs.name }}
         run: bash .github/release/macos/app.sh "dist/$NAME" "dist/$NAME.dmg"
       # Check the image's layout and signature and start the packaged app, so a
@@ -308,6 +312,7 @@ jobs:
         if: runner.os == 'macOS'
         timeout-minutes: 10
         env:
+          STAMP: ${{ needs.prepare.outputs.stamp }}
           NAME: ${{ steps.package.outputs.name }}
         run: |
           set -euo pipefail
@@ -315,17 +320,29 @@ jobs:
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "dist/$NAME.dmg" > /dev/null
           trap 'hdiutil detach "$mount" > /dev/null || true' EXIT
           app="$mount/VERA20k.app"
+          plist="$app/Contents/Info.plist"
           test -L "$mount/Applications"
           # The window's arrow and layout (dmg_settings.py).
           test -f "$mount/.background.tiff"
           test -f "$mount/.DS_Store"
           test -f "$app/Contents/Resources/README.txt"
+          test -f "$app/Contents/Resources/VERA20k.icns"
+          test -f "$app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
           codesign --verify --strict --verbose=2 "$app"
+          # About VERA20k tells builds apart, and the program and its
+          # Info.plist name the same oldest macOS.
+          build="$(plutil -extract CFBundleVersion raw "$plist")"
+          test "$build" = "${STAMP/-/.}" || { echo "CFBundleVersion is $build" >&2; exit 1; }
+          for minimum in "$(plutil -extract LSMinimumSystemVersion raw "$plist")" \
+            "$(vtool -show-build "$app/Contents/MacOS/VERA20k" | awk '$1 == "minos" { print $2 }')"; do
+            test "$minimum" = "$MACOSX_DEPLOYMENT_TARGET" \
+              || { echo "oldest macOS $minimum, not $MACOSX_DEPLOYMENT_TARGET" >&2; exit 1; }
+          done
           # Started from the bundle, it works in its data folder: the usage
           # switch logs there and exits before the folder chooser or a window.
           data="$HOME/Library/Application Support/VERA20k"
           rm -rf "$data"
-          (cd / && "$app/Contents/MacOS/vera20k" -h > /dev/null)
+          (cd / && "$app/Contents/MacOS/VERA20k" -h > /dev/null)
           grep -q 'VERA20k .* starting' "$data/logs/ra2.log"
           echo 'macOS app: signed, on the disk image, and starting in its data folder.'
       - uses: actions/upload-artifact@v7

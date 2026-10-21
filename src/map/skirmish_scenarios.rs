@@ -404,6 +404,8 @@ mod tests {
             random_maps_allowed: false,
             allies_allowed: true,
             must_ally: false,
+            wonline_tournament_allowed: true,
+            wonline_clan_tournament_allowed: true,
         };
         let records = vec![record(0, "Standard", "standard")];
         assert_eq!(filter_records_for_mode(&records, &battle), vec![0]);

@@ -317,6 +317,10 @@ pub(crate) struct SetupView {
     pub(crate) dialog: SetupDialog,
     pub(crate) host: bool,
     pub(crate) locked: bool,
+    /// C2's Short Game is held on in a tournament or clan room.
+    pub(crate) short_game_locked: bool,
+    /// The team header `0x794`; hidden in a clan room.
+    pub(crate) team_header: bool,
     pub(crate) accept_enabled: bool,
     pub(crate) start_requested: bool,
     pub(crate) combos: Vec<SetupCombo>,
@@ -353,6 +357,7 @@ impl SetupView {
             START | CHOOSE_MAP => self.host,
             PAGE => self.dialog.wol(),
             ACCEPT => !self.host && self.accept_enabled,
+            0x54E if self.short_game_locked => false,
             id if CHECKBOXES.contains(&id) => self.host,
             id => {
                 self.combo(id)

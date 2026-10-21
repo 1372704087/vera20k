@@ -84,6 +84,8 @@ pub struct ChooseMapModalState {
     pub selected_mode_id: i32,
     /// `0x583`'s enable, set when the map list is built (`0x005E6CB3`).
     random_maps_allowed: bool,
+    /// [`ChooseMapContext::official_only`].
+    official_only: bool,
     pub filtered_record_indices: Vec<usize>,
     pub highlighted_filtered_index: Option<usize>,
     pub mode_top_index: usize,
@@ -120,14 +122,42 @@ enum ChooseMapList {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChooseMapContext {
     Skirmish,
-    Network { observer: bool },
+    /// `tournament_room`/`clan_room` are the WOL room tests `0x0077D940` and
+    /// `0x0077D970`; both false on LAN.
+    Network {
+        observer: bool,
+        tournament_room: bool,
+        clan_room: bool,
+    },
 }
 impl ChooseMapContext {
+    /// `FillModeList` (`0x005D6130`), with its room tests at
+    /// `0x005D6203..0x005D6237`.
     fn permits(self, mode: &SkirmishGameMode) -> bool {
         match self {
             Self::Skirmish => mode.class.lists_in_skirmish(),
-            Self::Network { observer } => !observer || mode.class.allows_observers(),
+            Self::Network {
+                observer,
+                tournament_room,
+                clan_room,
+            } => {
+                (!observer || mode.class.allows_observers())
+                    && (mode.wonline_tournament_allowed || !tournament_room)
+                    && (mode.wonline_clan_tournament_allowed || !clan_room)
+            }
         }
+    }
+
+    /// `IsValidMap` (`0x005D63E0`): a tournament or clan room lists only
+    /// official maps and random maps (`0x005D63FF..0x005D6416`).
+    fn official_only(self) -> bool {
+        matches!(
+            self,
+            Self::Network {
+                tournament_room: true,
+                ..
+            }
+        )
     }
 }
 
@@ -164,6 +194,7 @@ impl ChooseMapModalState {
                 .collect(),
             selected_mode_id,
             random_maps_allowed: false,
+            official_only: context.official_only(),
             filtered_record_indices: Vec::new(),
             highlighted_filtered_index: None,
             mode_top_index: 0,
@@ -230,6 +261,10 @@ impl ChooseMapModalState {
         self.filtered_record_indices = mode
             .map(|mode| filter_records_for_mode(records, mode))
             .unwrap_or_default();
+        if self.official_only {
+            self.filtered_record_indices
+                .retain(|index| records[*index].official);
+        }
         self.random_maps_allowed = mode.is_some_and(|mode| mode.random_maps_allowed);
         self.map_scroll.cancel();
     }

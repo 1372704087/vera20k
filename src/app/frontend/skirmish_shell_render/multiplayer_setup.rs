@@ -212,7 +212,11 @@ pub(crate) fn render_multiplayer_setup(
         )
     };
     if !leaving && ui.notice.is_none() {
-        for (key, rect) in &layout.labels {
+        for (key, rect) in layout
+            .labels
+            .iter()
+            .filter(|(key, _)| view.team_header || *key != "GUI:Team")
+        {
             texts.push(text(
                 &localized_label(state, key, key),
                 *rect,

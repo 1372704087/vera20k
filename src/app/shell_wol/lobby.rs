@@ -261,12 +261,121 @@ fn nickname(state: &AppState) -> String {
     state.frontend.wol_account.nickname.clone()
 }
 
-fn admission_context() -> AdmissionContext {
+fn admission_context(state: &AppState) -> AdmissionContext {
     AdmissionContext {
         // Custom Match is mode 4, never 1/2/3.
         quick_match: false,
-        clan_id: 0,
+        clan_id: squad_id(state),
         local_hash: None,
+    }
+}
+
+/// The current channel's kind for the room tests `0x0077D940`/`0x0077D970`:
+/// tournament `+0x14` and the clan bit of `+0x20` (`[0xB76B24]`,
+/// `[0xB76B30]`), copied from the server's record on create and join.
+pub(crate) fn room(state: &AppState) -> crate::app::match_runtime::session::NetworkRoom {
+    let current = state
+        .frontend
+        .wol
+        .as_ref()
+        .and_then(|visit| visit.lobby.as_deref())
+        .and_then(|lobby| lobby.current.as_ref());
+    crate::app::match_runtime::session::NetworkRoom {
+        tournament: current.is_some_and(|channel| channel.tournament != 0),
+        clan: current.is_some_and(|channel| channel.game_flags & GAME_CLAN != 0),
+    }
+}
+
+/// C2's clan start test (`0x0079096A..0x00790B18`): every channel user
+/// but the observer row's node is in a squad, there are exactly two squads,
+/// and they have as many users each.
+pub(crate) fn clan_teams_even(state: &AppState, observer: Option<&str>) -> bool {
+    let Some(lobby) = state
+        .frontend
+        .wol
+        .as_ref()
+        .and_then(|visit| visit.lobby.as_deref())
+    else {
+        return false;
+    };
+    let mut squads: [(i32, usize); 2] = [(0, 0); 2];
+    for member in &lobby.members {
+        if observer.is_some_and(|name| member.name == name) {
+            continue;
+        }
+        if member.squad == 0 {
+            return false;
+        }
+        match squads
+            .iter_mut()
+            .find(|(id, _)| *id == member.squad || *id == 0)
+        {
+            Some(entry) => *entry = (member.squad, entry.1 + 1),
+            None => return false,
+        }
+    }
+    squads[0].1 == squads[1].1
+}
+
+/// `[0xB77DE4]`: the user's squad id.
+pub(crate) fn squad_id(state: &AppState) -> i32 {
+    state
+        .frontend
+        .wol
+        .as_ref()
+        .map_or(0, |visit| visit.squad_id)
+}
+
+/// API+0xB0 for squad `id`, counted in `[0xB77DDC]`; 0 asks for the user's
+/// own, which `[0xB77DE0]` marks.
+fn request_squad(state: &mut AppState, id: i32) {
+    let Some(visit) = state.frontend.wol.as_mut() else {
+        return;
+    };
+    visit.squad_requests += 1;
+    if id == 0 {
+        visit.squad_own_pending = true;
+    }
+    request(state, WolServiceRequest::SquadInfo { id });
+}
+
+/// The squad sink `+0x80` (`0x007A4EC0`). The user's own request takes the
+/// id even when it failed (`0x007A4EE8..0x007A4F2D`); otherwise a failure
+/// ends here. Each channel user of that squad takes its tag and name and
+/// is sorted again; the last answer refills the player list.
+/// RESIDUAL: the clan-ladder request for the tag (API2+0x14) is the
+/// backend's.
+pub(super) fn squad(
+    state: &mut AppState,
+    id: i32,
+    squad: Result<crate::ui::wol_lobby::WolSquad, u32>,
+) {
+    let Some(visit) = state.frontend.wol.as_mut() else {
+        return;
+    };
+    visit.squad_requests = visit.squad_requests.saturating_sub(1);
+    let last = visit.squad_requests == 0;
+    if visit.squad_own_pending {
+        visit.squad_own_pending = false;
+        visit.squad_id = id;
+    }
+    let sort = state.frontend.wol_lobby_globals.player_sort;
+    if let (Ok(squad), Some(lobby)) = (squad, lobby_mut(state)) {
+        let (mut matched, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut lobby.members)
+            .into_iter()
+            .partition(|member| member.squad == id);
+        lobby.members = rest;
+        for member in &mut matched {
+            member.clan_tag = squad.tag.clone();
+            member.clan_name = squad.name.clone();
+        }
+        for member in matched {
+            insert_member(&mut lobby.members, member, sort);
+        }
+        refill_players(state);
+    }
+    if last {
+        refill_players(state);
     }
 }
 
@@ -417,6 +526,8 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     show_wait(state, "GUI:LoginComplete");
     // 0x00787BC8: the buddy mirror restarts (API+0xDC, 0x0079CE70 outside
     // Quick Match, 0x0079D2F0) before the chat-lobby list.
+    // 0x00787B33..0x00787B53: the user's own squad.
+    request_squad(state, 0);
     super::buddies::restart(state);
     show_wait(state, "TXT_REQ_CHANLIST");
     request(state, WolServiceRequest::ListChannels { kind: 0, flags: 0 });
@@ -523,7 +634,7 @@ pub(super) fn buddy_join(state: &mut AppState, channel: WolChannel) {
         lobby.shown = false;
     }
     let observer = state.frontend.multiplayer_shell_runtime.lan_observer();
-    if admit(&channel, observer, admission_context()).is_err() {
+    if admit(&channel, observer, admission_context(state)).is_err() {
         join_failed_locally(state, true);
         return;
     }
@@ -619,7 +730,7 @@ fn admit_row(state: &mut AppState, row: usize, observer: bool, show: bool) -> bo
     else {
         return false;
     };
-    match admit(channel, observer, admission_context()) {
+    match admit(channel, observer, admission_context(state)) {
         Ok(()) => true,
         Err(key) => {
             if let (true, Some(key)) = (show, key) {
@@ -1267,6 +1378,7 @@ pub(super) fn begin_create(state: &mut AppState) {
         globals.limit_resolution = false;
     }
     let limit = globals.limit_resolution;
+    let squad = squad_id(state);
     let Some(lobby) = lobby_mut(state) else {
         return;
     };
@@ -1274,7 +1386,7 @@ pub(super) fn begin_create(state: &mut AppState) {
     lobby.ui.game_list.selected = None;
     lobby.covered = true;
     // +0x13 starts as [0xAC10C8] == 1.
-    lobby.ui.popup = Some(WolLobbyPopup::create(width, limit, 0, observer));
+    lobby.ui.popup = Some(WolLobbyPopup::create(width, limit, squad, observer));
     state
         .frontend
         .shell_controller
@@ -1773,7 +1885,14 @@ pub(super) fn service_event(state: &mut AppState, event: WolServiceEvent) {
             let lobby = lobby_mut(state).expect("checked");
             if lobby.current.is_some() {
                 let name = member.name.clone();
+                // 0x7A62B7..0x7A62EE: a joiner in a squad whose tag is not
+                // known yet.
+                let squad =
+                    (member.squad != 0 && member.clan_tag.is_empty()).then_some(member.squad);
                 insert_member(&mut lobby.members, member, sort);
+                if let Some(squad) = squad {
+                    request_squad(state, squad);
+                }
                 refill_players(state);
                 if in_setup_channel(state)
                     && let Err(error) = setup::user_joined(state, name)

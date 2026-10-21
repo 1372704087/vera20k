@@ -1650,6 +1650,8 @@ mod tests {
             random_maps_allowed: true,
             allies_allowed: true,
             must_ally: false,
+            wonline_tournament_allowed: true,
+            wonline_clan_tournament_allowed: true,
         }
     }
 

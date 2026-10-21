@@ -61,6 +61,10 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let host = session.host();
     let host_name = protocol.wol_host.as_deref();
     let local = launch.humans.get(launch.local_player_index)?;
+    let room = session.network_room();
+    // 0x4E5C5B..0x4E5C90, 0x4E5FD5..0x4E6004: a WOL clan room hides every
+    // team combo and the team header 0x794.
+    let clan_room = profile_is_wol(state) && room.clan;
     // A guest shows its own copy of the map only when it verified, and on
     // WOL only from a mixfile (0x005E74E0); otherwise its preview is the
     // host's Preview.bin.
@@ -311,7 +315,9 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             combos.push(SetupCombo {
                 id: column.control(usize::from(row)),
                 enabled: editable && (column != SetupColumn::Team || mode.allies_allowed),
-                visible: visible && (column == SetupColumn::Country || !observer),
+                visible: visible
+                    && (column == SetupColumn::Country || !observer)
+                    && !(column == SetupColumn::Team && clan_room),
                 selected,
                 choices,
             });
@@ -378,6 +384,10 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         ping_icons,
         host,
         locked: protocol.locked,
+        // C2's lockout (0x78F85E..0x78F907, 0x79132A..0x7913D1): Short Game
+        // checked and disabled in a tournament or clan room.
+        short_game_locked: host && profile_is_wol(state) && room.tournament_or_clan(),
+        team_header: !clan_room,
         accept_enabled: protocol.accept_eligible
             && !session.network_player_ready(launch.local_player_index),
         start_requested: protocol.start_requested
@@ -417,4 +427,8 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             )
         }),
     })
+}
+
+fn profile_is_wol(state: &AppState) -> bool {
+    state.match_state.session_mode() == crate::app::match_runtime::session::SessionMode::Wol
 }

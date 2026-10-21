@@ -186,6 +186,7 @@ pub(super) struct MoviesCapture {
     observed_exit_cascade: bool,
     abort_input: Option<abort_return::AbortReturnInput>,
     restart: Option<campaign_restart::RestartCapture>,
+    restart_save_directory: PathBuf,
     opening: Option<opening::OpeningCapture>,
     lan: Option<lan::LanCapture>,
     wol: Option<wol::WolCapture>,
@@ -212,6 +213,7 @@ impl MoviesCapture {
             observed_exit_cascade: false,
             abort_input: None,
             restart: None,
+            restart_save_directory: output.with_extension("restart-saves"),
             opening: match target {
                 MoviesTarget::CampaignStart {
                     target: CampaignStartTarget::Opening(target),
@@ -365,6 +367,7 @@ impl MoviesCapture {
                     state,
                     &mut self.route,
                     frame,
+                    &self.restart_save_directory,
                 )?);
                 self.phase = Phase::CampaignRestart;
             }
@@ -1463,6 +1466,12 @@ impl MoviesCapture {
                 CampaignStartTarget::Restart(RestartTarget::DefeatPrompt) => "defeat-replay-prompt",
                 CampaignStartTarget::Restart(RestartTarget::DefeatReplayed) => "defeat-replayed",
                 CampaignStartTarget::Restart(RestartTarget::Restate) => "restate",
+                CampaignStartTarget::Restart(RestartTarget::SavedVictory) =>
+                    "saved-victory-next-mission",
+                CampaignStartTarget::Restart(RestartTarget::SavedAbortRestarted) =>
+                    "saved-abort-restarted",
+                CampaignStartTarget::Restart(RestartTarget::MenuDefeatReplayed) =>
+                    "menu-defeat-replayed",
             });
             manifest["runtime"] = match target {
                 CampaignStartTarget::LoadingFirst => Value::Null,
@@ -1473,6 +1482,18 @@ impl MoviesCapture {
                     .context("campaign route has no first-live runtime observation")?,
                 CampaignStartTarget::Opening(_) => installed_campaign_runtime_receipt(state)?,
             };
+            if target == CampaignStartTarget::Restart(RestartTarget::SavedVictory) {
+                // This readback presents the next mission. The restart receipt
+                // separately retains the initial and loaded mission identities.
+                manifest["startup"] = campaign_startup_receipt(
+                    state
+                        .match_state
+                        .startup
+                        .installed_campaign()
+                        .context("continued mission has no campaign admission")?,
+                );
+                manifest["runtime"] = campaign_runtime_receipt(state)?;
+            }
             if target == CampaignStartTarget::AbortReturn {
                 manifest["runtime_observation"] = json!("first-live-frame-before-Escape-press");
                 manifest["cleanup"] = campaign_abort_cleanup_receipt(state)?;

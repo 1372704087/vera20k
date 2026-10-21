@@ -17,8 +17,8 @@
 //!   not modeled.
 //! - The record restore's money, TimerInherit and Scenario+0x35A0 are not
 //!   carried (inert on retail data; see `sim::campaign_carry_over`).
-//! - A restored saved game carries no campaign index, so Yes returns to the
-//!   shell instead of restarting.
+//! Saved campaigns use the retained Scenario index and incoming carry-over
+//! through the same retry path as freshly started campaigns.
 //! - Enter on the box: callback `0x005D36A0` maps IDOK to result 1 (the
 //!   shell); VERA's shell message boxes answer only clicks and Escape.
 

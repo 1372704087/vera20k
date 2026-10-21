@@ -612,12 +612,20 @@ impl Simulation {
         true
     }
 
-    /// Diagnostic producer for a map's TAction 68 (Lose) on the current
+    /// Diagnostic producer for a map's TAction 67/68 on the current
     /// House, through the same [`Self::trigger_house_outcome`] owner. Only
     /// the dev chord's capture routes reach it; shipping builds omit it.
     #[cfg(feature = "dev-overlays")]
-    pub fn dev_trigger_current_house_lose(&mut self, rules: &RuleSet) -> bool {
-        self.trigger_house_outcome(68, -1, rules, FrameEffects::empty())
+    pub fn dev_trigger_current_house_outcome(
+        &mut self,
+        rules: &RuleSet,
+        kind: crate::sim::house_state::HouseOutcomeKind,
+    ) -> bool {
+        let action = match kind {
+            crate::sim::house_state::HouseOutcomeKind::Victory => 67,
+            crate::sim::house_state::HouseOutcomeKind::Defeat => 68,
+        };
+        self.trigger_house_outcome(action, -1, rules, FrameEffects::empty())
     }
 
     /// Session `+0x300` (`0x00A8B538`), written when the current house is

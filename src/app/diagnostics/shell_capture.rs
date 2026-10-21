@@ -57,6 +57,9 @@ const CHECKPOINT_CAMPAIGN_ALL1_ABORT_RESTART_SHOWN: &str = "campaign-all1-abort-
 const CHECKPOINT_CAMPAIGN_ALL1_ABORT_RESTART: &str = "campaign-all1-abort-restart";
 const CHECKPOINT_CAMPAIGN_ALL1_DEFEAT_REPLAY_PROMPT: &str = "campaign-all1-defeat-replay-prompt";
 const CHECKPOINT_CAMPAIGN_ALL1_DEFEAT_REPLAY_YES: &str = "campaign-all1-defeat-replay-yes";
+const CHECKPOINT_CAMPAIGN_ALL1_SAVED_VICTORY: &str = "campaign-all1-saved-victory";
+const CHECKPOINT_CAMPAIGN_ALL1_SAVED_RESTART: &str = "campaign-all1-saved-restart";
+const CHECKPOINT_CAMPAIGN_ALL1_MENU_REPLAY: &str = "campaign-all1-menu-replay";
 const CHECKPOINT_CAMPAIGN_ALL1_RESTATE: &str = "campaign-all1-restate";
 const CHECKPOINT_CAMPAIGN_SOV1_OPENING_LOCKED: &str = "campaign-sov1-opening-locked";
 const CHECKPOINT_CAMPAIGN_SOV1_OPENING_PAN: &str = "campaign-sov1-opening-pan";
@@ -564,6 +567,15 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_CAMPAIGN_ALL1_DEFEAT_REPLAY_YES => {
                 Ok(Self::CampaignRestart(movies::RestartTarget::DefeatReplayed))
             }
+            CHECKPOINT_CAMPAIGN_ALL1_SAVED_VICTORY => {
+                Ok(Self::CampaignRestart(movies::RestartTarget::SavedVictory))
+            }
+            CHECKPOINT_CAMPAIGN_ALL1_SAVED_RESTART => Ok(Self::CampaignRestart(
+                movies::RestartTarget::SavedAbortRestarted,
+            )),
+            CHECKPOINT_CAMPAIGN_ALL1_MENU_REPLAY => Ok(Self::CampaignRestart(
+                movies::RestartTarget::MenuDefeatReplayed,
+            )),
             CHECKPOINT_CAMPAIGN_ALL1_RESTATE => {
                 Ok(Self::CampaignRestart(movies::RestartTarget::Restate))
             }
@@ -673,6 +685,15 @@ impl ShellCaptureCheckpoint {
             }
             Self::CampaignRestart(movies::RestartTarget::DefeatReplayed) => {
                 CHECKPOINT_CAMPAIGN_ALL1_DEFEAT_REPLAY_YES
+            }
+            Self::CampaignRestart(movies::RestartTarget::SavedVictory) => {
+                CHECKPOINT_CAMPAIGN_ALL1_SAVED_VICTORY
+            }
+            Self::CampaignRestart(movies::RestartTarget::SavedAbortRestarted) => {
+                CHECKPOINT_CAMPAIGN_ALL1_SAVED_RESTART
+            }
+            Self::CampaignRestart(movies::RestartTarget::MenuDefeatReplayed) => {
+                CHECKPOINT_CAMPAIGN_ALL1_MENU_REPLAY
             }
             Self::CampaignRestart(movies::RestartTarget::Restate) => {
                 CHECKPOINT_CAMPAIGN_ALL1_RESTATE

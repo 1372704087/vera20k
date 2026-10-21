@@ -48,7 +48,20 @@ pub(crate) fn commit_prepared_load(
     state.frontend.screen = crate::ui::game_screen::GameScreen::InGame;
     // A validated saved timeline replaces the outgoing fresh-L0 evidence and
     // remains available to the ordinary pump and exact diagnostic stepping.
-    state.match_state.startup.acknowledge_saved_load();
+    state.process_assets.refresh_campaigns_if_available();
+    let campaign = state.process_assets.campaigns().and_then(|campaigns| {
+        crate::app::match_bootstrap::PreparedCampaignStartup::from_saved_scenario(
+            campaigns,
+            &state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .expect("prepared saved game installs a runtime")
+                .simulation,
+            committed.map.source(),
+        )
+    });
+    state.match_state.startup.acknowledge_saved_load(campaign);
     if from_menu {
         crate::app::loading::pump::present_game_mode_blank(state);
     }

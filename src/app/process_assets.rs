@@ -211,6 +211,12 @@ impl ProcessAssets {
         {
             return;
         }
+        self.refresh_campaigns_if_available();
+    }
+
+    /// ClearScene685609 re-reads the process-retained Campaign registry on
+    /// saved loads too. It never infers campaign identity from a map name.
+    pub(crate) fn refresh_campaigns_if_available(&mut self) {
         let selected = self
             .manager
             .as_ref()

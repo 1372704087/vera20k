@@ -109,8 +109,7 @@ impl App {
     }
 
     /// Start_Scenario's inputs for the installed campaign mission again
-    /// (Scenario+0x125C, DL 0, Scenario+0x34CC). `None` for a restored saved
-    /// game, which carries no campaign index.
+    /// (Scenario+0x125C, DL 0, Scenario+0x34CC), including a saved campaign.
     pub(super) fn prepare_campaign_restart(
         state: &AppState,
     ) -> Option<crate::app::match_bootstrap::PreparedCampaignStartup> {

@@ -405,6 +405,8 @@ pub enum FreshScenarioPrefix<'a> {
         difficulty: i32,
         mission_counter: i32,
         game_options: Option<&'a crate::sim::game_options::GameOptions>,
+        campaign_index: i32,
+        restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver,
     },
 }
 
@@ -2685,6 +2687,8 @@ impl ScenarioBootstrapRng {
                 difficulty,
                 mission_counter,
                 game_options,
+                campaign_index,
+                restart_carry_over,
             } => {
                 NativeStartBounds::from_map_header(&map_data.header)
                     .ok_or(PreFillScenarioPrefixPlanError::InvalidMapCellExtent)?;
@@ -2735,6 +2739,8 @@ impl ScenarioBootstrapRng {
                     difficulty,
                     mission_counter,
                     game_options,
+                    campaign_index,
+                    restart_carry_over,
                 )?;
                 simulation.install_native_unique_id_cursor(
                     crate::sim::native_identity::NativeUniqueIdCursor::begin_campaign_prefix(

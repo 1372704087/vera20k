@@ -16,6 +16,9 @@
 //!   `0x00689670` in index order, then the money, then
 //!   `HouseClass::SetDifficulty` `0x004F6EC0` on the player House with +0x3C
 //!   (`0x004C628B..0x004C6295`), then the timer and Scenario+0x35A0.
+//! - `ContentSave67D31B` / `ContentLoad67E804` call `4C6340` / `4C6320`
+//!   to write/read all 0x44 bytes. ScenarioSession retains this incoming
+//!   record separately from the current mission's changing global flags.
 //!
 //! Residuals, inert on retail data: the money (every retail map has
 //! `CarryOverMoney=0.000000`), the mission timer (`TimerInherit=no`) and
@@ -27,11 +30,53 @@ use crate::sim::house_state::HouseDifficulty;
 use crate::sim::trigger_runtime::SCENARIO_GLOBAL_COUNT;
 use crate::sim::world::Simulation;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CampaignCarryOver {
+    #[serde(with = "saved_globals")]
     globals: [bool; SCENARIO_GLOBAL_COUNT],
     /// Record+0x3C, the player House's difficulty row.
     player_difficulty: HouseDifficulty,
+}
+
+mod saved_globals {
+    use super::SCENARIO_GLOBAL_COUNT;
+    use serde::de::{SeqAccess, Visitor};
+    use serde::ser::SerializeTuple;
+
+    pub fn serialize<S: serde::Serializer>(
+        values: &[bool; SCENARIO_GLOBAL_COUNT],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let mut tuple = serializer.serialize_tuple(SCENARIO_GLOBAL_COUNT)?;
+        for value in values {
+            tuple.serialize_element(value)?;
+        }
+        tuple.end()
+    }
+
+    pub fn deserialize<'de, D: serde::Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<[bool; SCENARIO_GLOBAL_COUNT], D::Error> {
+        struct Globals;
+        impl<'de> Visitor<'de> for Globals {
+            type Value = [bool; SCENARIO_GLOBAL_COUNT];
+
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("50 campaign globals")
+            }
+
+            fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {
+                let mut values = [false; SCENARIO_GLOBAL_COUNT];
+                for (index, value) in values.iter_mut().enumerate() {
+                    *value = seq
+                        .next_element()?
+                        .ok_or_else(|| serde::de::Error::invalid_length(index, &self))?;
+                }
+                Ok(values)
+            }
+        }
+        deserializer.deserialize_tuple(SCENARIO_GLOBAL_COUNT, Globals)
+    }
 }
 
 impl CampaignCarryOver {
@@ -152,5 +197,41 @@ mod tests {
 
         sim.restore_campaign_carry_over(&record, &rules);
         assert_eq!(sim.save_campaign_carry_over(), record);
+    }
+
+    #[test]
+    fn snapshot_preserves_incoming_carry_over_separately_from_current_globals() {
+        let mut globals = [false; SCENARIO_GLOBAL_COUNT];
+        globals[7] = true;
+        globals[49] = true;
+        let incoming = CampaignCarryOver {
+            globals,
+            player_difficulty: HouseDifficulty::Hard,
+        };
+        let mut sim = Simulation::new();
+        sim.session.initialize_campaign_for_test(3, 5, incoming);
+        let rules =
+            RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str("")).expect("rules");
+        sim.restore_campaign_carry_over(&incoming, &rules);
+        Simulation::set_trigger_variable(
+            &sim.session,
+            &mut sim.scenario_rng,
+            &mut sim.trigger_runtime,
+            true,
+            7,
+            false,
+        );
+        let bytes = crate::sim::snapshot::GameSnapshot::save(&sim, 0, 0, "", 0);
+        let loaded = crate::sim::snapshot::GameSnapshot::load(&bytes)
+            .unwrap()
+            .sim;
+        assert_eq!(loaded.session.campaign_index(), Some(3));
+        assert_eq!(loaded.session.campaign_mission_counter(), Some(5));
+        assert_eq!(loaded.session.campaign_restart_carry_over(), Some(incoming));
+        assert!(!loaded.global_variables()[7]);
+        assert!(loaded.global_variables()[49]);
+        // Native ScenarioLoad resets the embedded RNG; whole-world hashes
+        // across that boundary need not match. The retained gameplay record
+        // and the current globals above are separate persistence assertions.
     }
 }

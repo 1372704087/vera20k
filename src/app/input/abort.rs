@@ -11,9 +11,8 @@ use winit::event::MouseButton;
 
 /// B6 init `0x004F1938..0x004F1A0E` keys control712 on GameMode: 0 shows
 /// Restart, 5 hides it, LAN/WOL show Observe with two or more live humans
-/// while the local House is not defeated. A campaign VERA cannot restart (a
-/// restored saved game, which carries no campaign start) hides Restart
-/// instead of offering a press that would end the game.
+/// while the local House is not defeated. Saved campaigns recover their
+/// continuation inputs at successful load and also offer Restart.
 fn select_abort_secondary(state: &AppState) -> AbortSecondary {
     secondary_for(
         state.match_state.session_mode(),

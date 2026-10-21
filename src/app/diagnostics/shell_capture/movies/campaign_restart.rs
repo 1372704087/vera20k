@@ -17,6 +17,12 @@ pub enum RestartTarget {
     DefeatReplayed,
     /// The sidebar 0xF2 tab pressed and released: the restate briefing 0x10C.
     Restate,
+    /// Save/load in game, then press the restored campaign Restart.
+    SavedAbortRestarted,
+    /// Save, return to the main menu, load, lose and accept replay.
+    MenuDefeatReplayed,
+    /// Save/load, win through TAction67, continue the score into ALL02.
+    SavedVictory,
 }
 
 impl RestartTarget {
@@ -33,6 +39,7 @@ enum Step {
     Abort,
     Settling(u32),
     AwaitDefeatPrompt,
+    AwaitVictoryScore,
     YesPressed,
     AwaitRestartedLive,
     Done,
@@ -99,6 +106,7 @@ pub(super) struct RestartCapture {
     before: Mission,
     after: Option<Mission>,
     observed_restart_loading: Option<Value>,
+    restored: Option<Value>,
 }
 
 impl RestartCapture {
@@ -107,11 +115,47 @@ impl RestartCapture {
         state: &mut AppState,
         route: &mut Vec<Value>,
         frame: u32,
+        save_directory: &Path,
     ) -> Result<Self> {
         let before = Mission::observe(state)?;
         route.push(
             json!({"frame": frame, "action": "first live observed", "mission": before.receipt()}),
         );
+        let restored = if matches!(
+            target,
+            RestartTarget::SavedAbortRestarted
+                | RestartTarget::MenuDefeatReplayed
+                | RestartTarget::SavedVictory
+        ) {
+            state.persistence.isolate_capture_saves(save_directory)?;
+            let path =
+                crate::app::persistence::commands::save_game(state, "Campaign continuation", None)
+                    .context("save the campaign through the ordinary command")?;
+            let from_menu = target == RestartTarget::MenuDefeatReplayed;
+            if from_menu {
+                App::return_to_main_menu(state);
+                ensure!(
+                    state.match_state.startup.installed_campaign().is_none(),
+                    "menu return retained outgoing campaign admission"
+                );
+            }
+            crate::app::persistence::commands::try_load_save_file(state, &path)
+                .context("restore through the ordinary saved-game loader")?;
+            let loaded = Mission::observe(state)?;
+            ensure!(
+                state.match_state.startup.restored(),
+                "save load did not commit"
+            );
+            ensure!(
+                loaded.map_name == before.map_name
+                    && loaded.campaign_index == before.campaign_index
+                    && loaded.mission_counter == before.mission_counter,
+                "saved campaign identity changed"
+            );
+            Some(json!({"path": path, "from_menu": from_menu, "mission": loaded.receipt()}))
+        } else {
+            None
+        };
         let mut capture = Self {
             target,
             step: Step::Abort,
@@ -119,18 +163,37 @@ impl RestartCapture {
             before,
             after: None,
             observed_restart_loading: None,
+            restored,
         };
         match target {
-            RestartTarget::AbortShown | RestartTarget::AbortRestarted => {
+            RestartTarget::AbortShown
+            | RestartTarget::AbortRestarted
+            | RestartTarget::SavedAbortRestarted => {
                 let choice =
-                    (target == RestartTarget::AbortRestarted).then_some(AbortButton::Secondary);
+                    (target != RestartTarget::AbortShown).then_some(AbortButton::Secondary);
                 capture.abort = Some(abort_return::AbortReturnInput::begin_choosing(
                     state, route, frame, choice,
                 )?);
             }
-            RestartTarget::DefeatPrompt | RestartTarget::DefeatReplayed => {
-                Self::lose_current_house(state, route, frame)?;
+            RestartTarget::DefeatPrompt
+            | RestartTarget::DefeatReplayed
+            | RestartTarget::MenuDefeatReplayed => {
+                Self::complete_current_house(
+                    state,
+                    route,
+                    frame,
+                    crate::sim::house_state::HouseOutcomeKind::Defeat,
+                )?;
                 capture.step = Step::AwaitDefeatPrompt;
+            }
+            RestartTarget::SavedVictory => {
+                Self::complete_current_house(
+                    state,
+                    route,
+                    frame,
+                    crate::sim::house_state::HouseOutcomeKind::Victory,
+                )?;
+                capture.step = Step::AwaitVictoryScore;
             }
             RestartTarget::Restate => {
                 Self::click_briefing_tab(state, route, frame)?;
@@ -181,7 +244,12 @@ impl RestartCapture {
     /// SavourDelay, outcome EVA, defeat cascade and GameExit::Defeat tail
     /// then run unaided.
     #[cfg(feature = "dev-overlays")]
-    fn lose_current_house(state: &mut AppState, route: &mut Vec<Value>, frame: u32) -> Result<()> {
+    fn complete_current_house(
+        state: &mut AppState,
+        route: &mut Vec<Value>,
+        frame: u32,
+        kind: crate::sim::house_state::HouseOutcomeKind,
+    ) -> Result<()> {
         let runtime = state
             .match_state
             .sim_runtime
@@ -190,24 +258,30 @@ impl RestartCapture {
         ensure!(
             runtime
                 .simulation
-                .dev_trigger_current_house_lose(&runtime.resources.rules),
-            "TAction 68 did not flag the current House to lose"
+                .dev_trigger_current_house_outcome(&runtime.resources.rules, kind),
+            "TAction did not flag the current House outcome"
         );
         route.push(
-            json!({"frame": frame, "action": "TAction 68 Lose on the current House",
+            json!({"frame": frame, "action": format!("TAction current House {kind:?}"),
             "tick": runtime.simulation.session().tick()}),
         );
         Ok(())
     }
 
     #[cfg(not(feature = "dev-overlays"))]
-    fn lose_current_house(_: &mut AppState, _: &mut Vec<Value>, _: u32) -> Result<()> {
+    fn complete_current_house(
+        _: &mut AppState,
+        _: &mut Vec<Value>,
+        _: u32,
+        _: crate::sim::house_state::HouseOutcomeKind,
+    ) -> Result<()> {
         bail!("forcing a campaign defeat needs the dev-overlays build")
     }
 
     /// The restarted mission's first live frame holds tick zero for readback.
     pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
-        self.step == Step::AwaitRestartedLive && state.frontend.screen == GameScreen::InGame
+        matches!(self.step, Step::AwaitRestartedLive | Step::Done)
+            && state.frontend.screen == GameScreen::InGame
     }
 
     pub(super) fn after_present(
@@ -250,6 +324,20 @@ impl RestartCapture {
                 self.step = Step::Settling(remaining - 1);
             }
             Step::Settling(_) | Step::Done => {}
+            Step::AwaitVictoryScore => {
+                if rendered == PresentedShell::Score
+                    && App::campaign_score_shell_active(state)
+                    && state
+                        .frontend
+                        .campaign_score_page
+                        .as_ref()
+                        .is_some_and(|page| page.presentation_started())
+                {
+                    crate::app::diagnostics::shell_capture::score::click_campaign_continue(state)?;
+                    route.push(json!({"frame": frame, "action": "saved victory score Continue", "dialog": 0x103}));
+                    self.step = Step::AwaitRestartedLive;
+                }
+            }
             Step::AwaitDefeatPrompt => {
                 let replay_shown = matches!(
                     state
@@ -305,8 +393,9 @@ impl RestartCapture {
                     && self.observed_restart_loading.is_none()
                 {
                     ensure!(
-                        !startup.plays_action_movie(),
-                        "the restart passed Start_Scenario DL 1"
+                        startup.plays_action_movie()
+                            == (self.target == RestartTarget::SavedVictory),
+                        "the continuation passed the wrong Start_Scenario movie flag"
                     );
                     self.observed_restart_loading = Some(json!({"frame": frame,
                         "scenario": startup.scenario(), "campaign_index": startup.campaign_index(),
@@ -321,9 +410,14 @@ impl RestartCapture {
                     );
                     let after = Mission::observe(state)?;
                     ensure!(
-                        after.map_name.eq_ignore_ascii_case(&self.before.map_name)
-                            && after.campaign_index == self.before.campaign_index
-                            && after.mission_counter == self.before.mission_counter,
+                        after.campaign_index == self.before.campaign_index
+                            && if self.target == RestartTarget::SavedVictory {
+                                after.map_name == "ALL02UMD.MAP"
+                                    && after.mission_counter == self.before.mission_counter + 1
+                            } else {
+                                after.map_name.eq_ignore_ascii_case(&self.before.map_name)
+                                    && after.mission_counter == self.before.mission_counter
+                            },
                         "the restart did not reinstall the same mission"
                     );
                     ensure!(
@@ -367,7 +461,11 @@ impl RestartCapture {
                     && state.match_state.match_presentation.in_game_menu
                         == crate::ui::pause_menu::InGameMenuState::MissionBriefing
             }
-            RestartTarget::AbortRestarted | RestartTarget::DefeatReplayed => {
+            RestartTarget::AbortRestarted
+            | RestartTarget::DefeatReplayed
+            | RestartTarget::SavedAbortRestarted
+            | RestartTarget::MenuDefeatReplayed
+            | RestartTarget::SavedVictory => {
                 self.step == Step::Done && state.frontend.screen == GameScreen::InGame
             }
         })
@@ -375,7 +473,7 @@ impl RestartCapture {
 
     pub(super) fn receipt(&self) -> Value {
         json!({"target": format!("{:?}", self.target), "before": self.before.receipt(),
-            "restart_loading": self.observed_restart_loading,
+            "restart_loading": self.observed_restart_loading, "restored": self.restored,
             "after": self.after.as_ref().map(Mission::receipt)})
     }
 }

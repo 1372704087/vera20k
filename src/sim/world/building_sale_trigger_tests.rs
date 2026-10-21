@@ -86,6 +86,8 @@ fn campaign_scene() -> HeadlessScenario {
                 difficulty: 1,
                 mission_counter: 1,
                 game_options: None,
+                campaign_index: 0,
+                restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
             },
         )
         .expect("actual campaign House and current-player construction");

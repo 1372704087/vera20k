@@ -313,7 +313,13 @@ fn campaign_house_segment_matches_six_stock_rows_and_nine_startup_controls() {
             ..Default::default()
         });
         sim.session
-            .initialize_campaign_startup(i32_at(row, "option"), i32_at(row, "mission_number"), None)
+            .initialize_campaign_startup(
+                i32_at(row, "option"),
+                i32_at(row, "mission_number"),
+                None,
+                0,
+                crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
+            )
             .unwrap();
         sim.native_unique_ids = Some(NativeUniqueIdCursor::begin_campaign_prefix(
             0,
@@ -393,6 +399,9 @@ fn campaign_house_segment_matches_six_stock_rows_and_nine_startup_controls() {
                         difficulty: i32_at(row, "option"),
                         mission_counter: i32_at(row, "mission_number"),
                         game_options: None,
+                        campaign_index: 0,
+                        restart_carry_over:
+                            crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
                     },
                 )
                 .unwrap();
@@ -486,6 +495,8 @@ fn fresh_campaign_constructs_registered_supers_without_supported_dispatch_bodies
                 difficulty: 1,
                 mission_counter: 1,
                 game_options: None,
+                campaign_index: 0,
+                restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
             },
         )
         .expect("registered Super instances do not require a supported launch body");
@@ -535,6 +546,8 @@ fn fresh_campaign_rejects_an_absent_stock_roster_instead_of_fabricating_offline_
             difficulty: 1,
             mission_counter: 1,
             game_options: None,
+            campaign_index: 0,
+            restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
         },
     );
     assert!(matches!(
@@ -580,6 +593,8 @@ fn fresh_campaign_rejects_unknown_country_factory_before_house_construction() {
             difficulty: 1,
             mission_counter: 1,
             game_options: None,
+            campaign_index: 0,
+            restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
         },
     );
     assert!(matches!(

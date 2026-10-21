@@ -789,6 +789,24 @@ impl ProcessedRulesLayers {
             .map(|member| (member.native_stored_id.as_str(), &member.building_upgrade))
     }
 
+    /// BuildingType+EE8/+EEC after the last reached Rules body.
+    pub(crate) fn building_extra_power_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, crate::rules::building_extra_power::BuildingExtraPower)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Building)
+            .into_iter()
+            .flatten()
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    member.building_extra_power,
+                )
+            })
+    }
+
     /// BuildingType+EBC after each reached Rules body. Fixed ART never reads it.
     pub(crate) fn building_target_coord_offsets(&self) -> impl Iterator<Item = (&str, [i32; 3])> {
         self.native_type_construction_trace
@@ -2528,6 +2546,9 @@ struct ProcessedType {
     building_target_coord_offset: [i32; 3],
     /// BuildingType ctor45DFDA=false; ReadBool45FEE5..45FF0D, current default.
     building_has_spotlight: bool,
+    /// BuildingType+EE8/+EEC, retained across reached ReadINI4610A0 passes.
+    #[serde(default)]
+    building_extra_power: crate::rules::building_extra_power::BuildingExtraPower,
     building_light: crate::rules::building_light::BuildingLightRules,
     /// BuildingType+E88/+16FC/+14E0, retained by ReadINI460E17/464727.
     building_upgrade: crate::rules::building_upgrade::BuildingUpgradeRules,
@@ -2930,6 +2951,7 @@ impl ProcessedType {
             building_foundation: 0,
             building_target_coord_offset: [0; 3],
             building_has_spotlight: false,
+            building_extra_power: Default::default(),
             building_light: Default::default(),
             building_upgrade: Default::default(),
             secret_lab: Default::default(),
@@ -4337,6 +4359,7 @@ impl RulesPassProcessor {
                         member.building_has_spotlight =
                             raw.read_bool("HasSpotlight", member.building_has_spotlight);
                         member.building_light.read_pass(&raw);
+                        member.building_extra_power.read_pass(&raw);
                         member
                             .building_upgrade
                             .read_pass(&raw, fixed_art.section_or_empty(&image));

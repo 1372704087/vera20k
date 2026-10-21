@@ -67,7 +67,7 @@ Arrows show data flow:
 
 You need:
 
-- **Rust and Git:** [Rust](https://rustup.rs/) 1.88 or later, installed with rustup, and
+- **Rust and Git:** [Rust](https://rustup.rs/) 1.97 or later, installed with rustup, and
   [Git](https://git-scm.com/).
 - **Build tools:** on Windows, the Visual Studio C++ build tools, which the Rust installer offers
   to install; on macOS, `xcode-select --install`; on Debian and Ubuntu,

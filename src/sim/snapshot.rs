@@ -2951,13 +2951,6 @@ impl Simulation {
             }
         }
 
-        self.validate_disk_lasers_after_restore(None)
-            .map_err(
-                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
-                    object_id,
-                    reason,
-                },
-            )?;
         let (index, identities) = RestoredObjectIndex::build(self)?;
         let seen_logic = self
             .substrate
@@ -3150,7 +3143,7 @@ impl Simulation {
         prepare_terrain_assets: Option<&mut SnapshotTerrainAssetPreparation<'_>>,
     ) -> Result<SnapshotMapRestoreOutput, SnapshotRestoreError> {
         self.validate_type_tech_levels(rules)?;
-        self.validate_disk_lasers_after_restore(Some(rules))
+        self.validate_disk_lasers_after_restore(rules)
             .map_err(
                 |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
                     object_id,
@@ -7946,7 +7939,7 @@ mod tests {
             .objects_mut_for_test()
             .insert(tree_id, tree);
         sim.resolved_terrain = Some(terrain);
-        assert!(sim.register_terrain_object(tree_id, Some(&rules)));
+        assert!(sim.register_terrain_object(tree_id, &rules));
 
         let projectile_id = sim.substrate.allocate_stable_id();
         let mut spawn = gsi_17_03_projectile(RAD_NO_ATTACKER, ProjectileTarget::Terrain(tree_id));
@@ -9393,7 +9386,10 @@ mod tests {
             sim.terrain_objects
                 .objects_mut_for_test()
                 .insert(terrain.stable_id(), terrain.clone());
-            assert!(sim.register_terrain_object(terrain.stable_id(), None));
+            assert!(sim.register_terrain_object(
+                terrain.stable_id(),
+                crate::rules::ruleset::RuleSet::empty_for_test()
+            ));
             sim.terrain_objects
                 .cell_index_mut_for_test()
                 .insert(terrain.cell(), terrain.stable_id());
@@ -9646,10 +9642,10 @@ mod tests {
     fn unlimbo_ge_places_into_logic_and_occupancy_atomically() {
         use crate::sim::game_entity::GameEntity;
         let mut sim = Simulation::new();
-        let mut ge = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        // `place_spawned` resolves the owner against `sim.interner`; re-intern so
-        // the id is valid there (test_default uses the thread-local test interner).
-        ge.set_owner_for_test(sim.interner.intern("Americans"));
+        let ge = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
+        // `place_spawned` resolves the owner and Unlimbo the type against
+        // `sim.interner`; test_default interns both in the test interner.
+        sim.interner = crate::sim::intern::test_interner();
         let (id, outcome) = sim.unlimbo(ge);
         assert!(matches!(outcome, RevealOutcome::Revealed { .. }));
 

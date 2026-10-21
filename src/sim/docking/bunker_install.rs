@@ -113,7 +113,7 @@ pub(crate) fn update_bunker(
     let Some(unit_id) = bunker_partner(sim, building_id) else {
         // 0x00458E7E..0x00458E98: state 0, then Queue_Mission(Guard, 0).
         bunker_link::reset_bunker_idle(&mut sim.substrate, building_id);
-        bunker_link::queue_guard(sim, building_id);
+        bunker_link::queue_guard(sim, building_id, rules);
         return;
     };
 
@@ -342,7 +342,7 @@ fn start_install_force_track(
         0x1C0 => 0x46,
         _ => 0x45,
     };
-    sim.force_track(unit_id, track, head, Some(rules), registry, frame_effects);
+    sim.force_track(unit_id, track, head, rules, registry, frame_effects);
     // Building4591AF calls Force_Track, then4591BE explicitly sets Foot's
     // applied fraction. The generic locomotor admission does not own speed.
     if let Some(unit) = sim.substrate.entities.get_mut(unit_id) {

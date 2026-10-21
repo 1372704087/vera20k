@@ -113,11 +113,6 @@ Para iniciar escaramuzas o campañas de YR para un jugador desde un cliente de C
 Toda ayuda es bienvenida. Puedes escribir código, refactorizar el motor, probar el juego, compartir
 ideas o jugarlo junto al original y decirnos qué no se siente como debería. Abre un PR y nosotros
 nos encargamos a partir de ahí.
-Si añades una comparación nativa en `tools/`, registra lo que calcula `gamemd.exe`, nunca un hash
-del ejecutable ni de un archivo fuente del repositorio: todas las versiones de `gamemd.exe` se tratan
-como el mismo juego, el ejecutor de oráculos rechaza los hashes del ejecutable y un hash de un
-archivo fuente haría fallar la comprobación tras cambios no relacionados
-(consulta [Identidad de la evidencia](tools/native_oracle.md#evidence-identity)).
 Hablamos en [Discord](https://discord.gg/kmjRUn5m5F) y en el grupo de QQ (1097193563).
 
 ## Apoya el proyecto

@@ -1303,7 +1303,9 @@ pub(crate) fn greatest_threat(
     } else {
         [0, 0]
     };
-    let range = scan_range(attacker_obj, mask, weapon_ranges);
+    // `0x006F9024..0x006F903E`: a healer on mission Guard (`+0xAC == 5`).
+    let healer_on_guard = healer && scanner.mission.current().known() == Some(MissionType::Guard);
+    let range = scan_range(attacker_obj, mask, weapon_ranges, healer_on_guard);
     let flags = threat_mask::flags_for(mask);
 
     // `TEST AL,0x3 ; JZ 0x006F9B6E @ 0x006F8FE0`: a mask without bit 0 or 1
@@ -3133,3 +3135,7 @@ mod disguise_tests;
 #[cfg(test)]
 #[path = "greatest_threat_unarmed_tests.rs"]
 mod unarmed_tests;
+
+#[cfg(test)]
+#[path = "greatest_threat_healer_guard_tests.rs"]
+mod healer_guard_tests;

@@ -1482,6 +1482,18 @@ impl MoviesCapture {
                     .context("campaign route has no first-live runtime observation")?,
                 CampaignStartTarget::Opening(_) => installed_campaign_runtime_receipt(state)?,
             };
+            if target == CampaignStartTarget::Restart(RestartTarget::SavedVictory) {
+                // This readback presents the next mission. The restart receipt
+                // separately retains the initial and loaded mission identities.
+                manifest["startup"] = campaign_startup_receipt(
+                    state
+                        .match_state
+                        .startup
+                        .installed_campaign()
+                        .context("continued mission has no campaign admission")?,
+                );
+                manifest["runtime"] = campaign_runtime_receipt(state)?;
+            }
             if target == CampaignStartTarget::AbortReturn {
                 manifest["runtime_observation"] = json!("first-live-frame-before-Escape-press");
                 manifest["cleanup"] = campaign_abort_cleanup_receipt(state)?;

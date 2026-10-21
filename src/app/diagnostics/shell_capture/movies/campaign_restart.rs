@@ -280,7 +280,8 @@ impl RestartCapture {
 
     /// The restarted mission's first live frame holds tick zero for readback.
     pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
-        self.step == Step::AwaitRestartedLive && state.frontend.screen == GameScreen::InGame
+        matches!(self.step, Step::AwaitRestartedLive | Step::Done)
+            && state.frontend.screen == GameScreen::InGame
     }
 
     pub(super) fn after_present(

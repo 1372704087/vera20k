@@ -883,13 +883,6 @@ fn attack_branch_orders(
         if !(force_fire || is_structure || terrain) {
             continue;
         }
-        if let TargetKind::Entity(target_id) = attack_target
-            && ivan_cannot_bomb(sim, rules, id, target_id)
-        {
-            attack_receivers.insert(id);
-            consumed_attack_action = true;
-            continue;
-        }
         let action = if terrain {
             Some(attack_action(
                 sim,
@@ -913,6 +906,16 @@ fn attack_branch_orders(
             continue;
         };
         if action == AttackAction::Rally {
+            continue;
+        }
+        // NoIvanBomb (`0x0051EB24`) is only reached from an Attack answer
+        // (`0x0051EA6F`, `0x0051EB33`); it orders nothing.
+        if action == AttackAction::Attack
+            && let TargetKind::Entity(target_id) = attack_target
+            && ivan_cannot_bomb(sim, rules, id, target_id)
+        {
+            attack_receivers.insert(id);
+            consumed_attack_action = true;
             continue;
         }
         if action == AttackAction::None && matches!(attack_target, TargetKind::Cell(..)) {
@@ -3742,6 +3745,26 @@ pub(crate) fn ivan_bomb_refused(
     target.bomb.is_some() || !target_obj.is_some_and(|o| o.bombable)
 }
 
+/// [`ivan_bomb_refused`] for any object under the cursor, a Terrain object
+/// included: one never carries a bomb, since BombListClass::Attach gets a
+/// null target for anything that is not a Techno (AbstractFlags bit 1,
+/// `0x0046934D..0x00469361`), so only its type's `Bombable=` refuses it.
+/// The Ivan still answers IvanBomb, and his shot at a tree plants nothing.
+pub(crate) fn ivan_bomb_object_refused(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    target_id: u64,
+) -> bool {
+    if let Some(target) = sim.entities().get(target_id) {
+        return ivan_bomb_refused(target, sim.interner().object_type(target.type_ref(), rules));
+    }
+    !sim.terrain_objects().get(target_id).is_some_and(|terrain| {
+        rules
+            .terrain_object_type_case_insensitive(sim.interner().resolve(terrain.type_ref()))
+            .is_some_and(|terrain| terrain.bombable)
+    })
+}
+
 /// Whether `actor_id` is a Crazy Ivan whose Attack over `target_id` is
 /// NoIvanBomb ([`ivan_bomb_refused`]), which
 /// `FootClass::ClickedAction_Object` (0x004D74E0) ignores. An unforced click
@@ -3759,12 +3782,7 @@ fn ivan_cannot_bomb(
         .get(actor_id)
         .and_then(|e| sim.interner().object_type(e.type_ref(), rules))
         .is_some_and(|o| o.ivan);
-    // VERA attaches no bomb to a Terrain object: refused, as its cursor is
-    // (residual at `terrain_object_feedback`).
-    is_ivan
-        && !sim.entities().get(target_id).is_some_and(|target| {
-            !ivan_bomb_refused(target, sim.interner().object_type(target.type_ref(), rules))
-        })
+    is_ivan && ivan_bomb_object_refused(sim, rules, target_id)
 }
 
 /// The ILLEGAL test of `TechnoClass::What_Action_OnObject`'s attack rung

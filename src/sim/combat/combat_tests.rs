@@ -8067,16 +8067,29 @@ fn irradiate(
     rad_level: i32,
     spread: i32,
 ) {
+    irradiate_bound(sim, rules, (rx, ry), rad_level, spread, None);
+}
+
+/// A radiation detonation bound to a Phobos `[RadiationTypes]` entry by name.
+fn irradiate_bound(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &RuleSet,
+    (rx, ry): (u16, u16),
+    rad_level: i32,
+    spread: i32,
+    rad_type: Option<&str>,
+) {
     sim.radiation.apply_detonation(
         crate::sim::radiation::RadDetonation {
             rx,
             ry,
             rad_level,
             spread,
+            rad_type: rad_type.map(str::to_owned),
         },
         0,
         sim.session.theater(),
-        &rules.radiation,
+        rules,
         sim.resolved_terrain.as_ref(),
         &mut sim.lighting_sources,
     );
@@ -8510,6 +8523,143 @@ fn buildings_take_no_rad_damage() {
     );
 }
 
+/// Phobos custom radiation: the stock scene plus a `[RadiationTypes]` entry
+/// with its own level cap, factor and warhead, bound by `RadType=`.
+#[cfg(feature = "phobos")]
+fn phobos_radiation_rules() -> RuleSet {
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "\
+[InfantryTypes]\n0=DESO\n1=E2\n\n\
+[DESO]\nStrength=200\nArmor=plate\nSpeed=4\nPrimary=RadBeamWeapon\nSecondary=RadEruptionWeapon\nDeployer=yes\nDeployFire=yes\nImmuneToRadiation=yes\n\n\
+[E2]\nStrength=300\nArmor=none\nSpeed=4\n\n\
+[RadEruptionWeapon]\nDamage=1\nROF=60\nRange=4\nAreaFire=yes\nWarhead=RadEruptionWarhead\nRadLevel=500\nRadType=ToxicField\nReport=DesolatorDeploy\n\n\
+[RadEruptionWarhead]\nVerses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\nCellSpread=10\n\n\
+[Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
+[Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
+[RadiationTypes]\n0=ToxicField\n1=OtherField\n\n\
+[ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
+[OtherField]\nRadLevelFactor=0.1\n\n\
+[RadSiteToxic]\nVerses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\n",
+    );
+    RuleSet::from_ini(&ini).expect("phobos radiation rules should parse")
+}
+
+/// A bound radiation type drives the site's level clamp, its damage factor
+/// and its own warhead; the default-type path on the same scene keeps the
+/// globals.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_custom_radiation_type_damage_uses_the_bound_types_parameters() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    let bound = sim
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("bound victim spawns");
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+    rad_frame(&mut sim, &rules, 16);
+    assert_eq!(
+        i64::from(sim.substrate.entities.get(bound).unwrap().health.current()),
+        50,
+        "RadLevelMax=250 clamps the site level and RadLevelFactor=1.0 applies it"
+    );
+
+    let mut stock = radiation_scene(&rules);
+    let default = stock
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("default victim spawns");
+    irradiate(&mut stock, &rules, (5, 5), 500, 2);
+    rad_frame(&mut stock, &rules, 16);
+    assert_eq!(
+        i64::from(
+            stock
+                .substrate
+                .entities
+                .get(default)
+                .unwrap()
+                .health
+                .current()
+        ),
+        200,
+        "the default Radiation entry keeps the global 500 level and 0.2 factor"
+    );
+}
+
+/// `UseGlobalRadApplicationDelay=false` moves the admission gate to each
+/// bound type's own `RadApplicationDelay`.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_per_type_application_delay_gates_damage_when_the_global_gate_is_off() {
+    let mut rules = phobos_radiation_rules();
+    rules.radiation.use_global_rad_application_delay = false;
+    // Rebind the type's own delay by editing its retained entry through the
+    // catalog the projection carries.
+    let mut sim = radiation_scene(&rules);
+    let inf = sim
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("infantry spawns");
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+    // The global 16-frame gate is off and the type's delay is the global 16
+    // only because the entry reads none; damage still lands on frame 16.
+    rad_frame(&mut sim, &rules, 16);
+    let after_16 = i64::from(sim.substrate.entities.get(inf).unwrap().health.current());
+    assert!(
+        after_16 < 300,
+        "the type's own 16-frame delay admits frame 16"
+    );
+
+    // A type whose own delay is 32 skips the 16 boundary.
+    let mut slow = phobos_radiation_rules();
+    slow.radiation.use_global_rad_application_delay = false;
+    slow.radiation
+        .radiation_types
+        .apply_pass(&crate::rules::ini_parser::IniFile::from_str(
+            "[ToxicField]\nRadApplicationDelay=32\n",
+        ));
+    let mut sim = radiation_scene(&slow);
+    let inf = sim
+        .spawn_object("E2", "Americans", 5, 5, 0, &slow)
+        .expect("infantry spawns");
+    irradiate_bound(&mut sim, &slow, (5, 5), 500, 2, Some("ToxicField"));
+    rad_frame(&mut sim, &slow, 16);
+    assert_eq!(
+        i64::from(sim.substrate.entities.get(inf).unwrap().health.current()),
+        300,
+        "the type's own 32-frame delay skips frame 16"
+    );
+    rad_frame(&mut sim, &slow, 32);
+    assert_eq!(
+        i64::from(sim.substrate.entities.get(inf).unwrap().health.current()),
+        50,
+        "and admits frame 32"
+    );
+}
+
+/// Native keeps concurrent sites of different types at one center; this
+/// model's one-site-per-center merges and retains the existing binding.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_merge_at_one_center_keeps_the_existing_bound_type() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("OtherField"));
+    let site = sim.radiation.site_at((5, 5)).expect("site present");
+    assert_eq!(
+        site.rad_type(),
+        Some("ToxicField"),
+        "the existing site keeps its bound type on merge"
+    );
+    let inf = sim
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("infantry spawns");
+    rad_frame(&mut sim, &rules, 16);
+    assert_eq!(
+        i64::from(sim.substrate.entities.get(inf).unwrap().health.current()),
+        50,
+        "the merged site still damages through the first type's parameters"
+    );
+}
+
 /// A deployed Desolator force-fires its deploy weapon at its own cell when no
 /// site exists there, arming a full-level site; while the site's effective
 /// level stays at or above a third of the weapon's RadLevel the gate is
@@ -8607,7 +8757,7 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
     // drops below 166 once remaining < 167.
     for frame in 3..=340 {
         sim.radiation
-            .tick_decay(frame, &rules.radiation, None, &mut sim.lighting_sources);
+            .tick_decay(frame, &rules, None, &mut sim.lighting_sources);
     }
     let site = sim.radiation.site_at((10, 10)).expect("site still alive");
     assert!(crate::sim::radiation::RadiationState::current_site_level(site) < 500 / 3);

@@ -17,6 +17,7 @@ use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
 use crate::rules::locomotor_type::SpeedType;
+use crate::rules::phobos_radiation::RadiationTypeCatalog;
 use crate::rules::sound_ini::EvaRegistry;
 
 use crate::rules::missile_spawn::{MissileFamily, MissileSpawnRules};
@@ -578,6 +579,16 @@ impl ProcessedRulesLayers {
             .as_ref()
     }
 
+    /// Phobos `[RadiationTypes]` catalog with the same retained process
+    /// lifetime as Types.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn radiation_types(&self) -> Option<&RadiationTypeCatalog> {
+        self.native_type_construction_trace
+            .registry_state
+            .phobos_radiation_types
+            .as_ref()
+    }
+
     /// Read-only projection of the retained registry's build capability.
     pub(crate) fn compatibility(&self) -> RulesCompatibility {
         self.native_type_construction_trace
@@ -750,6 +761,7 @@ impl ProcessedRulesLayers {
         }
         registry.validate_techno_type_order()?;
         registry.validate_prerequisites()?;
+        registry.validate_radiation_types()?;
         let families = &registry.families;
         let projectile_count = families
             .get(&RulesTypeFamily::Projectile)
@@ -2242,6 +2254,8 @@ pub(crate) struct NativeRulesRegistryState {
     ares_prerequisites: Option<GenericPrerequisites>,
     /// Ordered Ares armor registry; Process retains it, destructive reset rebuilds it.
     ares_armors: Option<ArmorCatalog>,
+    /// Phobos `[RadiationTypes]` catalog; Process retains it per pass.
+    phobos_radiation_types: Option<RadiationTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     families: HashMap<RulesTypeFamily, Vec<ProcessedType>>,
@@ -2317,6 +2331,8 @@ impl Default for NativeRulesRegistryState {
             compatibility: RulesCompatibility::default(),
             ares_prerequisites: crate::rules::ARES_ENABLED.then(GenericPrerequisites::default),
             ares_armors: crate::rules::ARES_ENABLED.then(ArmorCatalog::default),
+            phobos_radiation_types: crate::rules::PHOBOS_ENABLED
+                .then(RadiationTypeCatalog::with_default),
             #[cfg(feature = "ares")]
             ares_global_controls: AresGlobalControls::default(),
             families: HashMap::new(),
@@ -2454,6 +2470,15 @@ impl NativeRulesRegistryState {
         {
             return Err(RulesError::InvalidSavedState(
                 "global TechnoType order does not identify each live type exactly once",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_radiation_types(&self) -> Result<(), RulesError> {
+        if self.phobos_radiation_types.is_some() != crate::rules::PHOBOS_ENABLED {
+            return Err(RulesError::InvalidSavedState(
+                "saved radiation type catalog does not match the compiled capability",
             ));
         }
         Ok(())
@@ -3487,6 +3512,8 @@ struct RulesPassProcessor {
     ares_prerequisites: Option<GenericPrerequisites>,
     /// Ordered Ares armor registry; Process retains it, destructive reset rebuilds it.
     ares_armors: Option<ArmorCatalog>,
+    /// Phobos `[RadiationTypes]` catalog; Process retains it per pass.
+    phobos_radiation_types: Option<RadiationTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     ordinary: Option<IniFile>,
@@ -3554,6 +3581,7 @@ impl RulesPassProcessor {
             compatibility: registry_state.compatibility,
             ares_prerequisites: registry_state.ares_prerequisites,
             ares_armors: registry_state.ares_armors,
+            phobos_radiation_types: registry_state.phobos_radiation_types,
             #[cfg(feature = "ares")]
             ares_global_controls: registry_state.ares_global_controls,
             families: registry_state.families,
@@ -3674,6 +3702,8 @@ impl RulesPassProcessor {
         // keeps their order.
         self.missile_spawn.apply_pass(pass);
         self.allocate_radiation_references(pass);
+        #[cfg(feature = "phobos")]
+        self.allocate_radiation_types(pass);
         // Elevation and Wall contain no Type factories.
         self.allocate_audio_visual_references(pass);
         self.process_special_weapons(pass);
@@ -5846,6 +5876,16 @@ impl RulesPassProcessor {
         }
     }
 
+    /// Phobos `RadTypeClass::LoadFromINIList` + each type's `LoadFromINI`,
+    /// reached on every Rules pass: the pass's `[RadiationTypes]` list
+    /// appends entries and every retained type re-reads its own section.
+    #[cfg(feature = "phobos")]
+    fn allocate_radiation_types(&mut self, pass: &IniFile) {
+        if let Some(catalog) = self.phobos_radiation_types.as_mut() {
+            catalog.apply_pass(pass);
+        }
+    }
+
     fn allocate_audio_visual_references(&mut self, pass: &IniFile) {
         let Some(section) = pass.section("AudioVisual") else {
             return;
@@ -6015,6 +6055,7 @@ impl RulesPassProcessor {
                     compatibility: self.compatibility,
                     ares_prerequisites: self.ares_prerequisites,
                     ares_armors: self.ares_armors,
+                    phobos_radiation_types: self.phobos_radiation_types,
                     #[cfg(feature = "ares")]
                     ares_global_controls: self.ares_global_controls,
                     families: self.families,

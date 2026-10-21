@@ -108,6 +108,25 @@ pub const WINDOW_TITLE: &str = if crate::rules::ARES_ENABLED {
     "VERA20K"
 };
 
+/// The compiled extension capability as an in-game display suffix, with its
+/// leading space: the single owner of the marker the main menu's version line
+/// appends to the retail internal version. The window title owns its own
+/// exact literal for the single-instance gate and mirrors the same four
+/// states.
+pub const fn capability_marker() -> &'static str {
+    if crate::rules::ARES_ENABLED {
+        if crate::rules::PHOBOS_ENABLED {
+            " [Ares+Phobos]"
+        } else {
+            " [Ares]"
+        }
+    } else if crate::rules::PHOBOS_ENABLED {
+        " [Phobos]"
+    } else {
+        ""
+    }
+}
+
 pub(crate) use shell_random_map::RandomMapGenerationRetention;
 pub(crate) use state::{AppState, PlatformState, reset_scenario_exit_runtime};
 

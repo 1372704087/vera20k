@@ -18,5 +18,4 @@ capability and cannot load in the other mode, even with identical retail INIs.
 
 Supported extensions:
 
-- None yet. Chains land one at a time, each with its own page in this directory; the first is in
-  progress.
+- [Custom radiation types](phobos-custom-radiation.md)

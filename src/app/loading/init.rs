@@ -143,7 +143,7 @@ mod map_wall_owner_candidate_tests {
     fn detonate_radiation(
         sim: &mut Simulation,
         detonation: RadDetonation,
-        rules: &crate::rules::ruleset::RadiationRules,
+        rules: &crate::rules::ruleset::RuleSet,
     ) {
         let theater = sim.session().theater().to_owned();
         let mut lights = std::mem::take(sim.lighting_sources_mut_for_test());
@@ -824,8 +824,9 @@ mod map_wall_owner_candidate_tests {
                 ry: 120,
                 rad_level: 500,
                 spread: 1,
+                rad_type: None,
             },
-            &rules.radiation,
+            &rules,
         );
         assert!(matches!(
             sim.lighting_sources().pending().last(),
@@ -1188,8 +1189,9 @@ mod map_wall_owner_candidate_tests {
             ry: 15,
             rad_level: 500,
             spread: 1,
+            rad_type: None,
         };
-        detonate_radiation(&mut sim, radiation, &rules.radiation);
+        detonate_radiation(&mut sim, radiation.clone(), &rules);
         sim.session_mut_for_test()
             .lighting_mut()
             .set_current_ambient_for_test(250);
@@ -1198,7 +1200,7 @@ mod map_wall_owner_candidate_tests {
         ));
         sim.lighting_sources_mut_for_test()
             .set_building_light_active(41, true);
-        detonate_radiation(&mut sim, radiation, &rules.radiation);
+        detonate_radiation(&mut sim, radiation, &rules);
         assert!(matches!(
             sim.lighting_sources().pending(),
             [
@@ -1349,18 +1351,20 @@ mod map_wall_owner_candidate_tests {
              LightRedTint=.1\nLightGreenTint=.2\nLightBlueTint=.3\n",
         ))
         .expect("lighting rules");
-        rules.radiation = crate::rules::ruleset::RadiationRules {
-            duration_multiple: 1,
-            application_delay: 16,
-            level_max: 500,
-            level_delay: 90,
-            light_delay: 90,
-            level_factor: 0.2,
-            light_factor: crate::util::fixed_math::SimFixed::from_num(0.1_f32),
-            tint_factor: crate::util::fixed_math::SimFixed::from_num(1.0_f32),
-            color: (0, 255, 0),
-            site_warhead: "RadSite".to_string(),
-        };
+        // Field-by-field from the reader defaults: the Phobos catalog is a
+        // core-crate type the client never constructs.
+        let mut radiation = crate::rules::ruleset::RadiationRules::default();
+        radiation.duration_multiple = 1;
+        radiation.application_delay = 16;
+        radiation.level_max = 500;
+        radiation.level_delay = 90;
+        radiation.light_delay = 90;
+        radiation.level_factor = 0.2;
+        radiation.light_factor = crate::util::fixed_math::SimFixed::from_num(0.1_f32);
+        radiation.tint_factor = crate::util::fixed_math::SimFixed::from_num(1.0_f32);
+        radiation.color = (0, 255, 0);
+        radiation.site_warhead = "RadSite".to_string();
+        rules.radiation = radiation;
         rules
     }
 
@@ -1515,8 +1519,9 @@ mod map_wall_owner_candidate_tests {
                 ry: 5,
                 rad_level: 500,
                 spread: 10,
+                rad_type: None,
             },
-            &rules.radiation,
+            &rules,
         );
 
         let terrain = flat_terrain(10, 10);
@@ -1559,12 +1564,13 @@ mod map_wall_owner_candidate_tests {
             ry: 11,
             rad_level: 500,
             spread: 10,
+            rad_type: None,
         };
-        detonate_radiation(&mut sim, detonation, &rules.radiation);
+        detonate_radiation(&mut sim, detonation.clone(), &rules);
         let first = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(first.point_lights.len(), 1);
 
-        detonate_radiation(&mut sim, detonation, &rules.radiation);
+        detonate_radiation(&mut sim, detonation, &rules);
         let merged = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
         assert_eq!(merged.point_lights.len(), 1);
         assert_ne!(first, merged);

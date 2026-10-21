@@ -2713,7 +2713,7 @@ pub(crate) fn tick_combat(
                 det,
                 binary_frame,
                 &world.session.theater(),
-                &rules.radiation,
+                rules,
                 world.resolved_terrain.as_ref(),
                 &mut crate::sim::light_sources::LightingSources::default(),
             );

@@ -8085,7 +8085,7 @@ impl Simulation {
         profile_phase!(SUPERWEAPONS);
         self.radiation.tick_decay(
             self.session.binary_frame(),
-            &rules.radiation,
+            rules,
             self.resolved_terrain.as_ref(),
             &mut self.lighting_sources,
         );

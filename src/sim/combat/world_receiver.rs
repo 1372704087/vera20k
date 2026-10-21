@@ -18,6 +18,14 @@ mod area_rocker;
 /// enter its concrete ReceiveDamage. Unit/Infantry/Aircraft call Foot at
 /// `0x0073647B` / `0x0051BC9F` / `0x00414DA3`; buildings never reach it.
 /// Numeric/receiver controls: `tools/spatial_oracle/radiation_damage_boundary`.
+///
+/// With the Phobos capability the cell's per-site levels group by bound
+/// radiation type, as native groups `CellExt::RadLevels` by `RadTypeClass*`:
+/// each type's sites sort by level descending, the summed level caps at the
+/// type's `RadLevelMax`, and each site commits `min(level, remain) ×
+/// RadLevelFactor` through the type's own `RadSiteWarhead`. A commit that
+/// kills the target ends the whole loop, as native's `ApplyRadiationDamage`
+/// returning false does.
 pub(crate) fn apply_foot_radiation(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -25,12 +33,24 @@ pub(crate) fn apply_foot_radiation(
     overlay_registry: Option<&OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) -> Option<crate::sim::world::damage_consequences::DamageCommitReceipt> {
-    if !radiation_enabled(world)
-        || !world
+    if !radiation_enabled(world) {
+        return None;
+    }
+    // Phobos `UseGlobalRadApplicationDelay`: when false, each bound type's
+    // own `RadApplicationDelay` gates its sites below, so the shared gate is
+    // skipped entirely (native's `!UseGlobalRadApplicationDelay` arm).
+    #[cfg(feature = "phobos")]
+    let delay_admitted = !rules.radiation.use_global_rad_application_delay
+        || world
             .session
             .binary_frame()
-            .is_multiple_of(rules.radiation.application_delay as u32)
-    {
+            .is_multiple_of(rules.radiation.application_delay as u32);
+    #[cfg(not(feature = "phobos"))]
+    let delay_admitted = world
+        .session
+        .binary_frame()
+        .is_multiple_of(rules.radiation.application_delay as u32);
+    if !delay_admitted {
         return None;
     }
     let entity = world.substrate.entities.get(stable_id)?;
@@ -56,42 +76,118 @@ pub(crate) fn apply_foot_radiation(
         coord.x / 256,
         coord.y / 256,
     );
-    let level = match cell {
-        crate::sim::cell_rect::CellRef::Real(cell) => world
-            .radiation
-            .damaging_level((cell.rx, cell.ry), rules.radiation.level_max),
-        // RadiationState has no site on the shared fallback CellClass.
-        crate::sim::cell_rect::CellRef::Dummy { .. } => 0,
-    };
-    if level <= 0 {
-        return None;
+    // Group the cell's per-site levels by bound radiation type. A type whose
+    // warhead does not resolve contributes nothing, as native's
+    // `!GetWarhead()` skip does.
+    let mut groups: Vec<(
+        Option<String>,
+        crate::rules::phobos_radiation::EffectiveRadiation<'_>,
+        Vec<((u16, u16), f64)>,
+    )> = Vec::new();
+    if let crate::sim::cell_rect::CellRef::Real(cell) = cell {
+        for (site_center, level) in world.radiation.cell_site_levels((cell.rx, cell.ry)) {
+            if !(level > 0.0) {
+                continue;
+            }
+            let Some(site) = world.radiation.site_at(site_center) else {
+                continue;
+            };
+            let effective =
+                crate::rules::phobos_radiation::effective_radiation(rules, site.rad_type());
+            if rules.warhead(effective.site_warhead).is_none() {
+                continue;
+            }
+            #[cfg(feature = "phobos")]
+            {
+                if !rules.radiation.use_global_rad_application_delay
+                    && (effective.application_delay <= 0
+                        || !world
+                            .session
+                            .binary_frame()
+                            .is_multiple_of(effective.application_delay as u32))
+                {
+                    continue;
+                }
+            }
+            let bound = site.rad_type().map(str::to_owned);
+            if let Some(group) = groups
+                .iter_mut()
+                .find(|(name, _, _)| name.as_deref() == bound.as_deref())
+            {
+                group.2.push((site_center, level));
+            } else {
+                groups.push((bound, effective, vec![(site_center, level)]));
+            }
+        }
     }
-    let warhead = rules.warhead(&rules.radiation.site_warhead)?;
-    let warhead_id = world.interner.intern(&warhead.id);
     // Foot4DA5FA..4DA60A multiplies the clamped integer by the stored double
     // factor under PC53/chop, then calls Math::ftol before its direct receiver.
-    use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
-    let damage = X87::ftol_i32_low_masked(X87::mul(
-        X87::load_i32(level),
-        X87::load_f64(NativeF64Bits::from_bits(
-            rules.radiation.level_factor.to_bits(),
-        )),
-    ));
-    let receiver = EntityDamageEvent::direct_receiver(
-        stable_id,
-        damage,
-        0,
-        RAD_NO_ATTACKER,
-        None,
-        warhead_id,
-        ReceiverCallFlags {
-            ignore_defenses: false,
-            arg6: true,
-        },
-    );
-    // Native calls the concrete receiver directly: Apply_area_damage's
-    // marked/positive-health gates must not suppress this Foot call.
-    Some(world.commit_direct_damage_receiver(rules, overlay_registry, receiver, effects))
+    use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF64Bits};
+    let mut last_receipt = None;
+    'groups: for (_, effective, mut sites) in groups {
+        // Native stable-sorts each type's sites by level, descending.
+        sites.sort_by(|left, right| {
+            right
+                .1
+                .partial_cmp(&left.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        let mut level_sum = 0_i32;
+        for (_, level) in sites {
+            let remain = effective.level_max - level_sum;
+            let clamped = match X87::compare(
+                X87::load_f64(NativeF64Bits::from_bits(level.to_bits())),
+                X87::load_i32(remain),
+            ) {
+                MaskedX87Ordering::Less | MaskedX87Ordering::Unordered => level,
+                MaskedX87Ordering::Equal | MaskedX87Ordering::Greater => f64::from(remain),
+            };
+            let level = X87::ftol_i32_low_masked(X87::load_f64(NativeF64Bits::from_bits(
+                clamped.to_bits(),
+            )));
+            let damage = X87::ftol_i32_low_masked(X87::mul(
+                X87::load_i32(level),
+                X87::load_f64(NativeF64Bits::from_bits(effective.level_factor.to_bits())),
+            ));
+            let Some(warhead) = rules.warhead(effective.site_warhead) else {
+                continue;
+            };
+            let warhead_id = world.interner.intern(&warhead.id);
+            let receiver = EntityDamageEvent::direct_receiver(
+                stable_id,
+                damage,
+                0,
+                RAD_NO_ATTACKER,
+                None,
+                warhead_id,
+                ReceiverCallFlags {
+                    ignore_defenses: false,
+                    arg6: true,
+                },
+            );
+            // Native calls the concrete receiver directly: Apply_area_damage's
+            // marked/positive-health gates must not suppress this Foot call.
+            last_receipt = Some(world.commit_direct_damage_receiver(
+                rules,
+                overlay_registry,
+                receiver,
+                effects,
+            ));
+            if !world
+                .substrate
+                .entities
+                .get(stable_id)
+                .is_some_and(|entity| entity.lifecycle.object_alive())
+            {
+                break 'groups;
+            }
+            if level >= remain {
+                break;
+            }
+            level_sum += level;
+        }
+    }
+    last_receipt
 }
 
 fn respond_to_base_attack(
@@ -2396,6 +2492,8 @@ fn emit_detonation_receivers<'r>(
                 // 46917A/469180 read Weapon+AC -> Warhead+124, which
                 // need not be the Bullet's independently constructed warhead.
                 spread: super::cell_spread::whole_cells(rad_warhead.cell_spread_f64),
+                // Phobos `WeaponTypeExt::RadType` binds the field's type.
+                rad_type: weapon.rad_type.clone(),
             });
     }
 

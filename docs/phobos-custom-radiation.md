@@ -1,0 +1,70 @@
+# Optional Phobos custom radiation types
+
+Build with `--features phobos` to register `[RadiationTypes]`, bind object
+weapons with `RadType=`, and read the per-type radiation keys. Default builds
+retain the original single global `[Radiation]` configuration.
+
+Each weapon's `RadType=` names a `[RadiationTypes]` entry; an absent, empty or
+unknown name binds the default `Radiation` entry, which reads the vanilla
+`[Radiation]` section. Every key is nullable: an omitted key falls back to the
+global value, so a later Rules layer that omits a key retains the earlier
+layer's read.
+
+In `rulesmd.ini`:
+
+```ini
+[RadiationTypes]
+0=SOMERADTYPE
+
+[SOMEWEAPON]                       ; WeaponType
+RadType=SOMERADTYPE                ; RadType to use instead of default of [Radiation]
+
+[SOMERADTYPE]                      ; RadType
+RadDurationMultiple=1              ; integer
+RadApplicationDelay=16             ; integer
+RadApplicationDelay.Building=0     ; integer
+RadBuildingDamageMaxCount=-1       ; integer
+RadLevelMax=500                    ; integer
+RadLevelDelay=90                   ; integer
+RadLightDelay=90                   ; integer
+RadLevelFactor=0.2                 ; floating point value
+RadLightFactor=0.1                 ; floating point value
+RadTintFactor=1.0                  ; floating point value
+RadColor=0,255,0                   ; integer - Red,Green,Blue
+RadSiteWarhead=RadSite             ; WarheadType
+RadSiteWarhead.Detonate=false      ; boolean
+RadSiteWarhead.Detonate.Full=true  ; boolean
+RadHasOwner=false                  ; boolean
+RadHasInvoker=false                ; boolean
+
+[Radiation]
+UseGlobalRadApplicationDelay=true  ; boolean
+RadApplicationDelay.Building=0     ; integer
+RadBuildingDamageMaxCount=-1       ; integer
+RadSiteWarhead.Detonate=false      ; boolean
+RadSiteWarhead.Detonate.Full=true  ; boolean
+RadHasOwner=false                  ; boolean
+RadHasInvoker=false                ; boolean
+```
+
+The bound type owns the site's lifetime (`RadDurationMultiple`), decay cadence
+(`RadLevelDelay`), light (`RadLightDelay`, `RadLightFactor`, `RadTintFactor`,
+`RadColor`), the creation-time level clamp (`min(RadLevel, RadLevelMax)`), and
+the damage a foot takes: the per-cell levels group by bound type, each type's
+sites apply `min(level, remaining share of RadLevelMax) x RadLevelFactor`
+through the type's own `RadSiteWarhead`. When `UseGlobalRadApplicationDelay` is
+false, each type's own `RadApplicationDelay` gates its sites instead of the
+shared global gate. A type whose warhead does not resolve deals no damage, as
+native's missing-warhead skip does.
+
+The retained Rules registry owns the ordered catalog; the type's canonical
+name and the bound weapon IDs enter the simulation configuration hash, and the
+catalog crosses the save boundary with the retained Rules records. A save
+records the build capability and cannot load in the other mode.
+
+Not implemented, read and retained only: `RadApplicationDelay.Building` and
+`RadBuildingDamageMaxCount` (VERA20K has no building radiation receiver, so
+building damage is absent regardless of the value), `RadSiteWarhead.Detonate`
+and `RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site),
+and `RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
+This feature does not load Phobos DLLs or establish complete mod compatibility.

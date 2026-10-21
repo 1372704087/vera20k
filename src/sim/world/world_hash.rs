@@ -1343,7 +1343,7 @@ impl Simulation {
     /// products of deterministic numeric operations) and the site registry.
     /// Site order controls future rounded subtractions and belongs in the hash.
     fn hash_radiation(&self, hasher: &mut impl Hasher) {
-        for (&(rx, ry), level) in self.radiation.iter_cells() {
+        for ((rx, ry), level) in self.radiation.iter_cells() {
             rx.hash(hasher);
             ry.hash(hasher);
             level.to_bits().hash(hasher);

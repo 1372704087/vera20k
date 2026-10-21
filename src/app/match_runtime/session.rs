@@ -824,6 +824,48 @@ impl MatchSession {
         Ok(removed)
     }
 
+    /// Cooperative's country refresh (`0x005C2500`), on the host and a
+    /// guest alike: every row below the setup's capacity (`[0xA8BB0C]`)
+    /// takes `country` (None is Random) in its combo and its node
+    /// (`NodeNameTag__SetCountry`), whoever owns the row.
+    pub(crate) fn reset_network_countries(
+        &mut self,
+        country: Option<crate::skirmish_launch::LaunchCountry>,
+    ) -> anyhow::Result<()> {
+        let rows = self.network_setup_capacity().unwrap_or(0).clamp(0, 8) as u8;
+        let Some(NetworkSession {
+            phase:
+                NetworkPhase::Setup {
+                    launch,
+                    inactive_choices,
+                    ..
+                },
+            ..
+        }) = self.network.as_mut()
+        else {
+            anyhow::bail!("network setup is not editable");
+        };
+        let set = |current: crate::skirmish_launch::LaunchCountry| match country {
+            Some(country) => (country, false),
+            None => (current, true),
+        };
+        for human in &mut launch.humans {
+            if human.raw_slot_index.is_some_and(|row| row < rows) {
+                (human.slot.country, human.slot.country_random) = set(human.slot.country);
+            }
+        }
+        for ai in &mut launch.opponents {
+            if ai.raw_slot_index < rows {
+                (ai.country, ai.country_random) = set(ai.country);
+            }
+        }
+        for choices in inactive_choices.iter_mut().take(usize::from(rows)) {
+            (choices.country, choices.country_random) = set(choices.country);
+        }
+        launch.rebuild_house_roster();
+        Ok(())
+    }
+
     pub(crate) fn set_network_row_choices(
         &mut self,
         row: u8,

@@ -1221,7 +1221,8 @@ fn attack_cursor_is_in_range(
         )
 }
 
-/// Ctrl action feedback. Outer None retains an unarmed receiver's fallback;
+/// Ctrl action feedback. Outer None retains an unarmed receiver's fallback,
+/// and a rejected Cell attack rung's movement tail (`0x00700AB7`);
 /// Some(None) is native Action0 and preserves the default arrow.
 fn force_fire_feedback(
     sim: &crate::sim::world::Simulation,
@@ -1231,8 +1232,14 @@ fn force_fire_feedback(
     rules: Option<&crate::rules::ruleset::RuleSet>,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<Option<CursorFeedbackKind>> {
-    let action =
-        super::context_order::armed_action(sim, rules?, actor_id, target, true, overlay_registry)?;
+    use super::context_order::{AttackAction, armed_action};
+    let action = armed_action(sim, rules?, actor_id, target, true, overlay_registry)?;
+    if action == AttackAction::None && matches!(target, combat::TargetKind::Cell(..)) {
+        // The rejected attack rung still reaches the Cell movement owner.
+        // Techno700AB7..700C08 returns Move for mouse_over=true; the
+        // caller resolves that tail, separately from the clicked query.
+        return None;
+    }
     Some(action_feedback(
         sim,
         actor_id,
@@ -1780,10 +1787,12 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
                 if verbose {
                     log::warn!("cursor confinement: no window handle ({err})");
                 }
+                state.platform.pointer_held.set(false);
                 return;
             }
         };
         let RawWindowHandle::Win32(w) = handle.as_raw() else {
+            state.platform.pointer_held.set(false);
             return;
         };
         let hwnd = w.hwnd.get() as *mut c_void;
@@ -1844,6 +1853,7 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
                         clip.bottom
                     );
                 }
+                state.platform.pointer_held.set(false);
                 return;
             }
             // Only issue a call when the clip actually changes. Re-issuing
@@ -1857,6 +1867,7 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
                 None
             };
             if current_cursor_clip() == wanted {
+                state.platform.pointer_held.set(wanted.is_some());
                 return;
             }
             if verbose {
@@ -1877,6 +1888,10 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
             if ok == 0 && verbose {
                 log::warn!("cursor confinement: ClipCursor failed");
             }
+            state
+                .platform
+                .pointer_held
+                .set(state.platform.cursor_confined && ok != 0);
         }
     }
     // Other platforms: use winit's Confined grab. On X11/macOS this confines the
@@ -1891,11 +1906,16 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
         } else {
             CursorGrabMode::None
         };
-        if let Err(err) = state.platform.window.set_cursor_grab(mode) {
+        let grabbed = state.platform.window.set_cursor_grab(mode);
+        if let Err(err) = &grabbed {
             if verbose {
                 log::warn!("cursor confinement unavailable on this platform: {err:#}");
             }
         }
+        state
+            .platform
+            .pointer_held
+            .set(state.platform.cursor_confined && grabbed.is_ok());
     }
 }
 
@@ -1903,6 +1923,7 @@ fn apply_cursor_confinement_impl(state: &AppState, verbose: bool) {
 /// the pointer instead of leaving it trapped over the game window (
 /// behaviour). Presentation-only.
 pub(crate) fn release_cursor_confinement(state: &AppState) {
+    state.platform.pointer_held.set(false);
     #[cfg(target_os = "windows")]
     {
         use windows_sys::Win32::UI::WindowsAndMessaging::ClipCursor;
@@ -2464,7 +2485,18 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                         .unwrap();
                 let feedback =
                     force_fire_feedback(&sim, actor, &target, selected_count, Some(&rules), None)
-                        .unwrap();
+                        .unwrap_or_else(|| {
+                            Some(empty_cell_cursor(
+                                &sim,
+                                Some(&rules),
+                                None,
+                                sim.session().current_house(),
+                                Some(actor),
+                                (x, 2),
+                                super::super::context_order::OrderModifier::ForceFire,
+                                crate::app::types::OrderMode::Move,
+                            ))
+                        });
                 let cursor = feedback
                     .and_then(super::cursor_id_for_feedback)
                     .unwrap_or(CursorId::Default);
@@ -2517,9 +2549,23 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 Some(Some(CursorFeedbackKind::EnemyUnit)),
                 "stationary actor's in-range ground uses the red attack cursor"
             );
+            let feedback =
+                force_fire_feedback(&sim, actor, &TargetKind::Cell(20, y), 1, Some(&rules), None)
+                    .unwrap_or_else(|| {
+                        Some(empty_cell_cursor(
+                            &sim,
+                            Some(&rules),
+                            None,
+                            sim.session().current_house(),
+                            Some(actor),
+                            (20, y),
+                            super::super::context_order::OrderModifier::ForceFire,
+                            crate::app::types::OrderMode::Move,
+                        ))
+                    });
             assert_eq!(
-                force_fire_feedback(&sim, actor, &TargetKind::Cell(20, y), 1, Some(&rules), None),
-                Some(None),
+                feedback,
+                Some(CursorFeedbackKind::Default),
                 "stationary actor's out-of-range action retains the default arrow"
             );
         }

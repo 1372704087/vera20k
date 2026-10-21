@@ -660,11 +660,11 @@ fn quick_match_members() -> Vec<WolMember> {
 /// The matchbot answers a request: `Working` privately, the pool size in
 /// the lobby, then a private `Start` that makes the user the host and
 /// Natasha the guest. Its options: the first two-player map the first mode
-/// admits, the host Russia in colour 1 on start 0, the guest Korea in
-/// colour 3 on start 1.
+/// admits, the host country 5 (Libya) in colour 1 and the guest country 4
+/// (Great Britain) in colour 3, both on automatic starts.
 fn match_requested(state: &mut AppState) {
     let local = nickname(state);
-    let options = match matchbot_options(state, &local) {
+    let options = match matchbot_options(state, &local, GUEST) {
         Ok(options) => Some(Box::new(options)),
         Err(error) => {
             log::warn!("WOL test service: no matchbot options: {error:#}");
@@ -689,9 +689,12 @@ fn match_requested(state: &mut AppState) {
     }
 }
 
-fn matchbot_options(
+/// The options a stand-in matchbot's `Start` carries for `host` and
+/// `guest`, as the host receives them (`local_player_index` 0).
+pub(crate) fn matchbot_options(
     state: &AppState,
-    local: &str,
+    host: &str,
+    guest: &str,
 ) -> anyhow::Result<crate::app::shell_network_setup::HostOptions> {
     use crate::skirmish_launch::{
         LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishHumanSlot, SkirmishLocalSlot,
@@ -728,7 +731,7 @@ fn matchbot_options(
     let mut launch = crate::skirmish_launch::SkirmishLaunchSession {
         mode: crate::skirmish_launch::SkirmishLaunchMode::from_game_mode(mode),
         selected_map_file: Some(file.clone()),
-        humans: vec![human(0, local, 5, 1), human(1, GUEST, 4, 3)],
+        humans: vec![human(0, host, 5, 1), human(1, guest, 4, 3)],
         local_player_index: 0,
         opponents: Vec::new(),
         ai_player_count: 0,

@@ -1007,7 +1007,6 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
 }
 
 /// Diagnostics: the current stage's timeout has passed.
-#[cfg(test)]
 pub(crate) fn expire_stage(state: &mut AppState) {
     if let Some(globals) = globals_mut(state)
         && let Some(timeout) = globals.timeout

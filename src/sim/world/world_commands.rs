@@ -2047,16 +2047,20 @@ impl Simulation {
         target: crate::sim::combat::TargetKind,
     ) -> bool {
         self.planning_detach_actor(entity_id);
-        let target = self.resolve_event_token(Some(target));
-        let Some(building) = self
+        // The target resolves only for a live object (`0x004C6DCD` precedes
+        // `0x006E6E20`), so a dead one stamps no fallback Cell.
+        if !self
             .substrate
             .entities
-            .get_mut(entity_id)
-            .filter(|building| building.lifecycle.object_alive())
-        else {
+            .get(entity_id)
+            .is_some_and(|object| object.lifecycle.object_alive())
+        {
             return false;
-        };
-        building.set_archive_target(target);
+        }
+        let target = self.resolve_event_token(Some(target));
+        if let Some(object) = self.substrate.entities.get_mut(entity_id) {
+            object.set_archive_target(target);
+        }
         true
     }
 

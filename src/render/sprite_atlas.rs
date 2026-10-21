@@ -106,9 +106,7 @@ fn buildup_shp_candidates(
         .map_or(type_id, |object| object.image.as_str());
     art.resolve_metadata_entry(type_id, rules_image)
         .and_then(|entry| entry.buildup.as_deref())
-        .map(|buildup| {
-            crate::rules::buildup_asset_catalog::buildup_shp_names(buildup, theater_name).to_vec()
-        })
+        .map(|buildup| art_data::building_shp_names(buildup, theater_name).to_vec())
         .unwrap_or_default()
 }
 
@@ -2160,9 +2158,9 @@ impl<'a> ShpSource<'a> {
 ///
 /// `file` is the file registration counted the type's frames in (animation,
 /// make and parachute SHPs), so frames come from the file they were counted
-/// in. Other types resolve through rules/art `Image=` and the object naming
-/// (with NewTheater substitution), falling back to direct {TYPE_ID}.SHP when
-/// art data is unavailable.
+/// in. Building bodies resolve through
+/// [`art_data::building_body_shp_candidates`]; other bodies keep the object
+/// naming path through rules/art `Image=`.
 fn load_shp_source<'a>(
     asset_manager: &'a AssetManager,
     type_id: &str,
@@ -2183,8 +2181,8 @@ fn load_shp_source<'a>(
                 type_id
             };
             // Resolve image name: type_id → rules.ini Image= → art.ini Image= override.
-            let rules_image: String = rules
-                .and_then(|r| r.object(base_type_id))
+            let object = rules.and_then(|r| r.object(base_type_id));
+            let rules_image: String = object
                 .map(|o| o.image.clone())
                 .unwrap_or_else(|| base_type_id.to_string());
             let image: String = art
@@ -2193,6 +2191,16 @@ fn load_shp_source<'a>(
             if is_make {
                 art.map(|art| buildup_shp_candidates(art, rules, base_type_id, theater_name))
                     .unwrap_or_default()
+            } else if object.is_some_and(|object| {
+                object.category == crate::rules::object_type::ObjectCategory::Building
+            }) {
+                art_data::building_body_shp_candidates(
+                    art,
+                    &rules_image,
+                    &image,
+                    theater_ext,
+                    theater_name,
+                )
             } else {
                 art_data::object_shp_candidates(art, &image, theater_ext, theater_name)
             }

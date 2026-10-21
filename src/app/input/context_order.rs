@@ -333,13 +333,7 @@ pub(crate) fn attack_action(
     } else {
         AttackAction::None
     };
-    // UnitClass::What_Action_OnCell 0x007404FD..0x00740522: a player's Unit
-    // whose GetWeaponDamageValue(-1) (0x006F3970) is negative, an IFV with an
-    // Engineer, turns Foot's Attack on a Cell into AttackSupport (0x3B), which
-    // every later Unit rung returns unchanged (0x0074072B..0x0074075F).
-    if action == AttackAction::Attack
-        && actor.category() == EntityCategory::Unit
-        && matches!(target, TargetKind::Cell(..))
+    let healing_unit = actor.category() == EntityCategory::Unit
         && human
         && crate::sim::combat::combat_weapon::weapon_damage_value(
             actor,
@@ -347,9 +341,24 @@ pub(crate) fn attack_action(
             sim.entities(),
             rules,
             sim.interner(),
-        ) < 0
-    {
+        ) < 0;
+    // UnitClass::What_Action_OnCell 0x007404FD..0x00740522: a player's Unit
+    // whose GetWeaponDamageValue(-1) (0x006F3970) is negative, an IFV with an
+    // Engineer, turns Foot's Attack on a Cell into AttackSupport (0x3B), which
+    // every later Unit rung returns unchanged (0x0074072B..0x0074075F).
+    if action == AttackAction::Attack && healing_unit && matches!(target, TargetKind::Cell(..)) {
         action = AttackAction::AttackSupport;
+    }
+    // UnitClass::What_Action_OnObject's healer arm (0x0073FD7C)
+    // asks Is_Ally_ByObject (0x004F9A90), which refuses a Terrain object's
+    // null House, so the answer is 0 (0x00740115) and the Foot tail below
+    // makes it NoMove. A Techno target's healer arm is
+    // `Simulation::unit_repair_action`.
+    if healing_unit
+        && let TargetKind::Entity(target_id) = *target
+        && sim.terrain_objects().get(target_id).is_some()
+    {
+        action = AttackAction::None;
     }
     // Unit74077F..7407E5 /740389..7403E8: the fully deployed
     // SimpleDeployer repeats SelectWeapon(NULL), then range. This returns

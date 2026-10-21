@@ -134,6 +134,61 @@ fn retail_engineer_ifv_ctrl_on_the_ground_orders_nothing() {
     );
 }
 
+/// UnitClass::What_Action_OnObject's healer arm (`0x0073FD7C`):
+/// Is_Ally_ByObject (`0x004F9A90`) refuses a tree's null House, so an
+/// Engineer IFV's Ctrl over it answers 0, which the Unit tail makes NoMove
+/// (`0x007403EB`): the click moves it near the tree. A GI's IFV attacks it.
+#[test]
+fn retail_engineer_ifv_ctrl_on_a_tree_moves_near_it() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+        &retail.processed_rules,
+        Some(&retail.fixed_art),
+    );
+    let with_tree = |(mut sim, ifv, _): (Simulation, u64, u64)| {
+        assert_eq!(
+            crate::sim::terrain_spawn::construct_terrain_objects(
+                &mut sim,
+                &[crate::map::overlay::TerrainObject {
+                    rx: 16,
+                    ry: 20,
+                    name: "TREE01".into(),
+                }],
+                rules,
+                false,
+            ),
+            1
+        );
+        let tree = sim.terrain_objects().id_at((16, 20)).unwrap();
+        (sim, ifv, crate::sim::combat::TargetKind::Entity(tree))
+    };
+    let (sim, ifv, tree) = with_tree(repair_ifv(rules));
+    assert_eq!(
+        attack_action(&sim, rules, ifv, &tree, true, Some(&registry)),
+        AttackAction::NoMove
+    );
+    let click = attack_branch_orders(&sim, rules, &[ifv], tree, true, &registry);
+    assert!(click.consumed);
+    assert!(
+        matches!(
+            click.commands.as_slice(),
+            [Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. }]
+                if *entity_id == ifv
+        ),
+        "{:?}",
+        click.commands
+    );
+
+    let (sim, ifv, tree) = with_tree(boarded_ifv(rules, "E1"));
+    assert_eq!(
+        attack_action(&sim, rules, ifv, &tree, true, Some(&registry)),
+        AttackAction::Attack
+    );
+}
+
 fn repair_click(sim: &Simulation, rules: &RuleSet, ifv: u64, tank: u64) -> Command {
     let owner = sim.entities().get(ifv).unwrap().owner();
     let prior = sim.state_hash();

@@ -467,7 +467,8 @@ pub(crate) fn terrain_object_feedback(
 /// ([`Simulation::cell_attack_rung_admits`]) precedes its Shift and Move
 /// rungs, so it answers under every chord but Ctrl (the forced rung above)
 /// and Ctrl+Alt. Its tail is the forced shot's; an answer other than Attack
-/// falls through to the Move rungs. Foot's shroud wrapper turns it back into
+/// or a healing Unit's AttackSupport (the arrow, `0x007404FD`) falls through
+/// to the Move rungs. Foot's shroud wrapper turns it back into
 /// Move or NoMove over a shrouded Cell (`0x004DDE64..0x004DDEBE`); the
 /// Building wrapper (`0x00447540`) keeps a building's Attack there.
 ///

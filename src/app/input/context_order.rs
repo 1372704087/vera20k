@@ -1297,7 +1297,9 @@ pub(super) fn selection_can_attack_move(
 /// Techno object700191..700217 / Cell700830..700894. The keyboard chord
 /// alone is not a Guard action. Object targets must be allied; bare ground
 /// requires IsActive7010D0. Waypoint/patrol input is not exposed by VERA.
-/// Shared by the hover and click producers; no simulation state is changed.
+/// A berserk object answers 0 before the rung (object `0x006FFEC9`, Cell
+/// `0x00700609`). Shared by the hover and click producers; no simulation
+/// state is changed.
 pub(super) fn guard_area_admitted(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -1307,7 +1309,9 @@ pub(super) fn guard_area_admitted(
     let Some(actor) = sim.entities().get(actor_id) else {
         return false;
     };
-    if !sim.house_is_human_player(actor.owner()) || !sim.techno_player_controllable(actor_id, rules)
+    if actor.berserk.is_active()
+        || !sim.house_is_human_player(actor.owner())
+        || !sim.techno_player_controllable(actor_id, rules)
     {
         return false;
     }
@@ -1325,6 +1329,38 @@ pub(super) fn guard_area_admitted(
         }
         None => sim.techno_is_active(actor_id, rules),
     }
+}
+
+/// Techno What_Action on a Cell's Ctrl+Alt rung (`0x00700815..0x007008A3`):
+/// whether `actor_id` answers GuardArea (0x1A) on `cell`, ahead of the move
+/// rungs, as `viewer` sees it. The class wrappers then keep it, except:
+/// - over a shrouded Cell centre a Foot's wrapper turns it into Move or
+///   NoMove (`0x004DDE64..0x004DDEBE`, the bridge-raised test of
+///   [`Simulation::clicked_cell_is_shrouded`]), as the move rungs answer there;
+/// - a Building with a rally line turns it into Move (`0x0044774B`); any
+///   other Building's wrapper (`0x00447540`) keeps it, shroud or not.
+///
+/// The hover, the Foot click and the Building click all ask this.
+///
+/// [`Simulation::clicked_cell_is_shrouded`]: crate::sim::world::Simulation::clicked_cell_is_shrouded
+pub(super) fn cell_guard_area_action(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    viewer: Option<InternedId>,
+    cell: (u16, u16),
+) -> bool {
+    let Some(actor) = sim.entities().get(actor_id) else {
+        return false;
+    };
+    let rewritten = if actor.category() == EntityCategory::Structure {
+        sim.interner()
+            .object_type(actor.type_ref(), rules)
+            .is_some_and(|object| object.has_rally_line())
+    } else {
+        viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true))
+    };
+    !rewritten && guard_area_admitted(sim, rules, actor_id, None)
 }
 
 /// The order one receiver commits for a Move click's destination.
@@ -2347,7 +2383,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 })
                 .map(|target| target.stable_id);
             // Foot4DDDE0's hidden-cell wrapper rewrites a nonzero action
-            // except GuardArea0x33 to Move when MoveToShroud and the playfield
+            // except the planning action 0x33 to Move when MoveToShroud and the playfield
             // admit it, otherwise NoMove (4DDE8F..4DDEB0). It does not preserve
             // Attack5. The ordinary MTNK fall-through below takes Move; other
             // class/shroud combinations remain part of the shared-cell audit.
@@ -2398,9 +2434,16 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     };
                     payload
                 } else if modifier == OrderModifier::GuardArea
-                    && guard_area_admitted(sim, &resources.rules, stable_id, None)
+                    && cell_guard_area_action(
+                        sim,
+                        &resources.rules,
+                        stable_id,
+                        Some(owner_id),
+                        (target_rx, target_ry),
+                    )
                 {
-                    // Ctrl+Alt over bare ground uses the same admission as hover.
+                    // Ctrl+Alt over bare ground uses the same rung as hover;
+                    // a Foot over shroud takes the Move path below.
                     Command::Guard {
                         entity_id: stable_id,
                         target: Some(TargetKind::Cell(target_rx, target_ry)),
@@ -3586,8 +3629,7 @@ fn shot_is_illegal(
 /// has no arm for NoMove or for the Ctrl+Alt guard rung's 0x1A
 /// (`0x0044372F..0x00443737`): a Construction Yard over a Cell it may not
 /// stand on neither archives nor packs up, nor does an active building
-/// without a rally line under `guard_area` ([`guard_area_admitted`],
-/// `0x00700815..0x007008A3`; a rally line turns it into Move, `0x0044774B`).
+/// without a rally line under `guard_area` ([`cell_guard_area_action`]).
 /// A query the sim cannot answer (no map cells) keeps Move: VERA-internal, as
 /// a live gamemd session always has a map.
 #[allow(clippy::too_many_arguments)]
@@ -3616,7 +3658,7 @@ fn building_cell_orders(
         else {
             continue;
         };
-        if guard_area && !object.has_rally_line() && guard_area_admitted(sim, rules, id, None) {
+        if guard_area && cell_guard_area_action(sim, rules, id, Some(owner), cell) {
             continue;
         }
         let action = sim

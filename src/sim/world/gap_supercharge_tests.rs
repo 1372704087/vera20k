@@ -276,3 +276,57 @@ fn an_unpowered_gap_generator_unload_keeps_the_normal_radius_and_no_charge() {
     assert!(entity.gap_supercharged());
     assert!(sim.power_states[&owner].power_recheck_for_test());
 }
+
+/// The off edge reads the running client's own `+0x269` (`0x00454B9B`); in
+/// skirmish that is the current House's copy. Make_Ally under retail
+/// `AllyReveal=yes` leaves the new ally's copy 0: the remove bracket
+/// (`0x004F9B9A`, before the ally bit) takes the gap arm, the re-add bracket
+/// (`0x004F9F4F`) the allied-Building arm. With that ally as the current
+/// House, the outage skips the removal and the super-charge reset although
+/// the owner's copy is still 1, so the charge survives.
+#[test]
+fn an_allied_current_house_without_the_gap_keeps_the_charge_through_the_outage() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    assert!(rules.general.ally_reveal, "retail AllyReveal=yes");
+    let (mut sim, grid, owner, gap) = charged_arena(rules);
+    let ally = sim.interner.get("Russians").unwrap();
+    // Make_Ally refuses an alliance that leaves no live enemy.
+    let enemy = sim.interner.intern("British");
+    sim.houses
+        .register(HouseState::new(enemy, 0, None, false, 0, 10));
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
+    sim.session.set_current_house_for_test(Some(ally));
+    sim.make_ally(owner, ally, rules, None, FrameEffects::default(), false);
+    let deposits = sim
+        .substrate
+        .entities
+        .get(gap)
+        .unwrap()
+        .gap_generator
+        .viewers()
+        .clone();
+    assert!(deposits[&owner].active(), "the owner's copy is re-added");
+    assert!(!deposits[&ally].active(), "the new ally's copy stays 0");
+
+    for x in 0..10 {
+        spawn(&mut sim, rules, "GAGAP", 2 + 2 * x, 20);
+    }
+    for _ in 0..8 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    let entity = sim.substrate.entities.get(gap).unwrap();
+    assert!(
+        entity.gap_supercharged(),
+        "native skirmish keeps the charge"
+    );
+    // The kept 9000 drain holds the House in low power.
+    assert!(
+        !entity.building_last_operational.is_operational(),
+        "the outage ran the off edge"
+    );
+    assert_eq!(totals(&sim, owner), (10000, 10100));
+}

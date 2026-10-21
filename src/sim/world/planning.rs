@@ -35,6 +35,9 @@ impl<'de> Deserialize<'de> for PlanningState {
             paths: BTreeMap<u64, PlanningPath>,
         }
         let stored = StoredPlanningState::deserialize(deserializer)?;
+        if crate::util::save_codec::layout::describing() {
+            return Ok(Self::default());
+        }
         let mut state = Self {
             next_node: stored.next_node,
             nodes: stored.nodes,

@@ -41,7 +41,7 @@ pub enum InfantryDeathSequence {
 }
 
 impl InfantryDeathSequence {
-    fn for_inf_death(inf_death: u8) -> Option<Self> {
+    fn for_inf_death(inf_death: i32) -> Option<Self> {
         match inf_death {
             1 => Some(Self::Die1),
             2 => Some(Self::Die2),
@@ -58,7 +58,9 @@ impl InfantryDeathSequence {
 
 enum ReceiverDeathRecipe {
     Sequence,
-    ExternalAnim(u8),
+    ExternalAnim(i32),
+    /// An InfDeath off the table (`0x005185CC`), the warhead default 0
+    /// included: neither sequence nor anim, then UnInit.
     Cleanup,
     /// DropAsBomb water landing (`0x005181B5..0x005182AF`): Wake at
     /// Location and SplashList[0] three leptons higher, then the common
@@ -193,15 +195,15 @@ impl InfantryDeathPostlude {
 
 /// The InfDeath arm whose anim is `[General] InfantryExplode=`: a `JumpJet=`
 /// infantryman's death builds it whatever the warhead (`0x00518313`).
-const INFANTRY_EXPLODE_INF_DEATH: u8 = 3;
+const INFANTRY_EXPLODE_INF_DEATH: i32 = 3;
 
 /// The InfDeath arm whose anim is `[General] InfantryVirus=` and takes an
 /// owner (`0x00518826..0x005188A9`).
-const VIRUS_INF_DEATH: u8 = 8;
+const VIRUS_INF_DEATH: i32 = 8;
 
 /// The InfDeath arm whose anim is `[General] InfantryMutate=`
 /// (`0x005188AE..0x00518B2C`).
-const INFANTRY_MUTATE_INF_DEATH: u8 = 9;
+const INFANTRY_MUTATE_INF_DEATH: i32 = 9;
 
 /// The InfDeath an infantryman dies with while its action is still Paradrop
 /// (`+0x6C4` 0x21), whatever the warhead's (`0x0051836F..0x0051842F`): a
@@ -210,7 +212,7 @@ const INFANTRY_MUTATE_INF_DEATH: u8 = 9;
 ///
 /// InfDeath8 first emits the same temporary-anim single particle as the
 /// animal branch (51837E..51842C), before the ordinary explosion.
-const PARADROP_INF_DEATH: u8 = INFANTRY_EXPLODE_INF_DEATH;
+const PARADROP_INF_DEATH: i32 = INFANTRY_EXPLODE_INF_DEATH;
 
 /// The arm of `InfantryClass::ReceiveDamage`'s death ladder (`0x00517FA0`)
 /// that takes a killed infantryman, as far as VERA ports the ladder.
@@ -225,7 +227,7 @@ enum InfantryDeathArm {
     /// (`0x0051850F`) whatever the InfDeath.
     NotHuman,
     /// The InfDeath table (`0x00518D58`) with this InfDeath.
-    Table(u8),
+    Table(i32),
 }
 
 impl Simulation {
@@ -293,7 +295,7 @@ impl Simulation {
     fn infantry_death_arm(
         &self,
         entity: &crate::sim::game_entity::GameEntity,
-        inf_death: u8,
+        inf_death: i32,
         rules: &RuleSet,
     ) -> InfantryDeathArm {
         if let Some(location) = self.dropped_bomb_water_death_location(entity.stable_id()) {
@@ -410,11 +412,12 @@ impl Simulation {
     /// Stop_Driver (`0x005180FE`) and Stun (`0x00518108`), which stop its
     /// locomotor with Scenario draws.
     ///
-    /// RESIDUAL: native tests `Crashable=` after every anim arm, not only the
-    /// JumpJet one. Trigger: a `Crashable=` type without `JumpJet=`, which
-    /// retail lacks (its Crashable infantry, JUMPJET and LUNR, are JumpJet
-    /// types by the production reader). Effect: it would crash instead of
-    /// being UnInit.
+    /// RESIDUAL: native tests `Crashable=` (`0x005185F1`) after every anim arm
+    /// and after an InfDeath off the table (the warhead default 0 included),
+    /// not only after the JumpJet one. Trigger: a `Crashable=` type without
+    /// `JumpJet=`, which retail lacks (its Crashable infantry, JUMPJET and
+    /// LUNR, are JumpJet types by the production reader). Effect: it would
+    /// crash instead of being UnInit.
     ///
     /// RESIDUAL: a walker skips that Stop_Driver and Stun. Trigger: every
     /// infantry death. Effect: none observable: its Walk stop and Stun repeat
@@ -429,7 +432,7 @@ impl Simulation {
     pub(crate) fn begin_infantry_receiver_death(
         &mut self,
         id: u64,
-        inf_death: u8,
+        inf_death: i32,
         house: Option<crate::sim::intern::InternedId>,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -712,6 +715,65 @@ mod corpse_tests {
                 .is_none_or(|corpse| !corpse.lifecycle.object_alive())
         );
         assert_eq!(nukedie(&sim), 1);
+    }
+
+    /// Retail `[CometWH]` (the Prism Tank's beam and its shrapnel fragments)
+    /// and `[GrandCannonWH]` name no `InfDeath=`, so the production reader
+    /// keeps the WarheadTypeClass constructor's 0 (`0x0075CF14`). Killed by
+    /// either through the production receiver, an E1 takes no table arm
+    /// (`0x005185C8`: `InfDeath - 1` is above 9 unsigned) and is UnInit inside
+    /// the killing call (`0x005185F1` -> `0x00518B9A`): no death sequence, no
+    /// anim, no corpse. `[SA]`'s `InfDeath=1` still leaves the Die1 corpse.
+    #[test]
+    fn retail_warheads_without_inf_death_remove_the_infantryman_at_once() {
+        let Some(mut rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+        else {
+            return;
+        };
+        let Some(art) = crate::rules::retail_ini_fixture::retail_ini("artmd.ini") else {
+            return;
+        };
+        rules.bind_animation_sequences(
+            &crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art),
+        );
+        for (warhead, inf_death) in [("CometWH", 0), ("GrandCannonWH", 0), ("SA", 1)] {
+            assert_eq!(
+                rules.warhead(warhead).unwrap().inf_death,
+                inf_death,
+                "{warhead}"
+            );
+            let mut sim = Simulation::new();
+            crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+            let id = sim
+                .spawn_object("E1", "Americans", 5, 5, 0, &rules)
+                .unwrap();
+            let hit = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                id,
+                100_000,
+                0,
+                crate::sim::combat::RAD_NO_ATTACKER,
+                None,
+                sim.interner.intern(warhead),
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses: false,
+                    arg6: false,
+                },
+            );
+            sim.commit_noncombat_aoe_hits(&rules, None, &[hit], FrameEffects::default());
+            let entity = sim.substrate.entities.get(id).unwrap();
+            assert_eq!(entity.health.current(), 0, "{warhead}");
+            assert_eq!(sim.anims().count(), 0, "{warhead}: no InfDeath anim");
+            let doing = entity.mission_leaf.as_infantry().unwrap().doing();
+            if inf_death == 0 {
+                assert!(!entity.lifecycle.object_alive(), "{warhead}: UnInit");
+                assert!(sim.substrate.pending_delete.contains_object(&id));
+                assert_ne!(doing, 11, "{warhead}: no Die1");
+            } else {
+                assert!(entity.lifecycle.object_alive(), "the Die1 corpse stays");
+                assert!(!sim.substrate.pending_delete.contains_object(&id));
+                assert_eq!(doing, 11);
+            }
+        }
     }
 
     /// The zero-count refusal (`0x0051D70F`) that leaves a killed

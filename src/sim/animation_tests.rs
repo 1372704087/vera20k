@@ -592,12 +592,12 @@ fn normalized_action_delay_uses_session_game_speed() {
 #[test]
 fn gsi_08_13_death_sequence_and_anim_arms_are_exclusive() {
     use crate::sim::animation::inf_death_spawns_anim;
-    // The jump table at 0x00518D58 dispatches on `InfDeath - 1` over 0..9.
-    // 0 and > 10 fall off it entirely.
-    assert_eq!(death_sequence_for_inf_death(0), None);
-    assert!(!inf_death_spawns_anim(0));
-    assert_eq!(death_sequence_for_inf_death(11), None);
-    assert!(!inf_death_spawns_anim(11));
+    // The jump table at 0x00518D58 dispatches on `InfDeath - 1` over 0..9
+    // unsigned. 0, negatives and > 10 fall off it entirely.
+    for off_table in [0, -1, 11] {
+        assert_eq!(death_sequence_for_inf_death(off_table), None);
+        assert!(!inf_death_spawns_anim(off_table));
+    }
     // 1 and 2 are the only sequence arms, and they spawn no animation.
     assert_eq!(death_sequence_for_inf_death(1), Some(SequenceKind::Die1));
     assert_eq!(death_sequence_for_inf_death(2), Some(SequenceKind::Die2));
@@ -605,7 +605,7 @@ fn gsi_08_13_death_sequence_and_anim_arms_are_exclusive() {
     assert!(!inf_death_spawns_anim(2));
     // 3..=10 are animation arms, and they select no sequence — Die3, Die4 and
     // Die5 are unreachable from the death handler.
-    for inf_death in 3..=10u8 {
+    for inf_death in 3..=10 {
         assert_eq!(death_sequence_for_inf_death(inf_death), None);
         assert!(inf_death_spawns_anim(inf_death));
     }

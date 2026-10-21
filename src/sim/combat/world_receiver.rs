@@ -1796,7 +1796,15 @@ fn finish_concrete_death(
         world.drop_unit_cargo_crate(dead_id, rules, overlay_registry);
     }
 
-    let inf_death = killing_warhead.as_ref().map_or(1, |(wh, _)| wh.inf_death);
+    // InfantryClass::ReceiveDamage reads the killing call's InfDeath off its
+    // warhead argument with no null test (`0x00518362..0x00518369`).
+    // commit_entities hands every production kill that call's record, whose
+    // warhead its receiver resolved (a record it cannot resolve does no
+    // damage). Only a receiver fixture without one falls back, to the
+    // constructor's InfDeath.
+    let inf_death = killing_warhead
+        .as_ref()
+        .map_or(WarheadType::DEFAULT_INF_DEATH, |(wh, _)| wh.inf_death);
     if category == EntityCategory::Infantry {
         // `InfantryClass::ReceiveDamage` on result 4 (`0x00518077..0x0051808E`):
         // a dying slave leaves its master's node (RemoveSlave).

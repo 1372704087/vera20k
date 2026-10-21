@@ -1218,6 +1218,12 @@ impl MultiplayerShellRuntime {
         }
     }
 
+    /// Cooperative `+0xA8` (`0x005C42D0`): `None` without an active record
+    /// (the dialog does not run), else `CurrentMap < count` (`0x005C4432`).
+    pub(crate) fn cooperative_can_continue(&self) -> Option<bool> {
+        Some(self.cooperative_progress.active()?.can_continue())
+    }
+
     /// `0x0049D070` on the active record: the next stage's map token.
     pub(crate) fn cooperative_next_scenario_token(&self) -> Option<&str> {
         self.cooperative_progress.active()?.next_scenario_token()

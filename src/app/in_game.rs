@@ -29,7 +29,7 @@ impl App {
     /// Main_Game's post-scenario write `0x00699450` (`0x0048CF79`): the
     /// TauntsOn and ScrollText switches persist after a LAN or WOL scenario
     /// returns. Skirmish and campaign never write them.
-    pub(super) fn persist_returned_session_toggles(state: &mut AppState) {
+    pub(crate) fn persist_returned_session_toggles(state: &mut AppState) {
         if state.match_state.session_mode().is_network() {
             state
                 .frontend

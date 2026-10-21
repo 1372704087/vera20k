@@ -5,6 +5,7 @@
 pub(crate) mod camera;
 pub(crate) mod chat;
 pub(crate) mod commands;
+pub(crate) mod coop_score;
 pub(crate) mod context_order;
 pub(crate) mod cursor;
 pub(crate) mod connection;

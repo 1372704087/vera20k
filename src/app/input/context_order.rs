@@ -958,13 +958,21 @@ fn attack_branch_orders(
             AttackAction::Attack => {
                 consumed_attack_action = true;
                 let payload = match attack_target {
-                    // RESIDUAL: under the attack-move chord or mode
-                    // ClickedMission promotes this Attack as well, whatever
-                    // its target (`0x006FFC09..0x006FFC1E`), to an
-                    // attack-move with the Cell as its target, which VERA
-                    // does not model. Trigger: Ctrl on the ground in the
-                    // mode, or the unforced Cell rung (an enemy wall) under
-                    // the chord or in the mode. Rare.
+                    // Under the attack-move chord or mode ClickedMission
+                    // promotes this Attack whatever its target
+                    // (`0x006FFC09..0x006FFC1E`): an attack-move with the
+                    // Cell as its target and no destination, the tokens Foot
+                    // ClickedAction_Cell sends (`0x004D80E9..0x004D80FF`).
+                    TargetKind::Cell(target_rx, target_ry)
+                        if order_mode == OrderMode::AttackMove
+                            && entity_can_attack_move(sim, Some(rules), id) =>
+                    {
+                        Command::AttackMove {
+                            entity_id: id,
+                            target: Some(TargetKind::Cell(target_rx, target_ry)),
+                            destination: None,
+                        }
+                    }
                     TargetKind::Cell(target_rx, target_ry) => Command::ForceAttackCell {
                         attacker_id: id,
                         target_rx,

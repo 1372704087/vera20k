@@ -158,12 +158,23 @@ retail addresses and compare every byte, without checking the file hash.
 
 ### Evidence identity
 
-New reference sidecars record no executable hash; `replay_command` records how the
-payload was made. `--check` ignores a legacy `native_sha256` in an older sidecar and
-`--write` drops it. Older JSON evidence keeps its hash fields as inert history until
-it is regenerated. `image_sha256()` returns `NATIVE_SHA256`, a fixed label that older
-payload schemas carry; it is not a hash of the selected file. To compare two
-releases' code, use `python -m tools.native_inspect sections`.
+Every `gamemd.exe` build is the same game, so references record what the executable
+computes, never which build ran it; `replay_command` records how the payload was
+made. `finish_vectors` refuses, under `--check` and `--write` alike, output that would
+publish a `gamemd.exe` hash: the configured executable's SHA-256 anywhere in the
+payload, its sidecars or the raw archive, or the `NATIVE_SHA256` label at a JSON path
+where the existing reference does not already carry it. It recognizes only those two
+digests, so record no other hash of the executable or its sections either. Producers
+with their own writers bypass the check; new comparisons use `finish_vectors`.
+
+Older evidence keeps its label fields as inert history until its producer drops them.
+The `homing_impact`, `ordinary_collision` and `shared_collision` projectile producers
+still hash the executable into such a field, so on another build they stop with this
+refusal instead of a payload mismatch.
+`--check` ignores a legacy `native_sha256` in an older sidecar and `--write` drops it.
+`image_sha256()` returns `NATIVE_SHA256`, a fixed label that older payload schemas
+carry; it is not a hash of the selected file. To compare two releases' code, use
+`python -m tools.native_inspect sections`.
 Ghidra annotation ledgers replay on any `gamemd.exe` program; a legacy
 `program_sha256` in an older ledger is ignored.
 
@@ -442,6 +453,8 @@ branches and boundaries. Avoid a second Python implementation of the algorithm.
   pin no repository sources, and `--check` compares every field but
   `replay_command`. Do not list the Rust consumers either: the native run executes
   no Rust, and their own tests compare them with the corpus.
+* Record no hash of `gamemd.exe` in the payload or provenance: not `image_sha256()`,
+  `NATIVE_SHA256` or a digest of `image_bytes()` (see Evidence identity).
 * Consume native outputs in a focused Rust test of the actual production function.
   Assert case identity/coverage as well as output equality, and review the connection
   to callers independently. The HSV example checks 2,304 inputs, not all 256³ inputs
@@ -545,8 +558,8 @@ python -m unittest tools.test_native_oracle -v
 
 These test runner behavior, not retail behavior. The tests cover limits, faults,
 premature stops, alternate exits, missing paths, fresh state, FSTP completion,
-executable selection, legacy `native_sha256` handling, reference preservation,
-provenance mismatches, and diagnostics.
+executable selection, legacy `native_sha256` handling, executable-hash refusal,
+reference preservation, provenance mismatches, and diagnostics.
 
 ## Saved-map browser comparisons
 

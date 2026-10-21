@@ -70,7 +70,13 @@ pub(crate) struct WolLobbyGlobals {
     /// `[0xB78608]`: the options sink's preview-request stamp in 16 ms
     /// buckets, first set by its one-time init (`0x007A7EA0..0x007A7ED3`).
     pub(crate) preview_stamp: Option<u32>,
-    /// The high-score table `0xB76640`, keyed by the ASCII-lowered name.
+    /// The ladder table `0xB77D80` (`[0xB77E0C]` outside mode 3; `0x00780110`
+    /// clears only the clan and mode-3 tables) and the high-score table
+    /// `0xB76640`, keyed by the ASCII-lowered name the lookups use
+    /// (`0x007B5B30`).
+    /// RESIDUAL: Quick Match's mode-3 ladder table `0xB73AF8`, which the
+    /// WOL reset clears, shares this table.
+    pub(crate) ladder: std::collections::HashMap<String, service::WolLadderRecord>,
     pub(crate) high_scores: std::collections::HashMap<String, service::WolHighScoreRecord>,
 }
 
@@ -530,10 +536,8 @@ fn listed_requests(listed: &[WolMember], ranked: impl Fn(&str) -> bool) -> Vec<L
 }
 
 fn request_listed(state: &mut AppState, listed: &[WolMember]) {
-    let ladder = state.frontend.wol.as_ref().map(|visit| &visit.ladder);
-    let requests = listed_requests(listed, |key| {
-        ladder.is_some_and(|ladder| ladder.contains_key(key))
-    });
+    let ladder = &state.frontend.wol_lobby_globals.ladder;
+    let requests = listed_requests(listed, |key| ladder.contains_key(key));
     for listed in requests {
         match listed {
             ListedRequest::Squad(squad) => request_squad(state, squad),
@@ -560,25 +564,29 @@ fn ladder_rank(
 
 /// Each member joins the lobby's users by the player sort.
 fn insert_members(state: &mut AppState, members: impl IntoIterator<Item = WolMember>) {
-    let sort = state.frontend.wol_lobby_globals.player_sort;
-    let Some(visit) = state.frontend.wol.as_mut() else {
+    let globals = &state.frontend.wol_lobby_globals;
+    let Some(lobby) = state
+        .frontend
+        .wol
+        .as_mut()
+        .and_then(|visit| visit.lobby.as_deref_mut())
+    else {
         return;
     };
-    let Some(lobby) = visit.lobby.as_deref_mut() else {
-        return;
-    };
-    let rank = |name: &str| ladder_rank(&visit.ladder, name);
+    let (sort, rank) = (globals.player_sort, |name: &str| {
+        ladder_rank(&globals.ladder, name)
+    });
     for member in members {
         insert_member(&mut lobby.members, member, sort, &rank);
     }
 }
 
-/// The ladder sink's re-sort (`0x007A3966..0x007A39C4`): outside a game
-/// channel and under a rank sort, the user of a stored record leaves the
-/// users and joins them again.
+/// The ladder sink's re-sort (`0x007A3966..0x007A39C4`): under a rank
+/// sort, while the current channel's kind (`[0xB76B10]`) is 0, the user of a
+/// stored record leaves the users and joins them again.
 pub(super) fn rank_changed(state: &mut AppState, name: &str) {
     let sort = state.frontend.wol_lobby_globals.player_sort;
-    if !matches!(sort, 2 | 3) || in_game_channel(state) {
+    if !matches!(sort, 2 | 3) || !chat_kind_current(state) {
         return;
     }
     let Some(lobby) = lobby_mut(state) else {
@@ -595,11 +603,12 @@ pub(super) fn rank_changed(state: &mut AppState, name: &str) {
     insert_members(state, [member]);
 }
 
-/// `[0xB76B10]`: a game channel is the current channel.
-fn in_game_channel(state: &AppState) -> bool {
+/// `[0xB76B10] == 0`: the current channel record's kind is 0, or no
+/// channel is current.
+fn chat_kind_current(state: &AppState) -> bool {
     lobby(state)
         .and_then(|lobby| lobby.current.as_ref())
-        .is_some_and(|channel| channel.kind == GAME_CHANNEL)
+        .is_none_or(|channel| channel.kind == 0)
 }
 
 /// The high-score sink `0x007A3B30`: each record replaces the table's
@@ -1043,7 +1052,7 @@ pub(super) fn refill_players(state: &mut AppState) {
         .frontend
         .multiplayer_shell_runtime
         .cooperative_campaign_count();
-    let high_scores = &state.frontend.wol_lobby_globals.high_scores;
+    let globals = &state.frontend.wol_lobby_globals;
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;
     };
@@ -1056,19 +1065,22 @@ pub(super) fn refill_players(state: &mut AppState) {
             .iter()
             .map(|member| {
                 let key = member.name.to_ascii_lowercase();
-                let icons = high_scores.get(&key).map_or_else(Vec::new, |record| {
-                    score_icons(
-                        PlayerScore {
-                            points: record.points,
-                            rank: record.rank,
-                            coop: record.coop,
-                        },
-                        campaigns,
-                    )
-                });
+                let icons = globals
+                    .high_scores
+                    .get(&key)
+                    .map_or_else(Vec::new, |record| {
+                        score_icons(
+                            PlayerScore {
+                                points: record.points,
+                                rank: record.rank,
+                                coop: record.coop,
+                            },
+                            campaigns,
+                        )
+                    });
                 WolPlayerRow::from_member(
                     member,
-                    visit.ladder.get(&key).map(|record| record.rank),
+                    globals.ladder.get(&key).map(|record| record.rank),
                     icons,
                 )
             })
@@ -1861,10 +1873,14 @@ fn dispatch(state: &mut AppState, action: WolLobbyAction) {
             let globals = &mut state.frontend.wol_lobby_globals;
             if let Some(sort) = toggle_player_sort(control, globals.player_sort) {
                 globals.player_sort = sort;
-                if let Some(visit) = state.frontend.wol.as_mut()
-                    && let Some(lobby) = visit.lobby.as_deref_mut()
+                let globals = &state.frontend.wol_lobby_globals;
+                if let Some(lobby) = state
+                    .frontend
+                    .wol
+                    .as_mut()
+                    .and_then(|visit| visit.lobby.as_deref_mut())
                 {
-                    let rank = |name: &str| ladder_rank(&visit.ladder, name);
+                    let rank = |name: &str| ladder_rank(&globals.ladder, name);
                     resort_members(&mut lobby.members, sort, &rank);
                 }
                 refill_players(state);
@@ -2401,14 +2417,13 @@ pub(super) fn service_event(state: &mut AppState, event: WolServiceEvent) {
                 // 0x7A6542..0x7A662D: the lowered name's ladder record and
                 // high score, each unless its table holds it, before the
                 // insert.
+                // RESIDUAL: native kicks a game-channel joiner while a start
+                // is pending ([0xB77DEC]/[0xB77E28]/[0xB77E27]) before these
+                // requests and the insert; VERA kicks in setup::user_joined.
                 let key = name.to_ascii_lowercase();
-                let visit = state.frontend.wol.as_ref().expect("checked");
-                let ladder = !visit.ladder.contains_key(&key);
-                let high_score = !state
-                    .frontend
-                    .wol_lobby_globals
-                    .high_scores
-                    .contains_key(&key);
+                let globals = &state.frontend.wol_lobby_globals;
+                let ladder = !globals.ladder.contains_key(&key);
+                let high_score = !globals.high_scores.contains_key(&key);
                 if ladder {
                     request(state, WolServiceRequest::LadderRecords(vec![key.clone()]));
                 }
@@ -3459,7 +3474,7 @@ fn user_help(state: &AppState, name: &str, member: Option<&WolMember>) -> String
     };
     let key = name.to_ascii_lowercase();
     let mut help = format!("{name} : ");
-    match visit.ladder.get(&key) {
+    match state.frontend.wol_lobby_globals.ladder.get(&key) {
         Some(record) => {
             help.push_str(&csf(state, "TXT_RANK"));
             help.push(' ');

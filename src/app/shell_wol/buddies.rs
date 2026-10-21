@@ -307,23 +307,29 @@ const LADDER_TABLE_LIMIT: usize = 2000;
 /// in VERA; the `0x57F` ladder list it fills instead of the player list is
 /// not ported.
 pub(super) fn ladder_received(state: &mut AppState, records: Vec<WolLadderRecord>) {
-    let Some(visit) = state.frontend.wol.as_mut() else {
-        return;
-    };
-    if visit.in_game || records.is_empty() {
+    if state
+        .frontend
+        .wol
+        .as_ref()
+        .is_none_or(|visit| visit.in_game)
+        || records.is_empty()
+    {
         return;
     }
-    if visit.ladder.len() > LADDER_TABLE_LIMIT {
-        visit.ladder.clear();
+    let ladder = &mut state.frontend.wol_lobby_globals.ladder;
+    if ladder.len() > LADDER_TABLE_LIMIT {
+        ladder.clear();
     }
     for record in records {
         if record.points == -1 {
             continue;
         }
         let name = record.name.clone();
-        if let Some(visit) = state.frontend.wol.as_mut() {
-            visit.ladder.insert(name.to_ascii_lowercase(), record);
-        }
+        state
+            .frontend
+            .wol_lobby_globals
+            .ladder
+            .insert(name.to_ascii_lowercase(), record);
         super::lobby::rank_changed(state, &name);
     }
     super::lobby::refill_players(state);

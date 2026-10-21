@@ -542,14 +542,13 @@ impl WolVisit {
             (Awaiting::Api, WolServiceEvent::Api(WolApiStatus::Available)) => {
                 // 0x00786390 creates the object once per visit ([0xB77E75]);
                 // only then does it reset the WOL globals (0x00780110),
-                // including [0xB77AD0], the selected record and the ladder
-                // and locale tables, and set [0xB77DC0] (0x00786485) until a
+                // including [0xB77AD0], the selected record and the locale
+                // table, and set [0xB77DC0] (0x00786485) until a
                 // connect clears it.
                 if !self.api {
                     self.api = true;
                     self.last_error = None;
                     self.selected_server = 0;
-                    self.ladder.clear();
                     self.locales.clear();
                     // 0x0078061B..0x0078065F.
                     self.squad_id = 0;

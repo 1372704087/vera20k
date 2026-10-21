@@ -67,6 +67,7 @@ fn input<'a>(
         },
         viewport: [-10000.0, -10000.0, 20000.0, 20000.0],
         legacy_policy: RenderZPolicy::ReadOnly,
+        bounce_drop_px: None,
         body: SpriteInstance {
             position: [100.0 + entry.offset_x, 200.0 + entry.offset_y],
             size: entry.pixel_size,
@@ -154,23 +155,128 @@ fn flat_has_one_flat_body_with_its_separate_minus_three_term() {
 }
 
 #[test]
-fn disabled_shadow_and_special_draw_arms_do_not_gain_a_second_pass() {
-    for keys in [
-        "Shadow=no\n",
-        "Tiled=yes\n",
-        "Bouncer=yes\n",
-        "IsMeteor=yes\n",
-    ] {
+fn disabled_shadow_and_the_tiled_arm_do_not_gain_a_second_pass() {
+    for keys in ["Shadow=no\n", "Tiled=yes\n"] {
         let (atlas, key, config) = fixture(keys);
         let pieces = anim_draw_pieces(&atlas, input(&atlas, &key, &config));
         assert_eq!(pieces.len(), 1, "{keys}");
-        if config.tiled || config.bouncer || config.is_meteor {
+        if config.tiled {
             assert_eq!(
                 pieces[0].instance.alpha, 0.5,
                 "special arm keeps its existing body path"
             );
         }
     }
+}
+
+#[test]
+fn bouncer_and_meteor_bodies_take_the_ordinary_arms_without_a_type_keyed_ground_shadow() {
+    // DrawIt has no Bouncer/IsMeteor body arm: 4237AE draws their body and
+    // 42382C their Shadow= pass. Only the instance byte +194 adds a pass.
+    let summary = |pieces: Vec<ObjectPieceInstance>| {
+        pieces
+            .into_iter()
+            .map(|piece| {
+                let bytes = bytemuck::bytes_of(&piece.instance).to_vec();
+                (piece.target, piece.render_z, bytes)
+            })
+            .collect::<Vec<_>>()
+    };
+    let (atlas, key, config) = fixture("");
+    let ordinary = summary(anim_draw_pieces(&atlas, input(&atlas, &key, &config)));
+    assert_eq!(ordinary.len(), 2);
+    for keys in ["Bouncer=yes\n", "IsMeteor=yes\n"] {
+        let (atlas, key, config) = fixture(keys);
+        assert!(ordinary_anim_type(&key.type_id, Some(&config)), "{keys}");
+        let pieces = summary(anim_draw_pieces(&atlas, input(&atlas, &key, &config)));
+        assert_eq!(pieces, ordinary, "{keys}");
+    }
+}
+
+#[test]
+fn has_bounce_draws_the_body_frame_as_a_z_read_ground_shadow_before_the_body() {
+    let (atlas, key, config) = fixture("Bouncer=yes\n");
+    let mut draw = input(&atlas, &key, &config);
+    // Producer flags 600: the Shadow= pass keeps them and never tests Z,
+    // while 4233D2's own 2601 always reads it.
+    draw.flags = 0x600;
+    draw.bounce_drop_px = Some(37);
+    let pieces = anim_draw_pieces(&atlas, draw);
+    assert_eq!(pieces.len(), 3);
+    let [ground, body, shadow] = [&pieces[0], &pieces[1], &pieces[2]];
+    assert_eq!(
+        ground.target,
+        ObjectTexture::SpriteAtlasEdit(1, TerrainPiece::Shadow),
+        "the body frame's own page is the stencil"
+    );
+    assert_eq!(ground.render_z, RenderZPolicy::ReadOnly);
+    assert_eq!(
+        ground.instance.position,
+        [103.0, 248.0],
+        "point + AdjustForZ(GetHeight), then the body frame's offset"
+    );
+    assert_eq!(ground.instance.size, body.instance.size);
+    assert_eq!(ground.instance.uv_origin, body.instance.uv_origin);
+    assert_eq!(ground.instance.uv_size, body.instance.uv_size);
+    assert_eq!(ground.instance.source_palette, 5);
+    assert_eq!(
+        ground.instance.z_adjust, -2.0,
+        "YDrawOffset 7 - AdjustForZ(GetCoordZ) 9"
+    );
+    assert_eq!(
+        ground.instance.z_gradient,
+        pack_z_gradient(ZGradient::Flat, false)
+    );
+    assert_eq!(ground.instance.draw_state.native_selector_bits(), 1);
+    assert_eq!(ground.instance.palette_light.brightness(), 1000);
+    assert_eq!(ground.instance.palette_light.colour_word(), 0);
+    assert_eq!(ground.instance.alpha, 1.0);
+    assert_eq!(body.target, ObjectTexture::ShpPage(1));
+    assert_eq!(body.instance.position, [103.0, 211.0]);
+    assert_eq!(body.instance.z_adjust, 13.0);
+    assert_eq!(
+        shadow.target,
+        ObjectTexture::SpriteAtlasEdit(2, TerrainPiece::Shadow)
+    );
+    assert_eq!(shadow.render_z, RenderZPolicy::None);
+}
+
+#[test]
+fn the_ground_shadow_precedes_a_special_body_and_needs_a_drawn_body_frame() {
+    let (atlas, key, config) = fixture("Tiled=yes\n");
+    let mut draw = input(&atlas, &key, &config);
+    draw.bounce_drop_px = Some(-4);
+    let pieces = anim_draw_pieces(&atlas, draw);
+    assert_eq!(pieces.len(), 2);
+    assert_eq!(
+        pieces[0].target,
+        ObjectTexture::SpriteAtlasEdit(1, TerrainPiece::Shadow)
+    );
+    assert_eq!(
+        pieces[0].instance.position,
+        [103.0, 207.0],
+        "a negative height raises it"
+    );
+    assert_eq!(pieces[1].target, ObjectTexture::ShpPage(1));
+
+    // A zero-sized body frame has no entry: the same frame draws no shadow,
+    // while the later Shadow= pass keeps its own frame.
+    let (source, key, config) = fixture("Bouncer=yes\n");
+    let mut shadow_key = key.clone();
+    shadow_key.frame = 6;
+    let atlas = SpriteAtlas::from_test_entries(HashMap::from([(
+        shadow_key.clone(),
+        *source.get(&shadow_key).unwrap(),
+    )]));
+    let mut draw = input(&source, &key, &config);
+    draw.entry = atlas.get(&key);
+    draw.bounce_drop_px = Some(37);
+    let pieces = anim_draw_pieces(&atlas, draw);
+    assert_eq!(pieces.len(), 1);
+    assert_eq!(
+        pieces[0].target,
+        ObjectTexture::SpriteAtlasEdit(2, TerrainPiece::Shadow)
+    );
 }
 
 #[test]
@@ -223,6 +329,17 @@ fn empty_body_bounds_still_draw_the_companion_shadow_at_the_resolved_point() {
 fn free_anim_draw(
     empty_body: bool,
 ) -> Vec<crate::app::presentation::render::draw_plan_lowering::PlannedObjectInstance> {
+    free_anim_draw_with("", 0, empty_body)
+}
+
+/// One free ANIM, `extra_keys` appended to its art, constructed `level`
+/// height levels up on a mapless simulation (ground 0), through the
+/// production Display caller.
+fn free_anim_draw_with(
+    extra_keys: &str,
+    level: u8,
+    empty_body: bool,
+) -> Vec<crate::app::presentation::render::draw_plan_lowering::PlannedObjectInstance> {
     use crate::app::presentation::instances::{
         DisplayEffectInputs, build_display_effect_instances,
     };
@@ -231,8 +348,9 @@ fn free_anim_draw(
     use crate::util::fixed_math::SIM_ZERO;
     use std::cell::RefCell;
 
-    let art_ini =
-        IniFile::from_str("[ANIM]\nLayer=ground\nShadow=yes\nStart=1\nEnd=2\nYDrawOffset=7\n");
+    let art_ini = IniFile::from_str(&format!(
+        "[ANIM]\nLayer=ground\nShadow=yes\nStart=1\nEnd=2\nYDrawOffset=7\n{extra_keys}"
+    ));
     let mut rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
         &IniFile::from_str("[Animations]\n0=ANIM\n"),
         &art_ini,
@@ -257,7 +375,7 @@ fn free_anim_draw(
     let atlas = SpriteAtlas::from_test_entries(entries);
     let mut sim = Simulation::new();
     let mut descriptor =
-        AnimClassSpawnDescriptor::new(sim.intern("ANIM"), 4, 4, SIM_ZERO, SIM_ZERO, 0);
+        AnimClassSpawnDescriptor::new(sim.intern("ANIM"), 4, 4, SIM_ZERO, SIM_ZERO, level);
     descriptor.draw_flags = 0x600;
     let id = sim.spawn_anim_object(&rules, descriptor).unwrap();
     let order = NativeDisplayOrder::from_display(sim.display_layers());
@@ -331,5 +449,102 @@ fn free_anim_caller_draws_the_shadow_of_an_empty_body_frame() {
     assert_eq!(
         planned[0].pieces[0].instance.z_adjust,
         full[0].pieces[1].instance.z_adjust
+    );
+}
+
+#[test]
+fn bounce_drop_measures_the_drawn_location_against_the_ground_read_only() {
+    use crate::sim::{components::AnimClassSpawnDescriptor, world::Simulation};
+    use crate::util::fixed_math::SIM_ZERO;
+    use crate::util::native_x87::adjust_for_z_standard;
+    let art_ini = IniFile::from_str(
+        "[DEBRIS]\nBouncer=yes\nElasticity=0.0\nMaxXYVel=25.0\nMinZVel=25.0\n[PUFF]\nEnd=2\n",
+    );
+    let mut rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+        &IniFile::from_str("[Animations]\n0=DEBRIS\n1=PUFF\n"),
+        &art_ini,
+    )
+    .unwrap();
+    let mut art = ArtRegistry::from_ini(&art_ini);
+    art.bind_anim_frame_count_for_test("DEBRIS", 15);
+    art.bind_anim_frame_count_for_test("PUFF", 2);
+    rules.install_art_data(art);
+    let mut sim = Simulation::new();
+    // Flat level-2 ground: Map578080 reads 208 leptons everywhere on it.
+    *sim.resolved_terrain_mut_for_test() =
+        Some(crate::map::resolved_terrain::test_grid(5, 5, |rx, ry| {
+            let mut cell = crate::map::resolved_terrain::test_flat_cell(rx, ry);
+            cell.level = 2;
+            cell
+        }));
+    let mut spawn = |name| {
+        let descriptor =
+            AnimClassSpawnDescriptor::new(sim.intern(name), 2, 2, SIM_ZERO, SIM_ZERO, 5);
+        sim.spawn_anim_object(&rules, descriptor).unwrap()
+    };
+    let (debris, puff) = (spawn("DEBRIS"), spawn("PUFF"));
+    let before = (
+        sim.state_hash(),
+        sim.resolved_terrain()
+            .unwrap()
+            .shared_cell_dummy()
+            .snapshot(),
+    );
+    let stored = sim.anim(debris).unwrap().world_coord();
+    assert_eq!(stored.z, 520);
+    let drop = |id, drawn| anim_bounce_drop_px(&sim, sim.anim(id).unwrap(), drawn);
+    assert_eq!(
+        drop(debris, [stored.x, stored.y, stored.z]),
+        Some(adjust_for_z_standard(520 - 208))
+    );
+    // A free anim's drawn point may be interpolated between two ticks.
+    assert_eq!(
+        drop(debris, [stored.x, stored.y, 400]),
+        Some(adjust_for_z_standard(400 - 208))
+    );
+    // Off the map the isolated query stamps only its own dummy.
+    assert!(drop(debris, [-5000, -5000, 300]).is_some());
+    assert_eq!(drop(puff, [stored.x, stored.y, stored.z]), None);
+    let after = (
+        sim.state_hash(),
+        sim.resolved_terrain()
+            .unwrap()
+            .shared_cell_dummy()
+            .snapshot(),
+    );
+    assert_eq!(after, before, "drawing cannot mutate simulation");
+}
+
+#[test]
+fn free_bouncing_anim_draws_its_ground_shadow_first_at_its_height() {
+    use crate::util::native_x87::adjust_for_z_standard;
+    // Stock DBRIS1LG's launch keys; two levels (208 leptons) up.
+    let planned = free_anim_draw_with(
+        "Bouncer=yes\nElasticity=0.0\nMaxXYVel=25.0\nMinZVel=25.0\n",
+        2,
+        false,
+    );
+    let pieces = &planned[0].pieces;
+    assert_eq!(pieces.len(), 3);
+    let (ground, body) = (&pieces[0], &pieces[1]);
+    assert_eq!(
+        ground.target,
+        ObjectTexture::SpriteAtlasEdit(1, TerrainPiece::Shadow)
+    );
+    assert_eq!(ground.render_z, RenderZPolicy::ReadOnly);
+    assert_eq!(body.target, ObjectTexture::ShpPage(1), "Start=1 frame");
+    let lift = adjust_for_z_standard(208);
+    assert_eq!(
+        ground.instance.position,
+        [
+            body.instance.position[0],
+            body.instance.position[1] + lift as f32
+        ],
+        "the height above the mapless ground cancels the lift"
+    );
+    assert_eq!(ground.instance.z_adjust, (7 - lift) as f32);
+    assert_eq!(
+        pieces[2].target,
+        ObjectTexture::SpriteAtlasEdit(2, TerrainPiece::Shadow)
     );
 }

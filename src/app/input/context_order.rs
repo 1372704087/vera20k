@@ -1300,8 +1300,8 @@ pub(super) fn selection_can_attack_move(
 }
 
 /// Techno object700191..700217 / Cell700830..700894. The keyboard chord
-/// alone is not a Guard action. Object targets must be allied; bare ground
-/// requires IsActive7010D0. Waypoint/patrol input is not exposed by VERA.
+/// alone is not a Guard action. Object targets must be allied and the actor
+/// no Aircraft (RTTI 2, 7001B4..7001BA); bare ground requires IsActive7010D0. Waypoint/patrol input is not exposed by VERA.
 /// A berserk object answers 0 before the rung (object `0x006FFEC9`, Cell
 /// `0x00700609`). Shared by the hover and click producers; no simulation
 /// state is changed.

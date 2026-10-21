@@ -93,8 +93,15 @@ portar sedan dess beteende till Rust och kontrollerar det med
 
 ## Anpassning
 
-Valfria funktioner (t.ex. från Ares) ska kunna konfigureras via INI-filer, med möjlighet
-att slå på och av dem i klienten där det är lämpligt.
+VERA20K fungerar som standard precis som originalspelet. Varje ny funktion, även tillägg från
+moddar som Ares, måste vara avstängd tills den slås på med något av följande:
+
+- **Ett byggalternativ**, till exempel `--features ares` för de [Ares-tillägg](docs/ares.md) som stöds.
+- **Ett lobbyalternativ i spelet**, som väljs för varje match.
+- **En INI-nyckel**, som sätts av en mod eller en karta.
+
+För att starta skirmish-matcher eller kampanjer i YR för en spelare från en CnCNet-klient, se
+[installationen av offlineklienten](integrations/cncnet/README.md).
 
 ## Bidra
 

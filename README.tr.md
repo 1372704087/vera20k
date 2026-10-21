@@ -93,8 +93,15 @@ ile oyun testleri kullanarak kontrol ediyor. Ajanlar [AGENTS.md](AGENTS.md) dosy
 
 ## Özelleştirme
 
-İsteğe bağlı özellikler (ör. Ares özellikleri) INI dosyaları üzerinden yapılandırılabilmeli
-ve uygun olduğunda istemciden açılıp kapatılabilmelidir.
+VERA20K varsayılan olarak orijinal oyun gibi oynanır. Ares gibi modlardan gelen eklentiler dahil
+her yeni özellik, şu yollardan biriyle açılana kadar kapalı kalmalıdır:
+
+- **Bir derleme seçeneği**: örneğin desteklenen [Ares eklentileri](docs/ares.md) için `--features ares`.
+- **Bir oyun içi lobi seçeneği**: her maç için seçilir.
+- **Bir INI anahtarı**: bir mod ya da harita tarafından ayarlanır.
+
+Tek oyunculu YR çatışmalarını veya senaryolarını bir CnCNet istemcisinden başlatmak için
+[çevrimdışı istemci kurulumuna](integrations/cncnet/README.md) bakın.
 
 ## Katkıda bulunma
 

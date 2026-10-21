@@ -93,31 +93,15 @@ and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 
 ## Customization
 
-Ares compatibility is an optional build capability. Default builds use the retail
-readers and dispatch; an INI or client setting cannot enable omitted extensions.
-Build the supported extensions explicitly:
+VERA20K plays like the original game by default. Every new feature, including extensions from
+mods such as Ares, must stay off until it is turned on with one of:
 
-```sh
-python -m tools.cargo_run -- build -p vera20k --profile fast --bin vera20k --features ares
-```
+- **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md).
+- **An in-game lobby option**, chosen for each match.
+- **An INI key**, set by a mod or a map.
 
-Omit `--features ares` for a build without the extensions. Ares builds identify
-themselves in the window title and startup log. Supported INI keys configure
-existing GenericWarhead, UnitDelivery, superweapon building gates and money behavior;
-Include/inheritance expansion is also active only in Ares gameplay builds. The explicit
-read-only `asset ini-expand` probe remains available independently. Saves retain the
-build capability and cannot load in the other mode, even with identical retail INIs.
-This is partial Rust-native compatibility, not Ares DLL loading or general mod support.
-The enabled build also supports [generic production prerequisites](docs/ares-prerequisites.md),
-including alternate owned types and installed-upgrade qualification.
-It also supports [Ares House survival](docs/ares-house-survival.md), including
-`KeepAlive` and the complete `BaseUnit` list for short games.
-Additional [EVA voice tags and Side selection](docs/ares-eva.md) use the fixed
-EVAMD catalog and the existing announcement queue.
-
-To launch single-player YR skirmishes or campaigns through a dedicated CnCNet
-client, see the [offline client setup](integrations/cncnet/README.md). This needs
-a VERA build with the `-SPAWN` startup adapter.
+To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
+[offline client setup](integrations/cncnet/README.md).
 
 ## Contributing
 

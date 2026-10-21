@@ -94,8 +94,15 @@ ursprüngliche Engine mit Ghidra, übertragen dann ihr Verhalten nach Rust und p
 
 ## Anpassung
 
-Optionale Funktionen (z. B. aus Ares) sollen sich über INI-Dateien konfigurieren und,
-wo sinnvoll, im Client ein- und ausschalten lassen.
+VERA20K spielt sich standardmäßig wie das Originalspiel. Jede neue Funktion, auch Erweiterungen
+aus Mods wie Ares, muss ausgeschaltet bleiben, bis sie auf einem dieser Wege aktiviert wird:
+
+- **Eine Build-Option**, z. B. `--features ares` für die unterstützten [Ares-Erweiterungen](docs/ares.md).
+- **Eine Lobby-Option im Spiel**, die für jede Partie gewählt wird.
+- **Ein INI-Schlüssel**, den eine Mod oder eine Karte setzt.
+
+Wie du Einzelspieler-Gefechte oder Kampagnen von YR über einen CnCNet-Client startest, steht in der
+[Offline-Client-Einrichtung](integrations/cncnet/README.md).
 
 ## Mitmachen
 

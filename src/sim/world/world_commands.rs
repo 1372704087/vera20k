@@ -2199,13 +2199,35 @@ impl Simulation {
     /// the tag event ([`Self::try_select_object`]); then, for a human
     /// player's or passive house's object while the selection-voice latch
     /// `0x00822CF2` is set (`0x006FBFF4..0x006FC018`), VoiceSelect (vt+0x360)
-    /// through [`Self::selection_voice_request`].
-    ///
-    /// RESIDUAL: the planning-node selection add (`0x00637840`) runs in the
-    /// app's selection resolver, since planning mode is local; these logic
-    /// Selects skip it. It differs only when a reselected crewman, escapee or
-    /// parasite still holds a path while the local player is in planning mode.
+    /// through [`Self::selection_voice_request`]; last, the planning-node add
+    /// (`0x006FC020` -> `0x00637840`, [`Self::planning_select_partners`]):
+    /// in the local player's Planning Mode, read through the frame's
+    /// [`super::LocalPlanningBoundary`], each tail-node partner gets this
+    /// Select too, without expanding again (the `0x00AC4CF6` guard). A
+    /// passenger or parasite keeps its path through Limbo, so a reselected
+    /// escapee or released parasite pulls in its node's partners.
     pub(crate) fn techno_select(
+        &mut self,
+        stable_id: u64,
+        voice_latch: bool,
+        context: super::UninitContext<'_>,
+    ) -> bool {
+        if !self.techno_select_once(stable_id, voice_latch, context) {
+            return false;
+        }
+        let planning_mode = context.effects().local_planning_active();
+        for member in self.planning_select_partners(stable_id, planning_mode) {
+            // An already-selected member makes no Select call (+0x83); the
+            // admission refuses it before any effect.
+            self.techno_select_once(member, voice_latch, context);
+        }
+        true
+    }
+
+    /// `0x006FBFA0..0x006FC01E`: [`Self::techno_select`] up to its
+    /// planning-node add, which the `0x00AC4CF6` guard skips for the nested
+    /// partner Selects.
+    fn techno_select_once(
         &mut self,
         stable_id: u64,
         voice_latch: bool,

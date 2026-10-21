@@ -109,7 +109,15 @@ fn retail_engineer_ifv_ctrl_on_the_ground_orders_nothing() {
         AttackAction::AttackSupport
     );
     let prior = sim.state_hash();
-    let click = attack_branch_orders(&sim, rules, &[ifv], ground, true, &registry);
+    let click = attack_branch_orders(
+        &sim,
+        rules,
+        &[ifv],
+        ground,
+        true,
+        OrderMode::Move,
+        &registry,
+    );
     assert!(click.consumed && !click.select_fallback);
     assert_eq!(click.receivers, [ifv].into_iter().collect());
     assert!(click.commands.is_empty(), "{:?}", click.commands);
@@ -125,7 +133,16 @@ fn retail_engineer_ifv_ctrl_on_the_ground_orders_nothing() {
         AttackAction::Attack
     );
     assert_eq!(
-        attack_branch_orders(&sim, rules, &[ifv], ground, true, &registry).commands,
+        attack_branch_orders(
+            &sim,
+            rules,
+            &[ifv],
+            ground,
+            true,
+            OrderMode::Move,
+            &registry
+        )
+        .commands,
         [Command::ForceAttackCell {
             attacker_id: ifv,
             target_rx: 16,
@@ -170,7 +187,7 @@ fn retail_engineer_ifv_ctrl_on_a_tree_moves_near_it() {
         attack_action(&sim, rules, ifv, &tree, true, Some(&registry)),
         AttackAction::NoMove
     );
-    let click = attack_branch_orders(&sim, rules, &[ifv], tree, true, &registry);
+    let click = attack_branch_orders(&sim, rules, &[ifv], tree, true, OrderMode::Move, &registry);
     assert!(click.consumed);
     assert!(
         matches!(

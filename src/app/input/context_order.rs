@@ -3875,7 +3875,9 @@ fn shot_is_illegal(
 
 /// Building4436F0(1/6, cell): prepare archive event1E, then SELL16 for an
 /// UndeploysInto type. A failed FNPC emits no archive but still queues SELL,
-/// retaining an earlier archive. A factory announces only its queued rally.
+/// retaining an earlier archive, except that a Construction Yard archives its
+/// own Cell ([`crate::sim::world::Simulation::factory_rally_cell_input`]). A
+/// factory announces only its queued rally.
 ///
 /// The click loop clamps the Cell to the playfield first
 /// ([`crate::sim::world::Simulation::clamped_click_cell`]), then asks each

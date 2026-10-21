@@ -611,7 +611,7 @@ impl ProcessedRulesLayers {
         let registry = &self.native_type_construction_trace.registry_state;
         if !registry.compatibility.matches_build() {
             return Err(RulesError::InvalidSavedState(
-                "saved Rules require a different compiled Ares capability",
+                "saved Rules require a different compiled extension capability",
             ));
         }
         #[cfg(not(feature = "ares"))]

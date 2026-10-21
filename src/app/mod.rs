@@ -97,7 +97,13 @@ mod window_icon;
 /// this exact title, so `main` hands the same constant to
 /// `util::single_instance::acquire`.
 pub const WINDOW_TITLE: &str = if crate::rules::ARES_ENABLED {
-    "VERA20K [Ares]"
+    if crate::rules::PHOBOS_ENABLED {
+        "VERA20K [Ares+Phobos]"
+    } else {
+        "VERA20K [Ares]"
+    }
+} else if crate::rules::PHOBOS_ENABLED {
+    "VERA20K [Phobos]"
 } else {
     "VERA20K"
 };

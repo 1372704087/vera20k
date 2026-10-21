@@ -32,6 +32,7 @@ Thumbs.db
 
 /docs/*
 !/docs/ares.md
+!/docs/phobos.md
 !/docs/ares-generic-warhead.md
 !/docs/ini-roots.md
 !/docs/_config.yml

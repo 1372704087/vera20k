@@ -30,6 +30,10 @@ pub(crate) struct CooperativeRoundState {
     acks: usize,
     /// The loop's local begin flag (`[ESP+0x13]`), set by `0x34`.
     begin: bool,
+    /// Quit `0x5C0`'s enable state: the `0x32` arm disables it once the
+    /// begin arrived (`0x0047086E`), and the `0x24` arm enables it again
+    /// (`0x00470583`).
+    quit_enabled: bool,
     /// `0x89E05D`: false on the campaign's last mission.
     can_continue: bool,
     /// `A8D580`, the human House count of the mission's rows.
@@ -43,9 +47,8 @@ impl CooperativeRoundState {
         self.local_ready
     }
 
-    /// Set by `0x34`; a guest's Quit is disabled once the begin arrived.
-    pub(crate) fn begin(&self) -> bool {
-        self.begin
+    pub(crate) fn quit_enabled(&self) -> bool {
+        self.outcome.is_none() && self.quit_enabled
     }
 
     pub(crate) fn outcome(&self) -> Option<bool> {
@@ -104,9 +107,9 @@ pub(crate) enum CooperativeRoundEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum CooperativeRoundStep {
     None,
-    /// The master's all-ready (`0x0046FD47`): `0x34` is queued; run mode
-    /// `+0x68` and `0x0069B8C0`, then
-    /// [`MatchSession::cooperative_round_assigned`].
+    /// The master's all-ready (`0x0046FD47`): run mode `+0x68` and
+    /// `0x0069B8C0`, then [`MatchSession::cooperative_round_assigned`],
+    /// which queues `0x34` and `0x32`.
     Assign,
     /// A `0x32` was applied; `difficulty` is its byte, and `changed` cleared
     /// every human's readiness.
@@ -154,6 +157,11 @@ impl MatchSession {
         for human in &mut launch.humans {
             human.slot.start_position = LaunchStartPosition::Auto;
         }
+        // RESIDUAL: the 0x497 init (`0x0046EBA7`) also writes every AI
+        // country and colour to -1; only the starts reset here. Rows below
+        // the next map's NumCoopHumanStartSpots keep their last values in
+        // `prepare_ai`, which changes the `0x0069B8C0` draws only when that
+        // count grows between missions. Every retail co-op map sets 2.
         for ai in &mut launch.opponents {
             ai.start_position = LaunchStartPosition::Auto;
         }
@@ -172,6 +180,7 @@ impl MatchSession {
             local_ready: false,
             acks: 0,
             begin: false,
+            quit_enabled: true,
             can_continue,
             rows,
             outcome: None,
@@ -267,7 +276,6 @@ impl MatchSession {
                 round.outcome = Some(false);
                 return Ok(CooperativeRoundStep::Exit(false));
             }
-            requests.push(NetworkLoadingRequest::CooperativeBegin);
             return Ok(CooperativeRoundStep::Assign);
         }
         if !round.can_continue {
@@ -278,8 +286,11 @@ impl MatchSession {
     }
 
     /// The master's all-ready tail after mode `+0x68` and `0x0069B8C0`
-    /// changed the round's roster: it counts its own ack and publishes the
-    /// options `0x32`.
+    /// changed the round's roster: the begin `0x34`, its own ack and the
+    /// options `0x32`. Native sends `0x34` before the assignment, which
+    /// cannot fail there; VERA queues it only once the assignment
+    /// succeeded, so a refused one sends no begin. Both leave in the same
+    /// order before any packet is read.
     pub(crate) fn cooperative_round_assigned(&mut self, difficulty: i32) -> anyhow::Result<()> {
         anyhow::ensure!(self.host, "only the master assigns the round");
         let RoundParts {
@@ -288,6 +299,7 @@ impl MatchSession {
             launch,
             round,
         } = round_parts(self)?;
+        requests.push(NetworkLoadingRequest::CooperativeBegin);
         round.acks += 1;
         let options = round_options(launch, difficulty);
         requests.push(NetworkLoadingRequest::CooperativeOptions(options));
@@ -336,7 +348,6 @@ impl MatchSession {
                     round.ready[row] = true;
                 }
                 if host && round.all_ready() && round.can_continue {
-                    requests.push(NetworkLoadingRequest::CooperativeBegin);
                     return Ok(CooperativeRoundStep::Assign);
                 }
                 Ok(CooperativeRoundStep::None)
@@ -352,8 +363,10 @@ impl MatchSession {
                     round.ready[row] = false;
                 }
                 // The node is deleted (A8DA84--); its slot stays unready,
-                // so all-ready can no longer pass.
+                // so all-ready can no longer pass. Continue is disabled
+                // (by the connected count) and Quit enabled again.
                 connected.retain(|index| *index != source);
+                round.quit_enabled = true;
                 Ok(CooperativeRoundStep::PeerLeft { source })
             }
             CooperativeRoundEvent::Begin => {
@@ -367,6 +380,7 @@ impl MatchSession {
                     clear_human_readiness(launch, round);
                 }
                 if round.begin {
+                    round.quit_enabled = false;
                     requests.push(NetworkLoadingRequest::CooperativeAck);
                 }
                 Ok(CooperativeRoundStep::OptionsApplied {
@@ -645,6 +659,10 @@ mod tests {
                 .unwrap(),
             CooperativeRoundStep::Assign
         );
+        assert!(
+            session.take_network_loading_requests().is_empty(),
+            "the begin waits for the assignment"
+        );
         session.cooperative_round_assigned(1).unwrap();
         let requests = session.take_network_loading_requests();
         assert!(matches!(
@@ -771,6 +789,30 @@ mod tests {
         );
         assert_eq!(session.cooperative_round().unwrap().outcome(), Some(false));
         assert!(session.freeze_cooperative_round(30, 1, None).is_err());
+    }
+
+    #[test]
+    fn a_master_leaving_after_the_begin_gives_the_guest_quit_back() {
+        let (mut session, _) = frozen(1);
+        session.enter_cooperative_round(None, true, 2).unwrap();
+        session.continue_cooperative_round(0).unwrap();
+        session
+            .cooperative_round_event(CooperativeRoundEvent::Begin, 0)
+            .unwrap();
+        assert!(
+            session.cooperative_round().unwrap().quit_enabled(),
+            "0x34 alone leaves Quit enabled"
+        );
+        let options = round_options(session.network_setup().unwrap(), 0);
+        session
+            .cooperative_round_event(CooperativeRoundEvent::Options(options), 0)
+            .unwrap();
+        assert!(!session.cooperative_round().unwrap().quit_enabled());
+        session
+            .cooperative_round_event(CooperativeRoundEvent::PeerLeft { source: 0 }, 0)
+            .unwrap();
+        assert!(session.cooperative_round().unwrap().quit_enabled());
+        assert!(!session.cooperative_round_continue_enabled());
     }
 
     #[test]

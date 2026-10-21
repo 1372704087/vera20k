@@ -398,7 +398,7 @@ pub(crate) fn view(state: &AppState) -> Option<CoopScoreView> {
         host: session.host(),
         slots,
         continue_enabled: session.cooperative_round_continue_enabled(),
-        quit_enabled: round.outcome().is_none() && !round.begin(),
+        quit_enabled: round.quit_enabled(),
         difficulty: state
             .frontend
             .multiplayer_shell_runtime
@@ -472,8 +472,14 @@ fn run_step(state: &mut AppState, step: CooperativeRoundStep) {
     match step {
         CooperativeRoundStep::None => {}
         CooperativeRoundStep::Assign => {
+            // Native cannot fail here. A refused assignment has sent no
+            // begin; leaving with `0x24` returns every peer's Quit.
             if let Err(error) = assign(state) {
                 log::error!("co-op round assignment failed: {error:#}");
+                if let Err(error) = state.match_state.session.quit_cooperative_round() {
+                    log::warn!("co-op round quit refused: {error:#}");
+                }
+                finish(state);
             }
         }
         CooperativeRoundStep::OptionsApplied { difficulty, .. } => state
@@ -558,6 +564,9 @@ fn assign(state: &mut AppState) -> anyhow::Result<()> {
 /// after a win, the same one after a defeat.
 /// RESIDUAL: Start_Scenario's retry loop (`0x00685C47`) has no VERA
 /// counterpart; a failed load returns to the lobby.
+/// RESIDUAL: the scenario movies around a continuation (Win, PostScore and
+/// PreMapSelect after a victory, Lose after a defeat, then Intro/Brief and
+/// Action on a victory) have no owner. No retail co-op map sets them.
 fn begin_next_mission(state: &mut AppState) {
     let Some(page) = state.frontend.coop_score_page.take() else {
         return;

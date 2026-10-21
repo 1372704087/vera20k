@@ -42,7 +42,7 @@ mod trigger_chrono;
 mod type_tech_levels;
 mod unit_repair_seek;
 pub(crate) use frame_channel::FrameChannel;
-pub use frame_effects::{FrameEffects, LocalDefeatBoundary, SoundBoundary};
+pub use frame_effects::{FrameEffects, LocalPlanningBoundary, SoundBoundary};
 pub(crate) use type_tech_levels::TypeTechLevels;
 #[cfg(test)]
 mod unit_unlimbo_tests;

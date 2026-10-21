@@ -768,6 +768,13 @@ fn query_factory(
 /// building then has its House determine the edge, whether or not it took the
 /// flag (`0x00448124..0x0044813D`, [`Simulation::determine_house_edge`]).
 ///
+/// RESIDUAL: 448070 has no limbo gate; this port returns early for a
+/// building in limbo, which ChangeOwner can pass (trigger Action36,
+/// `trigger_change_all_house_objects`, has no limbo filter). Natively it can
+/// take the flag, which Unlimbo clears again (`0x0044119C`), and a
+/// `Factory=BuildingType` one runs DetermineEdge. No stock path is known to
+/// leave a `Factory=BuildingType` building in limbo for Action36 to reach.
+///
 /// Residual #1709: 44807C/4480D5 and 4481C5 compare every nonzero raw
 /// RTTI and Naval, including distinct Unit1/UnitType40 groups. The existing
 /// serialized ProductionCategory index represents recognized Type factories

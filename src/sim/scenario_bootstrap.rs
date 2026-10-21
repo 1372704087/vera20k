@@ -5098,6 +5098,41 @@ mod tests {
         );
     }
 
+    /// The start becomes the base centre only: the House edge (+0x577C) keeps
+    /// the constructor's North (`0x004F5C79`) until a yard's DetermineEdge
+    /// (`0x0050DB00`), here where the start lies nearest East.
+    #[test]
+    fn scenario_prefix_start_leaves_the_house_edge_north() {
+        let seed = 0x5501;
+        let start = Waypoint {
+            index: 0,
+            rx: 60,
+            ry: 30,
+        };
+        let map = one_start_prefix_map(start);
+        let mut session = one_player_battle_launch("projection.mmx").session().clone();
+        session.local_slot_mut().start_position = LaunchStartPosition::Position(0);
+        let launch = MatchLaunchDescriptor::from_resolved(session).unwrap();
+        let plan = prepare_stock_offline_scenario_prefix_plan(&launch, &map, &map.waypoints, seed)
+            .unwrap();
+        let mut owner = ScenarioBootstrapRng::new(seed);
+        let projection = owner.install_pre_fill_scenario_prefix_plan(plan).unwrap();
+        let mut sim = owner.into_simulation(&descriptor(seed));
+        let bounds = crate::map::playfield::PlayfieldBounds::from_map_header(&map.header);
+        sim.set_playfield_bounds_for_test(Some(bounds));
+        let rules = techno_constructor_start_rules();
+        initialize_skirmish_launch_houses(&mut sim, &HouseRoster::default(), &rules, &launch);
+        let slots = normalized_launch_slots(launch.session());
+        project_pre_fill_start_assignment(&mut sim, &slots, projection.assignment());
+        let house = &sim.houses[&sim.houses.order()[0]];
+        assert_eq!(house.base_center(), Some((60, 30)));
+        assert_eq!(
+            crate::sim::house_state::determine_waypoint_edge((60, 30), bounds),
+            1
+        );
+        assert_eq!(house.waypoint_edge(), 0);
+    }
+
     #[test]
     fn scenario_prefix_cursor_reaches_base_plan_consumer() {
         use crate::sim::base_plan::BasePlanState;

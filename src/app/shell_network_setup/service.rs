@@ -265,10 +265,14 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
         } => {
             // Cooperative's mode +0x1C (0x5C17B0) admits its campaign's
             // countries; the other modes' (0x5D67A0) admit any.
-            let countries = state
-                .frontend
-                .multiplayer_shell_runtime
-                .cooperative_player_countries();
+            let countries = super::cooperative::current(state)
+                .then(|| {
+                    state
+                        .frontend
+                        .multiplayer_shell_runtime
+                        .cooperative_player_countries()
+                })
+                .flatten();
             let change = state.match_state.session.accept_network_peer_choices(
                 index,
                 choices,

@@ -286,6 +286,27 @@ pub(crate) fn attack_action(
     let human = sim.house_is_human_player(actor.owner());
     let armed = crate::sim::combat::combat_weapon::is_armed(actor, kind);
     let infiltrator = actor.category() == EntityCategory::Infantry && kind.infiltrate;
+    // An object being warped out (vt+0x1D4) answers at once: 0 on a Cell
+    // (`0x00700731`; warping in too, `0x00700743`); over an object
+    // (`0x006FFF03..0x006FFF8A`) 0 for an armed player's object over another
+    // House's or for its own loaner, else Select where the object may be
+    // selected and is not. Every class tail keeps that 0: the object is not
+    // controllable (vt+0xA0, `0x00700C40`).
+    if actor.is_warped_out() || (actor.is_warping_in() && matches!(target, TargetKind::Cell(..))) {
+        return match *target {
+            TargetKind::Entity(target_id)
+                if sim.entities().get(target_id).is_some_and(|object| {
+                    !(armed && human && object.owner() != actor.owner())
+                        && !(actor.is_mission_only() && actor.discovery.owned_by_current_house())
+                        && sim.object_is_selectable(target_id, rules)
+                        && !object.selection.is_selected()
+                }) =>
+            {
+                AttackAction::Select
+            }
+            _ => AttackAction::None,
+        };
+    }
     let admitted = match target {
         TargetKind::Entity(target_id) => {
             human
@@ -359,6 +380,23 @@ pub(crate) fn attack_action(
         && sim.terrain_objects().get(target_id).is_some()
     {
         action = AttackAction::None;
+    }
+    // UnitClass::What_Action_OnObject 0x0073FE48: a Unit that is not IsActive
+    // (0x007010D0; a Robot Tank without its control) turns Foot's Attack over
+    // an object into Move where it may crush it (a crusher, and
+    // Is_Crushable_By 0x005F6CD0), otherwise Select (0x0073FE3B).
+    if action == AttackAction::Attack
+        && actor.category() == EntityCategory::Unit
+        && let TargetKind::Entity(target_id) = *target
+        && !sim.techno_is_active(actor_id, rules)
+    {
+        action = if crate::sim::combat::veterancy::is_crusher(actor.veterancy.rank_kind(), kind)
+            && sim.object_crushable_by_unit(actor_id, target_id, rules)
+        {
+            AttackAction::Move
+        } else {
+            AttackAction::Select
+        };
     }
     // Unit74077F..7407E5 /740389..7403E8: the fully deployed
     // SimpleDeployer repeats SelectWeapon(NULL), then range. This returns
@@ -6828,6 +6866,10 @@ mod retail_entry_tests;
 #[cfg(test)]
 #[path = "context_order_retail_terrain_tests.rs"]
 mod retail_terrain_tests;
+
+#[cfg(test)]
+#[path = "context_order_retail_inactive_unit_tests.rs"]
+mod retail_inactive_unit_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_self_deploy_tests.rs"]

@@ -66,6 +66,16 @@
 //! freshly-moved latch below, whose only bit1 callers are Area Guard and
 //! Patrol. The same override clears the latch when a scan comes back empty.
 //!
+//! ## A healer on Guard
+//!
+//! When the scanner's `GetWeaponDamageValue(-1)` (`0x006F3970`) is negative
+//! *and* its mission is exactly Guard, retail replaces either radius with a
+//! hard 0x200 leptons (`0x006F9024..0x006F903E`), so the cutoff, not the
+//! healing weapon's InRange, decides, and the two-cell walk bound covers only
+//! rings 0 and 1. Retail's only healer is an IFV carrying an Engineer
+//! (`RepairBullet`, `Damage=-50`, `Range=1.8`): on Guard it repairs only what
+//! stands in or next to its own cell.
+//!
 //! ## What is deliberately NOT modelled
 //!
 //! Foot's stopped-cannot-fire latch688 is private GameEntity state. Drive,
@@ -73,15 +83,6 @@
 //! `(mask & !2) | 1` and the world scan adapter clears it only after an empty
 //! Foot result. The actual scan mask selects the range below. Hover's native
 //! Process/arrival continuation5164D0 still needs its separate owner.
-//!
-//! **The healer-on-Guard override.** When the scanner's
-//! `GetWeaponDamageValue(-1)` (`0x006F3970`) is negative *and* its mission is
-//! exactly Guard, retail replaces either radius with a hard 0x200 leptons
-//! (`0x006F9024..0x006F903E`), so the cutoff, not the healing weapon's
-//! InRange, decides, and the two-cell walk bound covers only rings 0 and 1.
-//! Retail's only healer is an IFV carrying an Engineer (`RepairBullet`,
-//! `Damage=-50`, `Range=1.8`): on Guard it repairs only what stands in or
-//! next to its own cell.
 //!
 //! Retail has a third radius formula, reached only when the scanning object is
 //! on **Patrol**: the same doubled-and-capped value as Area Guard but with a

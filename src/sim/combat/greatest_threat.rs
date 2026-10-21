@@ -12,7 +12,8 @@
 //!
 //! 1. Radius. `TechnoClass::Threat_Range @ 0x00707E60` (vtable `+0x31C`) turns
 //!    the mission's mask into a lepton radius — that part lives in
-//!    [`super::threat_range`]. A zero radius means "no cutoff of the scan's
+//!    [`super::threat_range`]; a healer on Guard takes 0x200 instead
+//!    (`0x006F9024..0x006F903E`). A zero radius means "no cutoff of the scan's
 //!    own". The walk then uses the current weapon's range for a
 //!    non-Gattling turreted type, GuardRange for an underwater, organic,
 //!    self-healing type, or the wider of weapon slots 0/1 otherwise. It adds
@@ -582,8 +583,8 @@ fn is_early_return_ring(ring: i32, radius: i32) -> bool {
 
 /// Walk bound in cells, `iStack_34` in `Greatest_Threat`.
 ///
-/// A non-zero `Threat_Range` result is itself the bound, truncated to cells
-/// toward zero (`0x006F9042..0x006F904D`). A zero
+/// A non-zero radius (`Threat_Range`'s, or a Guard healer's 0x200) is itself
+/// the bound, truncated to cells toward zero (`0x006F9042..0x006F904D`). A zero
 /// one — plain Guard on a type with no `GuardRange=` — selects a range:
 /// `GetWeaponRange(CurrentWeaponNumber)` for a non-Gattling type with
 /// `TurretCount > 0` (`0x006F9068..0x006F908E`), else `GuardRange` for an

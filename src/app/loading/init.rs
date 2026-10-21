@@ -2916,6 +2916,11 @@ pub(crate) fn load_map_from_initial(
             difficulty: campaign.difficulty(),
             mission_counter: campaign.mission_counter(),
             game_options: campaign_game_options.as_ref(),
+            campaign_index: i32::try_from(campaign.campaign_index())?,
+            restart_carry_over: campaign
+                .carry_over()
+                .copied()
+                .unwrap_or(crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED),
         }
     };
     let scenario_descriptor = crate::sim::scenario_session::ScenarioDescriptor {

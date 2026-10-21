@@ -710,6 +710,13 @@ impl ScenarioDescriptor {
 /// TechLevel. Keeping these on Session avoids a second launch-settings owner.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 struct CampaignScenarioState {
+    /// Start_Scenario683B0A writes Scenario+34CC. ScenarioSave689310 /
+    /// ScenarioLoad689470 retain it, including on a cold load of a later map.
+    campaign_index: i32,
+    /// ContentSave67D31B / ContentLoad67E804 retain the separate 8A38E0
+    /// record (4C6340 / 4C6320). Restart restores this incoming record,
+    /// not globals/difficulty changed while playing the saved mission.
+    restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver,
     mission_counter: i32,
     player_difficulty: HouseDifficulty,
     computer_difficulty: HouseDifficulty,
@@ -1304,6 +1311,8 @@ impl ScenarioSession {
         difficulty: i32,
         mission_counter: i32,
         game_options: Option<&GameOptions>,
+        campaign_index: i32,
+        restart_carry_over: crate::sim::campaign_carry_over::CampaignCarryOver,
     ) -> Result<(), CampaignScenarioStartupError> {
         if self.game_mode_nonzero() {
             return Err(CampaignScenarioStartupError::NonCampaignMode);
@@ -1321,6 +1330,8 @@ impl ScenarioSession {
             self.game_options = options.clone();
         }
         self.campaign = Some(CampaignScenarioState {
+            campaign_index,
+            restart_carry_over,
             mission_counter,
             player_difficulty,
             computer_difficulty,
@@ -1332,6 +1343,27 @@ impl ScenarioSession {
     /// progression input. Offline sessions do not synthesize this value.
     pub fn campaign_mission_counter(&self) -> Option<i32> {
         self.campaign.map(|campaign| campaign.mission_counter)
+    }
+
+    pub fn campaign_index(&self) -> Option<i32> {
+        self.campaign.map(|campaign| campaign.campaign_index)
+    }
+
+    pub fn campaign_restart_carry_over(
+        &self,
+    ) -> Option<crate::sim::campaign_carry_over::CampaignCarryOver> {
+        self.campaign.map(|campaign| campaign.restart_carry_over)
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn initialize_campaign_for_test(
+        &mut self,
+        index: i32,
+        counter: i32,
+        record: crate::sim::campaign_carry_over::CampaignCarryOver,
+    ) {
+        self.initialize_campaign_startup(1, counter, None, index, record)
+            .expect("synthetic campaign admission");
     }
 
     /// Main_Game55D283 calls BattleControlTerminated686570 on shell exit;
@@ -1640,7 +1672,13 @@ mod tests {
             let mut sim = Simulation::from_descriptor(&ScenarioDescriptor::default());
             let hash_before = sim.state_hash();
             sim.session
-                .initialize_campaign_startup(difficulty, 7, None)
+                .initialize_campaign_startup(
+                    difficulty,
+                    7,
+                    None,
+                    0,
+                    crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
+                )
                 .unwrap();
             assert_eq!(sim.session.campaign_mission_counter(), Some(7));
             assert_eq!(
@@ -1660,7 +1698,13 @@ mod tests {
             assert_eq!(sim.session.current_house(), Some(current));
             assert_eq!(sim.state_hash(), hash);
             assert_eq!(
-                sim.session.initialize_campaign_startup(difficulty, 1, None),
+                sim.session.initialize_campaign_startup(
+                    difficulty,
+                    1,
+                    None,
+                    0,
+                    crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED
+                ),
                 Err(CampaignScenarioStartupError::AlreadyInstalled)
             );
             sim.session.reset_campaign_mission_counter_on_shell_exit();
@@ -1684,7 +1728,13 @@ mod tests {
         });
         let hash = offline.state_hash();
         assert_eq!(
-            offline.session.initialize_campaign_startup(1, 1, None),
+            offline.session.initialize_campaign_startup(
+                1,
+                1,
+                None,
+                0,
+                crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED
+            ),
             Err(CampaignScenarioStartupError::NonCampaignMode)
         );
         assert_eq!(offline.state_hash(), hash);
@@ -1698,7 +1748,13 @@ mod tests {
             let mut sim = Simulation::from_descriptor(&ScenarioDescriptor::default());
             let hash = sim.state_hash();
             assert_eq!(
-                sim.session.initialize_campaign_startup(difficulty, 1, None),
+                sim.session.initialize_campaign_startup(
+                    difficulty,
+                    1,
+                    None,
+                    0,
+                    crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED
+                ),
                 Err(CampaignScenarioStartupError::InvalidDifficulty(difficulty))
             );
             assert_eq!(sim.state_hash(), hash);
@@ -1715,7 +1771,13 @@ mod tests {
             ..Default::default()
         };
         sim.session
-            .initialize_campaign_startup(1, 1, Some(&options))
+            .initialize_campaign_startup(
+                1,
+                1,
+                Some(&options),
+                0,
+                crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED,
+            )
             .unwrap();
         assert_eq!(sim.projected_in_game_options_speed(), Some(5));
         assert!(!sim.session.game_options.build_off_ally);
@@ -1730,7 +1792,13 @@ mod tests {
         };
         assert!(
             sim.session
-                .initialize_campaign_startup(1, 1, Some(&other))
+                .initialize_campaign_startup(
+                    1,
+                    1,
+                    Some(&other),
+                    0,
+                    crate::sim::campaign_carry_over::CampaignCarryOver::CLEARED
+                )
                 .is_err()
         );
         assert_eq!(

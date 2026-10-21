@@ -37,8 +37,8 @@
 //!   returns to the shell. Every retail map has `SkipMapSelect=no`.
 //! - MapSelect failures show `MSG:UnableMapSelect` (`0x005ADDCF`) before the
 //!   current map is replayed; VERA logs instead of showing the box.
-//! - a restored saved game carries no campaign index, so its win returns to
-//!   the shell.
+//! Saved campaigns retain their Scenario index and incoming carry-over;
+//! their wins enter this same continuation after saved-world admission.
 
 use std::collections::VecDeque;
 

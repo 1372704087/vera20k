@@ -1587,7 +1587,7 @@ fn saved_load_retires_fresh_receipt_and_admits_restored_exact_steps() {
     // A cold menu and an outgoing accepted match reach the same successful
     // saved-world commit. Neither may expose the prior map's L0 afterward.
     for mut authority in [MatchStartup::default(), warm] {
-        authority.acknowledge_saved_load();
+        authority.acknowledge_saved_load(None);
         assert!(authority.startup().is_none());
         assert!(authority.receipt().is_none());
         assert!(authority.admits_ordinary_tick());
@@ -1605,7 +1605,7 @@ fn saved_load_retires_fresh_receipt_and_admits_restored_exact_steps() {
         );
         authority.clear();
         assert!(!authority.admits_exact_step());
-        authority.acknowledge_saved_load();
+        authority.acknowledge_saved_load(None);
         authority.begin(Some(prior.correlation));
         assert!(
             !authority.admits_exact_step(),

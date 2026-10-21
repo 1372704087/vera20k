@@ -2113,8 +2113,10 @@ impl Simulation {
     /// the `0x00AC4CF6` guard clear. So (a) a Select a partner's Selected tag
     /// event (33) starts expands its own tail node, where native's guard
     /// returns early; (b) an object Selected and then drained within one
-    /// mutation raises no event 33 (native raises one per Select,
-    /// `0x006FBFE4`); (c) the new members' events run in vector order, not
+    /// mutation, or a selected object drained and Selected again within it,
+    /// raises no event 33 (native raises one per Select, `0x006FBFE4`; the
+    /// re-Selected object keeps its bit here, so `try_select_object` sees it
+    /// already selected); (c) the new members' events run in vector order, not
     /// call order. Trigger: a tag with event 33 on a planning partner (a);
     /// on an object a later Select of the same mutation drains, which takes
     /// another house's object on the player's planning node (b); or on two

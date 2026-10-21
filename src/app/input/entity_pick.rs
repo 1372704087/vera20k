@@ -290,7 +290,9 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     let admitted = (!current_selection.is_empty() || !picked.is_mission_only())
         && static_selection_gate(picked, type_str, rules, require_playfield_membership);
     // A shift-click adds when the selection it is joining is the local player's,
-    // whatever was clicked. The native ACTION_SELECT arm asks
+    // whatever was clicked. The native toggle-select arm (action 8,
+    // `cmp ebx, 8` at 0x004ABD24; the ordinary ACTION_SELECT arm at
+    // 0x004ABDC5..0x004ABE4A is the one that clears first) asks
     // `HouseClass__IsHumanPlayer(CurrentObjects[0]->Owner)` — 0x004ABD42 loads
     // `CurrentObjects[0]`, calls its owner virtual `+0x3C`, and 0x004ABD50 calls
     // 0x0050B6F0, whose real test is `house == g_PlayerPtr`; a false answer at
@@ -298,7 +300,8 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     // selected, never on whether the clicked object matches it.
     //
     // Enemy clicks genuinely reach this arm. `TechnoClass__What_Action_OnObject`
-    // 0x006FFEC0 short-circuits to ACTION_SELECT at 0x00700107 whenever the
+    // 0x006FFEC0 short-circuits to toggle-select (`mov eax, 8` at 0x00700107)
+    // whenever the
     // Shift pair `DAT_00A8EC08`/`0C` is down and the Ctrl pair is not — gated on
     // `IsHumanPlayer` of the SELECTED object's owner `[ESI+0x21C]`, with no test
     // on the clicked object at all.
@@ -311,6 +314,9 @@ pub(crate) fn compute_click_selection_snapshot_with_playfield(
     // (`resolve_selection_mutation`): shift-clicking an enemy while your own
     // army is selected drains the army and leaves the enemy alone selected,
     // and an enemy that Select refuses leaves the army selected.
+    // Residual: a pick this gate refuses answers no snapshot, so it starts no
+    // action-line timer; native starts it after the toggle arm (0x004ABFAE).
+    // Visible only as a missing line flash on such a refused Shift-click.
     //
     // VERA-internal: gamemd always has a `g_PlayerPtr`, so it has no answer for
     // "the local house is unknown". Sandbox and test callers pass no owner, and

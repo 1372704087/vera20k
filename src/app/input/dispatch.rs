@@ -2389,6 +2389,9 @@ fn resolve_selection_mutation(
     // `select_unselects_all`) against the ledger's first entry, whose
     // Deselects (0x005F44A0) release Follow, before the insert. So the
     // player's object drains another house's selection, and the reverse.
+    // VERA-only residual: the trainer's Reveal Map lets the picker reach an
+    // enemy the current house has not discovered, and this gate refuses it
+    // (gamemd has no presentation-only reveal). Debug builds only.
     let select = |id: u64,
                   ordered: &mut VecDeque<u64>,
                   members: &mut HashSet<u64>,
@@ -3593,8 +3596,9 @@ fn reassign_control_group(
     assign_control_group(groups, slot, target_members);
 }
 
-/// Keep the current legal selection intact when Shift+digit adds eligible
-/// control-group members. Ordinary click selection may include enemy objects.
+/// Shift+digit (AddTeam `0x007314C0`) clears nothing and Selects each group
+/// member after the current selection; each Select runs the ledger's gate and
+/// Unselect_All, so a lone selected enemy is drained by the first member.
 fn append_group_members_to_selection(mut selected: Vec<u64>, group: &[u64]) -> Vec<u64> {
     selected.extend_from_slice(group);
     selected

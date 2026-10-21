@@ -233,6 +233,19 @@ fn click(
     cell: (u16, u16),
     modifier: OrderModifier,
 ) -> BuildingClick {
+    click_over(sim, rules, selection, hover, None, cell, modifier)
+}
+
+/// [`click`] with a Terrain object (`terrain`) under the cursor.
+fn click_over(
+    sim: &Simulation,
+    rules: &RuleSet,
+    selection: &[u64],
+    hover: Option<(HoverTargetKind, u64)>,
+    terrain: Option<u64>,
+    cell: (u16, u16),
+    modifier: OrderModifier,
+) -> BuildingClick {
     let registry = crate::rules::overlay_types::OverlayTypeRegistry::empty();
     let hover = hover.map(|(kind, stable_id)| HoverTargetKindWithId { kind, stable_id });
     let force_move_key = matches!(
@@ -247,6 +260,7 @@ fn click(
         selection,
         sim.session().current_house().unwrap(),
         hover.as_ref(),
+        terrain,
         cell,
         modifier,
         force_move_key,
@@ -748,4 +762,107 @@ fn an_object_archive_whose_target_is_gone_clears_the_archive() {
         },
         Some(&rules)
     ));
+}
+
+/// Alt or Ctrl+Alt over a Terrain object with a building selected: Techno
+/// What_Action's Alt rung answers Move (a tree is no ally for Ctrl+Alt's
+/// guard rung, `0x004F9A90`), which Building What_Action_OnObject's factory
+/// rungs (`0x004473F4..0x0044750B`) take over the Cell under the tree. The
+/// yard archives the tree (event 0x1E) and its MCV later drives to it; a
+/// plain click over the tree answers 0 and sends nothing.
+#[test]
+fn a_yard_alt_click_over_a_tree_archives_it_and_its_mcv_drives_there() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let mut rules = retail.rules;
+    rules.set_buildup_control_for_test("GACNST", [0, 29, 1]);
+    let (mut sim, owner) = yard_arena(&rules);
+    sim.set_input_delay_ticks(0);
+    sim.spawn_object("GAPOWR", "Russians", 3, 3, 0, &rules)
+        .unwrap();
+    let yard = sim
+        .spawn_object("GACNST", "Americans", 12, 12, 0, &rules)
+        .unwrap();
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 6, 18, 0, &rules)
+        .unwrap();
+    assert_eq!(
+        crate::sim::terrain_spawn::construct_terrain_objects(
+            &mut sim,
+            &[crate::map::overlay::TerrainObject {
+                rx: 21,
+                ry: 8,
+                name: "TREE01".into(),
+            }],
+            &rules,
+            false,
+        ),
+        1
+    );
+    let tree = sim.terrain_objects().id_at((21, 8)).expect("tree");
+    let over_tree = |selection: &[u64], modifier| {
+        click_over(&sim, &rules, selection, None, Some(tree), (21, 8), modifier)
+    };
+    for modifier in [OrderModifier::ForceMove, OrderModifier::GuardArea] {
+        let alt = over_tree(&[yard], modifier);
+        assert_eq!(archives(&alt), [(yard, tree)], "{modifier:?}");
+        assert!(!packs_up(&alt), "{modifier:?}");
+        // The war factory's rungs admit the Cell under the tree, and it
+        // rallies beside it (`Building443860`).
+        assert_eq!(
+            rallies(&over_tree(&[factory], modifier)),
+            [factory],
+            "{modifier:?}"
+        );
+    }
+    assert_eq!(
+        over_tree(&[yard], OrderModifier::Normal),
+        BuildingClick::Nothing
+    );
+    let tick = sim.session().tick();
+    sim.queue_commands(
+        [
+            Command::ArchiveObject {
+                entity_id: yard,
+                target_id: tree,
+            },
+            Command::SellBuilding { entity_id: yard },
+        ]
+        .map(|payload| CommandEnvelope::new(owner, tick, payload)),
+    );
+    step(&mut sim, &rules);
+    assert_eq!(
+        sim.entities().get(yard).map(|yard| yard.archive_target()),
+        Some(Some(TargetKind::Entity(tree)))
+    );
+    let mut mcv = None;
+    for _ in 0..80 {
+        step(&mut sim, &rules);
+        mcv = sim
+            .entities()
+            .values()
+            .find(|e| sim.interner().resolve(e.type_ref()) == "AMCV")
+            .map(|e| e.stable_id());
+        if mcv.is_some() {
+            break;
+        }
+    }
+    let mcv = mcv.expect("the yard must pack up");
+    let beside_tree = |sim: &Simulation| {
+        let unit = sim.entities().get(mcv).unwrap();
+        unit.position.rx().abs_diff(21) <= 1 && unit.position.ry().abs_diff(8) <= 1
+    };
+    for _ in 0..600 {
+        if beside_tree(&sim) {
+            break;
+        }
+        step(&mut sim, &rules);
+    }
+    let unit = sim.entities().get(mcv).unwrap();
+    assert!(
+        beside_tree(&sim),
+        "the MCV must drive to the archived tree: {:?}",
+        (unit.position.rx(), unit.position.ry())
+    );
 }

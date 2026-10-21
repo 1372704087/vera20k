@@ -551,7 +551,7 @@ pub(crate) fn attack_action(
 
 /// Whether an Aircraft's 0 over the object `target_id` becomes Attack. The
 /// Aircraft wrapper asks its own What_Action on the Cell under the object
-/// (`0x00417D7C..0x00417DCB`, [`Simulation::aircraft_object_query_cell`]):
+/// (`0x00417D7C..0x00417DCB`, [`Simulation::object_coords_cell`]):
 /// Aircraft `0x00417F80`, a human player's only, through Foot's shroud wrapper
 /// (`0x004DDDE0`) to Techno `0x00700600`, whose unforced Attack rung
 /// (`0x007008A6..0x007009F1`, [`Simulation::cell_attack_rung_admits`])
@@ -567,7 +567,7 @@ pub(crate) fn attack_action(
 /// aircraft type with a Secondary but no Primary weapon (none in retail, whose
 /// aircraft all carry a Primary). Effect: Attack where native answers 0.
 ///
-/// [`Simulation::aircraft_object_query_cell`]: crate::sim::world::Simulation::aircraft_object_query_cell
+/// [`Simulation::object_coords_cell`]: crate::sim::world::Simulation::object_coords_cell
 /// [`Simulation::cell_attack_rung_admits`]: crate::sim::world::Simulation::cell_attack_rung_admits
 fn aircraft_cell_attack_under_object(
     sim: &crate::sim::world::Simulation,
@@ -583,7 +583,7 @@ fn aircraft_cell_attack_under_object(
     else {
         return false;
     };
-    let Some(cell) = sim.aircraft_object_query_cell(target_id) else {
+    let Some(cell) = sim.object_coords_cell(target_id) else {
         return false;
     };
     sim.clicked_cell_is_shrouded(actor.owner(), cell) == Ok(false)
@@ -865,6 +865,7 @@ fn attack_branch_orders(
     selected_ids: &[u64],
     attack_target: TargetKind,
     force_fire: bool,
+    order_mode: OrderMode,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
 ) -> AttackDispatch {
     let mut consumed_attack_action = false;
@@ -937,7 +938,14 @@ fn attack_branch_orders(
             && let TargetKind::Entity(target_id) = attack_target
         {
             consumed_attack_action = true;
-            queued.extend(move_near_object(sim, rules, id, target_id, move_action));
+            queued.extend(move_near_object(
+                sim,
+                rules,
+                order_mode,
+                id,
+                target_id,
+                move_action,
+            ));
             continue;
         }
         match action {
@@ -961,6 +969,7 @@ fn attack_branch_orders(
                                 let Some(command) = move_near_object(
                                     sim,
                                     rules,
+                                    order_mode,
                                     id,
                                     target_id,
                                     crate::sim::world::MoveAction::NoMove,
@@ -1005,6 +1014,7 @@ fn attack_branch_orders(
 fn move_near_object(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
+    order_mode: OrderMode,
     id: u64,
     target_id: u64,
     action: crate::sim::world::MoveAction,
@@ -1013,13 +1023,7 @@ fn move_near_object(
     let destination = crate::app::input::commands::object_move_destination(
         sim, rules, owner, id, target_id, action, false,
     )?;
-    Some(move_click_command(
-        sim,
-        rules,
-        OrderMode::Move,
-        id,
-        destination,
-    ))
+    Some(move_click_command(sim, rules, order_mode, id, destination))
 }
 
 /// INI voice key for the mission a command commits.
@@ -1380,17 +1384,9 @@ pub(super) enum ObjectKeyAction {
 /// (`0x007000EB..0x00700107`); Alt, Ctrl+Alt and Ctrl+Shift+Alt answer Move
 /// for a player's controllable object (vt+0xA0) once the guard rung refused.
 /// None leaves the later rungs (for a Terrain object, plain, Ctrl and
-/// Ctrl+Shift: [`crate::app::input::cursor::terrain_object_feedback`]).
-///
-/// RESIDUALS:
-/// - Over a Terrain object Ctrl+Shift answers the Cell in the cursor and the
-///   click. Native takes the plain answer (NoMove for a player's Unit or
-///   Infantryman), moves near the object and the attack-move chord remaps
-///   the Move (`0x006FFBEC`); VERA attack-moves to a Cell near the tree.
-///   Only the destination differs. Rare.
-/// - A selected building's Alt or Ctrl+Alt over a Terrain object keeps its
-///   Cell answer (its factory rungs, `0x0044744E..0x0044750B`, are not asked
-///   with a Terrain object). Rare.
+/// Ctrl+Shift: [`crate::app::input::cursor::terrain_object_feedback`]). A
+/// selected building's Move over a Terrain object then asks its own factory
+/// rungs (`0x004473F4..0x0044750B`, [`building_object_orders`]).
 pub(super) fn object_key_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -2113,18 +2109,19 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         // Attack-capable Ctrl receivers, including fixed/occupied buildings,
         // resolve the same action as the cursor before the legacy rally/mobile
         // split. Non-attack capabilities keep their existing handlers below.
-        // A plain or Ctrl click over a Terrain object takes each receiver's
-        // What_Action on the object (`terrain_object_feedback` for the
-        // cursor). Other chords over one answer its Cell (residuals there).
-        let terrain_target = match hover_object {
-            Some(HoverObject::Terrain(id))
-                if force_fire
-                    || (modifier == OrderModifier::Normal && order_mode == OrderMode::Move) =>
-            {
-                Some(id)
-            }
+        // A plain, Ctrl or Ctrl+Shift click over a Terrain object takes each
+        // receiver's What_Action on the object (`terrain_object_feedback`
+        // for the cursor). Shift, Alt and Ctrl+Alt took its key rungs
+        // ([`object_key_action`]): a building's are its own orders below.
+        let hover_terrain = match hover_object {
+            Some(HoverObject::Terrain(id)) => Some(id),
             _ => None,
         };
+        let terrain_target = hover_terrain.filter(|_| {
+            force_fire
+                || (!force_move
+                    && matches!(modifier, OrderModifier::Normal | OrderModifier::AttackMove))
+        });
         let attack_target = match (hover_object, terrain_target) {
             (Some(HoverObject::Techno(target)), _) => TargetKind::Entity(target.stable_id),
             (_, Some(id)) => TargetKind::Entity(id),
@@ -2162,6 +2159,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &receivers,
                 attack_target,
                 force_fire,
+                order_mode,
                 &resources.overlay_registry,
             )
         } else if let TargetKind::Cell(rx, ry) = attack_target
@@ -2209,6 +2207,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &rung,
                 attack_target,
                 true,
+                order_mode,
                 &resources.overlay_registry,
             )
         } else {
@@ -2277,6 +2276,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &selected_ids,
                 owner_id,
                 hover.as_ref(),
+                hover_terrain,
                 (target_rx, target_ry),
                 modifier,
                 force_move_key,
@@ -2298,6 +2298,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 &selected_ids,
                 owner_id,
                 hover.as_ref(),
+                hover_terrain,
                 (target_rx, target_ry),
                 modifier,
                 force_move_key,
@@ -3934,6 +3935,7 @@ fn building_selection_click(
     receivers: &[u64],
     owner: InternedId,
     hover: Option<&HoverTargetKindWithId>,
+    terrain: Option<u64>,
     cell: (u16, u16),
     modifier: OrderModifier,
     force_move_key: bool,
@@ -3979,18 +3981,26 @@ fn building_selection_click(
         receivers,
         owner,
         hover,
+        terrain,
         cell,
         modifier,
         force_move_key,
     );
+    // Over a Terrain object a building that does not answer Move answers 0,
+    // which selects nothing (a tree is no object to select).
+    if terrain.is_some() && orders.is_empty() {
+        return BuildingClick::Nothing;
+    }
     BuildingClick::Orders(orders, announce)
 }
 
 /// The selected buildings' own orders for a left click: over a visible
-/// object ([`building_object_orders`]; an enemy the player cannot see is no
-/// object, and its Cell takes the click) or on a Cell
-/// ([`building_cell_orders`]). Ctrl+Alt over the player's own or an allied
-/// object answers 0x1A, which has no Building ClickedAction arm.
+/// object or a Terrain object (`terrain`) ([`building_object_orders`]; an
+/// enemy the player cannot see is no object, and its Cell takes the click)
+/// or on a Cell ([`building_cell_orders`]). Ctrl+Alt over the player's own
+/// or an allied object answers 0x1A, which has no Building ClickedAction
+/// arm; a Terrain object is no ally, so there it answers Alt's Move
+/// ([`object_key_action`]).
 #[allow(clippy::too_many_arguments)]
 fn building_click_orders(
     sim: &crate::sim::world::Simulation,
@@ -3999,6 +4009,7 @@ fn building_click_orders(
     selected: &[u64],
     owner: InternedId,
     hover: Option<&HoverTargetKindWithId>,
+    terrain: Option<u64>,
     cell: (u16, u16),
     modifier: OrderModifier,
     force_move_key: bool,
@@ -4016,6 +4027,9 @@ fn building_click_orders(
         }
         Some(target) => {
             building_object_orders(sim, rules, selected, target.stable_id, force_move_key)
+        }
+        None if let Some(terrain) = terrain => {
+            building_object_orders(sim, rules, selected, terrain, force_move_key)
         }
         None => building_cell_orders(
             sim,
@@ -4109,11 +4123,7 @@ fn building_object_orders(
     force_move_key: bool,
 ) -> (Vec<Command>, bool) {
     use crate::rules::object_type::FactoryType;
-    let Some(cell) = sim.entities().get(target).map(|object| {
-        let coords =
-            crate::sim::movement::ground_pose::object_get_coords(object, sim.resolved_terrain());
-        ((coords.x / 256) as u16, (coords.y / 256) as u16)
-    }) else {
+    let Some(cell) = sim.object_coords_cell(target) else {
         return (Vec::new(), false);
     };
     let mut orders = Vec::new();
@@ -7364,6 +7374,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             &[stationary, mobile],
             TargetKind::Cell(20, 2),
             true,
+            OrderMode::Move,
             &registry,
         );
         assert!(mixed.consumed);
@@ -7392,6 +7403,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             &[stationary],
             TargetKind::Entity(enemy),
             true,
+            OrderMode::Move,
             &registry,
         );
         assert!(none.commands.is_empty());
@@ -7405,6 +7417,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             &[stationary],
             TargetKind::Entity(friend),
             true,
+            OrderMode::Move,
             &registry,
         );
         assert!(select.commands.is_empty());
@@ -7418,6 +7431,7 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             &[stationary],
             TargetKind::Cell(4, 2),
             true,
+            OrderMode::Move,
             &registry,
         );
         assert_eq!(near.commands.len(), 1);

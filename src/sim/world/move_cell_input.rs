@@ -784,7 +784,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
     ) -> MoveAction {
         let action = if action == MoveAction::None {
-            let Some(cell) = self.aircraft_object_query_cell(target) else {
+            let Some(cell) = self.object_coords_cell(target) else {
                 return action;
             };
             let query = CellActionQuery {
@@ -803,10 +803,12 @@ impl Simulation {
         }
     }
 
-    /// The Cell an Aircraft's What_Action over the object `target` asks its
-    /// own Cell action on (`0x00417D80..0x00417DB7`): the object's GetCoords
-    /// (vt+0x48), each axis `>> 8` toward zero (`CDQ; AND EDX,0xFF; SAR 8`).
-    pub fn aircraft_object_query_cell(&self, target: u64) -> Option<(u16, u16)> {
+    /// The Cell under the object `target`'s GetCoords (vt+0x48), a Techno or
+    /// a Terrain object, each axis `>> 8` toward zero (`CDQ; AND EDX,0xFF;
+    /// SAR 8`): the Cell an Aircraft's What_Action over the object asks its
+    /// own Cell action on (`0x00417D80..0x00417DB7`), and a factory's rally
+    /// Cell over it (`0x0044745D..0x00447479`).
+    pub fn object_coords_cell(&self, target: u64) -> Option<(u16, u16)> {
         let cells = self
             .resolved_terrain
             .as_ref()

@@ -337,9 +337,11 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         ));
     }
 
+    let attack_move = modifier == super::context_order::OrderModifier::AttackMove
+        || state.match_state.input.queued_order_mode == crate::app::types::OrderMode::AttackMove;
     // Shift, Alt and Ctrl+Alt over a Terrain object take the object's key
     // rungs ([`super::context_order::object_key_action`]).
-    if let Some(HoverObject::Terrain(_)) = hover_object
+    if let Some(HoverObject::Terrain(terrain_id)) = hover_object
         && let (Some(id), Some(rules)) = (best_id, state.rules())
         && let Some(action) =
             super::context_order::object_key_action(sim, rules, id, None, modifier, force_move_key)
@@ -347,21 +349,22 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         let kind = match action {
             super::context_order::ObjectKeyAction::ToggleSelect => CursorFeedbackKind::Select,
             super::context_order::ObjectKeyAction::GuardArea => CursorFeedbackKind::GuardArea,
-            super::context_order::ObjectKeyAction::Move => CursorFeedbackKind::Move,
+            super::context_order::ObjectKeyAction::Move => {
+                key_move_feedback(sim, rules, id, terrain_id)
+            }
         };
-        return Some(promote_attack_move_feedback(
-            kind,
-            modifier == super::context_order::OrderModifier::AttackMove
-                || state.match_state.input.queued_order_mode
-                    == crate::app::types::OrderMode::AttackMove,
-        ));
+        return Some(promote_attack_move_feedback(kind, attack_move));
     }
-    // A plain or Ctrl hover over a Terrain object asks the object.
+    // A plain, Ctrl or Ctrl+Shift hover over a Terrain object asks the
+    // object.
     let forced = modifier == crate::app::input::context_order::OrderModifier::ForceFire;
     if let Some(HoverObject::Terrain(terrain_id)) = hover_object
-        && (forced
-            || (modifier == crate::app::input::context_order::OrderModifier::Normal
-                && state.match_state.input.queued_order_mode == crate::app::types::OrderMode::Move))
+        && matches!(
+            modifier,
+            crate::app::input::context_order::OrderModifier::Normal
+                | crate::app::input::context_order::OrderModifier::ForceFire
+                | crate::app::input::context_order::OrderModifier::AttackMove
+        )
         && let Some(feedback) = best_id.and_then(|id| {
             terrain_object_feedback(
                 sim,
@@ -374,7 +377,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
             )
         })
     {
-        return Some(feedback);
+        return Some(promote_attack_move_feedback(feedback, attack_move));
     }
     // Force-fire override: with Ctrl held the cell path takes the attack branch
     // over allies, own units and empty ground. Ctrl+Shift is attack-move and
@@ -441,9 +444,8 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
 /// over every retail Terrain object
 /// ([`super::context_order::ivan_bomb_object_refused`]).
 ///
-/// RESIDUALS, each a rare chord or unit over a Terrain object:
-/// - Ctrl+Shift and VERA's sticky attack-move mode answer the Cell. Native:
-///   the unforced answer (NoMove for a player's Unit or Infantryman).
+/// Ctrl+Shift and the sticky attack-move mode take the unforced answer,
+/// whose Move ClickedMission promotes to attack-move (`0x006FFC09..0x006FFC1E`).
 pub(crate) fn terrain_object_feedback(
     sim: &crate::sim::world::Simulation,
     actor_id: u64,
@@ -878,16 +880,7 @@ pub(super) fn capability_cursor_for_hover(
         if key_action == Some(super::context_order::ObjectKeyAction::Move)
             && let Some(rules) = rules
         {
-            // A factory's own rungs over the object (`0x0044744E..0x0044750B`).
-            let factory_refuses = sel_entity.category() == EntityCategory::Structure
-                && sim
-                    .building_object_move_action(best_id, hover.stable_id, rules)
-                    .is_ok_and(|action| action == crate::sim::world::MoveAction::NoMove);
-            return if factory_refuses {
-                CursorFeedbackKind::Invalid
-            } else {
-                CursorFeedbackKind::Move
-            };
+            return key_move_feedback(sim, rules, best_id, hover.stable_id);
         }
         if modifier == OrderModifier::ForceFire {
             if let Some(kind) = force_fire_feedback(
@@ -1098,6 +1091,29 @@ pub(super) fn capability_cursor_for_hover(
                 })
         }
         HoverTargetKind::HiddenEnemy => CursorFeedbackKind::Invalid,
+    }
+}
+
+/// Alt's Move over the object `target` ([`super::context_order::ObjectKeyAction::Move`]),
+/// which a building's factory rungs (`0x0044744E..0x0044750B`) can turn
+/// into NoMove.
+fn key_move_feedback(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    target: u64,
+) -> CursorFeedbackKind {
+    let factory_refuses = sim
+        .entities()
+        .get(actor_id)
+        .is_some_and(|actor| actor.category() == crate::map::entities::EntityCategory::Structure)
+        && sim
+            .building_object_move_action(actor_id, target, rules)
+            .is_ok_and(|action| action == crate::sim::world::MoveAction::NoMove);
+    if factory_refuses {
+        CursorFeedbackKind::Invalid
+    } else {
+        CursorFeedbackKind::Move
     }
 }
 

@@ -55,7 +55,7 @@ def generate(repeat=True, control='rally', capture=None):
     parent_driver=P2 / ('exit.py' if control=='rally' else 'construction.py')
     read_accepted(control)  # verifies exact decompressed original P2 bytes
     original = load('immutable_p2_idle_observation', parent_driver)
-    original_vtable_receipt = json.loads((HERE / 'native-infantry-vtable.json').read_text())
+    original_vtable_receipt = json.loads((HERE / 'native-infantry-vtable.json').read_text(encoding='utf-8'))
     original_vtable_bytes = bytes.fromhex(original_vtable_receipt['result']['bytes'])
     declared_slots = {hex(o): struct.unpack_from('<I', original_vtable_bytes, o)[0] for o in SLOTS}
     events, writes, setters, streams, stream_index, registry = [], [], [], {}, {}, {}
@@ -237,7 +237,7 @@ def generate(repeat=True, control='rally', capture=None):
         hooks.extend([u.hook_add(UC_HOOK_CODE,observe),u.hook_add(UC_HOOK_MEM_WRITE,written)])
         vm.update(snapshot=snapshot,complete_row=complete_row,rng_refs=rng_refs)
 
-    fn=next(n for n in ast.parse(Path(original.__file__).read_text()).body
+    fn=next(n for n in ast.parse(Path(original.__file__).read_text(encoding='utf-8')).body
         if isinstance(n,ast.FunctionDef) and n.name=='generate')
     class Observer(ast.NodeTransformer):
         def visit_FunctionDef(self,node):

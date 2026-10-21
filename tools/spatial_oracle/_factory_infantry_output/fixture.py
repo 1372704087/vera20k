@@ -443,7 +443,7 @@ def local_fixture(no_rally, rally, source_receipts):
     exit_pointer = placed['state']['delivered_infantry'][0]['nav']
     selected = next((x for x in request['after']['perimeter'] if x['pointer'] == exit_pointer))
     from tools.spatial_oracle._factory_infantry_output import exit as exit_caller
-    click = [x for x in ast.walk(ast.parse(Path(exit_caller.__file__).read_text())) if isinstance(x, ast.Call) and isinstance(x.func, ast.Attribute) and (x.func.attr == 'pack') and (len(x.args) == 3) and isinstance(x.args[0], ast.Constant) and (x.args[0].value == '<2h')]
+    click = [x for x in ast.walk(ast.parse(Path(exit_caller.__file__).read_text(encoding='utf-8'))) if isinstance(x, ast.Call) and isinstance(x.func, ast.Attribute) and (x.func.attr == 'pack') and (len(x.args) == 3) and isinstance(x.args[0], ast.Constant) and (x.args[0].value == '<2h')]
     require(len(click) == 1, 'Authored rally input expression changed')
     requested = [ast.literal_eval(x) for x in click[0].args[1:]]
     rally_destination = with_rally['products'][0]['rally_walk_destination']

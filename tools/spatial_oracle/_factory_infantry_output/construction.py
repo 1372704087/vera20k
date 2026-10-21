@@ -63,7 +63,7 @@ def generate(control='construction'):
         opening['creation']=snap(f,p)
     # Extend only the immutable external caller adapter, retaining its native
     # constructor/Unlimbo/House corridors, hooks, guards and cleanup exclusions.
-    derive=next(n for n in ast.parse((PARENT/'admitted.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='derive_setup')
+    derive=next(n for n in ast.parse((PARENT/'admitted.py').read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='derive_setup')
     class Derive(ast.NodeTransformer):
         def visit_Assign(self,n):
             if ast.unparse(n).startswith('fn = Hooks().visit(fn)'):
@@ -113,7 +113,7 @@ def generate(control='construction'):
         for h in hook_ids:u.hook_del(h)
         return opening
     # Remove all linked-prior opening stores from the immutable setup closure.
-    gen=next(n for n in ast.parse((PARENT/'admitted.py').read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
+    gen=next(n for n in ast.parse((PARENT/'admitted.py').read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
     class Opening(ast.NodeTransformer):
         def visit_FunctionDef(self,n):
             if n.name=='setup':

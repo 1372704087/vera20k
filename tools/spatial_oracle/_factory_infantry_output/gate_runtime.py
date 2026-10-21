@@ -16,7 +16,7 @@ from . import runtime as rt
 
 @functools.cache
 def metadata():
-    return json.loads((rt.HERE / 'gate-meta.json').read_text())
+    return json.loads((rt.HERE / 'gate-meta.json').read_text(encoding='utf-8'))
 
 
 def read_pinned(name, *, decoded=True):

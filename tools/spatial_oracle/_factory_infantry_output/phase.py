@@ -25,7 +25,7 @@ EXPECTED_P10 = '2864c48044891746cf597cd0d4f4a5e8e6554b208ddccfa47313d1a22bbe68ea
 
 
 def derived_generate():
-    fn = next(n for n in ast.parse(Path(initialized.__file__).read_text()).body
+    fn = next(n for n in ast.parse(Path(initialized.__file__).read_text(encoding='utf-8')).body
               if isinstance(n, ast.FunctionDef) and n.name == 'generate')
     changed = dict(stop=0, product_count=0, terminal_assertions=0)
 

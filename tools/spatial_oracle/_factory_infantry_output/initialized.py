@@ -38,7 +38,7 @@ def generate(control, live_continuation=None, *, drive_startup=False):
     from tools import native_oracle as native, native_inspect
     from unicorn import UC_HOOK_CODE, UC_HOOK_MEM_READ, UC_HOOK_MEM_WRITE, UC_MEM_READ
     from unicorn.x86_const import UC_X86_REG_EAX, UC_X86_REG_ECX, UC_X86_REG_EIP, UC_X86_REG_ESP, UC_X86_REG_FPCW, UC_X86_REG_EDI, UC_X86_REG_EBP, UC_X86_REG_EDX
-    source = Path(idle.__file__).read_text()
+    source = Path(idle.__file__).read_text(encoding='utf-8')
     image = native.image_bytes()
     _, table_bytes = native.file_span(image, TABLE[0], TABLE[1] - TABLE[0])
     entries = list(struct.unpack('<14I', table_bytes))

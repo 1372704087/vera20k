@@ -35,7 +35,7 @@ def measured(f, p):
 
 
 def derive_setup(m, admitted):
-    fn=next(n for n in ast.parse(Path(m.__file__).read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
+    fn=next(n for n in ast.parse(Path(m.__file__).read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
     # A supplied current VM is shared with the queue. The original native
     # observer, checked execution owner and constructor corridors are reused.
     for i,node in enumerate(fn.body):
@@ -85,7 +85,7 @@ def generate():
         return dict(whole_native=True,abstract_flags=f.read32(p+0x14),admission_ref='admission')
     def joined_snapshot(f,p,old):
         return old | {'admitted_authorities':measured(f,p)}
-    fn=next(n for n in ast.parse(Path(factory.__file__).read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
+    fn=next(n for n in ast.parse(Path(factory.__file__).read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
     # Semantic caller setup selection replaces fragile original line numbers. No native
     # owners, whole-native bodies or queue/movement decisions are replaced.
     body=[]

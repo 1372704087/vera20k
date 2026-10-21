@@ -32,7 +32,7 @@ def canonical_sha(value):
 
 @functools.cache
 def metadata():
-    return json.loads((HERE / 'meta.json').read_text())
+    return json.loads((HERE / 'meta.json').read_text(encoding='utf-8'))
 
 
 def load_module(name, path):

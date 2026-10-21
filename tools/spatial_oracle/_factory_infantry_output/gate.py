@@ -101,7 +101,7 @@ def gate_reader():
     u.reg_write(UC_X86_REG_ESI, TYPE)
     native.run_checked(u, 0x45E115, 0x45E11B, count=20)
     ctor = u.mem_read(TYPE + 0x16B7, 1)[0]
-    retail = json.loads((HERE / 'inputs/infantry-unlimbo-gate-retail.json').read_text())
+    retail = json.loads((HERE / 'inputs/infantry-unlimbo-gate-retail.json').read_text(encoding='utf-8'))
     rows = []
     for layer in retail['authored_layers']:
         if not layer['source_present']:

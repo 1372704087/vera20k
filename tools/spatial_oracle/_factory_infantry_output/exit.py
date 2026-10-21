@@ -90,7 +90,7 @@ def generate(control):
         def visit_Assign(self,n):
             if ast.unparse(n).startswith('fn = State().visit(fn)'):return [n,*ast.parse('fn = FactoryControl().visit(fn)').body]
             return self.generic_visit(n)
-    fn=next(n for n in ast.parse(BASE.read_text()).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
+    fn=next(n for n in ast.parse(BASE.read_text(encoding='utf-8')).body if isinstance(n,ast.FunctionDef) and n.name=='generate')
     class Variant(ast.NodeTransformer):
         def visit_FunctionDef(self,n):
             if n.name=='open_producer':

@@ -3646,16 +3646,14 @@ fn cursor_owner(
 /// armed building with another object selected, clicking a tree. Effect:
 /// the other object's order is sent. Rare.
 ///
-/// RESIDUAL: a release that selects hands the click to the selection
-/// picker, which picks again. Both pickers admit what
-/// `Tactical::PickObjectAtScreenPoint` admits
-/// ([`crate::app::input::entity_pick::pick_admits_object`]), but they break
-/// ties apart. Both use ProcessClickCoords' floor-projected shroud gate
-/// (692480, spatial_oracle/click_shroud.json).
-/// Trigger: two objects under the click point.
-/// Effect: the selection takes the other object, or is cleared,
-/// where native selects the object DetermineAction saw (one pick for both,
-/// `0x00693271` → `0x0069328B`). Rare.
+/// A release that selects hands the click to the selection's click pick,
+/// which asks the same `Tactical::PickObjectAtScreenPoint` port
+/// ([`crate::app::input::entity_pick::pick_object_at_point`]) with the same
+/// Display order, presented positions, fog and viewer, and nothing changes
+/// between the two calls. So it selects the object DetermineAction saw, as
+/// native's one pick does (`0x00692515` → `0x00693271` / `0x0069328B`);
+/// `hover_and_click_match_original_weighted_pick_and_encounter_ties` pins
+/// both against the native tie corpus (spatial_oracle/pointer_pick.json).
 fn object_click_release(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,

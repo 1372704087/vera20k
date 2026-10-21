@@ -6130,14 +6130,7 @@ impl Simulation {
             );
         }
         if category == EntityCategory::Structure {
-            crate::sim::production::initialize_factory_primary(
-                &self.interner,
-                &mut self.production,
-                &self.substrate,
-                &self.houses,
-                stable_id,
-                rules,
-            );
+            crate::sim::production::initialize_factory_primary(self, rules, stable_id);
             //448CEF: Grand_Opening(1) also runs on an already placed
             //building; its6E4 gate prevents repeating first-opening slots.
             self.grand_opening(stable_id, true, false, rules, None, effects);
@@ -6153,7 +6146,6 @@ impl Simulation {
             self.leave_team(stable_id, false, rules, effects);
         }
         self.foot_neighbors_after_owner_change(stable_id, rules);
-        self.refresh_waypoint_edge_from_committed_structure(stable_id);
         self.reapply_building_gap_after_owner_change(stable_id, rules);
         self.relink_docked_after_owner_change(stable_id, &taken_along, rules, effects);
         // Building449267/449284: old House then new House, after lists,

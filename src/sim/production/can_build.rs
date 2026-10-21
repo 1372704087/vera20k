@@ -30,12 +30,8 @@ use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::house_state::HouseState;
 use crate::sim::house_tracking::HouseTracking;
-use crate::sim::houses::Houses;
 use crate::sim::intern::InternedId;
-use crate::sim::intern::StringInterner;
 use crate::sim::mission::{MissionId, MissionType};
-use crate::sim::production::ProductionState;
-use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{SimSoundEvent, Simulation};
 
 /// `HouseClass::CanBuild`'s answer.
@@ -768,28 +764,23 @@ fn query_factory(
 /// Building448070, called from admitted Unlimbo4411B1 and ChangeOwner448C69:
 /// preserve an existing non-limbo primary of matching Factory/Naval;
 /// otherwise make this building primary. This is the lifecycle producer, not
-/// the fallback choice returned by FindFactory.
+/// the fallback choice returned by FindFactory. A `Factory=BuildingType`
+/// building then has its House determine the edge, whether or not it took the
+/// flag (`0x00448124..0x0044813D`, [`Simulation::determine_house_edge`]).
 ///
 /// Residual #1709: 44807C/4480D5 and 4481C5 compare every nonzero raw
 /// RTTI and Naval, including distinct Unit1/UnitType40 groups. The existing
 /// serialized ProductionCategory index represents recognized Type factories
 /// only; other raw Factory RTTIs still need their lifecycle/state migration.
 /// See https://github.com/YuriPlanet/vera20k/issues/1709.
-pub(crate) fn initialize_factory_primary(
-    interner: &StringInterner,
-    production: &mut ProductionState,
-    substrate: &ObjectSubstrate,
-    houses: &Houses,
-    id: u64,
-    rules: &RuleSet,
-) {
-    let Some(building) = substrate.entities.get(id) else {
+pub(crate) fn initialize_factory_primary(sim: &mut Simulation, rules: &RuleSet, id: u64) {
+    let Some(building) = sim.substrate.entities.get(id) else {
         return;
     };
     if building.category() != EntityCategory::Structure || building.lifecycle.in_limbo() {
         return;
     }
-    let Some(ty) = interner.object_type(building.type_ref(), rules) else {
+    let Some(ty) = sim.object_type(building.type_ref(), rules) else {
         return;
     };
     let Some(factory) = ty.factory_type() else {
@@ -801,29 +792,32 @@ pub(crate) fn initialize_factory_primary(
     let owner = building.owner();
     //4480B8..448114 walks House+6C, rather than choosing one retained ID.
     // A limbo primary does not prevent this admitted building becoming primary.
-    let keep = houses.get(&owner).is_some_and(|house| {
+    let keep = sim.houses.get(&owner).is_some_and(|house| {
         house
             .base_projection()
             .buildings()
             .iter()
             .any(|&candidate_id| {
-                substrate
+                sim.substrate
                     .entities
                     .get(candidate_id)
                     .is_some_and(|candidate| {
                         !candidate.lifecycle.in_limbo()
-                            && production.is_primary_factory(candidate_id)
-                            && interner
-                                .object_type(candidate.type_ref(), rules)
-                                .is_some_and(|candidate_type| {
+                            && sim.production.is_primary_factory(candidate_id)
+                            && sim.object_type(candidate.type_ref(), rules).is_some_and(
+                                |candidate_type| {
                                     candidate_type.factory_type() == Some(factory)
                                         && candidate_type.naval == ty.naval
-                                })
+                                },
+                            )
                     })
             })
     });
     if !keep {
-        production.set_primary_factory(owner, category, id);
+        sim.production.set_primary_factory(owner, category, id);
+    }
+    if factory == FactoryType::BuildingType {
+        sim.determine_house_edge(owner, id, rules);
     }
 }
 
@@ -899,11 +893,9 @@ pub(crate) fn toggle_factory_primary(sim: &mut Simulation, rules: &RuleSet, id: 
             });
         }
         if factory == FactoryType::BuildingType {
-            //44823B is setting-only: old-primary clear jumps448246.
-            // Keep the existing House edge owner; its wider yard geometry
-            // and other raw Factory groups remain separate audit bounds.
+            //44822B..448241 is setting-only: old-primary clear jumps448246.
             // The ordinary GAWEAP(raw40) chain does not enter this branch.
-            sim.refresh_waypoint_edge_from_committed_structure(id);
+            sim.determine_house_edge(owner, id, rules);
         }
     }
     //44824C Mark(CHANGE) redraws and propagates palette/cloak presentation,

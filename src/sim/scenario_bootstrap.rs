@@ -42,7 +42,7 @@ use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::find_nearby_cell::{
     NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
 };
-use crate::sim::house_state::{HouseDifficulty, HouseState, determine_waypoint_edge};
+use crate::sim::house_state::{HouseDifficulty, HouseState};
 use crate::sim::houses::Houses;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::rng::{SimRng, SimRngLogicalState};
@@ -1762,18 +1762,14 @@ fn assign_launch_base_centers(
         let Some(slot) = slots.get(*slot_idx) else {
             continue;
         };
-        let waypoint_edge = sim
-            .playfield_bounds()
-            .map(|bounds| determine_waypoint_edge((waypoint.rx, waypoint.ry), bounds));
+        // The House edge (+0x577C) keeps the constructor's North (0x004F5C79)
+        // until a yard's DetermineEdge (0x0050DB00); a start does not set it.
         if let Some(house) = crate::sim::house_state::house_state_for_owner_mut(
             &mut sim.houses,
             &slot.owner_name,
             &sim.interner,
         ) {
             house.set_base_center((waypoint.rx, waypoint.ry));
-            if let Some(waypoint_edge) = waypoint_edge {
-                house.assign_waypoint_edge(waypoint_edge);
-            }
         }
     }
 }

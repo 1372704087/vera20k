@@ -1255,6 +1255,26 @@ pub(super) fn guard_area_admitted(
     }
 }
 
+/// Techno What_Action on a Cell's Ctrl+Alt rung (`0x00700815..0x007008A3`):
+/// whether `actor_id` answers GuardArea (0x1A) on bare ground, ahead of the
+/// move rungs. Over a shrouded Cell a Foot's wrapper turns that answer into
+/// Move or NoMove (`0x004DDE64..0x004DDEBE`), as the move rungs answer there;
+/// a Building's wrapper (`0x00447540`) keeps it. The hover and the click both
+/// ask this, each with its own shroud test of the clicked Cell.
+pub(super) fn cell_guard_area_action(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    shrouded: bool,
+) -> bool {
+    guard_area_admitted(sim, rules, actor_id, None)
+        && !(shrouded
+            && sim
+                .entities()
+                .get(actor_id)
+                .is_some_and(|entity| entity.category() != EntityCategory::Structure))
+}
+
 /// The order one receiver commits for a Move click's destination.
 /// ClickedMission (`0x006FFBE0`) promotes Move to attack-move (mission 29)
 /// while the attack-move chord or toggle is on (`0x00731BF0`) and the
@@ -2267,7 +2287,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                 })
                 .map(|target| target.stable_id);
             // Foot4DDDE0's hidden-cell wrapper rewrites a nonzero action
-            // except GuardArea0x33 to Move when MoveToShroud and the playfield
+            // except the planning action 0x33 to Move when MoveToShroud and the playfield
             // admit it, otherwise NoMove (4DDE8F..4DDEB0). It does not preserve
             // Attack5. The ordinary MTNK fall-through below takes Move; other
             // class/shroud combinations remain part of the shared-cell audit.
@@ -2318,9 +2338,10 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                     };
                     payload
                 } else if modifier == OrderModifier::GuardArea
-                    && guard_area_admitted(sim, &resources.rules, stable_id, None)
+                    && cell_guard_area_action(sim, &resources.rules, stable_id, cell_is_shrouded)
                 {
-                    // Ctrl+Alt over bare ground uses the same admission as hover.
+                    // Ctrl+Alt over bare ground uses the same rung as hover;
+                    // a Foot over shroud takes the Move path below.
                     Command::Guard {
                         entity_id: stable_id,
                         target: Some(TargetKind::Cell(target_rx, target_ry)),

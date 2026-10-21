@@ -540,18 +540,22 @@ fn empty_cell_cursor(
     order_mode: crate::app::presentation::render::OrderMode,
 ) -> CursorFeedbackKind {
     use crate::sim::world::MoveAction;
+    if modifier == super::context_order::OrderModifier::GuardArea
+        && let (Some(rules), Some(id)) = (rules, best_id)
+        && super::context_order::cell_guard_area_action(
+            sim,
+            rules,
+            id,
+            viewer.is_some_and(|viewer| sim.clicked_cell_is_shrouded(viewer, cell) == Ok(true)),
+        )
+    {
+        return CursorFeedbackKind::GuardArea;
+    }
     let action = what_action_on_cell(sim, viewer, best_id, cell, modifier, rules, registry);
     match action {
         MoveAction::None => return CursorFeedbackKind::Default,
         MoveAction::NoMove => return CursorFeedbackKind::Invalid,
         MoveAction::Move | MoveAction::Harvest => {}
-    }
-
-    if modifier == super::context_order::OrderModifier::GuardArea
-        && let (Some(rules), Some(id)) = (rules, best_id)
-        && super::context_order::guard_area_admitted(sim, rules, id, None)
-    {
-        return CursorFeedbackKind::GuardArea;
     }
     // The one resolved object's harvest rungs, not the whole selection's.
     if action == MoveAction::Harvest {

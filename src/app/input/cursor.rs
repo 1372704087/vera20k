@@ -1144,7 +1144,8 @@ fn attack_cursor_is_in_range(
         )
 }
 
-/// Ctrl action feedback. Outer None retains an unarmed receiver's fallback;
+/// Ctrl action feedback. Outer None retains an unarmed receiver's fallback,
+/// and a rejected Cell attack rung's movement tail (`0x00700AB7`);
 /// Some(None) is native Action0 and preserves the default arrow.
 fn force_fire_feedback(
     sim: &crate::sim::world::Simulation,
@@ -1155,28 +1156,33 @@ fn force_fire_feedback(
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<Option<CursorFeedbackKind>> {
     use super::context_order::{AttackAction, armed_action};
-    Some(
-        match armed_action(sim, rules?, actor_id, target, true, overlay_registry)? {
-            AttackAction::None => None,
-            AttackAction::NoMove => Some(CursorFeedbackKind::Invalid),
-            AttackAction::Rally | AttackAction::Move => Some(CursorFeedbackKind::Move),
-            AttackAction::Select => Some(CursorFeedbackKind::FriendlyUnit),
-            AttackAction::Attack => Some(
-                if attack_cursor_is_in_range(
-                    sim,
-                    actor_id,
-                    target,
-                    selected_count,
-                    rules,
-                    overlay_registry,
-                ) {
-                    CursorFeedbackKind::EnemyUnit
-                } else {
-                    CursorFeedbackKind::EnemyOutOfRange
-                },
-            ),
-        },
-    )
+    let action = armed_action(sim, rules?, actor_id, target, true, overlay_registry)?;
+    if action == AttackAction::None && matches!(target, combat::TargetKind::Cell(..)) {
+        // The rejected attack rung still reaches the Cell movement owner.
+        // Techno700AB7..700C08 returns Move for mouse_over=true; the
+        // caller resolves that tail, separately from the clicked query.
+        return None;
+    }
+    Some(match action {
+        AttackAction::None => None,
+        AttackAction::NoMove => Some(CursorFeedbackKind::Invalid),
+        AttackAction::Rally | AttackAction::Move => Some(CursorFeedbackKind::Move),
+        AttackAction::Select => Some(CursorFeedbackKind::FriendlyUnit),
+        AttackAction::Attack => Some(
+            if attack_cursor_is_in_range(
+                sim,
+                actor_id,
+                target,
+                selected_count,
+                rules,
+                overlay_registry,
+            ) {
+                CursorFeedbackKind::EnemyUnit
+            } else {
+                CursorFeedbackKind::EnemyOutOfRange
+            },
+        ),
+    })
 }
 
 /// What the object resolver measures its candidates' distance to.
@@ -2375,7 +2381,18 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                         .unwrap();
                 let feedback =
                     force_fire_feedback(&sim, actor, &target, selected_count, Some(&rules), None)
-                        .unwrap();
+                        .unwrap_or_else(|| {
+                            Some(empty_cell_cursor(
+                                &sim,
+                                Some(&rules),
+                                None,
+                                sim.session().current_house(),
+                                Some(actor),
+                                (x, 2),
+                                super::super::context_order::OrderModifier::ForceFire,
+                                crate::app::types::OrderMode::Move,
+                            ))
+                        });
                 let cursor = feedback
                     .and_then(super::cursor_id_for_feedback)
                     .unwrap_or(CursorId::Default);
@@ -2428,9 +2445,23 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
                 Some(Some(CursorFeedbackKind::EnemyUnit)),
                 "stationary actor's in-range ground uses the red attack cursor"
             );
+            let feedback =
+                force_fire_feedback(&sim, actor, &TargetKind::Cell(20, y), 1, Some(&rules), None)
+                    .unwrap_or_else(|| {
+                        Some(empty_cell_cursor(
+                            &sim,
+                            Some(&rules),
+                            None,
+                            sim.session().current_house(),
+                            Some(actor),
+                            (20, y),
+                            super::super::context_order::OrderModifier::ForceFire,
+                            crate::app::types::OrderMode::Move,
+                        ))
+                    });
             assert_eq!(
-                force_fire_feedback(&sim, actor, &TargetKind::Cell(20, y), 1, Some(&rules), None),
-                Some(None),
+                feedback,
+                Some(CursorFeedbackKind::Default),
                 "stationary actor's out-of-range action retains the default arrow"
             );
         }

@@ -711,36 +711,6 @@ pub(crate) fn tick_dying_animation(
     anim.finished
 }
 
-/// Map a warhead's `InfDeath=` to the death sequence, if it selects one at all.
-///
-/// gamemd-derived: the `InfantryClass` death handler's jump table at
-/// `0x00518D58`, dispatched on `InfDeath - 1` over the range 0..9. The mapping
-/// is EXCLUSIVE: `1` plays `Die1` and `2` plays `Die2` with no animation, while
-/// `3..=10` spawn an animation and no sequence. Any other value, the
-/// warhead's default 0 included, takes neither (`0x005185CC` is an unsigned
-/// `ja`): the infantryman is UnInit at once (`0x005185F1` -> `0x00518B9A`).
-/// `Die3`, `Die4` and `Die5` are unreachable — no arm reaches DoType
-/// `0x0D`/`0x0E`/`0x0F`. Selection draws no RNG: `Do_Action` is called with
-/// `randomStart = 0`, which is the parameter that gates the frame-start draw.
-///
-/// The ladder's rungs ahead of the table, ported and not, are
-/// `world::infantry_death`'s.
-pub fn death_sequence_for_inf_death(inf_death: i32) -> Option<SequenceKind> {
-    match inf_death {
-        1 => Some(SequenceKind::Die1),
-        2 => Some(SequenceKind::Die2),
-        _ => None,
-    }
-}
-
-/// Whether this `InfDeath=` spawns a death ANIMATION rather than a sequence.
-///
-/// gamemd-derived: same jump table, arms 3..=10. Exclusive with
-/// [`death_sequence_for_inf_death`] by construction.
-pub fn inf_death_spawns_anim(inf_death: i32) -> bool {
-    (3..=10).contains(&inf_death)
-}
-
 #[cfg(test)]
 #[path = "animation_tests.rs"]
 mod tests;

@@ -75,8 +75,8 @@ pub struct WarheadType {
     /// foundation cell of its NowYellow/NowRed loop (`0x00442785`) and, by
     /// Scenario `RandomRanged` draws (`0x004427C0`, `0x00442804`), may build
     /// one of Rules' `OnFire` anims (`+0xB78`) there. That arm is dormant:
-    /// all 28 stock `Sparky=` entries are `no`, including `[Fire]` and
-    /// `[Fire2]`. `Apply_area_damage @ 0x00489280`, which owns every warhead
+    /// the constructor stores `false` (`0x0075CF77`), and all 28 stock
+    /// `Sparky=` entries are `no`, including `[Fire]` and `[Fire2]`. `Apply_area_damage @ 0x00489280`, which owns every warhead
     /// effect on ore, walls, bridges, barrels and the rocker, touches none of
     /// the four.
     ///
@@ -283,8 +283,9 @@ pub struct WarheadType {
     /// `combat::world_receiver`'s `emit_warhead_debris` owns both arms after
     /// their one budget: a nonempty list throws its VoxelAnims through the
     /// typed selector Techno deaths share (`throw_typed_debris`,
-    /// 469D40..469E18), an empty one the MetallicDebris SHPs. General Airburst
-    /// child emission469EBA..46A28A is a separate later mechanism.
+    /// `0x00469D40..0x00469E18`), an empty one the MetallicDebris SHPs.
+    /// General Airburst child emission (`0x00469EBA..0x0046A28A`) is a
+    /// separate later mechanism.
     pub debris_types: Vec<String>,
     /// Per-type debris count cap.
     ///

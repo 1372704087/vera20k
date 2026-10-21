@@ -41,19 +41,34 @@ pub enum InfantryDeathSequence {
 }
 
 impl InfantryDeathSequence {
-    fn for_inf_death(inf_death: i32) -> Option<Self> {
+    /// The sequence arms of the InfDeath table (`0x00518D58`, dispatched on
+    /// `InfDeath - 1` over 0..9 unsigned at `0x005185C8`): 1 plays Die1 and
+    /// 2 Die2 (`Do_Action(11/12, 1, 0)`, `0x005185DF`, `0x0051863F`), with
+    /// no anim. The arms 3..=10 build an anim and play no sequence
+    /// ([`inf_death_spawns_anim`]); any other value, the warhead default 0
+    /// included, takes neither (`0x005185CC` is an unsigned `ja`). No arm
+    /// reaches Die3..Die5 (DoType `0x0D`..`0x0F`), and the selection draws no
+    /// RNG: `Do_Action`'s randomStart, which gates the frame-start draw, is 0.
+    pub(crate) fn for_inf_death(inf_death: i32) -> Option<Self> {
         match inf_death {
             1 => Some(Self::Die1),
             2 => Some(Self::Die2),
             _ => None,
         }
     }
-    fn animation(self) -> SequenceKind {
+    pub(crate) fn animation(self) -> SequenceKind {
         match self {
             Self::Die1 => SequenceKind::Die1,
             Self::Die2 => SequenceKind::Die2,
         }
     }
+}
+
+/// Whether the InfDeath table's arm (`0x00518D58`) for this InfDeath builds
+/// an anim (3..=10) instead of playing a sequence; exclusive with
+/// [`InfantryDeathSequence::for_inf_death`].
+fn inf_death_spawns_anim(inf_death: i32) -> bool {
+    (3..=10).contains(&inf_death)
 }
 
 enum ReceiverDeathRecipe {
@@ -528,7 +543,7 @@ impl Simulation {
                 if let Some(sequence) = InfantryDeathSequence::for_inf_death(inf_death) {
                     self.begin_infantry_death_sequence(id, sequence, rules, effects);
                     ReceiverDeathRecipe::Sequence
-                } else if crate::sim::animation::inf_death_spawns_anim(inf_death) {
+                } else if inf_death_spawns_anim(inf_death) {
                     ReceiverDeathRecipe::ExternalAnim(inf_death)
                 } else {
                     ReceiverDeathRecipe::Cleanup
@@ -715,6 +730,29 @@ mod corpse_tests {
                 .is_none_or(|corpse| !corpse.lifecycle.object_alive())
         );
         assert_eq!(nukedie(&sim), 1);
+    }
+
+    /// The InfDeath table (`0x00518D58`) dispatches on `InfDeath - 1` over
+    /// 0..9 unsigned: 0, negatives and values above 10 take neither a
+    /// sequence nor an anim, 1 and 2 are its only sequence arms, and 3..=10
+    /// build an anim; no arm reaches Die3..Die5.
+    #[test]
+    fn inf_death_table_arms_are_exclusive() {
+        let sequence = |inf_death| {
+            InfantryDeathSequence::for_inf_death(inf_death).map(InfantryDeathSequence::animation)
+        };
+        for off_table in [0, -1, 11] {
+            assert_eq!(sequence(off_table), None);
+            assert!(!inf_death_spawns_anim(off_table));
+        }
+        assert_eq!(sequence(1), Some(SequenceKind::Die1));
+        assert_eq!(sequence(2), Some(SequenceKind::Die2));
+        assert!(!inf_death_spawns_anim(1));
+        assert!(!inf_death_spawns_anim(2));
+        for inf_death in 3..=10 {
+            assert_eq!(sequence(inf_death), None);
+            assert!(inf_death_spawns_anim(inf_death));
+        }
     }
 
     /// Retail `[CometWH]` (the Prism Tank's beam and its shrapnel fragments)

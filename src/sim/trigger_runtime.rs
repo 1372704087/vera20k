@@ -1450,6 +1450,28 @@ impl Simulation {
             .condition
             .clone();
         match condition.kind {
+            53 => {
+                // HasOccurred71ECF5..71ED56, original gamemd: raised53
+                // and clear A8ED6B admit a forced GetDisplayOwner(+D0,1).
+                // Compare the first Country502D30 House identity, not its
+                // Country or actual owner. Only persistence is written.
+                // Source: tag_lifecycle.py --spy-entry-events.
+                if input.kind != 53 || self.buildup_bypass_active() {
+                    return false;
+                }
+                let Some(actor) = input.actor.and_then(|id| self.substrate.entities.get(id)) else {
+                    return false;
+                };
+                let displayed = actor.disguise_house(true, self.session.current_house(), false);
+                let selected = u16::try_from(condition.value).ok().and_then(|country| {
+                    self.house_by_country_index(crate::rules::ruleset::CountryIdx(country), rules)
+                });
+                let matched = displayed.is_some() && displayed == selected;
+                if matched {
+                    *persistence = true;
+                }
+                matched
+            }
             54 => {
                 // HasOccurred71ED59..71EDB8: raised54/non-NULL actor,
                 // forced GetDisguise(1), RTTI InfantryType16, valid+34 and
@@ -2140,11 +2162,12 @@ impl Simulation {
         self.trigger_runtime.cell_tags.get(&cell).copied()
     }
 
-    /// Foot4D8978..4D8A14, reached from the unique Arrival per-cell owner.
+    /// Foot4D8978..4D8A6B, reached from the unique Arrival per-cell owner.
     /// Cell5657A0 and its Tag pointer are retained before the first callback;
     /// each raise re-reads the actor's packed Location cell. Bridge100/400
     /// requires OnBridge8C. This does not invent a Fly per-cell producer.
-    /// Source: tools/spatial_oracle/tag_lifecycle.py --entered-cell-events;
+    /// Source: tools/spatial_oracle/tag_lifecycle.py --entered-cell-events
+    /// and --spy-entry-events;
     /// original Steam gamemd. No own RNG/timer/detach.
     pub(crate) fn dispatch_foot_cell_tag_events(
         &mut self,
@@ -2189,9 +2212,10 @@ impl Simulation {
                 );
             }
         }
-        //4D8A14..4D8A6B: the same retained direct CellTag receives54 from
-        //Agent Infantry after1/59.53 remains explicitly out of scope. The
-        //type/Location are re-read after preceding synchronous callbacks.
+        //4D8A14..4D8A6B: re-read the Infantry/Agent admission after1/59,
+        //then send53 and54 to the cached CellTag. Admission is checked once;
+        //each callback re-reads Location even if53 detached that Tag. Its
+        //remaining nonpending linked Triggers may still register54.
         let rules = context.rules();
         if let Some(tag) = direct_tag
             && self.substrate.entities.get(actor).is_some_and(|entity| {
@@ -2201,23 +2225,27 @@ impl Simulation {
                         .is_some_and(|ty| ty.agent)
             })
         {
-            let entity = self.substrate.entities.get(actor).unwrap();
-            let cell = crate::sim::movement::coord_cell(
-                crate::sim::movement::ground_pose::position_world_coord(&entity.position),
-            );
-            self.dispatch_live_tag_event(
-                tag,
-                TagEventInput {
-                    kind: 54,
-                    actor: Some(actor),
-                    cell,
-                    ..Default::default()
-                },
-                &mut effects,
-                context.rules(),
-                context.registry(),
-                context.effects(),
-            );
+            for kind in [53, 54] {
+                let Some(entity) = self.substrate.entities.get(actor) else {
+                    break;
+                };
+                let cell = crate::sim::movement::coord_cell(
+                    crate::sim::movement::ground_pose::position_world_coord(&entity.position),
+                );
+                self.dispatch_live_tag_event(
+                    tag,
+                    TagEventInput {
+                        kind,
+                        actor: Some(actor),
+                        cell,
+                        ..Default::default()
+                    },
+                    &mut effects,
+                    context.rules(),
+                    context.registry(),
+                    context.effects(),
+                );
+            }
         }
         //4D8A70..4D8B66: a missing/inadmissible direct CellTag does not
         //suppress line checks. Scan each complete native cell-array row/column,
@@ -2289,8 +2317,8 @@ impl Simulation {
             }
         }
         self.publish_trigger_effects(effects);
-        //Event53 remains explicitly deferred; the later Map24 zone scan
-        //and ordinary Fly ingress retain their existing residuals.
+        //The later Map24 zone scan and ordinary Fly ingress retain their
+        //existing residuals.
     }
 
     fn trigger_action_context(

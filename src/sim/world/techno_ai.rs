@@ -4312,10 +4312,11 @@ mod tests {
 
     /// `AircraftClass::AI` drops a Target in the air every frame
     /// (`0x00414D2C..0x00414D4B`): another aircraft at the high-flight
-    /// threshold (2 x 104 leptons) goes, one a lepton below it stays.
+    /// threshold (2 x 104 leptons) goes, one a lepton below it stays. The
+    /// production object visit runs the step.
     #[test]
     fn an_aircraft_drops_a_target_in_the_air() {
-        let kept = |altitude: i32| {
+        let pair = |altitude: i32| {
             let mut sim = Simulation::with_seed(0x414D2C);
             for (id, owner, rx) in [(1, "Americans", 5), (2, "Russians", 6)] {
                 let mut entity = GameEntity::test_default(id, "ORCA", owner, rx, 5);
@@ -4337,6 +4338,10 @@ mod tests {
                 .unwrap()
                 .attack_target
                 .set_for_test(Some(TargetKind::Entity(2)));
+            sim
+        };
+        let kept = |altitude: i32| {
+            let mut sim = pair(altitude);
             let dropped = drop_airborne_target_step(
                 &mut sim,
                 1,
@@ -4348,6 +4353,15 @@ mod tests {
         };
         assert!(!kept(208));
         assert!(kept(207));
+        // Off the sixteenth frame, so the illegal-target check stays out.
+        let visited = |altitude: i32| {
+            let mut sim = pair(altitude);
+            sim.session.set_binary_frame_for_test(1);
+            sim.object_ai_visit_one(1, None, ObjectAiCtx::default());
+            target_of(&sim, 1)
+        };
+        assert_eq!(visited(208), None);
+        assert_eq!(visited(207), Some(TargetKind::Entity(2)));
     }
 
     /// `AircraftClass::AI` keeps an unsensed cloaked Target only while its own

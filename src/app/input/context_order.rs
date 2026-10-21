@@ -1093,6 +1093,7 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         | Command::ToggleInfantryDeploy { entity_id }
         | Command::DeployMcv { entity_id }
         | Command::UndeployBuilding { entity_id }
+        | Command::ArchiveObject { entity_id, .. }
         | Command::Stop { entity_id } => Some(*entity_id),
         Command::Attack { attacker_id, .. }
         | Command::ForceAttackCell { attacker_id, .. }
@@ -4077,15 +4078,10 @@ fn building_object_release(
 /// sets its rally point from the Cell under the object's GetCoords
 /// (`0x0044368D..0x004436D8`, Building443860, [`Simulation::factory_rally_cell_input`]).
 /// Any other building, a Construction Yard among them, archives the object
-/// (event 0x1E, `0x0044363C..0x00443688`) and never packs up.
-///
-/// RESIDUAL: the non-factory's archive of the object (event 0x1E) is not
-/// sent; its ArchiveTarget keeps the earlier value. Trigger: Alt+click over
-/// an object with a Construction Yard, Slave Miner yard, Cloning Vats or
-/// service depot selected. Effect: Cloning Vats keep their old exit point
-/// where native sends clones to the object; a yard's later pack-up that does
-/// not archive first (a ground click whose rally search finds no Cell) sends
-/// its MCV to the old point. Rare.
+/// itself (event 0x1E, `0x0044363C..0x00443688`, [`Command::ArchiveObject`])
+/// and never packs up: a depot then releases repaired units toward it,
+/// Cloning Vats hand it to their clones, and a yard's later pack-up that does
+/// not archive again sends its MCV or Slave Miner to the object.
 ///
 /// [`Simulation::factory_rally_cell_input`]: crate::sim::world::Simulation::factory_rally_cell_input
 /// [`Simulation::building_object_move_action`]: crate::sim::world::Simulation::building_object_move_action
@@ -4115,12 +4111,17 @@ fn building_object_orders(
         else {
             continue;
         };
-        if !building_moves_over_object(sim, rules, id, force_move_key)
-            || !matches!(
-                object.factory_type(),
-                Some(FactoryType::InfantryType | FactoryType::UnitType | FactoryType::AircraftType)
-            )
-        {
+        if !building_moves_over_object(sim, rules, id, force_move_key) {
+            continue;
+        }
+        if !matches!(
+            object.factory_type(),
+            Some(FactoryType::InfantryType | FactoryType::UnitType | FactoryType::AircraftType)
+        ) {
+            orders.push(Command::ArchiveObject {
+                entity_id: id,
+                target_id: target,
+            });
             continue;
         }
         match sim.building_object_move_action(id, target, rules) {

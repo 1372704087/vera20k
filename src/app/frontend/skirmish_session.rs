@@ -1169,6 +1169,60 @@ impl MultiplayerShellRuntime {
         self.persist_preferences(|runtime, existing| runtime.update_persistence_bytes(existing));
     }
 
+    /// Cooperative `+0xA0` after a won mission (`0x005C3783..0x005C381F`):
+    /// the active record adds the mission (`0x0049B930`), then
+    /// `0x0049C5A0` writes coopsave.ini beside the profile. `None` without
+    /// an active record; else whether the save reported success (a failed
+    /// file write still reports it, as natively).
+    pub(crate) fn record_cooperative_win(
+        &mut self,
+        rows: [&cooperative::CooperativeMissionRow; 2],
+        elapsed: i32,
+        house: [(i32, i32); 2],
+    ) -> Option<bool> {
+        let record = self.cooperative_progress.active_mut()?;
+        record.record_win(rows, elapsed);
+        match record.coop_save(
+            &self.cooperative_registry,
+            &self.cooperative_country_roster,
+            house,
+        ) {
+            cooperative::CoopSave::Failed => Some(false),
+            cooperative::CoopSave::Unchanged => Some(true),
+            cooperative::CoopSave::Write { section, values } => {
+                self.write_coop_save(&section, &values);
+                Some(true)
+            }
+        }
+    }
+
+    /// CCINIClass reads coopsave.ini (a read failure leaves it empty),
+    /// clears the section, puts the keys and saves the whole file.
+    fn write_coop_save(&self, section: &str, values: &[(String, String)]) {
+        let Some(path) = self
+            .ini_path
+            .as_deref()
+            .and_then(Path::parent)
+            .map(|dir| dir.join(cooperative::COOP_SAVE_INI))
+        else {
+            return;
+        };
+        let existing = std::fs::read(&path).unwrap_or_default();
+        let values: Vec<(&str, &str)> = values
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect();
+        let updated = crate::util::ini_writer::replace_ini_section(&existing, section, &values);
+        if let Err(err) = std::fs::write(&path, updated) {
+            log::warn!("Could not write {}: {err}", path.display());
+        }
+    }
+
+    /// `0x0049D070` on the active record: the next stage's map token.
+    pub(crate) fn cooperative_next_scenario_token(&self) -> Option<&str> {
+        self.cooperative_progress.active()?.next_scenario_token()
+    }
+
     fn persist_preferences(&mut self, update: impl Fn(&Self, &[u8]) -> Vec<u8>) {
         // WriteINI mutates process8870C0 before the fallible filesystem write.
         let process_updated = update(self, &self.settings_ini);

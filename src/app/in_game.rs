@@ -711,6 +711,11 @@ impl App {
             Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignDefeat) => {
                 Self::begin_campaign_defeat(state)
             }
+            Some(
+                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CooperativeResult {
+                    victory,
+                },
+            ) => crate::app::cooperative_round::open_result(state, victory),
             Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::MainMenu) => {
                 Self::return_to_main_menu(state);
             }

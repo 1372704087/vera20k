@@ -1308,6 +1308,10 @@ impl CooperativeProgressState {
         self.active.as_ref()
     }
 
+    pub(crate) fn active_mut(&mut self) -> Option<&mut CooperativeProgressRecord> {
+        self.active.as_mut()
+    }
+
     #[cfg(test)]
     pub fn reserve(&self, campaign_index: usize) -> Option<&CooperativeProgressRecord> {
         self.reserves.get(campaign_index)?.as_ref()

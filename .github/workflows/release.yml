@@ -167,6 +167,7 @@ jobs:
         # and use the whole-program `shipping` profile (Cargo.toml).
         run: cargo build --profile shipping --locked -p vera20k --no-default-features --bin vera20k
       - name: Package
+        id: package
         shell: bash
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -180,6 +181,7 @@ jobs:
           # a downloaded archive traceable to its commit.
           name="vera20k-${VERSION}-${{ matrix.target }}-${STAMP}-${SHA7}"
           mkdir -p "dist/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
           cp "target/shipping/${{ matrix.program }}" config.toml.example LICENSE-GPL \
             dist/THIRD_PARTY_LICENSES.html "dist/$name/"
           sed "s/@VERSION@/${TAG}/" .github/release/README.txt.in > "dist/$name/README.txt"
@@ -192,12 +194,110 @@ jobs:
           else
             tar -czf "../$name.tar.gz" ./*
           fi
+      # Windows also gets an installer of the same files: it finds the Yuri's
+      # Revenge folder and writes config.toml (.github/release/windows).
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Inno Setup 6 comes with the runner image (actions/runner-images).
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" }
+          $dist = (Resolve-Path dist).Path
+          & $iscc "/DAppVersion=$env:VERSION" "/DReleaseTag=$env:TAG" `
+            "/DPackageDir=$dist\$env:NAME" "/DOutputDir=$dist" `
+            "/DOutputBaseFilename=$env:NAME-setup" .github\release\windows\vera20k.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+      # Install, upgrade and uninstall silently against stand-in game folders, so
+      # a broken installer stops the release here instead of reaching players.
+      - name: Test the Windows installer
+        if: runner.os == 'Windows'
+        # A dialog left open in a silent install waits forever.
+        timeout-minutes: 10
+        shell: pwsh
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $setup = (Resolve-Path "dist\$env:NAME-setup.exe").Path
+          $root = Join-Path $env:RUNNER_TEMP 'installer-test'
+          $app = Join-Path $root 'VERA20k'
+          $log = Join-Path $root 'setup.log'
+          New-Item -ItemType Directory -Force $root | Out-Null
+          function Install([string]$Game) {
+            $p = Start-Process $setup -Wait -PassThru -ArgumentList @('/VERYSILENT',
+              '/SUPPRESSMSGBOXES', '/NORESTART', "/LOG=`"$log`"", "/DIR=`"$app`"", "/GAMEDIR=`"$Game`"")
+            return $p.ExitCode
+          }
+          # Only the two masters the installer checks; nothing here is game data.
+          function New-Game([string]$Name) {
+            $dir = Join-Path $root $Name
+            New-Item -ItemType Directory -Force $dir | Out-Null
+            foreach ($f in 'ra2md.mix', 'ra2.mix') { Set-Content (Join-Path $dir $f) '' }
+            return $dir
+          }
+          function Read-Config { Get-Content (Join-Path $app 'config.toml') -Raw -Encoding utf8 }
+          function Ra2Dir([string]$Dir) { 'ra2_dir = "' + ($Dir -replace '\\', '/') + '"' }
+          # Non-ASCII from code points, so the script's own encoding cannot matter.
+          $yuri = -join [char[]](0x5C24, 0x91CC, 0x7684, 0x590D, 0x4EC7)
+          $commander = -join [char[]](0x6307, 0x6325, 0x5B98)
+
+          # A folder without the game is refused before anything is installed.
+          $empty = Join-Path $root 'empty'
+          New-Item -ItemType Directory -Force $empty | Out-Null
+          if ((Install $empty) -eq 0) { throw 'setup accepted a folder without Yuri''s Revenge' }
+          if (Test-Path (Join-Path $app 'vera20k.exe')) { throw 'a refused setup installed files' }
+
+          # A fresh install writes config.toml from the example.
+          $first = New-Game 'game one'
+          $code = Install $first
+          if ($code -ne 0) { Get-Content $log; throw "setup failed with exit code $code" }
+          foreach ($f in 'vera20k.exe', 'config.toml', 'config.toml.example', 'README.txt',
+                         'LICENSE-GPL', 'THIRD_PARTY_LICENSES.html') {
+            if (-not (Test-Path (Join-Path $app $f))) { throw "setup did not install $f" }
+          }
+          $config = Read-Config
+          if (-not $config.Contains((Ra2Dir $first))) { throw "config.toml lacks $(Ra2Dir $first)" }
+          if ($config -notmatch '(?m)^settings_dir = "\."\r?$') { throw 'config.toml lacks settings_dir = "."' }
+
+          # An upgrade moves ra2_dir only, keeping the player's own settings.
+          [IO.File]::AppendAllText((Join-Path $app 'config.toml'),
+            "`n[profile]`nname = `"$commander`"`n", [Text.UTF8Encoding]::new($false))
+          $second = New-Game $yuri
+          $code = Install $second
+          if ($code -ne 0) { Get-Content $log; throw "upgrade failed with exit code $code" }
+          $config = Read-Config
+          if (-not $config.Contains((Ra2Dir $second))) { throw "upgrade did not write $(Ra2Dir $second)" }
+          if ([regex]::Matches($config, '(?m)^ra2_dir =').Count -ne 1) { throw 'config.toml repeats ra2_dir' }
+          if (-not $config.Contains("name = `"$commander`"")) { throw 'upgrade lost the [profile] name' }
+          if ([IO.File]::ReadAllBytes((Join-Path $app 'config.toml'))[0] -eq 0xEF) {
+            throw 'config.toml starts with a byte order mark'
+          }
+
+          # Uninstalling removes the program and keeps what the player made.
+          $p = Start-Process (Join-Path $app 'unins000.exe') -Wait -PassThru `
+            -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          if ($p.ExitCode -ne 0) { throw "uninstall failed with exit code $($p.ExitCode)" }
+          # The uninstaller finishes in a copy of itself; give it time to.
+          $deadline = (Get-Date).AddSeconds(60)
+          while ((Test-Path (Join-Path $app 'vera20k.exe')) -and (Get-Date) -lt $deadline) {
+            Start-Sleep -Milliseconds 500
+          }
+          if (Test-Path (Join-Path $app 'vera20k.exe')) { throw 'uninstall left vera20k.exe behind' }
+          if (-not (Test-Path (Join-Path $app 'config.toml'))) { throw 'uninstall removed config.toml' }
+          Write-Output 'Installer: refused, installed, upgraded and uninstalled as expected.'
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
           path: |
             dist/*.zip
             dist/*.tar.gz
+            dist/*-setup.exe
           if-no-files-found: error
 
   publish:

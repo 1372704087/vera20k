@@ -30,6 +30,7 @@
     <div class="brand-text">
       <h1 data-i18n="hdr.brand">VERA20K</h1>
       <span class="brand-sub" data-i18n="hdr.sub">调试控制台</span>
+      <span class="brand-build" id="build"></span>
     </div>
   </div>
 
@@ -59,7 +60,17 @@
     <span class="meta"><span data-i18n="hdr.tick">tick</span> <b id="tick">-</b></span>
     <span class="meta"><span data-i18n="hdr.entities">entities</span> <b id="entities">-</b></span>
     <span class="meta"><span data-i18n="hdr.map">map</span> <b id="mapsize">-</b></span>
+    <span class="meta" id="session-meta" hidden><span data-i18n="hdr.session">session</span> <b id="session">-</b></span>
   </div>
+  <!-- Anomaly badges: the readings that must not wait for the eye to find them
+       in the panels. Empty (and so absent) while nothing is wrong. -->
+  <span id="alerts" hidden>
+    <span class="badge pause" id="alert-paused" hidden></span>
+    <span class="badge" id="alert-outcome" hidden></span>
+    <span class="badge" id="alert-p99" hidden></span>
+    <span class="badge" id="alert-path" hidden></span>
+    <button class="badge" id="alert-errors" type="button" hidden></button>
+  </span>
   <button id="debug-tools-open" class="switch" type="button" hidden data-i18n="tools.open">Offline debug tools</button>
   <span id="status"><i id="dot"></i><span id="statustext">connecting</span></span>
   <span id="lang">

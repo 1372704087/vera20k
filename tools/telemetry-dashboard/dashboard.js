@@ -181,12 +181,112 @@ function updateHeader(snapshot) {
     document.getElementById("entities").textContent = String(snapshot.entities_total);
     document.getElementById("mapsize").textContent =
         `${snapshot.map_width}x${snapshot.map_height}`;
+    const session = snapshot.session;
+    const meta = document.getElementById("session-meta");
+    if (meta)
+        meta.hidden = session === null;
+    const reading = document.getElementById("session");
+    if (reading && session) {
+        const text = sessionReading(session);
+        reading.textContent = text;
+        // The reading is the first thing to clip on a narrow header; the title
+        // keeps the full map name and mode reachable.
+        reading.title = text;
+    }
+    const build = document.getElementById("build");
+    if (build)
+        build.textContent = session ? session.build_stamp : "";
+}
+/** Which match a stream belongs to: `skirmish · DeepFrze.map · speed 6`. */
+function sessionReading(session) {
+    return [
+        session.game_mode,
+        session.map_name,
+        `${t("hdr.speed")} ${session.game_speed}`,
+    ].join(" · ");
+}
+const ALERT_IDS = [
+    "alert-paused",
+    "alert-outcome",
+    "alert-p99",
+    "alert-path",
+    "alert-errors",
+];
+/** Header anomaly badges, so a stalled or erroring match is visible from any
+ *  view. Every criterion is a reading the engine already publishes — its tick
+ *  budget line, the batch pass's own left-out count, an error-level record —
+ *  so a badge states a fact rather than a threshold this panel invented. */
+function updateAlerts(snapshot) {
+    const alerts = [];
+    if (snapshot.debug?.overlays.paused) {
+        alerts.push({ id: "alert-paused", text: t("hdr.paused"), cls: "badge pause warn" });
+    }
+    const outcome = snapshot.session?.local_outcome;
+    if (outcome) {
+        const key = outcome === "Victory" ? "hdr.victory" : "hdr.defeat";
+        const owner = snapshot.session?.local_owner;
+        alerts.push({
+            id: "alert-outcome",
+            text: owner ? `${owner} · ${t(key)}` : t(key),
+            cls: `badge ${outcome === "Victory" ? "good" : "bad"}`,
+        });
+    }
+    const timing = snapshot.timing;
+    if (timing && timing.budget_ms !== null && timing.p99_ms > timing.budget_ms) {
+        alerts.push({
+            id: "alert-p99",
+            text: t("alert.p99", { p99: fmt(timing.p99_ms), budget: fmt(timing.budget_ms) }),
+            cls: "badge bad",
+            tip: t("alert.p99Tip"),
+        });
+    }
+    const batch = snapshot.path_batch;
+    if (batch && batch.left_out > 0) {
+        alerts.push({
+            id: "alert-path",
+            text: t("alert.path", { n: thousands(batch.left_out) }),
+            // A pass that dropped more registrations than it searched is the case
+            // where the queue is growing, not merely capped.
+            cls: batch.left_out > batch.searched ? "badge bad" : "badge warn",
+            tip: t("alert.pathTip"),
+        });
+    }
+    if (logErrors > 0) {
+        alerts.push({
+            id: "alert-errors",
+            text: t("alert.errors", { n: thousands(logErrors) }),
+            cls: "badge bad",
+            tip: t("alert.errorsGo"),
+        });
+    }
+    for (const id of ALERT_IDS) {
+        const badge = document.getElementById(id);
+        if (!badge)
+            continue;
+        const hit = alerts.find((alert) => alert.id === id);
+        badge.hidden = hit === undefined;
+        if (hit) {
+            badge.textContent = hit.text;
+            badge.className = hit.cls;
+            badge.title = hit.tip ?? hit.text;
+        }
+    }
+    const box = document.getElementById("alerts");
+    if (box)
+        box.hidden = alerts.length === 0;
 }
 function updateCost(snapshot) {
     const timing = snapshot.timing;
     document.getElementById("last").textContent = timing ? fmt(timing.tick_ms) : "-";
     document.getElementById("p50").textContent = timing ? fmt(timing.p50_ms) : "-";
-    document.getElementById("p99").textContent = timing ? fmt(timing.p99_ms) : "-";
+    const p99Cell = document.getElementById("p99");
+    p99Cell.textContent = timing ? fmt(timing.p99_ms) : "-";
+    // The same budget line the chart draws: the tail of the window is over the
+    // pacer's interval, so a hundredth of the ticks are already missing it.
+    p99Cell.className =
+        timing && timing.budget_ms !== null && timing.p99_ms > timing.budget_ms
+            ? "value bad"
+            : "value";
     const budgetCell = document.getElementById("budget");
     if (timing && timing.budget_utilization !== null) {
         budgetCell.textContent = `${Math.round(timing.budget_utilization * 100)}`;
@@ -2076,6 +2176,16 @@ function setupViews() {
         logLevel = Number(event.target.value) || 3;
         rebuildLogView();
     });
+    // The header's error badge hands over to the log view's own switcher and
+    // filter rather than restating either.
+    document.getElementById("alert-errors")?.addEventListener("click", () => {
+        document.getElementById("view-logs")?.click();
+        const level = document.getElementById("log-level");
+        if (!level)
+            return;
+        level.value = "1";
+        level.dispatchEvent(new Event("change"));
+    });
     const logSearch = document.getElementById("log-search");
     if (logSearch) {
         logSearch.placeholder = t("log.search");
@@ -2144,6 +2254,9 @@ let logFollow = true;
 let logLevel = 3;
 let logQuery = "";
 let logDropped = 0;
+/** Error-level records received since the log view was cleared: the header
+ *  badge counts what the engine reported, not what is still on screen. */
+let logErrors = 0;
 let logSearchTimer = null;
 function logVisible(line) {
     if (line.level > logLevel)
@@ -2230,6 +2343,7 @@ function acceptLogs(batch) {
     }
     if (batch.lines.length === 0)
         return;
+    logErrors += batch.lines.filter((line) => line.level === 1).length;
     logLines.push(...batch.lines);
     if (logLines.length > LOG_LIMIT) {
         logLines.splice(0, logLines.length - LOG_LIMIT);
@@ -2250,6 +2364,7 @@ function toggleLogPause() {
 function clearLogs() {
     logLines = [];
     logDropped = 0;
+    logErrors = 0;
     const marker = document.getElementById("log-dropped");
     if (marker)
         marker.textContent = "";
@@ -2851,6 +2966,7 @@ function connect() {
                 chartSamples.shift();
         }
         updateHeader(snapshot);
+        updateAlerts(snapshot);
         updateCost(snapshot);
         updateProcess(snapshot.process);
         updateTerrain(snapshot.debug);

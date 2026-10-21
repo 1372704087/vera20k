@@ -107,12 +107,22 @@ fn host_setup_open(state: &AppState) -> bool {
 /// Random. Nothing changes without the campaign's stage. `+0x18`'s
 /// per-node `+0x1C` re-check that follows always passes after it.
 fn refresh_countries(state: &mut AppState) -> anyhow::Result<()> {
+    refresh_rows(state, true)
+}
+
+/// `0x005C2500` over the rows; `ai_rows` false keeps the AI rows' countries,
+/// as BC open's row loop (`0x005ED762`) restores them from the profile
+/// (`0x004E3F70`) after its refreshes.
+fn refresh_rows(state: &mut AppState, ai_rows: bool) -> anyhow::Result<()> {
     let runtime = &state.frontend.multiplayer_shell_runtime;
     if runtime.cooperative_setup_view().player_countries.is_none() {
         return Ok(());
     }
     let country = runtime.cooperative_default_country();
-    state.match_state.session.reset_network_countries(country)?;
+    state
+        .match_state
+        .session
+        .reset_network_countries(country, ai_rows)?;
     state.platform.window.request_redraw();
     Ok(())
 }
@@ -157,7 +167,7 @@ pub(super) fn host_opened(state: &mut AppState) -> anyhow::Result<()> {
     if let Some(index) = selected.filter(|index| *index != current) {
         select_scenario(state, index)?;
     }
-    refresh_countries(state)?;
+    refresh_rows(state, false)?;
     let inputs = SlotInputs::read(state);
     let refresh = {
         let parts = state.frontend.multiplayer_shell_runtime.cooperative_parts();
@@ -175,7 +185,7 @@ pub(super) fn host_opened(state: &mut AppState) -> anyhow::Result<()> {
         })
     };
     if refresh {
-        refresh_countries(state)?;
+        refresh_rows(state, false)?;
     }
     Ok(())
 }

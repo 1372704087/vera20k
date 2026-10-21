@@ -770,6 +770,7 @@ pub(super) fn quick_match_box(state: &mut AppState, key: &str, then: QuickMatchB
 /// then the runner returns 0.
 pub(super) fn quick_match_leave_and_return(state: &mut AppState) {
     let Some(lobby) = lobby_mut(state) else {
+        close_runner(state);
         return;
     };
     lobby.pending = None;
@@ -1170,6 +1171,9 @@ fn join_failed_locally(state: &mut AppState, game: bool) {
 /// The runner returns 0 (`LAB_00787F98`): the dialog closes without a
 /// slide and `WOL_Main` shows the welcome (mode 0).
 fn close_runner(state: &mut AppState) {
+    if quick_match_runner(state) {
+        super::quick_match::runner_closed(state);
+    }
     if let Some(visit) = state.frontend.wol.as_mut() {
         visit.lobby = None;
     }
@@ -2526,14 +2530,9 @@ pub(super) fn net_status(state: &mut AppState, status: u32) {
         return;
     }
     if lobby.runner == Runner::QuickMatch {
-        // RESIDUAL: the Quick Match runner's handling of a lost connection
-        // is not traced; it ends as the lobby runner does, behind
-        // TXT_YOURE_DISCON.
-        if state.frontend.network_setup_protocol.is_some() {
-            crate::app::shell_network_setup::abandon_for_wol_runner(state);
-        }
-        super::quick_match::connection_lost(state);
-        show_box(state, "TXT_YOURE_DISCON", false, BoxThen::Close);
+        // 0x7AA7E3: TXT_YOURE_DISCON needs 0x113 open; the Quick Match
+        // runner only takes event 0, and its exit has no channel to leave.
+        super::quick_match::exit(state);
         state.platform.window.request_redraw();
         return;
     }

@@ -346,11 +346,9 @@ pub(super) fn run(state: &mut AppState) {
 /// `WOL:MatchingServerUnavailable`. Both boxes end the runner with 0; only
 /// the first clears the away text (`0x0079FD66`).
 pub(super) fn lobbies_listed(state: &mut AppState, lobbies: &[WolChannel]) {
-    let prefix = QUICK_MATCH_PREFIX.as_bytes();
-    let found = lobbies.iter().find(|channel| {
-        let name = channel.name.as_bytes();
-        name.len() >= prefix.len() && name[..prefix.len()].eq_ignore_ascii_case(prefix)
-    });
+    let found = lobbies
+        .iter()
+        .find(|channel| starts_with(&channel.name, QUICK_MATCH_PREFIX));
     let Some(found) = found.cloned() else {
         let (key, clear_away) = if lobbies.is_empty() {
             ("WOL:NoMatchingAgentFound", true)
@@ -809,12 +807,28 @@ fn close_dialog(state: &mut AppState) {
 /// runner returns 1 with the away text still set. Its
 /// `WOL:MatchGameStarting` line finds no transcript: `0x117` closed at
 /// OnGameStart. The runner's records end with it.
+/// `Start_Scenario`'s `0x0078ABF0` (`0x00683D45`) rewrites the away text,
+/// so the Quick Match one is gone once the match runs.
+/// RESIDUAL: the in-match away text (`0x0052E606`) is not ported.
 pub(crate) fn match_starts(state: &mut AppState) {
     if !mode_active(state) {
         return;
     }
+    if let Some(globals) = globals_mut(state) {
+        globals.away = None;
+    }
     close_dialog(state);
     lobby::drop_runner(state);
+}
+
+/// The runner returned 0 without its exit tail: its entry list failed
+/// (`0x0079FD05`, `0x0079FD1C`, `0x0079FD2E` all clear the away text at
+/// `0x0079FD66`).
+pub(super) fn runner_closed(state: &mut AppState) {
+    if let Some(globals) = globals_mut(state) {
+        globals.away = None;
+        globals.search = None;
+    }
 }
 
 /// Start Game Now's own leave of the game channel (API+0x24 at
@@ -840,15 +854,6 @@ pub(super) fn page_reply(state: &mut AppState, pager: &str) {
             to: Vec::new(),
         },
     );
-}
-
-/// A lost connection ends the runner: `0x117` closes.
-pub(super) fn connection_lost(state: &mut AppState) {
-    if let Some(globals) = globals_mut(state) {
-        globals.away = None;
-        globals.search = None;
-    }
-    close_dialog(state);
 }
 
 /// A runner box closed.
@@ -942,6 +947,12 @@ fn pump(state: &mut AppState) {
                 globals.failure = 0;
                 globals.search = None;
                 globals.set(stage::JOIN_LOBBY, Some(30));
+            }
+            // Under Start Game Now's 0x130 the pump runs from its loops
+            // (0x00793D20, 0x007947B0): event 5 waits for the runner, and
+            // the start goes on.
+            if crate::app::shell_network_setup::verify(state).is_some() {
+                return;
             }
             // The guest search ends with its stage; the rejoin's leave
             // takes the game channel and its nodes (0x00785740).
@@ -1092,6 +1103,12 @@ pub(super) fn postmatch(state: &mut AppState) {
         super::persona::open_add_buddy_query(state, &opponent);
         return;
     }
+    welcome(state);
+}
+
+/// Mode 0 after `0x007A2970`: the network visit ends and the welcome runs.
+fn welcome(state: &mut AppState) {
+    state.match_state.session.leave_network();
     App::reopen_wol_welcome(state);
 }
 
@@ -1110,7 +1127,7 @@ pub(crate) fn add_buddy_answered(state: &mut AppState, yes: bool, ask_again: boo
     if yes && state.frontend.wol_buddies.valid_new(&opponent, &local) {
         super::buddies::add(state, opponent);
     }
-    App::reopen_wol_welcome(state);
+    welcome(state);
 }
 
 #[cfg(test)]

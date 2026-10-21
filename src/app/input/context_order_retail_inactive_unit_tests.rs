@@ -8,9 +8,13 @@ use super::*;
 use crate::sim::world::Simulation;
 
 /// A Robot Tank whose control is offline (not IsActive, `0x007010D0`)
-/// answers Move over an enemy GI it may crush and Select over an enemy tank,
-/// with Ctrl or without; an active one attacks both. Its Ctrl click on the
-/// GI moves near it, and the one on the tank selects.
+/// answers Move over an enemy GI it may crush and Select over an enemy tank
+/// with Ctrl; an active one attacks both. Without Ctrl it answers 0: its
+/// GetFireError (vt+0x3C0) is ILLEGAL, which Techno's attack rung refuses
+/// without force (`0x00700542..0x0070055B`). Its Ctrl click on the GI sends
+/// no order: `FootClass::ClickedAction_Object` (`0x004D74E0`) refuses Move
+/// for an object that is not controllable (vt+0xA0). The one on the tank
+/// selects.
 #[test]
 fn retail_inactive_robot_tank_crushes_or_selects_instead_of_attacking() {
     let Some((retail, registry)) = retail() else {
@@ -50,10 +54,10 @@ fn retail_inactive_robot_tank_crushes_or_selects_instead_of_attacking() {
         .deactivated
         .set_for_test(true);
     assert!(!sim.techno_is_active(robot, rules));
-    for forced in [false, true] {
-        assert_eq!(action(&sim, gi, forced), AttackAction::Move);
-        assert_eq!(action(&sim, tank, forced), AttackAction::Select);
-    }
+    assert_eq!(action(&sim, gi, false), AttackAction::None);
+    assert_eq!(action(&sim, tank, false), AttackAction::None);
+    assert_eq!(action(&sim, gi, true), AttackAction::Move);
+    assert_eq!(action(&sim, tank, true), AttackAction::Select);
     let crush = attack_branch_orders(
         &sim,
         rules,
@@ -62,16 +66,8 @@ fn retail_inactive_robot_tank_crushes_or_selects_instead_of_attacking() {
         true,
         &registry,
     );
-    assert!(crush.consumed);
-    assert!(
-        matches!(
-            crush.commands.as_slice(),
-            [Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. }]
-                if *entity_id == robot
-        ),
-        "{:?}",
-        crush.commands
-    );
+    assert!(crush.consumed && !crush.select_fallback);
+    assert!(crush.commands.is_empty(), "{:?}", crush.commands);
     let select = attack_branch_orders(
         &sim,
         rules,

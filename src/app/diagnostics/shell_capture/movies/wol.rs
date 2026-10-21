@@ -1495,6 +1495,8 @@ impl WolCapture {
                         text: "mid-match".encode_utf16().collect(),
                         private: false,
                         action: false,
+                        ansi: false,
+                        options: None,
                     },
                 );
                 ensure!(
@@ -2435,6 +2437,8 @@ impl WolCapture {
                 text: "\u{4f60}\u{597d}".encode_utf16().collect(),
                 private: false,
                 action: false,
+                ansi: false,
+                options: None,
             },
         );
         ensure!(
@@ -2869,6 +2873,8 @@ impl WolCapture {
                             text: text.encode_utf16().collect(),
                             private,
                             action,
+                            ansi: false,
+                            options: None,
                         },
                     );
                 }
@@ -2902,6 +2908,8 @@ impl WolCapture {
                             text: text.encode_utf16().collect(),
                             private: false,
                             action: false,
+                            ansi: false,
+                            options: None,
                         },
                     );
                 };
@@ -4219,14 +4227,16 @@ fn unverified_host_options(state: &AppState) -> Result<NetworkSetupEvent> {
     let file = launch.selected_map_file.clone().context("host map")?;
     let mut map_metadata = crate::app::shell_network_setup::local_map_metadata(state, &file)?;
     map_metadata.digest = "another version".into();
-    Ok(NetworkSetupEvent::HostSetup {
-        launch,
-        map_metadata,
-        vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
-        observer_row: None,
-        cooperative_difficulty: 0,
-        seed: state.match_state.session.network_start_seed(),
-    })
+    Ok(NetworkSetupEvent::HostSetup(
+        crate::app::shell_network_setup::HostOptions {
+            launch,
+            map_metadata,
+            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
+            observer_row: None,
+            cooperative_difficulty: 0,
+            seed: state.match_state.session.network_start_seed(),
+        },
+    ))
 }
 
 fn setup_requests(state: &mut AppState) -> Vec<NetworkSetupRequest> {

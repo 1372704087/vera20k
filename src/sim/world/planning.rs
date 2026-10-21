@@ -1444,22 +1444,27 @@ impl Simulation {
         }
     }
 
-    /// Techno709A40 ->705D50 (!warp-in) ->6385C0. Called only after the
-    /// existing RefreshMegaMission owner declined to resume attack-move.
+    /// Techno709A40 -> vt+0x430 -> 6385C0. Called only after the existing
+    /// RefreshMegaMission owner declined to resume attack-move. vt+0x430 is
+    /// the not-warping-in test (`0x00705D50`) for every class but Aircraft,
+    /// whose override (`0x0041B9E0`) answers its `+0x6D5` byte,
+    /// `aircraft_arrival` here (clear only inside Mission_Attack state 10's
+    /// idle call, [`crate::sim::aircraft::enter_idle_mode_after_attack`]).
     pub(crate) fn planning_enter_idle(
         &mut self,
         actor: u64,
         rules: &crate::rules::ruleset::RuleSet,
+        aircraft_arrival: bool,
     ) -> bool {
-        if self
-            .substrate
-            .entities
-            .get(actor)
-            .is_none_or(|entity| entity.is_warping_in())
-        {
+        let Some(entity) = self.substrate.entities.get(actor) else {
             return false;
-        }
-        self.planning_start_actor(actor, rules)
+        };
+        let admitted = if entity.category() == crate::map::entities::EntityCategory::Aircraft {
+            aircraft_arrival
+        } else {
+            !entity.is_warping_in()
+        };
+        admitted && self.planning_start_actor(actor, rules)
     }
 
     pub(crate) fn planning_start_actor(

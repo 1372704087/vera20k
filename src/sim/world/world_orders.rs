@@ -181,6 +181,15 @@ impl Simulation {
     /// aircraft's What_Action answers 0 (`0x00417CC0` -> `0x006FFEC9`, cell
     /// `0x00417F80`). Producer-side, like `unit_repair_action`: an event sent
     /// before the object went berserk still executes.
+    ///
+    /// An object being warped out (vt+0x1D4) is not refused here: neither
+    /// the selection loop (`0x004AE829..0x004AE844`), Unit `0x00738890`,
+    /// Foot `0x004D74E0`, ClickedMission (`0x006FFBE0`) nor the MEGAMISSION
+    /// arm of Event::Execute (`0x004C71F6..0x004C74BA`) reads it. Its own
+    /// What_Action decides what it sends (Techno's warp arm, `0x006FFF03`,
+    /// though Unit's healer arm `0x0073FD7C` still answers Repair). The event
+    /// queues the mission and sets the target, which the next frozen AI frame
+    /// drops (`Simulation::temporal_ai_prologue`); the queued mission waits.
     pub fn click_order_receivers(&self, selection: &[u64]) -> Vec<u64> {
         selection
             .iter()

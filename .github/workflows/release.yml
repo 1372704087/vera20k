@@ -177,9 +177,12 @@ jobs:
           cargo about generate --locked --fail -c .github/release/about.toml \
             -o dist/THIRD_PARTY_LICENSES.html .github/release/about.hbs
       - uses: Swatinem/rust-cache@v2
+      # The AppImage step also needs rsvg-convert and desktop-file-validate.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev pkg-config librsvg2-bin desktop-file-utils
       - name: Build the game
         # Shipped binaries leave out the default `dev-overlays` (the Ctrl+Shift dev chord),
         # and use the whole-program `shipping` profile (Cargo.toml).
@@ -415,6 +418,42 @@ jobs:
           (cd / && "$app/Contents/MacOS/VERA20k" -h > /dev/null)
           grep -q 'VERA20k .* starting' "$data/logs/ra2.log"
           echo 'macOS app: signed, on the disk image, and starting in its data folder.'
+      # Linux also gets the program as an AppImage: it keeps its files in
+      # ~/.local/share/VERA20k and finds or asks for the Yuri's Revenge folder
+      # on its first launch (.github/release/linux).
+      - name: Linux AppImage
+        if: runner.os == 'Linux'
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+        run: bash .github/release/linux/appimage.sh "dist/$NAME" "dist/$NAME.AppImage"
+      # Check the image's contents and start the packaged program, so a broken
+      # AppImage stops the release here instead of reaching players.
+      - name: Test the Linux AppImage
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        env:
+          NAME: ${{ steps.package.outputs.name }}
+        run: |
+          set -euo pipefail
+          image="$(realpath "dist/$NAME.AppImage")"
+          test -x "$image"
+          work="$(mktemp -d)"
+          (cd "$work" && "$image" --appimage-extract > /dev/null)
+          root="$work/squashfs-root"
+          test "$(readlink "$root/AppRun")" = usr/bin/vera20k
+          cmp "$root/usr/bin/vera20k" "dist/$NAME/vera20k"
+          test -f "$root/usr/share/doc/vera20k/README.txt"
+          test -f "$root/vera20k.svg"
+          test -f "$root/.DirIcon"
+          desktop-file-validate "$root/vera20k.desktop"
+          # Started from the image, it works in its data folder: the usage
+          # switch logs there and exits before the folder chooser or a window.
+          # Unpacked rather than mounted, so the test needs no FUSE.
+          data="${XDG_DATA_HOME:-$HOME/.local/share}/VERA20k"
+          rm -rf "$data"
+          (cd / && APPIMAGE_EXTRACT_AND_RUN=1 "$image" -h > /dev/null)
+          grep -q 'VERA20k .* starting' "$data/logs/ra2.log"
+          echo 'Linux AppImage: complete, and starting in its data folder.'
       - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.target }}
@@ -423,6 +462,7 @@ jobs:
             dist/*.tar.gz
             dist/*-setup.exe
             dist/*.dmg
+            dist/*.AppImage
           if-no-files-found: error
 
   # The library tests on each platform a dev build ships, from the commit it
@@ -626,7 +666,7 @@ jobs:
           # which is bound to each file's contents, still verifies.
           version_re="${version//./\\.}"
           for archive in $listed; do
-            plain="$(sed -E "s/^(vera20k-$version_re-[a-z0-9]+-[a-z0-9]+)-$stamp-[0-9a-f]{7,40}(-setup\.exe|\.zip|\.tar\.gz|\.dmg)$/\1\2/" <<< "$archive")"
+            plain="$(sed -E "s/^(vera20k-$version_re-[a-z0-9]+-[a-z0-9]+)-$stamp-[0-9a-f]{7,40}(-setup\.exe|\.zip|\.tar\.gz|\.dmg|\.AppImage)$/\1\2/" <<< "$archive")"
             if [ "$plain" = "$archive" ] || [ -e "$plain" ]; then
               echo "!! cannot give $archive a plain release name" >&2
               exit 1

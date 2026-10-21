@@ -98,6 +98,12 @@ pub(crate) enum AttackAction {
     /// Move (1) over an object: an Aircraft's own Cell action under it
     /// (`0x00417D7C`), which its ClickedAction sends to Foot's Move arm.
     Move,
+    /// AttackSupport (0x3B): a player's healing Unit's Attack on a Cell
+    /// (`0x007404FD..0x00740522`). SetCursorFromAction (`0x004AAE90`) has no
+    /// case for it, so it shows the arrow (row 0), and Foot's ClickedAction_Cell
+    /// (`0x004D7D50`) takes its default case (`0x004D8237`): the click is
+    /// consumed and sends nothing.
+    AttackSupport,
 }
 
 /// The allied-object part of Techno6FFEC0's unforced attack admission,
@@ -327,6 +333,24 @@ pub(crate) fn attack_action(
     } else {
         AttackAction::None
     };
+    // UnitClass::What_Action_OnCell 0x007404FD..0x00740522: a player's Unit
+    // whose GetWeaponDamageValue(-1) (0x006F3970) is negative, an IFV with an
+    // Engineer, turns Foot's Attack on a Cell into AttackSupport (0x3B), which
+    // every later Unit rung returns unchanged (0x0074072B..0x0074075F).
+    if action == AttackAction::Attack
+        && actor.category() == EntityCategory::Unit
+        && matches!(target, TargetKind::Cell(..))
+        && human
+        && crate::sim::combat::combat_weapon::weapon_damage_value(
+            actor,
+            kind,
+            sim.entities(),
+            rules,
+            sim.interner(),
+        ) < 0
+    {
+        action = AttackAction::AttackSupport;
+    }
     // Unit74077F..7407E5 /740389..7403E8: the fully deployed
     // SimpleDeployer repeats SelectWeapon(NULL), then range. This returns
     // Action2, unlike the Techno control/range Action0 branch above.
@@ -808,9 +832,10 @@ fn attack_branch_orders(
             continue;
         }
         match action {
-            AttackAction::None | AttackAction::NoMove | AttackAction::Move => {
-                consumed_attack_action = true
-            }
+            AttackAction::None
+            | AttackAction::NoMove
+            | AttackAction::Move
+            | AttackAction::AttackSupport => consumed_attack_action = true,
             AttackAction::Rally => unreachable!("rally remains with its existing receiver"),
             AttackAction::Select => select_fallback = true,
             AttackAction::Attack => {
@@ -1408,7 +1433,10 @@ fn object_attack_click_command(
             return move_near(crate::sim::world::MoveAction::NoMove);
         }
         AttackAction::Move => return move_near(crate::sim::world::MoveAction::Move),
-        AttackAction::Select | AttackAction::None | AttackAction::Rally => return None,
+        AttackAction::Select
+        | AttackAction::None
+        | AttackAction::Rally
+        | AttackAction::AttackSupport => return None,
     }
     match infantry_attack_action(sim, rules, attacker_id, target_id) {
         Some(InfantryAttackAction::NoMove) => {
@@ -1469,7 +1497,8 @@ impl From<AttackAction> for ReleaseAction {
             AttackAction::Attack
             | AttackAction::NoMove
             | AttackAction::Rally
-            | AttackAction::Move => Self::Other,
+            | AttackAction::Move
+            | AttackAction::AttackSupport => Self::Other,
         }
     }
 }
@@ -1903,8 +1932,9 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         {
             // Each selected object's What_Action on the Cell reaches its
             // unforced Attack rung on its own (0x004AE750's object loop);
-            // its tail is the forced shot's, and any other answer keeps
-            // the object on its Move rungs below. Foot's shroud wrapper
+            // its tail is the forced shot's (Attack, or a healing Unit's
+            // AttackSupport), and any other answer keeps the object on its
+            // Move rungs below. Foot's shroud wrapper
             // (0x004DDE64..0x004DDEBE) takes a Foot's Attack back over a
             // shrouded Cell; the Building wrapper keeps it.
             let rung: Vec<u64> = selected_ids
@@ -1922,14 +1952,17 @@ pub(crate) fn try_queue_context_order_at_screen_point(
                             &resources.rules,
                             Some(&resources.overlay_registry),
                         )
-                        && armed_action(
-                            sim,
-                            &resources.rules,
-                            id,
-                            &attack_target,
-                            true,
-                            Some(&resources.overlay_registry),
-                        ) == Some(AttackAction::Attack)
+                        && matches!(
+                            armed_action(
+                                sim,
+                                &resources.rules,
+                                id,
+                                &attack_target,
+                                true,
+                                Some(&resources.overlay_registry),
+                            ),
+                            Some(AttackAction::Attack | AttackAction::AttackSupport)
+                        )
                 })
                 .collect();
             attack_branch_orders(

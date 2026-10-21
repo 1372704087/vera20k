@@ -499,10 +499,13 @@ fn unforced_cell_attack_feedback(
         return None;
     }
     let target = combat::TargetKind::Cell(cell.0, cell.1);
+    // The arrow here is a healing Unit's AttackSupport, which stops the rungs.
     match force_fire_feedback(sim, id, &target, selected_count, rules, overlay_registry)? {
-        Some(feedback @ (CursorFeedbackKind::EnemyUnit | CursorFeedbackKind::EnemyOutOfRange)) => {
-            Some(feedback)
-        }
+        Some(
+            feedback @ (CursorFeedbackKind::EnemyUnit
+            | CursorFeedbackKind::EnemyOutOfRange
+            | CursorFeedbackKind::Default),
+        ) => Some(feedback),
         _ => None,
     }
 }
@@ -1011,7 +1014,9 @@ pub(super) fn capability_cursor_for_hover(
                     false,
                     overlay_registry,
                 ) {
-                    AttackAction::None => return CursorFeedbackKind::Default,
+                    AttackAction::None | AttackAction::AttackSupport => {
+                        return CursorFeedbackKind::Default;
+                    }
                     AttackAction::NoMove => return CursorFeedbackKind::Invalid,
                     AttackAction::Select => return CursorFeedbackKind::FriendlyUnit,
                     AttackAction::Rally | AttackAction::Move => return CursorFeedbackKind::Move,
@@ -1277,6 +1282,7 @@ fn action_feedback(
         AttackAction::NoMove => Some(CursorFeedbackKind::Invalid),
         AttackAction::Rally | AttackAction::Move => Some(CursorFeedbackKind::Move),
         AttackAction::Select => Some(CursorFeedbackKind::FriendlyUnit),
+        AttackAction::AttackSupport => Some(CursorFeedbackKind::Default),
         AttackAction::Attack => Some(
             if attack_cursor_is_in_range(
                 sim,
@@ -3544,6 +3550,35 @@ Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%
             bomb_hover(&sim, &rules, engineer, EnemyUnit, far_tank),
             CursorFeedbackKind::DisarmBomb,
             "a bomb the player does not see"
+        );
+    }
+}
+
+#[cfg(test)]
+mod cursor_attack_support_tests {
+    use super::force_fire_feedback;
+    use crate::app::types::CursorFeedbackKind;
+
+    /// SetCursorFromAction (`0x004AAE90`) has no case for a healing Unit's
+    /// AttackSupport (0x3B): Ctrl over the ground shows the arrow.
+    #[test]
+    fn retail_engineer_ifv_ctrl_over_the_ground_shows_the_arrow() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = &retail.rules;
+        let (sim, ifv, _) =
+            crate::app::input::context_order::retail_ifv_repair_tests::repair_ifv(rules);
+        assert_eq!(
+            force_fire_feedback(
+                &sim,
+                ifv,
+                &crate::sim::combat::TargetKind::Cell(16, 19),
+                1,
+                Some(rules),
+                None,
+            ),
+            Some(Some(CursorFeedbackKind::Default))
         );
     }
 }

@@ -2413,15 +2413,17 @@ impl WolCapture {
             );
             requests.drain(..sent.len());
         }
-        // 0x00787BC8 restarts the buddy mirror before TXT_REQ_CHANLIST: the
-        // buddy list, then the game list with automatic pings.
-        let [apply @ .., buddies, game_list, list] = requests.as_slice() else {
+        // 0x00787B33 asks for the user's squad, then 0x00787BC8 restarts
+        // the buddy mirror before TXT_REQ_CHANLIST: the buddy list, then the
+        // game list with automatic pings.
+        let [apply @ .., squad, buddies, game_list, list] = requests.as_slice() else {
             bail!("the runner sent too little: {requests:?}");
         };
         let passes = if self.rejoined { 2 } else { 1 };
         ensure!(
             apply.len() == 2 * passes
                 && apply.chunks(2).all(|pair| pair == Self::applied(state))
+                && *squad == WolServiceRequest::SquadInfo { id: 0 }
                 && *buddies == WolServiceRequest::ListBuddies
                 && *game_list
                     == WolServiceRequest::ListChannels {

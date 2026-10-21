@@ -725,7 +725,8 @@ impl Simulation {
     /// [`Self::infantry_per_cell_occupy`]), building receiver (an Engineer's,
     /// or a spy's infiltration, `0x00519948..0x0051A06E`), Enter arm
     /// (`0x0051A0D4..0x0051A4BF`, [`Self::infantry_per_cell_enter`]), C4 plant
-    /// (`0x0051A4BF..0x0051A664`, [`Self::infantry_per_cell_c4`]), tethered
+    /// (`0x0051A4BF..0x0051A664`, [`Self::infantry_per_cell_c4`]) or C4 cell
+    /// arm (`0x0051A667..0x0051A7F2`), tethered
     /// radio8 release and full-cell scatter (`0x0051A7F8..0x0051A886`), the
     /// idle entry and Commence (`0x0051A88B..0x0051A8C5`,
     /// [`Self::infantry_per_cell_idle_commence`]), then the Foot body for a
@@ -737,11 +738,11 @@ impl Simulation {
     /// Eaten51973C runs after the occupier arm and before ordinary Capture.
     /// RESIDUALS:
     /// - the NavCom-building arms of ordinary Capture (`0x00519979..
-    ///   0x00519B14`) and the C4 cell arm (`0x0051A667..0x0051A7F2`) are not
-    ///   dispatched from here. Some have ports with their own owners
-    ///   (`capture_manager`, `passenger`); native runs them before the Foot
-    ///   body, with some early returns, which also skip the reveal
-    ///   (`0x0051A8D7`). Trigger: an infantry arriving on a mission cell.
+    ///   0x00519B14`) are not dispatched from here. Some have ports with
+    ///   their own owners (`capture_manager`, `passenger`); native runs them
+    ///   before the Foot body, with some early returns, which also skip the
+    ///   reveal (`0x0051A8D7`). Trigger: an infantry arriving on a mission
+    ///   cell.
     ///   Risk: same-frame receiver ordering, and one more revealed footprint
     ///   for an infantryman such an arm takes in.
     /// - the water and rock death (`0x0051A94F..0x0051A9E8`) is not ported:
@@ -793,17 +794,20 @@ impl Simulation {
                 return Ok(entry.bridge_state_changed || changed);
             }
             //51A4BF follows the Enter arm and precedes radio8 release.
-            if reason == PerCellReason::Arrival
-                && self.infantry_per_cell_c4(id, rules, registry, effects)?
-            {
-                return Ok(false);
+            let c4 = if reason == PerCellReason::Arrival {
+                self.infantry_per_cell_c4(id, rules, registry, effects)?
+            } else {
+                Default::default()
+            };
+            let mut bridge_state_changed = entry.bridge_state_changed || c4.bridge_state_changed;
+            if c4.returns {
+                return Ok(bridge_state_changed);
             }
             //51A7F8 reads the live Techno+418 after earlier arrival receivers;
             //51A80C sends literal8 through Contacts[0], not DOCK_NOW0x15.
             //No new alive gate precedes it;51A9EB gates only the Foot tail.
             //P2 human GAPILE output observes the original nested25/3 release,
             //with all three RNG streams unchanged by this transaction.
-            let mut bridge_state_changed = entry.bridge_state_changed;
             if reason == PerCellReason::Arrival
                 && self
                     .substrate

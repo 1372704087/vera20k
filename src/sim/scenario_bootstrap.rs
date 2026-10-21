@@ -42,7 +42,7 @@ use crate::sim::cell_rect::PlayfieldBounds;
 use crate::sim::find_nearby_cell::{
     NearbyFootprint, NearbyQuery, PassabilityArgs, find_nearby_passable_cell, map_owned_radius_cap,
 };
-use crate::sim::house_state::{HouseDifficulty, HouseState, determine_waypoint_edge};
+use crate::sim::house_state::{HouseDifficulty, HouseState};
 use crate::sim::houses::Houses;
 use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::rng::{SimRng, SimRngLogicalState};
@@ -426,8 +426,6 @@ pub enum FreshScenarioPrefixError {
         "campaign Super constructors have {allocated} native types but {projected} registry identities"
     )]
     SuperWeaponRegistryMismatch { allocated: usize, projected: usize },
-    #[error("campaign Super constructor type {name} has no supported Rules body")]
-    UnsupportedSuperWeaponConstructor { name: String },
 }
 
 /// Draw-free stock-offline state retained after the prefix cursor receipt is
@@ -1762,18 +1760,14 @@ fn assign_launch_base_centers(
         let Some(slot) = slots.get(*slot_idx) else {
             continue;
         };
-        let waypoint_edge = sim
-            .playfield_bounds()
-            .map(|bounds| determine_waypoint_edge((waypoint.rx, waypoint.ry), bounds));
+        // The House edge (+0x577C) keeps the constructor's North (0x004F5C79)
+        // until a yard's DetermineEdge (0x0050DB00); a start does not set it.
         if let Some(house) = crate::sim::house_state::house_state_for_owner_mut(
             &mut sim.houses,
             &slot.owner_name,
             &sim.interner,
         ) {
             house.set_base_center((waypoint.rx, waypoint.ry));
-            if let Some(waypoint_edge) = waypoint_edge {
-                house.assign_waypoint_edge(waypoint_edge);
-            }
         }
     }
 }
@@ -2727,15 +2721,12 @@ impl ScenarioBootstrapRng {
                         projected: rules.super_weapon_order.len(),
                     });
                 }
-                for name in &rules.super_weapon_order {
-                    if rules.super_weapon(name).is_none() {
-                        return Err(
-                            FreshScenarioPrefixError::UnsupportedSuperWeaponConstructor {
-                                name: name.clone(),
-                            },
-                        );
-                    }
-                }
+                // House4F6202..4F6290 constructs every registered Super via
+                // 6CAF90, even when Type+B4 is -1 or has no implemented
+                // dispatch body. The instance owner already uses this order;
+                // launch support is not a prerequisite for House admission.
+                // Evidence: input_oracle/campaign_start.py --houses (native
+                // SuperType registration without its later body reader).
                 let mut simulation = self.into_simulation(descriptor);
                 let mut start_header = crate::map::preview::ScenarioStartHeader::default();
                 start_header.read_ini(&map_data.ini);
@@ -5100,6 +5091,41 @@ mod tests {
                 .and_then(|house| house.base_center()),
             Some((40, 40))
         );
+    }
+
+    /// The start becomes the base centre only: the House edge (+0x577C) keeps
+    /// the constructor's North (`0x004F5C79`) until a yard's DetermineEdge
+    /// (`0x0050DB00`), here where the start lies nearest East.
+    #[test]
+    fn scenario_prefix_start_leaves_the_house_edge_north() {
+        let seed = 0x5501;
+        let start = Waypoint {
+            index: 0,
+            rx: 60,
+            ry: 30,
+        };
+        let map = one_start_prefix_map(start);
+        let mut session = one_player_battle_launch("projection.mmx").session().clone();
+        session.local_slot_mut().start_position = LaunchStartPosition::Position(0);
+        let launch = MatchLaunchDescriptor::from_resolved(session).unwrap();
+        let plan = prepare_stock_offline_scenario_prefix_plan(&launch, &map, &map.waypoints, seed)
+            .unwrap();
+        let mut owner = ScenarioBootstrapRng::new(seed);
+        let projection = owner.install_pre_fill_scenario_prefix_plan(plan).unwrap();
+        let mut sim = owner.into_simulation(&descriptor(seed));
+        let bounds = crate::map::playfield::PlayfieldBounds::from_map_header(&map.header);
+        sim.set_playfield_bounds_for_test(Some(bounds));
+        let rules = techno_constructor_start_rules();
+        initialize_skirmish_launch_houses(&mut sim, &HouseRoster::default(), &rules, &launch);
+        let slots = normalized_launch_slots(launch.session());
+        project_pre_fill_start_assignment(&mut sim, &slots, projection.assignment());
+        let house = &sim.houses[&sim.houses.order()[0]];
+        assert_eq!(house.base_center(), Some((60, 30)));
+        assert_eq!(
+            crate::sim::house_state::determine_waypoint_edge((60, 30), bounds),
+            1
+        );
+        assert_eq!(house.waypoint_edge(), 0);
     }
 
     #[test]

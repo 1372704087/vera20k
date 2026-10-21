@@ -1390,6 +1390,10 @@ impl Simulation {
                 ry,
                 producer_ids,
             } => self.set_rally_point_for_producers(command_owner, producer_ids, *rx, *ry, rules),
+            Command::ArchiveObject {
+                entity_id,
+                target_id,
+            } => self.archive_object(command_owner, *entity_id, *target_id),
             // Production events act on the event's own house (the
             // EventClass header's house id); the payload names no owner.
             Command::QueueProduction { type_id } => {
@@ -2018,6 +2022,34 @@ impl Simulation {
         // `EVA_NewRallyPointEstablished` is not a sim fact: `BuildingClass::
         // SetRallyPoint 0x00443A69` speaks inside the click handler, after the
         // rally EventClass is pushed and before it executes — the app owns it.
+        true
+    }
+
+    /// The object click's event 0x1E for a non-factory building
+    /// ([`Command::ArchiveObject`]): `EventClass::Execute @ 0x004C6DAA`
+    /// skips a dead building (`+0x90`) and otherwise archives the target,
+    /// null when it no longer exists (`TargetClass::As_Abstract @
+    /// 0x006E6E20`). The owner test is VERA's command admission.
+    ///
+    /// [`Command::ArchiveObject`]: crate::sim::command::Command::ArchiveObject
+    fn archive_object(&mut self, command_owner: &str, entity_id: u64, target_id: u64) -> bool {
+        if !self.entity_owned_by_id(command_owner, entity_id) {
+            return false;
+        }
+        let target = self
+            .substrate
+            .entities
+            .get(target_id)
+            .map(|_| crate::sim::combat::TargetKind::Entity(target_id));
+        let Some(building) = self
+            .substrate
+            .entities
+            .get_mut(entity_id)
+            .filter(|building| building.lifecycle.object_alive())
+        else {
+            return false;
+        };
+        building.set_archive_target(target);
         true
     }
 

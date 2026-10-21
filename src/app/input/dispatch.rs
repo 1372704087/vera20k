@@ -17,7 +17,7 @@ use winit::keyboard::KeyCode;
 
 use crate::app::AppState;
 use crate::app::input::commands::{
-    cancel_build_by_type, cycle_active_producer, cycle_local_owner, place_ready_building_at_cursor,
+    cancel_build_by_type, cycle_active_producer, cycle_local_owner, place_ready_building_at_cell,
     place_starter_base_for_local_owner, preferred_local_owner, preferred_local_owner_name,
     queue_build_by_type, queue_house_cheer, schedule_command, spawn_test_units_for_local_owner,
     suspend_build,
@@ -289,11 +289,7 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                 if !state.match_state.input.tactical_mouse.end_left_press() {
                     return;
                 }
-                band_box_left_up(state);
-                // `0x00731CF0` ends the attack-move mode (`0x00B0FE58`) before
-                // each of BandBox_LeftUp's returns (`0x004ABC67`, `0x004ABC85`,
-                // `0x004AC294`), whatever the release did.
-                state.match_state.input.queued_order_mode = OrderMode::Move;
+                band_box_left_up(state, LeftUp::Tactical);
             }
         }
         MouseButton::Right => {
@@ -325,21 +321,104 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
     }
 }
 
-/// `DisplayClass::BandBox_LeftUp @ 0x004AB9B0` for a left release that held
-/// the capture.
-fn band_box_left_up(state: &mut AppState) {
+/// What reaches `DisplayClass::BandBox_LeftUp @ 0x004AB9B0`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LeftUp {
+    /// A tactical left release that held the capture, at the cursor. The
+    /// release resolves its own pick and action (`0x00693271..0x0069328B`).
+    Tactical,
+    /// The radar's release (`0x00653D58`): `GetObjectAtRadarPixel`'s pick
+    /// and whether the action the radar kept is a superweapon's
+    /// ([`crate::app::input::radar`]).
+    Radar {
+        target: crate::render::radar::NativeRadarInputTarget,
+        super_weapon: bool,
+    },
+}
+
+/// `DisplayClass::BandBox_LeftUp @ 0x004AB9B0`. `0x00731CF0` ends the
+/// attack-move mode (`0x00B0FE58`) before each of its returns
+/// (`0x004ABC67`, `0x004ABC85`, `0x004AC294`), whatever the release did.
+pub(crate) fn band_box_left_up(state: &mut AppState, click: LeftUp) {
+    left_up_branches(state, click);
+    state.match_state.input.queued_order_mode = OrderMode::Move;
+}
+
+fn left_up_branches(state: &mut AppState, click: LeftUp) {
     // Repair / Sell cursor modes consume the click — toggle repair or
     // sell the own building under the cursor. The mode stays active
-    // (sticky) so the player can act on several buildings in a row.
-    if crate::app::input::commands::try_repair_sell_mode_click(state) {
+    // (sticky) so the player can act on several buildings in a row. The
+    // radar's keep table has no repair or sell action.
+    if matches!(click, LeftUp::Tactical)
+        && crate::app::input::commands::try_repair_sell_mode_click(state)
+    {
         return;
     }
-    if let Some(section) = state.armed_super_weapon_type().map(str::to_owned) {
-        crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
-        return;
-    }
+    // A pending placement takes the clicked Cell, whatever the action
+    // (`0x004ABA16..0x004ABC67`).
     if let Some(type_id) = state.armed_building_type().map(str::to_owned) {
-        place_ready_building_at_cursor(state, &type_id);
+        let cell = match click {
+            LeftUp::Tactical => crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+                state,
+                state.match_state.input.cursor_x,
+                state.match_state.input.cursor_y,
+            ),
+            LeftUp::Radar { target, .. } => target.cell,
+        };
+        place_ready_building_at_cell(state, &type_id, cell);
+        return;
+    }
+    let LeftUp::Radar {
+        target,
+        super_weapon,
+    } = click
+    else {
+        tactical_left_up(state);
+        return;
+    };
+    // The selection's dispatch, each object asking its own What_Action
+    // (`Selection__DispatchMultiUnitOrder @ 0x004AE750`, at `0x004ABF94`), a
+    // superweapon action included; for one SPECIAL_PLACE follows
+    // (`0x004AC20C`). The radar never hands over a Select action, so a click
+    // the dispatch leaves to selection selects nothing.
+    //
+    // RESIDUAL: BandBox_LeftUp drops a picked object whose VisualCharacter
+    // is Hidden (`0x004AB9DF..0x004AB9EF`); the radar's pick is not tested.
+    // Trigger: a radar dot of an object hidden from the player. Effect: the
+    // order may target it. Frequency: rare.
+    // RESIDUAL: the dispatch hands Cell actions other than 1, 2 and 0x33
+    // the second Cell (-1,-1) (`0x004AE8FC`), which ClickedMission reads
+    // only into a Planning Mode record (`0x006FFC30`); VERA has no second
+    // Cell. Trigger: a kept superweapon, or a Cell Harvest, Guard or Attack,
+    // in Planning Mode. Effect: that record's third target. Frequency: rare.
+    try_queue_context_order(state, ContextOrderTarget::Radar(target), true);
+    if super_weapon && let Some(section) = state.armed_super_weapon_type().map(str::to_owned) {
+        crate::app::input::commands::launch_super_weapon_at_cell(state, &section, target.cell);
+    }
+}
+
+/// The tactical release past the placement branch: the superweapon's
+/// SPECIAL_PLACE, a planning node's connection, the band box and the click.
+fn tactical_left_up(state: &mut AppState) {
+    // DetermineAction answers the armed superweapon's action only with
+    // nothing selected (`0x00692610..0x00692673`); with a selection it is the
+    // best object's What_Action, which the click below dispatches. With
+    // nothing selected the dispatch has no receiver, so SPECIAL_PLACE alone
+    // remains.
+    if let Some(section) = state.armed_super_weapon_type().map(str::to_owned)
+        && selected_stable_ids_in_order(
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .map(|rt| &rt.simulation),
+            state.rules(),
+            &state.match_state.input.selection_order,
+            state.match_state.input.selection_order_pending,
+        )
+        .is_empty()
+    {
+        crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
         return;
     }
     if crate::app::input::planning_mode::connect_at_cursor(state) {
@@ -691,61 +770,20 @@ fn band_caught_drawn_object(
 }
 
 /// Minimap mouse body (routed here when the minimap ClickRegion consumes the
-/// edge). Radar6539D0 ignores held motion. An admitted selected action
-/// consumes left press and dispatches on left release; the other press
-/// paths center the view (653D6F), including every right press.
+/// edge): `RadarClass::Action @ 0x006539D0` ([`crate::app::input::radar`]).
+/// It ignores held motion — there is no continuous camera-follow (the held
+/// branch is dropped in `handle_cursor_moved_in_game`) — and a right release
+/// only releases the gadget's sticky capture.
 pub(crate) fn minimap_mouse(state: &mut AppState, button: MouseButton, btn_state: ElementState) {
     if crate::app::input::campaign_input::is_locked(state) {
         return;
     }
-    match button {
-        MouseButton::Left => {
-            if btn_state.is_pressed() {
-                if crate::app::presentation::sidebar_render::try_begin_minimap_drag(state)
-                    && minimap_order_target(state).is_none()
-                {
-                    crate::app::presentation::sidebar_render::update_camera_from_minimap_cursor(state);
-                }
-            } else if state.match_state.input.minimap_dragging {
-                state.match_state.input.minimap_dragging = false;
-                // With an admitted selection action, the release is the
-                // command edge (flags bit 0x04, 0x00653D58); route it through the same
-                // context-order owner as a tactical click.
-                queue_minimap_order(state);
-            }
-        }
-        MouseButton::Right
-            // A right-press centers the view on the clicked cell. Native
-            // command dispatch is on left-release (flags bit 0x04), even
-            // when units are selected.
-            if btn_state.is_pressed()
-                && crate::app::presentation::sidebar_render::is_cursor_over_minimap(state)
-            => {
-                crate::app::presentation::sidebar_render::update_camera_from_minimap_cursor(state);
-            }
+    match (button, btn_state.is_pressed()) {
+        (MouseButton::Left, true) => crate::app::input::radar::left_press(state),
+        (MouseButton::Left, false) => crate::app::input::radar::left_release(state),
+        (MouseButton::Right, true) => crate::app::input::radar::right_press(state),
         _ => {}
     }
-}
-
-fn queue_minimap_order(state: &mut AppState) {
-    if let Some(target) = minimap_order_target(state) {
-        try_queue_context_order(state, ContextOrderTarget::Radar(target), true);
-        // BandBox_LeftUp's common exit ends the sticky attack-move mode.
-        state.match_state.input.queued_order_mode = OrderMode::Move;
-    }
-}
-
-fn minimap_order_target(state: &AppState) -> Option<crate::render::radar::NativeRadarInputTarget> {
-    if state.match_state.input.targeting_mode.is_some()
-        || !crate::app::presentation::sidebar_render::is_cursor_over_minimap(state)
-    {
-        return None;
-    }
-    let target = crate::app::presentation::sidebar_render::minimap_input_target(state)?;
-    crate::app::input::cursor::minimap_action_is_admitted(
-        crate::app::input::cursor::minimap_action_feedback(state, target),
-    )
-    .then_some(target)
 }
 
 /// Handle cursor-move behavior while in-game.

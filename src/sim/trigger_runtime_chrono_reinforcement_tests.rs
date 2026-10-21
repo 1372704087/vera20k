@@ -236,7 +236,7 @@ fn chrono_reinforcement_reader_dispatch_placement_and_process_match_original() {
                     id,
                     coord,
                     0,
-                    crate::sim::world::PlacementEvidence::UnitEntryAdmitted,
+                    crate::sim::world::PlacementEvidence::FootEntryAdmitted,
                     &rules,
                     Some(&overlays),
                     FrameEffects::default(),

@@ -72,7 +72,7 @@ use crate::sim::combat::TargetKind;
 use crate::sim::intern::InternedId;
 use crate::sim::mission::MissionType;
 use crate::sim::timer::CdTimer;
-use crate::sim::world::{Simulation, UninitContext};
+use crate::sim::world::{PlacementEvidence, RevealRequest, Simulation, UninitContext};
 use crate::util::direction::DIRECTION_DELTAS;
 
 #[cfg(test)]
@@ -1338,17 +1338,44 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         let Some(launch) = launch_coordinate(self.sim, rules, self.owner_id, burst_parity) else {
             return;
         };
-        // The child's Unlimbo (vt+0xD8, `0x006B7505`) at that coordinate,
-        // staged on its limbo Location for Reveal: a `MissileSpawn=` type keeps
-        // it whole (`unlimbo_z`); an aircraft's Z is replaced there. Its
-        // Unlimbo snaps the body to the direction (`0x006F6DAA`). The coarse
-        // level stays the owner's. The original ignores its answer.
-        if let Some(child) = self.sim.substrate.entities.get_mut(child) {
-            child.position.put_location(launch);
-            child.position.copy_level_from(&owner_position);
-            child.body_facing.snap(u16::from(launch_dir) << 8, frame);
-        }
-        let _ = self.sim.reveal_entity_with_rules(child, rules);
+        // The child's Unlimbo (vt+0xD8, `0x006B7505`) at that coordinate and
+        // direction, with no `0x00A8E7AC` raised: AircraftClass::Unlimbo
+        // (`0x00414310`) reaches Object's class +1AC query (`0x005F4F1B`),
+        // AircraftClass::Can_Enter_Cell, which can refuse it. The request
+        // keeps the owner's coarse level; a `MissileSpawn=` type keeps its Z
+        // whole (`unlimbo_z`), an aircraft's is replaced. A placed child snaps
+        // its body to the direction (`0x006F6DAA`). The original ignores the
+        // answer: a refused child stays in limbo where it was.
+        let Some(mut requested) = self
+            .sim
+            .substrate
+            .entities
+            .get(child)
+            .map(|child| child.position)
+        else {
+            return;
+        };
+        requested.put_location(launch);
+        requested.copy_level_from(&owner_position);
+        let context = self.context.with_unlimbo_facing(Some(launch_dir));
+        let Some((position, placement)) = self.sim.unlimbo_class_entry(
+            child,
+            requested,
+            PlacementEvidence::EvaluateMark,
+            rules,
+            context.registry(),
+        ) else {
+            return;
+        };
+        let _ = self.sim.try_reveal_entity_with_context(
+            child,
+            RevealRequest {
+                position,
+                placement,
+                logic_eligible: true,
+            },
+            context,
+        );
     }
 
     fn reset_owner_burst(&mut self) {

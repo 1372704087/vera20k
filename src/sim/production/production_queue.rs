@@ -280,15 +280,18 @@ pub(in crate::sim) fn exit_produced_object(
         );
     }
     match exit_arm(producer_type) {
-        // RESIDUAL: the refinery arm (`0x00444DE4..0x00444F16`) is not
-        // ported. It places a Unit facing 0xA0 one Cell south-west and one
-        // south of the producer's GetCoords Cell (`0x0089F69C`, `0x0089F698`)
-        // and, placed, snaps its facing and queues Harvest; anything else it
-        // scatters. It answers 0 either way. VERA answers 0 without placing
-        // the object. Trigger: a Refinery= or Weeder= building that produces
-        // Units or Infantry; no retail producer is one
-        // (`retail_producers_take_the_land_naval_and_infantry_arms`). Effect:
-        // the object is abandoned unplaced.
+        // RESIDUAL (#2387): the refinery arm (`0x00444DE4..0x00444F16`) is
+        // not ported. It places a Unit facing 0xA0 one Cell south-west and
+        // one south of the producer's GetCoords Cell (`0x0089F69C`,
+        // `0x0089F698`) inside its own `0x00A8E7AC` bracket, so Object's
+        // class query is skipped; placed, it snaps the facing and queues
+        // Harvest. Anything else it scatters (`0x00444F04`). It answers 0
+        // either way. VERA answers 0 without placing the object. Trigger: a
+        // Refinery= or Weeder= producer, which no retail type is
+        // (`retail_producers_take_the_land_naval_and_infantry_arms`). In
+        // retail only SpawnReinforcements' building exit (`0x0065DAB6`)
+        // reaches the arm, with Infantry, and VERA does not port that exit.
+        // Effect: the object is abandoned unplaced.
         ExitArm::Refinery => BuildingExit::Failed,
         ExitArm::Naval => exit_naval(
             sim,

@@ -232,7 +232,7 @@ fn spawn_supplied_ground_mtnk(
         cell.1,
         0,
         height,
-        crate::sim::world::PlacementEvidence::UnitEntryAdmitted,
+        crate::sim::world::PlacementEvidence::FootEntryAdmitted,
         &resources.rules,
         crate::sim::world::FrameEffects::default(),
     )

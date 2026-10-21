@@ -2162,18 +2162,18 @@ impl Simulation {
         let [x, y] = crate::sim::movement::ground_pose::position_world_xy(&position);
         if entity.category() == EntityCategory::Aircraft {
             // An Aircraft's +1AC is AircraftClass::Can_Enter_Cell (vtable
-            // slot 0x007E2450 -> 0x004196B0). It reads no playfield, so the
-            // admitted Aircraft keeps Object's generic Mark.
+            // slot 0x007E2450 -> 0x004196B0), the only admission its Unlimbo
+            // chain makes: the admitted Aircraft takes no playfield gate.
             return if self.object_placement_scope_active()
                 || self.aircraft_can_enter_cell(stable_id, cells.lookup_world(x, y)) == 0
             {
-                PlacementEvidence::EvaluateMark
+                PlacementEvidence::FootEntryAdmitted
             } else {
                 PlacementEvidence::RejectedEarly
             };
         }
         if entity.category() != EntityCategory::Structure && self.object_placement_scope_active() {
-            return PlacementEvidence::UnitEntryAdmitted;
+            return PlacementEvidence::FootEntryAdmitted;
         }
         let cell = cells.lookup_world(x, y);
         if entity.category() == EntityCategory::Structure {
@@ -2207,8 +2207,8 @@ impl Simulation {
             {
                 return PlacementEvidence::RejectedEarly;
             }
-            // Keep Object's shared mode-one/Mark transaction. The class
-            // decision does not make PlaceAnywhere bypass Object's playfield.
+            // Keep the Reveal playfield gate (see its residual) and Mark. The
+            // class decision does not make PlaceAnywhere bypass the gate.
             return PlacementEvidence::EvaluateMark;
         }
         match self.foot_can_enter(
@@ -2218,7 +2218,7 @@ impl Simulation {
             rules,
             overlay_registry,
         ) {
-            Ok(0) => PlacementEvidence::UnitEntryAdmitted,
+            Ok(0) => PlacementEvidence::FootEntryAdmitted,
             Ok(_) => PlacementEvidence::RejectedEarly,
             Err(cause) => {
                 log::debug!("Foot {stable_id} Unlimbo admission: {cause}");

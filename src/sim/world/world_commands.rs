@@ -2183,6 +2183,23 @@ impl Simulation {
         stable_id: u64,
         context: super::UninitContext<'_>,
     ) -> bool {
+        self.object_select(stable_id, false, context)
+    }
+
+    /// `ObjectClass::Select @ 0x005F4520` and the Selected tag event that
+    /// `TechnoClass::Select` raises after it (`0x006FBFD0..0x006FBFE4`). A
+    /// Select the game makes itself (`logic`) also reports its insertion into
+    /// the current-objects vector ([`LifecycleOutput::ObjectSelected`]),
+    /// before the tag event can Select anything else; an input Select's
+    /// ledger entry already exists.
+    ///
+    /// [`LifecycleOutput::ObjectSelected`]: super::LifecycleOutput::ObjectSelected
+    fn object_select(
+        &mut self,
+        stable_id: u64,
+        logic: bool,
+        context: super::UninitContext<'_>,
+    ) -> bool {
         if !self.can_select_object(stable_id, context.rules())
             || self
                 .substrate
@@ -2196,6 +2213,10 @@ impl Simulation {
             return false;
         };
         entity.selection.select();
+        if logic {
+            self.lifecycle_outputs
+                .emit(super::LifecycleOutput::ObjectSelected { stable_id });
+        }
         // Selection has already changed when the synchronous Tag actions run.
         // They may change ownership, remove the Tag, or retire the object.
         self.dispatch_object_tag_event(stable_id, 33, Some(stable_id), None, context);
@@ -2206,49 +2227,16 @@ impl Simulation {
     /// re-selects one of its own objects: an object the current house has
     /// not discovered (`+0x41B`) and does not own as its human player is
     /// refused (the graphical client's gate); then ObjectClass::Select and
-    /// the tag event ([`Self::try_select_object`]); then, for a human
-    /// player's or passive house's object while the selection-voice latch
+    /// the tag event ([`Self::object_select`]); then, for a human player's
+    /// or passive house's object while the selection-voice latch
     /// `0x00822CF2` is set (`0x006FBFF4..0x006FC018`), VoiceSelect (vt+0x360)
     /// through [`Self::selection_voice_request`]; last, the planning-node add
-    /// (`0x006FC020` -> `0x00637840`, [`Self::planning_select_partners`]):
-    /// in the local player's Planning Mode, read through the frame's
-    /// [`super::LocalPlanningBoundary`], each tail-node partner gets this
-    /// Select too, without expanding again (the `0x00AC4CF6` guard). A
-    /// passenger or parasite keeps its path through Limbo, so a reselected
-    /// escapee or released parasite pulls in its node's partners.
-    ///
-    /// RESIDUALS:
-    /// - Native adds each partner to the selection vector right after this
-    ///   object, in node order; the app admits sim-selected objects in
-    ///   entity-store order. Effect: the vector's order (Tab cycling, first
-    ///   entry) can differ. Frequency: planning-mode logic reselects only.
-    /// - Native's guard covers the whole partner loop, so a Select started by
-    ///   a partner's Selected tag event (33) does not expand; here the guard
-    ///   is structural and such a nested Select would expand. Trigger: a
-    ///   partner's Selected trigger whose action frees a path-holding
-    ///   passenger. Frequency: not measured; needs map triggers.
+    /// (`0x006FC020`, [`Self::planning_select_tail_node`]), which in the local
+    /// player's Planning Mode Selects this object's tail-node partners
+    /// through this same function. A passenger or parasite keeps its path
+    /// through Limbo, so a reselected escapee or released parasite pulls in
+    /// its node's partners.
     pub(crate) fn techno_select(
-        &mut self,
-        stable_id: u64,
-        voice_latch: bool,
-        context: super::UninitContext<'_>,
-    ) -> bool {
-        if !self.techno_select_once(stable_id, voice_latch, context) {
-            return false;
-        }
-        let planning_mode = context.effects().local_planning_active();
-        for member in self.planning_select_partners(stable_id, planning_mode) {
-            // An already-selected member makes no Select call (+0x83); the
-            // admission refuses it before any effect.
-            self.techno_select_once(member, voice_latch, context);
-        }
-        true
-    }
-
-    /// `0x006FBFA0..0x006FC01E`: [`Self::techno_select`] up to its
-    /// planning-node add, which the `0x00AC4CF6` guard skips for the nested
-    /// partner Selects.
-    fn techno_select_once(
         &mut self,
         stable_id: u64,
         voice_latch: bool,
@@ -2262,7 +2250,7 @@ impl Simulation {
         {
             return false;
         }
-        if !self.try_select_object(stable_id, context) {
+        if !self.object_select(stable_id, true, context) {
             return false;
         }
         let rules = context.rules();
@@ -2273,6 +2261,7 @@ impl Simulation {
                 sound_id,
             });
         }
+        self.planning_select_tail_node(stable_id, voice_latch, context);
         true
     }
 

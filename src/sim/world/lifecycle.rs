@@ -745,6 +745,15 @@ pub enum LifecycleOutput {
     FollowReleased {
         stable_id: u64,
     },
+    /// A Select (`TechnoClass::Select @ 0x006FBFA0`, vt+0x14C) the game made
+    /// itself rather than local input: its ObjectClass::Select
+    /// (`0x005F4520`) inserted the object into the client's current-objects
+    /// vector (`0x00A8ECB8`), before its Selected tag event (`0x006FBFE4`).
+    /// A planning-node add emits the actor first, then its partners in node
+    /// order. Input Selects write the app's selection ledger themselves.
+    ObjectSelected {
+        stable_id: u64,
+    },
     /// DispatchPointerExpired7258D0 reaches navigation733160 at7259B1
     /// for a Techno abstract pointer, regardless of announce-control or Alive.
     ObjectPointerExpired {

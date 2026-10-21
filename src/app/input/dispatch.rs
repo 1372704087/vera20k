@@ -2074,21 +2074,73 @@ pub(crate) fn selected_stable_ids_in_order(
     if selection_order_pending {
         ordered
     } else {
-        admit_missing_selected_ids(ordered, sim, rules)
+        admit_missing_selected_ids(ordered, sim, rules, &[])
+    }
+}
+
+/// The frame's Selects the game made itself
+/// ([`crate::sim::world::LifecycleOutput::ObjectSelected`]), in call order.
+fn logic_selects(outputs: &[crate::sim::world::LifecycleOutput]) -> Vec<u64> {
+    outputs
+        .iter()
+        .filter_map(|output| match output {
+            crate::sim::world::LifecycleOutput::ObjectSelected { stable_id } => Some(*stable_id),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Insert the frame's logic Selects (`logic_selects`, in call order) into the
+/// ledger with ObjectClass::Select's front/back rule. Only an unselected
+/// object's Select succeeds, so an entry already in a committed ledger left
+/// the vector at its Deselect (`0x005F44A0` removes it from `0x00A8ECB8`) and
+/// re-enters at its last Select. A pending ledger is input's newest order,
+/// which the simulation has not yet committed; its entries keep their place.
+fn admit_logic_selects(
+    ordered: &mut VecDeque<u64>,
+    members: &mut HashSet<u64>,
+    sim: &crate::sim::world::Simulation,
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    logic_selects: &[u64],
+    committed: bool,
+) {
+    if logic_selects.is_empty() {
+        return;
+    }
+    if committed {
+        let reselected: HashSet<_> = logic_selects.iter().copied().collect();
+        ordered.retain(|id| !reselected.contains(id));
+        members.retain(|id| !reselected.contains(id));
+    }
+    for (index, &id) in logic_selects.iter().enumerate() {
+        let last = !logic_selects[index + 1..].contains(&id);
+        if last
+            && sim
+                .entities()
+                .get(id)
+                .is_some_and(|entity| entity.selection.is_selected())
+            && members.insert(id)
+        {
+            insert_selected_id(ordered, id, sim, rules);
+        }
     }
 }
 
 /// Selection membership is a transient index, never an iteration authority.
-/// The ledger keeps prior order; lifecycle transfers still enter in entity-store
-/// order, with the same native front/back insertion as input selection. A deque
-/// avoids shifting the whole list for each missing armed object.
+/// The ledger keeps prior order; the frame's logic Selects enter in call
+/// order ([`admit_logic_selects`]); other lifecycle transfers (the raw Select
+/// writers) still enter in entity-store order, with the same native
+/// front/back insertion as input selection. A deque avoids shifting the whole
+/// list for each missing armed object.
 fn admit_missing_selected_ids(
     ordered: Vec<u64>,
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
+    logic_selects: &[u64],
 ) -> Vec<u64> {
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut ordered = VecDeque::from(ordered);
+    admit_logic_selects(&mut ordered, &mut members, sim, rules, logic_selects, true);
     for entity in sim.entities().values() {
         if entity.selection.is_selected() && members.insert(entity.stable_id()) {
             insert_selected_id(&mut ordered, entity.stable_id(), sim, rules);
@@ -2111,8 +2163,12 @@ fn selection_membership_committed(sim: &crate::sim::world::Simulation, ordered: 
 }
 
 /// Synchronize the app ledger after the due selection commands and lifecycle
-/// removals have committed for this frame.
-pub(crate) fn reconcile_selection_order_after_sim(state: &mut AppState) {
+/// removals have committed for this frame. `outputs` are the frame's
+/// lifecycle facts, whose logic Selects enter in call order.
+pub(crate) fn reconcile_selection_order_after_sim(
+    state: &mut AppState,
+    outputs: &[crate::sim::world::LifecycleOutput],
+) {
     let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
         state.match_state.input.selection_order.clear();
         state.match_state.input.selection_order_pending = false;
@@ -2124,6 +2180,7 @@ pub(crate) fn reconcile_selection_order_after_sim(state: &mut AppState) {
         &mut state.match_state.input,
         &runtime.simulation,
         Some(&runtime.resources.rules),
+        &logic_selects(outputs),
     );
 }
 
@@ -2133,6 +2190,7 @@ fn reconcile_selection_order_for_sim(
     input: &mut crate::app::input::state::MatchInputState,
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
+    logic_selects: &[u64],
 ) {
     // Navigation733160 consumes actual pointer expiry through LifecycleOutput,
     // independently of this membership ledger. Alive/Health/Deselect alone
@@ -2142,6 +2200,7 @@ fn reconcile_selection_order_for_sim(
         rules,
         &input.selection_order,
         input.selection_order_pending,
+        logic_selects,
     );
     input.selection_order = order;
     input.selection_order_pending = pending;
@@ -2150,25 +2209,30 @@ fn reconcile_selection_order_for_sim(
 /// Shared reconciliation decision for the live input ledger and a saved
 /// local-view record. The simulation's command queue remains authoritative;
 /// observing a save boundary neither drains nor applies queued commands.
+/// `logic_selects` are the just-finished frame's logic Selects; a save
+/// boundary, between frames, has none.
 pub(crate) fn selection_order_for_world(
     sim: &crate::sim::world::Simulation,
     rules: Option<&crate::rules::ruleset::RuleSet>,
     order: &[u64],
     pending: bool,
+    logic_selects: &[u64],
 ) -> (Vec<u64>, bool) {
     if pending && sim.has_pending_selection_commands() {
-        return (
-            order
-                .iter()
-                .copied()
-                .filter(|id| {
-                    sim.entities()
-                        .get(*id)
-                        .is_some_and(|entity| entity.lifecycle.object_alive())
-                })
-                .collect(),
-            true,
-        );
+        let mut ordered: VecDeque<u64> = order
+            .iter()
+            .copied()
+            .filter(|id| {
+                sim.entities()
+                    .get(*id)
+                    .is_some_and(|entity| entity.lifecycle.object_alive())
+            })
+            .collect();
+        // Native Selects all write the one vector at once, so a logic Select
+        // joins the provisional ledger too.
+        let mut members = ordered.iter().copied().collect();
+        admit_logic_selects(&mut ordered, &mut members, sim, rules, logic_selects, false);
+        return (ordered.into(), true);
     }
     // MainTick55D8AB/55D8B4 commits local Select before Logic55DC9E.
     // A consumed snapshot may have been refused or then deselected by
@@ -2184,7 +2248,7 @@ pub(crate) fn selection_order_for_world(
                 .is_some_and(|entity| entity.selection.is_selected())
         })
         .collect();
-    let reconciled = admit_missing_selected_ids(reconciled, sim, rules);
+    let reconciled = admit_missing_selected_ids(reconciled, sim, rules, logic_selects);
     debug_assert!(selection_membership_committed(sim, &reconciled));
     (reconciled, false)
 }
@@ -2458,6 +2522,46 @@ mod item83_selection_order_tests {
         assert_eq!(read(&[20, 999, 40], true), [20, 40]);
         assert!(read(&[], true).is_empty());
         assert!(selected_stable_ids_in_order(None, Some(&rules), &[10], false).is_empty());
+    }
+
+    /// The game's own Selects (TechnoClass::Select vt+0x14C from Logic, e.g.
+    /// a reselected escapee and its planning-node partners) reach the vector
+    /// in call order through ObjectClass::Select's front/back rule
+    /// (`0x005F468C`/`0x005F470E`), not in entity-store order. A ledger entry
+    /// whose byte was cleared and set again left the vector at its Deselect
+    /// (`0x005F44A0`) and re-enters at its last Select.
+    #[test]
+    fn logic_selects_enter_the_ledger_in_call_order() {
+        use super::selection_order_for_world;
+        use crate::sim::command::{Command, CommandEnvelope};
+        let (mut sim, rules) = mixed_selection_fixture();
+        let read = |sim: &Simulation, prior: &[u64], pending, selects: &[u64]| {
+            selection_order_for_world(sim, Some(&rules), prior, pending, selects)
+        };
+        // Store order would give [30, 10, 20, 50].
+        assert_eq!(read(&sim, &[20], false, &[50, 30, 10]).0, [10, 30, 20, 50]);
+        // The last of repeated Selects places the object; an object whose
+        // Select was undone (40) stays out.
+        assert_eq!(
+            read(&sim, &[20, 50], false, &[10, 30, 40, 10]).0,
+            [10, 30, 20, 50]
+        );
+        assert_eq!(
+            read(&sim, &[10, 20, 30, 50], false, &[20]).0,
+            [10, 30, 50, 20]
+        );
+        // A queued input Select keeps its provisional place; a logic Select
+        // joins the provisional ledger.
+        let owner = sim.intern("Americans");
+        sim.queue_command(CommandEnvelope::new(
+            owner,
+            2,
+            Command::Select {
+                entity_ids: vec![20],
+                additive: false,
+            },
+        ));
+        assert_eq!(read(&sim, &[20], true, &[30, 20]), (vec![30, 20], true));
     }
 
     #[test]

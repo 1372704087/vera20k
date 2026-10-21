@@ -1515,13 +1515,13 @@ parts; the resident and last-build sprite counts stay at 2,400 throughout these
 captures. These measurements exclude other caches and driver allocations.
 
 The [building comparison](voxel_oracle/building_barrel.md) executes original
-loader and draw instructions; the [recoil comparison](voxel_oracle/recoil.md)
-executes readers, firing gates and complete update histories. These bounded
-component comparisons and production captures do not establish native pixel
-parity. Native cache-pool lifetime, custom barrel overrides, upgrade-provided
-turrets and EMP cannon missions remain separate mechanisms. The retained
-three-pixel drawing anchor and measured subpixel float rounding remain visual
-residuals.
+loader and draw instructions and the stock guns' rasters; the
+[recoil comparison](voxel_oracle/recoil.md) executes readers, firing gates and
+complete update histories. These bounded component comparisons and production
+captures do not establish native pixel parity. Native cache-pool lifetime, custom
+barrel overrides, upgrade-provided turrets and EMP cannon missions remain separate
+mechanisms. Measured subpixel float rounding of a translated gun remains a visual
+residual.
 
 ## V3 rocket pitch observation
 

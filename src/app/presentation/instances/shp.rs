@@ -1031,7 +1031,8 @@ fn infantry_air_shadow_piece(
 /// Building draw43DA80 uses the current primary facing and retained +148 HVA
 /// counter; C0 pitches by +370 and stays on frame0 when a B8 turret exists.
 /// The same cache key owns both parts, except during either part's recoil.
-/// Executed controls: tools/voxel_oracle/building_barrel.json.
+/// Executed controls: tools/voxel_oracle/building_barrel.json; the stock guns'
+/// original rasters: tools/voxel_oracle/building_gun_raster.json.
 ///
 /// The blit Z seed is Building vtable `0x7E3EBC+0x2EC` (`0x43E900`): it returns
 /// `-AdjustForZ(this+0xA4)` plus `TurretAnimZAdjust` (`type+0x11E8`) when
@@ -1127,11 +1128,13 @@ fn emit_building_turret_vxl(
         let Some(entry) = unit_atlas.get(key) else {
             continue;
         };
-        // TurretAnimX/Y are screen-pixel offsets at the building draw point.
-        // The existing +3 raster-origin adjustment remains a small alignment
-        // residual; the missing-barrel comparison does not establish it.
+        // 43DA80 submits the building draw point plus TurretAnimX/Y. A cache
+        // miss (706ED0) blits the 754510 crop at that point plus the rect
+        // origin (`0x007071CB..0x007071E2`); a hit (707480) draws what 6C89E0
+        // cached from the same origin and rows (`0x006C8A16..0x006C8A3C`,
+        // `0x007076A2..0x007076CE`). The atlas entry is that crop and origin.
         let tx = building_sx + anim_x as f32 + entry.offset_x + ox;
-        let ty = building_sy + anim_y as f32 + entry.offset_y + 3.0 + oy;
+        let ty = building_sy + anim_y as f32 + entry.offset_y + oy;
         // Building43DA80 -> Techno Draw0x2800: test Z, never write it.
         let policy = BlitPolicy::z_read(SpriteEncoding::Voxel);
         pieces.push(PlannedBuildingPieceInstance {

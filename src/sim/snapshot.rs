@@ -1241,7 +1241,13 @@ use crate::util::save_codec;
 // keeps a DoubleThick copy; DrawIt reads the type's.
 // 465 -> 466: retain Techno's constructor house independently of its current
 // owner; Building ChangeOwner uses it to decide the computer capture sale.
-const SNAPSHOT_VERSION: u32 = 466;
+// 466 -> 467: bunker entry uses radio contacts, removing the separate
+// Approaching link, ArriveWait enum variant and installing_unit payload.
+// Enum ordinals and the positional building runtime payload both change.
+// 467 -> 468: retained Country ParentCountry+98 in processed Rules records.
+// 468 -> 469: retained Country VeteranInfantry/VeteranUnits/VeteranAircraft
+// type lists in processed Rules records.
+const SNAPSHOT_VERSION: u32 = 469;
 
 const SNAPSHOT_PRODUCT_MAGIC: [u8; 8] = *b"VERA20K\0";
 const SNAPSHOT_ENVELOPE_VERSION: u32 = 1;
@@ -2620,26 +2626,12 @@ fn restore_object_references(
                 target_id,
             )?;
         }
-        if let BunkerLink::Approaching(target_id) | BunkerLink::Installed(target_id) =
-            entity.bunker.link()
-        {
+        if let BunkerLink::Installed(target_id) = entity.bunker.link() {
             require_resolved_reference(
                 entity_ids.contains(&target_id),
                 "EntityStore",
                 entity_id,
                 "bunker_link",
-                "EntityStore",
-                target_id,
-            )?;
-        }
-        if let Some(runtime) = entity.bunker_runtime.as_ref()
-            && let Some(target_id) = runtime.installing_unit()
-        {
-            require_resolved_reference(
-                entity_ids.contains(&target_id),
-                "EntityStore",
-                entity_id,
-                "bunker_runtime.installing_unit",
                 "EntityStore",
                 target_id,
             )?;
@@ -2959,13 +2951,6 @@ impl Simulation {
             }
         }
 
-        self.validate_disk_lasers_after_restore(None)
-            .map_err(
-                |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
-                    object_id,
-                    reason,
-                },
-            )?;
         let (index, identities) = RestoredObjectIndex::build(self)?;
         let seen_logic = self
             .substrate
@@ -3158,7 +3143,7 @@ impl Simulation {
         prepare_terrain_assets: Option<&mut SnapshotTerrainAssetPreparation<'_>>,
     ) -> Result<SnapshotMapRestoreOutput, SnapshotRestoreError> {
         self.validate_type_tech_levels(rules)?;
-        self.validate_disk_lasers_after_restore(Some(rules))
+        self.validate_disk_lasers_after_restore(rules)
             .map_err(
                 |(object_id, reason)| SnapshotRestoreError::InvalidDiskLaserState {
                     object_id,
@@ -7954,7 +7939,7 @@ mod tests {
             .objects_mut_for_test()
             .insert(tree_id, tree);
         sim.resolved_terrain = Some(terrain);
-        assert!(sim.register_terrain_object(tree_id, Some(&rules)));
+        assert!(sim.register_terrain_object(tree_id, &rules));
 
         let projectile_id = sim.substrate.allocate_stable_id();
         let mut spawn = gsi_17_03_projectile(RAD_NO_ATTACKER, ProjectileTarget::Terrain(tree_id));
@@ -9401,7 +9386,10 @@ mod tests {
             sim.terrain_objects
                 .objects_mut_for_test()
                 .insert(terrain.stable_id(), terrain.clone());
-            assert!(sim.register_terrain_object(terrain.stable_id(), None));
+            assert!(sim.register_terrain_object(
+                terrain.stable_id(),
+                crate::rules::ruleset::RuleSet::empty_for_test()
+            ));
             sim.terrain_objects
                 .cell_index_mut_for_test()
                 .insert(terrain.cell(), terrain.stable_id());
@@ -9654,10 +9642,10 @@ mod tests {
     fn unlimbo_ge_places_into_logic_and_occupancy_atomically() {
         use crate::sim::game_entity::GameEntity;
         let mut sim = Simulation::new();
-        let mut ge = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
-        // `place_spawned` resolves the owner against `sim.interner`; re-intern so
-        // the id is valid there (test_default uses the thread-local test interner).
-        ge.set_owner_for_test(sim.interner.intern("Americans"));
+        let ge = GameEntity::test_default(1, "MTNK", "Americans", 5, 5);
+        // `place_spawned` resolves the owner and Unlimbo the type against
+        // `sim.interner`; test_default interns both in the test interner.
+        sim.interner = crate::sim::intern::test_interner();
         let (id, outcome) = sim.unlimbo(ge);
         assert!(matches!(outcome, RevealOutcome::Revealed { .. }));
 
@@ -10256,6 +10244,9 @@ mod tests {
         // 463 -> 464: retained InfantryType sequence sound pairs.
         // 464 -> 465: the Anim Temporal erase pause.
         // 465 -> 466: retained Techno constructor house for capture-sale policy.
-        assert_eq!(super::SNAPSHOT_VERSION, 466);
+        // 466 -> 467: remove duplicate bunker approach state.
+        // 467 -> 468: retained Country ParentCountry+98.
+        // 468 -> 469: retained Country starting-veterancy lists.
+        assert_eq!(super::SNAPSHOT_VERSION, 469);
     }
 }

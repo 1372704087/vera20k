@@ -291,7 +291,7 @@ fn aircraft_drop_landing_uses_original_wheel_controls() {
         let stats = sim
             .tick_air_movement_with_cell_lists_one(
                 falling,
-                Some(&rules),
+                &rules,
                 None,
                 crate::sim::world::FrameEffects::default(),
             )
@@ -904,7 +904,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
         if sim
             .tick_air_movement_with_cell_lists_one(
                 1,
-                Some(&rules),
+                &rules,
                 None,
                 crate::sim::world::FrameEffects::default(),
             )
@@ -927,7 +927,7 @@ fn live_null_crash_books_one_loss_through_impact_and_retirement() {
         "impact UnInit does not add a second loss"
     );
     sim.process_pending_delete_with(
-        Some(&rules),
+        &rules,
         None,
         crate::sim::world::FrameEffects::default(),
         1,
@@ -1004,7 +1004,7 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                 let stats = sim
                     .tick_air_movement_with_cell_lists_one(
                         1,
-                        Some(&rules),
+                        &rules,
                         None,
                         crate::sim::world::FrameEffects::default(),
                     )
@@ -1048,7 +1048,7 @@ fn crash_fall_matches_native_frames_to_the_impact() {
                 let stats = sim
                     .tick_air_movement_with_cell_lists_one(
                         1,
-                        Some(&rules),
+                        &rules,
                         None,
                         crate::sim::world::FrameEffects::default(),
                     )
@@ -1123,7 +1123,7 @@ fn a_crash_fall_lists_the_wreck_in_its_impact_cell() {
         let stats = sim
             .tick_air_movement_with_cell_lists_one(
                 1,
-                Some(&rules),
+                &rules,
                 None,
                 crate::sim::world::FrameEffects::default(),
             )

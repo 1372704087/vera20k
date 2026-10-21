@@ -349,6 +349,8 @@ fn native_dispatch_latches_match_production_flags_and_keep_path_shape() {
     }
 }
 
+/// The node start queues Deliberate with commence 1 (`0x00638606`), so a
+/// ready object makes it current at once and queues nothing.
 #[test]
 fn guard_commit_consumes_first_node_stages_deliberate_and_retains_next_node() {
     let (mut sim, rules, owner) = fixture();
@@ -370,16 +372,12 @@ fn guard_commit_consumes_first_node_stages_deliberate_and_retains_next_node() {
     assert_eq!(path.nodes.len(), 1);
     assert_eq!(path.pending, -1);
     assert_eq!(path.current.as_ref().unwrap().payload()[22], 2);
+    let mission = &sim.substrate.entities.get(1).unwrap().mission;
     assert_eq!(
-        sim.substrate
-            .entities
-            .get(1)
-            .unwrap()
-            .mission
-            .queued()
-            .known(),
+        mission.current().known(),
         Some(crate::sim::mission::MissionType::Deliberate)
     );
+    assert_eq!(mission.queued(), crate::sim::mission::MissionId::NONE);
     assert!(sim.take_due_commands().is_empty());
     sim.session.set_tick_for_test(sim.session.tick() + 1);
     let due = sim.take_due_commands();

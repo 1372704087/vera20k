@@ -1489,6 +1489,19 @@ impl Simulation {
         else {
             return false;
         };
+        // `0x00638602..0x0063860C`: Queue_Mission(Deliberate, 1) through
+        // vt+0x1E8 commences it at once when the object is ready, before
+        // 0x00636590 consumes the node and the planned event is staged.
+        // Neither this owner nor its container consumes RNG.
+        let _ = self.mission_queue_exact(
+            actor,
+            crate::sim::mission::MissionId::from_known(
+                crate::sim::mission::MissionType::Deliberate,
+            ),
+            1,
+            self.session.binary_frame(),
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+        );
         record.payload_mut()[22] = 2;
         record.set_issue_header(
             4,
@@ -1505,17 +1518,6 @@ impl Simulation {
         if !keep_member {
             self.planning.remove_member(node_id, actor);
         }
-        // Native638623 queues Deliberate without Commence, before staging the
-        // planned event. Neither this owner nor its container consumes RNG.
-        let _ = self.mission_queue_exact(
-            actor,
-            crate::sim::mission::MissionId::from_known(
-                crate::sim::mission::MissionType::Deliberate,
-            ),
-            0,
-            self.session.binary_frame(),
-            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
-        );
         // 637550 ->652230: deferred publication stamps frame+1. Reverse
         // pending traversal plus ring prepend restores generation order.
         self.queue_command(CommandEnvelope::new(

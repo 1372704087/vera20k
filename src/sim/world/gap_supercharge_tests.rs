@@ -1,0 +1,213 @@
+//! The Gap Generator super-charge on retail rules through the production
+//! frame: Building What_Action's power rung (`0x00447286..0x004472E7`), the
+//! self click's Unload (`0x004434FF..0x00443514`), Mission_Unload's toggle
+//! (`0x0044E29D..0x0044E36B`), GetPowerDrain's extra drain (`0x0044E89F`)
+//! and the operational-off reset (`0x00454B91..0x00454BEB`).
+use super::*;
+use crate::rules::ruleset::RuleSet;
+use crate::sim::command::{Command, CommandEnvelope};
+use crate::sim::house_state::HouseState;
+use crate::sim::pathfinding::PathGrid;
+
+fn arena(rules: &RuleSet) -> (Simulation, PathGrid, InternedId) {
+    let mut sim = Simulation::with_seed(0x44E2BE);
+    for (name, human) in [("Russians", false), ("Americans", true)] {
+        let id = sim.interner.intern(name);
+        sim.houses
+            .register(HouseState::new(id, 0, None, human, 0, 10));
+    }
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, rules);
+    sim.intern_rule_type_ids(rules);
+    sim.resolve_type_handles(rules);
+    let owner = sim.interner.get("Americans").unwrap();
+    (sim, grid, owner)
+}
+
+fn spawn(sim: &mut Simulation, rules: &RuleSet, kind: &str, rx: u16, ry: u16) -> u64 {
+    sim.spawn_object_at_height(kind, "Americans", rx, ry, 0, 0, rules)
+        .unwrap_or_else(|| panic!("{kind} spawns"))
+}
+
+fn run(sim: &mut Simulation, rules: &RuleSet, grid: &PathGrid, commands: &[CommandEnvelope]) {
+    sim.advance_tick(commands, Some(rules), Some(grid), None, 33);
+}
+
+fn totals(sim: &Simulation, owner: InternedId) -> (i32, i32) {
+    let state = &sim.power_states[&owner];
+    (state.total_output(), state.total_drain())
+}
+
+fn click(sim: &mut Simulation, rules: &RuleSet, grid: &PathGrid, owner: InternedId, gap: u64) {
+    let order = CommandEnvelope::new(
+        owner,
+        sim.session.tick(),
+        Command::UnloadPassengers { transport_id: gap },
+    );
+    let result = sim.advance_tick(&[order], Some(rules), Some(grid), None, 33);
+    assert_eq!(
+        result.executed_commands, 1,
+        "the gap generator's Unload is admitted"
+    );
+}
+
+/// Runs frames until the super-charge reads `charged`.
+fn run_until_charged(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    grid: &PathGrid,
+    gap: u64,
+    charged: bool,
+) {
+    for _ in 0..60 {
+        if sim.substrate.entities.get(gap).unwrap().gap_supercharged() == charged {
+            return;
+        }
+        let commands = sim.take_due_commands();
+        run(sim, rules, grid, &commands);
+    }
+    panic!("the super-charge never became {charged}");
+}
+
+/// Five Nuclear Reactors (`Power=2000`) leave 9900 over the stock GAGAP's
+/// `Power=-100`: above its `ExtraPower=-9000` threshold, so the self action
+/// is offered; four (7900) are not enough. The click charges it and the next
+/// House update adds 9000 to the drain; a second click discharges it.
+#[test]
+fn a_retail_gap_generator_supercharges_and_discharges_through_its_unload() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let gagap = rules.object("GAGAP").unwrap();
+    assert_eq!(
+        (
+            gagap.extra_power,
+            gagap.gap_radius_in_cells,
+            gagap.super_gap_radius_in_cells
+        ),
+        (-9000, 10, 10)
+    );
+    let (mut sim, grid, owner) = arena(rules);
+    let gap = spawn(&mut sim, rules, "GAGAP", 16, 26);
+    for x in [1, 6, 11, 16] {
+        spawn(&mut sim, rules, "NANRCT", x, 2);
+    }
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    assert_eq!(totals(&sim, owner), (8000, 100));
+    assert_eq!(sim.gap_generator_self_action(gap, rules), Some(false));
+
+    spawn(&mut sim, rules, "NANRCT", 21, 2);
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    assert_eq!(totals(&sim, owner), (10000, 100));
+    assert_eq!(sim.gap_generator_self_action(gap, rules), Some(true));
+    assert!(
+        sim.substrate
+            .entities
+            .get(gap)
+            .unwrap()
+            .gap_generator
+            .viewers()[&owner]
+            .active(),
+        "the operational generator holds its gap"
+    );
+
+    click(&mut sim, rules, &grid, owner, gap);
+    run_until_charged(&mut sim, rules, &grid, gap, true);
+    run(&mut sim, rules, &grid, &[]);
+    assert_eq!(totals(&sim, owner), (10000, 9100));
+    let deposit = sim
+        .substrate
+        .entities
+        .get(gap)
+        .unwrap()
+        .gap_generator
+        .viewers()[&owner];
+    assert!(deposit.active());
+    assert_eq!(deposit.radius(), 10, "SuperGapRadiusInCells");
+    // Still offered while charged (`0x004472AA`), whatever the surplus.
+    assert_eq!(sim.gap_generator_self_action(gap, rules), Some(true));
+
+    click(&mut sim, rules, &grid, owner, gap);
+    run_until_charged(&mut sim, rules, &grid, gap, false);
+    run(&mut sim, rules, &grid, &[]);
+    assert_eq!(totals(&sim, owner), (10000, 100));
+    assert!(
+        sim.substrate
+            .entities
+            .get(gap)
+            .unwrap()
+            .gap_generator
+            .viewers()[&owner]
+            .active()
+    );
+}
+
+/// A charged generator over five reactors, settled.
+fn charged_arena(rules: &RuleSet) -> (Simulation, PathGrid, InternedId, u64) {
+    let (mut sim, grid, owner) = arena(rules);
+    let gap = spawn(&mut sim, rules, "GAGAP", 16, 26);
+    for x in [1, 6, 11, 16, 21] {
+        spawn(&mut sim, rules, "NANRCT", x, 2);
+    }
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    click(&mut sim, rules, &grid, owner, gap);
+    run_until_charged(&mut sim, rules, &grid, gap, true);
+    run(&mut sim, rules, &grid, &[]);
+    assert_eq!(totals(&sim, owner), (10000, 9100));
+    (sim, grid, owner, gap)
+}
+
+/// Low power stops the charged generator; its off edge removes the gap and
+/// drops the charge (`0x00454B9B..0x00454BCD`). Ten more generators
+/// (drain 10100 over 10000) cause the outage; the discharged House (drain
+/// 1100) has full power again and the generator resumes its gap.
+#[test]
+fn low_power_discharges_a_supercharged_gap_generator() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, grid, owner, gap) = charged_arena(rules);
+    for x in 0..10 {
+        spawn(&mut sim, rules, "GAGAP", 2 + 2 * x, 20);
+    }
+    run_until_charged(&mut sim, rules, &grid, gap, false);
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    assert_eq!(totals(&sim, owner), (10000, 1100));
+    let deposit = sim
+        .substrate
+        .entities
+        .get(gap)
+        .unwrap()
+        .gap_generator
+        .viewers()[&owner];
+    assert!(deposit.active());
+    assert_eq!(deposit.radius(), 10, "GapRadiusInCells");
+}
+
+/// Turning the generator off (DisableStuff `0x004524E9`) removes its gap
+/// before the operational visit, so the off edge's `+0x269` gate skips the
+/// discharge: the charge survives the power-off.
+#[test]
+fn powering_off_keeps_the_supercharge() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, grid, owner, gap) = charged_arena(rules);
+    assert!(sim.go_building_offline(gap, rules, FrameEffects::default()));
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    let entity = sim.substrate.entities.get(gap).unwrap();
+    assert!(!entity.gap_generator.viewers()[&owner].active());
+    assert!(entity.gap_supercharged());
+}

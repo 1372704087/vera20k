@@ -1671,7 +1671,17 @@ impl Simulation {
                     .get(*transport_id)
                     .and_then(|t| t.passenger_role.cargo())
                     .is_some_and(|c| !c.is_empty());
-                if !has_passengers {
+                // A gap generator's self click sends the same Unload
+                // (`0x004434FF..0x00443514`) with no cargo; its mission
+                // toggles the super-charge.
+                let gap_generator = self
+                    .substrate
+                    .entities
+                    .get(*transport_id)
+                    .filter(|t| t.category() == crate::map::entities::EntityCategory::Structure)
+                    .and_then(|t| self.interner.object_type(t.type_ref(), rules))
+                    .is_some_and(|object| object.gap_generator);
+                if !has_passengers && !gap_generator {
                     return false;
                 }
                 let category = self

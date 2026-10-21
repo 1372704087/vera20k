@@ -3112,6 +3112,15 @@ fn self_action(
             entity_id: target.stable_id,
         });
     }
+    // Building447286..4472E7's gap rung precedes its cargo rungs; its Self
+    // click queues Unload443514, which toggles the super-charge. Residual:
+    // a type both GapGenerator= and a factory would also take the primary
+    // tail4472EC and Event17 (44345F); no retail type is both.
+    if let Some(offered) = sim.gap_generator_self_action(target.stable_id, rules) {
+        return offered.then_some(Command::UnloadPassengers {
+            transport_id: target.stable_id,
+        });
+    }
     if let Some(command) = super::transport_orders::unload_command(entity, obj, Some(local_owner)) {
         return Some(command);
     }

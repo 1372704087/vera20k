@@ -171,6 +171,8 @@ mod fly_height_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod gap_generator_tests;
 #[cfg(test)]
+mod gap_supercharge_tests;
+#[cfg(test)]
 mod gsi_04_18_tests;
 #[cfg(test)]
 mod house_ai_activation_tests;

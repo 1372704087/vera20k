@@ -555,11 +555,14 @@ pub struct ObjectType {
     /// negated consumption.
     /// Source: building_power_status.json reader_controls.
     pub power: i32,
-    /// Extra power bonus per occupant for `InfantryAbsorb`/`UnitAbsorb`
-    /// buildings. Parsed from `ExtraPower=` (signed i32). Only contributes
-    /// when the building has `InfantryAbsorb=yes` or `UnitAbsorb=yes` and
-    /// at least one passenger is garrisoned. Stock YR: YAPOWR Bio-Reactor
-    /// uses `ExtraPower=100` × up to 5 garrisoned infantry.
+    /// Signed `ExtraPower=` read result, held like [`Self::power`]:
+    /// BuildingType::ReadINI `0x004610A0..0x004610D2` passes the
+    /// reconstructed signed value (constructor zero) to ReadInt `0x005276D0`
+    /// and splits a positive result into extra output `+0xEE8` and a negative
+    /// one, negated, into extra drain `+0xEEC`. Output: `ExtraPower ×
+    /// occupants` for a loaded absorber (stock YAPOWR Bio-Reactor: 100).
+    /// Drain: a super-charged gap generator's GetPowerDrain addend and its
+    /// What_Action power threshold (stock GAGAP: -9000).
     pub extra_power: i32,
     /// Building foundation footprint (e.g., "3x2", "1x1"). Buildings only.
     pub foundation: String,
@@ -2053,8 +2056,9 @@ pub struct ObjectType {
     /// TechnoType+CD2: ReadInt713FBC stores AL without a clamp;4566EC
     /// sign-extends it. The constructor's default is zero, not General.GapRadius.
     pub gap_radius_in_cells: i8,
-    /// `SuperGapRadiusInCells=` — oversized gap radius applied during
-    /// specific game states.
+    /// TechnoType+CD3 `SuperGapRadiusInCells=`: the gap radius while
+    /// super-charged. Mission_Unload's gap arm needs it nonzero
+    /// (`0x0044E2B0`) and caches it in `+0x26C` (`0x0044E2DC`).
     pub super_gap_radius_in_cells: i8,
     /// BuildingType+170C: signed ReadInt460C41, current default zero.
     pub psychic_detection_radius: i32,

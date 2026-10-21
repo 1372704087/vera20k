@@ -462,7 +462,8 @@ fn participates_in_power_accounting(entity: &GameEntity) -> bool {
 /// Building44E85F..44E86A multiplies native signed-health/live-Strength x87
 /// ratio by the signed output contribution and consumes _ftol's low EAX.
 /// Ratio-first PC53/chop arithmetic intentionally differs from integer division.
-/// Drain is always the full rated `|Power|` regardless of health.
+/// Drain is always the full rated `|Power|` regardless of health, plus a
+/// super-charged gap generator's negated `ExtraPower=`.
 ///
 /// `UnitAbsorb`/`InfantryAbsorb` buildings (e.g., Yuri Bio-Reactor) add
 /// `ExtraPower × OccupantCount` to their pre-scaled output when at least
@@ -516,6 +517,13 @@ fn recalculate_power_for_owner(
         // three conditions, matching gamemd's GetPowerOutput).
         let mut output_contribution: i32 = obj.power.max(0);
         let mut drain_contribution = native_building_power_drain(obj.power);
+        // GetPowerDrain `0x0044E89F..0x0044E8AF`: a super-charged gap
+        // generator (`+0x669`) adds `Type+0xEEC`, the negated negative
+        // `ExtraPower=` (stock GAGAP: 9000).
+        if entity.gap_generator.supercharged() {
+            drain_contribution =
+                drain_contribution.wrapping_add(native_building_power_drain(obj.extra_power));
+        }
         if obj.absorbs_passengers() && obj.extra_power > 0 {
             let occupants = entity.passenger_role.cargo().map_or(0, |c| c.count()) as i32;
             if occupants > 0 {

@@ -308,6 +308,13 @@ def metadata_controls():
     return rows
 
 
+def loaded_text(raw):
+    """The bytes native LoadFromStraw loads: ReadINITextLine 65D5C0 flags the
+    end of the file on a last line without LF, and that line is discarded
+    (executed controls: tools/storage_oracle/ini_crc). Retail ARTMD ends so."""
+    return raw[:raw.rfind(b"\n") + 1]
+
+
 def movie_names(m):
     return [m.string(m.read32(m.read32(0xABF394) + i * 4)) for i in range(m.read32(0xABF3A0))]
 
@@ -315,7 +322,7 @@ def movie_names(m):
 def movie_catalog():
     m = CampaignReader()
     raw = (Path("ini") / "artmd.ini").read_bytes()
-    physical = sections(raw)
+    physical = sections(loaded_text(raw))
     physical_movies = {"Movies": physical["Movies"]}
     m.ordered_ini(physical_movies)
     physical_admitted = bool(m.invoke(0x674550, 0, (INI,)) & 255)
@@ -706,7 +713,7 @@ def basic_start_cases():
         physical = sections((assets_root() / filename).read_bytes())
         for alternate in (0, 1):
             m = CampaignReader()
-            m.ordered_ini({"Movies": sections((Path("ini") / "artmd.ini").read_bytes())["Movies"]})
+            m.ordered_ini({"Movies": sections(loaded_text((Path("ini") / "artmd.ini").read_bytes()))["Movies"]})
             m.invoke(0x674550, 0, (INI,))
             m.invoke(0x6832C0, m.scenario)
             m.ordered_ini({name: physical[name] for name in ("Basic", "Waypoints", "SpecialFlags")})

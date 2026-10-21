@@ -428,3 +428,29 @@ fn ctrl_shift_over_a_tree_attack_moves_near_it() {
         );
     }
 }
+
+/// The release over a tree is the cursor owner's answer (`0x004AB9B0`): a
+/// player's tank answers NoMove, which dispatches; a war factory answers 0,
+/// and since no TerrainType is selectable (`0x0071DB18`) the click does
+/// nothing at all.
+#[test]
+fn the_cursor_owner_decides_the_release_over_a_tree() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, tank, _, tree) = scene(rules, "TREE01");
+    let factory = sim
+        .spawn_object("GAWEAP", "Americans", 20, 4, 0, rules)
+        .expect("war factory");
+    for (selection, release) in [
+        ([tank], LeftRelease::Dispatch),
+        ([factory], LeftRelease::Nothing),
+    ] {
+        assert_eq!(
+            object_click_release(&sim, rules, &selection, &selection, tree, &registry, false),
+            release,
+            "{selection:?}"
+        );
+    }
+}

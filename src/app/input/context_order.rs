@@ -2237,9 +2237,7 @@ pub(crate) fn try_queue_context_order_at_screen_point(
         );
         let attack_receivers = attack_dispatch.receivers;
         let select_fallback = attack_dispatch.select_fallback;
-        if terrain_target.is_none()
-            && let TargetKind::Entity(target_id) = attack_target
-        {
+        if let TargetKind::Entity(target_id) = attack_target {
             let receivers: Vec<u64> = attack_receivers.iter().copied().collect();
             match object_click_release(
                 sim,
@@ -3661,11 +3659,10 @@ fn cursor_owner(
 /// other receivers' orders included (`0x004ABE18`, `0x004ABE88`); then for
 /// the receivers left.
 ///
-/// RESIDUAL: over a Terrain object the attack branch's receivers keep their
-/// own answers. Native decides that release from the owner too (a 0 over a
-/// tree the player may not select does nothing, `0x004AC294`). Trigger: an
-/// armed building with another object selected, clicking a tree. Effect:
-/// the other object's order is sent. Rare.
+/// Over a Terrain object the owner decides the same way: its 0 (a
+/// building's over a tree, unforced) does nothing, since no TerrainType is
+/// selectable (its constructor clears `+0x230`, `0x0071DB18`; vt+0x138,
+/// `0x004AC294`), and the other receivers' orders are dropped.
 ///
 /// A release that selects hands the click to the selection's click pick,
 /// which asks the same `Tactical::PickObjectAtScreenPoint` port

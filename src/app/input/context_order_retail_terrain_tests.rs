@@ -484,3 +484,37 @@ fn ctrl_alt_over_a_tree_forces_a_pillbox_that_takes_no_key_rung() {
         LeftRelease::Dispatch
     );
 }
+
+/// Ctrl over a tree in the attack-move mode: each receiver's forced Attack
+/// is promoted by ClickedMission, whose chord test passes on the mode alone
+/// (`0x00731BF0`), so it attack-moves onto the tree.
+#[test]
+fn ctrl_over_a_tree_in_the_attack_move_mode_attack_moves_onto_it() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, tank, gi, tree) = scene(rules, "TREE01");
+    let dispatch = attack_branch_orders(
+        &sim,
+        rules,
+        &[tank, gi],
+        TargetKind::Entity(tree),
+        true,
+        OrderMode::AttackMove,
+        &registry,
+    );
+    assert_eq!(
+        dispatch.commands,
+        [tank, gi].map(|entity_id| Command::AttackMove {
+            entity_id,
+            target: Some(TargetKind::Entity(tree)),
+            destination: None,
+        })
+    );
+    assert!(sim.apply_command("Americans", &dispatch.commands[0], Some(rules)));
+    assert_eq!(
+        sim.entities().get(tank).unwrap().attack_target.target(),
+        Some(TargetKind::Entity(tree))
+    );
+}

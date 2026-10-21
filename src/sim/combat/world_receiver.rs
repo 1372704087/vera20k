@@ -1392,6 +1392,7 @@ pub(crate) fn commit_entities(
                 receive_state,
                 rules,
                 overlay_registry,
+                run.effects(),
             )
         {
             under_attack_events.push(ping);

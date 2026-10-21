@@ -15,6 +15,14 @@ choose the folder. It keeps config.toml, its settings, logs, saves and replays
 in ~/Library/Application Support/VERA20k (in Finder, choose Go > Go to
 Folder). To use another game folder, change ra2_dir in that config.toml.
 
+On Linux, make the AppImage executable (chmod +x, or Properties in your file
+manager) and open it. It looks for Yuri's Revenge in Steam libraries and in
+Wine prefixes (~/.wine, Lutris's ~/Games, Bottles, PlayOnLinux and CrossOver)
+and offers the one it finds, or asks you to choose the folder; it asks with
+zenity or kdialog. It keeps config.toml, its settings, logs, saves and
+replays in ~/.local/share/VERA20k. To use another game folder, change ra2_dir
+in that config.toml.
+
 Otherwise, either:
   - copy these files into your Yuri's Revenge folder (the one with gamemd.exe)
     and start vera20k there, or
@@ -44,7 +52,9 @@ REQUIREMENTS
     from this one program, and you only need it once:
       xattr -d com.apple.quarantine vera20k
       ./vera20k
-  Linux: needs ALSA (libasound2) and a Vulkan driver.
+  Linux: needs ALSA (libasound2) and a Vulkan driver. The AppImage mounts
+    itself with FUSE (fusermount, from the fuse3 or fuse package), which most
+    desktops have; without it, start it with --appimage-extract-and-run.
 
 This is early software: expect missing features and differences from the
 original game. Report them at https://github.com/YuriPlanet/vera20k/issues

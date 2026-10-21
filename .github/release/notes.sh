@@ -64,6 +64,7 @@ rows=""
 row_count=0
 for spec in '*-windows-x64*-setup.exe|Windows x64 installer' \
             '*-windows-x64*.zip|Windows x64' \
+            '*-linux-x64*.AppImage|Linux x64 AppImage' \
             '*-linux-x64*.tar.gz|Linux x64' \
             '*-macos-arm64*.dmg|macOS Apple Silicon app' \
             '*-macos-arm64*.tar.gz|macOS Apple Silicon'; do
@@ -135,6 +136,8 @@ about an unknown app: choose More info, then Run anyway. On macOS, open the
 Applications. The first time, macOS blocks it because Apple has not notarized
 it: click Done, then Open Anyway in System Settings > Privacy & Security
 within the hour. It then finds your Yuri's Revenge folder, or asks for it.
+On Linux, make the \`.AppImage\` executable and start it; it too finds your
+Yuri's Revenge folder, in Steam or a Wine prefix, or asks for it.
 Otherwise, extract an archive straight into your Yuri's Revenge folder, or keep
 it in its own folder and point \`config.toml\` at the game (see the README.txt
 inside).

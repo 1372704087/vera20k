@@ -62,6 +62,11 @@ impl App {
         let mut clock = SpawnSeedClock { seed: request.seed };
         match request.game {
             SpawnGame::Skirmish(session) => {
+                #[cfg(feature = "ares")]
+                crate::app::frontend::skirmish_session::prepare_external_skirmish_countries(
+                    &mut state.process_assets,
+                    &session,
+                );
                 log::info!(
                     "CnCNet offline skirmish: scenario={:?}, players={}, seed={:?}",
                     session.selected_map_file,

@@ -115,6 +115,7 @@ fn a_tree_under_ctrl_is_attacked() {
         &[tank, gi],
         TargetKind::Entity(tree),
         true,
+        OrderMode::Move,
         &registry,
     );
     assert_eq!(
@@ -157,6 +158,7 @@ fn an_immune_terrain_object_under_ctrl_is_no_move() {
         &[tank, gi],
         TargetKind::Entity(tree),
         true,
+        OrderMode::Move,
         &registry,
     );
     assert!(dispatch.consumed);
@@ -189,6 +191,7 @@ fn a_plain_click_over_a_tree_moves_near_it_and_sets_no_rally() {
         &[tank, gi, factory],
         TargetKind::Entity(tree),
         false,
+        OrderMode::Move,
         &registry,
     );
     assert!(dispatch.consumed);
@@ -216,6 +219,7 @@ fn an_unarmed_engineer_under_ctrl_moves_near_a_tree() {
         &[engineer],
         TargetKind::Entity(tree),
         true,
+        OrderMode::Move,
         &registry,
     );
     assert_moves_near(&dispatch.commands, &[engineer]);
@@ -336,6 +340,7 @@ fn a_crazy_ivan_under_ctrl_bombs_a_tree_without_planting_a_bomb() {
         &[ivan],
         TargetKind::Entity(tree),
         false,
+        OrderMode::Move,
         &registry,
     );
     assert_moves_near(&plain.commands, &[ivan]);
@@ -345,6 +350,7 @@ fn a_crazy_ivan_under_ctrl_bombs_a_tree_without_planting_a_bomb() {
         &[ivan],
         TargetKind::Entity(tree),
         true,
+        OrderMode::Move,
         &registry,
     );
     assert_eq!(
@@ -365,4 +371,60 @@ fn a_crazy_ivan_under_ctrl_bombs_a_tree_without_planting_a_bomb() {
     assert_eq!(ivan.attack_target.target(), None);
     assert_eq!(sim.terrain_objects().get(tree).cloned(), before);
     assert!(sim.entities().values().all(|entity| entity.bomb.is_none()));
+}
+
+/// Ctrl+Shift over a tree: no key rung answers (Shift's needs no Ctrl,
+/// `0x007000EB`), so each receiver takes its unforced answer, NoMove, and
+/// Foot `0x004D74E0` moves it near the tree; ClickedMission turns that Move
+/// into AttackMove for an object that may attack-move
+/// (`0x006FFBEC..0x006FFC1E`).
+#[test]
+fn ctrl_shift_over_a_tree_attack_moves_near_it() {
+    let Some((retail, registry)) = retail() else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (sim, tank, gi, tree) = scene(rules, "TREE01");
+    for actor in [tank, gi] {
+        assert_eq!(
+            object_key_action(&sim, rules, actor, None, OrderModifier::AttackMove, false),
+            None
+        );
+        assert_eq!(
+            cursor(&sim, rules, &registry, actor, tree, false),
+            Some(CursorFeedbackKind::Invalid)
+        );
+    }
+    let dispatch = attack_branch_orders(
+        &sim,
+        rules,
+        &[tank, gi],
+        TargetKind::Entity(tree),
+        false,
+        OrderMode::AttackMove,
+        &registry,
+    );
+    assert!(dispatch.consumed);
+    assert_eq!(dispatch.commands.len(), 2, "{:?}", dispatch.commands);
+    for (command, actor) in dispatch.commands.iter().zip([tank, gi]) {
+        let owner = sim.entities().get(actor).unwrap().owner();
+        let near = crate::app::input::commands::object_move_destination(
+            &sim,
+            rules,
+            owner,
+            actor,
+            tree,
+            crate::sim::world::MoveAction::NoMove,
+            false,
+        )
+        .expect("a cell near the tree");
+        assert_eq!(
+            *command,
+            Command::AttackMove {
+                entity_id: actor,
+                target: None,
+                destination: Some(near),
+            }
+        );
+    }
 }

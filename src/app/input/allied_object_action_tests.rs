@@ -179,6 +179,7 @@ fn ares_no_manual_fire_object_click_keeps_native_movement_fallback() {
             &[actor],
             TargetKind::Cell(12, 10),
             true,
+            OrderMode::Move,
             &overlays,
         );
         if native_cell["action"] == 5 {
@@ -691,6 +692,7 @@ fn a_building_over_another_selected_building_does_nothing() {
             &selected,
             owner,
             Some(&hover),
+            None,
             (10, 14),
             OrderModifier::Normal,
             false,
@@ -888,6 +890,7 @@ fn a_pillbox_clicking_an_enemy_out_of_range_selects_it() {
                 &selection,
                 TargetKind::Entity(target),
                 false,
+                OrderMode::Move,
                 &overlays,
             );
             let receivers: Vec<u64> = dispatch.receivers.iter().copied().collect();

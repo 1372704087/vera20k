@@ -341,7 +341,8 @@ impl Simulation {
         let cells = NativeCellQuery::isolated(terrain);
         let coords = ground_pose::target_get_coords(TargetKind::Entity(target), self, Some(&cells))
             .ok_or("What_Action target disappeared")?;
-        // `CDQ; AND EDX,0xFF; ADD; SAR 8` (`0x0044745D..0x00447479`).
+        // `CDQ; AND EDX,0xFF; ADD; SAR 8` (`0x0044745D..0x00447479`), kept
+        // as the signed words the rungs read.
         let cell = (
             crate::util::lepton::lepton_to_cell_packed(coords.x),
             crate::util::lepton::lepton_to_cell_packed(coords.y),
@@ -784,7 +785,7 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
     ) -> MoveAction {
         let action = if action == MoveAction::None {
-            let Some(cell) = self.aircraft_object_query_cell(target) else {
+            let Some(cell) = self.object_coords_cell(target) else {
                 return action;
             };
             let query = CellActionQuery {
@@ -803,10 +804,13 @@ impl Simulation {
         }
     }
 
-    /// The Cell an Aircraft's What_Action over the object `target` asks its
-    /// own Cell action on (`0x00417D80..0x00417DB7`): the object's GetCoords
-    /// (vt+0x48), each axis `>> 8` toward zero (`CDQ; AND EDX,0xFF; SAR 8`).
-    pub fn aircraft_object_query_cell(&self, target: u64) -> Option<(u16, u16)> {
+    /// The Cell under the object `target`'s GetCoords (vt+0x48), a Techno or
+    /// a Terrain object, each axis `>> 8` toward zero (`CDQ; AND EDX,0xFF;
+    /// SAR 8`): the Cell an Aircraft's What_Action over the object asks its
+    /// own Cell action on (`0x00417D80..0x00417DB7`), the Cell a building's
+    /// factory rungs judge (`0x0044745D..0x00447479`), and its rally Cell
+    /// over the object (`0x004436A4..0x004436C9`).
+    pub fn object_coords_cell(&self, target: u64) -> Option<(u16, u16)> {
         let cells = self
             .resolved_terrain
             .as_ref()

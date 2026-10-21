@@ -1397,8 +1397,9 @@ mod tests {
 
     /// With no registered object near the point, the pick is the head of the
     /// clicked cell's ground list (`0x006DA4B8..0x006DA4FB`): a unit standing
-    /// beyond the ellipse, or a Terrain object, which only the object pick
-    /// returns.
+    /// beyond the ellipse, ahead of the building whose foundation it stands
+    /// on (AddContent `0x0047E8A0` prepends it), or a Terrain object, which
+    /// only the object pick returns.
     #[test]
     fn the_point_pick_falls_back_to_the_clicked_cells_ground_list_head() {
         use crate::sim::movement::locomotor::MovementLayer;
@@ -1409,17 +1410,26 @@ mod tests {
         let mut sim = Simulation::new();
         let viewer = sim.intern("viewer");
         let typ = sim.intern("HTNK");
+        let building_type = sim.intern("GAPOWR");
         let unit = item83_entity(1, 10, 10, viewer, typ, EntityCategory::Unit, false);
         let (x, y) = crate::render::locomotor_visual::screen_position(&unit);
         sim.entities_mut_for_test().insert(unit);
-        sim.occupancy_mut().add(
-            10,
-            10,
-            1,
-            MovementLayer::Ground,
-            None,
-            CellListInsertion::PrependNonBuilding,
-        );
+        sim.entities_mut_for_test().insert(item83_entity(
+            2,
+            9,
+            9,
+            viewer,
+            building_type,
+            EntityCategory::Structure,
+            false,
+        ));
+        for (id, insertion) in [
+            (2, CellListInsertion::AppendBuilding),
+            (1, CellListInsertion::PrependNonBuilding),
+        ] {
+            sim.occupancy_mut()
+                .add(10, 10, id, MovementLayer::Ground, None, insertion);
+        }
         sim.resubmit_entity_display_for_test(1);
         // dx = 20 scores 400, outside the anchor ellipse's 200.
         let (x, y) = (x + 20., y);
@@ -1430,7 +1440,7 @@ mod tests {
         let pick = |sim: &Simulation, x, y| {
             pick_entity_at_point(
                 sim,
-                &[1],
+                &[2, 1],
                 None,
                 Some("viewer"),
                 x,

@@ -342,10 +342,7 @@ impl Simulation {
             .power_states
             .get(&entity.owner())
             .map_or((0, 0), power_system::PowerState::effective_totals);
-        Some(
-            output.wrapping_sub(drain)
-                > power_system::native_building_power_drain(object.extra_power),
-        )
+        Some(output.wrapping_sub(drain) > object.extra_power.drain())
     }
 
     /// Mission_Unload's gap arm (`BuildingClass::Mission_Unload @ 0x0044D880`,

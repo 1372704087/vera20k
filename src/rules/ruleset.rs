@@ -4568,6 +4568,15 @@ impl RuleSet {
                 building.project_building_upgrade(upgrade.clone());
             }
         }
+        for (name, extra_power) in processed.building_extra_power_states() {
+            if let Some(building) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == ObjectCategory::Building && object.id == name)
+            {
+                building.extra_power = extra_power;
+            }
+        }
         for (name, offset) in processed.building_target_coord_offsets() {
             if let Some(building) = rules
                 .object_list

@@ -555,15 +555,10 @@ pub struct ObjectType {
     /// negated consumption.
     /// Source: building_power_status.json reader_controls.
     pub power: i32,
-    /// Signed `ExtraPower=` read result, held like [`Self::power`]:
-    /// BuildingType::ReadINI `0x004610A0..0x004610D2` passes the
-    /// reconstructed signed value (constructor zero) to ReadInt `0x005276D0`
-    /// and splits a positive result into extra output `+0xEE8` and a negative
-    /// one, negated, into extra drain `+0xEEC`. Output: `ExtraPower ×
-    /// occupants` for a loaded absorber (stock YAPOWR Bio-Reactor: 100).
-    /// Drain: a super-charged gap generator's GetPowerDrain addend and its
-    /// What_Action power threshold (stock GAGAP: -9000).
-    pub extra_power: i32,
+    /// BuildingType `ExtraPower=` output `+0xEE8` and drain `+0xEEC`, the
+    /// ordered Rules processor's retained reader result (stock YAPOWR
+    /// Bio-Reactor output 100, GAGAP drain 9000).
+    pub extra_power: crate::rules::building_extra_power::BuildingExtraPower,
     /// Building foundation footprint (e.g., "3x2", "1x1"). Buildings only.
     pub foundation: String,
     /// Pixel offset for health bar / selection bracket Y position.
@@ -2844,7 +2839,9 @@ impl ObjectType {
             // Constructor value; only the ordered Process owner reads it.
             image: id.to_owned(),
             power: section.read_int("Power", 0),
-            extra_power: section.read_int("ExtraPower", 0),
+            // Only the ordered Rules processor reads it: a later layer's
+            // non-negative value keeps an earlier drain.
+            extra_power: Default::default(),
             // Building ctor45DF13 initializes +EF0=0 (1x1). ReadINI461225
             // reads Foundation from ART only, never this RULES section.
             // Pass processing projects the shared reader; ART binding does not.

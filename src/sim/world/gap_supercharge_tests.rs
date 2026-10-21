@@ -81,11 +81,12 @@ fn a_retail_gap_generator_supercharges_and_discharges_through_its_unload() {
     let gagap = rules.object("GAGAP").unwrap();
     assert_eq!(
         (
-            gagap.extra_power,
+            gagap.extra_power.output(),
+            gagap.extra_power.drain(),
             gagap.gap_radius_in_cells,
             gagap.super_gap_radius_in_cells
         ),
-        (-9000, 10, 10)
+        (0, 9000, 10, 10)
     );
     let (mut sim, grid, owner) = arena(rules);
     let gap = spawn(&mut sim, rules, "GAGAP", 16, 26);
@@ -195,9 +196,11 @@ fn low_power_discharges_a_supercharged_gap_generator() {
 
 /// Turning the generator off (DisableStuff `0x004524E9`) removes its gap
 /// before the operational visit, so the off edge's `+0x269` gate skips the
-/// discharge: the charge survives the power-off.
+/// discharge: the charge survives the power-off. Offline, GetPowerDrain
+/// answers 0 before its `+0x669` addend (`0x0044E88F`). EVENT_POWERON
+/// (GoOnline `0x00452260`) brings the gap and the 9100 drain back.
 #[test]
-fn powering_off_keeps_the_supercharge() {
+fn powering_off_keeps_the_supercharge_without_its_drain() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
@@ -210,4 +213,66 @@ fn powering_off_keeps_the_supercharge() {
     let entity = sim.substrate.entities.get(gap).unwrap();
     assert!(!entity.gap_generator.viewers()[&owner].active());
     assert!(entity.gap_supercharged());
+    assert_eq!(totals(&sim, owner), (10000, 0));
+
+    let on = CommandEnvelope::new(
+        owner,
+        sim.session.tick(),
+        Command::SetBuildingOnLine {
+            entity_id: gap,
+            on: true,
+        },
+    );
+    run(&mut sim, rules, &grid, &[on]);
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    let entity = sim.substrate.entities.get(gap).unwrap();
+    assert!(entity.building_online());
+    assert!(entity.gap_supercharged());
+    assert!(entity.gap_generator.viewers()[&owner].active());
+    assert_eq!(totals(&sim, owner), (10000, 9100));
+}
+
+/// Mission_Unload's uncharged, not-operational arm (`0x0044E30E..0x0044E32C`):
+/// `+0x26C` takes `GapRadiusInCells=`, the add deposits nothing, and neither
+/// flag nor House+5778 is written. A map gives the Gap Generator a distinct
+/// `SuperGapRadiusInCells=15`; with no reactor its House is in low power.
+/// Once powered, the same arm caches 15 and charges.
+#[test]
+fn an_unpowered_gap_generator_unload_keeps_the_normal_radius_and_no_charge() {
+    let patch = crate::rules::ini_parser::IniFile::from_str("[GAGAP]\nSuperGapRadiusInCells=15\n");
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
+    else {
+        return;
+    };
+    let rules = &retail.rules;
+    let (mut sim, grid, owner) = arena(rules);
+    let gap = spawn(&mut sim, rules, "GAGAP", 16, 26);
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    assert_eq!(sim.building_operational_state(gap, rules), Some(false));
+    assert!(!sim.power_states[&owner].power_recheck_for_test());
+
+    sim.toggle_gap_supercharge(gap, rules);
+    let entity = sim.substrate.entities.get(gap).unwrap();
+    let deposit = entity.gap_generator.viewers()[&owner];
+    assert_eq!((deposit.active(), deposit.radius()), (false, 10));
+    assert!(!entity.gap_supercharged());
+    assert!(!sim.power_states[&owner].power_recheck_for_test());
+
+    for x in [1, 6, 11, 16, 21] {
+        spawn(&mut sim, rules, "NANRCT", x, 2);
+    }
+    for _ in 0..4 {
+        run(&mut sim, rules, &grid, &[]);
+    }
+    assert_eq!(sim.building_operational_state(gap, rules), Some(true));
+    sim.toggle_gap_supercharge(gap, rules);
+    let entity = sim.substrate.entities.get(gap).unwrap();
+    let deposit = entity.gap_generator.viewers()[&owner];
+    assert_eq!((deposit.active(), deposit.radius()), (true, 15));
+    assert!(entity.gap_supercharged());
+    assert!(sim.power_states[&owner].power_recheck_for_test());
 }

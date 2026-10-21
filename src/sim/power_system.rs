@@ -496,15 +496,12 @@ fn recalculate_power_for_owner(
         // construction-state exclusion.
 
         // A building being warped out gives and takes nothing
-        // (GetPowerOutput `0x0044E7C7`, GetPowerDrain `0x0044E885`).
-        // RESIDUAL: the online-latch (+0x660) tests that zero output and
-        // drain (`0x0044E855`, `0x0044E88F`) are not applied. Besides warp,
-        // map placement (`world_spawn.rs`), trigger actions
-        // (`trigger_runtime.rs`) and EVENT_POWEROFF (`world_commands.rs`)
-        // write the latch through `go_building_offline`. Dormant on stock
-        // maps: none places a `Powered=0` structure or uses those actions,
-        // and no input pushes EVENT_POWEROFF. Custom maps can reach it.
-        if entity.is_warped_out() {
+        // (GetPowerOutput `0x0044E7C7`, GetPowerDrain `0x0044E885`), nor
+        // does an offline one (Building+660): GetPowerDrain returns 0 before
+        // any addend (`0x0044E88F`), GetPowerOutput after summing a positive
+        // total (`0x0044E855`; a non-positive total is 0 anyway), and
+        // House508D1E's drained-source test repeats that zero output.
+        if entity.is_warped_out() || !entity.building_online() {
             continue;
         }
 
@@ -518,17 +515,17 @@ fn recalculate_power_for_owner(
         let mut output_contribution: i32 = obj.power.max(0);
         let mut drain_contribution = native_building_power_drain(obj.power);
         // GetPowerDrain `0x0044E89F..0x0044E8AF`: a super-charged gap
-        // generator (`+0x669`) adds `Type+0xEEC`, the negated negative
-        // `ExtraPower=` (stock GAGAP: 9000).
+        // generator (`+0x669`) adds `Type+0xEEC`, the `ExtraPower=` drain
+        // (stock GAGAP: 9000).
         if entity.gap_generator.supercharged() {
-            drain_contribution =
-                drain_contribution.wrapping_add(native_building_power_drain(obj.extra_power));
+            drain_contribution = drain_contribution.wrapping_add(obj.extra_power.drain());
         }
-        if obj.absorbs_passengers() && obj.extra_power > 0 {
+        let extra_output = obj.extra_power.output();
+        if obj.absorbs_passengers() && extra_output > 0 {
             let occupants = entity.passenger_role.cargo().map_or(0, |c| c.count()) as i32;
             if occupants > 0 {
                 output_contribution =
-                    output_contribution.wrapping_add(obj.extra_power.wrapping_mul(occupants));
+                    output_contribution.wrapping_add(extra_output.wrapping_mul(occupants));
             }
         }
         // Original44E826..44E84D and44E8B5..44E8DA (Steam gamemd):
@@ -982,10 +979,7 @@ BuildSpeed=0.02
             let input = &row["input"];
             // These native branches have no equivalent Rust lifecycle producers
             // yet. The native corpus records them but cannot prove them migrated.
-            if !input["online"].as_bool().unwrap()
-                || input["warped"].as_bool().unwrap()
-                || input["overpowered"].as_bool().unwrap()
-            {
+            if input["warped"].as_bool().unwrap() || input["overpowered"].as_bool().unwrap() {
                 continue;
             }
             let value = |key: &str| input[key].as_i64().unwrap() as i32;
@@ -1002,6 +996,7 @@ BuildSpeed=0.02
             ));
             let mut store = EntityStore::new();
             let mut building = make_building(1, "TEST", "Owner", value("actual"));
+            building.set_building_online_for_test(input["online"].as_bool().unwrap());
             let occupants = value("occupants") as u32;
             let mut cargo = crate::sim::passenger::PassengerCargo::new(occupants, 0.0);
             cargo.set_passengers_for_test((0..occupants).map(|i| 100 + u64::from(i)).collect());
@@ -1041,7 +1036,7 @@ BuildSpeed=0.02
             );
             compared += 1;
         }
-        assert_eq!(compared, 422);
+        assert_eq!(compared, 423);
     }
 
     #[test]

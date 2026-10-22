@@ -84,7 +84,7 @@ fn map_music_action_follows_native_read_and_queue() {
             sfx_player: None,
             launcher_audio_available: input["device"].as_bool().unwrap_or(true),
             theme_startup_suppressed: input["suppressed"].as_bool().unwrap_or(false),
-            movie_audio: Default::default(),
+            master_groups: Default::default(),
         };
         for (index, effect) in effects.iter().enumerate() {
             let TriggerEffect::MusicTheme { request } = effect else {

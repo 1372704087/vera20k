@@ -46,7 +46,7 @@ pub(crate) fn reset_scenario_exit_runtime(state: &mut AppState) {
     state.match_state.scenario_exit = None;
     state.match_state.network_failure = None;
     crate::app::lan_service::return_transport(state);
-    state.audio.set_master_output_scale(1.0);
+    state.audio.restore_sound_master();
 }
 
 impl AppState {

@@ -462,12 +462,12 @@ pub(crate) enum ExactStepError {
 /// "menu open is not really a pause" carve-out here; that would be a
 /// regression against the binary.
 ///
-/// A fullscreen movie also pauses: `Play_Movie @ 0x005BED40` pauses the EVA
-/// stream (`Audio__PauseForMovie @ 0x005BF580`, behind guard `0x00ABF35C`)
-/// and suspends the sound events (`0x00406EA0`) for the whole movie, and
-/// resumes the events after it (`0x00406EC0`). This pump is the only writer of
-/// the SFX pause, so the sources are combined here, one frame after the movie
-/// starts and ends.
+/// Movies are separate owners: every movie takes the hold of
+/// `Audio__PauseForMovie @ 0x005BF580` (guard `0x00ABF35C`: EVA and the
+/// stream players pause, the masters halve), and only full-screen
+/// `Play_Movie @ 0x005BED40` also suspends the sound events (`0x00406EA0`,
+/// resumed by `0x00406EC0`). The movie routes apply both through
+/// `AppAudioRuntime`; the SFX player combines their reasons with this pause.
 pub(crate) fn pump_audio_service(state: &mut AppState, now_ms: u64) {
     crate::app::presentation::building_anim::refresh_coordinate_sound_gains(state);
     // The process audio service remains live while the loading job holds the

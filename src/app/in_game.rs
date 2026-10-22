@@ -104,7 +104,7 @@ impl App {
         if let Some(ref mut sfx) = state.audio.sfx_player {
             sfx.stop_all();
         }
-        state.audio.set_master_output_scale(1.0);
+        state.audio.restore_sound_master();
         state.match_state.match_audio.reset_for_new_match();
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;

@@ -229,9 +229,10 @@ enum ScenarioExitPhase {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct ScenarioExitTick {
-    /// The audio master's multiplier over live music, SFX and voices. On abort
-    /// the music also carries Theme's own fade, which the Theme owner runs.
-    pub master_output_scale: Option<f64>,
+    /// Glide the effects master `[0x0087E758]` to zero (`0x00407070`). It is
+    /// chained into Voc channels only; Theme keeps playing (on abort it runs
+    /// its own `Stop(1)` fade, which the Theme owner owns).
+    pub fade_sound_master: bool,
     /// One-shot speech/SFX stop and queue clear; Theme keeps its own lifecycle.
     pub clear_sounds: bool,
     /// One-shot audio action after speech/SFX cleanup and master restoration.
@@ -288,18 +289,16 @@ impl ScenarioExitCascade {
     /// gamemd provenance: ordinary offline scenario exit; verified
     /// `0x00685670` and `0x00685DC0` both run master target-zero + wait, then
     /// pump voices for at most 300 16-ms buckets, then clear speech/SFX before the
-    /// score dialog. `0x00686570` first starts Theme's own fade
-    /// (`ThemeClass::Stop(1)` @ `0x006865FA`, which the route entry hands to
-    /// the Theme owner) and then this independent master fade
-    /// (`[0x0087E758]` @ `0x00686605`), so abort music receives the product
-    /// of both.
+    /// score dialog. Neither touches Theme, so the mission music plays on until
+    /// the score dialog selects SCORE. `0x00686570` first starts Theme's own
+    /// fade (`ThemeClass::Stop(1)` @ `0x006865FA`, which the route entry hands
+    /// to the Theme owner) and then this independent master fade
+    /// (`[0x0087E758]` @ `0x00686605`).
     pub(crate) fn tick(&mut self, wall_ms: u64, voices_active: bool) -> ScenarioExitTick {
         let fade_elapsed_ms = wall_ms.saturating_sub(self.started_at_ms);
         match self.phase {
             ScenarioExitPhase::FadeAudio if fade_elapsed_ms < AUDIO_FADE_MS => ScenarioExitTick {
-                master_output_scale: Some(
-                    (1.0 - fade_elapsed_ms as f64 / AUDIO_FADE_MS as f64).max(0.0),
-                ),
+                fade_sound_master: true,
                 ..Default::default()
             },
             ScenarioExitPhase::FadeAudio => {
@@ -328,7 +327,6 @@ impl ScenarioExitCascade {
         if !voices_active || elapsed_buckets >= VOICE_WAIT_BUCKETS {
             self.phase = ScenarioExitPhase::Done;
             ScenarioExitTick {
-                master_output_scale: Some(0.0),
                 clear_sounds: true,
                 after_cleanup: matches!(
                     self.destination.as_ref(),
@@ -339,12 +337,10 @@ impl ScenarioExitCascade {
                 )
                 .then_some(ScenarioExitAudioAction::PlayTheme("SCORE")),
                 finished: true,
-            }
-        } else {
-            ScenarioExitTick {
-                master_output_scale: Some(0.0),
                 ..Default::default()
             }
+        } else {
+            ScenarioExitTick::default()
         }
     }
 
@@ -493,12 +489,12 @@ mod tests {
         assert_eq!(exit.take_start_voice_action(), None);
 
         let half = exit.tick(515, false);
-        assert_eq!(half.master_output_scale, Some(0.5));
+        assert!(half.fade_sound_master);
         assert!(!half.clear_sounds && !half.finished);
         assert!(exit.take_destination().is_none());
 
         let fade_edge = exit.tick(1_015, true);
-        assert_eq!(fade_edge.master_output_scale, Some(0.0));
+        assert!(!fade_edge.fade_sound_master);
         assert!(!fade_edge.clear_sounds && !fade_edge.finished);
         assert!(exit.take_destination().is_none());
 
@@ -526,7 +522,7 @@ mod tests {
         // Theme's own fade is the Theme owner's; the master fade is the
         // same as an outcome's.
         let half = exit.tick(515, true);
-        assert_eq!(half.master_output_scale, Some(0.5));
+        assert!(half.fade_sound_master);
         assert!(!exit.needs_voice_poll(1_014));
         assert!(exit.needs_voice_poll(1_015));
 

@@ -63,7 +63,7 @@ fn apply_theme_action_to_output(
 }
 
 pub(crate) struct AppAudioRuntime {
-    pub(crate) movie_audio: MovieAudioHold,
+    pub(crate) master_groups: AudioMasterGroups,
     /// Always-present device-independent Theme owner.
     pub(crate) theme: ThemeRuntime,
     /// One process cadence for Sound, Vox and Theme; device callbacks run
@@ -82,23 +82,45 @@ pub(crate) struct AppAudioRuntime {
     pub(crate) theme_startup_suppressed: bool,
 }
 
-///5BF580/5BF530's independent boolean and existing407170 interps. The
-///lifecycle master remains separate, so exit fades cannot be overwritten by
-///a movie finishing. Native stream-list/device callbacks are represented by
-///rodio's output pause plus this stream gain; no guessed completion timeout.
-pub(crate) struct MovieAudioHold {
+/// The process volume groups that only lifecycle code writes, with the
+/// movie hold flag `0x00ABF35C`.
+///
+/// gamemd-derived (`VolumeInterp` objects created by `AudioSystem__Init`,
+/// `0x00406B92..0x00406BB7`):
+/// - `sound_master` is `[0x0087E758]`, `ch+0x9C` of every Voc channel only
+///   (`0x0040571E`, `0x00405B9C`). The movie hold targets `0x2000`
+///   (`0x005BF598`, full-screen `0x005BEE17`) and its release `0x4000`
+///   (`0x005BF548`); `GameExit__Victory 0x00685670`, `GameExit__Defeat
+///   0x00685DC0` and `0x00686570` glide it to zero (`0x00407070` at
+///   `0x00685715`) and restore it immediately (`0x006857A9`), as
+///   `Clear_Scene` does (`0x0068521F`).
+/// - `eva_master` is `[0x0087E750]`, `ch+0x9C` of the EVA stream only
+///   (`VoxClass::Init 0x00752327`); only the movie hold and its release
+///   write it (`0x005BF5A8`, `0x005BF558`, full-screen `0x005BEE27`).
+/// - `stream_gain` is the stream channels' own `+0x10` interp as
+///   `0x00408390` (radar-movie pre-fade, called only at `0x0065799B`) and
+///   `StreamPlayers__RestoreVolumeTargets 0x004083D0` (every hold release)
+///   drive it. The hold itself leaves it alone.
+///
+/// Neither master reaches the Theme stream, whose groups are Score and
+/// `[0x0087E754]` (`0x00720743..0x0072075A`).
+pub(crate) struct AudioMasterGroups {
     held: bool,
+    /// Full-screen `Play_Movie` also suspended the sound events
+    /// (`0x00406EA0`).
+    sounds_suspended: bool,
     stream_gain: VolumeInterp,
-    master_gain: VolumeInterp,
-    lifecycle_scale: f64,
+    sound_master: VolumeInterp,
+    eva_master: VolumeInterp,
 }
-impl Default for MovieAudioHold {
+impl Default for AudioMasterGroups {
     fn default() -> Self {
         Self {
             held: false,
+            sounds_suspended: false,
             stream_gain: VolumeInterp::new(0x4000, 0),
-            master_gain: VolumeInterp::new(0x4000, 0),
-            lifecycle_scale: 1.0,
+            sound_master: VolumeInterp::new(0x4000, 0),
+            eva_master: VolumeInterp::new(0x4000, 0),
         }
     }
 }
@@ -120,28 +142,26 @@ impl AppAudioRuntime {
     ///cursor predicate408410, not a claim about hardware completion timing.
     pub(crate) fn prepare_movie_streams(&mut self, wall_ms: u64) {
         if self.music_player.is_some() {
-            self.movie_audio.stream_gain.set_target(0, wall_ms);
+            self.master_groups.stream_gain.set_target(0, wall_ms);
         } else {
-            self.movie_audio.stream_gain.set_target_immediate(0);
-            self.movie_audio.stream_gain.tick(wall_ms);
+            self.master_groups.stream_gain.set_target_immediate(0);
+            self.master_groups.stream_gain.tick(wall_ms);
         }
     }
     pub(crate) fn movie_streams_ready(&self) -> bool {
-        self.movie_audio.stream_gain.value() == 0
+        self.master_groups.stream_gain.value() == 0
     }
+    /// `Audio__PauseForMovie @ 0x005BF580` / `Audio__ResumeAfterMovie @
+    /// 0x005BF530`: pause EVA and every stream player and glide both masters
+    /// to half (`0x2000`) and back. Voc sounds keep playing.
     pub(crate) fn set_movie_audio_held(&mut self, held: bool, wall_ms: u64) {
-        if held == self.movie_audio.held {
+        if held == self.master_groups.held {
             return;
         }
-        self.movie_audio.held = held;
-        self.movie_audio
-            .master_gain
-            .set_target(if held { 0x2000 } else { 0x4000 }, wall_ms);
-        //5BF580 and full-screen5BEDFB..5BEE38 target both native
-        //VolumeInterp objects. Do not leave Radar's prelude stream at0.
-        self.movie_audio
-            .stream_gain
-            .set_target(if held { 0x2000 } else { 0x4000 }, wall_ms);
+        self.master_groups.held = held;
+        let target = if held { 0x2000 } else { 0x4000 };
+        self.master_groups.sound_master.set_target(target, wall_ms);
+        self.master_groups.eva_master.set_target(target, wall_ms);
         if let Some(sfx) = self.sfx_player.as_mut() {
             sfx.set_movie_held(held, wall_ms);
         }
@@ -153,27 +173,36 @@ impl AppAudioRuntime {
             }
         }
     }
+    /// Full-screen `Play_Movie` alone also suspends the sound events
+    /// (`0x00406EA0` at `0x005BEE3E` after the hold; `0x00406EC0` at
+    /// `0x005BEE62` before its release).
+    pub(crate) fn set_movie_sounds_suspended(&mut self, suspended: bool, wall_ms: u64) {
+        self.master_groups.sounds_suspended = suspended;
+        if let Some(sfx) = self.sfx_player.as_mut() {
+            sfx.set_movie_sounds_suspended(suspended, wall_ms);
+        }
+    }
     ///Clear5BF450 releases even a prelude that has not acquired the hold yet.
     pub(crate) fn retire_movie_audio(&mut self, wall_ms: u64) {
+        if self.master_groups.sounds_suspended {
+            self.set_movie_sounds_suspended(false, wall_ms);
+        }
         self.set_movie_audio_held(false, wall_ms);
-        self.movie_audio.stream_gain.set_target(0x4000, wall_ms);
+        self.master_groups.stream_gain.set_target(0x4000, wall_ms);
     }
-    fn service_movie_gain(&mut self, wall_ms: u64) {
-        self.movie_audio.stream_gain.tick(wall_ms);
-        self.movie_audio.master_gain.tick(wall_ms);
+    fn service_master_groups(&mut self, wall_ms: u64) {
+        self.master_groups.stream_gain.tick(wall_ms);
+        self.master_groups.sound_master.tick(wall_ms);
+        self.master_groups.eva_master.tick(wall_ms);
         self.apply_output_scales();
     }
     fn apply_output_scales(&mut self) {
-        let master = self.movie_audio.lifecycle_scale
-            * f64::from(self.movie_audio.master_gain.value())
-            / 16384.0;
+        let groups = &self.master_groups;
         if let Some(player) = self.music_player.as_mut() {
-            player.set_output_scale(
-                master * f64::from(self.movie_audio.stream_gain.value()) / 16384.0,
-            );
+            player.set_stream_gain(groups.stream_gain.value());
         }
         if let Some(player) = self.sfx_player.as_mut() {
-            player.set_output_scale(master);
+            player.set_master_groups(groups.sound_master.value(), groups.eva_master.value());
         }
     }
     /// `OptionsClass::Set_Score_Volume` at `0x005FA4A0` publishes the stored
@@ -229,7 +258,7 @@ impl AppAudioRuntime {
         catalog: Option<&crate::app::process_assets::ProcessAudioCatalog>,
         main: &mut crate::sim::rng::MainRngDraws,
     ) {
-        self.service_movie_gain(wall_ms);
+        self.service_master_groups(wall_ms);
         let retained = main.clone();
         let mut draw_main =
             crate::audio::sfx::PlaybackDraws::new(move |low, high| retained.ranged(low, high));
@@ -407,14 +436,15 @@ impl AppAudioRuntime {
         assets: Option<&AssetManager>,
         wall_ms: u64,
     ) {
-        if let Some(scale) = tick.master_output_scale {
-            self.set_master_output_scale(scale);
+        if tick.fade_sound_master {
+            self.master_groups.sound_master.set_target(0, wall_ms);
+            self.service_master_groups(wall_ms);
         }
         if tick.clear_sounds {
             if let Some(player) = self.sfx_player.as_mut() {
                 player.stop_all();
             }
-            self.set_master_output_scale(1.0);
+            self.restore_sound_master();
         }
         // Score dialogs explicitly select SCORE after the master is restored:
         // 5C9B10 (multiplayer) / 6C9357 (campaign), original gamemd.exe.
@@ -436,10 +466,12 @@ impl AppAudioRuntime {
         self.apply_theme_action(action);
     }
 
-    /// The audio master (`[0x0087E758]`), one multiplier over the music and
-    /// sound outputs; the scenario exits fade it to zero and restore it.
-    pub(crate) fn set_master_output_scale(&mut self, scale: f64) {
-        self.movie_audio.lifecycle_scale = scale;
+    /// `SetTargetImmediate([0x0087E758], 0x4000)`: the scenario exits after
+    /// their cleanup (`0x006857A9`), `Clear_Scene` (`0x0068521F`) and the
+    /// ordinary load cleanup (`0x0069BB40`).
+    pub(crate) fn restore_sound_master(&mut self) {
+        self.master_groups.sound_master.set_target_immediate(0x4000);
+        self.master_groups.sound_master.tick(0);
         self.apply_output_scales();
     }
 
@@ -597,7 +629,7 @@ mod tests {
                 sfx_player: None,
                 launcher_audio_available: true,
                 theme_startup_suppressed: false,
-                movie_audio: Default::default(),
+                master_groups: Default::default(),
             };
             runtime.initialize_theme(&assets);
             let stored = f32::from_bits(options["stored_f32_bits"].as_u64().unwrap() as u32);
@@ -636,7 +668,7 @@ mod tests {
             sfx_player: None,
             launcher_audio_available: true,
             theme_startup_suppressed: false,
-            movie_audio: Default::default(),
+            master_groups: Default::default(),
         };
         let mut frontend = crate::sim::rng::MainRng::new(1);
         let mut main = crate::app::state::process_main_draws(None, &mut frontend);
@@ -676,7 +708,7 @@ mod tests {
             sfx_player: None,
             launcher_audio_available: true,
             theme_startup_suppressed: false,
-            movie_audio: Default::default(),
+            master_groups: Default::default(),
         };
         runtime.initialize_theme(&assets);
         // Restore through the production Theme owner with an admitted stream;
@@ -695,11 +727,15 @@ mod tests {
         let before = runtime.theme.saved_slots();
         assert_eq!(before, [0, -1]);
         let mut exit = ScenarioExitCascade::start(0, ScenarioExitDestination::CampaignDefeat);
+        runtime.apply_scenario_exit_tick(exit.tick(0, false), Some(&assets), 0);
         runtime.apply_scenario_exit_tick(exit.tick(500, false), Some(&assets), 500);
-        assert_eq!(runtime.movie_audio.lifecycle_scale, 0.5);
+        // GameExit__Defeat glides only the effects master (0x00685715): the
+        // Theme stream's own interp, and so the music, stays at full.
+        assert_eq!(runtime.master_groups.sound_master.value(), 0x2000);
+        assert_eq!(runtime.master_groups.stream_gain.value(), 0x4000);
         assert_eq!(runtime.theme.saved_slots(), before);
         runtime.apply_scenario_exit_tick(exit.tick(1_000, false), Some(&assets), 1_000);
-        assert_eq!(runtime.movie_audio.lifecycle_scale, 1.0);
+        assert_eq!(runtime.master_groups.sound_master.value(), 0x4000);
         assert_eq!(
             runtime.theme.saved_slots(),
             before,
@@ -728,8 +764,11 @@ mod tests {
         std::fs::remove_dir_all(root).unwrap();
     }
 
+    /// `0x005BF580` halves `[0x0087E758]` and `[0x0087E750]` and leaves the
+    /// stream interps where the radar pre-fade (`0x00408390`) put them; every
+    /// release glides all three back to full (`0x005BF530`, `0x004083D0`).
     #[test]
-    fn shared_movie_hold_targets_both_interps_and_keeps_the_exit_master() {
+    fn movie_hold_halves_both_masters_and_leaves_the_stream_interp() {
         let mut runtime = AppAudioRuntime {
             theme: ThemeRuntime::default(),
             service_clock: AudioServiceClock::default(),
@@ -737,27 +776,20 @@ mod tests {
             sfx_player: None,
             launcher_audio_available: false,
             theme_startup_suppressed: false,
-            movie_audio: Default::default(),
+            master_groups: Default::default(),
         };
         runtime.prepare_movie_streams(0);
-        runtime.set_master_output_scale(0.25);
+        assert!(runtime.movie_streams_ready());
         runtime.set_movie_audio_held(true, 100);
-        assert_eq!(runtime.movie_audio.master_gain.target_value(), 0x2000);
-        assert_eq!(
-            runtime.movie_audio.stream_gain.target_value(),
-            0x2000,
-            "5BF580/5BEDFB targets stream87E750 as well as master87E758"
-        );
-        runtime.set_movie_audio_held(true, 200);
-        assert_eq!(runtime.movie_audio.lifecycle_scale, 0.25);
-        runtime.retire_movie_audio(250);
+        let groups = &runtime.master_groups;
+        assert_eq!(groups.sound_master.target_value(), 0x2000);
+        assert_eq!(groups.eva_master.target_value(), 0x2000);
+        assert_eq!(groups.stream_gain.target_value(), 0);
         runtime.retire_movie_audio(300);
-        assert_eq!(runtime.movie_audio.master_gain.target_value(), 0x4000);
-        assert_eq!(runtime.movie_audio.stream_gain.target_value(), 0x4000);
-        assert_eq!(
-            runtime.movie_audio.lifecycle_scale, 0.25,
-            "movie retirement cannot cancel a scenario-exit fade"
-        );
+        let groups = &runtime.master_groups;
+        assert_eq!(groups.sound_master.target_value(), 0x4000);
+        assert_eq!(groups.eva_master.target_value(), 0x4000);
+        assert_eq!(groups.stream_gain.target_value(), 0x4000);
     }
 
     #[test]

@@ -777,6 +777,7 @@ impl MultiplayerShellRuntime {
     /// data advances the freshly seeded cursor by ten logical `(0,2)` calls.
     pub(crate) fn initialize(
         seed: u32,
+        process_assets: &mut crate::app::process_assets::ProcessAssets,
         ra2_dir: Option<&Path>,
         assets: Option<&AssetManager>,
         startup_rules: Option<&crate::rules::ruleset::RuleSet>,
@@ -809,7 +810,7 @@ impl MultiplayerShellRuntime {
             settings_ini,
         ) = load_persistence(ini_path.as_deref(), defaults);
 
-        Self {
+        let mut runtime = Self {
             snapshot,
             lan_snapshot,
             wol_snapshot,
@@ -828,7 +829,13 @@ impl MultiplayerShellRuntime {
             scenario_start_header: crate::map::preview::ScenarioStartHeader::default(),
             scenario_start_staging: Default::default(),
             gameplay_scenario_return_pending: false,
-        }
+        };
+        // The retained RA2MD.INI bytes are the process INI, so the cache has to
+        // carry the whole `ReadMultiPlayer6980C0` read from the start: native
+        // runs it (`52E11E`/`55FD31`) before any dialog reads `Side` back out of
+        // the Session, and `Side` only resolves through `Countries6722F0`/`475540`.
+        runtime.read_multiplayer_settings(process_assets);
+        runtime
     }
 
     #[cfg(test)]
@@ -1504,7 +1511,7 @@ fn load_persistence(
             (
                 snapshot,
                 network,
-                read_initial_local_preference_fields(&bytes),
+                LocalMultiplayerPreferences::default(),
                 observer,
                 bytes,
             )
@@ -1518,15 +1525,6 @@ fn load_persistence(
             fallback()
         }
     }
-}
-
-fn read_initial_local_preference_fields(bytes: &[u8]) -> LocalMultiplayerPreferences {
-    let mut preferences = LocalMultiplayerPreferences::default();
-    let Ok(ini) = IniFile::from_bytes(bytes) else {
-        return preferences;
-    };
-    read_local_preference_fields(&ini, &mut preferences);
-    preferences
 }
 
 fn read_local_preference_fields(ini: &IniFile, preferences: &mut LocalMultiplayerPreferences) {
@@ -1721,7 +1719,8 @@ mod tests {
             )
             .unwrap();
         let ini = IniFile::from_bytes(bytes).unwrap();
-        let mut preferences = read_initial_local_preference_fields(bytes);
+        let mut preferences = LocalMultiplayerPreferences::default();
+        read_local_preference_fields(&ini, &mut preferences);
         preferences.side = owner.read_multiplayer_country(&ini, preferences.side);
         preferences
     }
@@ -1794,6 +1793,15 @@ mod tests {
 
     fn defaults() -> SkirmishGlobalDefaults {
         skirmish_global_defaults(&SkirmishShellState::default())
+    }
+
+    /// A process Rules holder with no sources installed: `Side` then keeps the
+    /// held value, the way it does before startup rules are available.
+    fn empty_process_assets() -> crate::app::process_assets::ProcessAssets {
+        crate::app::process_assets::ProcessAssets::new(
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+            false,
+        )
     }
 
     #[test]
@@ -1965,6 +1973,7 @@ mod tests {
         let borrowed_seed = assets.get_ref("SAVE0001.SED").expect("seed snapshot");
         let mut runtime = MultiplayerShellRuntime::initialize(
             42,
+            &mut empty_process_assets(),
             Some(&directory),
             Some(&assets),
             None,
@@ -2136,7 +2145,14 @@ mod tests {
         );
         let runtime = MultiplayerShellRuntime {
             local_preferences: preferences,
-            ..MultiplayerShellRuntime::initialize(7, None, None, None, defaults())
+            ..MultiplayerShellRuntime::initialize(
+                7,
+                &mut empty_process_assets(),
+                None,
+                None,
+                None,
+                defaults(),
+            )
         };
         assert!(!runtime.scroll_text(ScenarioGameMode::Lan));
         assert!(runtime.scroll_text(ScenarioGameMode::Wol));
@@ -2160,7 +2176,14 @@ WOLTaunts=junk
         assert!(preferences.toggles.wol_taunts, "constructor default held");
         let mut runtime = MultiplayerShellRuntime {
             local_preferences: preferences,
-            ..MultiplayerShellRuntime::initialize(7, None, None, None, defaults())
+            ..MultiplayerShellRuntime::initialize(
+                7,
+                &mut empty_process_assets(),
+                None,
+                None,
+                None,
+                defaults(),
+            )
         };
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Lan), Some(false));
         assert_eq!(runtime.taunts_on(ScenarioGameMode::Wol), Some(true));
@@ -2208,22 +2231,29 @@ WOLTaunts=junk
         let (rules, _) = process.initialize_sources_if_needed(&assets).unwrap();
         let mut runtime = MultiplayerShellRuntime::initialize(
             7,
+            &mut process,
             Some(directory.path()),
             Some(&assets),
             rules.as_ref(),
             defaults(),
         );
+        // Construction already ran the complete `ReadMultiPlayer6980C0` read, so
+        // this unresolvable token is allocated once before the first visit.
+        assert_eq!(
+            runtime.local_preferences.side, 1,
+            "initialize resolves Side through the same reader"
+        );
         runtime.read_multiplayer_settings(&mut process);
-        assert_eq!(runtime.local_preferences.side, 1);
-        assert_eq!(runtime.local_participant().slot.country.raw_index(), 1);
+        assert_eq!(runtime.local_preferences.side, 2);
+        assert_eq!(runtime.local_participant().slot.country.raw_index(), 2);
         runtime.read_multiplayer_settings(&mut process);
         assert_eq!(
-            runtime.local_preferences.side, 2,
+            runtime.local_preferences.side, 3,
             "475540 rereads the original long token; constructor IDs truncate at24bytes"
         );
         directory.write(RA2MD_INI, b"[MultiPlayer]\nSide=Americans\nColor=0\n");
         runtime.read_multiplayer_settings(&mut process);
-        assert_eq!(runtime.local_preferences.side, 3);
+        assert_eq!(runtime.local_preferences.side, 4);
         assert_eq!(runtime.local_preferences.color_index, 99);
         // Simulate a persistence failure after WriteINI changed process8870C0.
         runtime.ini_path = Some(directory.path().to_owned());
@@ -2245,6 +2275,53 @@ WOLTaunts=junk
         assert_eq!(
             runtime.local_preferences.side, 1,
             "serialized canonical ID resolves the first allocated match"
+        );
+    }
+
+    /// Native only builds the dialog after the pre-dialog Session read
+    /// (`52E11E` -> `ReadMultiPlayer6980C0`, whose `Side` field goes through
+    /// `Countries6722F0`/`475540`), so `SkirmishDialog__OnSetup497` always sees
+    /// a resolved Side. VERA hydrates the shell once at startup, so that read
+    /// must already be complete when the population step runs.
+    #[test]
+    fn startup_hydration_sees_the_persisted_side_not_the_first_country() {
+        use crate::map::source::test_support::TestDirectory;
+        let directory = TestDirectory::new("startup-hydration-side");
+        directory.write(
+            "rulesmd.ini",
+            b"[Countries]\n0=Americans\n1=British\n\
+              [Americans]\nName=Americans\nSide=Allied\n\
+              [British]\nName=British\nSide=Allied\n\
+              [Sides]\nAllied=Americans,British\n",
+        );
+        directory.write("artmd.ini", b"[Fixture]\n");
+        directory.write(RA2MD_INI, b"[MultiPlayer]\nSide=British\nColor=3\n");
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        let mut process = crate::app::process_assets::ProcessAssets::new(
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+            false,
+        );
+        let (rules, _) = process.initialize_sources_if_needed(&assets).unwrap();
+        let runtime = MultiplayerShellRuntime::initialize(
+            7,
+            &mut process,
+            Some(directory.path()),
+            Some(&assets),
+            rules.as_ref(),
+            defaults(),
+        );
+        let mut shell = SkirmishShellState::default();
+
+        runtime.hydrate_shell(&mut shell, &[map()], &[mode()]);
+
+        assert_eq!(
+            shell.player_color_index, 3,
+            "the sibling [MultiPlayer] field already reaches the shell"
+        );
+        assert_eq!(
+            shell.player_country.raw_index(),
+            1,
+            "a persisted Side must reach the shell without a dialog visit"
         );
     }
 

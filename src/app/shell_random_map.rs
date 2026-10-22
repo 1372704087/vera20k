@@ -1515,6 +1515,10 @@ mod tests {
         let mut runtime =
             crate::app::frontend::skirmish_session::MultiplayerShellRuntime::initialize(
                 0x0412_959B,
+                &mut crate::app::process_assets::ProcessAssets::new(
+                    crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+                    false,
+                ),
                 None,
                 None,
                 None,
@@ -1824,6 +1828,10 @@ mod tests {
         let mut runtime =
             crate::app::frontend::skirmish_session::MultiplayerShellRuntime::initialize(
                 0x52FC_594C,
+                &mut crate::app::process_assets::ProcessAssets::new(
+                    crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+                    false,
+                ),
                 None,
                 None,
                 None,

@@ -408,10 +408,13 @@ fn spy_sat_gap_reentry_asks_the_generators_house_about_the_viewer() {
 }
 
 #[test]
-#[ignore = "fails since 38363bba0 counts a captured building's power drain at once; \
-            under investigation, re-enable with its fix"]
 fn gap_operational_owner_change_reveals_sight_before_new_gap_and_death_removes() {
     let (mut sim, rules, a, owner, _) = fixture();
+    // The capturer has power to spare. Its Added_To_Game counts the gap's
+    // drain at once (0x00502B48..0x00502B52), before the operational recheck
+    // that re-adds the gap (0x00448C3E..0x00448C60).
+    insert(&mut sim, 2, a, "POWER", 25, 25);
+    power(&mut sim, &rules);
     insert(&mut sim, 1, owner, "GAGAP", 12, 12);
     refresh(&mut sim, &rules);
     sim.visit_building_operational(1, &rules, None, crate::sim::world::FrameEffects::default());

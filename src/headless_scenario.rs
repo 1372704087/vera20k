@@ -2300,12 +2300,13 @@ mod retail_construction_tests {
                 None => {
                     died = Some(frame);
                     // The per-cell crush plays the victim's `CrushSound=` at
-                    // the crusher's cell, the victim's own.
+                    // the crusher's Location, in the victim's own cell.
                     crushed = output.sound_events.iter().any(|event| {
                         matches!(
                             event,
-                            crate::sim::world::SimSoundEvent::EntityCrushed { rx, ry, .. }
-                                if gi_cell == Some((*rx, *ry))
+                            crate::sim::world::SimSoundEvent::EntityCrushed { world, .. }
+                                if gi_cell
+                                    == Some((world.to_cell_sub_z().0, world.to_cell_sub_z().1))
                         )
                     });
                     break;
@@ -2389,8 +2390,9 @@ mod retail_construction_tests {
                     crushed = output.sound_events.iter().any(|event| {
                         matches!(
                             event,
-                            crate::sim::world::SimSoundEvent::EntityCrushed { rx, ry, .. }
-                                if gi_cell == Some((*rx, *ry))
+                            crate::sim::world::SimSoundEvent::EntityCrushed { world, .. }
+                                if gi_cell
+                                    == Some((world.to_cell_sub_z().0, world.to_cell_sub_z().1))
                         )
                     });
                     break;

@@ -490,8 +490,9 @@ mod sound_reference_history {
                 .iter()
                 .filter(|event| {
                     matches!(event,
-                        SimSoundEvent::SuperWeaponLaunched { owner: actual_owner, sw_type, rx: 10, ry: 10 }
-                            if *actual_owner == owner && *sw_type == type_id)
+                        SimSoundEvent::SuperWeaponLaunched { owner: actual_owner, sw_type, world }
+                            if *actual_owner == owner && *sw_type == type_id
+                                && world.to_cell_sub_z().0 == 10 && world.to_cell_sub_z().1 == 10)
                 })
                 .count(),
             1

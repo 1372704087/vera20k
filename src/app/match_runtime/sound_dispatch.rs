@@ -183,49 +183,44 @@ pub(super) fn dispatch_sim_sound_events(
             },
             SimSoundEvent::EntityDied {
                 die_sound_id,
-                rx,
-                ry,
+                world,
             } => GameSoundEvent::EntityDestroyed {
                 sound_id: die_sound_id,
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
             SimSoundEvent::EntityCrushed {
                 crush_sound_id,
-                rx,
-                ry,
+                world,
             } => GameSoundEvent::EntityCrushed {
                 sound_id: sim.interner().resolve(crush_sound_id).to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
             SimSoundEvent::EntityDeployed {
                 deploy_sound_id,
-                rx,
-                ry,
+                world,
             } => GameSoundEvent::EntityDeployed {
                 sound_id: sim.interner().resolve(deploy_sound_id).to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
-            SimSoundEvent::LeaveTransport { sound_id, rx, ry } => GameSoundEvent::LeaveTransport {
+            SimSoundEvent::LeaveTransport { sound_id, world } => GameSoundEvent::LeaveTransport {
                 sound_id: sim.interner().resolve(sound_id).to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
             SimSoundEvent::EntityUndeployed {
                 undeploy_sound_id,
-                rx,
-                ry,
+                world,
             } => GameSoundEvent::EntityUndeployed {
                 sound_id: sim.interner().resolve(undeploy_sound_id).to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
-            SimSoundEvent::ChronoTeleport { sound_id, rx, ry } => GameSoundEvent::ChronoTeleport {
+            SimSoundEvent::ChronoTeleport { sound_id, world } => GameSoundEvent::ChronoTeleport {
                 sound_id: sim.interner().resolve(sound_id).to_string(),
-                source: Some(sound_source_at_cell(rx, ry)),
+                source: Some(anim_world_sound_source(world)),
             },
             SimSoundEvent::UnitPromoted {
                 owner,
                 sound_id,
-                rx,
-                ry,
+                world,
             } => {
                 // `HouseClass::IsHumanPlayer @ 0x0050B6F0`: only the
                 // local player's own promotion is audible.
@@ -241,7 +236,7 @@ pub(super) fn dispatch_sim_sound_events(
                 if let Some(sound_id) = sound_id {
                     output.push(GameSoundEvent::UnitPromoted {
                         sound_id: sim.interner().resolve(sound_id).to_string(),
-                        source: Some(sound_source_at_cell(rx, ry)),
+                        source: Some(anim_world_sound_source(world)),
                     });
                 }
                 // `0x006FA0C6 MOV ECX,0x843138 ("EVA_UnitPromoted") ; OR
@@ -357,8 +352,7 @@ pub(super) fn dispatch_sim_sound_events(
             SimSoundEvent::SuperWeaponLaunched {
                 owner,
                 sw_type,
-                rx,
-                ry,
+                world,
             } => {
                 // `SuperClass::Launch @ 0x006CC390` switches on the
                 // launched type's `Type=` index and plays that case's
@@ -381,7 +375,7 @@ pub(super) fn dispatch_sim_sound_events(
                 let activated = (cue.sound_id.is_some() || eva_event.is_some()).then(|| {
                     GameSoundEvent::SuperWeaponActivated {
                         sound_id: cue.sound_id.unwrap_or_default(),
-                        source: cue.positional.then(|| sound_source_at_cell(rx, ry)),
+                        source: cue.positional.then(|| anim_world_sound_source(world)),
                         eva_event,
                     }
                 });
@@ -532,7 +526,7 @@ pub(super) fn dispatch_sim_sound_events(
                     type_override: None,
                 }
             }
-            SimSoundEvent::BuildingGarrisonedSfx { owner, rx, ry } => {
+            SimSoundEvent::BuildingGarrisonedSfx { owner, world } => {
                 // Positional SFX: only audible to the local human player
                 // (matches gamemd VocClass::PlayAt with IsHumanPlayer gate).
                 if !owner_is_local(sim.interner(), owner, local_owner_name) {
@@ -546,20 +540,20 @@ pub(super) fn dispatch_sim_sound_events(
                 };
                 GameSoundEvent::BuildingGarrisonedSfx {
                     sound_id,
-                    source: Some(sound_source_at_cell(rx, ry)),
+                    source: Some(anim_world_sound_source(world)),
                 }
             }
-            SimSoundEvent::ChuteSound { rx, ry } => {
+            SimSoundEvent::ChuteSound { world } => {
                 let sound_id = match Some(rules).and_then(|r| r.general.chute_sound.as_deref()) {
                     Some(s) if !s.is_empty() => s.to_string(),
                     _ => continue,
                 };
                 GameSoundEvent::ChuteSound {
                     sound_id,
-                    source: Some(sound_source_at_cell(rx, ry)),
+                    source: Some(anim_world_sound_source(world)),
                 }
             }
-            SimSoundEvent::BunkerWallsUp { rx, ry } => {
+            SimSoundEvent::BunkerWallsUp { world } => {
                 // Walls-up cue on install; skip when the rules key is empty.
                 let sound_id =
                     match Some(rules).and_then(|r| r.general.bunker_walls_up_sound.as_deref()) {
@@ -568,10 +562,10 @@ pub(super) fn dispatch_sim_sound_events(
                     };
                 GameSoundEvent::BunkerWalls {
                     sound_id,
-                    source: Some(sound_source_at_cell(rx, ry)),
+                    source: Some(anim_world_sound_source(world)),
                 }
             }
-            SimSoundEvent::BunkerWallsDown { rx, ry } => {
+            SimSoundEvent::BunkerWallsDown { world } => {
                 // Walls-down cue on normal exit / clear teardown.
                 let sound_id =
                     match Some(rules).and_then(|r| r.general.bunker_walls_down_sound.as_deref()) {
@@ -580,10 +574,10 @@ pub(super) fn dispatch_sim_sound_events(
                     };
                 GameSoundEvent::BunkerWalls {
                     sound_id,
-                    source: Some(sound_source_at_cell(rx, ry)),
+                    source: Some(anim_world_sound_source(world)),
                 }
             }
-            SimSoundEvent::BridgeRepaired { rx, ry, radar } => {
+            SimSoundEvent::BridgeRepaired { world, radar } => {
                 // Spatial SFX gated on rules.bridge_rules.repair_sound
                 // being set (the original game gates on
                 // `RulesClass+0x248 != -1`).
@@ -593,7 +587,7 @@ pub(super) fn dispatch_sim_sound_events(
                 let source = if sound_id.is_empty() {
                     None
                 } else {
-                    Some(sound_source_at_cell(rx, ry))
+                    Some(anim_world_sound_source(world))
                 };
                 // Infantry519BC9 calls EVA only after House50B6F0 (the sim
                 // published `radar`) and radar insertion `0x00519BB6`
@@ -1199,15 +1193,6 @@ pub(super) fn hud_messages(
         .collect()
 }
 
-/// The sound source of a flat cell event. Native `VocClass::PlayAt`
-/// callers pass an object or cell coordinate — the cell centre
-/// `(cell << 8) + 0x80` — so the projected point is the cell's diamond centre, not the
-/// tile's north-west corner.
-fn sound_source_at_cell(rx: u16, ry: u16) -> SoundSource {
-    let screen = crate::app::input::camera::cell_centre_world_point(rx, ry, 0);
-    SoundSource::new(screen, (rx, ry))
-}
-
 fn cloak_sound_for_app(
     sound_id: String,
     rx: u16,
@@ -1624,8 +1609,12 @@ mod tests {
         let promotion = |owner| SimSoundEvent::UnitPromoted {
             owner,
             sound_id: Some(sound),
-            rx: 5,
-            ry: 7,
+            // The centre of cell (5, 7) at ground level.
+            world: crate::sim::anim_class::AnimWorldCoord {
+                x: 5 * 256 + 128,
+                y: 7 * 256 + 128,
+                z: 0,
+            },
         };
         use crate::sim::radar::{RadarEventRequest, RadarEventType};
         // The scripted client radar refuses every request at column 99.
@@ -1913,8 +1902,7 @@ mod tests {
         let launched = |owner| SimSoundEvent::SuperWeaponLaunched {
             owner,
             sw_type,
-            rx: 40,
-            ry: 40,
+            world: crate::sim::components::DriveCoord::cell(40, 40, 0).into(),
         };
         let radar = |rx, ry| SimSoundEvent::RadarEvent {
             radar: RadarEventRequest::new(RadarEventType::ImpactSilent, rx, ry),
@@ -2034,8 +2022,7 @@ mod tests {
                 let launched = launches.then_some(SimSoundEvent::SuperWeaponLaunched {
                     owner,
                     sw_type,
-                    rx: 40,
-                    ry: 40,
+                    world: crate::sim::components::DriveCoord::cell(40, 40, 0).into(),
                 });
                 let mut output = SoundEventQueue::new();
                 dispatch_sim_sound_events(
@@ -2115,8 +2102,7 @@ mod tests {
             let launched = |owner| SimSoundEvent::SuperWeaponLaunched {
                 owner,
                 sw_type,
-                rx: 40,
-                ry: 40,
+                world: crate::sim::components::DriveCoord::cell(40, 40, 0).into(),
             };
             let mut output = SoundEventQueue::new();
             dispatch_sim_sound_events(

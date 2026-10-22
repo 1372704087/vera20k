@@ -2738,11 +2738,10 @@ pub(crate) fn tick_combat(
     // DamageConsequences UnInits only grounded aircraft and fixture victims.
     if sound_enabled {
         let sink = &mut world.sound_events;
-        for (die_id, rx, ry) in effects.death_sounds.drain(..) {
+        for (die_id, world) in effects.death_sounds.drain(..) {
             sink.emit(SimSoundEvent::EntityDied {
                 die_sound_id: die_id,
-                rx,
-                ry,
+                world,
             });
         }
     }

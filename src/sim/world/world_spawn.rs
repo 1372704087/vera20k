@@ -2361,11 +2361,21 @@ impl Simulation {
                 // Native rounds FacingClass::Current, including wrap at 0xff80.
                 entity.body_facing_dir(self.session.binary_frame()),
                 yard_obj.construction_yard,
+                // The MCV's Location for `0x00739A21..0x00739A54`, read now:
+                // VERA uninits the MCV before that cue.
                 rules
                     .object(type_str)
                     .and_then(|obj| obj.deploy_sound.clone())
                     .filter(|sound| !sound.is_empty())
-                    .map(|sound| (sound, entity.position.rx(), entity.position.ry())),
+                    .map(|sound| {
+                        (
+                            sound,
+                            crate::sim::movement::ground_pose::object_location(
+                                entity,
+                                self.resolved_terrain.as_ref(),
+                            ),
+                        )
+                    }),
                 rules
                     .object(type_str)
                     .is_some_and(|obj| obj.resource_gatherer),
@@ -2728,12 +2738,11 @@ impl Simulation {
         // Unlimbo succeeded. This accompanies build-up; it is not a sound on
         // the turn request or an animation-completion cue. Stock MCVs use
         // PlaceBuilding -> uplace (RULESMD.INI / SOUNDMD.INI).
-        if let Some((sound, rx, ry)) = deploy_cue {
+        if let Some((sound, location)) = deploy_cue {
             let deploy_sound_id = self.interner.intern(&sound);
             self.sound_events.emit(SimSoundEvent::EntityDeployed {
                 deploy_sound_id,
-                rx,
-                ry,
+                world: location.into(),
             });
         }
 

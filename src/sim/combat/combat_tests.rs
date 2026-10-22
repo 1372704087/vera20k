@@ -5168,7 +5168,7 @@ fn selected_death_sounds_for(
     effects
         .death_sounds
         .into_iter()
-        .map(|(sound, _, _)| sound)
+        .map(|(sound, _)| sound)
         .collect()
 }
 
@@ -5194,6 +5194,11 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
     ))
     .expect("building die-sound rules parse");
 
+    const HERE: crate::sim::anim_class::AnimWorldCoord = crate::sim::anim_class::AnimWorldCoord {
+        x: 1152,
+        y: 1920,
+        z: 104,
+    };
     let selected = |type_name: &str, category: EntityCategory| -> Vec<String> {
         let rng = MainRng::new(11);
         let rng_before = rng.state();
@@ -5204,8 +5209,7 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
             rules.general.building_die_sound.as_deref(),
             true,
             &rng,
-            4,
-            7,
+            HERE,
             &mut sounds,
         );
         assert_eq!(
@@ -5215,8 +5219,8 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
         );
         sounds
             .into_iter()
-            .map(|(sound, rx, ry)| {
-                assert_eq!((rx, ry), (4, 7), "played at the building's own cell");
+            .map(|(sound, location)| {
+                assert_eq!(location, HERE, "played at the building's own Location");
                 sound
             })
             .collect()
@@ -5255,8 +5259,7 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
         bare.general.building_die_sound.as_deref(),
         true,
         &rng,
-        4,
-        7,
+        HERE,
         &mut sounds,
     );
     assert!(sounds.is_empty());
@@ -5669,6 +5672,11 @@ fn fatal_sound_selection_uses_human_voice_then_die_sound_main_draws() {
     let mut entities = EntityStore::new();
     entities.insert(make_entity_owned(1, "MTNK", 5, 5, 100, "Soviet"));
     entities.insert(make_entity_owned(2, "E1", 8, 5, 1, "Americans"));
+    const HERE: crate::sim::anim_class::AnimWorldCoord = crate::sim::anim_class::AnimWorldCoord {
+        x: 2176,
+        y: 1408,
+        z: 0,
+    };
     let mut interner = test_interner();
     install_entity_attack_target_for_test(&mut entities, 1, 2);
     let owner = test_intern("Americans");
@@ -5718,13 +5726,15 @@ fn fatal_sound_selection_uses_human_voice_then_die_sound_main_draws() {
         sounds
             .iter()
             .filter_map(|event| match event {
-                SimSoundEvent::EntityDied { die_sound_id, .. } => {
-                    Some(die_sound_id.as_str())
-                }
+                SimSoundEvent::EntityDied {
+                    die_sound_id,
+                    world,
+                } => Some((die_sound_id.as_str(), *world)),
                 _ => None,
             })
             .collect::<Vec<_>>(),
-        ["VoiceC", "DieA"]
+        // Both play at the victim's Location (`[ESI+0x9C..0xA4]`), cell (8, 5).
+        [("VoiceC", HERE), ("DieA", HERE)]
     );
     assert_eq!(
         scenario_rng.state(),

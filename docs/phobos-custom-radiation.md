@@ -73,9 +73,20 @@ name and the bound weapon IDs enter the simulation configuration hash, and the
 catalog crosses the save boundary with the retained Rules records. A save
 records the build capability and cannot load in the other mode.
 
-Not implemented, read and retained only: `RadApplicationDelay.Building` and
-`RadBuildingDamageMaxCount` (VERA20K has no building radiation receiver, so
-building damage is absent regardless of the value), `RadSiteWarhead.Detonate`
-and `RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site),
-and `RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
+Buildings take radiation in a Phobos build through
+`BuildingClass_AI_Radiation @ 0x0043FB23`, the branch that follows the
+operational edge sample at `0x0043FB20`. It runs for every live building each
+frame over the building's foundation cells, groups each cell's sites by bound
+type, clamps each type's summed level at its `RadLevelMax` and applies its
+`RadLevelFactor` through its own warhead to the building. The shared gate is
+`RadApplicationDelay.Building`; its default `0` means "skip", so stock rules
+leave buildings immune even with the capability and a mod opts in by setting a
+delay. Immune buildings, warp-out and temporal states skip the branch, and the
+type's warhead verses still decide the damage. Phobos' hook tests a per-site
+`RadBuildingDamageMaxCount` counter it never increments, so that key has no
+observable effect there and none here.
+
+Not implemented, read and retained only: `RadSiteWarhead.Detonate` and
+`RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site), and
+`RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
 This feature does not load Phobos DLLs or establish complete mod compatibility.

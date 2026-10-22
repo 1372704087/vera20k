@@ -8493,6 +8493,9 @@ fn gsi_04_07_damage_hostile_building_hit_latches_was_attacked_for_ai_repair() {
 
 /// Buildings never take radiation damage; an ImmuneToRadiation unit on the
 /// same cell is also exempt.
+/// Retail has no building radiation path; Phobos adds one, so this retail
+/// guarantee only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn buildings_take_no_rad_damage() {
     let rules = radiation_rules();
@@ -8534,7 +8537,11 @@ fn phobos_radiation_rules() -> RuleSet {
 [E2]\nStrength=300\nArmor=none\nSpeed=4\n\n\
 [RadEruptionWeapon]\nDamage=1\nROF=60\nRange=4\nAreaFire=yes\nWarhead=RadEruptionWarhead\nRadLevel=500\nRadType=ToxicField\nReport=DesolatorDeploy\n\n\
 [RadEruptionWarhead]\nVerses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\nCellSpread=10\n\n\
-[Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
+[BuildingTypes]\n0=GAPOWR\n1=RADBLDG\n2=IRONBLDG\n\n\
+[GAPOWR]\nStrength=750\nArmor=wood\n\n\
+[RADBLDG]\nStrength=750\nArmor=none\n\n\
+[IRONBLDG]\nStrength=750\nArmor=none\nImmuneToRadiation=yes\n\n\
+[Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadApplicationDelay.Building=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
 [Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
 [RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n\n\
 [ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
@@ -11505,5 +11512,86 @@ fn retail_snow_theater_substitutes_red_and_blue() {
         light.tint,
         [-501, 0, -501],
         "red and blue take the snow -128 channel, green keeps [Radiation] RadColor"
+    );
+}
+
+/// Phobos `BuildingClass_AI_Radiation @ 0x43FB23`: a building takes its
+/// foundation's radiation on `RadApplicationDelay.Building` boundaries, and
+/// each type clamps its level at `RadLevelMax` and scales it by its own
+/// `RadLevelFactor` through its own warhead.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_buildings_take_radiation_on_the_building_delay() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    let building = sim
+        .spawn_object("RADBLDG", "Americans", 5, 5, 0, &rules)
+        .expect("building spawns");
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+
+    rad_frame(&mut sim, &rules, 15);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(building)
+            .unwrap()
+            .health
+            .current(),
+        750,
+        "off the building's application-delay boundary"
+    );
+    rad_frame(&mut sim, &rules, 16);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(building)
+            .unwrap()
+            .health
+            .current(),
+        500,
+        "RadLevelMax 250 x RadLevelFactor 1.0 reaches the building"
+    );
+}
+
+/// The branch is opt-in: with no `RadApplicationDelay.Building` the shared
+/// gate's building delay is 0, which native treats as "skip". Immune
+/// buildings and a warhead that verses the armor at 0% stay untouched.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_building_radiation_respects_the_delay_key_immunity_and_verses() {
+    let mut rules = phobos_radiation_rules();
+    rules.radiation.application_delay_building = 0;
+    let mut sim = radiation_scene(&rules);
+    let plain = sim
+        .spawn_object("RADBLDG", "Americans", 5, 5, 0, &rules)
+        .expect("building spawns");
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+    rad_frame(&mut sim, &rules, 16);
+    assert_eq!(
+        sim.substrate.entities.get(plain).unwrap().health.current(),
+        750,
+        "delay 0 disables building radiation"
+    );
+
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    let immune = sim
+        .spawn_object("IRONBLDG", "Americans", 5, 5, 0, &rules)
+        .expect("immune building spawns");
+    let wood = sim
+        .spawn_object("GAPOWR", "Americans", 9, 9, 0, &rules)
+        .expect("wood building spawns");
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 2, Some("ToxicField"));
+    irradiate_bound(&mut sim, &rules, (9, 9), 500, 2, Some("ToxicField"));
+    rad_frame(&mut sim, &rules, 16);
+    assert_eq!(
+        sim.substrate.entities.get(immune).unwrap().health.current(),
+        750,
+        "ImmuneToRadiation buildings are exempt"
+    );
+    assert_eq!(
+        sim.substrate.entities.get(wood).unwrap().health.current(),
+        750,
+        "the type's warhead verses wood at 0%"
     );
 }

@@ -1261,6 +1261,9 @@ pub struct GeneralRules {
     /// then Voc FindIndex7514D0, retaining the prior ID on missing, empty or
     /// unresolved text. The fixed SOUNDMD binder owns name resolution.
     pub guard_sound: Option<String>,
+    /// Stop command acknowledgement, Rules+720, read just before GuardSound
+    /// by the same reader (`0x0066ADE3..0x0066AE16`).
+    pub stop_sound: Option<String>,
     /// Rules+6F0/+6F4: constructor66600F/666015 starts at -1;
     /// AudioVisual66AAC0..66AB53 reads exact RadarOn then RadarOff through
     /// ReadString128/Voc7514D0, retaining the prior fixed-catalog ID on
@@ -2447,6 +2450,7 @@ impl Default for GeneralRules {
             gui_move_out_sound: None,
             generic_click_sound: None,
             guard_sound: None,
+            stop_sound: None,
             radar_on: None,
             radar_off: None,
             spy_sat_activation_sound: None,
@@ -3552,6 +3556,7 @@ impl GeneralRules {
                 .map(str::to_owned),
             // Native constructor -1; resolved by the fixed SOUNDMD binder.
             guard_sound: None,
+            stop_sound: None,
             radar_on: None,
             radar_off: None,
             spy_sat_activation_sound: None,
@@ -4853,6 +4858,9 @@ impl RuleSet {
         self.general.spy_plane_camera = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SpyPlaneCamera"));
+        self.general.stop_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "StopSound"));
         self.general.guard_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "GuardSound"));

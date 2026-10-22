@@ -94,7 +94,14 @@ type's warhead verses still decide the damage. Phobos' hook tests a per-site
 `RadBuildingDamageMaxCount` counter it never increments, so that key has no
 observable effect there and none here.
 
-Not implemented, read and retained only: `RadSiteWarhead.Detonate` and
-`RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site).
+`RadSiteWarhead.Detonate` turns a site's Foot damage into a warhead detonation at
+the target instead of a direct `ReceiveDamage` call, so the warhead's own
+`CellSpread`, verses and effects apply around the victim.
+`RadSiteWarhead.Detonate.Full` selects the `WarheadTypeExt::DetonateAt` form,
+which then runs the ordinary detonation anim and flash; without it the site
+makes the bare area call that `DamageAreaWithTarget` makes. A site whose
+warhead does not resolve deals no damage in either form, as native's
+missing-warhead skip does.
+
 Building radiation currently uses the neutral direct receiver.
 This feature does not load Phobos DLLs or establish complete mod compatibility.

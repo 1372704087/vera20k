@@ -8587,13 +8587,15 @@ fn phobos_radiation_rules() -> RuleSet {
 [RADBLDG]\nStrength=750\nArmor=none\n\n\
 [IRONBLDG]\nStrength=750\nArmor=none\nImmuneToRadiation=yes\n\n\
 [Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadApplicationDelay.Building=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
-[Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
-[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n4=OwnerRad\n\n\
+[Warheads]\n0=RadSite\n1=RadSiteToxic\n2=RadSiteBlast\n\n\
+[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n4=OwnerRad\n5=BlastRad\n\n\
 [ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
 [OtherField]\nRadLevelFactor=0.1\n\n\
 [VioletField]\nRadColor=255,0,255\nRadLightFactor=1.0\nRadTintFactor=1.0\n\n\
 [DemoPurple]\nRadColor=255,0,255\nRadLightFactor=0.6\nRadTintFactor=2.0\nRadDurationMultiple=6\nRadLevelMax=400\n\n\
 [OwnerRad]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadHasOwner=yes\nRadHasInvoker=yes\n\n\
+[BlastRad]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteBlast\nRadSiteWarhead.Detonate=yes\nRadSiteWarhead.Detonate.Full=no\n\n\
+[RadSiteBlast]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\nCellSpread=3\n\n\
 [RadSiteToxic]\nVerses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\n",
     );
     RuleSet::from_ini(&ini).expect("phobos radiation rules should parse")
@@ -11702,5 +11704,55 @@ fn phobos_building_radiation_respects_the_delay_key_immunity_and_verses() {
         sim.substrate.entities.get(wood).unwrap().health.current(),
         750,
         "the type's warhead verses wood at 0%"
+    );
+}
+
+/// Phobos `RadSiteWarhead.Detonate`: with the key set, a site's damage is a
+/// warhead detonation at the target, so the warhead's `CellSpread` reaches
+/// neighbours the field itself never covered. The direct-receiver form stays
+/// on the target alone.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_rad_site_warhead_detonate_splashes_around_the_target() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    let near = sim
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("near victim spawns");
+    let far = sim
+        .spawn_object("E2", "Americans", 8, 5, 0, &rules)
+        .expect("far victim spawns");
+    // spread 0 covers only the centre cell, so the far cell starts clean.
+    irradiate_bound(&mut sim, &rules, (5, 5), 500, 0, Some("BlastRad"));
+    assert_eq!(
+        sim.radiation.cell_level((8, 5)),
+        0.0,
+        "no field on the far cell"
+    );
+    rad_frame(&mut sim, &rules, 16);
+    assert!(
+        sim.substrate.entities.get(near).unwrap().health.current() < 300,
+        "the target takes the detonation"
+    );
+    assert!(
+        sim.substrate.entities.get(far).unwrap().health.current() < 300,
+        "the warhead's CellSpread reaches the neighbour"
+    );
+
+    // Control: the same field without the key hits only the target.
+    let mut plain = radiation_scene(&rules);
+    let near = plain
+        .spawn_object("E2", "Americans", 5, 5, 0, &rules)
+        .expect("near victim spawns");
+    let far = plain
+        .spawn_object("E2", "Americans", 8, 5, 0, &rules)
+        .expect("far victim spawns");
+    irradiate_bound(&mut plain, &rules, (5, 5), 500, 0, Some("ToxicField"));
+    rad_frame(&mut plain, &rules, 16);
+    assert!(plain.substrate.entities.get(near).unwrap().health.current() < 300);
+    assert_eq!(
+        plain.substrate.entities.get(far).unwrap().health.current(),
+        300,
+        "the direct receiver leaves the neighbour alone"
     );
 }

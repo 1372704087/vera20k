@@ -12,11 +12,21 @@ fn corpus() -> &'static Value {
 
 fn fixture(extra: &str) -> (TestDirectory, ProcessAssets) {
     let directory = TestDirectory::new("ares-loading-themes");
-    directory.write(
-        "rulesmd.ini",
-        format!("[Countries]\n0=COUNTRY\n[Sides]\nSIDE=COUNTRY\n[COUNTRY]\nSide=SIDE\n{extra}")
-            .as_bytes(),
-    );
+    // Fresh INI loading keeps the first exact section. Put the case's keys
+    // into that same Country body, rather than appending a shadowed duplicate.
+    let extra = IniFile::from_str(extra);
+    let mut root = String::from("[Countries]\n0=COUNTRY\n[Sides]\nSIDE=COUNTRY\n");
+    for name in ["COUNTRY", "SIDE"] {
+        root += &format!("[{name}]\n");
+        if name == "COUNTRY" {
+            root += "Side=SIDE\n";
+        }
+        let section = extra.section_or_empty(name);
+        for key in section.keys() {
+            root += &format!("{key}={}\n", section.get(key).unwrap());
+        }
+    }
+    directory.write("rulesmd.ini", root.as_bytes());
     directory.write("artmd.ini", b"[Movies]\n");
     let keys = corpus()["histories"][0]["theme_keys"].as_array().unwrap();
     let mut themes = String::from("[Themes]\n");
@@ -76,8 +86,8 @@ fn ares_loading_theme_selection_matches_two_native_histories() {
             let map_text = if campaign {
                 text
             } else {
-                format!(
-                    "{text}[SIDE]\nLoadingTheme=MISSION_SCORE\n[Basic]\nLoadingTheme=MISSION_SCORE\n"
+                String::from(
+                    "[SIDE]\nLoadingTheme=MISSION_SCORE\n[COUNTRY]\nLoadingTheme=MISSION_SCORE\n[Basic]\nLoadingTheme=MISSION_SCORE\n",
                 )
             };
             play_ares_loading_theme(

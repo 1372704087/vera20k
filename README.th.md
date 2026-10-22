@@ -41,19 +41,15 @@ VERA20K สร้างโดยเกมเมอร์ เพื่อเก�
 
 ## ดาวน์โหลดและเล่น
 
-VERA20K ต้องใช้ไฟล์ต้นฉบับของ Red Alert 2: Yuri's Revenge 1.001
-ซื้อเกมได้ที่ [Steam](https://store.steampowered.com/app/2229850/)
-หรือซื้อเป็นส่วนหนึ่งของ The Ultimate Collection ใน[แอป EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+<p>
+  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="รุ่นล่าสุด" height="23"></a>
+  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="รุ่นพัฒนาล่าสุด" height="23"></a>
+</p>
 
-วิธีเล่นที่ง่ายที่สุดคือใช้ตัวติดตั้งสำหรับ Windows, macOS (Apple Silicon) หรือ Linux
-จาก[รุ่นล่าสุด](https://github.com/YuriPlanet/vera20k/releases/latest) ซึ่งจะตั้งค่าทุกอย่างให้คุณ:
-
-- **ค้นหาเกมของคุณ:** มองหา Yuri's Revenge ในตำแหน่งที่ Steam และแอป EA ติดตั้งไว้
-  แล้วเสนอโฟลเดอร์ที่พบ หรือให้คุณเลือกเอง
-- **เกมของคุณไม่ถูกแตะต้อง:** VERA20K อ่านไฟล์เกมจากโฟลเดอร์นั้นโดยไม่คัดลอกหรือแก้ไข
-  และเก็บการตั้งค่า เซฟเกม และล็อกของตัวเองไว้ในโฟลเดอร์แยกต่างหาก
-
-รุ่นพัฒนาที่สร้างทุกคืนพร้อมการเปลี่ยนแปลงล่าสุดมีอยู่ใน[หน้ารุ่นที่เผยแพร่](https://github.com/YuriPlanet/vera20k/releases)ด้วย
+ตัวติดตั้งสำหรับ Windows, macOS หรือ Linux จะค้นหา Yuri's Revenge ของคุณจาก
+[Steam](https://store.steampowered.com/app/2229850/)
+หรือ[แอป EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+แล้วตั้งค่าทุกอย่างให้ โดยไม่แก้ไขไฟล์ของเกม
 
 ## สถาปัตยกรรม
 

@@ -43,20 +43,14 @@ oyuncular söylüyor.
 
 ## İndir ve oyna
 
-VERA20K, Red Alert 2: Yuri's Revenge 1.001 oyununun orijinal dosyalarına ihtiyaç duyar. Oyun
-[Steam](https://store.steampowered.com/app/2229850/) üzerinden ya da The Ultimate Collection'ın bir
-parçası olarak [EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) satın alınabilir.
+<p>
+  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Son sürüm" height="23"></a>
+  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Son geliştirme derlemesi" height="23"></a>
+</p>
 
-Oynamanın en kolay yolu, [son sürümdeki](https://github.com/YuriPlanet/vera20k/releases/latest)
-Windows, macOS (Apple Silicon) veya Linux yükleyicisidir. Her şeyi sizin için ayarlar:
-
-- **Oyununuzu bulur:** Yuri's Revenge'i Steam'in ve EA uygulamasının kurduğu yerlerde arar ve
-  bulduğu klasörü önerir ya da kendiniz seçmenize izin verir.
-- **Oyununuza dokunmaz:** VERA20K oyunun dosyalarını bu klasörden kopyalamadan ve değiştirmeden
-  okur; kendi ayarlarını, kayıtlarını ve günlüklerini ayrı bir klasörde tutar.
-
-En yeni değişiklikleri içeren gecelik geliştirme derlemeleri de
-[sürümler sayfasında](https://github.com/YuriPlanet/vera20k/releases) bulunur.
+Windows, macOS veya Linux yükleyicisi, [Steam](https://store.steampowered.com/app/2229850/)'den
+ya da [EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+aldığınız Yuri's Revenge'i bulur ve oyunun dosyalarını değiştirmeden her şeyi sizin için ayarlar.
 
 ## Mimari
 

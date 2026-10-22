@@ -29,6 +29,8 @@ use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequi
 use crate::rules::projectile_type::ProjectileArtState;
 use crate::rules::rules_type_references::{DEFAULT_PARTICLE_SYSTEMS, RulesTypeReferences};
 use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules};
+#[cfg(feature = "phobos")]
+use crate::rules::superweapon_type::PhobosSuperWeaponAvailability;
 use crate::rules::superweapon_type::SuperWeaponBuildingRequirements;
 use crate::rules::superweapon_type::UnitDeliveryRules;
 #[cfg(feature = "ares")]
@@ -1331,6 +1333,15 @@ impl ProcessedRulesLayers {
                 member.super_weapon_aux_building.as_deref(),
                 member.super_weapon_building_requirements.as_ref(),
             )
+        })
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_availability_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, PhobosSuperWeaponAvailability)> {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_availability.clone()
         })
     }
 
@@ -3095,6 +3106,11 @@ struct ProcessedType {
     super_weapon_building_requirements: Option<SuperWeaponBuildingRequirements>,
     #[cfg(feature = "ares")]
     super_weapon_availability: AresSuperWeaponAvailability,
+    /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos`, read by the same
+    /// ordered Process owner as the Ares gates and keyed the same way.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_availability: PhobosSuperWeaponAvailability,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Ares `SW.Warhead=`, read only for Type=GenericWarhead.
@@ -3494,6 +3510,8 @@ impl ProcessedType {
             super_weapon_building_requirements: None,
             #[cfg(feature = "ares")]
             super_weapon_availability: AresSuperWeaponAvailability::default(),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             generic_super_weapon_warhead: None,
@@ -3988,6 +4006,44 @@ impl RulesPassProcessor {
                     .map(|index| self.families[&family][index].native_stored_id.clone())
                     .collect()
             })
+    }
+
+    /// Phobos `SW.AuxTechnos`/`SW.NegTechnos`:
+    /// `ValueableVector<TechnoTypeClass*>` resolves each token across every
+    /// techno family (`TechnoTypeClass::Find`), skipping unknown ones; a
+    /// reached list replaces and an absent key retains.
+    #[cfg(feature = "phobos")]
+    fn resolve_existing_techno_list_from(
+        &self,
+        section: &IniSection,
+        key: &str,
+        capacity: usize,
+    ) -> Option<Vec<String>> {
+        let tokens = section.read_list(key, capacity)?;
+        let mut resolved = Vec::new();
+        for token in tokens {
+            for family in [
+                RulesTypeFamily::Infantry,
+                RulesTypeFamily::Vehicle,
+                RulesTypeFamily::Aircraft,
+                RulesTypeFamily::Building,
+            ] {
+                let Some(members) = self.families.get(&family) else {
+                    continue;
+                };
+                let index = ares_type_index_of_name(
+                    token,
+                    members
+                        .iter()
+                        .map(|member| member.native_stored_id.as_str()),
+                );
+                if let Some(index) = index {
+                    resolved.push(members[index].native_stored_id.clone());
+                    break;
+                }
+            }
+        }
+        Some(resolved)
     }
 
     /// Installed Ares Anim pointer Parser1000C9C0/Find1000D3E0: look up
@@ -4757,6 +4813,30 @@ impl RulesPassProcessor {
                 {
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_aux_building = building;
+                }
+                #[cfg(feature = "phobos")]
+                {
+                    // Phobos SWTypeExt reads its three gates in the same
+                    // ordered body as the Ares keys: level first, then the two
+                    // techno vectors. An absent key retains, a reached empty
+                    // list replaces.
+                    let mut availability = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_availability
+                        .clone();
+                    availability
+                        .set_tech_level(raw.read_int("SW.TechLevel", availability.tech_level()));
+                    if let Some(aux) =
+                        self.resolve_existing_techno_list_from(&raw, "SW.AuxTechnos", 0x800)
+                    {
+                        availability.set_aux_technos(aux);
+                    }
+                    if let Some(neg) =
+                        self.resolve_existing_techno_list_from(&raw, "SW.NegTechnos", 0x800)
+                    {
+                        availability.set_neg_technos(neg);
+                    }
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_availability = availability;
                 }
                 #[cfg(feature = "ares")]
                 {

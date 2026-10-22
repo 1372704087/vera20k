@@ -394,7 +394,9 @@ impl Simulation {
         // PostMapInit68691C clears that context for starting-unit callbacks,
         // which use the separate runtime spawn path. This projection retains
         // the same admission context through all constructor/Unlimbo callbacks.
-        self.with_object_placement_scope(|sim| {
+        #[cfg(feature = "phobos")]
+        self.begin_phobos_map_objects();
+        let result = self.with_object_placement_scope(|sim| {
             let mut count: u32 = 0;
 
             for (entity_index, map_ent) in entities.iter().enumerate() {
@@ -643,7 +645,10 @@ impl Simulation {
 
             log::info!("Spawned {} entities", count);
             Ok(count)
-        })
+        });
+        #[cfg(feature = "phobos")]
+        self.finish_phobos_map_objects();
+        result
     }
 
     fn map_entity_owner_before_constructor(
@@ -1861,6 +1866,14 @@ impl Simulation {
         ge.kill_record.reset_constructed();
 
         substrate.entities.insert(ge);
+        // Phobos TechnoExt::InitializeState, hook 0x006F42F7: every Foot
+        // requests the owner's existing tech-tree tail for Aux/NegTechnos.
+        #[cfg(feature = "phobos")]
+        if let Some(entity) = substrate.entities.get(stable_id)
+            && entity.category().is_foot()
+        {
+            houses.request_house_tech_tree_recheck(entity.owner());
+        }
         // The class constructors and InitFromType call Add_Tracking.
         Self::update_house_tracking(
             substrate,

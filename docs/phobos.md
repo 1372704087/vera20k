@@ -29,3 +29,4 @@ other mode, even with identical retail INIs.
 Supported extensions:
 
 - [Custom radiation types](phobos-custom-radiation.md)
+- [Superweapon techno gates](phobos-superweapon-technos.md)

@@ -1604,6 +1604,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.building_entry.hash(hasher);
     }
     let latches = entity.house_tracking_latches();
+    #[cfg(feature = "phobos")]
+    {
+        b"phobos-techno-placement-v1".hash(hasher);
+        entity.phobos_placement.hash(hasher);
+    }
     if entity.tracking_facts.naval_combatant() {
         // Retained across reload: later Remove_Tracking must use the same
         // Naval/Passengers admission as construction, even while in limbo.

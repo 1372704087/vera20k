@@ -1806,8 +1806,17 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.crate_multipliers.armor().bits().hash(hasher);
     // Folded only once a Firepower crate changed it, so the legacy
     // hash stream of every untouched object is preserved.
-    if entity.crate_multipliers.firepower() != crate::util::native_x87::NativeF64Bits::ONE {
+    if entity.crate_multipliers.crate_firepower() != crate::util::native_x87::NativeF64Bits::ONE {
         b"firepower-mult-v1".hash(hasher);
+        entity
+            .crate_multipliers
+            .crate_firepower()
+            .bits()
+            .hash(hasher);
+    }
+    #[cfg(feature = "ares")]
+    if entity.crate_multipliers.firepower() != entity.crate_multipliers.crate_firepower() {
+        b"attached-firepower-v1".hash(hasher);
         entity.crate_multipliers.firepower().bits().hash(hasher);
     }
     entity.berserk.hash(hasher);

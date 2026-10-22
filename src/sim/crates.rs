@@ -40,6 +40,9 @@ pub(crate) use pickup::multiplayer_eligible_slot;
 #[cfg(all(test, feature = "ares"))]
 pub(crate) use speed::apply_speed_crate;
 
+#[cfg(all(test, feature = "ares"))]
+pub(crate) use effects::{Multiplier, apply_multiplier_crate};
+
 pub(crate) use effects::CrateMultipliers;
 pub(crate) use pickup::pickup_crate;
 pub(crate) use runtime::tick_crate_regeneration;

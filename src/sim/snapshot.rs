@@ -306,8 +306,8 @@ pub enum SnapshotError {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SnapshotRestoreError {
     #[cfg(feature = "ares")]
-    #[error("object {object_id} has invalid attached speed: {reason}")]
-    InvalidAttachedSpeedState {
+    #[error("object {object_id} has invalid attached stats: {reason}")]
+    InvalidAttachedStatsState {
         object_id: u64,
         reason: &'static str,
     },
@@ -2000,9 +2000,9 @@ impl Simulation {
             }
         }
         #[cfg(feature = "ares")]
-        self.validate_attached_speed_after_restore(rules)
+        self.validate_attached_stats_after_restore(rules)
             .map_err(
-                |(object_id, reason)| SnapshotRestoreError::InvalidAttachedSpeedState {
+                |(object_id, reason)| SnapshotRestoreError::InvalidAttachedStatsState {
                     object_id,
                     reason,
                 },

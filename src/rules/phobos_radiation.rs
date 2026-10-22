@@ -196,6 +196,15 @@ impl RadiationTypeCatalog {
         &self.types
     }
 
+    /// Every retained entry's canonical name, in allocation order: the
+    /// default `Radiation` entry first, then each pass's `[RadiationTypes]`
+    /// append. The load-time report names them so a mod's catalog can be
+    /// traced without deploying anything.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
+        self.types.iter().map(|entry| entry.name.as_str())
+    }
+
     /// Native case-insensitive lookup retaining the first spelling.
     #[cfg(feature = "phobos")]
     pub(crate) fn entry(&self, name: &str) -> Option<&RadiationType> {

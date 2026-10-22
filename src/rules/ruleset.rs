@@ -5256,6 +5256,17 @@ impl RuleSet {
         let radiation = {
             let mut radiation = radiation;
             radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
+            // The catalog is the only rules state a mod names by list, so
+            // report it once per load: a missing entry then shows up here
+            // instead of as an unchanged radiation field.
+            log::info!(
+                "Phobos radiation types: [{}]",
+                radiation
+                    .radiation_types
+                    .names()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
             radiation
         };
         let radar_event_config: RadarEventConfig = RadarEventConfig::from_ini(ini);

@@ -425,6 +425,9 @@ pub struct SimFrameOutput {
     pub sound_events_delivered: usize,
     pub fire_events: Vec<SimFireEvent>,
     pub combat_lights: Vec<crate::sim::combat::CombatLightRequest>,
+    /// Ordered axis writes from Bullet DetonateAtCoord; presentation owns the
+    /// retained screen offset and applies these after Logic.
+    pub screen_shake_updates: Vec<crate::sim::combat::ScreenShakeUpdate>,
     pub lighting_events: Vec<crate::sim::light_sources::LightingEvent>,
     /// The retail sync checksum this frame's multiplayer `Queue_AI` computed
     /// for the native history ring; `None` on single-player routes and on
@@ -1384,6 +1387,9 @@ pub struct Simulation {
     /// dedicated presentation handoff rather than fabricated world state.
     #[serde(skip)]
     pub(crate) combat_light_requests: FrameChannel<crate::sim::combat::CombatLightRequest>,
+    /// Ordered Bullet DetonateAtCoord screen-shake writes for this frame.
+    #[serde(skip)]
+    pub(crate) screen_shake_updates: FrameChannel<crate::sim::combat::ScreenShakeUpdate>,
     /// Persistent ordinary shots. This is authoritative save/hash state, not
     /// the render-side fire-event approximation.
     #[serde(default)]
@@ -4302,6 +4308,7 @@ impl Simulation {
             lighting_sources: crate::sim::light_sources::LightingSources::default(),
             fire_events: FrameChannel::default(),
             combat_light_requests: FrameChannel::default(),
+            screen_shake_updates: FrameChannel::default(),
             projectiles: crate::sim::projectile::ProjectileStore::new(),
             waves: crate::sim::wave::WaveStore::new(),
             active_wave_links: BTreeMap::new(),
@@ -7944,6 +7951,10 @@ impl Simulation {
         } else {
             Vec::new()
         };
+        // Shake writes happen synchronously at the detonation prologue, before
+        // a possible later frame wait. They are already-observed process
+        // presentation effects, so hand them off even when Logic suspends.
+        let screen_shake_updates = self.screen_shake_updates.take();
         let lifecycle_outputs = if outcome_waiting { Vec::new() } else { self.lifecycle_outputs.take() };
         let multiplayer_checksum = if outcome_waiting { None } else { self.frame_sync_checksum.take() };
         let overlay_updates = if outcome_waiting { Vec::new() } else { std::mem::take(&mut self.frame_overlay_updates) };
@@ -7966,6 +7977,7 @@ impl Simulation {
             sound_events_delivered,
             fire_events,
             combat_lights,
+            screen_shake_updates,
             lighting_events,
             multiplayer_checksum,
         }
@@ -8013,6 +8025,7 @@ impl Simulation {
         // A failed earlier frame never reached collection; drop its value.
         self.frame_sync_checksum = None;
         self.combat_light_requests.discard();
+        self.screen_shake_updates.discard();
         // The wrapping native frame counter is committed LATE (end of this fn,
         // beside self.session.tick) so every phase sees the same pre-increment
         // frame N. execute_tick stays here: command scheduling below filters on

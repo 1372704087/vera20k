@@ -1217,6 +1217,11 @@ fn advance_one_simulation_frame(
                 }
                 .expect("simulation frame failed; prior world mutations remain")
             };
+            state
+                .match_state
+                .match_presentation
+                .screen_shake
+                .apply_updates(&output.screen_shake_updates);
             if output.outcome_waiting {
                 // The simulation retains this frame's non-sound facts until
                 // the same House suffix finishes. Its sound prefix has already

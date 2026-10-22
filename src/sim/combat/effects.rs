@@ -50,6 +50,14 @@ pub enum CombatLightRequest {
     },
 }
 
+/// One Bullet detonation's screen-shake writes, in native X-then-Y order.
+/// `None` leaves that axis' prior process-owned value untouched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScreenShakeUpdate {
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+}
+
 /// One smudge producer payload. Production commits it synchronously through
 /// the world receiver; phase-level combat fixtures retain it in their result as
 /// a test adapter.

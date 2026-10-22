@@ -669,6 +669,7 @@ impl App {
                     in_game_options: startup_in_game_options,
                     in_game_options_anchor: None,
                     combat_lights: Default::default(),
+                    screen_shake: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
                     talk_bubble: Default::default(),
@@ -833,6 +834,8 @@ impl App {
                 batch_renderer,
                 fps_overlay,
                 combat_light_renderer,
+                screen_presentation:
+                    crate::render::screen_presentation::ScreenPresentationPass::new(),
                 terrain_draw_renderer,
                 instance_pool: crate::render::batch::InstanceBufferPool::new(),
                 depth_view,

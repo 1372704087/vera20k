@@ -32,10 +32,10 @@ use crate::sim::radio::Contacts;
 use crate::sim::superweapon::invulnerability::InvulnerabilityState;
 use crate::sim::world::ObjectLifecycle;
 
-mod distributed_fire;
-mod emp;
 #[cfg(feature = "ares")]
 mod attach_effect;
+mod distributed_fire;
+mod emp;
 mod foot_air;
 mod pip_fill;
 pub(crate) use distributed_fire::DistributedFireCandidate;
@@ -229,6 +229,10 @@ pub struct GameEntity {
     /// sets the once-counted latch when it adds House+0x2F4.
     #[serde(default)]
     house_tracking_latches: crate::sim::house_tracking::InfantryTrackingLatches,
+    /// Phobos placement history, written only by the house-tracking owner.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_placement: crate::sim::house_tracking::PhobosPlacement,
     /// The raw signed type `Sight=`, a [`SightFacts`] that
     /// `sim::vision` owns.
     ///
@@ -1576,6 +1580,8 @@ impl GameEntity {
             cached_spatial_threat: Default::default(),
             tracking_facts: Default::default(),
             house_tracking_latches: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_placement: Default::default(),
             #[cfg(feature = "debug-tools")]
             debug_log: None,
             stable_id,

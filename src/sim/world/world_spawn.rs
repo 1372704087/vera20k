@@ -394,7 +394,9 @@ impl Simulation {
         // PostMapInit68691C clears that context for starting-unit callbacks,
         // which use the separate runtime spawn path. This projection retains
         // the same admission context through all constructor/Unlimbo callbacks.
-        self.with_object_placement_scope(|sim| {
+        #[cfg(feature = "phobos")]
+        self.begin_phobos_map_objects();
+        let result = self.with_object_placement_scope(|sim| {
             let mut count: u32 = 0;
 
             for (entity_index, map_ent) in entities.iter().enumerate() {
@@ -643,7 +645,10 @@ impl Simulation {
 
             log::info!("Spawned {} entities", count);
             Ok(count)
-        })
+        });
+        #[cfg(feature = "phobos")]
+        self.finish_phobos_map_objects();
+        result
     }
 
     fn map_entity_owner_before_constructor(
@@ -1861,6 +1866,14 @@ impl Simulation {
         ge.kill_record.reset_constructed();
 
         substrate.entities.insert(ge);
+        // Phobos TechnoExt::InitializeState, hook 0x006F42F7: every Foot
+        // requests the owner's existing tech-tree tail for Aux/NegTechnos.
+        #[cfg(feature = "phobos")]
+        if let Some(entity) = substrate.entities.get(stable_id)
+            && entity.category().is_foot()
+        {
+            houses.request_house_tech_tree_recheck(entity.owner());
+        }
         // The class constructors and InitFromType call Add_Tracking.
         Self::update_house_tracking(
             substrate,
@@ -2361,11 +2374,21 @@ impl Simulation {
                 // Native rounds FacingClass::Current, including wrap at 0xff80.
                 entity.body_facing_dir(self.session.binary_frame()),
                 yard_obj.construction_yard,
+                // The MCV's Location for `0x00739A21..0x00739A54`, read now:
+                // VERA uninits the MCV before that cue.
                 rules
                     .object(type_str)
                     .and_then(|obj| obj.deploy_sound.clone())
                     .filter(|sound| !sound.is_empty())
-                    .map(|sound| (sound, entity.position.rx(), entity.position.ry())),
+                    .map(|sound| {
+                        (
+                            sound,
+                            crate::sim::movement::ground_pose::object_location(
+                                entity,
+                                self.resolved_terrain.as_ref(),
+                            ),
+                        )
+                    }),
                 rules
                     .object(type_str)
                     .is_some_and(|obj| obj.resource_gatherer),
@@ -2728,12 +2751,11 @@ impl Simulation {
         // Unlimbo succeeded. This accompanies build-up; it is not a sound on
         // the turn request or an animation-completion cue. Stock MCVs use
         // PlaceBuilding -> uplace (RULESMD.INI / SOUNDMD.INI).
-        if let Some((sound, rx, ry)) = deploy_cue {
+        if let Some((sound, location)) = deploy_cue {
             let deploy_sound_id = self.interner.intern(&sound);
             self.sound_events.emit(SimSoundEvent::EntityDeployed {
                 deploy_sound_id,
-                rx,
-                ry,
+                world: location.into(),
             });
         }
 

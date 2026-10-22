@@ -7,7 +7,7 @@
 //!
 //! The app owns diagnostic samples and log delivery; gameplay state is read-only.
 
-use crate::app::AppState;
+use crate::app::{AppState, BUILD_STAMP};
 use crate::map::entities::EntityCategory;
 use crate::rules::locomotor_type::SpeedType;
 use crate::sim::movement::motion_query;
@@ -137,7 +137,7 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
             .current_house()
             .and_then(|owner| sim.ready_outcome_for_owner(owner))
             .map(|outcome| outcome.kind),
-        build_stamp: crate::app::frontend::status_screen::BUILD_STAMP.to_owned(),
+        build_stamp: BUILD_STAMP.to_owned(),
     });
     snapshot.debug = Some(capture_debug(state, &runtime.simulation));
     snapshot.process = Some(capture_process(state));

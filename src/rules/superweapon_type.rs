@@ -510,6 +510,52 @@ impl SuperWeaponBuildingRequirements {
     }
 }
 
+/// Phobos `SWTypeExt`'s techno gates: `SW.TechLevel`, `SW.AuxTechnos` and
+/// `SW.NegTechnos` (`src/Ext/SWType/SWHelpers.cpp::IsAvailable`). The ordered
+/// Process owner reads them and `RuleSet` projects one entry per registered
+/// definition, so a type whose effect body is unimplemented still answers
+/// availability. Constructor defaults: level 0, both lists empty.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PhobosSuperWeaponAvailability {
+    tech_level: i32,
+    aux_technos: Vec<String>,
+    neg_technos: Vec<String>,
+}
+
+#[cfg(feature = "phobos")]
+impl PhobosSuperWeaponAvailability {
+    pub(crate) fn tech_level(&self) -> i32 {
+        self.tech_level
+    }
+
+    pub(crate) fn set_tech_level(&mut self, level: i32) {
+        self.tech_level = level;
+    }
+
+    pub(crate) fn set_aux_technos(&mut self, technos: Vec<String>) {
+        self.aux_technos = technos;
+    }
+
+    pub(crate) fn set_neg_technos(&mut self, technos: Vec<String>) {
+        self.neg_technos = technos;
+    }
+
+    /// `pHouse->TechLevel < SW_TechLevel` refuses the weapon; the level is a
+    /// plain minimum and `-1` is not special.
+    pub(crate) fn allows_tech_level(&self, level: i32) -> bool {
+        level >= self.tech_level
+    }
+
+    /// `SW.AuxTechnos` needs at least one listed techno owned, `SW.NegTechnos`
+    /// refuses on any. Both look at owned technos that are present on the map
+    /// or in limbo (`HouseExt::CountOwnedPresentAndLimboed`).
+    pub(crate) fn allows_technos(&self, mut present: impl FnMut(&str) -> bool) -> bool {
+        (self.aux_technos.is_empty() || self.aux_technos.iter().any(|id| present(id)))
+            && !self.neg_technos.iter().any(|id| present(id))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

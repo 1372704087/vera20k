@@ -664,25 +664,23 @@ pub(crate) struct DecodedAudio {
     pub(crate) sample_rate: u32,
     /// Always 2 (stereo) — we upmix mono sources for consistency.
     pub(crate) channels: u16,
-    /// Native decoded PCM frame width before mono is upmixed for rodio.
-    pub(crate) native_frame_bytes: u16,
+    /// The native format's channel count and bytes per sample before mono is
+    /// upmixed for rodio: descriptor `+0xC` and `+0x10`, filled by
+    /// `WAV__ParseHeader @ 0x00408610` (`0x0040876A..0x00408792`) and
+    /// `AudioIndex__GetFormat @ 0x00401640`. IMA ADPCM decodes to 2 bytes.
+    pub(crate) native_channels: u16,
+    pub(crate) native_sample_bytes: u16,
 }
 
 impl DecodedAudio {
-    /// Append another clip; the native playlist chains buffers back to back.
-    /// A rate mismatch keeps the first clip (RESIDUAL: native streams each
-    /// buffer at its own rate; no stock attack/decay set mixes rates).
+    /// Append another clip; the native playlist chains buffers back to back,
+    /// each in the first clip's format (see [`playback::chained_samples`]).
     #[cfg(test)]
-    fn append(&mut self, mut other: DecodedAudio) {
-        if other.sample_rate != self.sample_rate || other.channels != self.channels {
-            log::warn!(
-                "SFX: dropped chained sample with mismatched format ({} Hz vs {} Hz)",
-                other.sample_rate,
-                self.sample_rate
-            );
-            return;
-        }
-        self.samples.append(&mut other.samples);
+    fn append(&mut self, other: DecodedAudio) {
+        let layout = (self.native_channels, self.native_sample_bytes);
+        let chained = playback::chained_samples(&other, layout);
+        self.samples
+            .extend_from_slice(chained.as_deref().unwrap_or(&other.samples));
     }
 }
 
@@ -1200,10 +1198,7 @@ impl PlaybackService for PendingSampleService<'_> {
         ) else {
             return false;
         };
-        let rate = pending
-            .shifts
-            .expect("admitted channel")
-            .shifted_sample_rate(loaded.clips[&initial].sample_rate);
+        let shifts = pending.shifts.expect("admitted channel");
         let observed_names = self
             .observer
             .as_ref()
@@ -1215,7 +1210,7 @@ impl PlaybackService for PendingSampleService<'_> {
             cursor,
             initial,
             self.rng.clone(),
-            rate,
+            shifts,
             pan,
             observed_names,
         );
@@ -1296,6 +1291,10 @@ pub struct SfxPlayer {
     voc_enabled: bool,
     ///53BAD0 excludes the SFX half of GamePause, not its EVA stream half.
     chrono_screen_active: bool,
+    /// Whether the open game pause suspended the sounds: `GamePause::Enter
+    /// @ 0x00406F00` skips them while ChronoScreen runs (`0x0053BAD0`), and
+    /// `Exit` resumes them whatever the effect does by then.
+    game_pause_suspends_sounds: bool,
 }
 
 /// Native750E20 copies +20/+24/+28 and initializes nested suspend depth+30.
@@ -1397,6 +1396,7 @@ impl SfxPlayer {
             movie_sounds_suspended: false,
             voc_enabled: true,
             chrono_screen_active: false,
+            game_pause_suspends_sounds: false,
         })
     }
 
@@ -2481,7 +2481,9 @@ impl SfxPlayer {
     /// 0x00753500` (`StreamPlayer::Pause` again for the speech stream);
     /// `Exit` calls `SpeechSystem::Resume @ 0x00753510` then
     /// `VoxClass::UnpauseEVA @ 0x00753620`. Neither call sits behind the
-    /// `FUN_0053bad0` gate that the SFX half does. The SFX half covers the
+    /// `0x0053BAD0` ChronoScreen gate that `Enter`'s SFX half does. `Exit`'s
+    /// SFX half has no gate: its resumes (`0x004037C0`, `0x00405040`,
+    /// `0x00751080`) each do nothing where nothing was paused. The SFX half covers the
     /// unit voice events (Voc channels natively); the stream half is
     /// `eva_player`, and the speech stream SpeechSystem pauses is
     /// `taunt_player`; movie holds pause both streams too
@@ -2494,7 +2496,11 @@ impl SfxPlayer {
             return;
         }
         self.paused = paused;
-        self.apply_pause_edge(paused, now_ms, !self.chrono_screen_active);
+        let sounds = !paused || !self.chrono_screen_active;
+        if sounds {
+            self.game_pause_suspends_sounds = paused;
+        }
+        self.apply_pause_edge(paused, now_ms, sounds);
     }
     /// `Audio__PauseForMovie @ 0x005BF580` / `Audio__ResumeAfterMovie @
     /// 0x005BF530`, the hold every movie takes: `VoxClass__PauseEVA` and
@@ -2555,7 +2561,7 @@ impl SfxPlayer {
     }
 
     fn apply_output_pauses(&self) {
-        let voc_paused = self.movie_sounds_suspended || (self.paused && !self.chrono_screen_active);
+        let voc_paused = self.movie_sounds_suspended || self.game_pause_suspends_sounds;
         for output in self.live.values() {
             if voc_paused {
                 output.player.pause();
@@ -2665,6 +2671,7 @@ impl SfxPlayer {
         }
         self.vox.reset_all();
         self.paused = false;
+        self.game_pause_suspends_sounds = false;
         self.movie_held = false;
         self.movie_sounds_suspended = false;
         self.voc_enabled = true;
@@ -2892,17 +2899,18 @@ fn load_sfx(
         && let Some(bag_audio) = crate::assets::audio_bag::decode_bag_audio(entry, data)
     {
         // Convert i16 → f32 stereo.
-        let stereo = upmix_i16_to_f32_stereo(&bag_audio.samples_i16, bag_audio.channels);
+        let mut stereo = Vec::new();
+        upmix_i16_to_f32_stereo(&mut stereo, &bag_audio.samples_i16, bag_audio.channels);
         return Some(DecodedAudio {
             samples: stereo,
             sample_rate: bag_audio.sample_rate,
             channels: 2,
-            native_frame_bytes: bag_audio.channels
-                * if entry.is_16bit() || entry.is_ima_adpcm() {
-                    2
-                } else {
-                    1
-                },
+            native_channels: bag_audio.channels,
+            native_sample_bytes: if entry.is_16bit() || entry.is_ima_adpcm() {
+                2
+            } else {
+                1
+            },
         });
     }
 
@@ -2924,30 +2932,30 @@ fn load_sfx(
     }
 
     // AUD is always mono — upmix to stereo for rodio.
-    let stereo = upmix_i16_to_f32_stereo(&samples, 1);
+    let mut stereo = Vec::new();
+    upmix_i16_to_f32_stereo(&mut stereo, &samples, 1);
     Some(DecodedAudio {
         samples: stereo,
         sample_rate: header.sample_rate as u32,
         channels: 2,
-        native_frame_bytes: 2,
+        native_channels: 1,
+        native_sample_bytes: 2,
     })
 }
 
-/// Convert i16 PCM samples to interleaved f32 stereo.
+/// Append i16 PCM samples to `out` as interleaved f32 stereo.
 /// Mono input is duplicated to both channels.
-fn upmix_i16_to_f32_stereo(samples: &[i16], channels: u16) -> Vec<f32> {
+pub(crate) fn upmix_i16_to_f32_stereo(out: &mut Vec<f32>, samples: &[i16], channels: u16) {
     if channels >= 2 {
         // Already stereo (or more) — just convert to f32.
-        samples.iter().map(|&s| s as f32 / 32768.0).collect()
+        out.extend(samples.iter().map(|&s| s as f32 / 32768.0));
     } else {
         // Mono → stereo: duplicate each sample.
-        samples
-            .iter()
-            .flat_map(|&s| {
-                let f = s as f32 / 32768.0;
-                [f, f]
-            })
-            .collect()
+        out.reserve(samples.len() * 2);
+        out.extend(samples.iter().flat_map(|&s| {
+            let f = s as f32 / 32768.0;
+            [f, f]
+        }));
     }
 }
 
@@ -2958,69 +2966,33 @@ fn upmix_i16_to_f32_stereo(samples: &[i16], channels: u16) -> Vec<f32> {
 /// Mono or stereo. This covers all RA2 sound effects and EVA voices.
 pub(crate) fn decode_wav(data: &[u8], filename: &str) -> Option<DecodedAudio> {
     let wav = crate::assets::wav_file::WavFile::parse(data)?;
-    let samples = match wav.format_tag {
-        1 => decode_pcm(wav.data, wav.channels, wav.bits_per_sample),
-        0x11 => decode_ima_adpcm(wav.data, wav.channels, wav.block_align),
-        _ => {
-            log::trace!(
-                "WAV: unsupported format tag {} for {}",
-                wav.format_tag,
-                filename
-            );
-            return None;
-        }
+    let Some(mut cursor) = crate::assets::wav_file::WavPcmCursor::new(&wav) else {
+        log::trace!(
+            "WAV: unsupported format tag {} ({}-bit) for {}",
+            wav.format_tag,
+            wav.bits_per_sample,
+            filename
+        );
+        return None;
     };
-    if samples.is_empty() {
+    let mut pcm = Vec::new();
+    while cursor.decode_next(wav.data, &mut pcm) {}
+    if pcm.is_empty() {
         return None;
     }
-    let stereo = if wav.channels == 1 {
-        samples.iter().flat_map(|&s| [s, s]).collect()
-    } else {
-        samples
-    };
+    let mut samples = Vec::new();
+    upmix_i16_to_f32_stereo(&mut samples, &pcm, wav.channels);
     Some(DecodedAudio {
-        samples: stereo,
+        samples,
         sample_rate: wav.sample_rate,
         channels: 2,
-        native_frame_bytes: wav.channels
-            * if wav.format_tag == 0x11 {
-                2
-            } else {
-                wav.bits_per_sample / 8
-            },
+        native_channels: wav.channels,
+        native_sample_bytes: if wav.format_tag == 0x11 {
+            2
+        } else {
+            wav.bits_per_sample / 8
+        },
     })
-}
-
-/// Decode IMA ADPCM WAV data into interleaved f32 samples.
-///
-/// `WAV__ParseHeader @ 0x00408610` maps `wFormatTag == 0x11` onto the same audio
-/// format descriptor the bag index fills, taking the block stride from the fmt
-/// chunk's `nBlockAlign` (`psVar6[6]`). `FUN_00409C40 @ 0x00409C40` then installs
-/// the one block decoder in the image, `IMA_ADPCM__DecodeBlock @ 0x0040AA70`, so
-/// WAV and bag IMA share a decoder natively and share `ima_adpcm::decode_blocks`
-/// here.
-fn decode_ima_adpcm(data: &[u8], channels: u16, block_align: u16) -> Vec<f32> {
-    crate::assets::ima_adpcm::decode_blocks(data, channels, block_align as u32)
-        .into_iter()
-        .map(|s| s as f32 / 32768.0)
-        .collect()
-}
-
-/// Convert raw PCM bytes to f32 samples. Output channel count matches input.
-fn decode_pcm(pcm: &[u8], channels: u16, bits_per_sample: u16) -> Vec<f32> {
-    match (bits_per_sample, channels) {
-        (16, _) => pcm
-            .as_chunks::<2>()
-            .0
-            .iter()
-            .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
-            .collect(),
-        (8, _) => pcm.iter().map(|&b| (b as f32 - 128.0) / 128.0).collect(),
-        _ => {
-            log::trace!("WAV: unsupported {}bit {}ch PCM", bits_per_sample, channels);
-            Vec::new()
-        }
-    }
 }
 
 #[cfg(test)]
@@ -3521,7 +3493,8 @@ mod tests {
             samples: vec![value; frames * 2],
             sample_rate,
             channels: 2,
-            native_frame_bytes: 2,
+            native_channels: 1,
+            native_sample_bytes: 2,
         }
     }
 
@@ -3540,14 +3513,16 @@ mod tests {
         assert_eq!(resolved.decoded.sample_rate, 22050 * 110 / 100);
         assert_eq!(rng.requests, vec![(0, 50)]);
 
-        // A rate mismatch keeps the first clip only.
+        // A rate mismatch chains at the first clip's rate (Fill409880 sets no
+        // new frequency).
         let mut rng = ScriptedRng::new(&[0]);
         let resolved = resolve_entry_playback(&e, &mut rng, |name| match name {
             "a" => Some(clip(0.1, 1, 22050)),
             _ => Some(clip(0.2, 1, 11025)),
         })
         .expect("resolved");
-        assert_eq!(resolved.decoded.samples, vec![0.1, 0.1]);
+        assert_eq!(resolved.decoded.samples, vec![0.1, 0.1, 0.2, 0.2, 0.2, 0.2]);
+        assert_eq!(resolved.decoded.sample_rate, 22050 * 110 / 100);
 
         // Nothing loadable resolves to nothing.
         assert!(resolve_entry_playback(&e, &mut rng, |_| None).is_none());
@@ -3575,7 +3550,8 @@ mod tests {
             samples: vec![0.0, 0.0],
             sample_rate: 22_050,
             channels: 2,
-            native_frame_bytes: 2,
+            native_channels: 1,
+            native_sample_bytes: 2,
         }
     }
 
@@ -4573,7 +4549,12 @@ mod tests {
         assert!(player.arbiter.live_event_count() == 0);
     }
 
-    fn build_test_wav(sample_rate: u32, bits: u16, channels: u16, samples: &[u8]) -> Vec<u8> {
+    pub(super) fn build_test_wav(
+        sample_rate: u32,
+        bits: u16,
+        channels: u16,
+        samples: &[u8],
+    ) -> Vec<u8> {
         let data_size: u32 = samples.len() as u32;
         let fmt_size: u32 = 16;
         let byte_rate: u32 = sample_rate * channels as u32 * bits as u32 / 8;

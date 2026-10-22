@@ -939,9 +939,12 @@ fn animation_theater_flags_match_original_fresh_read_and_postpass() {
     assert_eq!(corpus["schema"], 1);
     let cases = corpus["cases"].as_array().unwrap();
     assert_eq!(cases.len(), 26);
+    let imageless = crate::test_fixture::json("tools/rules_oracle/imageless_anim.json");
+    let imageless_cases = imageless["cases"].as_array().unwrap();
+    assert_eq!(imageless_cases.len(), 3);
     let mut bound_cases = 0;
     let mut missing_cases = 0;
-    for case in cases {
+    for case in cases.iter().chain(imageless_cases) {
         let input = &case["input"];
         let label = input["case"].as_str().unwrap();
         let name = input["name"].as_str().unwrap();
@@ -1028,9 +1031,18 @@ fn animation_theater_flags_match_original_fresh_read_and_postpass() {
             );
             bound_cases += 1;
         } else {
-            assert!(
-                matches!(result, Err(AnimAssetBindError::MissingShp(_))),
-                "{label}: {result:?}"
+            result.unwrap_or_else(|error| panic!("{label}: {error}"));
+            let config = art.anim_runtime_config(name).unwrap();
+            assert_eq!(config.raw_shp_frame_count, admitted.then_some(0), "{label}");
+            assert_eq!(
+                config.end,
+                expected["end"].as_i64().unwrap() as i32,
+                "{label}"
+            );
+            assert_eq!(
+                config.loop_end,
+                expected["loop_end"].as_i64().unwrap() as i32,
+                "{label}"
             );
             missing_cases += 1;
         }
@@ -1192,4 +1204,72 @@ fn custom_palette_projects_through_the_rules_image() {
     assert_eq!(custom("STATUE"), Some("lib"));
     assert_eq!(custom("COPY"), Some("lib"), "Rules Image names the section");
     assert_eq!(custom("PLAIN"), None, "the type ID's section is not read");
+}
+
+/// Regression: the image loader must not erase an invisible animation's real
+/// constructor-time Middle/particle producer. Native null-image reader values
+/// come from imageless_anim; particle arithmetic remains with its existing owner.
+#[test]
+fn imageless_retail_animation_reaches_existing_gas_particle_owner() {
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let expected = fixture
+        .fixed_art
+        .section_or_empty("VIRUSD")
+        .read_int("NumParticles", 0);
+    assert!(expected > 0, "selected stock particle animation");
+    let root = AnimDimTestRoot::new();
+    let assets = crate::assets::asset_manager::AssetManager::from_loose_root_for_test(root.path());
+    let mut rules = fixture.rules;
+    rules
+        .bind_scheduler_anim_assets(&["VIRUSD".to_string()], &assets, "TEM", "TEMPERATE")
+        .unwrap();
+    let config = rules.art().anim_runtime_config("VIRUSD").unwrap();
+    assert_eq!(config.raw_shp_frame_count, Some(0));
+    let particle = rules
+        .p_type_id_by_name(config.spawns_particle.as_deref().unwrap())
+        .unwrap();
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+    sim.native_unique_ids =
+        Some(crate::sim::native_identity::NativeUniqueIdCursor::test_at_current_value(1000));
+    sim.construct_post_load_particle_system_id(&rules);
+    let count = |sim: &crate::sim::world::Simulation| {
+        sim.particle_systems()
+            .iter()
+            .flat_map(|(_, system)| &system.particles)
+            .filter(|p| p.type_id == particle)
+            .count()
+    };
+    let before = count(&sim);
+    let kind = sim.interner.intern("VIRUSD");
+    let anim = sim
+        .spawn_combat_explosion_anim(
+            &rules,
+            kind,
+            10,
+            10,
+            crate::util::fixed_math::SIM_ZERO,
+            crate::util::fixed_math::SIM_ZERO,
+            0,
+            0,
+        )
+        .expect("missing image does not reject a real particle animation");
+    assert_eq!(count(&sim) - before, expected as usize);
+    sim.object_ai_visit_one(
+        anim,
+        Some(&rules),
+        crate::sim::world::ObjectAiCtx::default(),
+    );
+    assert!(sim.anim(anim).is_some(), "constructor first-AI guard");
+    sim.session.set_binary_frame_for_test(1 << 16); // expire any u16 rate timer
+    sim.object_ai_visit_one(
+        anim,
+        Some(&rules),
+        crate::sim::world::ObjectAiCtx::default(),
+    );
+    assert!(
+        sim.anim(anim).is_none(),
+        "zero-End animation retires through existing AI"
+    );
 }

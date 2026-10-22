@@ -1330,6 +1330,10 @@ impl PlaybackService for OneShotService<'_> {
             }
         }
     }
+
+    fn channel_volume(&self, _: EventId) -> i32 {
+        0
+    }
 }
 
 /// Original750920/7509E0 requests are supplied after GI construction, with

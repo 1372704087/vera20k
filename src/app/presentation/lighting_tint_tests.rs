@@ -320,6 +320,8 @@ fn live_tag_rgb_overrides_reach_packets_and_survive_ambient_writes_during_storm(
 
 /// A radiation site's bound type drives the field's cell light: the same
 /// scene lights purple for a `255,0,255` type and green for the default one.
+/// Phobos builds only: other builds never read `[RadiationTypes]`.
+#[cfg(feature = "phobos")]
 #[test]
 fn a_bound_radiation_type_tints_the_field_with_its_own_color() {
     let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(

@@ -126,6 +126,8 @@ fn raw_ini_walks_have_pinned_production_callers() {
             &[
                 ("rules/ini_parser.rs", 1), // the definition
                 ("rules/overlay_types.rs", 2),
+                // Phobos `[RadiationTypes]`, read only in Phobos builds.
+                ("rules/phobos_radiation.rs", 1),
                 // Includes parse_registry copying already resolved stored IDs.
                 ("rules/ruleset.rs", 3),
                 ("rules/smudge_type.rs", 1),
@@ -1282,6 +1284,21 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "rules/object_type.rs",
             "set_secret_lab",
             "runs only inside RuleSet's load",
+        ),
+        (
+            "rules/superweapon_type.rs",
+            "set_tech_level",
+            "runs only inside RuleSet's load: Phobos SW.TechLevel",
+        ),
+        (
+            "rules/superweapon_type.rs",
+            "set_aux_technos",
+            "runs only inside RuleSet's load: Phobos SW.AuxTechnos",
+        ),
+        (
+            "rules/superweapon_type.rs",
+            "set_neg_technos",
+            "runs only inside RuleSet's load: Phobos SW.NegTechnos",
         ),
         (
             "sim/ai_base_building.rs",

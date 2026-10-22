@@ -1231,8 +1231,9 @@ mod tests {
         let timer_tail = &SOURCE[sparkle..outcome_start];
         assert_eq!(
             timer_tail.matches(".draw").count() + timer_tail.matches("draw_pooled").count(),
-            3,
-            "PixelFX and the two timer submissions precede the native result draw"
+            5,
+            "PixelFX, the two timer submissions and the two Phobos build-description \
+             submissions (empty outside Phobos builds) precede the native result draw"
         );
     }
 

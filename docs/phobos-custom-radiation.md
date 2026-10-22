@@ -73,9 +73,17 @@ name and the bound weapon IDs enter the simulation configuration hash, and the
 catalog crosses the save boundary with the retained Rules records. A save
 records the build capability and cannot load in the other mode.
 
+`RadHasOwner` and `RadHasInvoker` attribute a site's damage.
+`RadSiteExt::CreateInstance` copies the detonating round's house and firer onto
+the site only when the bound type asks for them, a merge keeps the existing
+site's copies, and each damage call passes them to `ReceiveDamage` — the house
+as its source house (native alliance and credit rules) and the firer as its
+source object. A type without the flags keeps neither, so its radiation keeps
+hitting every house neutrally.
+
 Not implemented, read and retained only: `RadApplicationDelay.Building` and
 `RadBuildingDamageMaxCount` (VERA20K has no building radiation receiver, so
-building damage is absent regardless of the value), `RadSiteWarhead.Detonate`
-and `RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site),
-and `RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
-This feature does not load Phobos DLLs or establish complete mod compatibility.
+building damage is absent regardless of the value), and
+`RadSiteWarhead.Detonate`/`RadSiteWarhead.Detonate.Full` (warhead detonation
+from a radiation site). This feature does not load Phobos DLLs or establish
+complete mod compatibility.

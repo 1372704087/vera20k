@@ -22,12 +22,6 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K skirmish setup screen and in-game view" width="100%">
 
-### Download
-
-| Latest release | Latest development build |
-|---|---|
-| [![Latest release](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Latest development build](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
-
 ## Project goals
 
 1. Keep the gameplay, visuals and atmosphere of the original Red Alert 2: Yuri's Revenge.
@@ -49,14 +43,21 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 
 ## Download and play
 
-VERA20K requires the original files of Red Alert 2: Yuri's Revenge 1.001 to play. The game can be
-bought on [Steam](https://store.steampowered.com/app/2229850/) or, as part of The Ultimate Collection, in the
+VERA20K needs the original files of Red Alert 2: Yuri's Revenge 1.001. The game can be bought on
+[Steam](https://store.steampowered.com/app/2229850/) or, as part of The Ultimate Collection, in the
 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
 
-The [releases page](https://github.com/YuriPlanet/vera20k/releases) offers installers for Windows,
-macOS (Apple Silicon) and Linux: the latest release and nightly development builds. VERA20K finds
-your Yuri's Revenge folder or asks for it, then reads the game's files there without changing them.
-Its settings, saves and logs stay in its own folder.
+The easiest way to play is the installer for Windows, macOS (Apple Silicon) or Linux from the
+[latest release](https://github.com/YuriPlanet/vera20k/releases/latest). It sets everything up for
+you:
+
+- **It finds your game:** it looks for Yuri's Revenge where Steam and the EA app put it, and offers
+  the folder it finds or lets you choose one.
+- **Your game stays untouched:** VERA20K reads the game's files from that folder without copying or
+  changing them, and keeps its own settings, saves and logs in a folder of its own.
+
+Nightly development builds with the newest changes are on the
+[releases page](https://github.com/YuriPlanet/vera20k/releases) too.
 
 ## Architecture
 

@@ -22,12 +22,6 @@ das Projekt entwickelt.
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K: Gefechtseinstellungen und eine Szene aus dem Spiel" width="100%">
 
-### Download
-
-| Neueste Version | Neueste Entwicklungsversion |
-|---|---|
-| [![Neueste Version](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Neueste Entwicklungsversion](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
-
 ## Projektziele
 
 1. Spielmechanik, Grafik und Atmosphäre des ursprünglichen Red Alert 2: Yuri's Revenge bewahren.
@@ -49,14 +43,22 @@ das Projekt entwickelt.
 
 ## Herunterladen und spielen
 
-VERA20K braucht zum Spielen die Originaldateien von Red Alert 2: Yuri's Revenge 1.001. Das Spiel
-gibt es auf [Steam](https://store.steampowered.com/app/2229850/) oder, als Teil der Ultimate Collection, in der
+VERA20K braucht die Originaldateien von Red Alert 2: Yuri's Revenge 1.001. Das Spiel gibt es auf
+[Steam](https://store.steampowered.com/app/2229850/) oder, als Teil der Ultimate Collection, in der
 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
 
-Auf der [Release-Seite](https://github.com/YuriPlanet/vera20k/releases) gibt es Installer für
-Windows, macOS (Apple Silicon) und Linux: die neueste Version und nächtliche Entwicklungsversionen.
-VERA20K findet deinen Yuri's-Revenge-Ordner oder fragt danach und liest die Spieldateien dort,
-ohne sie zu verändern. Einstellungen, Spielstände und Logs bleiben in seinem eigenen Ordner.
+Am einfachsten spielst du mit dem Installer für Windows, macOS (Apple Silicon) oder Linux aus dem
+[neuesten Release](https://github.com/YuriPlanet/vera20k/releases/latest). Er richtet alles für dich
+ein:
+
+- **Er findet dein Spiel:** Er sucht Yuri's Revenge dort, wo Steam und die EA app es ablegen, und
+  bietet dir den gefundenen Ordner an, oder du wählst selbst einen.
+- **Dein Spiel bleibt unverändert:** VERA20K liest die Spieldateien aus diesem Ordner, ohne sie zu
+  kopieren oder zu verändern, und speichert Einstellungen, Spielstände und Logs in einem eigenen
+  Ordner.
+
+Nächtliche Entwicklungsversionen mit den neuesten Änderungen findest du ebenfalls auf der
+[Release-Seite](https://github.com/YuriPlanet/vera20k/releases).
 
 ## Architektur
 

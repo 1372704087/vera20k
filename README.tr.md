@@ -22,12 +22,6 @@ oyuncular söylüyor.
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K çatışma ayarları ekranı ve oyun içi görünüm" width="100%">
 
-### İndir
-
-| Son sürüm | Son geliştirme derlemesi |
-|---|---|
-| [![Son sürüm](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Son geliştirme derlemesi](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
-
 ## Projenin hedefleri
 
 1. Orijinal Red Alert 2: Yuri's Revenge'in oynanışını, görsellerini ve atmosferini korumak.
@@ -49,14 +43,20 @@ oyuncular söylüyor.
 
 ## İndir ve oyna
 
-VERA20K, oynamak için Red Alert 2: Yuri's Revenge 1.001 oyununun orijinal dosyalarına ihtiyaç
-duyar. Oyun [Steam](https://store.steampowered.com/app/2229850/) üzerinden ya da The Ultimate Collection'ın
-bir parçası olarak [EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) satın alınabilir.
+VERA20K, Red Alert 2: Yuri's Revenge 1.001 oyununun orijinal dosyalarına ihtiyaç duyar. Oyun
+[Steam](https://store.steampowered.com/app/2229850/) üzerinden ya da The Ultimate Collection'ın bir
+parçası olarak [EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) satın alınabilir.
 
-[Sürümler sayfası](https://github.com/YuriPlanet/vera20k/releases) Windows, macOS (Apple Silicon) ve
-Linux için yükleyiciler sunar: son sürüm ve gecelik geliştirme derlemeleri. VERA20K, Yuri's Revenge
-klasörünüzü bulur ya da size sorar ve oyunun dosyalarını orada hiçbir şeyi değiştirmeden okur.
-Ayarları, kayıtları ve günlükleri kendi klasöründe kalır.
+Oynamanın en kolay yolu, [son sürümdeki](https://github.com/YuriPlanet/vera20k/releases/latest)
+Windows, macOS (Apple Silicon) veya Linux yükleyicisidir. Her şeyi sizin için ayarlar:
+
+- **Oyununuzu bulur:** Yuri's Revenge'i Steam'in ve EA uygulamasının kurduğu yerlerde arar ve
+  bulduğu klasörü önerir ya da kendiniz seçmenize izin verir.
+- **Oyununuza dokunmaz:** VERA20K oyunun dosyalarını bu klasörden kopyalamadan ve değiştirmeden
+  okur; kendi ayarlarını, kayıtlarını ve günlüklerini ayrı bir klasörde tutar.
+
+En yeni değişiklikleri içeren gecelik geliştirme derlemeleri de
+[sürümler sayfasında](https://github.com/YuriPlanet/vera20k/releases) bulunur.
 
 ## Mimari
 

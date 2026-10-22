@@ -22,12 +22,6 @@ VERA20K делают игроки для игроков, и последнее �
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K: настройки схватки и кадр из игры" width="100%">
 
-### Скачать
-
-| Последний выпуск | Последняя тестовая сборка |
-|---|---|
-| [![Последний выпуск](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Последняя тестовая сборка](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
-
 ## Цели проекта
 
 1. Сохранить игровой процесс, графику и атмосферу оригинальной Red Alert 2: Yuri's Revenge.
@@ -49,14 +43,21 @@ VERA20K делают игроки для игроков, и последнее �
 
 ## Скачать и играть
 
-Для игры VERA20K нужны оригинальные файлы Red Alert 2: Yuri's Revenge 1.001. Игру можно купить
-в [Steam](https://store.steampowered.com/app/2229850/) или, в составе The Ultimate Collection, в
+Для VERA20K нужны оригинальные файлы Red Alert 2: Yuri's Revenge 1.001. Игру можно купить в
+[Steam](https://store.steampowered.com/app/2229850/) или, в составе The Ultimate Collection, в
 [приложении EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
 
-На [странице выпусков](https://github.com/YuriPlanet/vera20k/releases) есть установщики для
-Windows, macOS (Apple Silicon) и Linux: последний выпуск и ночные тестовые сборки. VERA20K находит
-твою папку Yuri's Revenge или спрашивает, где она, и читает файлы игры прямо оттуда, ничего в них
-не меняя. Настройки, сохранения и журналы VERA20K хранит в своей папке.
+Проще всего играть через установщик для Windows, macOS (Apple Silicon) или Linux из
+[последнего выпуска](https://github.com/YuriPlanet/vera20k/releases/latest). Он всё настроит за
+тебя:
+
+- **Сам находит игру:** ищет Yuri's Revenge там, куда её ставят Steam и приложение EA, и предлагает
+  найденную папку или даёт выбрать свою.
+- **Игра остаётся нетронутой:** VERA20K читает файлы игры из этой папки, ничего не копируя и не
+  меняя, а свои настройки, сохранения и журналы хранит в отдельной папке.
+
+Ночные тестовые сборки с самыми свежими изменениями тоже есть на
+[странице выпусков](https://github.com/YuriPlanet/vera20k/releases).
 
 ## Архитектура
 

@@ -21,12 +21,6 @@ palabra sobre su rumbo.
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K: pantalla de configuración de escaramuza y vista de una partida" width="100%">
 
-### Descargar
-
-| Última versión | Última compilación de desarrollo |
-|---|---|
-| [![Última versión](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Última compilación de desarrollo](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
-
 ## Objetivos del proyecto
 
 1. Conservar la jugabilidad, el aspecto visual y la atmósfera del Red Alert 2: Yuri's Revenge
@@ -50,14 +44,20 @@ palabra sobre su rumbo.
 
 ## Descargar y jugar
 
-VERA20K necesita los archivos originales de Red Alert 2: Yuri's Revenge 1.001 para funcionar. El
-juego se puede comprar en [Steam](https://store.steampowered.com/app/2229850/) o, como parte de The Ultimate
-Collection, en la [app de EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
+VERA20K necesita los archivos originales de Red Alert 2: Yuri's Revenge 1.001. El juego se puede
+comprar en [Steam](https://store.steampowered.com/app/2229850/) o, como parte de The Ultimate Collection,
+en la [app de EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
 
-La [página de versiones](https://github.com/YuriPlanet/vera20k/releases) ofrece instaladores para
-Windows, macOS (Apple Silicon) y Linux: la última versión y compilaciones de desarrollo nocturnas.
-VERA20K encuentra tu carpeta de Yuri's Revenge o te la pide, y lee allí los archivos del juego sin
-modificarlos. Su configuración, partidas guardadas y registros se quedan en su propia carpeta.
+La forma más fácil de jugar es el instalador para Windows, macOS (Apple Silicon) o Linux de la
+[última versión](https://github.com/YuriPlanet/vera20k/releases/latest). Lo prepara todo por ti:
+
+- **Encuentra tu juego:** busca Yuri's Revenge donde lo instalan Steam y la app de EA y te propone
+  la carpeta que encuentra, o te deja elegir otra.
+- **Tu juego queda intacto:** VERA20K lee los archivos del juego desde esa carpeta sin copiarlos ni
+  modificarlos, y guarda su configuración, partidas guardadas y registros en una carpeta propia.
+
+En la [página de versiones](https://github.com/YuriPlanet/vera20k/releases) también hay
+compilaciones de desarrollo nocturnas con los últimos cambios.
 
 ## Arquitectura
 

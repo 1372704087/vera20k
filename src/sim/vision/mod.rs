@@ -1591,6 +1591,16 @@ impl FogState {
         })
     }
 
+    /// Either `Cell+0x12C` ground bit (`& 0x18`), as `VocClass::CalcVolumeAndPan`
+    /// tests it for a `Type=SHROUD` sound (`0x00750B94`).
+    pub fn has_ground_bits(&self, owner: InternedId, rx: u16, ry: u16) -> bool {
+        self.by_owner.get(&owner).is_some_and(|view| {
+            view.index(rx, ry)
+                .and_then(|i| view.ground_flags.get(i))
+                .is_some_and(|&flags| flags & (GROUND_VISIBLE | GROUND_OPEN) != 0)
+        })
+    }
+
     /// Returns true if the owner (or a friendly ally) currently sees the cell.
     pub fn is_cell_visible(&self, owner: InternedId, rx: u16, ry: u16) -> bool {
         self.by_owner

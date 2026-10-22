@@ -230,21 +230,10 @@ impl SpatialGain {
 ///   (`0x00750AD6..0x00750B06`), `maxRange = Range * 0x3C` as float.
 /// - `Type=SHROUD` (`0x800`): a sound in a cell whose shroud flags
 ///   (`CellClass+0x12C & 0x18`) are both clear returns 0 (`0x00750B2D..
-///   0x00750BAA`). The cell test is the caller's: `shrouded`.
-///   RESIDUAL — the sentinel-cell early-out ahead of it is not modelled.
-///   `0x00750B51 CMP CX,[0x00b1d310]` / `0x00750B6C CMP AX,[0x00b1d312]`
-///   return 0.0f when the sound's cell equals that `CellStruct` pair, i.e.
-///   *before* the `CellClass` lookup at `0x00750B8F`. `get_xrefs_to` on both
-///   words shows one read (this site) and one write — the three-instruction
-///   setter at `0x007502B0` (`XOR EAX,EAX; MOV [0x00b1d310],AX; MOV
-///   [0x00b1d312],AX`), reached only through the vtable slot at `0x0081562C`
-///   — and the image bytes are already `00 00 00 00`, so the pair is the null
-///   cell `(0,0)` for the whole process lifetime. Trigger: a `Type=SHROUD`
-///   cue whose object sits on map cell `(0,0)`. Player effect: that one cue is
-///   silent. Frequency: never in ordinary play — cell `(0,0)` is outside every
-///   map's playable rectangle, and the 11 stock `SHROUD` cues are super-weapon
-///   ready/open sounds that VERA does not emit yet. Downstream risk: none; it
-///   is an early-out, so modelling it can only add silence.
+///   0x00750BAA`), as does the null cell `(0,0)` ahead of that lookup
+///   (`0x00750B51..0x00750B73`). The cell test is the caller's: `shrouded`.
+///   RESIDUAL: a cell outside the map reads native's shared Dummy cell
+///   (`0x005657A0` returns `0x00ABDC50`); VERA treats it as never seen.
 /// - `offsetX = clientX - halfW` kept as float (`FST [ESP+0x10]`); the
 ///   distances are `|ftol(clientX - halfW)|` and `|ftol(clientY - halfH)|`
 ///   (`0x00750BBE..0x00750BF6`), the abs taken by the wrapping `CDQ; XOR; SUB`

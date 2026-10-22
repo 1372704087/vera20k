@@ -43,6 +43,19 @@ pub(crate) fn refresh_coordinate_sound_gains(state: &mut AppState) {
     }
 }
 
+/// The cell test `VocClass::CalcVolumeAndPan` makes for a `Type=SHROUD`
+/// sound (`0x00750B51..0x00750B9B`): the null cell `(0,0)` (the static
+/// `[0x00B1D310]` pair) is always silent, and any other cell is silent while
+/// both of the local player's ground bits `CellClass+0x12C & 0x18` are clear.
+fn shroud_cell_silences(
+    fog: &crate::sim::vision::FogState,
+    owner: crate::sim::intern::InternedId,
+    rx: u16,
+    ry: u16,
+) -> bool {
+    (rx, ry) == (0, 0) || !fog.has_ground_bits(owner, rx, ry)
+}
+
 /// Borrowed process sources and listener for one synchronous sound delivery.
 /// The simulation is supplied only for the duration of `consume`.
 pub(crate) struct SoundPlaybackInputs<'a> {
@@ -74,13 +87,9 @@ impl<'a> SoundSpatialContext<'a> {
         }
     }
 
-    /// `CellClass+0x12C & 0x18 == 0`: unrevealed or gap-covered.
     fn shrouded(&self, rx: u16, ry: u16) -> bool {
         match (self.sim, self.local_owner_id) {
-            (Some(sim), Some(owner)) => {
-                !sim.fog().is_cell_revealed(owner, rx, ry)
-                    || sim.fog().is_cell_gap_covered(owner, rx, ry)
-            }
+            (Some(sim), Some(owner)) => shroud_cell_silences(sim.fog(), owner, rx, ry),
             _ => false,
         }
     }
@@ -583,4 +592,22 @@ fn registry_facts_for_owner(
         || crate::audio::sfx::SpatialSource::from_registry_defaults(registry),
         crate::audio::sfx::SpatialSource::from_entry,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Either ground bit keeps a SHROUD cue audible, even where the shroud
+    /// knowledge is closed; none, or the null cell, silences it.
+    #[test]
+    fn shroud_cues_follow_the_cell_ground_bits() {
+        let owner = crate::sim::intern::test_intern("Americans");
+        let mut fog = crate::sim::vision::FogState::new(32, 32);
+        assert!(shroud_cell_silences(&fog, owner, 5, 5));
+        fog.set_ground_bits_for_test(owner, 5, 5, 0x10);
+        assert!(!shroud_cell_silences(&fog, owner, 5, 5));
+        fog.set_ground_bits_for_test(owner, 0, 0, 0x18);
+        assert!(shroud_cell_silences(&fog, owner, 0, 0));
+    }
 }

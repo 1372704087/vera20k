@@ -14,7 +14,9 @@ use crate::audio::theme::{MusicOutputState, PreparedTrack};
 use crate::rules::sound_ini::VOLUME_SCALE;
 use crate::util::native_x87::X87Chop53;
 
-/// Engine default for the score (music) volume.
+/// The output's score volume before startup applies the Options profile
+/// (`apply_startup_audio_profile`). It mirrors `OptionsClass__SetDefaults
+/// @ 0x005FA350`'s 0.4; the profile is the persisted authority.
 pub const DEFAULT_SCORE_VOLUME: f64 = 0.4;
 
 /// The Theme stream's DirectSound amplitude.

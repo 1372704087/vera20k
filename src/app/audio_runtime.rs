@@ -238,6 +238,22 @@ impl AppAudioRuntime {
             player.set_master_groups(groups.sound_master.value(), groups.eva_master.value());
         }
     }
+    /// `OptionsClass::Set_Sound_Volume @ 0x005FA510`'s output: the effects
+    /// volume every SFX channel scales by. The profile write is the caller's.
+    pub(crate) fn set_sound_volume(&mut self, volume: f64) {
+        if let Some(player) = self.sfx_player.as_mut() {
+            player.set_sound_volume(volume);
+        }
+    }
+
+    /// `OptionsClass::Set_Voice_Volume @ 0x005FA590`'s output: unit voices and
+    /// EVA. The profile write is the caller's.
+    pub(crate) fn set_voice_volume(&mut self, volume: f64) {
+        if let Some(player) = self.sfx_player.as_mut() {
+            player.set_voice_volume(volume);
+        }
+    }
+
     /// `OptionsClass::Set_Score_Volume` at `0x005FA4A0` publishes the stored
     /// Options f32 to the stream first, then Theme's `+0xC` gate. Theme owns its
     /// native quantization; the player's safe 0..1 gain never feeds back into

@@ -385,5 +385,53 @@ mod tests {
             read_pixel(&overflowed, 8, 4),
             overflow_original[(4 * WIDTH + 8) as usize]
         );
+
+        // The retail screenshot path reads the prior presented cursor-free
+        // frame, then applies that frame's committed shake snapshot before
+        // readback. This shares the production output pass and keeps the
+        // screenshot one presentation behind the currently drawn frame.
+        let (capture_source, capture_original) = gpu.patterned_target();
+        let cache = crate::render::screenshot::PresentedFrameCache::default();
+        let mut stage = gpu.device.create_command_encoder(&Default::default());
+        cache.stage_pre_cursor_composition(
+            &gpu.device,
+            &mut stage,
+            &capture_source,
+            FORMAT,
+            WIDTH,
+            HEIGHT,
+            WIDTH,
+            HEIGHT,
+        );
+        gpu.queue.submit([stage.finish()]);
+        cache.commit_presented([1, -1]);
+        let mut capture_encoder = gpu.device.create_command_encoder(&Default::default());
+        let capture = cache
+            .capture_previous_if_requested(
+                true,
+                &gpu.device,
+                &mut capture_encoder,
+                FORMAT,
+                WIDTH,
+                HEIGHT,
+                None,
+                &mut pass,
+                [0, 0, CENTRAL_WIDTH, HEIGHT],
+            )
+            .expect("capture shaken prior frame")
+            .expect("capture requested");
+        let submission = gpu.queue.submit([capture_encoder.finish()]);
+        let captured = capture
+            .finish(&gpu.device, submission, Duration::from_secs(5))
+            .expect("read shaken screenshot");
+        assert_eq!(read_pixel(&captured, 0, 0), black);
+        assert_eq!(
+            read_pixel(&captured, 1, 4),
+            capture_original[(5 * WIDTH) as usize]
+        );
+        assert_eq!(
+            read_pixel(&captured, 8, 4),
+            capture_original[(4 * WIDTH + 8) as usize]
+        );
     }
 }

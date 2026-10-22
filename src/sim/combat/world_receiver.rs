@@ -2791,6 +2791,28 @@ pub(crate) fn commit_projectile_detonations_inline(
         // the temporary Bullet packet; do not invent a second alive flag.
         let represented_bullet = world.projectiles.get(detonation.projectile_id).is_some();
         for _ in 0..clusters {
+            // BulletClass::DetonateAtCoord prologue @0x004690B0 reads each
+            // axis pair before its special/damage chain (0x004690CE..0x0046912B).
+            // The native tests either bound for nonzero, then calls the shared
+            // RandomRanged @0x0065C7E0 on g_MainRng @0x00886B88, X before Y.
+            let shake_x = (warhead.shake_x_lo != 0 || warhead.shake_x_hi != 0).then(|| {
+                world
+                    .main_rng
+                    .next_range_i32_inclusive(warhead.shake_x_lo, warhead.shake_x_hi)
+            });
+            let shake_y = (warhead.shake_y_lo != 0 || warhead.shake_y_hi != 0).then(|| {
+                world
+                    .main_rng
+                    .next_range_i32_inclusive(warhead.shake_y_lo, warhead.shake_y_hi)
+            });
+            if shake_x.is_some() || shake_y.is_some() {
+                world
+                    .screen_shake_updates
+                    .emit(crate::sim::combat::ScreenShakeUpdate {
+                        x: shake_x,
+                        y: shake_y,
+                    });
+            }
             let clustered = world.projectiles.current_detonation(ProjectileDetonation {
                 impact: coordinate,
                 ..*detonation

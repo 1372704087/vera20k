@@ -76,6 +76,9 @@ pub(crate) struct MatchPresentationState {
     /// type (`presentation::super_timers`).
     pub(crate) super_timer_blinks: crate::app::presentation::super_timers::TimerBlinks,
     pub(crate) combat_lights: crate::app::presentation::combat_lights::CombatLightRuntime,
+    /// The sole client owner of native GScreenClass shake offsets; input
+    /// events decay it and Simulation only sends ordered axis writes.
+    pub(crate) screen_shake: super::screen_shake::ScreenShakeState,
     pub(crate) minimap: Option<MinimapRenderer>,
     /// Animated radar chrome — plays 33-frame open/close animation when radar gained/lost.
     pub(crate) radar_anim: Option<crate::render::radar::anim::RadarAnimState>,

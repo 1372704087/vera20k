@@ -821,8 +821,8 @@ mod tests {
                 }),
                 startup: self.startup.clone(),
                 screen: self.screen.clone(),
-                pacer_admits_same_bucket: self.frame_pacer.should_admit(32, 1, false),
-                pacer_admits_next_bucket: self.frame_pacer.should_admit(48, 1, false),
+                pacer_admits_same_bucket: self.frame_pacer.should_admit(32, 1, None, false),
+                pacer_admits_next_bucket: self.frame_pacer.should_admit(48, 1, None, false),
                 overlay_render_index: self
                     .overlay_render_index
                     .iter()

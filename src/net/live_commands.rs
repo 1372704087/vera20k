@@ -12,6 +12,8 @@ use std::io;
 use std::net::SocketAddrV4;
 use std::num::NonZeroU32;
 
+mod timing;
+
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
 
 use super::command_exchange::{
@@ -21,12 +23,29 @@ use super::lockstep::NetworkSendPolicy;
 use super::reliable::{Delivery, LanConnections, RetryTiming};
 use super::udp::{LanUdpTransport, UdpServiceReport};
 
-// Mode3's original row837370 starts with60. Ordinary648060 passes180.
+// Ordinary648060 passes180 for either transport mode.
 // Both are6C8C40 wall-clock buckets (timeGetTime>>4), not simulation frames.
-const INITIAL_PROBE_INTERVAL: i32 = 60;
 const ORDINARY_PROBE_INTERVAL: i32 = 180;
 //648930..649529 handles at most64 private messages before checking progress.
 const WAIT_RECEIVE_BUDGET: usize = 64;
+
+/// ProcessNetwork647919..647954 indexes the current GameMode's row at
+/// 837340. The relay changes physical routing, not this timing selection.
+/// Source: original gamemd.exe instructions and the row bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveCommandMode {
+    Lan,
+    Wol,
+}
+
+impl LiveCommandMode {
+    fn initial_probe_interval(self) -> i32 {
+        match self {
+            Self::Lan => 60,
+            Self::Wol => 120,
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum LiveCommandError {
@@ -58,7 +77,11 @@ enum FramePhase {
         response_time_at_entry: u32,
         last_probe: u32,
     },
-    Sending,
+    Sending {
+        entered_at: u32,
+        response_time_at_entry: u32,
+        last_probe: u32,
+    },
     Waiting {
         entered_at: u32,
         response_time_at_entry: u32,
@@ -78,6 +101,7 @@ pub enum LiveWaitKind {
 /// dialog/recovery owner. Recovery restarts countdowns without changing entry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LiveWaitInfo {
+    pub mode: LiveCommandMode,
     pub kind: LiveWaitKind,
     pub entered_at: u32,
     ///64800E..64803A samples this before ordinary Wait_For_Players;
@@ -102,6 +126,8 @@ pub struct LiveCommandSession {
     local_house: i8,
     initial_seed: u32,
     policy: NetworkSendPolicy,
+    timing: timing::LiveTiming,
+    mode: LiveCommandMode,
     current: Option<CurrentFrame>,
     last_service: Option<UdpServiceReport>,
 }
@@ -112,6 +138,7 @@ impl LiveCommandSession {
         local_house: i8,
         initial_seed: u32,
         frame_send_rate: NonZeroU32,
+        mode: LiveCommandMode,
     ) -> Result<Self, LiveCommandError> {
         if local_house < 0 {
             return Err(LiveCommandError::InvalidLocalHouse(local_house));
@@ -140,6 +167,8 @@ impl LiveCommandSession {
             local_house,
             initial_seed,
             policy: NetworkSendPolicy::FrameSendRate2 { frame_send_rate },
+            timing: timing::LiveTiming::default(),
+            mode,
             current: None,
             last_service: None,
         })
@@ -157,6 +186,19 @@ impl LiveCommandSession {
     ///lobby after gameplay. No second transport is constructed during return.
     pub fn into_transport(self) -> LanUdpTransport {
         self.transport
+    }
+
+    pub fn relay_expires(&self) -> Option<u64> {
+        self.transport.relay_expires()
+    }
+
+    pub fn renew_relay(
+        &mut self,
+        address: SocketAddrV4,
+        ticket: &[u8],
+        key: [u8; 32],
+    ) -> io::Result<()> {
+        self.transport.renew_relay(address, ticket, key)
     }
 
     pub fn connections(&self) -> &LanConnections {
@@ -206,7 +248,7 @@ impl LiveCommandSession {
         self.exchange.peers()
     }
 
-    pub fn sent_commands(&self) -> u16 {
+    pub fn sent_commands(&self) -> u64 {
         self.exchange.sent_commands()
     }
 
@@ -214,6 +256,46 @@ impl LiveCommandSession {
     ///global traffic. Its optional extra channel has no direct-LAN owner.
     pub fn response_time(&self) -> u32 {
         self.transport.response_time()
+    }
+
+    /// MainTick55D5A4..55D7C2 adds10ms at each quarter-window lag
+    /// threshold in WOL. Peer lag comes from Receive64A3F4/652110, not a
+    /// new clock or independently maintained progress table.
+    pub fn pacing_delay_millis(&self, max_ahead: i32) -> u32 {
+        if self.mode != LiveCommandMode::Wol || max_ahead <= 30 {
+            return 0;
+        }
+        let lag = self
+            .exchange
+            .peers()
+            .iter()
+            .map(|peer| peer.lag_frames())
+            .fold(0, i32::max);
+        if lag == 0 {
+            return 0;
+        }
+        [max_ahead / 4, max_ahead / 2, max_ahead.wrapping_mul(3) / 4]
+            .into_iter()
+            .filter(|threshold| lag >= *threshold)
+            .count() as u32
+            * 10
+    }
+
+    pub fn configure_precalculated_timing(&mut self, max_ahead: i32, frames_per_second: i32) {
+        self.timing
+            .configure_precalculated(max_ahead, frames_per_second);
+    }
+
+    pub fn record_processing_time(&mut self, milliseconds: u32) {
+        self.timing.record_processing_time(milliseconds);
+    }
+
+    pub fn begin_processing(&mut self, now_millis: u32) {
+        self.timing.begin_processing(now_millis);
+    }
+
+    pub fn finish_processing(&mut self, now_millis: u32) {
+        self.timing.finish_processing(now_millis);
     }
 
     /// Keep the private connection and its progress row in the same lifetime.
@@ -249,7 +331,11 @@ impl LiveCommandSession {
 
     pub fn frame_wait(&self) -> Option<FrameWait> {
         let current = self.current?;
-        matches!(current.phase, FramePhase::Waiting { .. }).then(|| {
+        matches!(
+            current.phase,
+            FramePhase::Waiting { .. } | FramePhase::Sending { .. }
+        )
+        .then(|| {
             self.exchange
                 .frame_wait(current.context.frame as i32, current.max_ahead)
         })
@@ -262,7 +348,12 @@ impl LiveCommandSession {
                 response_time_at_entry,
                 ..
             } => (LiveWaitKind::Initial, entered_at, response_time_at_entry),
-            FramePhase::Waiting {
+            FramePhase::Sending {
+                entered_at,
+                response_time_at_entry,
+                ..
+            }
+            | FramePhase::Waiting {
                 entered_at,
                 response_time_at_entry,
                 ..
@@ -270,6 +361,7 @@ impl LiveCommandSession {
             _ => return None,
         };
         Some(LiveWaitInfo {
+            mode: self.mode,
             kind,
             entered_at,
             response_time_at_entry,
@@ -296,6 +388,7 @@ impl LiveCommandSession {
         };
         match &mut current.phase {
             FramePhase::InitialBarrier { last_probe, .. }
+            | FramePhase::Sending { last_probe, .. }
             | FramePhase::Waiting { last_probe, .. } => {
                 *last_probe = now;
                 true
@@ -317,9 +410,19 @@ impl LiveCommandSession {
         max_ahead: i32,
         now_wall_bucket: u32,
         now_millis: u32,
+        latency_fudge: i32,
+        logic_frame_rate: u32,
     ) -> Result<NetworkQueuePass, LiveCommandError> {
         self.last_service = None;
-        let result = self.poll_inner(queues, context, max_ahead, now_wall_bucket, now_millis);
+        let result = self.poll_inner(
+            queues,
+            context,
+            max_ahead,
+            now_wall_bucket,
+            now_millis,
+            latency_fudge,
+            logic_frame_rate,
+        );
         if result.is_err()
             && let Some(current) = &mut self.current
         {
@@ -335,6 +438,8 @@ impl LiveCommandSession {
         max_ahead: i32,
         now: u32,
         now_millis: u32,
+        latency_fudge: i32,
+        logic_frame_rate: u32,
     ) -> Result<NetworkQueuePass, LiveCommandError> {
         if max_ahead < 0 {
             return Err(LiveCommandError::InvalidMaxAhead(max_ahead));
@@ -381,7 +486,11 @@ impl LiveCommandSession {
                 self.current = Some(CurrentFrame {
                     context,
                     max_ahead,
-                    phase: FramePhase::Sending,
+                    phase: FramePhase::Sending {
+                        entered_at: now,
+                        response_time_at_entry: self.transport.response_time(),
+                        last_probe: now,
+                    },
                 });
             }
         }
@@ -393,7 +502,7 @@ impl LiveCommandSession {
                     response_time_at_entry,
                     last_probe,
                 } => {
-                    if probe_due(last_probe, now, INITIAL_PROBE_INTERVAL) {
+                    if probe_due(last_probe, now, self.mode.initial_probe_interval()) {
                         self.current.as_mut().unwrap().phase = FramePhase::InitialBarrier {
                             entered_at,
                             response_time_at_entry,
@@ -401,7 +510,7 @@ impl LiveCommandSession {
                         };
                         self.send_probe(context.frame, max_ahead)?;
                     }
-                    self.service_and_receive(now, queues)?;
+                    self.service_and_receive(now, queues, logic_frame_rate)?;
                     if !self.exchange.initial_ready() {
                         return Ok(NetworkQueuePass::Waiting);
                     }
@@ -409,9 +518,23 @@ impl LiveCommandSession {
                     //647B2E/647B32: only a successful initial wait clears
                     //manager response histories, after the peer-frame clear.
                     self.transport.reset_response_time(true);
-                    self.current.as_mut().unwrap().phase = FramePhase::Sending;
+                    self.current.as_mut().unwrap().phase = FramePhase::Sending {
+                        entered_at: now,
+                        response_time_at_entry: self.transport.response_time(),
+                        last_probe: now,
+                    };
                 }
-                FramePhase::Sending => {
+                FramePhase::Sending {
+                    entered_at,
+                    response_time_at_entry,
+                    last_probe,
+                } => {
+                    if !self.exchange.sending() {
+                        self.prepare_timing(queues, context.frame, max_ahead, latency_fudge);
+                        if self.policy.should_send(context.frame) {
+                            self.exchange.begin_wait(now_millis);
+                        }
+                    }
                     let transport = &mut self.transport;
                     let service_report = &mut self.last_service;
                     let sent = self.exchange.send_frame(
@@ -422,22 +545,35 @@ impl LiveCommandSession {
                         context.checksum,
                         self.policy,
                         |bytes, guaranteed| {
-                            let accepted = transport.connections_mut().broadcast(
-                                bytes,
-                                if guaranteed {
-                                    Delivery::Reliable
-                                } else {
-                                    Delivery::Unreliable
-                                },
-                            );
-                            //649FA1..649FB5 ignores broadcast admission, then
-                            //services the manager before the next packet. Do
-                            //not dispatch received events during this phase.
+                            let accepted = transport.connections().peers().next().is_none()
+                                || transport.connections_mut().broadcast(
+                                    bytes,
+                                    if guaranteed {
+                                        Delivery::Reliable
+                                    } else {
+                                        Delivery::Unreliable
+                                    },
+                                );
+                            // Service existing reliable queues after every
+                            // attempt. A full FIFO resumes this Sending frame;
+                            // no codec, mirror or counter is committed early.
                             retain_service_report(service_report, transport.service(now));
                             accepted
                         },
                     )?;
                     match sent {
+                        SendPoll::Backpressure => {
+                            if probe_due(last_probe, now, ORDINARY_PROBE_INTERVAL) {
+                                self.current.as_mut().unwrap().phase = FramePhase::Sending {
+                                    entered_at,
+                                    response_time_at_entry,
+                                    last_probe: now,
+                                };
+                                self.send_probe(context.frame, max_ahead)?;
+                            }
+                            self.service_and_receive(now, queues, logic_frame_rate)?;
+                            return Ok(NetworkQueuePass::Waiting);
+                        }
                         SendPoll::OffCadence => {
                             //647F5E..647F92 services transport only. It neither
                             //decodes queued game packets nor checks its result.
@@ -451,11 +587,10 @@ impl LiveCommandSession {
                             return Ok(self.finish(NetworkQueuePass::SkipDispatch));
                         }
                         SendPoll::Complete { .. } => {
-                            self.exchange.begin_wait(now_millis);
                             self.current.as_mut().unwrap().phase = FramePhase::Waiting {
-                                entered_at: now,
-                                response_time_at_entry: self.transport.response_time(),
-                                last_probe: now,
+                                entered_at,
+                                response_time_at_entry,
+                                last_probe,
                             };
                         }
                     }
@@ -473,7 +608,7 @@ impl LiveCommandSession {
                         };
                         self.send_probe(context.frame, max_ahead)?;
                     }
-                    self.service_and_receive(now, queues)?;
+                    self.service_and_receive(now, queues, logic_frame_rate)?;
                     return if self
                         .exchange
                         .frame_wait(context.frame as i32, max_ahead)
@@ -487,6 +622,71 @@ impl LiveCommandSession {
                 FramePhase::Finished(pass) => return Ok(pass),
                 FramePhase::Failed => return Err(LiveCommandError::Failed),
             }
+        }
+    }
+
+    fn prepare_timing(
+        &mut self,
+        queues: &mut NetworkCommandQueues<'_>,
+        frame: u32,
+        max_ahead: i32,
+        latency_fudge: i32,
+    ) {
+        let Some(shared) = queues.timing() else {
+            return;
+        };
+        let host = shared.host_house() == self.local_house;
+        let rate = shared.frame_send_rate();
+        // A cache for this retained frame only; ScenarioSession is the owner
+        // changed by EVENT_TIMING after dispatch, before the next poll.
+        self.policy = NetworkSendPolicy::FrameSendRate2 {
+            frame_send_rate: NonZeroU32::new(u32::from(rate.get())).unwrap(),
+        };
+        if frame != 0 && frame & 127 == 0 {
+            let retry = timing::periodic_retry(self.transport.response_time(), latency_fudge);
+            self.transport.set_retry_timing(retry, false);
+            let event = crate::sim::command::ProcessTimeRecord {
+                house_id: self.local_house,
+                frame: frame as i32,
+                milliseconds: self.timing.take_process_average(),
+            };
+            let _ = queues.issue_timing_record(event.encode().expect("fixed PROCESS_TIME record"));
+            if self.mode == LiveCommandMode::Wol && frame & 2047 == 0 {
+                self.transport.reset_response_time(false);
+            }
+        }
+        if !host {
+            return;
+        }
+        if let Some(event) = self
+            .timing
+            .take_precalculated(self.local_house, frame as i32)
+        {
+            let _ = queues.issue_timing_record(event.encode().expect("fixed TIMING record"));
+        } else if frame & 255 == 0 && self.exchange.sent_commands() >= 5 {
+            let Some(milliseconds) = queues.timing().and_then(|timing| {
+                timing.maximum_processing_millis(
+                    std::iter::once(self.local_house)
+                        .chain(self.exchange.peers().iter().map(|peer| peer.house_id())),
+                )
+            }) else {
+                return;
+            };
+            let (event, retry) = timing::adaptive_timing(
+                self.local_house,
+                frame as i32,
+                self.mode,
+                milliseconds,
+                queues.game_speed(),
+                max_ahead,
+                rate,
+                self.transport.response_time(),
+                self.transport.response_time(),
+                latency_fudge,
+                queues.fog_of_war(),
+            );
+            let _ = queues.issue_timing_record(event.encode().expect("fixed TIMING record"));
+            self.transport.set_retry_timing(retry, false);
         }
     }
 
@@ -514,6 +714,7 @@ impl LiveCommandSession {
         &mut self,
         now: u32,
         queues: &mut NetworkCommandQueues<'_>,
+        logic_frame_rate: u32,
     ) -> Result<(), LiveCommandError> {
         //648B94 and649518 ignore the manager's failure return and continue
         //receiving/checking progress. Neither retry exhaustion nor a socket
@@ -528,13 +729,24 @@ impl LiveCommandSession {
             };
             let source_house = i8::try_from(message.peer_id)
                 .map_err(|_| LiveCommandError::InvalidRemoteHouse(message.peer_id))?;
-            self.exchange.receive(
+            let advanced = self.exchange.receive(
                 source_house,
                 &message.payload,
                 self.initial_seed,
                 queues,
                 elapsed,
             )?;
+            if advanced && self.mode == LiveCommandMode::Wol {
+                self.exchange.record_peer_lag(
+                    source_house,
+                    self.current.expect("active frame").context.frame,
+                    logic_frame_rate,
+                    self.transport
+                        .connections()
+                        .mean_response_time(i32::from(source_house))
+                        .unwrap_or(0),
+                );
+            }
             //649514..649518 services again after each private message. The
             //64-message budget still bounds this wait visit.
             retain_service_report(&mut self.last_service, self.transport.service(now));

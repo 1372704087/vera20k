@@ -14,6 +14,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::util::sha256::sha256_hex;
 
 const MAP_EXTENSIONS: [&str; 5] = ["mmx", "yro", "map", "mpr", "yrm"];
+pub const MAX_TRANSFER_MAP_BYTES: usize = 8 * 1024 * 1024;
 
 /// Exact source whose bytes were parsed into the active map.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -43,6 +44,55 @@ pub enum LoadedMapSource {
     LegacyFallback {
         label: String,
     },
+}
+
+impl LoadedMapSource {
+    pub fn physical_identity(&self) -> Option<(usize, &str)> {
+        match self {
+            Self::Loose {
+                payload_len,
+                source_sha256,
+                ..
+            }
+            | Self::Mix {
+                payload_len,
+                source_sha256,
+                ..
+            } => Some((*payload_len, source_sha256)),
+            Self::Generated {
+                seed_source: Some(seed),
+                ..
+            } => Some((seed.payload_len, &seed.source_sha256)),
+            _ => None,
+        }
+    }
+}
+
+/// VERA transfer identity is the exact consumed file, not the native [Digest]
+/// text (which can be absent or shared by different files).
+pub fn valid_source_sha256(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
+/// A multiplayer map name is a VFS-relative logical identity, never a peer's
+/// host path. Check both separator spellings independently of the local OS so
+/// a LAN/online name has the same admission on every client. Absolute cache
+/// paths remain internal `LoadedMapSource` values and do not pass this boundary.
+pub fn validate_network_map_name(name: &str) -> Result<()> {
+    anyhow::ensure!(
+        !name.is_empty()
+            && name.len() <= 1024
+            && !name.chars().any(char::is_control)
+            && !name.contains(':')
+            && name
+                .split(['/', '\\'])
+                .all(|part| !part.is_empty() && part != "." && part != ".."),
+        "invalid logical multiplayer map name"
+    );
+    Ok(())
 }
 
 /// Identity of the seed bytes consumed by the normal generated-map loader.
@@ -109,7 +159,19 @@ fn local_map_path(ra2_dir: &Path, map_name: &str) -> Result<PathBuf> {
 }
 
 fn read_loose_map_input(path: &Path) -> Result<MapInput<'static>> {
-    let bytes = std::fs::read(path)?;
+    read_loose_map_input_bounded(path, None)
+}
+
+fn read_loose_map_input_bounded(path: &Path, limit: Option<usize>) -> Result<MapInput<'static>> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    let file = std::fs::File::open(path)?;
+    file.take(limit.map_or(u64::MAX, |limit| limit as u64 + 1))
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        limit.is_none_or(|limit| bytes.len() <= limit),
+        "map exceeds transfer size limit"
+    );
     let source = LoadedMapSource::Loose {
         path: path.to_path_buf(),
         payload_len: bytes.len(),
@@ -149,6 +211,16 @@ fn expand_map_ini(
     source: &LoadedMapSource,
     assets: &AssetManager,
 ) -> Result<IniFile> {
+    expand_map_ini_with_options(ini, source, assets, false, None)
+}
+
+fn expand_map_ini_with_options(
+    ini: IniFile,
+    source: &LoadedMapSource,
+    assets: &AssetManager,
+    strict: bool,
+    logical_name: Option<&str>,
+) -> Result<IniFile> {
     if !crate::rules::ARES_ENABLED {
         return Ok(ini);
     }
@@ -157,14 +229,84 @@ fn expand_map_ini(
         LoadedMapSource::Mix { logical_name, .. } => logical_name.clone(),
         _ => "<map>".to_owned(),
     };
+    let name = logical_name.unwrap_or(&name);
     let (expanded, _) = crate::rules::retail_sources::expand_ini_with_assets(
         assets,
         ini,
-        &name,
-        Default::default(),
+        name,
+        crate::rules::ini_parser::directives::DirectiveOptions {
+            strict,
+            ..Default::default()
+        },
     )
     .map_err(anyhow::Error::msg)?;
     Ok(expanded.ini)
+}
+
+/// Network admission uses the exact ordinary expansion owner, but a missing or
+/// cyclic dependency cannot silently become a different multiplayer map.
+pub fn resolve_network_map_ini(
+    mut loaded: LoadedMapIni,
+    assets: &AssetManager,
+    seed: bool,
+    logical_name: &str,
+) -> Result<LoadedMapIni> {
+    if !seed {
+        loaded.ini = expand_map_ini_with_options(
+            loaded.ini,
+            &loaded.source,
+            assets,
+            true,
+            Some(logical_name),
+        )?;
+    }
+    Ok(loaded)
+}
+
+/// Run the ordinary map parser only after its shared include expansion. A
+/// downloaded include root can legitimately obtain its Map/pack sections from
+/// the local dependency closure, but that closure must make a playable map.
+pub fn validate_network_map_content(ini: &IniFile, seed: bool) -> Result<()> {
+    if !seed {
+        MapFile::from_ini(ini.clone())?;
+    }
+    Ok(())
+}
+
+pub fn effective_network_map_digest(ini: &IniFile, seed: bool) -> String {
+    if seed {
+        let mut options = crate::map::rmg::RmgOptions::default();
+        options.apply_sed(ini);
+        options.normalize();
+        return IniFile::from_bytes(&options.to_sed_bytes())
+            .expect("serialized seed INI")
+            .multiplayer_digest();
+    }
+    let mut checked = ini.clone();
+    checked.remove_digest_for_checked_load();
+    checked.multiplayer_digest()
+}
+
+pub fn load_network_map_ini(
+    root: &Path,
+    name: &str,
+    assets: &AssetManager,
+) -> Result<LoadedMapIni> {
+    // Select the physical winner before checking its dependency closure. An
+    // absent include must not turn a loose winner into a different MIX map.
+    let loaded = load_map_input_with_assets(
+        root,
+        name,
+        assets,
+        Some(MAX_TRANSFER_MAP_BYTES),
+        decode_metadata,
+    )?;
+    resolve_network_map_ini(
+        loaded,
+        assets,
+        crate::map::rmg::is_seed_selection(name),
+        name,
+    )
 }
 
 fn decode_map_with_assets(input: MapInput<'_>, assets: &AssetManager) -> Result<LoadedMap> {
@@ -192,16 +334,21 @@ fn load_map_input_with_assets<T>(
     ra2_dir: &Path,
     map_name: &str,
     assets: &AssetManager,
+    limit: Option<usize>,
     decode: impl Fn(MapInput<'_>) -> Result<T>,
 ) -> Result<T> {
     let local = local_map_path(ra2_dir, map_name)
-        .and_then(|path| read_loose_map_input(&path))
+        .and_then(|path| read_loose_map_input_bounded(&path, limit))
         .and_then(&decode);
     match local {
         Ok(value) => Ok(value),
         Err(local_err) => {
             for candidate in asset_map_candidates(map_name) {
                 if let Some(resolved) = assets.resolve_ref(&candidate) {
+                    anyhow::ensure!(
+                        limit.is_none_or(|limit| resolved.bytes.len() <= limit),
+                        "map exceeds transfer size limit"
+                    );
                     let source = LoadedMapSource::Mix {
                         logical_name: candidate,
                         source_archive: resolved.source_archive.to_string(),
@@ -225,7 +372,7 @@ pub fn load_map_by_name_or_path_with_assets(
     map_name: &str,
     assets: &AssetManager,
 ) -> Result<LoadedMap> {
-    load_map_input_with_assets(ra2_dir, map_name, assets, |input| {
+    load_map_input_with_assets(ra2_dir, map_name, assets, None, |input| {
         decode_map_with_assets(input, assets)
     })
 }
@@ -235,9 +382,253 @@ pub fn load_map_ini_by_name_or_path_with_assets(
     map_name: &str,
     assets: &AssetManager,
 ) -> Result<LoadedMapIni> {
-    load_map_input_with_assets(ra2_dir, map_name, assets, |input| {
+    load_map_input_with_assets(ra2_dir, map_name, assets, None, |input| {
         decode_metadata_with_assets(input, assets)
     })
+}
+
+/// Read upload bytes through the same loose-before-MIX source selection as
+/// metadata and gameplay, with a hard allocation bound.
+pub enum TransferMapSource {
+    Loose(PathBuf),
+    Memory(Vec<u8>),
+}
+
+pub fn prepare_transfer_map_source(
+    source: &LoadedMapSource,
+    assets: &AssetManager,
+) -> Result<TransferMapSource> {
+    match source {
+        LoadedMapSource::Loose { path, .. } => Ok(TransferMapSource::Loose(path.clone())),
+        LoadedMapSource::Mix { logical_name, .. } => {
+            let resolved = assets
+                .resolve_ref(logical_name)
+                .ok_or_else(|| anyhow::anyhow!("selected map source disappeared"))?;
+            anyhow::ensure!(
+                resolved.bytes.len() <= MAX_TRANSFER_MAP_BYTES,
+                "map exceeds transfer size limit"
+            );
+            Ok(TransferMapSource::Memory(resolved.bytes.to_vec()))
+        }
+        _ => anyhow::bail!("selected map has no transferable file"),
+    }
+}
+
+pub fn transfer_file_source(path: &Path, resource: TransferResource) -> Result<LoadedMapSource> {
+    let input = read_loose_map_input_bounded(path, Some(resource.limit()))?;
+    decode_transfer(&input.bytes, resource)?;
+    Ok(input.source)
+}
+
+impl TransferMapSource {
+    pub fn read(self, expected_digest: &str, expected_length: usize) -> Result<Vec<u8>> {
+        let bytes = match self {
+            Self::Loose(path) => read_loose_map_input_bounded(
+                &path,
+                Some(expected_length.min(MAX_TRANSFER_MAP_BYTES)),
+            )?
+            .bytes
+            .into_owned(),
+            Self::Memory(bytes) => bytes,
+        };
+        anyhow::ensure!(
+            bytes.len() == expected_length
+                && bytes.len() <= MAX_TRANSFER_MAP_BYTES
+                && sha256_hex(&bytes) == expected_digest,
+            "map bytes changed before upload"
+        );
+        Ok(bytes)
+    }
+}
+
+/// Which normal loader consumes the received physical bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferResource {
+    Map,
+    Seed,
+    Preview,
+}
+impl TransferResource {
+    pub fn limit(self) -> usize {
+        if self == Self::Preview {
+            512 * 1024
+        } else {
+            MAX_TRANSFER_MAP_BYTES
+        }
+    }
+    fn extension(self) -> &'static str {
+        match self {
+            Self::Map => "map",
+            Self::Seed => "sed",
+            Self::Preview => "pcx",
+        }
+    }
+}
+
+pub enum TransferContent {
+    Scenario(IniFile),
+    Preview(crate::map::preview::DecodedPreview),
+}
+pub struct LoadedTransferAsset {
+    pub source: LoadedMapSource,
+    pub content: TransferContent,
+}
+
+fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferContent> {
+    if resource == TransferResource::Preview {
+        anyhow::ensure!(bytes.len() >= 128, "preview header missing");
+        let height = u16::from_le_bytes([bytes[10], bytes[11]])
+            .checked_sub(u16::from_le_bytes([bytes[6], bytes[7]]))
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| anyhow::anyhow!("invalid preview bounds"))?
+            as usize;
+        let scan = usize::from(u16::from_le_bytes([bytes[66], bytes[67]]))
+            .checked_mul(usize::from(bytes[65]))
+            .and_then(|n| n.checked_mul(height));
+        anyhow::ensure!(
+            scan.is_some_and(|n| n <= 8 * 1024 * 1024),
+            "preview dimensions exceed limit"
+        );
+        let image = crate::assets::pcx_file::PcxFile::from_bytes(bytes)?;
+        anyhow::ensure!(
+            usize::from(image.width) * usize::from(image.height) <= 2 * 1024 * 1024,
+            "preview dimensions exceed limit"
+        );
+        return Ok(TransferContent::Preview(
+            crate::map::preview::DecodedPreview {
+                width: u32::from(image.width),
+                height: u32::from(image.height),
+                rgba: image.to_rgba(None),
+            },
+        ));
+    }
+    let ini = map_file::ini_from_file_bytes(bytes.to_vec())?;
+    if resource == TransferResource::Seed {
+        anyhow::ensure!(
+            ini.section("RandomMap").is_some(),
+            "random-map seed options missing"
+        );
+        let mut options = crate::map::rmg::RmgOptions::default();
+        options.apply_sed(&ini);
+        options.normalize();
+    } else if !(crate::rules::ARES_ENABLED && ini.section("#include").is_some()) {
+        map_file::MapFile::from_ini(ini.clone())?;
+    }
+    Ok(TransferContent::Scenario(ini))
+}
+
+/// Exact bytes are verified before any publication. Only locally generated
+/// names are written; failed validation/writes leave no published partial file.
+pub fn install_received_asset(
+    directory: &Path,
+    bytes: Vec<u8>,
+    digest: &str,
+    length: usize,
+    resource: TransferResource,
+) -> Result<LoadedTransferAsset> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    anyhow::ensure!(valid_source_sha256(digest), "invalid map source identity");
+    anyhow::ensure!(
+        length > 0 && length <= resource.limit() && bytes.len() == length,
+        "invalid received map length"
+    );
+    anyhow::ensure!(
+        sha256_hex(&bytes) == digest,
+        "received map checksum differs"
+    );
+    let content = decode_transfer(&bytes, resource)?;
+    std::fs::create_dir_all(directory)?;
+    let directory = std::fs::canonicalize(directory)?;
+    let path = directory.join(format!("{digest}.{}", resource.extension()));
+    let source = LoadedMapSource::Loose {
+        path: path.clone(),
+        payload_len: length,
+        source_sha256: digest.to_owned(),
+    };
+    if let Ok(previous) = read_loose_map_input_bounded(&path, Some(resource.limit()))
+        && previous.bytes.as_ref() == bytes.as_slice()
+    {
+        return Ok(LoadedTransferAsset { source, content });
+    }
+    static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
+    let (stage, mut file) = loop {
+        let id = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
+        let stage = directory.join(format!(".map-{}-{id}.tmp", std::process::id()));
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&stage)
+        {
+            Ok(file) => break (stage, file),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => return Err(error.into()),
+        }
+    };
+    let result = (|| -> std::io::Result<()> {
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+        drop(file);
+        std::fs::rename(&stage, &path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&stage);
+    }
+    result?;
+    Ok(LoadedTransferAsset { source, content })
+}
+
+pub fn load_received_asset(
+    directory: &Path,
+    digest: &str,
+    length: usize,
+    resource: TransferResource,
+) -> Result<LoadedTransferAsset> {
+    anyhow::ensure!(
+        valid_source_sha256(digest) && length > 0 && length <= resource.limit(),
+        "invalid cached map identity"
+    );
+    let directory = std::fs::canonicalize(directory)?;
+    let input = read_loose_map_input_bounded(
+        &directory.join(format!("{digest}.{}", resource.extension())),
+        Some(resource.limit()),
+    )?;
+    anyhow::ensure!(
+        input.source.physical_identity() == Some((length, digest)),
+        "cached map identity differs"
+    );
+    let content = decode_transfer(&input.bytes, resource)?;
+    Ok(LoadedTransferAsset {
+        source: input.source,
+        content,
+    })
+}
+
+/// Existing authored-map entry points share the typed asset installer.
+pub fn install_received_map(
+    directory: &Path,
+    bytes: Vec<u8>,
+    digest: &str,
+    length: usize,
+) -> Result<LoadedMapIni> {
+    let LoadedTransferAsset {
+        source,
+        content: TransferContent::Scenario(ini),
+    } = install_received_asset(directory, bytes, digest, length, TransferResource::Map)?
+    else {
+        unreachable!()
+    };
+    Ok(LoadedMapIni { source, ini })
+}
+pub fn load_received_map(directory: &Path, digest: &str, length: usize) -> Result<LoadedMapIni> {
+    let LoadedTransferAsset {
+        source,
+        content: TransferContent::Scenario(ini),
+    } = load_received_asset(directory, digest, length, TransferResource::Map)?
+    else {
+        unreachable!()
+    };
+    Ok(LoadedMapIni { source, ini })
 }
 
 pub fn asset_map_candidates(map_name: &str) -> Vec<String> {
@@ -393,6 +784,181 @@ mod tests {
     // its parsed or normalized representation.
     const SOURCE_TEST_MAP_SHA256: &str =
         "889a91e6c8652968c930f40cfe998f2c0f4152d3f4b10b6af1a8c8e9a7c6e814";
+
+    #[test]
+    fn seed_and_preview_keep_distinct_verified_loader_formats() {
+        let root = TestDirectory::new("received-generated-assets");
+        let mut options = crate::map::rmg::RmgOptions::default();
+        options.seed = 1234;
+        options.normalize();
+        let bytes = options.to_sed_bytes();
+        let digest = sha256_hex(&bytes);
+        let loaded = install_received_asset(
+            root.path(),
+            bytes.clone(),
+            &digest,
+            bytes.len(),
+            TransferResource::Seed,
+        )
+        .unwrap();
+        let TransferContent::Scenario(ini) = loaded.content else {
+            panic!("seed INI");
+        };
+        let mut decoded = crate::map::rmg::RmgOptions::default();
+        decoded.apply_sed(&ini);
+        decoded.normalize();
+        assert_eq!(decoded, options);
+        let LoadedMapSource::Loose { path, .. } = loaded.source else {
+            panic!("physical seed");
+        };
+        assert_eq!(path.extension().unwrap(), "sed");
+        assert!(
+            install_received_map(root.path(), bytes.clone(), &digest, bytes.len()).is_err(),
+            "a seed is never an authored map"
+        );
+        let preview =
+            crate::assets::pcx_file::encode_direct_rgb(2, 1, &[255, 0, 0, 0, 255, 0]).unwrap();
+        let loaded = install_received_asset(
+            root.path(),
+            preview.clone(),
+            &sha256_hex(&preview),
+            preview.len(),
+            TransferResource::Preview,
+        )
+        .unwrap();
+        let TransferContent::Preview(image) = loaded.content else {
+            panic!("preview pixels");
+        };
+        assert_eq!((image.width, image.height), (2, 1));
+        assert_eq!(image.rgba, [255, 0, 0, 255, 0, 255, 0, 255]);
+    }
+
+    #[test]
+    fn network_logical_names_reject_paths_but_retained_cache_and_local_paths_still_load() {
+        assert!(validate_network_map_name("Maps/Arena.map").is_ok());
+        assert!(validate_network_map_name("RandMap.Sed").is_ok());
+        assert!(validate_network_map_name("../outside.map").is_err());
+        assert!(validate_network_map_name("C:\\outside.map").is_err());
+        let root = TestDirectory::new("network-logical-map-name");
+        let cache = root.path().join("NetworkMaps");
+        let loaded = install_received_map(
+            &cache,
+            SOURCE_TEST_MAP.to_vec(),
+            SOURCE_TEST_MAP_SHA256,
+            SOURCE_TEST_MAP.len(),
+        )
+        .unwrap();
+        let LoadedMapSource::Loose { path, .. } = loaded.source else {
+            panic!("retained physical source");
+        };
+        let absolute = path.to_str().unwrap();
+        assert!(validate_network_map_name(absolute).is_err());
+        let assets = AssetManager::from_loose_root_for_test(root.path());
+        let retained = load_network_map_ini(root.path(), absolute, &assets).unwrap();
+        assert_eq!(
+            retained.source.physical_identity(),
+            Some((SOURCE_TEST_MAP.len(), SOURCE_TEST_MAP_SHA256))
+        );
+        assert!(load_map_by_name_or_path_with_assets(root.path(), absolute, &assets).is_ok());
+    }
+
+    #[test]
+    fn network_effective_digest_uses_existing_include_expansion_and_rejects_missing_closure() {
+        let root = TestDirectory::new("network-map-includes");
+        let mut bytes = SOURCE_TEST_MAP.to_vec();
+        bytes.extend_from_slice(b"\n[#include]\n0=child.ini\n");
+        root.write("Shared.map", &bytes);
+        root.write("child.ini", b"[General]\nBuildSpeed=.5\n");
+        let a = AssetManager::from_loose_root_for_test(root.path());
+        let first = load_network_map_ini(root.path(), "Shared.map", &a).unwrap();
+        root.write("child.ini", b"[General]\nBuildSpeed=.7\n");
+        let b = AssetManager::from_loose_root_for_test(root.path());
+        let second = load_network_map_ini(root.path(), "Shared.map", &b).unwrap();
+        assert_eq!(
+            first.source.physical_identity(),
+            second.source.physical_identity()
+        );
+        assert_eq!(
+            effective_network_map_digest(&first.ini, false)
+                != effective_network_map_digest(&second.ini, false),
+            crate::rules::ARES_ENABLED
+        );
+        std::fs::remove_file(root.path().join("child.ini")).unwrap();
+        let c = AssetManager::from_loose_root_for_test(root.path());
+        assert_eq!(
+            load_network_map_ini(root.path(), "Shared.map", &c).is_err(),
+            crate::rules::ARES_ENABLED
+        );
+        if crate::rules::ARES_ENABLED {
+            root.write("child.ini", SOURCE_TEST_MAP);
+            let bytes = b"[#include]\n0=child.ini\n".to_vec();
+            let loaded = install_received_map(
+                &root.path().join("cache"),
+                bytes.clone(),
+                &sha256_hex(&bytes),
+                bytes.len(),
+            )
+            .unwrap();
+            let assets = AssetManager::from_loose_root_for_test(root.path());
+            let loaded = resolve_network_map_ini(loaded, &assets, false, "Included.map").unwrap();
+            validate_network_map_content(&loaded.ini, false).unwrap();
+        }
+    }
+
+    #[test]
+    fn received_map_is_verified_before_atomic_publication_and_cache_reuse() {
+        let root = TestDirectory::new("received-map");
+        let cache = root.path().join("NetworkMaps");
+        assert!(
+            install_received_map(
+                &cache,
+                SOURCE_TEST_MAP.to_vec(),
+                &"0".repeat(64),
+                SOURCE_TEST_MAP.len()
+            )
+            .is_err()
+        );
+        assert!(!cache.exists());
+        assert!(
+            install_received_map(&cache, b"not a map".to_vec(), &sha256_hex(b"not a map"), 9)
+                .is_err()
+        );
+        assert!(!cache.exists());
+        let loaded = install_received_map(
+            &cache,
+            SOURCE_TEST_MAP.to_vec(),
+            SOURCE_TEST_MAP_SHA256,
+            SOURCE_TEST_MAP.len(),
+        )
+        .unwrap();
+        assert_eq!(
+            loaded.source.physical_identity(),
+            Some((SOURCE_TEST_MAP.len(), SOURCE_TEST_MAP_SHA256))
+        );
+        let LoadedMapSource::Loose { path, .. } = &loaded.source else {
+            panic!("local file");
+        };
+        assert!(path.is_absolute());
+        assert_eq!(
+            path.file_name().unwrap().to_str().unwrap(),
+            format!("{SOURCE_TEST_MAP_SHA256}.map")
+        );
+        assert!(load_received_map(&cache, SOURCE_TEST_MAP_SHA256, SOURCE_TEST_MAP.len()).is_ok());
+        std::fs::write(path, b"damaged").unwrap();
+        assert!(load_received_map(&cache, SOURCE_TEST_MAP_SHA256, SOURCE_TEST_MAP.len()).is_err());
+        install_received_map(
+            &cache,
+            SOURCE_TEST_MAP.to_vec(),
+            SOURCE_TEST_MAP_SHA256,
+            SOURCE_TEST_MAP.len(),
+        )
+        .unwrap();
+        assert_eq!(
+            std::fs::read_dir(&cache).unwrap().count(),
+            1,
+            "no staged files escape"
+        );
+    }
 
     #[test]
     fn ini_directives_map_gameplay_and_metadata_follow_build_capability() {

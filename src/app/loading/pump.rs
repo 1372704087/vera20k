@@ -331,13 +331,41 @@ impl LoadingRequest {
         native_rules: Option<&crate::rules::process_owner::NativeRulesProcessOwner>,
         progress: &mut dyn LoadingProgressSink,
     ) -> anyhow::Result<MapLoadInitial> {
-        init::load_map_initial_with_assets(
+        let mut loaded = init::load_map_initial_with_assets(
             ra2_dir,
             asset_manager,
             native_rules,
-            Some(self.selected_map_file()),
+            Some(self.startup().physical_map_file()),
             progress,
-        )
+        )?;
+        if let LoadingStartup::Network(_) = self.startup() {
+            loaded.bind_network_logical_seed_name(self.selected_map_file())?;
+        }
+        if let LoadingStartup::Network(startup) = self.startup()
+            && let Some(expected) = startup.local_map_source()
+        {
+            anyhow::ensure!(
+                loaded.map_source().physical_identity() == expected.physical_identity(),
+                "network map bytes changed after admission"
+            );
+            if !matches!(
+                loaded.map_source(),
+                crate::map::source::LoadedMapSource::Generated { .. }
+            ) {
+                anyhow::ensure!(
+                    startup.effective_map_digest()
+                        == Some(
+                            crate::map::source::effective_network_map_digest(
+                                &loaded.map_data().ini,
+                                false
+                            )
+                            .as_str()
+                        ),
+                    "network map include files changed after admission"
+                );
+            }
+        }
+        Ok(loaded)
     }
 
     fn skirmish_launch_session(&self) -> Option<&SkirmishLaunchSession> {
@@ -1768,8 +1796,14 @@ fn prepare_scenario_initial_before_first_frame(state: &mut AppState) -> anyhow::
 /// This is the whole preview source for a random-map load: gamemd reads the same
 /// file rather than deriving a preview from the scenario. A missing or unreadable
 /// file omits the preview layer; every other layer still draws.
-fn decode_random_map_loading_preview(ra2_dir: &Path) -> Option<DecodedPreview> {
-    let path = ra2_dir.join(RANDOM_MAP_PREVIEW_FILE);
+fn decode_random_map_loading_preview(
+    ra2_dir: &Path,
+    source: Option<&crate::map::source::LoadedMapSource>,
+) -> Option<DecodedPreview> {
+    let path = match source {
+        Some(crate::map::source::LoadedMapSource::Loose { path, .. }) => path.clone(),
+        _ => ra2_dir.join(RANDOM_MAP_PREVIEW_FILE),
+    };
     let bytes = match std::fs::read(&path) {
         Ok(bytes) => bytes,
         Err(err) => {
@@ -1780,6 +1814,15 @@ fn decode_random_map_loading_preview(ra2_dir: &Path) -> Option<DecodedPreview> {
             return None;
         }
     };
+    if let Some(expected) = source.and_then(crate::map::source::LoadedMapSource::physical_identity)
+        && expected
+            != (
+                bytes.len(),
+                crate::util::sha256::sha256_hex(&bytes).as_str(),
+            )
+    {
+        return None;
+    }
     let pcx = match PcxFile::from_bytes(&bytes) {
         Ok(pcx) => pcx,
         Err(err) => {
@@ -1878,11 +1921,13 @@ fn ensure_loading_composition_snapshot(state: &mut AppState) {
                 )
             }
             NativeLoadingProgressCadence::RandomMapHalved => {
-                let preview = session
-                    .job
-                    .ra2_dir
-                    .as_deref()
-                    .and_then(decode_random_map_loading_preview);
+                let preview = session.job.ra2_dir.as_deref().and_then(|root| {
+                    let preview = match session.stage.startup() {
+                        LoadingStartup::Network(startup) => startup.random_map_preview(),
+                        _ => None,
+                    };
+                    decode_random_map_loading_preview(root, preview)
+                });
                 let assignments = selected_map_start_assignments(launch_session, Some(projection));
                 build_random_map_loading_composition(
                     launch_session,

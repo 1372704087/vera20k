@@ -1604,16 +1604,21 @@ pub struct Simulation {
     state_hash_interval: Option<std::num::NonZeroU64>,
     /// One admitted command FIFO. Native frame/flags remain in the record;
     /// remaining semantic commands retain their monotonic scheduler.
-    pending_commands: crate::sim::command_queue::DoList<queued_command::QueuedCommand>,
+    pending_commands: crate::sim::command_queue::DoList<
+        queued_command::QueuedCommand,
+        { crate::sim::command_queue::NETWORK_COMMAND_CAPACITY },
+    >,
     /// Locally issued events retain their shared OutList occupancy until
     /// the post-Logic transfer. Already-admitted/deferred work stays above.
-    local_commands:
-        crate::sim::command_queue::LocalCommandStage<queued_command::QueuedCommand>,
+    local_commands: crate::sim::command_queue::LocalCommandStage<
+        queued_command::QueuedCommand,
+        { crate::sim::command_queue::NETWORK_SOURCE_COMMAND_CAPACITY },
+    >,
     /// While the dispatcher temporarily owns the FIFO, this derived count
     /// reserves its occupied native slots for callbacks that admit new work.
     /// Balanced at the dispatch boundary, never saved or hashed.
     #[serde(skip)]
-    dispatch_reserved_slots: usize,
+    dispatch_reserved_slots: crate::sim::command_queue::NativeCommandOccupancy,
     /// Non-authoritative copies for this frame's replay output. Admissions
     /// append once; collection drains them. Saved queue entries remain the
     /// only gameplay authority and a restored snapshot starts a new receipt.
@@ -4365,7 +4370,7 @@ impl Simulation {
             state_hash_interval: every_frame(),
             pending_commands: Default::default(),
             local_commands: Default::default(),
-            dispatch_reserved_slots: 0,
+            dispatch_reserved_slots: Default::default(),
             frame_command_admissions: Vec::new(),
             frame_continuation: None,
             planning: planning::PlanningState::default(),
@@ -4704,7 +4709,15 @@ impl Simulation {
         &self,
         owner: InternedId,
     ) -> Option<crate::sim::house_state::HouseOutcomeState> {
-        if self.session.current_house() != Some(owner) || !self.houses.contains_key(&owner) {
+        // Main_Tick @0x0055D360 completes Queue_AI/its network wait before
+        // Main_Game @0x0048CE8A..0x0048CEA1 routes the result. A House may
+        // publish its request earlier in that suspended frame; the remaining
+        // command tail and terminal score/RNG commit must finish first.
+        // Source: original gamemd.exe instructions.
+        if self.frame_continuation.is_some()
+            || self.session.current_house() != Some(owner)
+            || !self.houses.contains_key(&owner)
+        {
             return None;
         }
         self.session
@@ -5789,9 +5802,19 @@ impl Simulation {
                 crate::sim::superweapon::update_owned_supers(self, rules, owner);
             }
         }
-        // 0x004F84FB: once the current house is defeated no House rechecks
-        // radar, so the radar its defeat switched on stays on.
-        if self.local_player_defeated() {
+        // HouseUpdate4F84FB suppresses the local tactical radar update after
+        // PlayerPtr's defeat. Our retained radar is per House: in LAN/WOL only
+        // that House's own defeat keeps its projection on, independently of
+        // which human is this process's input player. Offline keeps native's
+        // process-local gate. Source: original gamemd.exe4F84F1..4F8511.
+        let viewer_defeated = if self.session.game_mode().is_network() {
+            self.houses
+                .get(&owner)
+                .is_some_and(|house| house.is_defeated())
+        } else {
+            self.local_player_defeated()
+        };
+        if viewer_defeated {
             self.power_states
                 .get_mut(&owner)
                 .expect("represented House power state")

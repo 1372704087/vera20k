@@ -769,6 +769,10 @@ pub struct ScenarioSession {
     /// Native Session+318/A8B550, admitted from the start/timing service.
     /// It is independent of local command scheduling preferences.
     network_max_ahead_frames: Option<i32>,
+    /// Values changed only by admitted TIMING / PROCESS_TIME events. Startup
+    /// installs their roster once; a new scenario discards the old measurements.
+    #[serde(default)]
+    network_command_timing: Option<crate::sim::command_queue::NetworkCommandTiming>,
     /// Scenario+11E4 is included in Save689372's complete Scenario block and
     /// retained by Load6894A8/NoInit683560. Fresh Clear_Scene starts at4.
     #[serde(default)]
@@ -1160,6 +1164,7 @@ impl ScenarioSession {
         self.game_mode = mode;
         if !mode.is_network() {
             self.network_max_ahead_frames = None;
+            self.network_command_timing = None;
         }
     }
     pub fn install_network_timing(&mut self, max_ahead_frames: i32) {
@@ -1168,6 +1173,61 @@ impl ScenarioSession {
             "network timing needs an admitted network mode"
         );
         self.network_max_ahead_frames = Some(max_ahead_frames);
+    }
+
+    pub fn install_network_command_timing(
+        &mut self,
+        host_house: i8,
+        frame_send_rate: std::num::NonZeroU8,
+        houses: impl IntoIterator<Item = i8>,
+    ) {
+        let ahead = self
+            .network_max_ahead_frames
+            .expect("admitted network timing");
+        self.network_command_timing = Some(crate::sim::command_queue::NetworkCommandTiming::new(
+            host_house,
+            frame_send_rate,
+            ahead as u16,
+            houses,
+        ));
+    }
+
+    pub fn network_command_timing(
+        &self,
+    ) -> Option<&crate::sim::command_queue::NetworkCommandTiming> {
+        self.network_command_timing.as_ref()
+    }
+
+    /// EventClass::Execute4C800C / 4C80B1. Transport validates source headers;
+    /// only the admitted host can change shared timing. No wall clock enters
+    /// this owner. Execute_DoList supplies its persistent retiming window.
+    pub(crate) fn apply_network_timing_record(
+        &mut self,
+        record: &crate::sim::command::CommandRecord,
+        window: &mut crate::sim::command_queue::DoListRetimeWindow,
+    ) {
+        let Some(timing) = self.network_command_timing.as_mut() else {
+            return;
+        };
+        if let Some(event) = crate::sim::command::TimingRecord::decode(record) {
+            if event.house_id != timing.host_house() {
+                return;
+            }
+            let ahead = window.apply_timing_update(
+                event.frame,
+                self.network_max_ahead_frames.expect("admitted timing") as u16,
+                timing.frame_send_rate(),
+                event.max_ahead,
+                event.frame_send_rate,
+                // Full_Init687C16 copies the session flags into Scenario for
+                // network games; its bit1000 is the existing FogOfWar option.
+                self.game_options.fog_of_war,
+            );
+            self.network_max_ahead_frames = Some(i32::from(ahead));
+            timing.apply(event, ahead);
+        } else if let Some(event) = crate::sim::command::ProcessTimeRecord::decode(record) {
+            timing.record_processing_millis(event.house_id, event.milliseconds);
+        }
     }
     pub const fn start_header(&self) -> crate::map::preview::ScenarioStartHeader {
         self.start_header
@@ -1470,6 +1530,10 @@ impl ScenarioSession {
         s.game_mode.hash(hasher);
         s.multiplayer_mode_class.hash(hasher);
         s.network_max_ahead_frames.hash(hasher);
+        if let Some(timing) = &s.network_command_timing {
+            b"network-command-timing-v1".hash(hasher);
+            timing.hash(hasher);
+        }
         s.start_header.hash(hasher);
         // observer_house, like current_house, selects process-local presentation
         // and accepted outcome, and skips the observer's terminal score draw
@@ -1705,6 +1769,7 @@ impl ScenarioSession {
             multiplayer_mode_class: None,
             observer_house: None,
             network_max_ahead_frames: None,
+            network_command_timing: None,
             start_header: crate::map::preview::ScenarioStartHeader::default(),
             campaign: None,
             campaign_map_stage: 0,

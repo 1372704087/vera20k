@@ -1726,6 +1726,20 @@ impl MapLoadInitial {
         &self.map_data
     }
 
+    /// Physical cached .SED names must not become shared Scenario identity.
+    /// ReadScenario684620 regenerates from the supplied path, while the
+    /// accepted network record remains the common logical seed name.
+    pub(crate) fn bind_network_logical_seed_name(&mut self, logical: &str) -> anyhow::Result<()> {
+        if let LoadedMapSource::Generated { seed_name, .. } = &mut self.map_source {
+            anyhow::ensure!(
+                crate::map::rmg::is_seed_selection(logical),
+                "generated source needs a seed record"
+            );
+            *seed_name = logical.to_owned();
+        }
+        Ok(())
+    }
+
     pub(crate) fn map_source(&self) -> &LoadedMapSource {
         &self.map_source
     }
@@ -1790,6 +1804,23 @@ fn construction_trace_after_fill(
 #[cfg(test)]
 mod fresh_transport_tests {
     use super::*;
+
+    #[test]
+    fn retained_start_metadata_uses_the_declared_map_capacity() {
+        let mut source = String::from(
+            "[Basic]\nMaxPlayers=30\n[Map]\nSize=0,0,64,64\nLocalSize=0,0,64,64\n[Waypoints]\n",
+        );
+        for index in 0..30 {
+            source.push_str(&format!("{index}={}\n", 30030 + index));
+        }
+        let map = MapFile::from_bytes(source.as_bytes()).unwrap();
+        let starts = scenario_start_waypoints_for_load(&map, None);
+        assert_eq!(starts.len(), 30);
+        assert_eq!(starts[&29], (map.waypoints[&29].rx, map.waypoints[&29].ry));
+        let ordinary =
+            MapFile::from_bytes(source.replace("MaxPlayers=30\n", "").as_bytes()).unwrap();
+        assert_eq!(scenario_start_waypoints_for_load(&ordinary, None).len(), 8);
+    }
 
     #[test]
     fn fresh_load_retains_local_values_without_mutating_the_outgoing_world() {
@@ -1886,7 +1917,7 @@ mod fresh_transport_tests {
 /// Authored loads retain their parsed waypoint table. Accepted RMG loads have
 /// already copied setup staging into the active Scenario array before `.SED`
 /// regeneration, so the prefix plan—not regenerated map content—owns these
-/// eight entries for loading markers, save/restore, and deterministic hashing.
+/// start entries for loading markers, save/restore, and deterministic hashing.
 /// Installs the startup's GameMode into the scenario session, with the
 /// admitted MaxAhead for a network start. The frame tail's `Queue_AI` route
 /// reads this mode, so a LAN/WOL start must arrive as LAN/WOL.
@@ -1909,10 +1940,13 @@ pub(crate) fn scenario_start_waypoints_for_load(
     let active_waypoints = projection
         .map(StockOfflinePrefixProjection::active_scenario_waypoints)
         .unwrap_or(&map_data.waypoints);
-    waypoints::multiplayer_start_waypoints(active_waypoints)
-        .into_iter()
-        .map(|waypoint| (waypoint.index, (waypoint.rx, waypoint.ry)))
-        .collect()
+    waypoints::multiplayer_start_waypoints_for_capacity(
+        active_waypoints,
+        waypoints::skirmish_player_capacity(&map_data.ini),
+    )
+    .into_iter()
+    .map(|waypoint| (waypoint.index, (waypoint.rx, waypoint.ry)))
+    .collect()
 }
 
 #[cfg(test)]
@@ -3949,6 +3983,39 @@ mod milestone_order_tests {
         assert!(
             values.windows(2).all(|pair| pair[0] <= pair[1]),
             "{values:?}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod network_seed_source_tests {
+    use super::*;
+    #[test]
+    fn network_seed_cache_preserves_logical_name_and_consumed_identity() {
+        let options = crate::map::rmg::RmgOptions::default();
+        let bytes = options.to_sed_bytes();
+        let source = crate::map::source::GeneratedSeedSource::from_consumed_bytes(
+            std::env::temp_dir().join("seed-cache.sed"),
+            &bytes,
+        );
+        let expected = (source.payload_len, source.source_sha256.clone());
+        let mut loaded = MapLoadInitial::from_test_map_source(
+            crate::map::rmg::emit::empty_map_file(&options, 100, 100),
+            LoadedMapSource::Generated {
+                seed_name: "local-cache.sed".into(),
+                seed_source: Some(source),
+            },
+        );
+        loaded
+            .bind_network_logical_seed_name("RandMap.Sed")
+            .unwrap();
+        let LoadedMapSource::Generated { seed_name, .. } = loaded.map_source() else {
+            panic!("generated source");
+        };
+        assert_eq!(seed_name, "RandMap.Sed");
+        assert_eq!(
+            loaded.map_source().physical_identity(),
+            Some((expected.0, expected.1.as_str()))
         );
     }
 }

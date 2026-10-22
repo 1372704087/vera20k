@@ -120,6 +120,21 @@ fn with_first_cell_receiver<T>(
 }
 
 impl Simulation {
+    /// Native PlayerPtr names one process's map. The network simulation keeps
+    /// every human's map in immutable House order; local input identity never
+    /// selects shared fog. Offline/campaign retains its one current viewpoint.
+    pub(crate) fn represented_player_maps(&self) -> Vec<InternedId> {
+        if self.session.game_mode().is_network() {
+            self.houses
+                .in_order()
+                .filter(|house| house.is_human())
+                .map(|house| house.name())
+                .collect()
+        } else {
+            self.session.current_house().into_iter().collect()
+        }
+    }
+
     /// The movement step that drops another house's object from the player's
     /// selection over the player's shroud: a selected object (`+0x83`) whose
     /// owner fails the locomotor's owner test is deselected (vt+0x150) when
@@ -180,10 +195,14 @@ impl Simulation {
         index: i32,
         context: UninitContext<'_>,
     ) -> bool {
-        let Some(viewer) = self.session.current_house() else {
+        let viewers = self.represented_player_maps();
+        if viewers.is_empty() {
             return false;
-        };
-        if self.fog.whole_map_revealed_for_owner(viewer) {
+        }
+        if viewers
+            .iter()
+            .all(|&viewer| self.fog.whole_map_revealed_for_owner(viewer))
+        {
             return true;
         }
         let rules = context.rules();
@@ -215,15 +234,20 @@ impl Simulation {
                 trace.walks.push(cells.clone());
             }
         });
-        for cell in cells {
-            let native_cells = context
-                .terrain()
-                .or(self.resolved_terrain.as_ref())
-                .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-            self.fog
-                .conceal_map_cell(viewer, cell, native_cells.as_ref());
+        for viewer in viewers {
+            if self.fog.whole_map_revealed_for_owner(viewer) {
+                continue;
+            }
+            for &cell in &cells {
+                let native_cells = context
+                    .terrain()
+                    .or(self.resolved_terrain.as_ref())
+                    .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+                self.fog
+                    .conceal_map_cell(viewer, cell, native_cells.as_ref());
+            }
+            self.update_shroud_edges(viewer, context);
         }
-        self.update_shroud_edges(viewer, context);
         true
     }
 
@@ -493,10 +517,15 @@ impl Simulation {
     /// natively indexes before the count table; VERA maps no cells (retail9).
     pub fn trigger_reveal_at_waypoint(&mut self, index: i32, context: UninitContext<'_>) -> bool {
         let rules = context.rules();
-        let Some(viewer) = self.session.current_house() else {
+        let viewers = self.represented_player_maps();
+        if viewers.is_empty() {
             return false;
-        };
-        if self.fog.whole_map_revealed_for_owner(viewer) {
+        }
+        let viewers: Vec<_> = viewers
+            .into_iter()
+            .filter(|&viewer| !self.fog.whole_map_revealed_for_owner(viewer))
+            .collect();
+        if viewers.is_empty() {
             return true;
         }
         let Some(cell) = self.session.waypoint_cell(index) else {
@@ -523,19 +552,21 @@ impl Simulation {
         let height_grid = self.sight_height_grid(&config);
         // Outline/unreveal/arg6 are zero and by-height is one. Native final0
         // followed by final1 leaves knowledge with no sustained sight source.
-        for final_pass in [false, true] {
-            let _ = self.reveal_area(
-                &[viewer],
-                center,
-                z,
-                radius,
-                Some(&height_grid),
-                final_pass,
-                &config,
-                context,
-                crate::sim::vision::MapRevealProjection::Transient,
-                self.session.current_house(),
-            );
+        for viewer in viewers {
+            for final_pass in [false, true] {
+                let _ = self.reveal_area(
+                    &[viewer],
+                    center,
+                    z,
+                    radius,
+                    Some(&height_grid),
+                    final_pass,
+                    &config,
+                    context,
+                    crate::sim::vision::MapRevealProjection::Transient,
+                    self.session.current_house(),
+                );
+            }
         }
         true
     }
@@ -556,10 +587,16 @@ impl Simulation {
         use crate::map::resolved_terrain::{NativeCellQuery, NativeLocalCellCursor};
         use crate::rules::locomotor_type::MovementZone;
 
-        let Some(viewer) = self.session.current_house() else {
+        let viewers = self.represented_player_maps();
+        if viewers.is_empty() {
             return false;
-        };
-        if self.fog.whole_map_revealed_for_owner(viewer) {
+        }
+        let network = self.session.game_mode().is_network();
+        let viewers: Vec<_> = viewers
+            .into_iter()
+            .filter(|&viewer| !self.fog.whole_map_revealed_for_owner(viewer))
+            .collect();
+        if viewers.is_empty() {
             return true;
         }
         let rules = context.rules();
@@ -644,8 +681,13 @@ impl Simulation {
                         coord.1.wrapping_sub(quarter_level) as u16,
                     )
                 };
-                let Some(viewer) = self.session.current_house() else {
-                    return false;
+                let active_viewers = if network {
+                    viewers.clone()
+                } else {
+                    let Some(viewer) = self.session.current_house() else {
+                        return false;
+                    };
+                    vec![viewer]
                 };
                 let config = self.sight_reveal_config(rules);
                 // Navigation publishes a new immutable Arc when heights
@@ -661,18 +703,20 @@ impl Simulation {
                     height_grid = self.sight_height_grid(&config);
                     height_source = self.path_grid.clone();
                 }
-                let _ = self.reveal_area(
-                    &[viewer],
-                    center,
-                    half_level * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
-                    2,
-                    Some(&height_grid),
-                    final_pass,
-                    &config,
-                    context,
-                    crate::sim::vision::MapRevealProjection::Transient,
-                    self.session.current_house(),
-                );
+                for viewer in active_viewers {
+                    let _ = self.reveal_area(
+                        &[viewer],
+                        center,
+                        half_level * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
+                        2,
+                        Some(&height_grid),
+                        final_pass,
+                        &config,
+                        context,
+                        crate::sim::vision::MapRevealProjection::Transient,
+                        self.session.current_house(),
+                    );
+                }
             }
         }
     }
@@ -691,22 +735,21 @@ impl Simulation {
         //70F15B passesS28=true:56772E..5677AF also gates the existing
         //signed terrain-height query on General.RevealByHeight.
         let heights = self.sight_height_grid(&config);
-        let viewer = self.session.current_house();
-        let viewers = viewer.into_iter().collect::<Vec<_>>();
+        let viewers = self.represented_player_maps();
         let cell = ((coord.x / 256) as u16, (coord.y / 256) as u16);
-        if let Some(origin) = self.reveal_area(
-            &viewers,
-            cell,
-            coord.z,
-            2,
-            Some(&heights),
-            false,
-            &config,
-            context,
-            vision::MapRevealProjection::UncachedConditional,
-            viewer,
-        ) {
-            if let Some(viewer) = viewer {
+        for viewer in viewers {
+            if let Some(origin) = self.reveal_area(
+                &[viewer],
+                cell,
+                coord.z,
+                2,
+                Some(&heights),
+                false,
+                &config,
+                context,
+                vision::MapRevealProjection::UncachedConditional,
+                Some(viewer),
+            ) {
                 Self::refresh_sight_border(
                     &mut self.fog,
                     &self.resolved_terrain,
@@ -746,6 +789,7 @@ impl Simulation {
         // native player admission may deliver gameplay notifications. A
         // projected AI/other plane is not another native client callback.
         let notification_viewer = notification_viewer.filter(|viewer| viewers.contains(viewer));
+        let network = self.session.game_mode().is_network();
         let (cells, local_origin) = config.collect_area_cells(
             cell,
             radius,
@@ -760,9 +804,14 @@ impl Simulation {
             }
         });
         for &viewer in viewers {
-            if projection == vision::MapRevealProjection::Source
-                && notification_viewer != Some(viewer)
-            {
+            let notify_view = if network {
+                self.houses
+                    .get(&viewer)
+                    .is_some_and(|house| house.is_human())
+            } else {
+                notification_viewer == Some(viewer)
+            };
+            if projection == vision::MapRevealProjection::Source && !notify_view {
                 // No receiver hears this plane: walk it in one go.
                 let native_cells = context
                     .terrain()
@@ -797,7 +846,7 @@ impl Simulation {
                     )
                 };
                 if let Some(notify) = notify
-                    && notification_viewer == Some(viewer)
+                    && notify_view
                 {
                     self.notify_cell_change(notify.cell, viewer, notify.fresh, context);
                 }
@@ -806,7 +855,7 @@ impl Simulation {
         //5673A0's native House rejection567570..5D0 skips its border too.
         //Keep the admitted local XYZ captured before any synchronous callback;
         //a logical other-viewer projection is not another admitted native call.
-        local_origin.filter(|_| notification_viewer.is_some())
+        local_origin.filter(|_| (network && !viewers.is_empty()) || notification_viewer.is_some())
     }
 
     /// Original CellChangeNotify5865F0..5866BA: seven height-admitted
@@ -899,13 +948,40 @@ impl Simulation {
         if let Some(state) = house.and_then(|house| self.houses.get_mut(&house)) {
             state.mark_map_clear();
         }
-        let Some(player) = self.session.current_house() else {
-            return;
-        };
-        if house.is_some_and(|house| house != player) || !self.fog.admit_whole_map_reveal(player) {
-            return;
+        if self.session.game_mode().is_network() {
+            // Map577F4F admits PlayerPtr or NULL. VERA retains each human's
+            // map, so a named human updates that same map on every peer;
+            // NULL (Shroud=no) updates every represented human in House order.
+            // Source: original gamemd.exe577F30..57807A.
+            let viewers: Vec<_> = self
+                .houses
+                .order()
+                .iter()
+                .copied()
+                .filter(|viewer| {
+                    house.is_none_or(|house| house == *viewer)
+                        && self
+                            .houses
+                            .get(viewer)
+                            .is_some_and(|state| state.is_human())
+                })
+                .collect();
+            for viewer in viewers {
+                if self.fog.admit_whole_map_reveal(viewer) {
+                    self.reveal_allocated_map_cells(false, Some(viewer), context);
+                }
+            }
+        } else {
+            let Some(player) = self.session.current_house() else {
+                return;
+            };
+            if house.is_some_and(|house| house != player)
+                || !self.fog.admit_whole_map_reveal(player)
+            {
+                return;
+            }
+            self.reveal_allocated_map_cells(false, None, context);
         }
-        self.reveal_allocated_map_cells(false, context);
     }
 
     /// Execute16 at6DE3A8: local House240 gate/set,578350/578290, then
@@ -913,10 +989,13 @@ impl Simulation {
     /// sight/gap counters and sustained sources are untouched. Current
     /// PlayerPtr is reread for every receiver after synchronous callbacks.
     pub(crate) fn trigger_reveal_entire_map(&mut self, context: UninitContext<'_>) -> bool {
-        let Some(player) = self.session.current_house() else {
-            return false;
-        };
-        if self.fog.whole_map_revealed_for_owner(player) {
+        let network = self.session.game_mode().is_network();
+        let viewers = self.represented_player_maps();
+        if viewers.is_empty()
+            || viewers
+                .iter()
+                .all(|&viewer| self.fog.whole_map_revealed_for_owner(viewer))
+        {
             return false;
         }
         if context
@@ -927,17 +1006,25 @@ impl Simulation {
         {
             return false;
         }
-        self.fog.admit_whole_map_reveal(player);
-        self.reveal_allocated_map_cells(true, context);
+        for viewer in viewers {
+            if self.fog.admit_whole_map_reveal(viewer) {
+                self.reveal_allocated_map_cells(true, network.then_some(viewer), context);
+            }
+        }
         true
     }
 
     /// The simulation's one578350/578290 traversal host.16 and577F30 use
     ///different cell receivers; neither precollects cells before callbacks.
     ///Nested simulation reveals reset this same cursor, not an outer copy.
-    fn reveal_allocated_map_cells(&mut self, forced: bool, context: UninitContext<'_>) {
+    fn reveal_allocated_map_cells(
+        &mut self,
+        forced: bool,
+        represented_viewer: Option<InternedId>,
+        context: UninitContext<'_>,
+    ) {
         self.for_each_allocated_map_cell(context, |sim, cell| {
-            sim.reveal_allocated_map_cell(cell, forced, context);
+            sim.reveal_allocated_map_cell(cell, forced, represented_viewer, context);
         });
     }
 
@@ -992,9 +1079,13 @@ impl Simulation {
         &mut self,
         cell: (u16, u16),
         forced: bool,
+        represented_viewer: Option<InternedId>,
         context: UninitContext<'_>,
     ) {
-        let Some(player) = self.session.current_house() else {
+        // Campaign/offline preserves the native per-cell PlayerPtr reread.
+        // A network projection keeps the explicitly admitted House viewpoint;
+        // another client's input identity cannot select this plane.
+        let Some(player) = represented_viewer.or_else(|| self.session.current_house()) else {
             return;
         };
         let notify = {
@@ -1051,11 +1142,10 @@ impl Simulation {
         if let Some(owner) = incoming.and_then(|owner| self.houses.get_mut(&owner)) {
             owner.mark_map_shrouded();
         }
-        if incoming.is_some() && incoming != self.session.current_house() {
-            return;
-        }
-        if let Some(player) = self.session.current_house() {
-            self.transition_house_map(player, vision::MapTransition::Reshroud, rules);
+        for player in self.represented_player_maps() {
+            if incoming.is_none_or(|owner| owner == player) {
+                self.transition_house_map(player, vision::MapTransition::Reshroud, rules);
+            }
         }
     }
 
@@ -1064,13 +1154,15 @@ impl Simulation {
     /// 8A0394 is re-read after each See callback, whose discovery can raise
     /// Tags. AbstractFlags14/1 admits every GameEntity, with no Alive90 gate.
     pub(crate) fn trigger_grow_shroud(&mut self, context: UninitContext<'_>) {
-        if let (Some(viewer), Some(size)) = (self.session.current_house(), self.map_size_diamond())
-        {
+        let viewers = self.represented_player_maps();
+        if let Some(size) = self.map_size_diamond() {
             let cells = context
                 .terrain()
                 .or(self.resolved_terrain.as_ref())
                 .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
-            self.fog.grow_shroud(viewer, size, cells.as_ref());
+            for &viewer in &viewers {
+                self.fog.grow_shroud(viewer, size, cells.as_ref());
+            }
         }
         let mut ordinal = 0;
         while let Some(id) = self
@@ -1081,19 +1173,24 @@ impl Simulation {
             .copied()
         {
             let reveal = self.substrate.entities.get(id).is_some_and(|entity| {
-                if self.house_is_human_player(entity.owner()) {
-                    entity.discovery.discovered_by_current_house()
-                } else {
-                    entity.category() == EntityCategory::Structure
-                        && context.rules().general.ally_reveal
-                        && self.session.current_house().is_some_and(|viewer| {
-                            crate::map::houses::is_allied_with(
+                viewers.iter().copied().any(|viewer| {
+                    let human = if self.session.game_mode().is_network() {
+                        entity.owner() == viewer
+                    } else {
+                        self.house_is_human_player(entity.owner())
+                    };
+                    if human {
+                        self.techno_discovered_by_viewer(id, viewer)
+                    } else {
+                        entity.category() == EntityCategory::Structure
+                            && context.rules().general.ally_reveal
+                            && crate::map::houses::is_allied_with(
                                 self.house_alliances.as_map(),
                                 self.interner.resolve(entity.owner()),
                                 self.interner.resolve(viewer),
                             )
-                        })
-                }
+                    }
+                })
             });
             if reveal {
                 self.reveal_uncached_object_sight(id, context);
@@ -1933,9 +2030,13 @@ impl Simulation {
     }
 
     /// Fill_In_Data684F89 -> Map4ADCD0(1,0), before the first Logic frame.
-    /// The native map is the current player's; skip Buildings at this caller.
+    /// The native process stores its current player's map. VERA stores every
+    /// House's map, so LAN/WOL runs this same owner for each human viewpoint
+    /// in House order; the actual client's presentation identity stays local.
+    /// Buildings are skipped at this caller. Source: original gamemd.exe.
     pub(crate) fn initialize_scenario_sight(&mut self, context: UninitContext<'_>) {
-        if let Some(viewer) = self.session.current_house() {
+        let viewers = self.represented_player_maps();
+        for viewer in viewers {
             self.walk_map_sight(context, false, Some(viewer), true);
         }
     }
@@ -1948,7 +2049,14 @@ impl Simulation {
         owner: InternedId,
         context: UninitContext<'_>,
     ) {
-        if self.session.current_house() == Some(owner)
+        let represented_view = if self.session.game_mode().is_network() {
+            self.houses
+                .get(&owner)
+                .is_some_and(|house| house.is_human())
+        } else {
+            self.session.current_house() == Some(owner)
+        };
+        if represented_view
             && self
                 .houses
                 .get_mut(&owner)
@@ -1962,10 +2070,9 @@ impl Simulation {
     /// MakeAlly4F9B9A/4F9F4F and MakeEnemy4F9FD8/4FA1E3. Both visit in
     /// Techno registration order; each source is re-read after callbacks.
     /// House50B6F0 and41B select the actual current player's Human arm,
-    /// including campaign controlled Houses. Other logical maps retain the
-    /// existing directed allied-Building projection; they do not give an
-    /// AI's own mobile the Human arm. Multiplayer per-client41B histories
-    /// beyond the session's current House remain unrepresented.
+    /// including campaign controlled Houses. In LAN/WOL each represented
+    /// human's own map takes the Human arm, independently of which client is
+    /// local. An AI's own mobile never gains this human-only admission.
     ///
     /// RESIDUAL: per-viewer admissions still open a newly allied Building
     /// one bracket earlier than native's shared250 latch (#2415). Native
@@ -1997,8 +2104,24 @@ impl Simulation {
                 {
                     break;
                 }
-                let human = Some(viewer) == current && self.house_is_human_player(entity.owner());
-                if human && !entity.discovery.discovered_by_current_house() {
+                // Map4ADD21..4ADD38 calls IsHumanPlayer50B6F0 then +41B.
+                // In a native network process that means an own object on
+                // PlayerPtr's map. VERA's per-House planes must make the same
+                // decision for every represented human, not only this client.
+                // Keep the real retained discovery prerequisite: ownership
+                // alone cannot reconstruct +41B after Unlimbo or Sight=0.
+                // Source: original gamemd.exe instructions50B716..50B723.
+                let network = self.session.game_mode().is_network();
+                let human = if network {
+                    entity.owner() == viewer
+                        && self
+                            .houses
+                            .get(&viewer)
+                            .is_some_and(|house| house.is_human())
+                } else {
+                    Some(viewer) == current && self.house_is_human_player(entity.owner())
+                };
+                if human && !self.techno_discovered_by_viewer(id, viewer) {
                     // The Human branch skips everything, including gap.
                     continue;
                 }
@@ -2025,7 +2148,13 @@ impl Simulation {
                         continue;
                     }
                 } else if !release
-                    && Some(viewer) == current
+                    && (if network {
+                        self.houses
+                            .get(&viewer)
+                            .is_some_and(|house| house.is_human())
+                    } else {
+                        Some(viewer) == current
+                    })
                     && entity.category() == EntityCategory::Structure
                     && self
                         .object_type(entity.type_ref(), context.rules())
@@ -2033,7 +2162,7 @@ impl Simulation {
                 {
                     //4ADE68 has no matching pre-release. Each call counts
                     //again through the existing alternate source owner.
-                    self.reveal_sight_to_current_house(id, context);
+                    self.reveal_sight_to_current_house(id, context, Some(viewer));
                     self.refresh_object_sight_border_on(id, Some(viewer), context);
                     continue;
                 }
@@ -2121,11 +2250,13 @@ impl Simulation {
     /// own sight (the source registry). Each call
     /// counts again; [`Self::rereveal_sight_to_current_house`] takes it back.
     ///
-    /// RESIDUALS:
-    /// - In a network game each client passes its own `PlayerPtr`, so every
-    ///   human player but the owner gets the sight; VERA gives it to the
-    ///   session's current house, as `house_is_human_player` reads it.
-    ///   Skirmish has one human.
+    /// Network games project this same PlayerPtr call onto each represented
+    /// human map, excluding the source's owner at the native opening caller.
+    /// The live map visitor supplies its one already-admitted logical viewer.
+    /// A projected player writes only its own plane: projecting its allied
+    /// planes again would count another represented player's admission twice.
+    ///
+    /// RESIDUAL:
     /// - A source without its own admission yet (`+0x250` clear) would
     ///   natively store this footprint as its own and leave its owner
     ///   without sight (`0x0070B0BF..0x0070B131`); VERA keeps the owner's
@@ -2139,44 +2270,60 @@ impl Simulation {
         &mut self,
         stable_id: u64,
         context: UninitContext<'_>,
+        only_viewer: Option<InternedId>,
     ) {
         let rules = context.rules();
-        let Some(current) = self.session.current_house() else {
-            return;
-        };
-        let Some(entity) = self.substrate.entities.get(stable_id) else {
-            return;
-        };
+        let network = self.session.game_mode().is_network();
+        let players =
+            only_viewer.map_or_else(|| self.represented_player_maps(), |viewer| vec![viewer]);
         let config = self.sight_reveal_config(rules);
         let height_grid = self.sight_height_grid(&config);
-        let Some(footprint) =
-            self.current_house_sight_footprint(entity, current, &config, Some(&height_grid), rules)
-        else {
-            return;
-        };
-        let viewers = self.reveal_viewers.direct(
-            &self.fog,
-            self.house_alliances.as_map(),
-            current,
-            &config,
-            &self.interner,
-        );
-        for &viewer in viewers.iter() {
-            if !self.fog.holds_alternate_sight(stable_id, viewer) {
-                self.fog
-                    .retain_sight_admission(stable_id, viewer, footprint.clone(), true);
+        for current in players {
+            let Some(entity) = self.substrate.entities.get(stable_id) else {
+                break;
+            };
+            if network && entity.owner() == current {
+                continue;
             }
-        }
-        for &viewer in viewers.iter() {
-            self.walk_source_sight(
-                viewer,
-                &footprint,
-                false,
+            let Some(footprint) = self.current_house_sight_footprint(
+                entity,
+                current,
                 &config,
                 Some(&height_grid),
-                context,
-                Some(current),
-            );
+                rules,
+            ) else {
+                continue;
+            };
+            let viewers = if network {
+                vec![current]
+            } else {
+                self.reveal_viewers
+                    .direct(
+                        &self.fog,
+                        self.house_alliances.as_map(),
+                        current,
+                        &config,
+                        &self.interner,
+                    )
+                    .to_vec()
+            };
+            for &viewer in &viewers {
+                if !self.fog.holds_alternate_sight(stable_id, viewer) {
+                    self.fog
+                        .retain_sight_admission(stable_id, viewer, footprint.clone(), true);
+                }
+            }
+            for viewer in viewers {
+                self.walk_source_sight(
+                    viewer,
+                    &footprint,
+                    false,
+                    &config,
+                    Some(&height_grid),
+                    context,
+                    Some(current),
+                );
+            }
         }
     }
 
@@ -2196,57 +2343,68 @@ impl Simulation {
     /// footprint is the source's sight as it stands: native keeps the stored
     /// coordinate and radius (`+0x254`, `+0x260`), and a building has not
     /// moved.
-    pub(crate) fn rereveal_sight_to_current_house(&mut self, stable_id: u64, rules: &RuleSet) {
-        let Some(current) = self.session.current_house() else {
-            return;
-        };
+    pub(crate) fn rereveal_sight_to_current_house(
+        &mut self,
+        stable_id: u64,
+        rules: &RuleSet,
+        skip_owner: bool,
+    ) {
+        let network = self.session.game_mode().is_network();
+        let players = self.represented_player_maps();
         let config = self.sight_reveal_config(rules);
-        if !self
-            .substrate
-            .entities
-            .get(stable_id)
-            .is_some_and(|entity| Self::passes_alternate_reveal_gates(entity, &config))
-        {
-            return;
-        }
-        let footprint = match self.fog.clear_sight_latch(stable_id, current) {
-            Some(footprint) => Some(footprint),
-            None => {
-                let height_grid = self.sight_height_grid(&config);
-                let entity = self.substrate.entities.get(stable_id).unwrap();
-                self.current_house_sight_footprint(
-                    entity,
-                    current,
-                    &config,
-                    Some(&height_grid),
-                    rules,
-                )
+        for current in players {
+            let Some(entity) = self.substrate.entities.get(stable_id) else {
+                break;
+            };
+            if !Self::passes_alternate_reveal_gates(entity, &config)
+                || (network && skip_owner && entity.owner() == current)
+            {
+                continue;
             }
-        };
-        let Some(footprint) = footprint.filter(|footprint| footprint.radius != 0) else {
-            return;
-        };
-        let viewers = self.reveal_viewers.direct(
-            &self.fog,
-            self.house_alliances.as_map(),
-            current,
-            &config,
-            &self.interner,
-        );
-        for &viewer in viewers.iter() {
-            self.fog.take_sight_admission(stable_id, viewer, true);
-        }
-        let heights = self.sight_height_grid(&config);
-        for &viewer in viewers.iter() {
-            self.walk_source_sight(
-                viewer,
-                &footprint,
-                true,
-                &config,
-                Some(&heights),
-                UninitContext::with_rules(rules),
-                Some(current),
-            );
+            let footprint = match self.fog.clear_sight_latch(stable_id, current) {
+                Some(footprint) => Some(footprint),
+                None => {
+                    let height_grid = self.sight_height_grid(&config);
+                    self.current_house_sight_footprint(
+                        entity,
+                        current,
+                        &config,
+                        Some(&height_grid),
+                        rules,
+                    )
+                }
+            };
+            let Some(footprint) = footprint.filter(|footprint| footprint.radius != 0) else {
+                continue;
+            };
+            let viewers = if network {
+                vec![current]
+            } else {
+                self.reveal_viewers
+                    .direct(
+                        &self.fog,
+                        self.house_alliances.as_map(),
+                        current,
+                        &config,
+                        &self.interner,
+                    )
+                    .to_vec()
+            };
+            for &viewer in &viewers {
+                self.fog.take_sight_admission(stable_id, viewer, true);
+            }
+            let heights = self.sight_height_grid(&config);
+            for viewer in viewers {
+                self.walk_source_sight(
+                    viewer,
+                    &footprint,
+                    true,
+                    &config,
+                    Some(&heights),
+                    UninitContext::with_rules(rules),
+                    Some(current),
+                );
+            }
         }
     }
 
@@ -2278,20 +2436,30 @@ impl Simulation {
         rules: &RuleSet,
     ) -> std::collections::BTreeMap<u64, vision::SightAdmission> {
         let mut footprints = std::collections::BTreeMap::new();
-        let Some(current) = self.session.current_house() else {
+        let network = self.session.game_mode().is_network();
+        let current = if network {
+            self.houses
+                .get(&owner)
+                .filter(|house| house.is_human())
+                .map(|_| owner)
+        } else {
+            self.session.current_house()
+        };
+        let Some(current) = current else {
             return footprints;
         };
         let config = self.sight_reveal_config(rules);
-        if !self
-            .reveal_viewers
-            .direct(
-                &self.fog,
-                self.house_alliances.as_map(),
-                current,
-                &config,
-                &self.interner,
-            )
-            .contains(&owner)
+        if !network
+            && !self
+                .reveal_viewers
+                .direct(
+                    &self.fog,
+                    self.house_alliances.as_map(),
+                    current,
+                    &config,
+                    &self.interner,
+                )
+                .contains(&owner)
         {
             return footprints;
         }
@@ -2299,7 +2467,11 @@ impl Simulation {
         for (id, entity) in self.substrate.entities.iter_sorted() {
             if entity.category() != EntityCategory::Structure
                 || !Self::in_ally_bracket_walk(entity)
-                || self.house_is_human_player(entity.owner())
+                || (if network {
+                    entity.owner() == current
+                } else {
+                    self.house_is_human_player(entity.owner())
+                })
                 || !self
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.reveal_to_all)

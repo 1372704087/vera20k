@@ -114,8 +114,10 @@ impl RemovalFacts {
 /// ChangeOwner70173B classify only the current owner. Discovery6F4960 and
 /// Conceal6F4A40 own the two retained observations. Infantry raw Save/Load
 /// preserves the bytes: never reconstruct them from the restored owner.
-/// Native peer CRC64DAB0 omits them; this is also omitted from the shared
-/// Rust peer hash. The separate diagnostic CRC70C270 is not that checksum.
+/// Native peer CRC64DAB0 omits these actual-client bytes. In a VERA network
+/// world the same owner also retains each represented human's admission and
+/// the nonhuman receiver history. Those canonical fields affect shared sight
+/// and discovery callbacks and therefore DO enter the shared Rust hash.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TechnoDiscoveryHistory {
     /// `+0x41A`: the current house owns the object.
@@ -125,6 +127,14 @@ pub struct TechnoDiscoveryHistory {
     /// `+0x41C`: a single historical byte for all other receiver houses, not
     /// a house set.
     discovered_by_other_house: bool,
+    /// LAN/WOL +41B for every represented human, in immutable human House
+    /// registration order. Admission bounds the match to30 humans, fitting32
+    /// bits without per-object allocations; these are not raw interner IDs.
+    #[serde(default)]
+    network_human_discovery: u32,
+    /// Canonical nonhuman callback admission, independent of actual-local41C.
+    #[serde(default)]
+    network_other_discovery: bool,
 }
 
 impl TechnoDiscoveryHistory {
@@ -143,6 +153,20 @@ impl TechnoDiscoveryHistory {
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn discovered_by_other_house(self) -> bool {
         self.discovered_by_other_house
+    }
+
+    fn clear_current_discovery(&mut self) {
+        self.discovered_by_current_house = false;
+        // A shared lifecycle clear executes in every represented native view.
+        // Preserve the independent other-receiver history, as native preserves41C.
+        self.network_human_discovery = 0;
+    }
+
+    pub(super) fn hash_network(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        b"network-discovery-v1".hash(hasher);
+        self.network_human_discovery.hash(hasher);
+        self.network_other_discovery.hash(hasher);
     }
 
     /// InitManagers (`0x006F3F40`) and ChangeOwner (`0x0070173B..0x00701751`)
@@ -180,6 +204,8 @@ impl TechnoDiscoveryHistory {
             owned_by_current_house,
             discovered_by_current_house,
             discovered_by_other_house,
+            network_human_discovery: 0,
+            network_other_discovery: false,
         }
     }
 }
@@ -1355,7 +1381,7 @@ impl Simulation {
             ) == Some(false)
             && let Some(entity) = self.substrate.entities.get_mut(stable_id)
         {
-            entity.discovery.discovered_by_current_house = false;
+            entity.discovery.clear_current_discovery();
         }
         // Techno6F6ED2/6F6EDE publishes its current threat before the Foot
         // tail. Failed Mark and the dead successful Reveal arm publish none.
@@ -1517,7 +1543,7 @@ impl Simulation {
             && entity.category() == EntityCategory::Infantry
             && entity.sight.is_zero()
         {
-            entity.discovery.discovered_by_current_house = false;
+            entity.discovery.clear_current_discovery();
         }
         // Then `InfantryClass::Unlimbo` marks the man's sub-cell through his
         // vt+0xF0 (`0x005217C0`) unless he was placed more than a deck above
@@ -1713,6 +1739,49 @@ impl Simulation {
         }
     }
 
+    /// Each native network process compares one PlayerPtr. VERA represents
+    /// every admitted human's map, so use the same immutable human House order
+    /// for its compact discovery history. Human identity is fixed before map
+    /// objects are constructed; ownership changes never reclassify this order.
+    fn network_discovery_view_bit(&self, viewer: InternedId) -> Option<u32> {
+        if !self.session.game_mode().is_network()
+            || !self
+                .houses
+                .get(&viewer)
+                .is_some_and(|house| house.is_human())
+        {
+            return None;
+        }
+        let ordinal = self
+            .houses
+            .in_order()
+            .filter(|house| house.is_human())
+            .position(|house| house.name() == viewer)?;
+        Some(
+            1_u32
+                .checked_shl(ordinal as u32)
+                .expect("admitted network human count fits the30-player discovery mask"),
+        )
+    }
+
+    /// Retained discovery for a specified logical map, rather than this
+    /// process's presentation cache. All shared sight/arrival consumers use it.
+    pub(crate) fn techno_discovered_by_viewer(&self, id: u64, viewer: InternedId) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        if self.session.game_mode().is_network() {
+            self.network_discovery_view_bit(viewer)
+                .map_or(entity.discovery.network_other_discovery, |bit| {
+                    entity.discovery.network_human_discovery & bit != 0
+                })
+        } else if self.session.current_house() == Some(viewer) {
+            entity.discovery.discovered_by_current_house
+        } else {
+            entity.discovery.discovered_by_other_house
+        }
+    }
+
     /// Shared TechnoDiscovered6F4960, called by CellAddContent47E9DC with
     /// PlayerPtr and FootUnlimbo4D722F with the object's owner. The queried
     /// House50B730 is the VIEWER; dirty flags and the1F4 notification belong
@@ -1727,6 +1796,7 @@ impl Simulation {
         stable_id: u64,
         viewer: InternedId,
         context: UninitContext<'_>,
+        admitted_network_views: u32,
     ) -> bool {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return false;
@@ -1734,11 +1804,31 @@ impl Simulation {
         //6F4960..6F4972 compares the nonnull viewer against PlayerPtr;
         //there is no null-Player guard. A headless owner callback therefore
         //takes the ordinary other-house arm when no local player is bound.
-        let current = Some(viewer) == self.session.current_house();
+        let actual_current = Some(viewer) == self.session.current_house();
+        let network = self.session.game_mode().is_network();
+        let network_view = self.network_discovery_view_bit(viewer);
+        let current = if network {
+            network_view.is_some()
+        } else {
+            actual_current
+        };
         let history = entity.discovery;
-        if (current && history.discovered_by_current_house)
-            || (!current && history.discovered_by_other_house)
-        {
+        let actual_view = self
+            .session
+            .current_house()
+            .and_then(|view| self.network_discovery_view_bit(view));
+        let seen = if admitted_network_views != 0 {
+            history.network_human_discovery & admitted_network_views == admitted_network_views
+        } else if network {
+            network_view.map_or(history.network_other_discovery, |bit| {
+                history.network_human_discovery & bit != 0
+            })
+        } else if current {
+            history.discovered_by_current_house
+        } else {
+            history.discovered_by_other_house
+        };
+        if seen {
             return false;
         }
         let Some(house) = self.houses.get(&viewer) else {
@@ -1746,14 +1836,43 @@ impl Simulation {
         };
         let controlled = house.is_controlled_by_human(self.session.game_mode_nonzero());
         let owner = entity.owner();
+        // Native41A is actual-client presentation identity. The shared callback
+        // sees ownership from its explicit represented map instead.
+        let owned = if network {
+            owner == viewer
+        } else {
+            history.owned_by_current_house
+        };
         let entity = self
             .substrate
             .entities
             .get_mut(stable_id)
             .expect("discovered Techno");
-        if !current {
+        if admitted_network_views != 0 {
+            // One native noncampaign CellPUT is known by every represented
+            // PlayerPtr. Stamp those admissions before callbacks, so an
+            // opening's RevealToAll cannot reenter the same shared opening
+            // through another logical view whose CellPUT is still pending.
+            entity.discovery.network_human_discovery |= admitted_network_views;
+            if actual_view.is_some_and(|bit| admitted_network_views & bit != 0) {
+                entity.discovery.discovered_by_current_house = true;
+            }
+            if admitted_network_views & !actual_view.unwrap_or(0) != 0 {
+                entity.discovery.discovered_by_other_house = true;
+            }
+        } else if network {
+            if let Some(bit) = network_view {
+                entity.discovery.network_human_discovery |= bit;
+            } else {
+                entity.discovery.network_other_discovery = true;
+            }
+        }
+        if !actual_current {
             // 6F4990 precedes base discovery and the mission inquiry.
             entity.discovery.discovered_by_other_house = true;
+        }
+        if actual_current {
+            entity.discovery.discovered_by_current_house = true;
         }
         if !controlled
             && entity.mission.effective().known()
@@ -1767,12 +1886,11 @@ impl Simulation {
             );
         }
         if current {
-            entity.discovery.discovered_by_current_house = true;
             //6F49DE invalidates both House bytes even for a Foot. Another
             //Building's repaired health can therefore become visible before
             //its next own health sample, through this independent writer.
             Self::invalidate_house_power(&self.houses, &mut self.power_states, owner, true);
-            if !history.owned_by_current_house {
+            if !owned {
                 if !self.object_placement_scope_active() {
                     //6F4A03..6F4A18: the attachment owner resolves the Tag,
                     // including an Event48-only chain's no-match traversal.
@@ -1798,7 +1916,7 @@ impl Simulation {
         }
         //6F4A1D reloads owner AFTER synchronous Tag actions.
         if current
-            && !history.owned_by_current_house
+            && !owned
             && let Some(owner) = self
                 .substrate
                 .entities
@@ -1806,6 +1924,8 @@ impl Simulation {
                 .map(|entity| entity.owner())
             && let Some(house) = self.houses.get_mut(&owner)
         {
+            // Network Event5 sees discovery by any represented human;
+            // every peer executes that same admitted-view callback order.
             house.notify_discovered_by_current_house();
         }
         true
@@ -1822,7 +1942,19 @@ impl Simulation {
         viewer: InternedId,
         context: UninitContext<'_>,
     ) -> bool {
-        if !self.record_techno_discovery(id, viewer, context) {
+        self.discover_techno_in_views(id, viewer, context, 0)
+    }
+
+    /// The same virtual owner with a single CellPUT's represented admission
+    /// set. Shared Tag/Building tails run once, not once per stored map.
+    fn discover_techno_in_views(
+        &mut self,
+        id: u64,
+        viewer: InternedId,
+        context: UninitContext<'_>,
+        admitted_network_views: u32,
+    ) -> bool {
+        if !self.record_techno_discovery(id, viewer, context, admitted_network_views) {
             return false;
         }
         let Some(entity) = self.substrate.entities.get(id) else {
@@ -1898,19 +2030,46 @@ impl Simulation {
         cell: (u16, u16),
         context: UninitContext<'_>,
     ) {
-        let Some(viewer) = self.session.current_house() else {
-            return;
-        };
-        if !self.session.game_mode_nonzero() {
-            let Some(terrain) = context.terrain().or(self.resolved_terrain.as_ref()) else {
+        if self.session.game_mode().is_network() {
+            let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
                 return;
             };
-            let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-            if crate::sim::vision::cell_is_shrouded(&self.fog, &cells, viewer, cell) {
+            let fresh: Vec<_> = self
+                .represented_player_maps()
+                .into_iter()
+                .filter(|&viewer| !self.techno_discovered_by_viewer(id, viewer))
+                .collect();
+            let Some(viewer) = fresh
+                .iter()
+                .copied()
+                .find(|&viewer| viewer != owner)
+                .or_else(|| fresh.first().copied())
+            else {
                 return;
-            }
+            };
+            let mask = fresh.into_iter().fold(0, |mask, viewer| {
+                mask | self
+                    .network_discovery_view_bit(viewer)
+                    .expect("represented human")
+            });
+            // Cell47E9DC has one shared gameplay receiver. Its represented
+            // maps are admitted atomically; choose a foreign new viewer when
+            // present so the native Tag4/House1F4 side effects are not lost.
+            self.discover_techno_in_views(id, viewer, context, mask);
+            return;
         }
-        self.discover_techno(id, viewer, context);
+        for viewer in self.represented_player_maps() {
+            if !self.session.game_mode_nonzero() {
+                let Some(terrain) = context.terrain().or(self.resolved_terrain.as_ref()) else {
+                    return;
+                };
+                let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
+                if crate::sim::vision::cell_is_shrouded(&self.fog, &cells, viewer, cell) {
+                    continue;
+                }
+            }
+            self.discover_techno(id, viewer, context);
+        }
     }
 
     /// `BuildingClass::Unlimbo @ 0x00440580` calls
@@ -3539,7 +3698,7 @@ impl Simulation {
         if human == Some(false)
             && let Some(entity) = substrate.entities.get_mut(stable_id)
         {
-            entity.discovery.discovered_by_current_house = false;
+            entity.discovery.clear_current_discovery();
         }
     }
 
@@ -3714,7 +3873,8 @@ impl Simulation {
             // (headless) there is no PlayerPtr to release for, and the
             // ordinary release keeps its place before the gap removal.
             let rules = context.rules();
-            let reveal_to_all = self.session.current_house().is_some()
+            let reveal_to_all = (self.session.game_mode().is_network()
+                || self.session.current_house().is_some())
                 && self
                     .substrate
                     .entities
@@ -3722,7 +3882,7 @@ impl Simulation {
                     .and_then(|entity| self.object_type(entity.type_ref(), rules))
                     .is_some_and(|object| object.reveal_to_all);
             if reveal_to_all {
-                self.rereveal_sight_to_current_house(stable_id, rules);
+                self.rereveal_sight_to_current_house(stable_id, rules, false);
             } else {
                 self.release_object_sight_with_context(stable_id, context);
             }

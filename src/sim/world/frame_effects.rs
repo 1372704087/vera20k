@@ -7,7 +7,7 @@
 
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::command::CommandEnvelope;
+use crate::sim::command::{CommandEnvelope, CommandRecord};
 
 use super::{SimSoundEvent, Simulation};
 
@@ -110,6 +110,7 @@ pub struct FrameEffects<'a> {
     network_commands: Option<&'a dyn NetworkCommandBoundary>,
     overlay_registry: Option<&'a OverlayTypeRegistry>,
     before_logic: Option<&'a dyn Fn(&Simulation)>,
+    command_applied: Option<&'a dyn Fn(&Simulation, &CommandRecord, bool)>,
     production_factories: &'a [crate::sim::production::ProductionFactoryVisit],
     production_request_cleared: Option<&'a dyn Fn(crate::sim::intern::InternedId)>,
 }
@@ -132,6 +133,7 @@ impl<'a> FrameEffects<'a> {
             network_commands: None,
             overlay_registry: None,
             before_logic: None,
+            command_applied: None,
             production_factories: &[],
             production_request_cleared: None,
         }
@@ -145,6 +147,7 @@ impl<'a> FrameEffects<'a> {
             network_commands: None,
             overlay_registry: None,
             before_logic: None,
+            command_applied: None,
             production_factories: &[],
             production_request_cleared: None,
         }
@@ -196,6 +199,24 @@ impl<'a> FrameEffects<'a> {
         Self {
             before_logic: Some(boundary),
             ..self
+        }
+    }
+
+    /// Optional process observation after the gameplay receiver handled a command.
+    /// The observer stores no command queue and cannot mutate the simulation.
+    pub fn with_command_applied(
+        self,
+        observer: &'a dyn Fn(&Simulation, &CommandRecord, bool),
+    ) -> Self {
+        Self {
+            command_applied: Some(observer),
+            ..self
+        }
+    }
+
+    pub(crate) fn command_applied(self, sim: &Simulation, command: &CommandRecord, applied: bool) {
+        if let Some(observer) = self.command_applied {
+            observer(sim, command, applied);
         }
     }
 

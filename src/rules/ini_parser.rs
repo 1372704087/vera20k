@@ -695,6 +695,14 @@ impl IniFile {
         crc_of_pipe(&self.save_to_pipe(None))
     }
 
+    /// Collision-resistant agreement for VERA peers over the same ordered
+    /// physical entries as SaveToPipe526470. Presentation-only whitespace and
+    /// comments do not change it; duplicate entries and their order do.
+    /// This extends the network protocol, not the native GetCRC result.
+    pub fn multiplayer_digest(&self) -> String {
+        crate::util::sha256::sha256_hex(&self.save_to_pipe(None))
+    }
+
     /// GetCRC after a digest-checked load (`ReadCCFile(file, 1, 0)`,
     /// `0x0047424A..0x004742E3`): `[Digest]` is removed before the hash.
     pub fn digest_checked_crc(&self) -> u32 {

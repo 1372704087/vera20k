@@ -108,20 +108,26 @@ pub(super) fn project_preview_start_positions(
         return Vec::new();
     }
 
+    // VERA authored maps can expose thirty admitted starts. The projection
+    // remains the same for native maps. Reject a malformed header as a whole
+    // rather than dropping one point and renumbering every later start label.
     bounds
         .start_points
         .iter()
-        .take(8)
+        .take(crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT)
         .map(|point| {
-            let x_per_mille = ((point.x - bounds.origin_x) as i64 * 1000) / bounds.width as i64;
-            let y_per_mille = ((point.y - bounds.origin_y) as i64 * 1000) / bounds.height as i64;
-            let x = fitted_preview_rect.x
-                + ((x_per_mille * fitted_preview_rect.w as i64) / 1000) as i32;
-            let y = fitted_preview_rect.y
-                + ((y_per_mille * fitted_preview_rect.h as i64) / 1000) as i32;
-            (x, y)
+            let x_per_mille = ((i64::from(point.x) - i64::from(bounds.origin_x)) * 1000)
+                / i64::from(bounds.width);
+            let y_per_mille = ((i64::from(point.y) - i64::from(bounds.origin_y)) * 1000)
+                / i64::from(bounds.height);
+            let x = i64::from(fitted_preview_rect.x)
+                .checked_add(x_per_mille.checked_mul(i64::from(fitted_preview_rect.w))? / 1000)?;
+            let y = i64::from(fitted_preview_rect.y)
+                .checked_add(y_per_mille.checked_mul(i64::from(fitted_preview_rect.h))? / 1000)?;
+            Some((i32::try_from(x).ok()?, i32::try_from(y).ok()?))
         })
-        .collect()
+        .collect::<Option<Vec<_>>>()
+        .unwrap_or_default()
 }
 
 pub(super) fn build_start_marker_instances(
@@ -438,4 +444,37 @@ pub(super) fn build_preview_surface_instance(
         alpha: 1.0,
         ..Default::default()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verified_thirty_start_header_projects_every_marker_without_integer_wrap() {
+        let mut text =
+            "[Header]\nStartX=0\nStartY=0\nWidth=100\nHeight=100\nNumberStartingPoints=30\n"
+                .to_owned();
+        for index in 1..=30 {
+            text.push_str(&format!("Waypoint{index}={index},{index}\n"));
+        }
+        let ini = IniFile::from_str(&text);
+        let mut bounds =
+            crate::map::scenario_menu::preview_source_bounds_from_verified_source(&ini).unwrap();
+        let positions = project_preview_start_positions(&bounds, RectPx::new(10, 20, 200, 100));
+        assert_eq!(
+            positions.len(),
+            30,
+            "VERA's admitted start slots were truncated to the native eight-marker prefix"
+        );
+        assert!(positions.last().unwrap().0 > positions[7].0);
+        bounds.origin_x = i32::MIN;
+        bounds.width = 1;
+        bounds.start_points.truncate(1);
+        bounds.start_points[0].x = i32::MAX;
+        assert!(
+            project_preview_start_positions(&bounds, RectPx::new(10, 20, 200, 100)).is_empty(),
+            "unrepresentable untrusted Header coordinates must not wrap into the preview"
+        );
+    }
 }

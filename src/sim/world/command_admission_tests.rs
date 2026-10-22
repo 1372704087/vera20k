@@ -13,6 +13,95 @@ fn native_dolist_world() -> Simulation {
 }
 
 #[test]
+fn admitted_host_timing_retimes_future_events_and_resets_for_new_match() {
+    use crate::sim::command::{CommandRecord, ProcessTimeRecord, TimingRecord};
+    use std::num::NonZeroU8;
+    let mut sim = native_dolist_world();
+    let guest = sim.interner.intern("Host");
+    sim.houses
+        .register(HouseState::new(guest, 1, None, true, 0, 10));
+    sim.session.install_network_timing(10);
+    sim.session
+        .install_network_command_timing(1, NonZeroU8::new(5).unwrap(), [0, 1]);
+    sim.session.game_options_mut_for_test().fog_of_war = true;
+    for (house_id, max_ahead) in [(0, 200), (1, 30)] {
+        sim.admit_native_command_record(
+            TimingRecord {
+                house_id,
+                frame: 0,
+                frames_per_second: 45,
+                max_ahead,
+                frame_send_rate: NonZeroU8::new(10).unwrap(),
+            }
+            .encode()
+            .unwrap(),
+        );
+        sim.admit_native_command_record(
+            ProcessTimeRecord {
+                house_id,
+                frame: 0,
+                milliseconds: 10 + house_id as u16,
+            }
+            .encode()
+            .unwrap(),
+        );
+    }
+    // A malformed zero-rate record cannot cause a divide-by-zero or clear the
+    // valid host's window. The source0 TIMING above is likewise not authoritative.
+    sim.admit_native_command_record(CommandRecord::encode(0x20, 1, 0, &[0; 5]).unwrap());
+    sim.admit_native_command_record(
+        crate::sim::command::GameSpeedRecord {
+            house_id: 0,
+            frame: 5,
+            speed: 6,
+        }
+        .encode()
+        .unwrap(),
+    );
+    sim.advance_tick(&[], None, None, None, 33);
+    assert_eq!(sim.session.network_max_ahead_frames(), Some(20));
+    assert_eq!(sim.pending_commands.retime_window().bounds(), (0, 20));
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .frames_per_second(),
+        45
+    );
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .maximum_processing_millis([0, 1]),
+        Some(11)
+    );
+    sim.advance_tick(&[], None, None, None, 33);
+    assert!(sim.pending_commands.iter().any(|entry| {
+        entry
+            .record()
+            .is_some_and(|record| record.opcode() == 0x0d && record.frame_stamp() == 20)
+    }));
+    assert_eq!(sim.session.game_options().game_speed, 3);
+    let saved = crate::util::save_codec::serialize(&sim.session).unwrap();
+    let restored: crate::sim::scenario_session::ScenarioSession =
+        crate::util::save_codec::deserialize(&saved).unwrap();
+    assert_eq!(
+        restored.network_command_timing(),
+        sim.session.network_command_timing()
+    );
+    sim.session.set_game_mode(ScenarioGameMode::Skirmish);
+    assert!(sim.session.network_command_timing().is_none());
+    sim.session.set_game_mode(ScenarioGameMode::Wol);
+    sim.session.install_network_timing(10);
+    sim.network_command_queues()
+        .install_timing(0, NonZeroU8::new(5).unwrap(), [0, 1]);
+    assert_eq!(sim.pending_commands.retime_window().bounds(), (0, 0));
+    let fresh = sim.session.network_command_timing().unwrap();
+    assert_eq!(fresh.frames_per_second(), 30);
+    assert_eq!(fresh.maximum_processing_millis([0, 1]), None);
+}
+
+#[test]
 fn native_frame_and_house_override_carrier_metadata() {
     let mut sim = native_dolist_world();
     let record = crate::sim::command::GameSpeedRecord {
@@ -89,6 +178,7 @@ fn processed_native_records_do_not_reapply_to_input_projections() {
 #[test]
 fn unresolved_native_megamissions_still_consume_the_production_staging_slots() {
     let mut sim = native_dolist_world();
+    sim.session.set_game_mode(ScenarioGameMode::Skirmish);
     for _ in 0..257 {
         let record = crate::sim::command::CommandRecord::encode(4, 0, 0, &[0; 23]).unwrap();
         assert!(sim.admit_native_command_record(record));
@@ -230,6 +320,7 @@ fn future_native_admission_is_recorded_once_and_replays_at_its_raw_frame() {
 #[test]
 fn production_dolist_preserves_unknown_records_and_enforces_native_capacity() {
     let mut sim = native_dolist_world();
+    sim.session.set_game_mode(ScenarioGameMode::Skirmish);
     let record = crate::sim::command::CommandRecord::encode(0xff, -1, 10, &[0xaa]).unwrap();
     for _ in 0..crate::sim::command_queue::DO_LIST_CAPACITY {
         assert!(sim.admit_native_command_record(record.clone()));
@@ -324,7 +415,7 @@ fn frame_info_failure_resumes_only_the_remaining_tail_after_acknowledgement() {
         assert!(output.admitted_commands.is_empty());
         assert_eq!(sim.session.binary_frame(), 0);
         assert_eq!(sim.session.game_options().game_speed, 4);
-        assert_eq!(sim.dispatch_reserved_slots, 0);
+        assert_eq!(sim.dispatch_reserved_slots.total, 0);
         let flags: Vec<_> = sim
             .pending_commands
             .iter()
@@ -638,14 +729,17 @@ fn local_extensions_keep_paid_selection_order_without_using_event_slots() {
     let cancel = CommandEnvelope::new(owner, 0, Command::CancelPaidSuperWeapon { selection });
     assert!(sim.issue_local_command(begin.clone()));
     assert_eq!(
-        sim.projected_paid_super_weapon_selection(owner),
+        sim.projected_paid_super_weapon_selection(owner, RuleSet::empty_for_test()),
         Some((selection, true))
     );
     assert!(
         sim.issue_local_command(cancel.clone()),
         "local cancellation is not a native event"
     );
-    assert_eq!(sim.projected_paid_super_weapon_selection(owner), None);
+    assert_eq!(
+        sim.projected_paid_super_weapon_selection(owner, RuleSet::empty_for_test()),
+        None
+    );
     assert!(
         !sim.issue_local_command(begin.clone()),
         "all native slots are occupied"
@@ -655,7 +749,7 @@ fn local_extensions_keep_paid_selection_order_without_using_event_slots() {
 
     sim.issue_local_commands([cancel, begin]);
     assert_eq!(
-        sim.projected_paid_super_weapon_selection(owner),
+        sim.projected_paid_super_weapon_selection(owner, RuleSet::empty_for_test()),
         Some((selection, true)),
         "the inverse order selects the source"
     );

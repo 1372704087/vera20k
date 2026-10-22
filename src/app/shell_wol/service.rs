@@ -23,6 +23,8 @@ use crate::ui::wol_shell::{
 /// Which WOLAPI stands behind the visit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WolProvider {
+    /// VERA's authenticated HTTPS lobby and UDP relay.
+    Online,
     /// No Westwood online components (every retail install today): the
     /// WOLAPI object cannot be created (`0x00786390` -> `0x00785711`).
     Unavailable,
@@ -80,7 +82,7 @@ pub(crate) struct WolLoginAccepted {
     pub(crate) motd: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum WolServiceRequest {
     /// `WOL__EnsureWolapiObject` `0x00786390`.
     EnsureApi,
@@ -88,7 +90,9 @@ pub(crate) enum WolServiceRequest {
     ListCredentials,
     /// `0x00797640`: API+0x10 with these SKU flags (`0x2900`, or `0x2300`
     /// for mode 3).
-    FetchServers { flags: u32 },
+    FetchServers {
+        flags: u32,
+    },
     /// `0xC4`'s Disconnect during the connect: `SetEvent(event 0)` ends the
     /// running wait. A Disconnect during the server list leaves WOL, which
     /// ends the visit and with it the service session; nothing is queued.
@@ -101,8 +105,14 @@ pub(crate) enum WolServiceRequest {
         password: String,
         changed: bool,
     },
+    CreateAccount {
+        nickname: String,
+        password: String,
+    },
     /// Forget Account: API+0x94(slot, "", "", 1).
-    ForgetCredential { slot: u32 },
+    ForgetCredential {
+        slot: u32,
+    },
     /// Remember after a login: `0x00789500(nickname, password, changed,
     /// locale)`, which stores the account (API+0x94) and the slot's locale
     /// (API+0xC8, `0x00789610..0x0078961E`).
@@ -114,7 +124,9 @@ pub(crate) enum WolServiceRequest {
     },
     /// API+0xBC: the locales of these users (the connect asks for its own,
     /// `0x00786A01..0x00786A48`).
-    RequestLocales { names: Vec<String> },
+    RequestLocales {
+        names: Vec<String>,
+    },
     /// API+0xB8: this user's locale.
     SetLocale(i32),
     /// API+0xD0: how many locales the service knows (`0xFE`'s init,
@@ -122,30 +134,50 @@ pub(crate) enum WolServiceRequest {
     LocaleCount,
     /// `0x0077F120`: API+0x18 for channel type `kind` (0 chat lobbies,
     /// `0x29` games) with `flags`.
-    ListChannels { kind: u32, flags: u32 },
+    ListChannels {
+        kind: u32,
+        flags: u32,
+    },
     /// `0x00788800`: API+0x20 with the record and its key at `+0xD7`.
-    JoinChannel { channel: WolChannel, key: String },
+    JoinChannel {
+        channel: WolChannel,
+        key: String,
+    },
     /// API+0x24: leave the current channel.
     LeaveChannel,
     /// API+0x34 from the logout `0x00785EA0`.
     Logout,
     /// `0x00789B60`: API+0x1C with the new game channel's record and its
     /// key at `+0xD7`.
-    CreateChannel { channel: WolChannel, key: String },
+    CreateChannel {
+        channel: WolChannel,
+        key: String,
+    },
     /// `0x0077E1D0`, the pager `0x0078A6B0`/`0x0078A8F0` or the locate
     /// `0x0078A470` from the lobby; `to` are the selected users of a
     /// private line.
-    Chat { line: WolChatLine, to: Vec<String> },
+    Chat {
+        line: WolChatLine,
+        to: Vec<String>,
+    },
     /// `0x0077E300`: an action line, private to `to` when any.
-    Emote { text: Vec<u16>, to: Vec<String> },
+    Emote {
+        text: Vec<u16>,
+        to: Vec<String>,
+    },
     /// `0x0077E110`: API+0x7C with `[WOnline] LangFilter`.
     SetLangFilter(i32),
     /// `0x0077E110`: API+0x68 with AllowFind and AllowPage.
-    SetFindPage { find: i32, page: i32 },
+    SetFindPage {
+        find: i32,
+        page: i32,
+    },
     /// API+0xB0: a squad's record; 0 asks for the user's own (the lobby
     /// runner's entry `0x00787B33..0x00787B53`, a joiner's at
     /// `0x007A62B7..0x007A62EE`). The answer is [`WolServiceEvent::Squad`].
-    SquadInfo { id: i32 },
+    SquadInfo {
+        id: i32,
+    },
     /// API+0xDC: the buddy list (`0x116`'s init, the lobby runner's entry
     /// `0x00787BC8`); the answer is [`WolServiceEvent::Buddies`].
     ListBuddies,
@@ -171,6 +203,14 @@ pub(crate) enum WolServiceRequest {
         matchbot: String,
         request: super::quick_match::MatchRequest,
     },
+}
+
+impl std::fmt::Debug for WolServiceRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WolServiceRequest")
+            .field("kind", &std::mem::discriminant(self))
+            .finish_non_exhaustive()
+    }
 }
 
 /// One ladder record (`0x6C` bytes) of the ladder sink
@@ -693,12 +733,21 @@ pub(super) fn request(state: &mut AppState, request: WolServiceRequest) {
 fn connect(state: &mut AppState, server: WolServer, auto: bool, remember_locale: i32) -> WolStep {
     let globals = state.frontend.wol_account.clone();
     let visit = state.frontend.wol.as_mut().expect("WOL visit");
-    visit.requests.push(WolServiceRequest::Connect {
-        server: server.clone(),
-        nickname: globals.nickname,
-        password: globals.password,
-        changed: globals.changed,
-    });
+    visit
+        .requests
+        .push(if std::mem::take(&mut visit.create_account) {
+            WolServiceRequest::CreateAccount {
+                nickname: globals.nickname,
+                password: globals.password,
+            }
+        } else {
+            WolServiceRequest::Connect {
+                server: server.clone(),
+                nickname: globals.nickname,
+                password: globals.password,
+                changed: globals.changed,
+            }
+        });
     visit.awaiting = Awaiting::Connect {
         deadline: Instant::now() + WAIT_LIMIT,
     };
@@ -1036,8 +1085,28 @@ fn connect_succeeded(state: &mut AppState) {
     // The nickname becomes the session handle [0xA8B380], the persona's
     // Country and Color the MultiPlayer picks, and WriteMultiPlayerSettings
     // 0x006990A0 saves them.
+    let online = visit.provider == WolProvider::Online;
     let runtime = &mut state.frontend.multiplayer_shell_runtime;
-    runtime.set_handle(&nickname);
+    if online {
+        if runtime.accept_online_handle(&nickname).is_err() {
+            if let Some(visit) = state.frontend.wol.as_mut() {
+                visit.authenticated = false;
+                visit.connected = false;
+                visit.requests.push(WolServiceRequest::Logout);
+            }
+            apply(
+                state,
+                WolStep::Message {
+                    key: "TXT_CANT_CONNECT",
+                    yes_no: false,
+                    then: WolBoxThen::Welcome,
+                },
+            );
+            return;
+        }
+    } else {
+        runtime.set_handle(&nickname);
+    }
     runtime.set_side_and_color(persona.country, persona.color);
     runtime.persist_local_preferences();
     if let Some(file) = super::persona::info_file(state) {

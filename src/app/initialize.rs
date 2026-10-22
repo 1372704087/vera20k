@@ -803,6 +803,7 @@ impl App {
                 campaign_art: None,
                 load_saved_game: None,
                 wol: None,
+                online_cleanup: Default::default(),
                 wol_account: Default::default(),
                 wol_test_credentials: Vec::new(),
                 network_options: None,

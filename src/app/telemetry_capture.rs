@@ -110,10 +110,14 @@ pub fn capture_snapshot(state: &AppState) -> Option<TelemetrySnapshot> {
         .game_options()
         .game_speed
         .clamp(0, 6) as u8;
-    let mut timing = state
-        .match_state
-        .telemetry_timing
-        .summarize(state.platform.frame_pacer.budget_ms(speed));
+    let mut timing =
+        state
+            .match_state
+            .telemetry_timing
+            .summarize(state.platform.frame_pacer.budget_ms(
+                speed,
+                crate::app::match_runtime::network_match::frame_budget(state),
+            ));
     // Each rate keeps its own owner: FPS is the render loop's, tick_hz is the
     // committed-tick meter's.
     timing.fps = state.diag.frame_timer.fps();

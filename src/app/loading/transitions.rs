@@ -286,7 +286,6 @@ pub(crate) fn install_world_presentation(
                 .houses()
                 .order()
                 .iter()
-                .take(crate::app::match_runtime::beacons::BEACON_HOUSES)
                 .map(|house| {
                     let index = colors
                         .get(sim.interner().resolve(*house))

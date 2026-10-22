@@ -42,6 +42,9 @@ const CELL_HEADER_SIZE: usize = 4;
 /// Native IsoMapPack5 lookup dimensions.
 const ISO_MAP_ROW_WIDTH: i32 = 512;
 const ISO_MAP_CELL_COUNT: i32 = ISO_MAP_ROW_WIDTH * ISO_MAP_ROW_WIDTH;
+// One serialized record per fixed-grid cell, followed by the optional null
+// coordinate header. Untrusted maps must not expand beyond this before parsing.
+const ISO_MAP_MAX_BYTES: usize = ISO_MAP_CELL_COUNT as usize * CELL_RECORD_SIZE + CELL_HEADER_SIZE;
 const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
 
 /// Errors during map file parsing.
@@ -53,7 +56,9 @@ pub enum MapError {
     Base64(String),
     Lzo(LzoError),
     Asset(AssetError),
+    InvalidDimensions { width: u32, height: u32 },
     CellDataTruncated { expected: usize, actual: usize },
+    CellDataTooLarge { actual: usize, maximum: usize },
     TilesetRegistryTooLarge { attempted: usize, maximum: usize },
     TilesetOrdinalOverflow { ordinal: u32, maximum: u32 },
     Io(std::io::Error),
@@ -68,12 +73,21 @@ impl std::fmt::Display for MapError {
             MapError::Base64(e) => write!(f, "Base64 decode error: {}", e),
             MapError::Lzo(e) => write!(f, "LZO decompress error: {}", e),
             MapError::Asset(e) => write!(f, "Asset error: {}", e),
+            MapError::InvalidDimensions { width, height } => {
+                write!(
+                    f,
+                    "Map dimensions {width}x{height} exceed the fixed cell grid"
+                )
+            }
             MapError::CellDataTruncated { expected, actual } => {
                 write!(
                     f,
                     "Cell data truncated: need {} bytes, got {}",
                     expected, actual
                 )
+            }
+            MapError::CellDataTooLarge { actual, maximum } => {
+                write!(f, "Map cell data has {actual} bytes, maximum is {maximum}")
             }
             MapError::TilesetRegistryTooLarge { attempted, maximum } => write!(
                 f,
@@ -134,6 +148,19 @@ pub struct MapHeader {
     pub local_width: u32,
     /// Playable area height (from LocalSize= 4th value).
     pub local_height: u32,
+}
+
+impl MapHeader {
+    /// The fixed 512x512 cell lookup shared by map admission and materialization.
+    /// Keep signed-bit-pattern and oversized INI values out of allocation loops.
+    pub(crate) fn fits_cell_grid(&self) -> bool {
+        self.width != 0
+            && self.height != 0
+            && self
+                .width
+                .checked_add(self.height)
+                .is_some_and(|span| span <= ISO_MAP_ROW_WIDTH as u32)
+    }
 }
 
 /// A pre-placed smudge entry from the map's `[Smudge]` section.
@@ -332,12 +359,20 @@ impl MapFile {
         Self::from_ini(IniFile::from_bytes(data)?)
     }
 
-    pub(super) fn from_ini(mut ini: IniFile) -> Result<Self, MapError> {
+    /// Decode already-resolved INI through the same bounded map parser as
+    /// physical-source loading, without serializing it back into a second file.
+    pub fn from_ini(mut ini: IniFile) -> Result<Self, MapError> {
         // Read_Scenario_INI6867BE calls ReadCCFile4741F0(checkDigest=1)
         // before any scenario readers; both matched and stale digests admit
         // the file. Metadata readers use the unchecked physical INI instead.
         ini.remove_digest_for_checked_load();
         let header: MapHeader = parse_header(&ini)?;
+        if !header.fits_cell_grid() {
+            return Err(MapError::InvalidDimensions {
+                width: header.width,
+                height: header.height,
+            });
+        }
         let basic: BasicSection = basic::parse_basic_section(&ini);
         let ranking: crate::map::ranking::RankingSection =
             crate::map::ranking::parse_ranking_section(&ini);
@@ -534,7 +569,7 @@ fn parse_iso_map_pack(ini: &IniFile) -> Result<ParsedIsoMapPack, MapError> {
 
     // Base64 decode → LZO decompress.
     let compressed: Vec<u8> = base64::base64_decode(&b64_data).map_err(MapError::Base64)?;
-    let decompressed: Vec<u8> = lzo::decompress_chunks(&compressed)?;
+    let decompressed: Vec<u8> = lzo::decompress_chunks(&compressed, ISO_MAP_MAX_BYTES)?;
 
     let parsed = parse_iso_map_pack_records(&decompressed)?;
 
@@ -571,6 +606,12 @@ fn parse_iso_map_pack(ini: &IniFile) -> Result<ParsedIsoMapPack, MapError> {
 
 /// Parse native IsoMapPack5 records after chunk decompression.
 fn parse_iso_map_pack_records(decompressed: &[u8]) -> Result<ParsedIsoMapPack, MapError> {
+    if decompressed.len() > ISO_MAP_MAX_BYTES {
+        return Err(MapError::CellDataTooLarge {
+            actual: decompressed.len(),
+            maximum: ISO_MAP_MAX_BYTES,
+        });
+    }
     let mut cells: Vec<MapCell> = Vec::with_capacity(decompressed.len() / CELL_RECORD_SIZE);
     let mut lookups: Vec<IsoMapPackLookup> =
         Vec::with_capacity(decompressed.len() / CELL_RECORD_SIZE);
@@ -718,6 +759,48 @@ mod tests {
 
     const ONE_CELL_ISO_MAP_PACK: &str = "DwALABwBAAIA/////wAAABEAAA==";
     const TWO_PIXEL_PREVIEW_PACK: &str = "CgAGABcBAgMEBQYRAAA=";
+
+    #[test]
+    fn received_map_rejects_out_of_grid_size_and_cumulative_iso_expansion() {
+        let root = crate::map::source::test_support::TestDirectory::new("bounded-map");
+        let cache = root.path().join("NetworkMaps");
+        let dimensions =
+            format!("[Map]\nSize=0,0,257,256\n[IsoMapPack5]\n1={ONE_CELL_ISO_MAP_PACK}\n");
+        let error = crate::map::source::install_received_map(
+            &cache,
+            dimensions.as_bytes().to_vec(),
+            &crate::util::sha256::sha256_hex(dimensions.as_bytes()),
+            dimensions.len(),
+        )
+        .err()
+        .expect("out-of-grid size is rejected");
+        assert!(matches!(
+            error.downcast_ref::<MapError>(),
+            Some(MapError::InvalidDimensions { .. })
+        ));
+
+        // Each 270-byte chunk uses a two-byte zero literal and an M3
+        // distance-one match to produce 65535 bytes. The 45th exceeds the grid.
+        let chunk = "CgH//xMAACAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA3AAAEQAA";
+        let packed = chunk.repeat(45);
+        let mut bomb = "[Map]\nSize=0,0,2,1\n[IsoMapPack5]\n".to_owned();
+        for (index, line) in packed.as_bytes().chunks(72).enumerate() {
+            bomb.push_str(&format!("{index}={}\n", std::str::from_utf8(line).unwrap()));
+        }
+        let error = crate::map::source::install_received_map(
+            &cache,
+            bomb.as_bytes().to_vec(),
+            &crate::util::sha256::sha256_hex(bomb.as_bytes()),
+            bomb.len(),
+        )
+        .err()
+        .expect("cumulative terrain expansion is rejected");
+        assert!(matches!(
+            error.downcast_ref::<MapError>(),
+            Some(MapError::Lzo(LzoError::OutputOverflow))
+        ));
+        assert!(!cache.exists(), "rejected maps must not be published");
+    }
 
     #[test]
     fn authored_home_waypoint_is_defined_before_scenario_consumers() {

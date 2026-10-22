@@ -41,6 +41,13 @@ const MULTIPLAYER_HANDLE_LIMIT_BYTES: usize = 19;
 const DEFAULT_MULTIPLAYER_HANDLE: &[u8] = b"[New Player]";
 const DEFAULT_MULTIPLAYER_GAME_MODE: i32 = 1;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum HandleSource {
+    #[default]
+    Native,
+    AuthenticatedOnline,
+}
+
 /// Direct launch adapters bypass PrepareSession52E11E/123. Share its Country
 /// allocation/body #1 without cached shell settings or the PortPool RNG draw.
 #[cfg(feature = "ares")]
@@ -58,6 +65,9 @@ pub(crate) fn prepare_external_skirmish_countries(
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct LocalMultiplayerPreferences {
     handle_bytes: Vec<u8>,
+    /// The bytes above have one authority. Native Handle reads cannot replace
+    /// an authenticated online name while that account's visit is alive.
+    handle_source: HandleSource,
     side: i32,
     side_ex: i32,
     color_index: i32,
@@ -98,6 +108,7 @@ impl Default for LocalMultiplayerPreferences {
     fn default() -> Self {
         Self {
             handle_bytes: DEFAULT_MULTIPLAYER_HANDLE.to_vec(),
+            handle_source: HandleSource::Native,
             side: 0,
             side_ex: 0,
             color_index: 0,
@@ -114,7 +125,11 @@ impl LocalMultiplayerPreferences {
     /// Session cache from constructor/string-table defaults, so pump/dialog
     /// exits still write all six fields when keys were absent from RA2MD.INI.
     fn update_ini_bytes(&self, content: &[u8], side_name: &str) -> Vec<u8> {
-        let handle = encode_multiplayer_handle(&self.handle_bytes);
+        // RA2MD.INI remains the native local-name preference, never the account
+        // database. Online identity stays in this owner's full in-memory bytes.
+        let handle = encode_multiplayer_handle(
+            &self.handle_bytes[..self.handle_bytes.len().min(MULTIPLAYER_HANDLE_LIMIT_BYTES)],
+        );
         let color = self.color_index.to_string();
         let color_ex = self.color_ex.to_string();
         let side_ex = self.side_ex.to_string();
@@ -620,7 +635,31 @@ impl MultiplayerShellRuntime {
     /// Session handle `[0xA8B380]`: BB's name edit, and the WOL nickname
     /// after a successful login (`0x007864C0`).
     pub(crate) fn set_handle(&mut self, name: &str) {
+        self.local_preferences.handle_source = HandleSource::Native;
         self.local_preferences.handle_bytes = crate::util::native_string::acp_encode(name);
+        self.local_preferences
+            .handle_bytes
+            .truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
+    }
+
+    /// VERA online account identity is independent of native WOL/Handle byte
+    /// limits. Keep one full name for every subsequent setup and rematch reader.
+    pub(crate) fn accept_online_handle(&mut self, name: &str) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !name.is_empty()
+                && name.len() <= 24
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte)),
+            "online service returned an invalid player name"
+        );
+        self.local_preferences.handle_bytes = name.as_bytes().to_vec();
+        self.local_preferences.handle_source = HandleSource::AuthenticatedOnline;
+        Ok(())
+    }
+
+    pub(crate) fn release_online_handle(&mut self) {
+        self.local_preferences.handle_source = HandleSource::Native;
         self.local_preferences
             .handle_bytes
             .truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
@@ -720,11 +759,18 @@ impl MultiplayerShellRuntime {
         player: &crate::skirmish_launch::SkirmishHumanSlot,
         mode: i32,
     ) {
-        let mut handle_bytes = crate::util::native_string::acp_encode(&player.name);
-        handle_bytes.truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
+        let handle_source = self.local_preferences.handle_source;
+        let handle_bytes = if handle_source == HandleSource::AuthenticatedOnline {
+            self.local_preferences.handle_bytes.clone()
+        } else {
+            let mut bytes = crate::util::native_string::acp_encode(&player.name);
+            bytes.truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
+            bytes
+        };
         self.local_preferences = LocalMultiplayerPreferences {
             toggles: self.local_preferences.toggles,
             handle_bytes,
+            handle_source,
             side: if player.is_observer() {
                 -3
             } else if player.slot.country_random {
@@ -982,6 +1028,7 @@ impl MultiplayerShellRuntime {
         self.local_preferences = LocalMultiplayerPreferences {
             toggles: self.local_preferences.toggles,
             handle_bytes,
+            handle_source: HandleSource::Native,
             side: menu_country_item_data(resolved.local_slot().country),
             side_ex: if state.player_country_random {
                 RANDOM_ITEM_DATA
@@ -1016,6 +1063,7 @@ impl MultiplayerShellRuntime {
         let mut handle_bytes = crate::util::native_string::acp_encode(&state.player_name_edit.text);
         handle_bytes.truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
         self.local_preferences.handle_bytes = handle_bytes;
+        self.local_preferences.handle_source = HandleSource::Native;
         self.local_preferences.game_mode = self.snapshot.game_mode;
         if state.player_country_random {
             self.local_preferences.side_ex = RANDOM_ITEM_DATA;
@@ -1580,7 +1628,7 @@ fn read_local_preference_fields(ini: &IniFile, preferences: &mut LocalMultiplaye
         .take_while(|byte| *byte != 0)
         .take(MULTIPLAYER_HANDLE_LIMIT_BYTES)
         .collect();
-    if !handle_bytes.is_empty() {
+    if preferences.handle_source == HandleSource::Native && !handle_bytes.is_empty() {
         preferences.handle_bytes = handle_bytes;
     }
     //6982E2 supplies the retained raw field as ReadInt default;6982FD stores
@@ -1981,6 +2029,51 @@ mod tests {
             .unwrap();
         assert!(observer.local_player().is_observer());
         assert!(observer.opponents.is_empty());
+    }
+
+    #[test]
+    fn authenticated_online_name_survives_setup_save_reload_and_rematch() {
+        use crate::map::skirmish_scenarios::{SkirmishScenarioRecord, SkirmishScenarioSource};
+        let mut owner = runtime(
+            MultiplayerSetupSnapshot::from_global_defaults(defaults(), SetupProfile::Skirmish),
+            1,
+        );
+        let name = "ABCDEFGHIJKLMNOPQRSTUVWX";
+        owner.accept_online_handle(name).unwrap();
+        let catalog = crate::app::scenario_catalog::ScenarioCatalog::from_records(vec![
+            SkirmishScenarioRecord::concrete_from_ini(
+                0,
+                SkirmishScenarioSource::Synthetic,
+                "test.mmx",
+                &IniFile::from_str("[Basic]\nGameMode=standard\n"),
+            ),
+        ]);
+        let new_setup = |owner: &mut MultiplayerShellRuntime| {
+            owner
+                .new_network_setup(
+                    SetupProfile::Wol,
+                    &catalog,
+                    &[mode()],
+                    SkirmishLaunchOptions::default(),
+                    crate::ui::skirmish_shell::SkirmishTrackbarBounds::default(),
+                    false,
+                    Default::default(),
+                )
+                .unwrap()
+                .0
+        };
+        let first = new_setup(&mut owner);
+        assert_eq!(first.local_player().name, name);
+        let mut stale = first.local_player().clone();
+        stale.name = "stale local preference".into();
+        owner.update_local_preferences(&stale, first.mode.id);
+        owner.persist_network_setup(SetupProfile::Wol);
+        owner.read_multiplayer_settings(&mut empty_process_assets());
+        assert_eq!(new_setup(&mut owner).local_player().name, name);
+        assert!(owner.accept_online_handle("invalid name").is_err());
+        assert_eq!(owner.local_participant().name, name);
+        owner.release_online_handle();
+        assert_eq!(owner.local_participant().name, &name[..19]);
     }
 
     #[test]
@@ -2406,6 +2499,7 @@ WOLTaunts=junk
             LocalMultiplayerPreferences {
                 toggles: SessionToggles::default(),
                 handle_bytes: b"[New Player]".to_vec(),
+                handle_source: HandleSource::Native,
                 side: menu_country_item_data(LaunchCountry::America),
                 side_ex: CONCRETE_ITEM_DATA,
                 color_index: 2,
@@ -2576,6 +2670,7 @@ WOLTaunts=junk
         runtime.local_preferences = LocalMultiplayerPreferences {
             toggles: SessionToggles::default(),
             handle_bytes: vec![0x4a, 0x6f, 0x73, 0xe9],
+            handle_source: HandleSource::Native,
             side: menu_country_item_data(LaunchCountry::Yuri),
             side_ex: CONCRETE_ITEM_DATA,
             color_index: 7,
@@ -2685,6 +2780,7 @@ WOLTaunts=junk
         runtime.local_preferences = LocalMultiplayerPreferences {
             toggles: SessionToggles::default(),
             handle_bytes: b"Cached".to_vec(),
+            handle_source: HandleSource::Native,
             side: menu_country_item_data(LaunchCountry::Russia),
             side_ex: CONCRETE_ITEM_DATA,
             color_index: 3,

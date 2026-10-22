@@ -10,6 +10,47 @@ fn policy() -> NetworkSendPolicy {
     }
 }
 
+#[test]
+fn authenticated_source_cannot_claim_another_houses_commands_or_progress() {
+    let mut sim = Simulation::new();
+    let mut receiver = CommandExchange::new([2, 3]).unwrap();
+    let mut sender = CommandExchange::default();
+    let mut packet = Vec::new();
+    sender
+        .send_frame(
+            &mut sim.network_command_queues(),
+            3,
+            5,
+            10,
+            0,
+            policy(),
+            |bytes, _| {
+                packet = bytes.to_vec();
+                true
+            },
+        )
+        .unwrap();
+    let before = receiver.peers().to_vec();
+    assert!(matches!(
+        receiver.receive(2, &packet, 0, &mut sim.network_command_queues(), 0),
+        Err(CommandExchangeError::SourceMismatch {
+            source_house: 2,
+            claimed_house: 3
+        })
+    ));
+    assert_eq!(receiver.peers(), before);
+    assert_eq!(sim.network_command_queues().synchronized_len(), 0);
+    let mut nested = packet.clone();
+    nested.extend_from_slice(&packet);
+    assert!(matches!(
+        receiver.receive(3, &nested, 0, &mut sim.network_command_queues(), 0),
+        Err(CommandExchangeError::Decode(PacketDecodeError {
+            kind: super::super::event_packet::DecodeFailureKind::UnexpectedHeader,
+            ..
+        }))
+    ));
+}
+
 fn stop(actor: u32) -> CommandRecord {
     let mut payload = actor.to_le_bytes().to_vec();
     payload.push(0x34);
@@ -23,11 +64,25 @@ fn queue_stops(sim: &mut Simulation, count: usize) {
 }
 
 #[test]
-fn rejected_broadcast_keeps_native_mirrors_and_advances_frontier_after_whole_call() {
+fn rejected_broadcast_retains_unsent_commands_and_codec_until_retry() {
     let mut sim = Simulation::new();
-    queue_stops(&mut sim, 128);
+    for actor in 0..128 {
+        let mut record = stop(actor);
+        crate::sim::command::MegaMissionRecord {
+            house_id: 2,
+            frame: 3,
+            source_id: actor as i32,
+            order: crate::sim::command::MegaMissionOrder::Move {
+                target_x: 10,
+                target_y: 10,
+            },
+        }
+        .write_into(&mut record)
+        .unwrap();
+        assert!(sim.issue_local_command(CommandEnvelope::synchronized(record, 7)));
+    }
     let mut exchange = CommandExchange::new([3]).unwrap();
-    let mut packets = Vec::new();
+    let mut attempts = Vec::new();
     let mut queues = sim.network_command_queues();
     let result = exchange
         .send_frame(
@@ -38,64 +93,112 @@ fn rejected_broadcast_keeps_native_mirrors_and_advances_frontier_after_whole_cal
             0x12345678,
             policy(),
             |bytes, reliable| {
-                packets.push((bytes.to_vec(), reliable));
-                // A full peer refuses the second broadcast.649FA1 ignores it.
-                packets.len() == 1
+                assert!(reliable);
+                attempts.push(bytes.to_vec());
+                attempts.len() == 1
             },
         )
         .unwrap();
-    assert_eq!(result, SendPoll::Complete { commands: 128 });
+    assert_eq!(result, SendPoll::Backpressure);
+    let accepted = queues.synchronized_len();
+    assert!(accepted > 0 && accepted < 128);
+    assert_eq!(exchange.sent_commands(), accepted as u64);
+    assert_eq!(queues.local_len(), 128 - accepted);
+    assert_eq!(attempts.len(), 2);
+    assert!(
+        attempts
+            .iter()
+            .all(|packet| live_command_frontier(packet) == Some(128))
+    );
+    let refused = attempts[1].clone();
+    assert_eq!(
+        exchange
+            .send_frame(
+                &mut queues,
+                2,
+                15,
+                10,
+                0x12345678,
+                policy(),
+                |bytes, reliable| {
+                    assert!(reliable);
+                    assert_eq!(bytes, refused);
+                    true
+                }
+            )
+            .unwrap(),
+        SendPoll::Complete { commands: 128 }
+    );
     assert_eq!(exchange.sent_commands(), 128);
     assert_eq!(queues.local_len(), 0);
     assert_eq!(queues.synchronized_len(), 128);
-    assert_eq!(packets.len(), 2);
-    assert!(packets.iter().all(|(_, reliable)| *reliable));
-    for (bytes, _) in &packets {
-        assert_eq!(
-            decode_frame_info(bytes),
-            Some(FrameInfo {
-                house_id: 2,
-                event_frame: 25,
-                checksum: 0x12345678,
-                timing_word: 0,
-                delay: 10,
-            })
-        );
-    }
-    let mut received = Simulation::new();
-    let mut receiver = CommandExchange::new([2]).unwrap();
-    receiver
-        .receive(
-            2,
-            &packets[0].0,
-            0,
-            &mut received.network_command_queues(),
-            0,
-        )
-        .unwrap();
-    assert!(receiver.peers()[0].received_commands() < 128);
-    // The next header advertises all native mirrors, including the refused
-    // packet. Receiver progress then exposes its missing commands to Wait.
-    exchange
+}
+
+#[test]
+fn wide_frontier_keeps_lost_first_and_final_packets_blocked_past_65536() {
+    let mut sim = Simulation::new();
+    queue_stops(&mut sim, 128);
+    let mut sender = CommandExchange::new([3]).unwrap();
+    sender.sent_commands = 65530;
+    let mut packets = Vec::new();
+    sender
         .send_frame(
-            &mut queues,
+            &mut sim.network_command_queues(),
             2,
-            20,
+            15,
             10,
-            0xdeadbeef,
+            0,
             policy(),
-            |bytes, reliable| {
-                assert!(!reliable);
-                receiver
-                    .receive(2, bytes, 0, &mut received.network_command_queues(), 0)
-                    .unwrap();
+            |bytes, _| {
+                packets.push(bytes.to_vec());
                 true
             },
         )
         .unwrap();
-    let wait = receiver.frame_wait(20, 10);
-    assert_eq!(wait.missing_commands, Some(2));
-    assert!(!wait.ready());
+    assert_eq!(sender.sent_commands(), 65658);
+    assert_eq!(packets.len(), 2);
+    let probe = sender.frame_probe(2, 20, 10, 73, policy()).unwrap();
+    for first in [0, 1] {
+        let mut receiver = CommandExchange::new([2]).unwrap();
+        receiver.peers[0].received_commands = 65530;
+        let mut received = Simulation::new();
+        assert!(matches!(
+            receiver.receive(
+                2,
+                &probe[12..],
+                73,
+                &mut received.network_command_queues(),
+                0
+            ),
+            Err(CommandExchangeError::InvalidHeader)
+        ));
+        receiver
+            .receive(2, &probe, 73, &mut received.network_command_queues(), 0)
+            .unwrap();
+        assert_eq!(receiver.frame_wait(20, 10).missing_commands, Some(2));
+        receiver
+            .receive(
+                2,
+                &packets[first],
+                73,
+                &mut received.network_command_queues(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(receiver.frame_wait(20, 10).missing_commands, Some(2));
+        assert!(!receiver.frame_wait(20, 10).ready());
+        receiver
+            .receive(
+                2,
+                &packets[1 - first],
+                73,
+                &mut received.network_command_queues(),
+                0,
+            )
+            .unwrap();
+        assert_eq!(receiver.peers()[0].received_commands(), 65658);
+        assert!(receiver.frame_wait(20, 10).ready());
+    }
 }
 
 #[test]
@@ -120,7 +223,7 @@ fn off_boundary_leaves_commands_local_and_empty_boundary_sends_unreliable_header
     assert_eq!(
         exchange
             .send_frame(&mut queues, 2, 10, 10, 19, policy(), |bytes, reliable| {
-                assert_eq!(bytes.len(), 14);
+                assert_eq!(bytes.len(), 26);
                 assert!(!reliable);
                 assert_eq!(decode_frame_info(bytes).unwrap().timing_word, 1);
                 true
@@ -144,12 +247,15 @@ fn decode_failure_updates_advertised_progress_but_not_decoded_frontier_or_prefix
     let packet = encoder
         .encode_packet(
             &[&source],
-            FrameInfo {
-                house_id: 2,
-                event_frame: 25,
-                checksum: 10,
-                timing_word: 12,
-                delay: 10,
+            EventPacketHeader::Vera {
+                frame_info: FrameInfo {
+                    house_id: 2,
+                    event_frame: 25,
+                    checksum: 10,
+                    timing_word: 12,
+                    delay: 10,
+                },
+                command_frontier: 12,
             },
             15,
             NATIVE_EVENT_PACKET_CAPACITY,
@@ -182,13 +288,16 @@ fn initial_probe_never_enters_dolist_and_normal_wait_obeys_both_gates() {
     let mut exchange = CommandExchange::new([3, 2]).unwrap();
     let mut sim = Simulation::new();
     let make_probe = |house_id, event_frame, timing_word, checksum| {
-        encode_frame_sync(FrameInfo {
-            house_id,
-            event_frame,
-            checksum,
-            timing_word,
-            delay: 10,
-        })
+        encode_live_frame_sync(
+            FrameInfo {
+                house_id,
+                event_frame,
+                checksum,
+                timing_word,
+                delay: 10,
+            },
+            u64::from(timing_word),
+        )
         .unwrap()
     };
     exchange
@@ -260,13 +369,16 @@ fn wait_bar_reference_and_frame_sync_elapsed_follow_their_separate_writers() {
     exchange.begin_wait(16007);
     assert_eq!(exchange.peers()[0].bar_timing(600, 25607), (600, 576));
     let probe = |checksum| {
-        encode_frame_sync(FrameInfo {
-            house_id: 2,
-            event_frame: 20,
-            checksum,
-            timing_word: 0,
-            delay: 10,
-        })
+        encode_live_frame_sync(
+            FrameInfo {
+                house_id: 2,
+                event_frame: 20,
+                checksum,
+                timing_word: 0,
+                delay: 10,
+            },
+            0,
+        )
         .unwrap()
     };
     exchange

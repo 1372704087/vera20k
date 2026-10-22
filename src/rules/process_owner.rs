@@ -418,6 +418,20 @@ impl NativeRulesProcessOwner {
         ]
     }
 
+    /// Multiplayer agreement follows the frozen process sources, including
+    /// LANGRULE. Reopening those files would hash different state from the
+    /// sources Full_Init686B20 actually consumes.
+    pub fn multiplayer_source_digests(&self) -> [Option<String>; 3] {
+        [
+            Some(self.sources.selected_rules_root.multiplayer_digest()),
+            self.sources
+                .langrule
+                .as_ref()
+                .map(IniFile::multiplayer_digest),
+            Some(self.sources.fixed_art.multiplayer_digest()),
+        ]
+    }
+
     /// RulesLoad675210/type hierarchy581F50 restore the reached native fields.
     /// The VERA envelope stores the existing processed state, including fields
     /// that cannot be recovered by parsing a merged INI or replaying Full_Init.

@@ -3278,6 +3278,9 @@ fn queue_stop_for_selected(state: &mut AppState) {
         );
         return;
     }
+    if !super::commands::selection_input_has_capacity(state, selected_ids.len()) {
+        return;
+    }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
         return;
     };
@@ -3360,6 +3363,9 @@ fn queue_guard_for_selected(state: &mut AppState) {
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
+    if !super::commands::selection_input_has_capacity(state, selected.len()) {
+        return;
+    }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
         return;
     };
@@ -3408,6 +3414,9 @@ fn queue_scatter_for_selected(state: &mut AppState) {
                 crate::app::input::planning_mode::PlanningRefusal::Scatter,
             );
         }
+        return;
+    }
+    if !super::commands::selection_input_has_capacity(state, selected.len()) {
         return;
     }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
@@ -3520,6 +3529,9 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
+    if !super::commands::selection_input_has_capacity(state, selected_ids.len()) {
+        return;
+    }
     let Some(sim) = state
         .match_state
         .sim_runtime

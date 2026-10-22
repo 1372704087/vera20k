@@ -14,11 +14,22 @@ use std::collections::{BTreeMap, VecDeque};
 
 use crate::app::AppState;
 use crate::app::match_runtime::session::{MatchSession, SessionMode, WallBucketTimer};
-use crate::net::live_commands::{LiveWaitInfo, LiveWaitKind};
+use crate::net::live_commands::{LiveCommandMode, LiveWaitInfo, LiveWaitKind};
 use crate::sim::intern::InternedId;
 use crate::sim::world::Simulation;
 use crate::ui::lan_shell::LanChatLine;
-use crate::ui::shell::connection::ConnectionPage;
+use crate::ui::shell::connection::{ConnectionPage, ConnectionRow};
+
+/// The simulation owns FPS/MaxAhead; the live channel owns sampled peer lag.
+/// Presentation and the frame pacer consume the same combined interval.
+pub(crate) fn frame_budget(state: &AppState) -> Option<(u16, u32)> {
+    let session = state.match_state.sim_runtime.as_ref()?.simulation.session();
+    let timing = session.network_command_timing()?;
+    let delay = state.match_state.live_network.as_ref().map_or(0, |live| {
+        live.pacing_delay_millis(session.network_max_ahead_frames().unwrap_or(0))
+    });
+    Some((timing.frames_per_second(), delay))
+}
 
 /// DestroyConnection's error argument (`EDX`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -325,15 +336,21 @@ fn wait_periods(mode: SessionMode) -> (u32, u32) {
     }
 }
 
-///Active LAN call arguments: initial647919..647954; ordinary64800E..648067.
-fn live_wait_periods(info: LiveWaitInfo) -> (u32, u32) {
+/// ProcessNetwork's original call arguments: initial647919..647954;
+/// ordinary64800E..648067. Both index GameMode's row at837340: WOL's
+/// +4/+8/+C are1800/720/7200, LAN's are900/420/2400. Source: gamemd.exe.
+pub(crate) fn live_wait_periods(info: LiveWaitInfo) -> (u32, u32) {
+    let (initial, floor, timeout) = match info.mode {
+        LiveCommandMode::Lan => (900, 420, 2400),
+        LiveCommandMode::Wol => (1800, 720, 7200),
+    };
     let dialog = match info.kind {
-        LiveWaitKind::Initial => 900,
+        LiveWaitKind::Initial => initial,
         LiveWaitKind::Ordinary => {
-            (info.response_time_at_entry.wrapping_mul(3) as i32).max(420) as u32
+            (info.response_time_at_entry.wrapping_mul(3) as i32).max(floor) as u32
         }
     };
-    (dialog, 2400)
+    (dialog, timeout)
 }
 
 /// One `Wait_For_Players` call.
@@ -341,8 +358,7 @@ fn live_wait_periods(info: LiveWaitInfo) -> (u32, u32) {
 struct ConnectionWait {
     /// `local_6c0`: the entry bucket; `[0x00AFA418]` is the time since.
     entry: u32,
-    ///None selects the established controlled-service path. Live timing is
-    ///LAN-only; WOL router recovery remains a separate dependency.
+    ///None selects the established controlled-service path.
     live_kind: Option<LiveWaitKind>,
     periods: (u32, u32),
     /// `local_6f4`: opens 0xEA the first time it expires.
@@ -713,8 +729,10 @@ fn open_dialog(state: &mut AppState, elapsed: u64) {
     let session = &state.match_state.session;
     let rows = nodes(session)
         .into_iter()
-        .take(crate::ui::shell::connection::CONNECTION_ROWS)
-        .map(|source| participant_name(session, source))
+        .map(|source_index| ConnectionRow {
+            source_index,
+            name: participant_name(session, source_index),
+        })
         .collect();
     let wol = state.match_state.session_mode() == SessionMode::Wol;
     let reconnecting = lowest_record(state)
@@ -849,9 +867,9 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
         return WaitPass::Running;
     }
     let mode = state.match_state.session_mode();
-    // This live owner is the direct-LAN path. WOL router timers and recovery
-    // remain outside it; the existing controlled-service WOL path is retained.
-    let live = mode == SessionMode::Lan && state.match_state.live_network.is_some();
+    // Both physical routes feed the same live progress owner. Online relay
+    // framing cannot substitute a controlled-service progress row for it.
+    let live = state.match_state.live_network.is_some();
     if live {
         let info = state
             .match_state
@@ -996,11 +1014,18 @@ pub(crate) fn request_leave(state: &mut AppState) {
 /// (`0x0064AB6A..0x0064AB98`); otherwise it sends the proposal to every
 /// other node and counts the local vote.
 pub(crate) fn propose_kick(state: &mut AppState, row: usize) {
-    let nodes = nodes(&state.match_state.session);
-    if row >= nodes.len() {
+    let Some(target) = state
+        .match_state
+        .network_wait
+        .page()
+        .and_then(|page| page.row_source(row))
+    else {
         return;
-    }
-    if row == 0 {
+    };
+    let Some(local) = local_source(&state.match_state.session) else {
+        return;
+    };
+    if target == local {
         let line = csf(state, "TXT_RECONNECT_KICK_SELF");
         append_line_and_show_last(state, &line);
         return;
@@ -1015,8 +1040,18 @@ pub(crate) fn propose_kick(state: &mut AppState, row: usize) {
         append_line_and_show_last(state, &line);
         return;
     }
-    state.match_state.session.request_kick_proposal(nodes[row]);
-    add_vote(state, nodes[0], nodes[row]);
+    // The initial names stay fixed while nodes can disappear during a wait.
+    // A disconnected row is inert; it can never nominate its former successor.
+    if !state
+        .match_state
+        .session
+        .network_connected_source_indices()
+        .contains(&target)
+    {
+        return;
+    }
+    state.match_state.session.request_kick_proposal(target);
+    add_vote(state, local, target);
 }
 
 #[cfg(test)]
@@ -1047,8 +1082,36 @@ mod tests {
     }
 
     #[test]
+    fn online_wait_uses_online_initial_and_ordinary_deadlines() {
+        let info = LiveWaitInfo {
+            mode: LiveCommandMode::Wol,
+            kind: LiveWaitKind::Initial,
+            entered_at: 100,
+            response_time_at_entry: 0,
+        };
+        let mut wait = NetworkMatchWait::default();
+        wait.observe_live_wait(info);
+        assert_eq!(wait.wait.as_ref().unwrap().dialog_timer.remaining(1899), 1);
+        assert_eq!(wait.timeout_action(7299), None);
+        assert_eq!(wait.timeout_action(7300), Some(WaitTimeout::InitialFailure));
+        let ordinary = LiveWaitInfo {
+            kind: LiveWaitKind::Ordinary,
+            ..info
+        };
+        assert_eq!(live_wait_periods(ordinary), (720, 7200));
+        assert_eq!(
+            live_wait_periods(LiveWaitInfo {
+                response_time_at_entry: 241,
+                ..ordinary
+            }),
+            (723, 7200)
+        );
+    }
+
+    #[test]
     fn live_wait_uses_reached_entry_and_signed_wrapping_response_delay() {
         let info = LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Initial,
             entered_at: 100,
             response_time_at_entry: u32::MAX,
@@ -1063,6 +1126,7 @@ mod tests {
         assert_eq!(wait.timeout_action(2499), None);
         assert_eq!(wait.timeout_action(2500), Some(WaitTimeout::InitialFailure));
         let ordinary = LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Ordinary,
             ..info
         };
@@ -1081,6 +1145,7 @@ mod tests {
     #[test]
     fn ordinary_recovery_retains_entry_page_votes_and_original_arguments() {
         let info = LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Ordinary,
             entered_at: 100,
             response_time_at_entry: 141,
@@ -1160,6 +1225,7 @@ mod tests {
         assert!(!output.tick.frame_committed);
         let mut owner = NetworkMatchWait::default();
         owner.observe_live_wait(LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Initial,
             entered_at: 100,
             response_time_at_entry: 0,
@@ -1281,6 +1347,7 @@ mod tests {
             0,
             19,
             std::num::NonZeroU32::new(2).unwrap(),
+            LiveCommandMode::Lan,
         )
         .unwrap();
         let mut wait = NetworkMatchWait::default();

@@ -1,0 +1,13 @@
+[package]
+name = "vera20k-relay-protocol"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+hmac = "0.12"
+sha2 = "0.10"
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

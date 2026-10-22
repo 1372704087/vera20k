@@ -31,6 +31,53 @@ pub(crate) struct MatchDiagnosticsState {
     /// The active diagnostic segment; `None` between segments. Opened lazily
     /// by the frame loop, closed by the lifecycle flush points above.
     pub(crate) replay_log: Option<ReplayLog>,
+    command_executions: Option<CommandExecutionLog>,
+}
+
+/// One actual post-formation native command dispatch and its immediate
+/// receiver state. This opt-in app observation is never saved or hashed.
+pub(crate) struct CommandExecutionObservation {
+    pub frame: u32,
+    pub record: crate::sim::command::CommandRecord,
+    pub applied: bool,
+    pub actor: u64,
+    pub destination: Option<crate::sim::components::NavTargetRef>,
+    pub cell: Option<(u16, u16)>,
+    pub mission: Option<(i32, i32)>,
+}
+#[derive(Default)]
+pub(crate) struct CommandExecutionLog {
+    records: Vec<CommandExecutionObservation>,
+    overflowed: bool,
+}
+impl CommandExecutionLog {
+    pub(crate) fn record(
+        &mut self,
+        sim: &crate::sim::world::Simulation,
+        record: &crate::sim::command::CommandRecord,
+        applied: bool,
+    ) {
+        let actor = crate::sim::command::MegaMissionRecord::decode(record)
+            .map(|r| r.source_id)
+            .or_else(|| crate::sim::command::StopRecord::decode(record).map(|r| r.entity_id));
+        let Some(actor) = actor.and_then(|id| u64::try_from(id).ok()) else {
+            return;
+        };
+        if self.records.len() >= 131072 {
+            self.overflowed = true;
+            return;
+        }
+        let entity = sim.entities().get(actor);
+        self.records.push(CommandExecutionObservation {
+            frame: sim.session().binary_frame(),
+            record: record.clone(),
+            applied,
+            actor,
+            destination: entity.and_then(|e| e.navigation.nav_com()),
+            cell: entity.map(|e| (e.position.rx(), e.position.ry())),
+            mission: entity.map(|e| (e.mission.current().raw(), e.mission.queued().raw())),
+        });
+    }
 }
 
 pub(crate) struct ReplayLogFlush {
@@ -39,6 +86,25 @@ pub(crate) struct ReplayLogFlush {
 }
 
 impl MatchDiagnosticsState {
+    pub(crate) fn begin_command_observation(&mut self) {
+        self.command_executions = Some(CommandExecutionLog::default());
+    }
+    pub(crate) fn command_observations_mut(&mut self) -> Option<&mut CommandExecutionLog> {
+        self.command_executions.as_mut()
+    }
+    pub(crate) fn take_command_observations(
+        &mut self,
+    ) -> anyhow::Result<Vec<CommandExecutionObservation>> {
+        let Some(log) = self.command_executions.as_mut() else {
+            return Ok(Vec::new());
+        };
+        anyhow::ensure!(!log.overflowed, "command execution observation overflowed");
+        Ok(std::mem::take(&mut log.records))
+    }
+    pub(crate) fn end_command_observation(&mut self) {
+        self.command_executions = None;
+    }
+
     /// Open before the first frame or scenario service input of this timeline.
     pub(crate) fn get_or_begin_replay(
         &mut self,
@@ -260,6 +326,7 @@ mod tests {
     fn diagnostics_with_segment() -> MatchDiagnosticsState {
         MatchDiagnosticsState {
             replay_log: Some(sample_log()),
+            ..Default::default()
         }
     }
 
@@ -324,6 +391,7 @@ mod tests {
         let mut first = diagnostics_with_segment();
         let mut second = MatchDiagnosticsState {
             replay_log: Some(sample_log_with(0xBEEF, "restored.map", 0x5555)),
+            ..Default::default()
         };
 
         let first_flush = first
@@ -371,6 +439,7 @@ mod tests {
         // header), replays to the same tick, and leaves via a teardown flush.
         let mut restored = MatchDiagnosticsState {
             replay_log: Some(sample_log_with(0xAAAA, "restored.map", 0x1111)),
+            ..Default::default()
         };
         let second = restored
             .flush_to(41, &root, 1_234)
@@ -414,6 +483,7 @@ mod tests {
         let original_bytes = std::fs::read(&first.path).unwrap();
         let mut second = MatchDiagnosticsState {
             replay_log: Some(sample_log_with(0xBEEF, "restored.map", 0x5555)),
+            ..Default::default()
         };
         let error = second.flush_to_with_writer(41, &root, 1234, |log, file| {
             let mut writer = PartialWriter { file, written: 0 };

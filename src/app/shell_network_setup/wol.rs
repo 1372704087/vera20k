@@ -24,7 +24,7 @@ pub(crate) struct WolStartUser {
 /// writer exists (C2 draws nothing, `0x797276` is unreferenced debug code).
 /// That is the seed of the last `Init_Random_Number_System` (`0052FC20`):
 /// the resident match's seed, else the process start seed.
-pub(super) fn resident_seed(state: &AppState) -> u32 {
+pub(crate) fn resident_seed(state: &AppState) -> u32 {
     state
         .match_state
         .sim_runtime
@@ -583,7 +583,7 @@ pub(super) fn clear_guest_acceptance(state: &mut AppState) -> anyhow::Result<()>
 pub(super) fn game_started(
     state: &mut AppState,
     users: Vec<WolStartUser>,
-    pings: [i32; 8],
+    pings: Vec<i32>,
 ) -> anyhow::Result<()> {
     // 0x7A7B95: once a start has matched ([0xB77E27]), OnGameStart does
     // nothing more.

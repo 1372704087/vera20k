@@ -2697,7 +2697,7 @@ impl WolCapture {
             state,
             NetworkSetupEvent::GameStarted {
                 users: vec![user(NICKNAME, 1), user("Bravo", 0)],
-                pings,
+                pings: pings.to_vec(),
             },
         )?;
         ensure!(
@@ -2720,7 +2720,7 @@ impl WolCapture {
                     user(&NICKNAME.to_uppercase(), 1),
                     user(&PEER.to_lowercase(), 0),
                 ],
-                pings,
+                pings: pings.to_vec(),
             },
         )?;
         // Start Game Now (0x794BA0) keeps C2 up under its verify 0x130.
@@ -4589,7 +4589,8 @@ fn unverified_host_options(state: &AppState) -> Result<NetworkSetupEvent> {
         crate::app::shell_network_setup::HostOptions {
             launch,
             map_metadata,
-            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
+            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open;
+                crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
             observer_row: None,
             cooperative_difficulty: 0,
             seed: state.match_state.session.network_start_seed(),

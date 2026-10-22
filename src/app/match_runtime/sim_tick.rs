@@ -816,10 +816,11 @@ fn advance_in_game_runtime_mode(
                     |sim| sim.session().game_options().game_speed.clamp(0, 6) as u8,
                 );
             // Pure timing consult; pause/menu blocking belongs to the decision.
+            let network_fps = super::network_match::frame_budget(state);
             state
                 .platform
                 .frame_pacer
-                .should_admit(now_ms, game_speed, false)
+                .should_admit(now_ms, game_speed, network_fps, false)
         }
         RuntimeAdvanceMode::ExactOneStep => false,
     };
@@ -902,6 +903,11 @@ fn advance_in_game_runtime_mode(
         } else {
             FrameResume::None
         };
+        if decision.admitted_by_pacer && !resume_wait {
+            // MainTick arms its timer before Logic; time already spent in
+            // Wait_For_Players must not restart that interval on completion.
+            state.platform.frame_pacer.record_admitted_frame(wall_ms);
+        }
         let frame_committed = advance_one_simulation_frame(state, tick_lane, mouse_scroll, resume);
         if crate::app::App::house_outcome_wait_pending(state) {
             return false;
@@ -951,12 +957,6 @@ fn advance_in_game_runtime_mode(
             } else {
                 crate::app::presentation::sidebar_render::refresh_sidebar_cameo_draw_state(state);
             }
-        }
-        if frame_committed && decision.admitted_by_pacer {
-            let RuntimeAdvanceMode::WallClock { now_ms } = mode else {
-                unreachable!("only wall-clock admission records the frame pacer");
-            };
-            state.platform.frame_pacer.record_admitted_frame(now_ms);
         }
     } else if let Some(request) = mouse_scroll {
         crate::app::input::camera::commit_camera_scroll(state, request);
@@ -1053,6 +1053,12 @@ fn advance_one_simulation_frame(
     resume: FrameResume,
 ) -> bool {
     let resuming = resume != FrameResume::None;
+    // MainTick55D3DA..55DE3A: a House outcome modal can suspend Logic before
+    // Queue_AI. Keep its start with the live channel until that boundary, then
+    // take it once; subsequent network-wait polls do not add samples.
+    if !resuming && let Some(live) = state.match_state.live_network.as_mut() {
+        live.begin_processing(super::frame_pacer::wall_clock_ms() as u32);
+    }
     let mut refresh_atlases_after_tick = false;
     // Trigger definitions are runtime-bound (F07), so a live runtime is the
     // only activity source; the old trigger-only fixture mode is unrepresentable.
@@ -1085,6 +1091,12 @@ fn advance_one_simulation_frame(
         let local_owner_name = crate::app::input::commands::preferred_local_owner_name(state);
         let sound_listener = crate::app::presentation::building_anim::sound_listener(state);
         let session_mode = state.match_state.session_mode();
+        let logic_frame_rate = state
+            .match_state
+            .match_presentation
+            .detail
+            .borrow()
+            .frame_rate();
         let other_local_pause = state.match_state.paused();
         let rules_owner = state.process_assets.native_rules();
         let initial_save = if !resuming && tick_lane == TickLane::Ordinary {
@@ -1130,6 +1142,20 @@ fn advance_one_simulation_frame(
             // F07: the runtime is the one production frame API — bound
             // resources, no caller-substitutable inputs.
             let mut output = {
+                let command_observations = std::cell::RefCell::new(
+                    state
+                        .match_state
+                        .match_diagnostics
+                        .command_observations_mut(),
+                );
+                let observing_commands = command_observations.borrow().is_some();
+                let command_applied = |sim: &crate::sim::world::Simulation,
+                                       record: &crate::sim::command::CommandRecord,
+                                       applied: bool| {
+                    if let Some(log) = command_observations.borrow_mut().as_deref_mut() {
+                        log.record(sim, record, applied);
+                    }
+                };
                 let sidebar = std::cell::RefCell::new(
                     &mut state.match_state.match_presentation.sidebar_projection,
                 );
@@ -1193,6 +1219,7 @@ fn advance_one_simulation_frame(
                 )
                 .with_network_session(&mut state.match_state.session)
                 .with_live_network(state.match_state.live_network.as_mut())
+                .with_logic_frame_rate(logic_frame_rate)
                 .with_scenario_pause(
                     &mut state.match_state.match_presentation.scenario_pause,
                     &elapsed_clock,
@@ -1206,6 +1233,11 @@ fn advance_one_simulation_frame(
                     .with_outcome_wait(&boundary)
                     .with_production_strip(&production_visits, &clear_production_request)
                     .with_before_logic(&before_logic);
+                let effects = if observing_commands {
+                    effects.with_command_applied(&command_applied)
+                } else {
+                    effects
+                };
                 match resume {
                     FrameResume::ChecksumModal => rt.resume_after_network_failure(effects),
                     FrameResume::NetworkWait => rt.resume_network_wait(effects),
@@ -1250,10 +1282,27 @@ fn advance_one_simulation_frame(
                         .game_options()
                         .game_speed
                         .clamp(0, 6) as u8;
-                    let mut timing = state
-                        .match_state
-                        .telemetry_timing
-                        .summarize(state.platform.frame_pacer.budget_ms(speed));
+                    let mut timing = state.match_state.telemetry_timing.summarize(
+                        state.platform.frame_pacer.budget_ms(
+                            speed,
+                            rt.simulation
+                                .session()
+                                .network_command_timing()
+                                .map(|timing| {
+                                    (
+                                        timing.frames_per_second(),
+                                        state.match_state.live_network.as_ref().map_or(0, |live| {
+                                            live.pacing_delay_millis(
+                                                rt.simulation
+                                                    .session()
+                                                    .network_max_ahead_frames()
+                                                    .unwrap_or(0),
+                                            )
+                                        }),
+                                    )
+                                }),
+                        ),
+                    );
                     timing.fps = state.diag.frame_timer.fps();
                     timing.tick_hz = state
                         .match_state

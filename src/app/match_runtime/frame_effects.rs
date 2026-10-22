@@ -48,6 +48,7 @@ pub(crate) struct FrameClientBoundary<'a> {
     planning: Option<RefCell<(&'a mut PlanningInputState, &'a mut SelectionState)>>,
     network: Option<RefCell<&'a mut super::session::MatchSession>>,
     live_network: Option<RefCell<&'a mut crate::net::live_commands::LiveCommandSession>>,
+    logic_frame_rate: u32,
     outcome_wait: Option<RefCell<&'a mut Option<super::scenario_exit::ScenarioOutcomeVoiceWait>>>,
     scenario_pause: Option<RefCell<ScenarioPauseOwners<'a>>>,
 }
@@ -68,6 +69,7 @@ impl<'a> FrameClientBoundary<'a> {
             planning: None,
             network: None,
             live_network: None,
+            logic_frame_rate: 0,
             outcome_wait: None,
             scenario_pause: None,
         }
@@ -95,6 +97,11 @@ impl<'a> FrameClientBoundary<'a> {
         live: Option<&'a mut crate::net::live_commands::LiveCommandSession>,
     ) -> Self {
         self.live_network = live.map(RefCell::new);
+        self
+    }
+
+    pub(crate) fn with_logic_frame_rate(mut self, frame_rate: u32) -> Self {
+        self.logic_frame_rate = frame_rate;
         self
     }
 
@@ -228,23 +235,36 @@ impl NetworkCommandBoundary for FrameClientBoundary<'_> {
         })?;
         let now_ms = super::frame_pacer::wall_clock_ms();
         let now = super::frame_pacer::frame_bucket(now_ms);
-        live.borrow_mut()
-            .poll(queues, context, max_ahead, now, now_ms as u32)
-            .map(Some)
-            .map_err(|error| {
-                log::error!("live network command exchange: {error}");
-                match error {
-                    LiveCommandError::Exchange(CommandExchangeError::InitialChecksum {
-                        ..
-                    }) => NetworkInterruption::ScenariosDiffer.into(),
-                    LiveCommandError::Exchange(CommandExchangeError::Decode(error))
-                        if error.kind == DecodeFailureKind::AdmissionFull =>
-                    {
-                        NetworkInterruption::QueueFull.into()
-                    }
-                    error => NetworkCommandError::Unavailable(error.to_string()),
+        let latency_fudge = self
+            .network
+            .as_ref()
+            .map_or(0, |session| session.borrow().latency_fudge());
+        let mut live = live.borrow_mut();
+        live.finish_processing(now_ms as u32);
+        live.poll(
+            queues,
+            context,
+            max_ahead,
+            now,
+            now_ms as u32,
+            latency_fudge,
+            self.logic_frame_rate,
+        )
+        .map(Some)
+        .map_err(|error| {
+            log::error!("live network command exchange: {error}");
+            match error {
+                LiveCommandError::Exchange(CommandExchangeError::InitialChecksum { .. }) => {
+                    NetworkInterruption::ScenariosDiffer.into()
                 }
-            })
+                LiveCommandError::Exchange(CommandExchangeError::Decode(error))
+                    if error.kind == DecodeFailureKind::AdmissionFull =>
+                {
+                    NetworkInterruption::QueueFull.into()
+                }
+                error => NetworkCommandError::Unavailable(error.to_string()),
+            }
+        })
     }
 
     fn record_frame_checksum(&self, frame: u32, checksum: u32) {

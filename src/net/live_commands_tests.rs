@@ -31,6 +31,49 @@ fn transport() -> LanUdpTransport {
     .unwrap()
 }
 
+#[test]
+fn wol_catchup_pacing_uses_admitted_peer_progress_and_existing_rtt() {
+    let (mut live, _) = pair(73);
+    live.mode = LiveCommandMode::Wol;
+    let mut sim = Simulation::new();
+    let packet = crate::net::event_packet::EventPacketCodec::default()
+        .encode_packet(
+            &[],
+            crate::net::event_packet::EventPacketHeader::Vera {
+                frame_info: FrameInfo {
+                    house_id: 1,
+                    event_frame: 0,
+                    checksum: 0,
+                    timing_word: 0,
+                    delay: 0,
+                },
+                command_frontier: 0,
+            },
+            0,
+            crate::net::event_packet::NATIVE_EVENT_PACKET_CAPACITY,
+        )
+        .unwrap()
+        .bytes;
+    assert!(
+        live.exchange
+            .receive(1, &packet, 73, &mut sim.network_command_queues(), 0)
+            .unwrap()
+    );
+    live.exchange.record_peer_lag(1, 40, 60, 40);
+    assert_eq!(live.peers()[0].lag_frames(), 20);
+    assert_eq!(live.pacing_delay_millis(40), 20);
+    assert_eq!(live.pacing_delay_millis(30), 0);
+    assert!(
+        !live
+            .exchange
+            .receive(1, &packet, 73, &mut sim.network_command_queues(), 0)
+            .unwrap()
+    );
+    assert_eq!(live.pacing_delay_millis(40), 20);
+    live.remove_peer(1);
+    assert_eq!(live.pacing_delay_millis(40), 0);
+}
+
 fn pair(seed: u32) -> (LiveCommandSession, LiveCommandSession) {
     let mut left = transport();
     let mut right = transport();
@@ -42,8 +85,22 @@ fn pair(seed: u32) -> (LiveCommandSession, LiveCommandSession) {
         .add_peer(0, left.primary_addr().unwrap())
         .unwrap();
     (
-        LiveCommandSession::new(left, 0, seed, NonZeroU32::new(5).unwrap()).unwrap(),
-        LiveCommandSession::new(right, 1, seed, NonZeroU32::new(5).unwrap()).unwrap(),
+        LiveCommandSession::new(
+            left,
+            0,
+            seed,
+            NonZeroU32::new(5).unwrap(),
+            LiveCommandMode::Lan,
+        )
+        .unwrap(),
+        LiveCommandSession::new(
+            right,
+            1,
+            seed,
+            NonZeroU32::new(5).unwrap(),
+            LiveCommandMode::Lan,
+        )
+        .unwrap(),
     )
 }
 
@@ -69,6 +126,8 @@ fn poll_pair(
                 10,
                 now,
                 (now).wrapping_mul(16),
+                0,
+                0,
             )
             .unwrap();
         passes[1] = right
@@ -78,6 +137,8 @@ fn poll_pair(
                 10,
                 now,
                 (now).wrapping_mul(16),
+                0,
+                0,
             )
             .unwrap();
         assert!(
@@ -131,7 +192,9 @@ fn initial_barrier_off_cadence_and_positive_frame_use_one_native_queue() {
             },
             10,
             1001,
-            (1001_u32).wrapping_mul(16)
+            (1001_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Dispatch
@@ -213,7 +276,14 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
         unreachable!()
     };
     wire.connections_mut().add_peer(1, peer).unwrap();
-    let mut live = LiveCommandSession::new(wire, 0, 73, NonZeroU32::new(5).unwrap()).unwrap();
+    let mut live = LiveCommandSession::new(
+        wire,
+        0,
+        73,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Lan,
+    )
+    .unwrap();
     seed_history(&mut live, peer, 0, 100);
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
@@ -227,7 +297,9 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
                 context,
                 10,
                 now,
-                now * 16
+                now * 16,
+                0,
+                0
             )
             .unwrap(),
             NetworkQueuePass::Waiting
@@ -243,8 +315,16 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
         .receive(1, &probe, 73, &mut sim.network_command_queues(), 1)
         .unwrap();
     assert_eq!(
-        live.poll(&mut sim.network_command_queues(), context, 10, 1002, 16032)
-            .unwrap(),
+        live.poll(
+            &mut sim.network_command_queues(),
+            context,
+            10,
+            1002,
+            16032,
+            0,
+            0
+        )
+        .unwrap(),
         NetworkQueuePass::SkipDispatch
     );
     assert_eq!(live.connections().mean_response_time(1), Some(0));
@@ -260,8 +340,16 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
         },
     ] {
         assert_eq!(
-            live.poll(&mut sim.network_command_queues(), next, 10, 1200, 19200)
-                .unwrap(),
+            live.poll(
+                &mut sim.network_command_queues(),
+                next,
+                10,
+                1200,
+                19200,
+                0,
+                0
+            )
+            .unwrap(),
             NetworkQueuePass::SkipDispatch
         );
         assert_eq!(live.connections().mean_response_time(1), Some(11));
@@ -280,15 +368,30 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
         unreachable!()
     };
     wire.connections_mut().add_peer(1, peer).unwrap();
-    let mut live = LiveCommandSession::new(wire, 0, 73, NonZeroU32::new(5).unwrap()).unwrap();
+    let mut live = LiveCommandSession::new(
+        wire,
+        0,
+        73,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Lan,
+    )
+    .unwrap();
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
         frame: 0,
         checksum: 0x12345678,
     };
     assert_eq!(
-        live.poll(&mut sim.network_command_queues(), context, 5, 1000, 16000)
-            .unwrap(),
+        live.poll(
+            &mut sim.network_command_queues(),
+            context,
+            5,
+            1000,
+            16000,
+            0,
+            0
+        )
+        .unwrap(),
         NetworkQueuePass::Waiting
     );
     let probe = live.exchange.frame_probe(1, 0, 5, 73, live.policy).unwrap();
@@ -296,8 +399,16 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
         .receive(1, &probe, 73, &mut sim.network_command_queues(), 1)
         .unwrap();
     assert_eq!(
-        live.poll(&mut sim.network_command_queues(), context, 5, 1001, 16016)
-            .unwrap(),
+        live.poll(
+            &mut sim.network_command_queues(),
+            context,
+            5,
+            1001,
+            16016,
+            0,
+            0
+        )
+        .unwrap(),
         NetworkQueuePass::SkipDispatch
     );
 
@@ -342,7 +453,9 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
                 NetworkQueueContext { frame, ..context },
                 5,
                 1300 + frame,
-                (1300 + frame) * 16
+                (1300 + frame) * 16,
+                0,
+                0
             )
             .unwrap(),
             NetworkQueuePass::SkipDispatch
@@ -357,7 +470,9 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
             },
             5,
             1305,
-            20880
+            20880,
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -365,11 +480,69 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
     assert_eq!(
         live.wait_info(),
         Some(LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Ordinary,
             entered_at: 1305,
             response_time_at_entry: 10,
         })
     );
+}
+
+#[test]
+fn online_initial_probe_waits_for_the_online_table_boundary() {
+    let mut wire = transport();
+    let receiver = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let std::net::SocketAddr::V4(peer) = receiver.local_addr().unwrap() else {
+        unreachable!()
+    };
+    wire.connections_mut().add_peer(1, peer).unwrap();
+    let mut live = LiveCommandSession::new(
+        wire,
+        0,
+        73,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Wol,
+    )
+    .unwrap();
+    let mut sim = Simulation::new();
+    let context = NetworkQueueContext {
+        frame: 0,
+        checksum: 1,
+    };
+    live.poll(
+        &mut sim.network_command_queues(),
+        context,
+        10,
+        1000,
+        16000,
+        0,
+        0,
+    )
+    .unwrap();
+    live.take_service_report();
+    live.poll(
+        &mut sim.network_command_queues(),
+        context,
+        10,
+        1119,
+        17904,
+        0,
+        0,
+    )
+    .unwrap();
+    assert_eq!(live.take_service_report().unwrap().sent_datagrams, 0);
+    live.poll(
+        &mut sim.network_command_queues(),
+        context,
+        10,
+        1120,
+        17920,
+        0,
+        0,
+    )
+    .unwrap();
+    assert_eq!(live.take_service_report().unwrap().sent_datagrams, 1);
+    assert_eq!(live.wait_info().unwrap().mode, LiveCommandMode::Wol);
 }
 
 #[test]
@@ -384,7 +557,14 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
         _ => unreachable!(),
     };
     wire.connections_mut().add_peer(1, address).unwrap();
-    let mut live = LiveCommandSession::new(wire, 0, 91, NonZeroU32::new(5).unwrap()).unwrap();
+    let mut live = LiveCommandSession::new(
+        wire,
+        0,
+        91,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Lan,
+    )
+    .unwrap();
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
         frame: 0,
@@ -396,7 +576,9 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
             context,
             10,
             1000,
-            (1000_u32).wrapping_mul(16)
+            (1000_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -404,6 +586,7 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
     assert_eq!(
         live.wait_info(),
         Some(LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Initial,
             entered_at: 1000,
             response_time_at_entry: 0,
@@ -423,7 +606,9 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
             context,
             10,
             1059,
-            (1059_u32).wrapping_mul(16)
+            (1059_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -435,7 +620,9 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
             context,
             10,
             1060,
-            (1060_u32).wrapping_mul(16)
+            (1060_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -451,6 +638,8 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
         10,
         1159,
         (1159_u32).wrapping_mul(16),
+        0,
+        0,
     )
     .unwrap();
     assert_eq!(live.take_service_report().unwrap().sent_datagrams, 0);
@@ -460,6 +649,8 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
         10,
         1160,
         (1160_u32).wrapping_mul(16),
+        0,
+        0,
     )
     .unwrap();
     assert_eq!(live.take_service_report().unwrap().sent_datagrams, 1);
@@ -482,6 +673,8 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
                 10,
                 2000,
                 (2000_u32).wrapping_mul(16),
+                0,
+                0,
             )
             .unwrap();
         assert_eq!(
@@ -503,7 +696,9 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
             context,
             10,
             2000,
-            (2000_u32).wrapping_mul(16)
+            (2000_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -512,6 +707,7 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
     assert_eq!(
         left.wait_info(),
         Some(LiveWaitInfo {
+            mode: LiveCommandMode::Lan,
             kind: LiveWaitKind::Ordinary,
             entered_at: 2000,
             response_time_at_entry: 0,
@@ -524,7 +720,9 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
             context,
             10,
             2179,
-            (2179_u32).wrapping_mul(16)
+            (2179_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -536,7 +734,9 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
             context,
             10,
             2180,
-            (2180_u32).wrapping_mul(16)
+            (2180_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -551,6 +751,8 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
         10,
         2479,
         (2479_u32).wrapping_mul(16),
+        0,
+        0,
     )
     .unwrap();
     assert_eq!(left.take_service_report().unwrap().sent_datagrams, 0);
@@ -560,6 +762,8 @@ fn ordinary_wait_uses_180_buckets_and_keeps_the_frame_send_complete() {
         10,
         2480,
         (2480_u32).wrapping_mul(16),
+        0,
+        0,
     )
     .unwrap();
     assert_eq!(left.take_service_report().unwrap().sent_datagrams, 1);
@@ -576,7 +780,14 @@ fn lowest_frame_projection_uses_existing_signed_progress_and_first_tie() {
             )
             .unwrap();
     }
-    let mut live = LiveCommandSession::new(wire, 0, 73, NonZeroU32::new(5).unwrap()).unwrap();
+    let mut live = LiveCommandSession::new(
+        wire,
+        0,
+        73,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Lan,
+    )
+    .unwrap();
     let mut sim = Simulation::new();
     assert_eq!(live.lowest_frame_peer().unwrap().house_id(), 3);
     assert_eq!(live.lowest_frame_peer().unwrap().frame(), -1);
@@ -597,13 +808,28 @@ fn lowest_frame_projection_uses_existing_signed_progress_and_first_tie() {
 fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
     // Native zero-remote loops finish immediately; LAN can start with one
     // human, and removing the last remote retains the same behavior.
-    assert!(LiveCommandSession::new(transport(), 0, 1, NonZeroU32::new(5).unwrap()).is_ok());
+    assert!(
+        LiveCommandSession::new(
+            transport(),
+            0,
+            1,
+            NonZeroU32::new(5).unwrap(),
+            LiveCommandMode::Lan
+        )
+        .is_ok()
+    );
     let mut wire = transport();
     wire.connections_mut()
         .add_peer(200, SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1234))
         .unwrap();
     assert!(matches!(
-        LiveCommandSession::new(wire, 0, 1, NonZeroU32::new(5).unwrap()),
+        LiveCommandSession::new(
+            wire,
+            0,
+            1,
+            NonZeroU32::new(5).unwrap(),
+            LiveCommandMode::Lan
+        ),
         Err(LiveCommandError::InvalidRemoteHouse(200))
     ));
     let mut wire = transport();
@@ -611,7 +837,13 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
         .add_peer(1, SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0))
         .unwrap();
     assert!(matches!(
-        LiveCommandSession::new(wire, 0, 1, NonZeroU32::new(5).unwrap()),
+        LiveCommandSession::new(
+            wire,
+            0,
+            1,
+            NonZeroU32::new(5).unwrap(),
+            LiveCommandMode::Lan
+        ),
         Err(LiveCommandError::UnboundPeer { .. })
     ));
     let (mut left, mut right) = pair(73);
@@ -631,7 +863,9 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
             },
             10,
             1000,
-            (1000_u32).wrapping_mul(16)
+            (1000_u32).wrapping_mul(16),
+            0,
+            0
         ),
         Err(LiveCommandError::FrameSequence {
             expected: 0,
@@ -646,6 +880,8 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
             10,
             1000,
             (1000_u32).wrapping_mul(16),
+            0,
+            0,
         );
         let r = right.poll(
             &mut b.network_command_queues(),
@@ -653,6 +889,8 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
             10,
             1000,
             (1000_u32).wrapping_mul(16),
+            0,
+            0,
         );
         if matches!(
             l,
@@ -688,6 +926,8 @@ fn failed_retry_service_keeps_receiving_and_retains_its_diagnostic() {
             10,
             2000,
             (2000_u32).wrapping_mul(16),
+            0,
+            0,
         )
         .unwrap();
     }
@@ -732,6 +972,8 @@ fn failed_retry_service_keeps_receiving_and_retains_its_diagnostic() {
                 10,
                 now,
                 (now).wrapping_mul(16),
+                0,
+                0,
             )
             .unwrap();
         assert_eq!(left.take_service_report().unwrap().failed_peer, Some(1));
@@ -750,7 +992,9 @@ fn failed_retry_service_keeps_receiving_and_retains_its_diagnostic() {
             context,
             10,
             2003,
-            (2003_u32).wrapping_mul(16)
+            (2003_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Dispatch
@@ -773,6 +1017,8 @@ fn removing_the_last_peer_resumes_wait_and_keeps_local_transfer_running() {
             10,
             2000,
             (2000_u32).wrapping_mul(16),
+            0,
+            0,
         )
         .unwrap();
     }
@@ -788,7 +1034,9 @@ fn removing_the_last_peer_resumes_wait_and_keeps_local_transfer_running() {
             context,
             10,
             2001,
-            (2001_u32).wrapping_mul(16)
+            (2001_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Waiting
@@ -802,7 +1050,9 @@ fn removing_the_last_peer_resumes_wait_and_keeps_local_transfer_running() {
             context,
             10,
             2002,
-            (2002_u32).wrapping_mul(16)
+            (2002_u32).wrapping_mul(16),
+            0,
+            0
         )
         .unwrap(),
         NetworkQueuePass::Dispatch
@@ -819,7 +1069,9 @@ fn removing_the_last_peer_resumes_wait_and_keeps_local_transfer_running() {
                 },
                 10,
                 2003,
-                (2003_u32).wrapping_mul(16)
+                (2003_u32).wrapping_mul(16),
+                0,
+                0
             )
             .unwrap(),
             if frame == 15 {
@@ -844,6 +1096,9 @@ struct Boundary {
     live: RefCell<LiveCommandSession>,
     checksums: RefCell<FrameChecksumState>,
     now: Cell<u32>,
+    process_millis: Option<u32>,
+    sampled_frame: Cell<Option<u32>>,
+    applied: RefCell<Vec<(u32, CommandRecord, bool)>>,
 }
 
 impl Boundary {
@@ -852,6 +1107,9 @@ impl Boundary {
             live: RefCell::new(live),
             checksums: RefCell::new(FrameChecksumState::default()),
             now: Cell::new(1000),
+            process_millis: None,
+            sampled_frame: Cell::new(None),
+            applied: RefCell::new(Vec::new()),
         }
     }
 }
@@ -862,17 +1120,24 @@ impl NetworkCommandBoundary for Boundary {
         context: NetworkQueueContext,
         queues: &mut NetworkCommandQueues<'_>,
     ) -> Result<Option<NetworkQueuePass>, NetworkCommandError> {
-        self.live
-            .borrow_mut()
-            .poll(
-                queues,
-                context,
-                10,
-                self.now.get(),
-                (self.now.get()).wrapping_mul(16),
-            )
-            .map(Some)
-            .map_err(|error| NetworkCommandError::Unavailable(error.to_string()))
+        let mut live = self.live.borrow_mut();
+        if self.sampled_frame.replace(Some(context.frame)) != Some(context.frame)
+            && let Some(milliseconds) = self.process_millis
+        {
+            live.record_processing_time(milliseconds);
+        }
+        let ahead = queues.max_ahead_frames().unwrap_or(10);
+        live.poll(
+            queues,
+            context,
+            ahead,
+            self.now.get(),
+            (self.now.get()).wrapping_mul(16),
+            0,
+            0,
+        )
+        .map(Some)
+        .map_err(|error| NetworkCommandError::Unavailable(error.to_string()))
     }
 
     fn record_frame_checksum(&self, frame: u32, checksum: u32) {
@@ -940,24 +1205,106 @@ fn stop_scene() -> (Simulation, RuleSet, u64) {
 }
 
 fn production_frame(sim: &mut Simulation, rules: &RuleSet, boundary: &Boundary) -> SimFrameOutput {
+    let applied = |sim: &Simulation, record: &CommandRecord, applied: bool| {
+        boundary
+            .applied
+            .borrow_mut()
+            .push((sim.session().binary_frame(), record.clone(), applied));
+    };
+    let effects = FrameEffects::empty()
+        .with_network_commands(boundary)
+        .with_command_applied(&applied);
     if sim.pending_network_wait() {
-        sim.resume_network_wait(
-            rules,
-            None,
-            FrameEffects::empty().with_network_commands(boundary),
-        )
-        .unwrap()
+        sim.resume_network_wait(rules, None, effects).unwrap()
     } else {
-        sim.advance_app_frame(
-            &[],
-            rules,
-            None,
-            33,
-            TickLane::Ordinary,
-            FrameEffects::empty().with_network_commands(boundary),
-        )
-        .unwrap()
+        sim.advance_app_frame(&[], rules, None, 33, TickLane::Ordinary, effects)
+            .unwrap()
     }
+}
+
+#[test]
+fn real_udp_timing_commands_apply_precalc_then_adapt_to_the_slowest_peer() {
+    let (mut a_live, mut b_live) = pair(73);
+    a_live.mode = LiveCommandMode::Wol;
+    b_live.mode = LiveCommandMode::Wol;
+    // The host is House1, not an assumed zero; no second event may follow
+    // the one-shot startup value until periodic processing feedback is ready.
+    b_live.configure_precalculated_timing(20, 45);
+    let mut a_boundary = Boundary::new(a_live);
+    let mut b_boundary = Boundary::new(b_live);
+    a_boundary.process_millis = Some(20);
+    b_boundary.process_millis = Some(50);
+    let (mut a, rules, _) = stop_scene();
+    let (mut b, _, _) = stop_scene();
+    for sim in [&mut a, &mut b] {
+        sim.session
+            .install_network_command_timing(1, std::num::NonZeroU8::new(5).unwrap(), [0, 1]);
+    }
+    for _ in 0..5 {
+        b.issue_local_command(CommandEnvelope::synchronized(
+            crate::sim::command::GameSpeedRecord {
+                house_id: 1,
+                frame: 0,
+                speed: 3,
+            }
+            .encode()
+            .unwrap(),
+            0,
+        ));
+    }
+    for frame in 0..=300 {
+        let start = Instant::now();
+        let mut completed = [false; 2];
+        let mut checksums = [None; 2];
+        while !completed.iter().all(|done| *done) {
+            for (index, (sim, boundary)) in [(&mut a, &a_boundary), (&mut b, &b_boundary)]
+                .into_iter()
+                .enumerate()
+            {
+                if completed[index] {
+                    continue;
+                }
+                boundary
+                    .now
+                    .set(1000 + frame * 10 + (start.elapsed().as_millis() / 16) as u32);
+                let output = production_frame(sim, &rules, boundary);
+                assert!(output.network_failure.is_none());
+                if let Some(sync) = output.multiplayer_checksum {
+                    checksums[index] = Some(sync.checksum.unwrap().value);
+                }
+                completed[index] = output.tick.frame_committed;
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "timing frame {frame} stalled"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(checksums[0], checksums[1], "timing frame {frame} CRC");
+        if frame == 10 {
+            assert_eq!(
+                a.session
+                    .network_command_timing()
+                    .unwrap()
+                    .frames_per_second(),
+                45
+            );
+            assert_eq!(
+                b.session.network_command_timing(),
+                a.session.network_command_timing()
+            );
+        }
+    }
+    for sim in [&a, &b] {
+        let timing = sim.session.network_command_timing().unwrap();
+        assert_eq!(timing.maximum_processing_millis([0, 1]), Some(50));
+        assert_eq!(timing.frames_per_second(), 20);
+        assert_eq!(timing.frame_send_rate().get(), 5);
+    }
+    assert_eq!(
+        a.session.network_command_timing(),
+        b.session.network_command_timing()
+    );
 }
 
 #[test]
@@ -1029,5 +1376,163 @@ fn two_udp_clients_execute_the_delayed_stop_through_the_production_frame_boundar
                 .is_empty()
         );
         assert_eq!(sim.session.binary_frame(), 11);
+    }
+}
+
+#[test]
+fn real_udp_mass_order_survives_backpressure_and_executes_one_shared_frame() {
+    use crate::sim::command::{Command, MegaMissionRecord, StopRecord};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    let (a_live, b_live) = pair(73);
+    let a_boundary = Boundary::new(a_live);
+    let b_boundary = Boundary::new(b_live);
+    let (mut a, rules, first) = stop_scene();
+    let (mut b, _, _) = stop_scene();
+    let mut actors = vec![first];
+    // The existing Alpha actor already occupies (20,20).
+    let cells = (4..24)
+        .flat_map(|y| (4..34).map(move |x| (x, y)))
+        .filter(|cell| *cell != (20, 20));
+    for (x, y) in cells {
+        let left = a.spawn_object("AMCV", "Alpha", x, y, 0, &rules).unwrap();
+        assert_eq!(
+            left,
+            b.spawn_object("AMCV", "Alpha", x, y, 0, &rules).unwrap()
+        );
+        actors.push(left);
+    }
+    assert_eq!(actors.len(), 600);
+    let owner = a.interner.get("Alpha").unwrap();
+    a.session.set_current_house_for_test(Some(owner));
+    b.session.set_current_house_for_test(b.interner.get("Beta"));
+    let moves = actors
+        .iter()
+        .map(|&entity_id| {
+            a.encode_megamission_record(
+                owner,
+                &Command::Move {
+                    entity_id,
+                    target_rx: 45,
+                    target_ry: 45,
+                },
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        a.issue_local_commands(
+            (0..20_000).map(|index| {
+                CommandEnvelope::synchronized(moves[index % moves.len()].clone(), 0)
+            })
+        )
+    );
+    assert_eq!(a.pending_local_command_count(), 20_000);
+    assert!(
+        !a.issue_local_commands(
+            (0..20_000).map(|index| {
+                CommandEnvelope::synchronized(moves[index % moves.len()].clone(), 0)
+            })
+        )
+    );
+    assert_eq!(
+        a.pending_local_command_count(),
+        20_000,
+        "rejected batch is atomic"
+    );
+
+    let started = Instant::now();
+    let mut checksums = [BTreeMap::new(), BTreeMap::new()];
+    let mut saw_backpressure = false;
+    // Advance peers independently: the peer that already committed frame zero
+    // must still service its socket while the sender drains more than 32 packets.
+    for until in [11, 26] {
+        while a.session().binary_frame() < until || b.session().binary_frame() < until {
+            for (index, (sim, boundary)) in [(&mut a, &a_boundary), (&mut b, &b_boundary)]
+                .into_iter()
+                .enumerate()
+            {
+                if sim.session().binary_frame() >= until {
+                    continue;
+                }
+                boundary
+                    .now
+                    .set(1000 + (started.elapsed().as_millis() / 16) as u32);
+                let frame = sim.session().binary_frame();
+                let output = production_frame(sim, &rules, boundary);
+                assert!(output.network_failure.is_none());
+                if let Some(sync) = output.multiplayer_checksum {
+                    checksums[index].insert(frame, sync.checksum.unwrap().value);
+                }
+                if index == 0
+                    && sim.pending_local_command_count() != 0
+                    && sim.pending_network_wait()
+                {
+                    saw_backpressure = true;
+                }
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(20),
+                "mass UDP exchange stalled"
+            );
+            std::thread::yield_now();
+        }
+        if until == 11 {
+            for boundary in [&a_boundary, &b_boundary] {
+                let applied = boundary.applied.borrow();
+                let moves = applied
+                    .iter()
+                    .filter_map(|(frame, record, ok)| {
+                        MegaMissionRecord::decode(record).map(|command| (*frame, command, *ok))
+                    })
+                    .collect::<Vec<_>>();
+                assert_eq!(moves.len(), 20_000);
+                assert!(moves.iter().all(|(frame, _, ok)| *frame == 10 && *ok));
+                assert_eq!(
+                    moves
+                        .iter()
+                        .map(|(_, command, _)| command.source_id as u64)
+                        .collect::<BTreeSet<_>>(),
+                    actors.iter().copied().collect()
+                );
+            }
+            let tick = a.session().tick();
+            let stops = actors
+                .iter()
+                .map(|&actor| {
+                    CommandEnvelope::synchronized(a.encode_stop_record(owner, actor).unwrap(), tick)
+                })
+                .collect::<Vec<_>>();
+            assert!(a.issue_local_commands(stops));
+        }
+    }
+    assert!(
+        saw_backpressure,
+        "fixture must cross the live 32-packet send queue"
+    );
+    assert_eq!(checksums[0], checksums[1]);
+    for (sim, boundary) in [(&a, &a_boundary), (&b, &b_boundary)] {
+        let applied = boundary.applied.borrow();
+        let stops = applied
+            .iter()
+            .filter_map(|(_, record, ok)| {
+                StopRecord::decode(record).map(|command| (command.entity_id as u64, *ok))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(stops.len(), actors.len());
+        assert!(stops.iter().all(|(_, ok)| *ok));
+        assert_eq!(
+            stops.iter().map(|(id, _)| *id).collect::<BTreeSet<_>>(),
+            actors.iter().copied().collect()
+        );
+        assert!(actors.iter().all(|id| {
+            sim.substrate
+                .entities
+                .get(*id)
+                .unwrap()
+                .navigation
+                .nav_list()
+                .is_empty()
+        }));
     }
 }

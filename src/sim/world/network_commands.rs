@@ -4,7 +4,9 @@
 use super::Simulation;
 use super::queued_command::QueuedCommand;
 use crate::sim::command::CommandRecord;
-use crate::sim::command_queue::NETWORK_LOCAL_MIRROR_LIMIT;
+use crate::sim::command_queue::{
+    NETWORK_COMMAND_CAPACITY, NETWORK_LOCAL_MIRROR_LIMIT, NETWORK_SOURCE_DOLIST_CAPACITY,
+};
 
 /// The immutable post-Logic values of the frame being exchanged. A resumed
 /// wait uses these same values without another Logic or checksum pass.
@@ -80,12 +82,56 @@ impl<'a> NetworkCommandQueues<'a> {
         self.sim.session.network_max_ahead_frames()
     }
 
+    pub fn timing(&self) -> Option<&crate::sim::command_queue::NetworkCommandTiming> {
+        self.sim.session.network_command_timing()
+    }
+
+    pub fn install_timing(
+        &mut self,
+        host_house: i8,
+        frame_send_rate: std::num::NonZeroU8,
+        houses: impl IntoIterator<Item = i8>,
+    ) {
+        self.sim
+            .session
+            .install_network_command_timing(host_house, frame_send_rate, houses);
+        // Main__PrepareSession52DAC7 resets the prior match's retime window.
+        self.sim.pending_commands.set_retime_window(0, 0);
+    }
+
+    pub fn game_speed(&self) -> i32 {
+        self.sim.session.game_options().game_speed
+    }
+    pub fn fog_of_war(&self) -> bool {
+        self.sim.session.game_options().fog_of_war
+    }
+
+    /// ProcessNetwork647767 / 647DB3 / 647E85 append into the same OutList as
+    /// player commands. Capacity refusal never creates a second pending queue.
+    pub fn issue_timing_record(&mut self, record: CommandRecord) -> bool {
+        self.sim
+            .issue_local_command(crate::sim::command::CommandEnvelope::synchronized(
+                record,
+                self.sim.session.tick(),
+            ))
+    }
+
     pub fn synchronized_len(&self) -> usize {
         self.sim.pending_commands.native_len()
     }
 
     pub fn mirror_allowance(&self) -> usize {
-        NETWORK_LOCAL_MIRROR_LIMIT.saturating_sub(self.synchronized_len())
+        if self.sim.session.game_mode().is_network() {
+            let source_house = self.sim.local_command_house().unwrap_or(0);
+            NETWORK_COMMAND_CAPACITY
+                .saturating_sub(self.synchronized_len())
+                .min(
+                    NETWORK_SOURCE_DOLIST_CAPACITY
+                        .saturating_sub(self.sim.pending_commands.native_house_len(source_house)),
+                )
+        } else {
+            NETWORK_LOCAL_MIRROR_LIMIT.saturating_sub(self.synchronized_len())
+        }
     }
 
     /// Borrow the prefix the native encoder may attempt. A semantic fallback
@@ -97,7 +143,10 @@ impl<'a> NetworkCommandQueues<'a> {
             .sim
             .local_commands
             .iter()
-            .take(self.mirror_allowance())
+            .take(
+                self.mirror_allowance()
+                    .min(crate::sim::command_queue::OUT_LIST_CAPACITY),
+            )
             .enumerate()
         {
             match entry.record() {

@@ -1,0 +1,971 @@
+//! The online entry and rematch route for the existing live-network observer.
+//! Only ordinary keyboard/mouse adapters produce inputs. The HTTPS service,
+//! relay, loading barrier and frame boundary run exactly as in an interactive app.
+
+use super::*;
+use crate::app::diagnostics::shell_capture::LiveOnlineConfig;
+use crate::ui::wol_lobby;
+use std::io::{BufRead, Read};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RoundPhase {
+    LanEntry,
+    Main,
+    Welcome,
+    Login,
+    Lobby,
+    Create,
+    Discover,
+    HostSetup,
+    HostReady,
+    GuestSetup,
+    Loading,
+    Running,
+    HoldFailureGuest,
+    Observe,
+    Results,
+    Returning,
+    ExitWelcome,
+    MainReturn,
+    Finished,
+}
+
+pub(super) struct LiveRoundFlow {
+    config: Option<LiveOnlineConfig>,
+    random_map_input: Option<RandomMapInput>,
+    phase: RoundPhase,
+    rounds: Vec<Value>,
+    current_round: Option<Value>,
+    menu_return: Option<Value>,
+    result_rows: Vec<[String; 5]>,
+    abort: Option<super::super::super::abort_return::AbortReturnInput>,
+    route: Vec<Value>,
+    last_refresh: Instant,
+    last_heartbeat: Instant,
+    failure_prefix_written: bool,
+}
+
+impl LiveRoundFlow {
+    pub(super) fn new(config: LiveOnlineConfig) -> Self {
+        Self::with_config(Some(config))
+    }
+
+    pub(super) fn new_lan() -> Self {
+        Self::with_config(None)
+    }
+
+    fn with_config(config: Option<LiveOnlineConfig>) -> Self {
+        let phase = if config.is_some() {
+            RoundPhase::Main
+        } else {
+            RoundPhase::LanEntry
+        };
+        Self {
+            config,
+            random_map_input: None,
+            phase,
+            rounds: Vec::new(),
+            current_round: None,
+            menu_return: None,
+            result_rows: Vec::new(),
+            abort: None,
+            route: Vec::new(),
+            last_refresh: Instant::now(),
+            last_heartbeat: Instant::now(),
+            failure_prefix_written: false,
+        }
+    }
+
+    /// LAN and online use the same normal chooser/generator input owner.
+    /// Return false while its actual dialog/generation is still in progress.
+    pub(super) fn prepare_host_map(
+        &mut self,
+        core: &mut LiveLanCapture,
+        state: &mut AppState,
+        rendered: PresentedShell,
+        frame: u32,
+        selected_map: Option<&str>,
+    ) -> Result<bool> {
+        if let Some(input) = self.random_map_input.as_mut() {
+            if !input.after_present(state, frame, &mut self.route)? {
+                return Ok(false);
+            }
+            self.random_map_input = None;
+            core.prepare_host_setup(state, Some("RandMap.Sed"))?;
+            self.record(
+                frame,
+                "Generated seed, preview and start positions published",
+            );
+            return Ok(true);
+        }
+        let settled = if self.config.is_some() {
+            online_setup_settled(state, true)
+        } else {
+            setup_settled(state, true)
+        };
+        if rendered != PresentedShell::NetworkSetup || !settled {
+            return Ok(false);
+        }
+        if selected_map.is_some_and(|file| file.eq_ignore_ascii_case("RandMap.Sed"))
+            && self.rounds.is_empty()
+        {
+            ensure!(
+                self.players() <= 8,
+                "random maps support two to eight players"
+            );
+            setup_button(state, crate::ui::multiplayer_setup::CHOOSE_MAP)?;
+            self.random_map_input = Some(RandomMapInput::new(Some(self.players())));
+            self.record(frame, "Choose Map opened for normal random-map generation");
+            return Ok(false);
+        }
+        core.prepare_host_setup(state, selected_map)?;
+        self.record(frame, "Battle map and player slots configured");
+        Ok(true)
+    }
+
+    fn online_config(&self) -> &LiveOnlineConfig {
+        self.config.as_ref().expect("online entry phase")
+    }
+    fn players(&self) -> usize {
+        self.config.as_ref().map_or(2, |config| config.players)
+    }
+    pub(super) fn controls(&self, core: &LiveLanCapture) -> bool {
+        self.config.is_some() || self.phase != RoundPhase::LanEntry || core.phase == Phase::Running
+    }
+
+    pub(super) fn ready(&self) -> bool {
+        self.phase == RoundPhase::Finished
+    }
+
+    fn record(&mut self, frame: u32, action: &str) {
+        log::info!("Network capture round {}: {action}", self.rounds.len() + 1);
+        self.route
+            .push(json!({"render_frame":frame,"action":action,"round":self.rounds.len()+1}));
+    }
+
+    fn write_failure_prefix(
+        &mut self,
+        core: &LiveLanCapture,
+        state: &AppState,
+        frame: u32,
+    ) -> Result<()> {
+        if self.failure_prefix_written {
+            return Ok(());
+        }
+        ensure!(
+            core.checksums.len() == REQUIRED_FRAMES as usize,
+            "failure prefix did not retain every real checksum"
+        );
+        let (path, schema, account, host) = if let Some(config) = &self.config {
+            (
+                config
+                    .failure_prefix_output
+                    .as_ref()
+                    .context("failure prefix path")?,
+                "vera20k.online-failure-prefix.v1",
+                config.account.as_str(),
+                config.host.as_str(),
+            )
+        } else {
+            (
+                core.config
+                    .as_ref()
+                    .and_then(|config| config.failure_prefix_output.as_ref())
+                    .context("LAN desync prefix path")?,
+                "vera20k.lan-desync-prefix.v1",
+                if core.host() { HOST_NAME } else { GUEST_NAME },
+                HOST_NAME,
+            )
+        };
+        let prefix = json!({"schema":schema,"account":account,"host":host,
+            "external_fault_pending":true,"runtime":core.observed_receipt(state)?});
+        write_new_file(path, &serde_json::to_vec_pretty(&prefix)?)?;
+        self.failure_prefix_written = true;
+        self.record(frame, "Real300-frame command/checksum prefix saved; external fault may begin after both receipts agree");
+        Ok(())
+    }
+
+    fn heartbeat(&mut self, state: &AppState, rendered: PresentedShell) {
+        if self.last_heartbeat.elapsed() < std::time::Duration::from_secs(10) {
+            return;
+        }
+        self.last_heartbeat = Instant::now();
+        let (page, pending) = state.frontend.wol.as_ref().map_or(("none", 0), |visit| {
+            use crate::app::shell_wol::WolPage;
+            let page = match &visit.page {
+                WolPage::Welcome => "welcome",
+                WolPage::Backdrop { .. } => "backdrop",
+                WolPage::Login(_) => "login",
+                WolPage::Message { .. } => "message",
+                WolPage::Lobby => "lobby",
+                WolPage::Options(_) => "options",
+                WolPage::AutoLoginQuery(_) => "auto_login",
+                WolPage::Locale(_) => "locale",
+                WolPage::MyInformation(_) => "my_information",
+                WolPage::Buddy(_) => "buddy",
+                WolPage::QuickMatch(_) => "quick_match",
+                WolPage::AddBuddyQuery(_) => "add_buddy",
+            };
+            (page, visit.pending_service_request_count())
+        });
+        log::info!(
+            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}",
+            self.phase,
+            state.frontend.shell_exit.is_some(),
+        );
+    }
+
+    /// First-time accounts pass through the same location and auto-login
+    /// questions as interactive sign-in. Wait for their ordinary close waves.
+    fn login_questions(
+        &mut self,
+        state: &mut AppState,
+        rendered: PresentedShell,
+        frame: u32,
+    ) -> Result<bool> {
+        if self.phase != RoundPhase::Lobby
+            || state.frontend.shell_exit.is_some()
+            || self.config.is_none()
+        {
+            return Ok(false);
+        }
+        use crate::app::shell_wol::{WolPage, persona};
+        use crate::ui::wol_persona::{ACCEPT, DECLINE};
+        match rendered {
+            PresentedShell::WolLocale
+                if MoviesCapture::slide_settled(state, ShellSlideKind::WolLocale) =>
+            {
+                let layout = persona::layout(state).context("online location dialog")?;
+                let Some(WolPage::Locale(page)) =
+                    state.frontend.wol.as_ref().map(|visit| &visit.page)
+                else {
+                    bail!("online location dialog lost its model");
+                };
+                if page.rows.is_empty() {
+                    return Ok(true);
+                }
+                let row = page
+                    .rows
+                    .iter()
+                    .position(|row| row.locale != 0)
+                    .unwrap_or(0);
+                let geometry = persona::list_geometry(&layout, page);
+                ensure!(
+                    row >= page.top && row < page.top + geometry.visible_rows,
+                    "online location choice is outside the visible list"
+                );
+                let row_rect = geometry.row(row - page.top);
+                click(state, row_rect);
+                click(
+                    state,
+                    layout
+                        .page
+                        .button_rect(ACCEPT)
+                        .context("online location OK")?,
+                );
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "online location did not close"
+                );
+                self.record(frame, "Location selected");
+                Ok(true)
+            }
+            PresentedShell::WolAutoLoginQuery
+                if MoviesCapture::slide_settled(state, ShellSlideKind::WolAutoLoginQuery) =>
+            {
+                let layout = persona::layout(state).context("online auto-login dialog")?;
+                click(
+                    state,
+                    layout.page.button_rect(DECLINE).context("auto-login No")?,
+                );
+                ensure!(
+                    state.frontend.shell_exit.is_some(),
+                    "auto-login question did not close"
+                );
+                self.record(frame, "Auto-login declined");
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    pub(super) fn after_present(
+        &mut self,
+        core: &mut LiveLanCapture,
+        state: &mut AppState,
+        rendered: PresentedShell,
+        frame: u32,
+    ) -> Result<()> {
+        self.heartbeat(state, rendered);
+        if self.login_questions(state, rendered, frame)? {
+            return Ok(());
+        }
+        if self.config.is_some()
+            && !core.host()
+            && matches!(self.phase, RoundPhase::GuestSetup | RoundPhase::Loading)
+            && lobby_ready(state, rendered)
+        {
+            ensure!(
+                state.match_state.session.network_setup().is_none(),
+                "returned guest retained an admitted setup"
+            );
+            core.country_selected = false;
+            self.phase = RoundPhase::Discover;
+            self.last_refresh = Instant::now();
+            self.record(
+                frame,
+                "Actual setup departure returned to the lobby; rediscover and rejoin normally",
+            );
+            return Ok(());
+        }
+        if self.phase == RoundPhase::LanEntry && core.phase == Phase::Running {
+            self.record(frame, "Real LAN loading reached synchronized gameplay");
+            self.phase = RoundPhase::Running;
+        }
+        match self.phase {
+            RoundPhase::Main
+                if rendered == PresentedShell::MainMenu
+                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(
+                        state,
+                    ))? =>
+            {
+                LanCapture::isolated_root(state)?;
+                ensure!(
+                    !state.persistence.options_profile.wol_test_service,
+                    "online capture requires the offline WOL test service to be disabled"
+                );
+                App::leave_shell_dialog(
+                    state,
+                    crate::app::frontend::shell_transition::ShellExitThen::MainMenu(
+                        crate::ui::main_menu_shell::MainMenuShellAction::WwOnline,
+                    ),
+                );
+                self.record(frame, "Multiplayer Internet selected");
+                self.phase = RoundPhase::Welcome;
+            }
+            RoundPhase::Welcome
+                if rendered == PresentedShell::WolWelcome
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolWelcome) =>
+            {
+                let rect = App::wol_welcome_layout(state)
+                    .page
+                    .button_rect(crate::ui::wol_shell::CUSTOM_MATCH)
+                    .context("Custom Match button")?;
+                click(state, rect);
+                self.record(frame, "Custom Match selected");
+                self.phase = RoundPhase::Login;
+            }
+            RoundPhase::Login
+                if rendered == PresentedShell::WolLogin
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolLogin) =>
+            {
+                let layout = crate::app::shell_wol::login_layout(state);
+                click(
+                    state,
+                    RectPx::new(
+                        layout.nickname_face.x,
+                        layout.nickname_face.y,
+                        layout.nickname_face.w / 2,
+                        layout.nickname_face.h,
+                    ),
+                );
+                App::handle_wol_key(state, Some(KeyCode::Home), true, None);
+                for _ in 0..32 {
+                    App::handle_wol_key(state, Some(KeyCode::Delete), true, None);
+                }
+                App::handle_wol_key(state, None, true, Some(&self.online_config().account));
+                click(state, layout.password);
+                let mut password = read_password()?;
+                App::handle_wol_key(state, None, true, Some(&password));
+                password.clear();
+                let control = if self.online_config().create_account {
+                    crate::ui::wol_login::MANAGE
+                } else {
+                    crate::ui::wol_login::LOGIN
+                };
+                ensure!(
+                    state
+                        .frontend
+                        .wol
+                        .as_ref()
+                        .and_then(|visit| visit.login())
+                        .is_some_and(|login| login.button_enabled(control)),
+                    "online credentials did not enable login"
+                );
+                click(
+                    state,
+                    layout
+                        .page
+                        .button_rect(control)
+                        .context("online authentication button")?,
+                );
+                self.record(
+                    frame,
+                    if self.online_config().create_account {
+                        "Create Account submitted"
+                    } else {
+                        "Login submitted"
+                    },
+                );
+                self.phase = RoundPhase::Lobby;
+            }
+            RoundPhase::Lobby if lobby_ready(state, rendered) => {
+                if core.host() {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    click(
+                        state,
+                        layout
+                            .page
+                            .button_rect(wol_lobby::CREATE)
+                            .context("Create Game button")?,
+                    );
+                    self.record(frame, "Create Game selected");
+                    self.phase = RoundPhase::Create;
+                } else {
+                    self.phase = RoundPhase::Discover;
+                }
+            }
+            RoundPhase::Create => {
+                let open = state
+                    .frontend
+                    .wol
+                    .as_ref()
+                    .and_then(|visit| visit.lobby())
+                    .is_some_and(|lobby| lobby.ui.popup.is_some());
+                if open {
+                    let size = &state.renderer.gpu.config;
+                    let layout = crate::ui::shell::modal::wol_create_game_layout(
+                        size.width as i32,
+                        size.height as i32,
+                    );
+                    click(state, layout.ok);
+                    self.record(frame, "Create Game confirmed");
+                    self.phase = RoundPhase::HostSetup;
+                }
+            }
+            RoundPhase::Discover if lobby_ready(state, rendered) => {
+                let expected = format!("{}'s_game", self.online_config().host);
+                let selected = state
+                    .frontend
+                    .wol
+                    .as_ref()
+                    .and_then(|visit| visit.lobby())
+                    .and_then(|lobby| {
+                        lobby
+                            .ui
+                            .game_rows
+                            .iter()
+                            .position(|row| row.name.eq_ignore_ascii_case(&expected))
+                    });
+                if let Some(row) = selected {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    let lobby = state
+                        .frontend
+                        .wol
+                        .as_ref()
+                        .and_then(|visit| visit.lobby())
+                        .context("online lobby")?;
+                    let geometry = lobby.ui.game_list.geometry(
+                        layout.games,
+                        lobby.ui.game_rows.len(),
+                        layout.page.scale,
+                    );
+                    ensure!(
+                        row >= lobby.ui.game_list.top_index
+                            && row < lobby.ui.game_list.top_index + geometry.visible_rows,
+                        "configured online game is outside the visible list"
+                    );
+                    let rect = geometry.row(row - lobby.ui.game_list.top_index);
+                    click(state, rect);
+                    click(
+                        state,
+                        layout
+                            .page
+                            .button_rect(wol_lobby::JOIN)
+                            .context("Join button")?,
+                    );
+                    self.record(frame, "Configured discovered game joined");
+                    self.phase = RoundPhase::GuestSetup;
+                } else if self.last_refresh.elapsed() >= Duration::from_secs(2) {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    click(
+                        state,
+                        layout
+                            .control_rect(wol_lobby::REFRESH)
+                            .context("Refresh image button")?,
+                    );
+                    self.last_refresh = Instant::now();
+                }
+            }
+            RoundPhase::HostSetup => {
+                let selected = self.online_config().map.clone();
+                if self.prepare_host_map(core, state, rendered, frame, selected.as_deref())? {
+                    self.phase = RoundPhase::HostReady;
+                }
+            }
+            RoundPhase::HostReady if online_setup_settled(state, true) => {
+                if core.select_start(state, self.online_config().start)? {
+                    self.record(
+                        frame,
+                        "Configured authored start selected through the local Start combo",
+                    );
+                    return Ok(());
+                }
+                let session = &state.match_state.session;
+                let ready = session.network_setup().is_some_and(|launch| {
+                    launch.humans.len() == self.players()
+                        && launch.humans.iter().enumerate().all(|(i, human)| {
+                            human.raw_slot_index.is_some()
+                                && session.network_player_ready(i)
+                                && session.network_map_status(i) == Some(1)
+                        })
+                });
+                let starting = state
+                    .frontend
+                    .network_setup_protocol
+                    .as_ref()
+                    .is_some_and(|protocol| protocol.start_in_progress());
+                if ready && !starting && core.start_matches(state, self.online_config().start) {
+                    setup_button(state, crate::ui::multiplayer_setup::START)?;
+                    self.record(
+                        frame,
+                        "All real readiness acknowledgements present; Start clicked",
+                    );
+                }
+            }
+            RoundPhase::GuestSetup if online_setup_settled(state, false) => {
+                if self.online_config().start.is_some() && !core.start_selection_admitted(state) {
+                    return Ok(());
+                }
+                let country_was_selected = core.country_selected;
+                core.select_country(state)?;
+                if !country_was_selected && core.country_selected {
+                    // Let the real host options echo this normal control edit
+                    // before any Accept can acknowledge it.
+                    return Ok(());
+                }
+                if core.select_start(state, self.online_config().start)? {
+                    self.record(
+                        frame,
+                        "Configured authored start selected through the local Start combo",
+                    );
+                    return Ok(());
+                }
+                if state
+                    .match_state
+                    .session
+                    .network_setup()
+                    .is_some_and(|launch| {
+                        launch.humans.len() == self.players()
+                            && launch
+                                .humans
+                                .iter()
+                                .all(|human| human.raw_slot_index.is_some())
+                    })
+                    && state.match_state.session.network_start_seed().is_some()
+                    && core.start_matches(state, self.online_config().start)
+                    && setup::view(state).is_some_and(|view| view.accept_enabled)
+                {
+                    setup_button(state, crate::ui::multiplayer_setup::ACCEPT)?;
+                    self.record(frame, "Received map and options; Accept clicked");
+                }
+            }
+            RoundPhase::Loading | RoundPhase::HostReady | RoundPhase::GuestSetup
+                if state.frontend.screen == GameScreen::InGame =>
+            {
+                ensure!(
+                    state.match_state.live_network.is_some(),
+                    "online match has no production command transport"
+                );
+                core.startup = Some(startup_receipt(state)?);
+                core.phase = Phase::Running;
+                self.record(
+                    frame,
+                    "Authenticated relay and synchronized loading reached gameplay",
+                );
+                self.phase = RoundPhase::Running;
+            }
+            RoundPhase::Running => {
+                core.observe_run(state, frame)?;
+                if core.failure.as_ref().is_some_and(|failure| failure.armed()) {
+                    self.write_failure_prefix(core, state, frame)?;
+                }
+                if core.phase == Phase::Finished {
+                    if core.target == LanTarget::OnlineFailureGuest {
+                        self.write_failure_prefix(core, state, frame)?;
+                        self.record(frame, "Guest remains live for external termination; no Observe or fabricated departure");
+                        self.phase = RoundPhase::HoldFailureGuest;
+                        return Ok(());
+                    }
+                    self.current_round = Some(json!({"runtime":core.round_receipt(state)?}));
+                    self.result_rows.clear();
+                    if let Some(failure) = &core.failure {
+                        if failure.returned() {
+                            ensure!(
+                                if self.config.is_some() {
+                                    lobby_ready(state, rendered)
+                                } else {
+                                    rendered == PresentedShell::LanLobby && lobby_settled(state)
+                                },
+                                "expected network failure did not settle the service lobby"
+                            );
+                            let mut round = self.current_round.take().context("failure round")?;
+                            round["returned_to_lobby"] = json!(true);
+                            self.rounds.push(round);
+                            self.record(frame, if core.target.desync_failure() {
+                                "Actual checksum CE Stop returned to the settled LAN lobby"
+                            } else {
+                                "Expected connection Quit returned to the authenticated online lobby"
+                            });
+                            self.phase = RoundPhase::Finished;
+                        } else {
+                            self.record(
+                                frame,
+                                "Expected timeout removed the peer; awaiting ordinary result page",
+                            );
+                            self.phase = RoundPhase::Results;
+                        }
+                        return Ok(());
+                    }
+                    // Alternate the player choosing Observe so both ends exercise
+                    // the local defeat path as well as the surviving player's result.
+                    let observe = if self.players() > 2 {
+                        !core.host()
+                    } else {
+                        core.host() == (self.rounds.len() == 1)
+                    };
+                    if observe {
+                        self.abort=Some(super::super::super::abort_return::AbortReturnInput::begin_network_observe(
+                            state,&mut self.route,frame)?);
+                        self.record(frame, "Observe requested through in-game Options");
+                        self.phase = RoundPhase::Observe;
+                    } else {
+                        self.phase = RoundPhase::Results;
+                    }
+                }
+            }
+            RoundPhase::HoldFailureGuest => {
+                // No input or completion action. The normal app keeps serving
+                // gameplay and any real wait/result reached by the external
+                // fault; the orchestrator alone terminates this process.
+            }
+            RoundPhase::Observe => {
+                if self
+                    .abort
+                    .as_mut()
+                    .context("Observe input")?
+                    .after_present(state, &mut self.route, frame)?
+                {
+                    self.record(frame, "Observe selected through B6; real DESTRUCT queued");
+                    self.phase = RoundPhase::Results;
+                }
+            }
+            RoundPhase::Results
+                if rendered == PresentedShell::Score
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::Score)
+                    && state
+                        .frontend
+                        .score_page
+                        .as_ref()
+                        .is_some_and(|page| page.reveals_terminal()) =>
+            {
+                let page = state.frontend.score_page.as_ref().context("score page")?;
+                let visible = page.visible_row_texts();
+                let range = page.visible_range();
+                let expected: Vec<[String; 5]> = page.model.rows[range.clone()]
+                    .iter()
+                    .map(|row| {
+                        [
+                            row.name.clone(),
+                            row.kills.to_string(),
+                            row.losses.to_string(),
+                            row.built.to_string(),
+                            row.score.to_string(),
+                        ]
+                    })
+                    .collect();
+                ensure!(
+                    visible == expected,
+                    "score page did not display every expected row and statistic"
+                );
+                ensure!(
+                    self.result_rows.len() == range.start,
+                    "score pages skipped or repeated rows"
+                );
+                self.result_rows.extend(visible);
+                if page.page_index() + 1 < page.page_count() {
+                    let rect = crate::app::frontend::shell_layout::score_layout(state)
+                        .paging_button(crate::ui::score_shell::NEXT_PAGE)
+                        .context("score Next")?;
+                    set_window_pointer_to_rect_center(state, rect);
+                    App::handle_score_shell_mouse_move(state);
+                    App::handle_score_shell_mouse_down(state);
+                    App::handle_score_shell_mouse_up(state);
+                    MoviesCapture::restore_neutral_pointer(state);
+                    self.record(frame, "Next results page displayed through normal button");
+                    return Ok(());
+                }
+                ensure!(
+                    self.result_rows.len() == page.model.rows.len(),
+                    "results capture omitted players"
+                );
+                let model = &state
+                    .frontend
+                    .score_page
+                    .as_ref()
+                    .context("score page")?
+                    .model;
+                let score = json!({"game_number":model.game_number,"elapsed_seconds":model.elapsed_seconds,
+                    "rows":model.rows.iter().map(|row|json!({"name":row.name,"kills":row.kills,
+                        "losses":row.losses,"built":row.built,"score":row.score})).collect::<Vec<_>>()});
+                self.current_round.as_mut().context("completed round")?["result"] = score;
+                self.current_round.as_mut().context("completed round")?["result"]["displayed_table_rows"] =
+                    json!(self.result_rows);
+                self.current_round.as_mut().context("completed round")?["terminal_simulation"] =
+                    terminal_simulation_receipt(state)?;
+                let rect = crate::app::frontend::shell_layout::score_layout(state)
+                    .page
+                    .button_rect(crate::ui::score_shell::CONTINUE_BUTTON)
+                    .context("score Continue")?;
+                set_window_pointer_to_rect_center(state, rect);
+                App::handle_score_shell_mouse_move(state);
+                App::handle_score_shell_mouse_down(state);
+                App::handle_score_shell_mouse_up(state);
+                MoviesCapture::restore_neutral_pointer(state);
+                self.record(frame, "Real multiplayer results acknowledged");
+                self.phase = RoundPhase::Returning;
+            }
+            RoundPhase::Returning
+                if if self.config.is_some() {
+                    lobby_ready(state, rendered)
+                } else {
+                    rendered == PresentedShell::LanLobby && lobby_settled(state)
+                } =>
+            {
+                ensure!(
+                    state.match_state.live_network.is_none(),
+                    "finished round retained live command owner"
+                );
+                ensure!(
+                    state.match_state.session.network_setup().is_none(),
+                    "finished round retained setup"
+                );
+                let mut round = self
+                    .current_round
+                    .take()
+                    .context("completed round result")?;
+                round["returned_to_lobby"] = json!(true);
+                self.rounds.push(round);
+                self.record(
+                    frame,
+                    "Returned to service lobby through normal result continuation",
+                );
+                if core.failure.is_some() {
+                    self.phase = RoundPhase::Finished;
+                } else if self.rounds.len() == 2 {
+                    if self.config.is_some() {
+                        let rect = crate::app::shell_wol::lobby::layout(state)
+                            .page
+                            .button_rect(wol_lobby::BACK)
+                            .context("WOL lobby Back button")?;
+                        click(state, rect);
+                        self.phase = RoundPhase::ExitWelcome;
+                    } else {
+                        lobby_button(state, crate::ui::lan_shell::BACK)?;
+                        MoviesCapture::restore_neutral_pointer(state);
+                        self.phase = RoundPhase::MainReturn;
+                    }
+                    self.record(
+                        frame,
+                        "Final settled lobby Back clicked through ordinary input",
+                    );
+                } else {
+                    reset_round(core);
+                    self.phase = if self.config.is_some() {
+                        RoundPhase::Lobby
+                    } else {
+                        core.phase = Phase::Lobby;
+                        core.kick_observed = true;
+                        RoundPhase::LanEntry
+                    };
+                }
+            }
+            RoundPhase::ExitWelcome
+                if rendered == PresentedShell::WolWelcome
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolWelcome) =>
+            {
+                let rect = App::wol_welcome_layout(state)
+                    .page
+                    .button_rect(crate::ui::wol_shell::MAIN_MENU)
+                    .context("WOL welcome Main Menu button")?;
+                click(state, rect);
+                self.record(
+                    frame,
+                    "WOL welcome Main Menu clicked through ordinary input",
+                );
+                self.phase = RoundPhase::MainReturn;
+            }
+            RoundPhase::MainReturn
+                if rendered == PresentedShell::MainMenu
+                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(
+                        state,
+                    ))? =>
+            {
+                if state.frontend.online_cleanup.pending() {
+                    return Ok(());
+                }
+                let visits_retired = state.frontend.lan.is_none() && state.frontend.wol.is_none();
+                let setup_retired = state.frontend.network_setup_protocol.is_none()
+                    && state.frontend.multiplayer_setup.is_none()
+                    && state.match_state.session.network_setup().is_none();
+                let transport_retired = state.match_state.live_network.is_none()
+                    && state.match_state.lan_service.is_none();
+                let session_retired = state.match_state.session.network_return_context().is_none();
+                // Main_Game48CEBF retires ScenarioStarted. The runtime and
+                // presentation intentionally remain through shell handoff.
+                let scenario_retired = state
+                    .match_state
+                    .sim_runtime
+                    .as_ref()
+                    .is_none_or(|runtime| !runtime.simulation.session().started());
+                ensure!(
+                    visits_retired
+                        && setup_retired
+                        && transport_retired
+                        && session_retired
+                        && scenario_retired,
+                    "settled Main Menu retained an old network owner"
+                );
+                let acknowledged = state.frontend.online_cleanup.logout_acknowledged();
+                ensure!(
+                    self.config.is_none() || acknowledged,
+                    "online cleanup stopped without an acknowledged logout"
+                );
+                self.menu_return = Some(json!({"render_frame":frame,"settled":true,
+                    "visits_retired":visits_retired,"setup_retired":setup_retired,
+                    "transport_retired":transport_retired,"session_retired":session_retired,
+                    "scenario_retired":scenario_retired,
+                    "online_cleanup_pending":state.frontend.online_cleanup.pending(),
+                    "online_logout_acknowledged":acknowledged}));
+                self.record(
+                    frame,
+                    "Settled Main Menu and acknowledged quiescent cleanup observed",
+                );
+                self.phase = RoundPhase::Finished;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub(super) fn receipt(&self, state: &AppState) -> Result<Value> {
+        ensure!(
+            self.ready() && self.rounds.len() == if self.failure_prefix_written { 1 } else { 2 },
+            "network outcome capture is incomplete"
+        );
+        ensure!(
+            state.match_state.live_network.is_none(),
+            "finished network capture retained command transport"
+        );
+        ensure!(
+            self.failure_prefix_written || self.menu_return.is_some(),
+            "successful rematch capture did not return to the settled Main Menu"
+        );
+        Ok(
+            json!({"target":if self.config.is_some() {"online-live"} else {"lan-live"},
+            "account":self.config.as_ref().map(|config| &config.account),"host":self.config.as_ref().map(|config| &config.host),
+            "service_boundary":if self.config.is_some() {"normal WOL UI, deployed HTTPS lobby, authenticated UDP relay, production loading and command boundary"} else {"normal LAN UI, real UDP, production loading and command boundary"},
+            "fixed_start":self.config.as_ref().and_then(|config|config.start),
+            "players":self.players(),"required_frames":self.config.as_ref().map_or(300, |config|config.frames),"simple_input":self.config.as_ref().is_none_or(|config|config.simple_input),
+            "failure_prefix":self.config.as_ref().and_then(|config|config.failure_prefix_output.as_ref()),
+            "scope":if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
+            "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
+            "rounds":self.rounds,"route":self.route}),
+        )
+    }
+}
+
+fn reset_round(core: &mut LiveLanCapture) {
+    core.phase = Phase::Main;
+    core.route.clear();
+    core.checksums.clear();
+    core.simulation_hashes.clear();
+    core.startup = None;
+    core.map_admission = None;
+    core.actions.clear();
+    core.actor = None;
+    core.origin = None;
+    core.observed_movement = false;
+    core.stopped_position = None;
+    core.stopped = false;
+    core.last_wait = None;
+    core.kick_observed = false;
+    core.entered_setup = false;
+    core.country_selected = false;
+    if core.mass.is_some() {
+        core.mass = Some(mass::MassInput::default());
+    }
+    if core.battle.is_some() {
+        core.battle = Some(battle::BattleOpening::default());
+    }
+}
+
+fn lobby_ready(state: &AppState, rendered: PresentedShell) -> bool {
+    rendered == PresentedShell::WolLobby && online_lobby_settled(state)
+}
+
+pub(super) fn online_lobby_settled(state: &AppState) -> bool {
+    MoviesCapture::slide_settled(state, ShellSlideKind::WolLobby)
+        && state
+            .frontend
+            .wol
+            .as_ref()
+            .and_then(|visit| visit.lobby())
+            .is_some_and(|lobby| lobby.interactive())
+}
+
+fn online_setup_settled(state: &AppState, host: bool) -> bool {
+    MoviesCapture::slide_settled(
+        state,
+        ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {
+            host,
+            flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
+        }),
+    ) && state
+        .frontend
+        .multiplayer_setup
+        .as_ref()
+        .is_some_and(|ui| ui.statics.is_terminal())
+}
+
+fn click(state: &mut AppState, rect: RectPx) {
+    set_window_pointer_to_rect_center(state, rect);
+    App::handle_wol_mouse_move(state);
+    App::handle_wol_mouse_down(state);
+    App::handle_wol_mouse_up(state);
+    MoviesCapture::restore_neutral_pointer(state);
+}
+
+fn read_password() -> Result<String> {
+    let mut bytes = Vec::new();
+    std::io::stdin()
+        .lock()
+        .take(131)
+        .read_until(b'\n', &mut bytes)
+        .context("read online password from stdin")?;
+    while bytes
+        .last()
+        .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
+    {
+        bytes.pop();
+    }
+    ensure!(
+        (12..=128).contains(&bytes.len())
+            && bytes
+                .iter()
+                .all(|byte| byte.is_ascii() && !byte.is_ascii_control()),
+        "stdin must provide one 12-128 character password line"
+    );
+    String::from_utf8(bytes)
+        .map_err(|_| anyhow::anyhow!("online password must use ASCII characters"))
+}

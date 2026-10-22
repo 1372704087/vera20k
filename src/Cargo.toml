@@ -24,6 +24,12 @@ path = "bin/parity-digest.rs"
 name = "sim-bench"
 path = "bin/sim-bench.rs"
 
+# External two-client LAN fault proof; absent from normal game builds.
+[[bin]]
+name = "lan-fault-proxy"
+path = "bin/lan-fault-proxy.rs"
+required-features = ["test-support"]
+
 [features]
 # Compile the supported Ares behavior; INIs cannot enable an absent capability.
 ares = []
@@ -43,6 +49,8 @@ debug-tools = ["telemetry"]
 test-support = []
 
 [dependencies]
+# Shared authenticated datagram codec used by the standalone relay.
+vera20k-relay-protocol = { path = "../services/relay-protocol" }
 glam = { workspace = true }
 # Fixed-point arithmetic for simulation positions and other fixed-width mechanisms.
 # Native floating-point mechanisms document their numeric contract at their owner.

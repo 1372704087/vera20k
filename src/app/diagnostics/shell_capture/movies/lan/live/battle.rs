@@ -1895,6 +1895,148 @@ fn ground_order_with_mouse(state: &mut AppState, id: u64, cell: (u16, u16)) -> R
     Ok(())
 }
 
+/// The bounded live-network input for maps with preplaced mobile units. It uses
+/// the same tactical selection, ground-click and key owners as the Battle route.
+pub(super) fn mobile_move_with_mouse(
+    state: &mut AppState,
+) -> Result<(u64, (u16, u16), (u16, u16))> {
+    let sim = simulation(state)?;
+    let owner = sim.session().current_house().context("local House")?;
+    let entity = sim
+        .entities()
+        .values_sorted()
+        .filter(|entity| {
+            entity.owner() == owner
+                && entity.is_alive()
+                && !entity.in_limbo()
+                && entity.locomotor.is_some()
+                && matches!(
+                    entity.category(),
+                    crate::map::entities::EntityCategory::Unit
+                        | crate::map::entities::EntityCategory::Infantry
+                )
+        })
+        .max_by_key(|entity| entity.stable_id())
+        .context("local mobile object")?;
+    let id = entity.stable_id();
+    let from = (entity.position.rx(), entity.position.ry());
+    let to = [(18, 0), (-18, 0), (0, 18), (0, -18)]
+        .into_iter()
+        .find_map(|(dx, dy)| {
+            let desired = (
+                u16::try_from(i32::from(from.0) + dx).ok()?,
+                u16::try_from(i32::from(from.1) + dy).ok()?,
+            );
+            legal_move_cell(state, id, desired)
+                .ok()
+                .filter(|cell| *cell != from)
+        })
+        .context("reachable tactical Move target")?;
+    ground_order_with_mouse(state, id, to)?;
+    Ok((id, from, to))
+}
+
+pub(super) fn mobile_stop_with_keyboard(state: &mut AppState, id: u64) -> Result<()> {
+    select_entity(state, id)?;
+    selected_stop_with_keyboard(state)
+}
+
+pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
+    let key = Key::Character("s".into());
+    ensure!(
+        state.match_state.input.hotkey_bindings.resolve_event(
+            &key,
+            KeyLocation::Standard,
+            state.match_state.input.hotkey_modifiers
+        ) == HotkeyResolution::Command(HotkeyCommand::StopObject),
+        "loaded S key is not the Stop binding"
+    );
+    chat_key(state, KeyCode::KeyS, &key, Some("s"));
+    Ok(())
+}
+
+/// Select through the configured retail P binding twice: screen then map.
+pub(super) fn combatants_with_keyboard(state: &mut AppState) -> Result<()> {
+    let key = Key::Character("p".into());
+    ensure!(
+        state.match_state.input.hotkey_bindings.resolve_event(
+            &key,
+            KeyLocation::Standard,
+            state.match_state.input.hotkey_modifiers
+        ) == HotkeyResolution::Command(HotkeyCommand::CombatantSelect),
+        "loaded P key is not the CombatantSelect binding"
+    );
+    for _ in 0..2 {
+        chat_key(state, KeyCode::KeyP, &key, Some("p"));
+    }
+    Ok(())
+}
+
+/// Keep the full current selection and click ordinary empty ground.
+pub(super) fn selected_move_with_mouse(
+    state: &mut AppState,
+    actor: u64,
+    direction: usize,
+) -> Result<()> {
+    let sim = simulation(state)?;
+    let entity = sim.entities().get(actor).context("mass leader")?;
+    let from = (entity.position.rx(), entity.position.ry());
+    let mut chosen = None;
+    for distance in [18, 30, 48, 64] {
+        for (dx, dy) in [
+            (distance, 0),
+            (-distance, 0),
+            (0, distance),
+            (0, -distance),
+            (distance, distance),
+            (-distance, -distance),
+        ]
+        .into_iter()
+        .cycle()
+        .skip(direction)
+        .take(6)
+        {
+            let (Ok(x), Ok(y)) = (
+                u16::try_from(i32::from(from.0) + dx),
+                u16::try_from(i32::from(from.1) + dy),
+            ) else {
+                continue;
+            };
+            let Ok(cell) = legal_move_cell(state, actor, (x, y)) else {
+                continue;
+            };
+            let Some(terrain) = state
+                .resolved_terrain()
+                .and_then(|terrain| terrain.cell(cell.0, cell.1))
+            else {
+                continue;
+            };
+            let world =
+                crate::app::input::camera::cell_centre_world_point(cell.0, cell.1, terrain.level);
+            if crate::app::input::entity_pick::hover_object_at_point(
+                crate::app::input::entity_pick::presented(state, sim),
+                world.0,
+                world.1,
+                &local_owner(state)?,
+                false,
+            )
+            .is_none()
+            {
+                chosen = Some(cell);
+                break;
+            }
+        }
+        if chosen.is_some() {
+            break;
+        }
+    }
+    point_at_ground(state, chosen.context("empty ground for mass Move")?)?;
+    for edge in [ElementState::Pressed, ElementState::Released] {
+        dispatch::handle_mouse_input(state, MouseButton::Left, edge);
+    }
+    Ok(())
+}
+
 fn force_fire_with_mouse(state: &mut AppState, gi: u64, target: u64) -> Result<()> {
     select_entity(state, gi)?;
     ensure!(
@@ -2101,7 +2243,7 @@ fn select_entity(state: &mut AppState, id: u64) -> Result<()> {
     Ok(())
 }
 
-fn projected_selection(state: &AppState) -> Vec<u64> {
+pub(super) fn projected_selection(state: &AppState) -> Vec<u64> {
     dispatch::selected_stable_ids_in_order(
         state
             .match_state

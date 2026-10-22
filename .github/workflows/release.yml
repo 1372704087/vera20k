@@ -31,8 +31,9 @@ name: Release
 #
 # Archives hold the game program, config.toml.example, the license, the
 # third-party notices (THIRD_PARTY_LICENSES.html) and a README.txt made from
-# .github/release/README.txt.in. They never hold game files: this repository
-# ships no retail assets, and neither do its releases (README.md, README.txt.in).
+# .github/release/README.txt.in. They never hold game files (README.md,
+# README.txt.in). Their one piece of game art is the app icon, Red Alert 2's red
+# star from retail game.exe (.github/release/icon.png).
 on:
   workflow_dispatch:
     inputs:
@@ -177,12 +178,12 @@ jobs:
           cargo about generate --locked --fail -c .github/release/about.toml \
             -o dist/THIRD_PARTY_LICENSES.html .github/release/about.hbs
       - uses: Swatinem/rust-cache@v2
-      # The AppImage step also needs rsvg-convert and desktop-file-validate.
+      # The AppImage step also needs desktop-file-validate.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev pkg-config librsvg2-bin desktop-file-utils
+          sudo apt-get install -y libasound2-dev pkg-config desktop-file-utils
       - name: Build the game
         # Shipped binaries leave out the default `dev-overlays` (the Ctrl+Shift dev chord),
         # and use the whole-program `shipping` profile (Cargo.toml).
@@ -443,7 +444,7 @@ jobs:
           test "$(readlink "$root/AppRun")" = usr/bin/vera20k
           cmp "$root/usr/bin/vera20k" "dist/$NAME/vera20k"
           test -f "$root/usr/share/doc/vera20k/README.txt"
-          test -f "$root/vera20k.svg"
+          test -f "$root/vera20k.png"
           test -f "$root/.DirIcon"
           desktop-file-validate "$root/vera20k.desktop"
           # Started from the image, it works in its data folder: the usage

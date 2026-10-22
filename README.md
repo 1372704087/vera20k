@@ -136,5 +136,6 @@ Command & Conquer and Red Alert, World-Altering Editor, Final Alert, YRpp, Ares,
 many others.
 
 Licensed under the [GPLv3](LICENSE-GPL). This repository contains no game files. Command &
-Conquer and Red Alert are trademarks of Electronic Arts Inc., and the screenshots show game art
-owned by Electronic Arts. VERA20K is not affiliated with or endorsed by Electronic Arts.
+Conquer and Red Alert are trademarks of Electronic Arts Inc., and the screenshots and the app
+icon, Red Alert 2's red star, show game art owned by Electronic Arts. VERA20K is not affiliated
+with or endorsed by Electronic Arts.

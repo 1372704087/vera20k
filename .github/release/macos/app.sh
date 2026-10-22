@@ -32,13 +32,15 @@ cp "$package/vera20k" "$app/Contents/MacOS/VERA20K"
 cp "$package/README.txt" "$package/LICENSE-GPL" "$package/THIRD_PARTY_LICENSES.html" \
   "$app/Contents/Resources/"
 cp -R "$here/zh-Hans.lproj" "$app/Contents/Resources/"
-# The icon, drawn from its SVG at every size macOS uses.
+# The icon at every size macOS uses: Red Alert 2's red star on a tile that fills
+# macOS's icon grid (icon_tile.swift).
+swift "$here/icon_tile.swift" "$here/../icon.png" "$stage/icon.png"
 iconset="$stage/VERA20K.iconset"
 mkdir "$iconset"
 for size in 16 32 128 256 512; do
-  sips -s format png -z "$size" "$size" "$here/../icon.svg" \
+  sips -s format png -z "$size" "$size" "$stage/icon.png" \
     --out "$iconset/icon_${size}x${size}.png" > /dev/null
-  sips -s format png -z $((size * 2)) $((size * 2)) "$here/../icon.svg" \
+  sips -s format png -z $((size * 2)) $((size * 2)) "$stage/icon.png" \
     --out "$iconset/icon_${size}x${size}@2x.png" > /dev/null
 done
 iconutil -c icns -o "$app/Contents/Resources/VERA20K.icns" "$iconset"

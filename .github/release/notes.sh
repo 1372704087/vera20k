@@ -156,7 +156,8 @@ VERA20K is licensed under the GNU General Public License version 3.
 Source: $repo_url
 
 Command & Conquer, Red Alert and Yuri's Revenge are trademarks of Electronic
-Arts Inc. VERA20K is not affiliated with or endorsed by Electronic Arts.
+Arts Inc. The app icon, Red Alert 2's red star, is game art owned by Electronic
+Arts. VERA20K is not affiliated with or endorsed by Electronic Arts.
 EOF
 } > "$out"
 

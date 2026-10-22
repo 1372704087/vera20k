@@ -2,7 +2,7 @@
 # Put a packaged Linux release folder in a single-file AppImage, for the Release
 # workflow (.github/workflows/release.yml):
 #   appimage.sh <package folder> <output .AppImage>
-# Needs rsvg-convert (librsvg2-bin) and desktop-file-validate (desktop-file-utils).
+# Needs desktop-file-validate (desktop-file-utils).
 #
 # The AppImage keeps its files in ~/.local/share/VERA20k and finds or asks for
 # the Yuri's Revenge folder on its first launch (src/app/app_bundle.rs). Like the
@@ -34,10 +34,10 @@ cp "$package/README.txt" "$package/LICENSE-GPL" "$package/THIRD_PARTY_LICENSES.h
   "$app/usr/share/doc/vera20k/"
 ln -s usr/bin/vera20k "$app/AppRun"
 cp "$here/vera20k.desktop" "$app/"
-# The scalable icon desktops show, and the PNG file managers read as .DirIcon;
-# appimagetool keeps a .DirIcon that is a file.
-cp "$here/../icon.svg" "$app/vera20k.svg"
-rsvg-convert -w 256 -h 256 -o "$app/.DirIcon" "$here/../icon.svg"
+# Red Alert 2's red star, as the icon desktops show and as the .DirIcon file
+# managers read; appimagetool keeps a .DirIcon that is a file.
+cp "$here/../icon.png" "$app/vera20k.png"
+cp "$here/../icon.png" "$app/.DirIcon"
 
 # appimagetool is an AppImage itself; extracted, it runs without FUSE.
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$stage/appimagetool" --no-appstream \

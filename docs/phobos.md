@@ -13,7 +13,8 @@ cargo run --release --bin vera20k --features phobos
 The capability is independent of Ares: a Phobos build needs no `ares` feature, and the two combine
 with `--features ares,phobos`.
 
-Phobos builds identify themselves in the window title and startup log. Saves retain the build
+Phobos builds identify themselves in the window title, the startup log, and the build description
+drawn at the tactical view's top right during a match. Saves retain the build
 capability and cannot load in the other mode, even with identical retail INIs.
 
 Supported extensions:

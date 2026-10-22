@@ -154,15 +154,7 @@ fn apply_startup_audio_profile(
 
 impl App {
     fn load_version_txt() -> String {
-        // The retail internal version plus the compiled extension capability
-        // marker, as Phobos stamps its own build description into the game.
-        let base = crate::util::version::retail_internal_version();
-        let marker = super::capability_marker();
-        if marker.is_empty() {
-            base.to_owned()
-        } else {
-            format!("{base}{marker}")
-        }
+        crate::util::version::retail_internal_version().to_owned()
     }
 
     /// Create the window and GPU presentation owners. Does NOT load a map —

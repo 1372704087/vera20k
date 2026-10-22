@@ -697,6 +697,11 @@ fn upload_to_gpu(
     let (super_timer_fill, super_timer_text) =
         crate::app::presentation::super_timers::build_super_timer_instances(state);
 
+    // GScreenClass_DrawText's Phobos build description, the tactical view's
+    // top-right identity box; empty outside Phobos builds.
+    let (build_text_fill, build_text_text) =
+        crate::app::presentation::build_text::build_instances(state);
+
     let pool: &mut InstanceBufferPool = &mut state.renderer.instance_pool;
 
     // Debug overlays
@@ -743,6 +748,8 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "cell_sparkles", &world.cell_sparkles);
     pool.upload(&state.renderer.gpu, "super_timer_fill", &super_timer_fill);
     pool.upload(&state.renderer.gpu, "super_timer_text", &super_timer_text);
+    pool.upload(&state.renderer.gpu, "build_text_fill", &build_text_fill);
+    pool.upload(&state.renderer.gpu, "build_text_text", &build_text_text);
 
     // UI overlays
     pool.upload(&state.renderer.gpu, "drag", &ui.drag);

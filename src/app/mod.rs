@@ -109,8 +109,8 @@ pub const WINDOW_TITLE: &str = if crate::rules::ARES_ENABLED {
 };
 
 /// The compiled extension capability as an in-game display suffix, with its
-/// leading space: the single owner of the marker the main menu's version line
-/// appends to the retail internal version. The window title owns its own
+/// leading space: the single owner of the marker the tactical view's build
+/// description appends to [`BUILD_STAMP`]. The window title owns its own
 /// exact literal for the single-instance gate and mirrors the same four
 /// states.
 pub const fn capability_marker() -> &'static str {
@@ -126,6 +126,10 @@ pub const fn capability_marker() -> &'static str {
         ""
     }
 }
+
+/// Identity stamp shared by the status screen and the tactical view's build
+/// description. Not a retail build string.
+pub(crate) const BUILD_STAMP: &str = concat!("VERA20K ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) use shell_random_map::RandomMapGenerationRetention;
 pub(crate) use state::{AppState, PlatformState, reset_scenario_exit_runtime};

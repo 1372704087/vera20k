@@ -5332,7 +5332,7 @@ mod control_group_tests {
         );
         building
             .type_facts
-            .set_foundation_for_test("2x2".to_owned());
+            .set_foundation_for_test("2x2".to_owned().into());
         building.selection.set_selected_for_test(true);
         sim.entities_mut_for_test().insert(building);
         assert!(matches!(
@@ -5931,7 +5931,7 @@ mod control_group_tests {
             if let Some(foundation) = case["foundation"].as_str() {
                 entity
                     .type_facts
-                    .set_foundation_for_test(foundation.to_owned());
+                    .set_foundation_for_test(foundation.to_owned().into());
             }
             entity.selection.set_selected_for_test(true);
             sim.entities_mut_for_test().insert(entity);

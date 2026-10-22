@@ -424,8 +424,8 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
                 .interner()
                 .object_type(entity.type_ref(), rules)
                 .map(|obj| obj.foundation.clone())
-                .unwrap_or_else(|| "1x1".to_string());
-            let (fw, fh) = crate::rules::foundation::foundation_dimensions(&foundation);
+                .unwrap_or_default();
+            let (fw, fh) = foundation.dimensions();
             let (ex, ey) = (entity.position.rx(), entity.position.ry());
             if cursor_rx >= ex
                 && u32::from(cursor_rx) < u32::from(ex) + u32::from(fw)

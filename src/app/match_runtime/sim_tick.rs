@@ -1864,10 +1864,10 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
     let (fw, fh, foundation_str) = rules
         .object(type_id)
         .map(|obj| {
-            let (w, h) = crate::rules::foundation::foundation_dimensions(&obj.foundation);
+            let (w, h) = obj.foundation.dimensions();
             (w, h, obj.foundation.clone())
         })
-        .unwrap_or((1, 1, "1x1".to_string()));
+        .unwrap_or((1, 1, crate::rules::foundation::Foundation::default()));
     // Log at info level once per type_id change so it's visible in console.
     static LAST_LOG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let hash: u64 = type_id
@@ -1891,8 +1891,7 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
     // UpdateFoundationCenter4A91B0 uses center + the type's active offset.
     // Resolve it before admission/ground/shroud, through the shared owner
     // also used by a fresh LeftUp; rendering consumes the resulting Cells.
-    let (rx, ry) =
-        crate::rules::foundation::placement_origin_at_cursor(&foundation_str, cursor_cell);
+    let (rx, ry) = foundation_str.placement_origin_at_cursor(cursor_cell);
     state.match_state.input.building_placement_preview =
         production::placement_preview_for_owner_with_overlays(
             sim,

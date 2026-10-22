@@ -150,7 +150,7 @@ pub(crate) fn blocker_plane_source(
     if entity.category() == EntityCategory::Structure {
         let size = interner
             .object_type(entity.type_ref(), rules)
-            .map(|obj| crate::rules::foundation::foundation_dimensions(&obj.foundation))
+            .map(|obj| obj.foundation.dimensions())
             .unwrap_or((1, 1));
         Some(BlockerPlaneSource::Building { origin: pos, size })
     } else {

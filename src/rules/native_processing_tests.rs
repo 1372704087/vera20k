@@ -926,7 +926,9 @@ fn building_foundation_pass_matches_original_art_reads() {
             .families
             .get_mut(&RulesTypeFamily::Building)
             .unwrap()[0]
-            .building_foundation = input["initial_foundation_id"].as_u64().unwrap() as u8;
+            .building_foundation = crate::rules::foundation::Foundation::Stock(
+            input["initial_foundation_id"].as_u64().unwrap() as u8,
+        );
         let mut raw = IniSection::new(type_id.to_owned());
         raw.set("Image", input["image"].as_str().unwrap());
         if let Some(poison) = input["rules_foundation_poison"].as_str() {
@@ -953,13 +955,13 @@ fn building_foundation_pass_matches_original_art_reads() {
         rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&fixed_art));
         let object = rules.object(type_id).unwrap();
         assert_eq!(
-            crate::rules::foundation::foundation_id(&object.foundation),
+            object.foundation.selector(),
             row["output"]["foundation_id"].as_u64().unwrap() as u8,
             "{}: projected and installed native field",
             input["name"]
         );
         assert_eq!(
-            crate::rules::foundation::foundation_dimensions(&object.foundation),
+            object.foundation.dimensions(),
             (
                 row["output"]["width"].as_u64().unwrap() as u16,
                 row["output"]["height"].as_u64().unwrap() as u16,

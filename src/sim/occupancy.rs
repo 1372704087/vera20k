@@ -457,7 +457,7 @@ impl HiddenOccupationGrid {
     pub(crate) fn enter_building(
         &mut self,
         origin: (u16, u16),
-        foundation: &str,
+        foundation: &crate::rules::foundation::Foundation,
         profile: crate::rules::object_type::BuildingHiddenOccupancyProfile,
         map_size: Option<(u16, u16)>,
     ) -> bool {
@@ -488,7 +488,7 @@ impl HiddenOccupationGrid {
     pub(crate) fn exit_building(
         &mut self,
         origin: (u16, u16),
-        foundation: &str,
+        foundation: &crate::rules::foundation::Foundation,
         profile: crate::rules::object_type::BuildingHiddenOccupancyProfile,
         map_size: Option<(u16, u16)>,
     ) -> bool {
@@ -520,6 +520,12 @@ impl HiddenOccupationGrid {
         let Some(current) = self.cells.get_mut(&cell) else {
             return;
         };
+        // Installed Ares10015504 uses signed JLE; the original568A97 only
+        // tests zero. Both share this counter owner, not separate grids.
+        #[cfg(feature = "ares")]
+        if (*current as i32) <= 0 {
+            return;
+        }
         if *current == 1 {
             self.cells.remove(&cell);
         } else {
@@ -579,13 +585,13 @@ impl AirSlotGrid {
 
 fn hidden_diagonal_cells(
     origin: (u16, u16),
-    foundation: &str,
+    foundation: &crate::rules::foundation::Foundation,
     occupy_height: i32,
     map_size: Option<(u16, u16)>,
 ) -> BTreeSet<(u16, u16)> {
     let depth = occupy_height.saturating_sub(1).max(1);
     let mut cells = BTreeSet::new();
-    for (dx, dy) in crate::rules::foundation::foundation_cell_offsets(foundation) {
+    for (dx, dy) in foundation.cell_offsets() {
         for k in 0..depth {
             let rx = i32::from(origin.0) + i32::from(dx) - k;
             let ry = i32::from(origin.1) + i32::from(dy) - k;
@@ -896,7 +902,10 @@ pub(crate) fn entity_occupancy_cells(entity: &GameEntity) -> Vec<(u16, u16)> {
     if entity.category() != EntityCategory::Structure {
         return vec![(entity.position.rx(), entity.position.ry())];
     }
-    crate::rules::foundation::foundation_cell_offsets(entity.type_facts.foundation())
+    entity
+        .type_facts
+        .foundation()
+        .cell_offsets()
         .into_iter()
         .filter_map(|(dx, dy)| {
             Some((
@@ -1267,14 +1276,14 @@ mod tests {
         profile.add_occupy[1] = Some((-1, -1));
         profile.remove_occupy[0] = Some((3, 1));
 
-        assert!(grid.enter_building((10, 10), "4x3", profile, Some((32, 32))));
+        assert!(grid.enter_building((10, 10), &"4x3".into(), profile, Some((32, 32))));
         assert_eq!(grid.entry_count(), 13);
         assert_eq!(grid.count(10, 10), 1);
         assert_eq!(grid.count(13, 11), 0);
         assert_eq!(grid.count(9, 10), 1);
         assert_eq!(grid.count(9, 9), 1);
 
-        assert!(grid.exit_building((10, 10), "4x3", profile, Some((32, 32))));
+        assert!(grid.exit_building((10, 10), &"4x3".into(), profile, Some((32, 32))));
         assert_eq!(grid.entry_count(), 0);
     }
 }

@@ -389,7 +389,7 @@ fn assert_retail_wall_fire_profile(
             )]
         );
         assert!(building.prerequisite_override.is_empty());
-        let foundation = crate::rules::foundation::foundation_def(&building.foundation);
+        let foundation = crate::rules::foundation::foundation_def(building.foundation.name());
         assert_eq!((foundation.width, foundation.height), (1, 1));
         assert_eq!(building.to_overlay.as_deref(), Some("GAWALL"));
         assert_eq!(

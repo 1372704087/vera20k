@@ -209,18 +209,16 @@ impl CenteredShapeStrip {
         preview: &BuildingPlacementPreview,
     ) -> Vec<SpriteInstance> {
         let mut instances = Vec::with_capacity(preview.cells.len());
-        // Tactical6D5030 walks rectangular foundation bounds with X outer,
-        // Y inner, independently of the row-major admission/sentinel list.
-        // Reordering by color changes stores where sloped cells overlap.
-        for dx in 0..preview.width {
-            for dy in 0..preview.height {
-                let index = usize::from(dy) * usize::from(preview.width) + usize::from(dx);
-                let Some(cell) = preview.cells.get(index) else {
-                    continue;
-                };
-                if let Some(instance) = self.building_placement_instance(*cell) {
-                    instances.push(instance);
-                }
+        //6D5030 / Ares100155C0 walks actual-list bounds X outer/Y inner;
+        //The ordinary preview contains its bit2 active cells, possibly sparse
+        //or outside declared X/Y. Pending-bit4 drawing is a separate residual.
+        //Preserve draw order independently of stock row-major vs Custom
+        //X-first gameplay list order; never regroup by admitted color.
+        let mut active: Vec<_> = preview.cells.iter().collect();
+        active.sort_by_key(|cell| (cell.coord.0 as i16, cell.coord.1 as i16));
+        for cell in active {
+            if let Some(instance) = self.building_placement_instance(*cell) {
+                instances.push(instance);
             }
         }
         // Preserve existing wall auto-fill admission and order; pending marks

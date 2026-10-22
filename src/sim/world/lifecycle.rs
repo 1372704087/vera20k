@@ -537,10 +537,10 @@ impl Simulation {
 pub(super) fn building_base_reservation_rect(
     rx: u16,
     ry: u16,
-    foundation: &str,
+    foundation: &crate::rules::foundation::Foundation,
     spacing: i32,
 ) -> CellRect {
-    let (width, height) = crate::rules::foundation::foundation_dimensions(foundation);
+    let (width, height) = foundation.dimensions();
     CellRect::new(
         native_base_reservation_start(rx, spacing),
         native_base_reservation_start(ry, spacing),
@@ -2034,7 +2034,7 @@ impl Simulation {
         let foundation = entity.type_facts.foundation().to_owned();
         let hidden_profile = entity.type_facts.building_hidden_occupancy();
         let current_cell = (entity.position.rx(), entity.position.ry());
-        let (width, height) = crate::rules::foundation::foundation_dimensions(&foundation);
+        let (width, height) = foundation.dimensions();
         let mut intersections = Vec::with_capacity(usize::from(width) * usize::from(height));
         for dy in 0..height {
             for dx in 0..width {
@@ -2319,8 +2319,7 @@ impl Simulation {
             entity.type_facts.foundation(),
             spacing,
         );
-        let (foundation_width, foundation_height) =
-            crate::rules::foundation::foundation_dimensions(entity.type_facts.foundation());
+        let (foundation_width, foundation_height) = entity.type_facts.foundation().dimensions();
         let repair_rect = building_base_reservation_repair_rect(
             entity.position.rx(),
             entity.position.ry(),

@@ -148,6 +148,9 @@ pub(crate) mod unit_post;
 mod wall_autofill_oracle_tests;
 mod world_commands;
 mod world_hash;
+
+#[cfg(all(test, feature = "ares"))]
+mod custom_foundation_tests;
 mod world_orders;
 mod world_spawn;
 
@@ -2103,7 +2106,7 @@ impl Simulation {
                         return None;
                     }
                     let (foundation_w, foundation_h) =
-                        crate::rules::foundation::foundation_dimensions(&object.foundation);
+                        object.foundation.dimensions();
                     Some(
                         crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                             building_id: stable_id,

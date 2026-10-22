@@ -267,7 +267,7 @@ fn simulation_fixture_for_type(
         .set_object_alive_for_test(input["alive"].as_bool().unwrap_or(true));
     entity
         .type_facts
-        .set_foundation_for_test(foundation.to_owned());
+        .set_foundation_for_test(foundation.to_owned().into());
     let [tx, ty] = input.get("target_cell").map(point).unwrap_or([14, 20]);
     if !input["no_target"].as_bool().unwrap_or(false) {
         if let Some(target) = input.get("target_object") {
@@ -356,7 +356,6 @@ fn native_rally_gates_foundation_ground_bridge_and_object_target_through_product
 #[test]
 fn retail_gapile_house_color_and_production_crop_match_original_rally_and_no_target() {
     use crate::rules::color_scheme::scheme_entry_for_priority;
-    use crate::rules::foundation::{foundation_dimensions, foundation_id};
     use crate::rules::house_colors::HouseColorIndex;
 
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
@@ -374,7 +373,7 @@ fn retail_gapile_house_color_and_production_crop_match_original_rally_and_no_tar
         stock["result"]["factory"]
     );
     assert_eq!(
-        serde_json::json!(foundation_id(&object.foundation)),
+        serde_json::json!(object.foundation.selector()),
         stock["result"]["foundation"]
     );
     assert_eq!(
@@ -403,7 +402,7 @@ fn retail_gapile_house_color_and_production_crop_match_original_rally_and_no_tar
         assert_eq!(input["foundation"], stock["result"]["foundation"]);
         assert_eq!(input["unit_repair"], serde_json::json!(object.unit_repair));
         assert_eq!(input["cloning"], serde_json::json!(object.cloning));
-        let (width, height) = foundation_dimensions(&object.foundation);
+        let (width, height) = object.foundation.dimensions();
         assert_eq!(
             [i32::from(width), i32::from(height)],
             point(&row["foundation_size"])

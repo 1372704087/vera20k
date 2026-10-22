@@ -703,9 +703,23 @@ impl IniSection {
         capacity: usize,
         current: [i32; N],
     ) -> [i32; N] {
-        self.read_string_with(key, capacity, current, |mut out, value| {
+        self.read_int_fields_present(key, capacity, current)
+            .unwrap_or(current)
+    }
+
+    /// The same partial decimal scan, retaining ReadString's presence result.
+    /// Ares custom-foundation lists terminate on a missing/empty string, not
+    /// on a failed numeric conversion (which still contributes zeroes).
+    pub fn read_int_fields_present<const N: usize>(
+        &self,
+        key: &str,
+        capacity: usize,
+        current: [i32; N],
+    ) -> Option<[i32; N]> {
+        self.read_string_with(key, capacity, None, |_, value| {
+            let mut out = current;
             scan_int_fields(value, &mut out);
-            out
+            Some(out)
         })
     }
 

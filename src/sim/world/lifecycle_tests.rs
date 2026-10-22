@@ -381,7 +381,7 @@ fn insert_reservation_building(
     );
     entity
         .type_facts
-        .set_foundation_for_test(foundation.to_string());
+        .set_foundation_for_test(foundation.to_string().into());
     entity
         .type_facts
         .set_base_reservation_spacing_for_test(Some(spacing));
@@ -563,7 +563,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
         building.set_type_ref_for_test(building_type);
         building
             .type_facts
-            .set_foundation_for_test("2x2".to_string());
+            .set_foundation_for_test("2x2".to_string().into());
         let mut cargo = PassengerCargo::new(5, 1.0);
         cargo.board_forced_chain(&[(passenger_id, 1.0)]);
         building.passenger_role = PassengerRole::transport(cargo);
@@ -1775,7 +1775,7 @@ fn gsi_04_12_common_raw_occupation_building_foundation_is_ground_only() {
         let building = sim.substrate.entities.get_mut(1).expect("building");
         building
             .type_facts
-            .set_foundation_for_test("2x2".to_string());
+            .set_foundation_for_test("2x2".to_string().into());
         building.set_on_bridge(true);
     }
 
@@ -1809,7 +1809,7 @@ fn gsi_04_05_hidden_lifecycle_follows_base_lists_without_expanding_them() {
         let building = sim.substrate.entities.get_mut(1).expect("building");
         building
             .type_facts
-            .set_foundation_for_test("2x2".to_string());
+            .set_foundation_for_test("2x2".to_string().into());
         let mut profile = building
             .type_facts
             .building_hidden_occupancy()
@@ -4945,7 +4945,7 @@ fn gsi_04_05_reservation_repair_scan_reaches_asymmetric_high_edge() {
 #[test]
 fn gsi_04_05_reservation_origins_truncate_after_first_spacing_subtraction() {
     assert_eq!(
-        super::lifecycle::building_base_reservation_rect(0, 0, "1x1", 32_769),
+        super::lifecycle::building_base_reservation_rect(0, 0, &"1x1".into(), 32_769),
         crate::sim::cell_rect::CellRect::new(32_767, 32_767, 65_539, 65_539)
     );
     assert_eq!(
@@ -6445,7 +6445,9 @@ fn gsi_05_04_building_get_coords_uses_foundation_center_cell() {
     {
         let target = sim.substrate.entities.get_mut(target_id).unwrap();
         target.set_type_ref_for_test(gapowr);
-        target.type_facts.set_foundation_for_test("2x2".to_string());
+        target
+            .type_facts
+            .set_foundation_for_test("2x2".to_string().into());
     }
     assert!(matches!(
         sim.try_reveal_entity(target_id, common_raw_request(9, 11, 0, 128, 128)),
@@ -6645,7 +6647,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
         building.set_type_ref_for_test(building_type);
         building
             .type_facts
-            .set_foundation_for_test("2x2".to_string());
+            .set_foundation_for_test("2x2".to_string().into());
         building.health.set_for_test(10);
         let mut cargo = PassengerCargo::new(5, 1.0);
         cargo.board_forced_chain(&[(passenger_id, 1.0)]);
@@ -7767,7 +7769,7 @@ fn wave_shared_damage_passes_a_unit_inside_its_war_factory() {
         factory.set_type_ref_for_test(sim.interner.intern("WEAP"));
         factory
             .type_facts
-            .set_foundation_for_test("1x1".to_string());
+            .set_foundation_for_test("1x1".to_string().into());
     }
     assert!(matches!(
         sim.try_reveal_entity(factory_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -7853,7 +7855,7 @@ fn wave_walks_nonbuilding_terrain_building_order_and_terrain_owns_wood_gate() {
             building.set_type_ref_for_test(sim.interner.intern("BLDG"));
             building
                 .type_facts
-                .set_foundation_for_test("1x1".to_string());
+                .set_foundation_for_test("1x1".to_string().into());
         }
         assert!(matches!(
             sim.try_reveal_entity(building_id, common_raw_request(4, 5, 0, 128, 128)),
@@ -8508,7 +8510,7 @@ fn gsi_01_05_wave_reselects_live_cell_list_after_fatal_receiver_unmark() {
         building.set_type_ref_for_test(building_type);
         building
             .type_facts
-            .set_foundation_for_test("2x1".to_string());
+            .set_foundation_for_test("2x1".to_string().into());
         building.health.set_for_test(10);
     }
     assert!(matches!(
@@ -8886,7 +8888,7 @@ fn insert_naval_build_const_fixture(
     );
     building
         .type_facts
-        .set_foundation_for_test("1x1".to_string());
+        .set_foundation_for_test("1x1".to_string().into());
     building.type_facts.set_build_const_eligible_for_test(true);
     sim.substrate.entities.insert(building);
 }

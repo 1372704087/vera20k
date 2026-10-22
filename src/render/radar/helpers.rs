@@ -385,8 +385,10 @@ pub(super) fn terrain_brightness_for_theater(theater_name: &str) -> f32 {
 }
 
 /// Resolve a gamemd foundation name into minimap footprint dimensions.
-pub(super) fn parse_foundation_size(foundation: &str) -> (u32, u32) {
-    let (w, h) = crate::rules::foundation::foundation_dimensions(foundation);
+pub(super) fn parse_foundation_size(
+    foundation: &crate::rules::foundation::Foundation,
+) -> (u32, u32) {
+    let (w, h) = foundation.dimensions();
     (u32::from(w), u32::from(h))
 }
 

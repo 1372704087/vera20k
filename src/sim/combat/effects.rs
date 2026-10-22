@@ -75,8 +75,8 @@ pub enum SmudgeSpawnRequest {
         rx: u16,
         ry: u16,
         building_z: i32,
-        foundation_w: u8,
-        foundation_h: u8,
+        foundation_w: u16,
+        foundation_h: u16,
     },
     /// One foundation cell's mark, committed by `SpawnSurvivors` after that
     /// cell's survivor roll (never for a building owing no survivor).

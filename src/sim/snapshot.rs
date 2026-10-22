@@ -311,6 +311,8 @@ pub enum SnapshotRestoreError {
         object_id: u64,
         reason: &'static str,
     },
+    #[error("invalid retained foundation for object {object_id}")]
+    InvalidFoundation { object_id: u64 },
     #[error("invalid UnitDelivery snapshot state: {0}")]
     InvalidUnitDelivery(&'static str),
     #[error("invalid paid two-stage selection: {0}")]
@@ -1681,6 +1683,11 @@ impl Simulation {
     /// order.
     pub fn restore_after_snapshot_load(&mut self) -> Result<(), SnapshotRestoreError> {
         for (_, entity) in self.substrate.entities.iter_sorted() {
+            if !entity.type_facts.foundation().valid() {
+                return Err(SnapshotRestoreError::InvalidFoundation {
+                    object_id: entity.stable_id(),
+                });
+            }
             entity
                 .validate_ares_build_compatibility()
                 .map_err(SnapshotRestoreError::InvalidUnitDelivery)?;
@@ -6376,7 +6383,7 @@ mod tests {
         );
         building
             .type_facts
-            .set_foundation_for_test("4x3".to_string());
+            .set_foundation_for_test("4x3".to_string().into());
         let mut profile = crate::rules::object_type::BuildingHiddenOccupancyProfile::default();
         profile.add_occupy[0] = Some((-1, 0));
         profile.add_occupy[1] = Some((-1, -1));
@@ -6391,13 +6398,19 @@ mod tests {
         // hidden-occupation persistence on that same post-load cursor.
         sim.scenario_rng = crate::sim::rng::SimRng::new(0);
         let expected_hash = sim.state_hash();
-        sim.substrate
-            .hidden_occupation
-            .exit_building((10, 10), "4x3", profile, Some((32, 32)));
+        sim.substrate.hidden_occupation.exit_building(
+            (10, 10),
+            &"4x3".into(),
+            profile,
+            Some((32, 32)),
+        );
         assert_ne!(sim.state_hash(), expected_hash);
-        sim.substrate
-            .hidden_occupation
-            .enter_building((10, 10), "4x3", profile, Some((32, 32)));
+        sim.substrate.hidden_occupation.enter_building(
+            (10, 10),
+            &"4x3".into(),
+            profile,
+            Some((32, 32)),
+        );
         let mut stored = profile;
         stored.occupy_height = 4;
         sim.substrate

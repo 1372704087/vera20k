@@ -2405,9 +2405,9 @@ mod tests {
         let hide = |sim: &mut Simulation, enter: bool, cell: (u16, u16)| {
             let grid = &mut sim.substrate.hidden_occupation;
             if enter {
-                grid.enter_building(cell, "1x1", profile, Some((32, 32)));
+                grid.enter_building(cell, &"1x1".into(), profile, Some((32, 32)));
             } else {
-                grid.exit_building(cell, "1x1", profile, Some((32, 32)));
+                grid.exit_building(cell, &"1x1".into(), profile, Some((32, 32)));
             }
         };
         let behind = |sim: &Simulation| sim.substrate.entities.get(tank).unwrap().behind_anim();

@@ -861,8 +861,12 @@ pub(crate) fn build_overlay_atlas_on_device(
 
 /// Load and render a single overlay SHP sprite to RGBA pixels.
 ///
-/// Uses explicit overlay image resolution first, then original-style filename
-/// conventions. Repo-only numeric-suffix fallback remains local to this module.
+/// The first candidate file that loads is the image, even when every frame is
+/// empty: `CellClass::DrawOverlay_Body` (0x47F6A0) draws the shape
+/// `OverlayTypeClass::GetImage` (0x5FEDE0) reads from the type's own image
+/// name, and TerrainType's theater load (0x71DCA0) reads only its own name.
+/// No other file stands in, so retail's empty LOBRDG27/LOBRDB27 rows draw
+/// nothing.
 fn render_overlay_sprite(
     asset_manager: &AssetManager,
     palette: &Palette,
@@ -897,13 +901,6 @@ fn render_overlay_sprite(
         candidates.insert(3, format!("{}.shp", forced_name));
     }
 
-    if let Some(alias) = decrement_numeric_suffix(&key.name) {
-        candidates.push(format!("{}.{}", alias, theater_ext));
-        candidates.push(format!("{}.shp", alias));
-        candidates.push(format!("{}.{}", alias.to_ascii_lowercase(), theater_ext));
-        candidates.push(format!("{}.shp", alias.to_ascii_lowercase()));
-    }
-
     // Tiberium overlays now use the dedicated tiberium palette (e.g., temperat.pal)
     // which already has correct ore colors at all indices — no remap needed.
     // Walls use the unit palette with default remap range colors.
@@ -917,14 +914,6 @@ fn render_overlay_sprite(
         let Ok(shp) = ShpFile::from_bytes(data) else {
             continue;
         };
-        // Skip template files with no drawable frames (e.g. some bridge stubs).
-        let has_drawable = shp
-            .frames
-            .iter()
-            .any(|fr| fr.frame_width > 0 && fr.frame_height > 0);
-        if !has_drawable {
-            continue;
-        }
         found_name = name.clone();
         shp_opt = Some(shp);
         break;
@@ -1036,22 +1025,6 @@ pub(crate) fn stored_frame_offset(
         f32::from(frame_x) - f32::from(canvas_width / 2),
         f32::from(frame_y) - f32::from(canvas_height / 2) + y_offset,
     )
-}
-
-/// If a name ends in digits, return a variant with that numeric suffix decremented.
-/// Example: "LOBRDG27" -> "LOBRDG26", "FENCE21" -> "FENCE20".
-fn decrement_numeric_suffix(name: &str) -> Option<String> {
-    let split: usize = name.rfind(|c: char| !c.is_ascii_digit())?;
-    if split + 1 >= name.len() {
-        return None;
-    }
-    let (prefix, digits) = name.split_at(split + 1);
-    let width: usize = digits.len();
-    let n: u32 = digits.parse().ok()?;
-    if n == 0 {
-        return None;
-    }
-    Some(format!("{}{:0width$}", prefix, n - 1, width = width))
 }
 
 /// Build the candidate SHP filename list for a SmudgeType.
@@ -1538,9 +1511,8 @@ mod tests {
 
     use super::{
         MAX_OVERLAY_FRAME_COUNT, OverlaySpriteKey, OverlayTypeFlags, body_frame_count,
-        decrement_numeric_suffix, resolve_body_frame, runtime_crate_sprite_keys,
-        runtime_low_bridge_sprite_keys, runtime_tiberium_sprite_keys, stored_frame_offset,
-        wall_body_frame_count,
+        resolve_body_frame, runtime_crate_sprite_keys, runtime_low_bridge_sprite_keys,
+        runtime_tiberium_sprite_keys, stored_frame_offset, wall_body_frame_count,
     };
     use crate::map::overlay::OverlayEntry;
     use crate::rules::crate_rules::CrateRules;
@@ -1548,14 +1520,42 @@ mod tests {
     use crate::rules::overlay_types::OverlayTypeRegistry;
     use crate::rules::tiberium_type::TiberiumTypeRegistry;
 
+    /// `CellClass::DrawOverlay_Body` (0x47F6A0) draws the shape that
+    /// `OverlayTypeClass::GetImage` (0x5FEDE0) loads from the type's own image
+    /// name, at the cell's frame byte. Retail's destroyed north-south low
+    /// bridge rows, `LOBRDG27` (wood) and `LOBRDB27` (concrete), are all-empty
+    /// SHPs, so they draw nothing; the previous piece's art never stands in.
     #[test]
-    fn test_decrement_numeric_suffix_is_local_fallback() {
-        assert_eq!(
-            decrement_numeric_suffix("LOBRDG27"),
-            Some("LOBRDG26".to_string())
-        );
-        assert_eq!(decrement_numeric_suffix("FENCE00"), None);
-        assert_eq!(decrement_numeric_suffix("BRIDGE"), None);
+    fn retail_destroyed_low_bridge_rows_draw_their_own_empty_art() {
+        let Some((_, mut assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let retail = crate::rules::retail_ini_fixture::retail_battle_rules()
+            .expect("retail Battle rules beside the archives");
+        let theater = crate::map::theater::load_theater(&mut assets, "SNOW").unwrap();
+        let registry =
+            OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
+        let render = |name: &str| {
+            super::render_overlay_sprite(
+                &assets,
+                &theater.iso_palette,
+                &OverlaySpriteKey {
+                    name: name.to_owned(),
+                    frame: 1,
+                },
+                theater.extension,
+                "SNOW",
+                &retail.processed_rules,
+                retail.rules.art(),
+                registry.flags_by_name(name).unwrap(),
+                false,
+                false,
+            )
+        };
+        for (standing, destroyed) in [("LOBRDG26", "LOBRDG27"), ("LOBRDB26", "LOBRDB27")] {
+            assert!(render(standing).is_some(), "{standing} draws frame 1");
+            assert!(render(destroyed).is_none(), "{destroyed} draws nothing");
+        }
     }
 
     #[test]

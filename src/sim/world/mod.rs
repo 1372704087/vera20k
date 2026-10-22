@@ -694,6 +694,10 @@ pub enum SimSoundEvent {
     /// exhausted-retry branch 0x0075B085..0x0075B0B0 requests ScoldSound this
     /// way. Evidence: `tools/spatial_oracle/foot_scold_latch.{py,json,md}`.
     VocCentered { sound_id: String },
+    /// The same centred `0x00750920` call with a raw SOUNDMD ordinal: team
+    /// script action 25 (`0x006E9901`). The process catalog resolves it;
+    /// -1 or an unknown ordinal plays nothing (`0x0075093B`).
+    VocCenteredIndex { index: i32 },
     /// `VocClass::PlayAt @ 0x007509E0` of a rules-named sound at an object's
     /// Location: the mind-control capture, release and overload sounds.
     /// `audible_to` names the houses a `HouseClass::IsHumanPlayer

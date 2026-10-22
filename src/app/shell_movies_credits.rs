@@ -252,6 +252,18 @@ impl App {
             .options_profile
             .movie_progress
             .note_played(stem);
+        // 0x005BED61..0x005BED6A: outside a campaign (GameMode != 0) Play_Movie
+        // returns right after that note, with no video, audio hold or suspend,
+        // so a skirmish or multiplayer map's movie action only moves on.
+        if running_scenario
+            && state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.simulation.session().game_mode_nonzero())
+        {
+            return;
+        }
         let file_name = format!("{stem}.BIK");
         let resolved = state.process_assets.manager().and_then(|assets| {
             assets

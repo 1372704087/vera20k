@@ -68,6 +68,9 @@ pub enum GameSoundEvent {
     /// EVAMD ordinal, type2 (Interrupt) and priority-1. It shares the EVA
     /// queue owner with named calls, without repeating the name lookup.
     TriggerEva { index: i32 },
+    /// A centred, full-volume Voc by SOUNDMD ordinal (team script action 25,
+    /// `0x006E9901` -> `0x00750920`), resolved against the process catalog.
+    VocIndex { index: i32 },
     /// `VoxClass::RemoveFromQueues @ 0x00752A40` for a `[DialogList]` event:
     /// its queued lines are dropped (`SfxPlayer::remove_eva`).
     EvaRemove { event: String },
@@ -382,7 +385,8 @@ impl GameSoundEvent {
             | Self::VocStopAtCoord { .. }
             | Self::UnitVoiceVisit { .. }
             | Self::UnitVoiceDestroyed { .. }
-            | Self::TriggerEva { .. } => "",
+            | Self::TriggerEva { .. }
+            | Self::VocIndex { .. } => "",
             // The event name, not a sample: the sample is a per-side column
             // the `VoxClass` consumer resolves.
             Self::Eva { event, .. } | Self::EvaRemove { event } => event,

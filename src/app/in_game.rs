@@ -104,7 +104,7 @@ impl App {
         if let Some(ref mut sfx) = state.audio.sfx_player {
             sfx.stop_all();
         }
-        state.audio.set_master_output_scale(1.0);
+        state.audio.restore_sound_master();
         state.match_state.match_audio.reset_for_new_match();
         state.match_state.input.zoom_level = 1.0;
         state.match_state.input.zoom_target = 1.0;
@@ -656,11 +656,12 @@ impl App {
         if state.match_state.scenario_exit.is_none() {
             return;
         }
+        let master_moving = state.audio.sound_master_moving();
         let poll_voices = state
             .match_state
             .scenario_exit
             .as_ref()
-            .is_some_and(|exit| exit.needs_voice_poll(wall_ms));
+            .is_some_and(|exit| exit.needs_voice_poll(wall_ms, master_moving));
         let voices_active = poll_voices
             && match (
                 &mut state.audio.sfx_player,
@@ -677,7 +678,7 @@ impl App {
             .scenario_exit
             .as_mut()
             .expect("scenario exit remains present")
-            .tick(wall_ms, voices_active);
+            .tick(wall_ms, master_moving, voices_active);
 
         state
             .audio

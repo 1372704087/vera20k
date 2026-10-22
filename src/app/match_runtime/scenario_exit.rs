@@ -11,7 +11,8 @@
 
 use crate::ui::score_shell::ScoreScreenModel;
 
-/// `VolumeInterp` is constructed with a 1000-ms ramp in `0x00401000`.
+/// `VolumeInterp__WaitUntilDone @ 0x004070B0` gives up once the interp's
+/// max step (1000 ms, set by its constructor `0x00401000`) has passed.
 const AUDIO_FADE_MS: u64 = 1_000;
 /// Once `SavourDelay` expires, HouseClass waits at most 0x78 16-ms wall
 /// buckets for the outcome EVA before raising the session-end global.
@@ -229,9 +230,10 @@ enum ScenarioExitPhase {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq)]
 pub(crate) struct ScenarioExitTick {
-    /// The audio master's multiplier over live music, SFX and voices. On abort
-    /// the music also carries Theme's own fade, which the Theme owner runs.
-    pub master_output_scale: Option<f64>,
+    /// Glide the effects master `[0x0087E758]` to zero (`0x00407070`). It is
+    /// chained into Voc channels only; Theme keeps playing (on abort it runs
+    /// its own `Stop(1)` fade, which the Theme owner owns).
+    pub fade_sound_master: bool,
     /// One-shot speech/SFX stop and queue clear; Theme keeps its own lifecycle.
     pub clear_sounds: bool,
     /// One-shot audio action after speech/SFX cleanup and master restoration.
@@ -253,6 +255,7 @@ pub(crate) enum ScenarioExitVoiceAction {
 pub(crate) struct ScenarioExitCascade {
     phase: ScenarioExitPhase,
     started_at_ms: u64,
+    fade_requested: bool,
     voice_wait_started_bucket: Option<u64>,
     start_voice_action: Option<ScenarioExitVoiceAction>,
     destination: Option<ScenarioExitDestination>,
@@ -265,6 +268,7 @@ impl ScenarioExitCascade {
         Self {
             phase: ScenarioExitPhase::FadeAudio,
             started_at_ms: wall_ms,
+            fade_requested: false,
             voice_wait_started_bucket: None,
             start_voice_action,
             destination: Some(destination),
@@ -279,29 +283,42 @@ impl ScenarioExitCascade {
 
     /// Native does not start the explicit EVA queue pump until the master fade
     /// has completed. Audio already playing continues naturally during it.
-    pub(crate) fn needs_voice_poll(&self, wall_ms: u64) -> bool {
+    pub(crate) fn needs_voice_poll(&self, wall_ms: u64, master_moving: bool) -> bool {
         self.phase == ScenarioExitPhase::WaitForVoices
             || (self.phase == ScenarioExitPhase::FadeAudio
-                && wall_ms.saturating_sub(self.started_at_ms) >= AUDIO_FADE_MS)
+                && self.fade_done(wall_ms, master_moving))
+    }
+
+    /// `VolumeInterp__WaitUntilDone @ 0x004070B0` after the target-zero
+    /// request: the master stopped moving, or the 1000-ms max step passed. A
+    /// master already gliding (a radar hold just released) ends early.
+    fn fade_done(&self, wall_ms: u64, master_moving: bool) -> bool {
+        self.fade_requested
+            && (!master_moving || wall_ms.saturating_sub(self.started_at_ms) >= AUDIO_FADE_MS)
     }
 
     /// gamemd provenance: ordinary offline scenario exit; verified
     /// `0x00685670` and `0x00685DC0` both run master target-zero + wait, then
     /// pump voices for at most 300 16-ms buckets, then clear speech/SFX before the
-    /// score dialog. `0x00686570` first starts Theme's own fade
-    /// (`ThemeClass::Stop(1)` @ `0x006865FA`, which the route entry hands to
-    /// the Theme owner) and then this independent master fade
-    /// (`[0x0087E758]` @ `0x00686605`), so abort music receives the product
-    /// of both.
-    pub(crate) fn tick(&mut self, wall_ms: u64, voices_active: bool) -> ScenarioExitTick {
-        let fade_elapsed_ms = wall_ms.saturating_sub(self.started_at_ms);
+    /// score dialog. Neither touches Theme, so the mission music plays on until
+    /// the score dialog selects SCORE. `0x00686570` first starts Theme's own
+    /// fade (`ThemeClass::Stop(1)` @ `0x006865FA`, which the route entry hands
+    /// to the Theme owner) and then this independent master fade
+    /// (`[0x0087E758]` @ `0x00686605`).
+    pub(crate) fn tick(
+        &mut self,
+        wall_ms: u64,
+        master_moving: bool,
+        voices_active: bool,
+    ) -> ScenarioExitTick {
         match self.phase {
-            ScenarioExitPhase::FadeAudio if fade_elapsed_ms < AUDIO_FADE_MS => ScenarioExitTick {
-                master_output_scale: Some(
-                    (1.0 - fade_elapsed_ms as f64 / AUDIO_FADE_MS as f64).max(0.0),
-                ),
-                ..Default::default()
-            },
+            ScenarioExitPhase::FadeAudio if !self.fade_done(wall_ms, master_moving) => {
+                self.fade_requested = true;
+                ScenarioExitTick {
+                    fade_sound_master: true,
+                    ..Default::default()
+                }
+            }
             ScenarioExitPhase::FadeAudio => {
                 self.phase = ScenarioExitPhase::WaitForVoices;
                 // Native takes a fresh timer reading only after its blocking
@@ -328,7 +345,6 @@ impl ScenarioExitCascade {
         if !voices_active || elapsed_buckets >= VOICE_WAIT_BUCKETS {
             self.phase = ScenarioExitPhase::Done;
             ScenarioExitTick {
-                master_output_scale: Some(0.0),
                 clear_sounds: true,
                 after_cleanup: matches!(
                     self.destination.as_ref(),
@@ -339,12 +355,10 @@ impl ScenarioExitCascade {
                 )
                 .then_some(ScenarioExitAudioAction::PlayTheme("SCORE")),
                 finished: true,
-            }
-        } else {
-            ScenarioExitTick {
-                master_output_scale: Some(0.0),
                 ..Default::default()
             }
+        } else {
+            ScenarioExitTick::default()
         }
     }
 
@@ -492,17 +506,19 @@ mod tests {
         let mut exit = ScenarioExitCascade::start(15, score_destination());
         assert_eq!(exit.take_start_voice_action(), None);
 
-        let half = exit.tick(515, false);
-        assert_eq!(half.master_output_scale, Some(0.5));
+        let half = exit.tick(515, true, false);
+        assert!(half.fade_sound_master);
         assert!(!half.clear_sounds && !half.finished);
         assert!(exit.take_destination().is_none());
 
-        let fade_edge = exit.tick(1_015, true);
-        assert_eq!(fade_edge.master_output_scale, Some(0.0));
+        // The native stepper is still 824/65536 short of zero at 1000 ms;
+        // WaitUntilDone's max step ends the wait.
+        let fade_edge = exit.tick(1_015, true, true);
+        assert!(!fade_edge.fade_sound_master);
         assert!(!fade_edge.clear_sounds && !fade_edge.finished);
         assert!(exit.take_destination().is_none());
 
-        let voice_done = exit.tick(1_016, false);
+        let voice_done = exit.tick(1_016, false, false);
         assert!(voice_done.clear_sounds && voice_done.finished);
         assert_eq!(
             voice_done.after_cleanup,
@@ -525,19 +541,19 @@ mod tests {
 
         // Theme's own fade is the Theme owner's; the master fade is the
         // same as an outcome's.
-        let half = exit.tick(515, true);
-        assert_eq!(half.master_output_scale, Some(0.5));
-        assert!(!exit.needs_voice_poll(1_014));
-        assert!(exit.needs_voice_poll(1_015));
+        let half = exit.tick(515, true, true);
+        assert!(half.fade_sound_master);
+        assert!(!exit.needs_voice_poll(1_014, true));
+        assert!(exit.needs_voice_poll(1_015, true));
 
         // Fade completion is observed in absolute bucket 63.
-        let fade_edge = exit.tick(1_015, true);
+        let fade_edge = exit.tick(1_015, true, true);
         assert!(!fade_edge.clear_sounds && !fade_edge.finished);
 
-        let before_ceiling = exit.tick(5_807, true); // bucket 362, delta 299
+        let before_ceiling = exit.tick(5_807, false, true); // bucket 362, delta 299
         assert!(!before_ceiling.clear_sounds && !before_ceiling.finished);
 
-        let ceiling = exit.tick(5_808, true); // bucket 363, delta 300
+        let ceiling = exit.tick(5_808, false, true); // bucket 363, delta 300
         assert!(ceiling.clear_sounds && ceiling.finished);
         assert_eq!(ceiling.after_cleanup, None);
         assert!(matches!(
@@ -546,22 +562,36 @@ mod tests {
         ));
     }
 
+    /// An exit during a radar hold finds the master gliding from 0x2000
+    /// (`0x005BF450` released it first), so it reaches zero in about 500 ms
+    /// and `WaitUntilDone` returns then, not at the 1000-ms max step.
+    #[test]
+    fn exit_fade_ends_when_the_master_stops_moving() {
+        let mut exit = ScenarioExitCascade::start(0, score_destination());
+        assert!(exit.tick(0, true, false).fade_sound_master);
+        assert!(!exit.needs_voice_poll(500, true));
+        assert!(exit.tick(500, true, false).fade_sound_master);
+        assert!(exit.needs_voice_poll(516, false));
+        assert!(exit.tick(516, false, false).finished);
+    }
+
     #[test]
     fn gsi_01_04_voice_ceiling_starts_when_delayed_fade_wait_finishes() {
         let mut exit = ScenarioExitCascade::start(15, score_destination());
 
         // Delayed observation anchors in absolute bucket 188, not at the
         // nominal 1015-ms fade boundary.
-        let late_fade_completion = exit.tick(3_015, true);
-        assert!(!late_fade_completion.finished);
+        assert!(exit.tick(3_015, false, true).fade_sound_master);
+        let late_fade_completion = exit.tick(3_015, true, true);
+        assert!(!late_fade_completion.fade_sound_master && !late_fade_completion.finished);
 
-        let old_nominal_ceiling = exit.tick(5_815, true);
+        let old_nominal_ceiling = exit.tick(5_815, false, true);
         assert!(!old_nominal_ceiling.finished);
 
-        let before_fresh_ceiling = exit.tick(7_807, true); // bucket 487
+        let before_fresh_ceiling = exit.tick(7_807, false, true); // bucket 487
         assert!(!before_fresh_ceiling.finished);
 
-        let fresh_ceiling = exit.tick(7_808, true); // bucket 488
+        let fresh_ceiling = exit.tick(7_808, false, true); // bucket 488
         assert!(fresh_ceiling.clear_sounds && fresh_ceiling.finished);
     }
 }

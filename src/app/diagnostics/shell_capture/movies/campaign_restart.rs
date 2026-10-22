@@ -505,9 +505,11 @@ impl RestartCapture {
             }
             Step::AwaitBattleTheme => {
                 let theme = state.audio.theme.current_song();
-                let playing = state.audio.music_player.as_ref().is_some_and(|player| {
-                    player.state() == crate::audio::theme::MusicOutputState::Playing
-                });
+                let playing = state
+                    .audio
+                    .music_player
+                    .as_ref()
+                    .is_some_and(|player| player.state().playing());
                 if playing
                     && usize::try_from(theme)
                         .ok()
@@ -674,8 +676,7 @@ impl RestartCapture {
                             .audio
                             .music_player
                             .as_ref()
-                            .is_some_and(|player| player.state()
-                                == crate::audio::theme::MusicOutputState::Playing),
+                            .is_some_and(|player| player.state().playing()),
                         "the returned shell's INTRO is not physically playing"
                     );
                     self.observe_theme(state, "shell after No");
@@ -794,9 +795,11 @@ impl RestartCapture {
             "the replay prompt replaced the retained battlefield Theme"
         );
         ensure!(
-            state.audio.music_player.as_ref().is_some_and(
-                |player| player.state() == crate::audio::theme::MusicOutputState::Playing
-            ),
+            state
+                .audio
+                .music_player
+                .as_ref()
+                .is_some_and(|player| player.state().playing()),
             "the replay prompt stopped physical battlefield music"
         );
         Ok(())

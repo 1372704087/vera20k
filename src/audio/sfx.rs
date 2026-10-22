@@ -2226,13 +2226,14 @@ impl SfxPlayer {
 
     /// Observe the device queues between `AudioSystem::Pump` passes.
     ///
-    /// The app calls this every frame, *unconditionally* — native's pump
-    /// hangs off `Network_ServiceLoop @ 0x0048D080`, whose callers include
-    /// `Main::ThrottleFrame @ 0x0055E160`, `ProcessModalServicePump @
-    /// 0x00623120`, `ShellDialog::RunUntilResult @ 0x0060D380` and the
-    /// loading-screen paths, so the audio service keeps running in menus,
-    /// modal dialogs and while the frame pacer idles. Pause is expressed
-    /// separately, by suspending events ([`Self::set_paused`]).
+    /// The app calls this every frame, *unconditionally*, including the
+    /// offline passes whose pump belongs to Main_Tick. Native's pump hangs off
+    /// `Network_ServiceLoop @ 0x0048D080`, whose callers include `Main_Tick`,
+    /// the network modes' `Main::ThrottleFrame @ 0x0055E160`,
+    /// `ProcessModalServicePump @ 0x00623120`, `ShellDialog::RunUntilResult
+    /// @ 0x0060D380` and the loading-screen paths, so the audio service keeps
+    /// running in menus and modal dialogs. Pause is expressed separately, by
+    /// suspending events ([`Self::set_paused`]).
     ///
     /// The app's shared `AudioServiceClock` separately gates Sound/Vox/Theme;
     /// completion observation also runs between admitted main-thread passes.

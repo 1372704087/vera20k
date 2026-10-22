@@ -8536,9 +8536,10 @@ fn phobos_radiation_rules() -> RuleSet {
 [RadEruptionWarhead]\nVerses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\nCellSpread=10\n\n\
 [Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
 [Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
-[RadiationTypes]\n0=ToxicField\n1=OtherField\n\n\
+[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n\n\
 [ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
 [OtherField]\nRadLevelFactor=0.1\n\n\
+[VioletField]\nRadColor=255,0,255\nRadLightFactor=1.0\nRadTintFactor=1.0\n\n\
 [RadSiteToxic]\nVerses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\n",
     );
     RuleSet::from_ini(&ini).expect("phobos radiation rules should parse")
@@ -8582,6 +8583,26 @@ fn phobos_custom_radiation_type_damage_uses_the_bound_types_parameters() {
         200,
         "the default Radiation entry keeps the global 500 level and 0.2 factor"
     );
+}
+
+/// A bound type's `RadColor`, `RadLightFactor` and `RadTintFactor` shape the
+/// site's published light, so two types on the same scene light differently.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_a_bound_types_color_drives_the_site_light() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    irradiate_bound(&mut sim, &rules, (6, 6), 500, 2, Some("VioletField"));
+    let light = sim
+        .radiation
+        .site_at((6, 6))
+        .expect("site at the detonation center")
+        .light_source()
+        .expect("a live site publishes its light");
+    assert!(light.intensity > 0, "RadLightFactor=1.0 lights the field");
+    assert_eq!(light.tint[1], 0, "no green channel in 255,0,255");
+    assert_eq!(light.tint[0], light.tint[2], "red and blue match: purple");
+    assert!(light.tint[0] > 0);
 }
 
 /// `UseGlobalRadApplicationDelay=false` moves the admission gate to each

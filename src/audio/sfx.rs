@@ -1291,6 +1291,10 @@ pub struct SfxPlayer {
     voc_enabled: bool,
     ///53BAD0 excludes the SFX half of GamePause, not its EVA stream half.
     chrono_screen_active: bool,
+    /// Whether the open game pause suspended the sounds: `GamePause::Enter
+    /// @ 0x00406F00` skips them while ChronoScreen runs (`0x0053BAD0`), and
+    /// `Exit` resumes them whatever the effect does by then.
+    game_pause_suspends_sounds: bool,
 }
 
 /// Native750E20 copies +20/+24/+28 and initializes nested suspend depth+30.
@@ -1392,6 +1396,7 @@ impl SfxPlayer {
             movie_sounds_suspended: false,
             voc_enabled: true,
             chrono_screen_active: false,
+            game_pause_suspends_sounds: false,
         })
     }
 
@@ -2476,7 +2481,9 @@ impl SfxPlayer {
     /// 0x00753500` (`StreamPlayer::Pause` again for the speech stream);
     /// `Exit` calls `SpeechSystem::Resume @ 0x00753510` then
     /// `VoxClass::UnpauseEVA @ 0x00753620`. Neither call sits behind the
-    /// `FUN_0053bad0` gate that the SFX half does. The SFX half covers the
+    /// `0x0053BAD0` ChronoScreen gate that `Enter`'s SFX half does. `Exit`'s
+    /// SFX half has no gate: its resumes (`0x004037C0`, `0x00405040`,
+    /// `0x00751080`) each do nothing where nothing was paused. The SFX half covers the
     /// unit voice events (Voc channels natively); the stream half is
     /// `eva_player`, and the speech stream SpeechSystem pauses is
     /// `taunt_player`; movie holds pause both streams too
@@ -2489,7 +2496,11 @@ impl SfxPlayer {
             return;
         }
         self.paused = paused;
-        self.apply_pause_edge(paused, now_ms, !self.chrono_screen_active);
+        let sounds = !paused || !self.chrono_screen_active;
+        if sounds {
+            self.game_pause_suspends_sounds = paused;
+        }
+        self.apply_pause_edge(paused, now_ms, sounds);
     }
     /// `Audio__PauseForMovie @ 0x005BF580` / `Audio__ResumeAfterMovie @
     /// 0x005BF530`, the hold every movie takes: `VoxClass__PauseEVA` and
@@ -2550,7 +2561,7 @@ impl SfxPlayer {
     }
 
     fn apply_output_pauses(&self) {
-        let voc_paused = self.movie_sounds_suspended || (self.paused && !self.chrono_screen_active);
+        let voc_paused = self.movie_sounds_suspended || self.game_pause_suspends_sounds;
         for output in self.live.values() {
             if voc_paused {
                 output.player.pause();
@@ -2660,6 +2671,7 @@ impl SfxPlayer {
         }
         self.vox.reset_all();
         self.paused = false;
+        self.game_pause_suspends_sounds = false;
         self.movie_held = false;
         self.movie_sounds_suspended = false;
         self.voc_enabled = true;

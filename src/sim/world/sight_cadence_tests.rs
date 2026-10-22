@@ -1926,6 +1926,23 @@ fn an_alliance_moves_the_allys_building_sight_within_the_call() {
     let tank_sight = sim.fog.sight_admission(tank, russians).unwrap().clone();
     assert_eq!(tank_sight.radius, 7);
     assert!(!sim.fog.sight_is_latched(standing, americans));
+    let american_source = sim
+        .fog
+        .source_sight(standing, americans)
+        .expect("the American logical client ran UpdateReveal before its map gate");
+    let owner_source = sim
+        .fog
+        .source_sight(standing, russians)
+        .expect("the Russian owner has an independent native source cache");
+    assert!(american_source.latched);
+    assert!(owner_source.latched);
+    assert!(sim.fog.sight_admission(standing, americans).is_none());
+    let owner_sight = sim
+        .fog
+        .sight_admission(standing, russians)
+        .expect("the Russian House keeps the plant's original sight")
+        .clone();
+    let owner_origin = owner_sight.origin;
 
     sim.make_ally(
         russians,
@@ -1935,10 +1952,29 @@ fn an_alliance_moves_the_allys_building_sight_within_the_call() {
         FrameEffects::default(),
         false,
     );
-    // RESIDUAL (`Simulation::admit_alliance_sight`): native's latch
-    // (`+0x250`), set by the plant's Unlimbo, makes this `UpdateReveal`
-    // return (`0x0070B0B1`); VERA opens it here.
-    assert!(sim.fog.sight_is_latched(standing, americans));
+    assert_eq!(
+        sim.fog.sight_admission(standing, russians),
+        Some(&owner_sight),
+        "the Russian contribution keeps its original geometry"
+    );
+    assert_eq!(
+        sim.fog.source_sight(standing, americans),
+        Some(american_source),
+        "MakeAlly cannot reopen a source already latched for that client"
+    );
+    assert_eq!(
+        sim.fog.source_sight(standing, russians),
+        Some(owner_source),
+        "the owner client's independent +0x250/+0x254/+0x260 is unchanged"
+    );
+    assert!(
+        sim.fog.sight_admission(standing, americans).is_none(),
+        "UpdateReveal @0x0070AF50 returns at +0x250 before RevealArea"
+    );
+    assert!(
+        !sim.fog
+            .is_cell_visible(americans, owner_origin.0, owner_origin.1)
+    );
     // The re-admission gives a computer House's non-Building only its gap
     // callback (`0x004ADE2D..0x004ADEBF`).
     assert!(!sim.fog.sight_is_latched(tank, americans));
@@ -1964,14 +2000,24 @@ fn an_alliance_moves_the_allys_building_sight_within_the_call() {
     assert!(sim.fog.sight_is_latched(plant, americans));
     assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
 
-    sim.make_enemy(
-        russians,
-        americans,
-        &rules,
-        None,
-        FrameEffects::default(),
-        false,
+    let ((), release_trace) = trace_reveal_calls(|| {
+        sim.make_enemy(
+            russians,
+            americans,
+            &rules,
+            None,
+            FrameEffects::default(),
+            false,
+        );
+    });
+    assert!(
+        release_trace
+            .walks
+            .iter()
+            .any(|cells| cells.contains(&(owner_origin.0, owner_origin.1))),
+        "the latched American source releases its cached area even without an American contribution receipt"
     );
+    assert!(!sim.fog.source_sight_is_latched(standing, americans));
     assert!(
         !sim.fog.sight_is_latched(plant, americans),
         "0x004F9FD8's release precedes the bit write"
@@ -1993,6 +2039,107 @@ fn an_alliance_moves_the_allys_building_sight_within_the_call() {
     );
     assert!(sim.fog.is_cell_visible(americans, origin.0, origin.1));
     assert!(!sim.fog.sight_is_latched(tank, americans));
+}
+
+/// The map release at a mobile's next arrival still passes through
+/// `RevealArea @ 0x005678E0`; after MakeEnemy its former ally fails that
+/// house gate, so the previous footprint remains counted there.
+#[test]
+fn an_ex_ally_keeps_a_mobile_footprint_after_its_next_cell_arrival() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = retail.rules;
+    assert!(rules.general.allies_allowed);
+    assert!(rules.general.ally_reveal);
+    let mut sim = Simulation::new();
+    let grid = crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+    let americans = sim.intern("Americans");
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            americans, 0, None, true, 0, 10,
+        ));
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
+    sim.session.set_current_house_for_test(Some(americans));
+    sim.fog = vision::FogState::new(32, 32);
+    let russians = add_computer_house(&mut sim, "Russians");
+    add_computer_house(&mut sim, "Confederation");
+
+    let tank = sim
+        .spawn_object("MTNK", "Russians", 10, 10, 0, &rules)
+        .unwrap();
+    sim.make_ally(
+        russians,
+        americans,
+        &rules,
+        None,
+        FrameEffects::default(),
+        false,
+    );
+    let arrive = |sim: &mut Simulation| {
+        let entity = sim.substrate.entities.get_mut(tank).unwrap();
+        entity
+            .position
+            .set_rx_for_test(entity.position.rx().saturating_add(1));
+        sim.per_cell_process(
+            tank,
+            crate::sim::movement::PerCellReason::Arrival,
+            &rules,
+            None,
+            FrameEffects::default(),
+        )
+        .unwrap();
+    };
+    let _ = sim.advance_tick(&[], Some(&rules), Some(&grid), None, 67);
+    arrive(&mut sim);
+    let old_sight = sim
+        .fog
+        .sight_admission(tank, americans)
+        .expect("the allied mobile's arrival reveals to the human map")
+        .clone();
+    let old_cell = (old_sight.origin.0, old_sight.origin.1);
+    assert!(sim.fog.source_sight_is_latched(tank, americans));
+    assert!(sim.fog.is_cell_visible(americans, old_cell.0, old_cell.1));
+
+    sim.make_enemy(
+        russians,
+        americans,
+        &rules,
+        None,
+        FrameEffects::default(),
+        false,
+    );
+    assert!(
+        sim.fog.is_cell_visible(americans, old_cell.0, old_cell.1),
+        "MakeEnemy's mobile arm leaves the prior map footprint"
+    );
+    assert!(sim.fog.source_sight_is_latched(tank, americans));
+
+    let owner_plane = &sim.fog.by_owner()[&americans];
+    let old_index =
+        usize::from(old_cell.1) * usize::from(sim.fog.width()) + usize::from(old_cell.0);
+    let old_allied_sources = owner_plane.shroud_knowledge_raw()[old_index].allied_sources();
+    assert!(old_allied_sources > 0);
+
+    arrive(&mut sim);
+    assert!(sim.fog.source_sight_is_latched(tank, americans));
+    assert!(
+        sim.fog.sight_admission(tank, americans).is_none(),
+        "the rejected release retires its contribution index while the next UpdateReveal still latches"
+    );
+    assert!(
+        sim.fog.is_cell_visible(americans, old_cell.0, old_cell.1),
+        "native ReReveal's rejected former-ally area walk leaves old sight counted"
+    );
+    let config = sim.sight_reveal_config(&rules);
+    sim.refresh_sight_sources(&config, &rules);
+    assert!(sim.fog.is_cell_visible(americans, old_cell.0, old_cell.1));
+    assert_eq!(
+        sim.fog.by_owner()[&americans].shroud_knowledge_raw()[old_index].allied_sources(),
+        old_allied_sources,
+        "the abandoned map contribution survives frame rebuilds without another source count"
+    );
 }
 
 /// Playfield promotion (`0x006F511A`) follows the arrival's reveal (Unit

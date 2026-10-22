@@ -44,7 +44,8 @@ ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
 ShowLanguageDialog=auto
-; Rendered from .github/release/icon.svg by icon.sh beside this script.
+; Red Alert 2's own icon: the 32-bit images of retail game.exe's icon group, and
+; its 512 px image (../icon.png) at 159 px for the installer's pages.
 SetupIconFile={#SourcePath}vera20k.ico
 WizardSmallImageFile={#SourcePath}wizard-small.png
 UninstallDisplayIcon={app}\vera20k.exe

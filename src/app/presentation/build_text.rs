@@ -6,16 +6,17 @@
 //! at `y = 0`, and the text in red five pixels inside it. Retail's own
 //! `GScreenClass::DrawText` body draws the optional `ShowGameTime` clock,
 //! which VERA20K does not implement, so this module is that site's first
-//! VERA writer and carries the build identity instead.
+//! VERA writer and carries the version description instead.
 //!
-//! The text is `BUILD_STAMP` plus the compiled extension capability marker
-//! (`app::capability_marker`), drawn only in Phobos builds; every other build
-//! keeps the retail screen, which prints nothing here.
+//! The text is the native product name, version and build warning from
+//! [`crate::app::phobos_version`], drawn only in Phobos builds; every other
+//! build keeps the retail screen, which prints nothing here.
 //!
 //! ## Dependency rules
 //! - Part of the app layer — may depend on everything.
 
-use crate::app::{AppState, BUILD_STAMP, capability_marker};
+use crate::app::AppState;
+use crate::app::phobos_version;
 use crate::render::batch::SpriteInstance;
 use crate::ui::game_screen::GameScreen;
 
@@ -31,9 +32,9 @@ const TEXT_INSET: i32 = 5;
 const TEXT_RGB: [u8; 3] = [255, 0, 0];
 
 /// The build description a Phobos build stamps into the tactical view:
-/// `VERA20K <version> [Phobos]` (the marker names every compiled capability).
+/// `Phobos <version>. <build warning>`.
 pub(crate) fn description() -> String {
-    format!("{BUILD_STAMP}{}", capability_marker())
+    phobos_version::version_description()
 }
 
 /// Where the description prints: its top left, and the black box behind it
@@ -49,7 +50,10 @@ pub(crate) fn place(view_width: i32, text_width: i32, text_height: i32) -> ([i32
 /// The description's fill box and text instances, or empty pairs outside a
 /// Phobos build's in-game screen.
 pub(crate) fn build_instances(state: &AppState) -> (Vec<SpriteInstance>, Vec<SpriteInstance>) {
-    if !crate::rules::PHOBOS_ENABLED || state.frontend.screen != GameScreen::InGame {
+    if !crate::rules::PHOBOS_ENABLED
+        || !phobos_version::SHOWS_DESCRIPTION
+        || state.frontend.screen != GameScreen::InGame
+    {
         return (Vec::new(), Vec::new());
     }
     let (view_width, _) = crate::app::input::camera::tactical_viewport_size(state);

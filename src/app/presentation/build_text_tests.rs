@@ -4,11 +4,11 @@ use super::*;
 
 #[cfg(feature = "phobos")]
 #[test]
-fn description_names_the_compiled_capability() {
+fn description_is_the_native_version_description() {
     assert_eq!(
         description(),
-        concat!("VERA20K ", env!("CARGO_PKG_VERSION"), " [Phobos]"),
-        "the stamp plus the compiled capability marker"
+        "Phobos v0.5.0.0-alpha1. Please test the build before shipping.",
+        "the native product name, version and build warning"
     );
 }
 

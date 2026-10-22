@@ -249,3 +249,96 @@ fn the_catalog_survives_a_processed_rules_round_trip() {
 fn rules_radiation_types(rules: &RuleSet) -> RadiationTypeCatalog {
     rules.radiation.radiation_types.clone()
 }
+
+/// The demo mod shape: retail-style `[Radiation]` globals, an appended
+/// `[RadiationTypes]` list, two custom entries and a weapon that binds one.
+const DEMO_MOD: &str = "[Radiation]\n\
+RadDurationMultiple=1\t\t; frames per level\n\
+RadApplicationDelay=16\n\
+RadLevelMax=500\n\
+RadLevelDelay=90\n\
+RadLevelFactor=.2\n\
+RadLightFactor=.1\n\
+RadTintFactor=1.0\n\
+RadColor=0,255,0\n\
+RadSiteWarhead=RadSite\n\
+\n\
+[RadEruptionWeapon]\n\
+Damage=1\t\t; comment\n\
+ROF=60\n\
+Range=4\n\
+AreaFire=yes\n\
+Warhead=RadEruptionWarhead\n\
+RadLevel=500\n\
+\n\
+; Fire by Prism Cannon\n\
+RadType=PurpleRad\n\
+\n\
+[InfantryTypes]\n\
+0=DESO\n\
+\n\
+[DESO]\n\
+Strength=150\n\
+Secondary=RadEruptionWeapon\n\
+Deployer=yes\n\
+\n\
+[RadiationTypes]\n\
+0=GreenRad\n\
+1=PurpleRad\n\
+\n\
+[GreenRad]\n\
+RadDurationMultiple=2\n\
+RadLevelMax=250\n\
+RadLevelFactor=0.5\n\
+RadLightFactor=0.2\n\
+RadColor=0,255,0\n\
+\n\
+[PurpleRad]\n\
+RadDurationMultiple=3\n\
+RadLevelMax=400\n\
+RadLevelFactor=0.1\n\
+RadLightFactor=0.3\n\
+RadTintFactor=1.5\n\
+RadColor=128,0,255\n";
+
+#[test]
+fn a_weapon_binds_its_rad_type_through_the_ordered_rules_read() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(DEMO_MOD)).expect("demo rules");
+    let weapon = rules.weapon("RadEruptionWeapon").expect("bound weapon");
+    assert_eq!(
+        weapon.rad_type.as_deref(),
+        Some("PurpleRad"),
+        "`RadType=` reads even after a trailing comment line in the section"
+    );
+    let deso = rules.object("DESO").expect("DESO");
+    assert_eq!(deso.secondary().as_deref(), Some("RadEruptionWeapon"));
+}
+
+#[test]
+fn the_demo_mods_purple_type_resolves_every_key_it_sets() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(DEMO_MOD)).expect("demo rules");
+    let effective = effective_radiation(&rules, Some("purplerad"));
+    assert_eq!(effective.duration_multiple, 3);
+    assert_eq!(effective.level_max, 400);
+    assert_eq!(
+        effective.level_factor,
+        f64::from(0.1_f32),
+        "native ReadDouble scans through f32 before widening"
+    );
+    assert_eq!(effective.color, (128, 0, 255));
+    assert!((effective.tint_factor.to_num::<f64>() - 1.5).abs() < 1e-4);
+    assert!((effective.light_factor.to_num::<f64>() - 0.3).abs() < 1e-4);
+    assert_eq!(
+        effective.application_delay, 16,
+        "keys the entry omits keep the [Radiation] global"
+    );
+}
+
+#[test]
+fn the_demo_mod_keeps_the_green_type_separate() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(DEMO_MOD)).expect("demo rules");
+    let green = effective_radiation(&rules, Some("GreenRad"));
+    assert_eq!(green.level_factor, 0.5);
+    assert_eq!(green.color, (0, 255, 0));
+    assert_eq!(green.duration_multiple, 2);
+}

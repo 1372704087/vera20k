@@ -59,6 +59,8 @@ pub(crate) mod match_diagnostics;
 pub(crate) mod match_runtime;
 pub(crate) mod movie_playback;
 pub(crate) mod persistence;
+/// The build description's native version metadata (`Phobos.version.h`).
+pub(crate) mod phobos_version;
 pub(crate) mod presentation;
 pub(crate) mod process_assets;
 #[cfg(feature = "telemetry-dashboard")]
@@ -108,27 +110,9 @@ pub const WINDOW_TITLE: &str = if crate::rules::ARES_ENABLED {
     "VERA20K"
 };
 
-/// The compiled extension capability as an in-game display suffix, with its
-/// leading space: the single owner of the marker the tactical view's build
-/// description appends to [`BUILD_STAMP`]. The window title owns its own
-/// exact literal for the single-instance gate and mirrors the same four
-/// states.
-pub const fn capability_marker() -> &'static str {
-    if crate::rules::ARES_ENABLED {
-        if crate::rules::PHOBOS_ENABLED {
-            " [Ares+Phobos]"
-        } else {
-            " [Ares]"
-        }
-    } else if crate::rules::PHOBOS_ENABLED {
-        " [Phobos]"
-    } else {
-        ""
-    }
-}
-
-/// Identity stamp shared by the status screen and the tactical view's build
-/// description. Not a retail build string.
+/// Identity stamp shared by the status screen and the telemetry capture. Not a
+/// retail build string, and not the tactical view's version description —
+/// that one is Phobos's own text ([`phobos_version`]).
 pub(crate) const BUILD_STAMP: &str = concat!("VERA20K ", env!("CARGO_PKG_VERSION"));
 
 pub(crate) use shell_random_map::RandomMapGenerationRetention;

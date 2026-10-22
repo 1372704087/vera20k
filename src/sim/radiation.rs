@@ -681,6 +681,24 @@ impl RadiationState {
                 // `min(radLevel, GetLevelMax())`.
                 let level = det.rad_level.min(effective.level_max);
                 let duration = effective.duration_multiple.wrapping_mul(level);
+                // A site's bound type is the only input that changes every
+                // one of its parameters, so record the resolved values once
+                // per creation. Stock play binds the default type and the
+                // line then matches the `[Radiation]` globals.
+                #[cfg(feature = "phobos")]
+                log::info!(
+                    "radiation site ({}, {}) type={:?} level={} duration={} color={:?} \
+                     level_factor={} light_factor={} tint_factor={}",
+                    center.0,
+                    center.1,
+                    bound.as_deref().unwrap_or("<no catalog>"),
+                    level,
+                    duration,
+                    effective.color,
+                    effective.level_factor,
+                    effective.light_factor.to_num::<f64>(),
+                    effective.tint_factor.to_num::<f64>(),
+                );
                 self.sites.insert(
                     center,
                     RadSite {

@@ -1384,6 +1384,9 @@ impl SfxPlayer {
             eva_stream_volume: VolumeInterp::new(VOLUME_SCALE, 0),
             taunt_stream_volume: VolumeInterp::new(VOLUME_SCALE, 0),
             voice_queue: VoiceQueue::new(),
+            // Until startup applies the Options profile
+            // (`apply_startup_audio_profile`): `OptionsClass__SetDefaults
+            // @ 0x005FA350`'s 0.7; the profile is the persisted authority.
             sound_volume: 0.7,
             voice_volume: 0.7,
             sound_master_linear: VOLUME_SCALE,

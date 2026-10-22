@@ -1,4 +1,5 @@
 use super::*;
+use crate::app::persistence::options::audio::AudioVolumeOperations;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum MultiplayerSettingsContext {
@@ -185,16 +186,11 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn store_score_volume(&mut self, value: f32) {
-        self.state
-            .persistence
-            .options_profile
-            .set_score_volume(f64::from(value));
+        AudioVolumeOperations::store_score_volume(self.state, value);
     }
 
-    fn apply_score_output(&mut self, _value: f32) {
-        self.state
-            .audio
-            .set_score_volume(self.state.persistence.options_profile.score_volume);
+    fn apply_score_output(&mut self, value: f32) {
+        AudioVolumeOperations::apply_score_output(self.state, value);
     }
 
     fn queue_then_stop_score_zero(&mut self) {
@@ -203,23 +199,19 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn store_sound_volume(&mut self, value: f32) {
-        self.state.persistence.options_profile.sound_volume = value;
+        AudioVolumeOperations::store_sound_volume(self.state, value);
     }
 
     fn apply_sound_output(&mut self, value: f32) {
-        if let Some(player) = self.state.audio.sfx_player.as_mut() {
-            player.set_sound_volume(f64::from(value));
-        }
+        AudioVolumeOperations::apply_sound_output(self.state, value);
     }
 
     fn store_voice_volume(&mut self, value: f32) {
-        self.state.persistence.options_profile.voice_volume = value;
+        AudioVolumeOperations::store_voice_volume(self.state, value);
     }
 
     fn apply_voice_output(&mut self, value: f32) {
-        if let Some(player) = self.state.audio.sfx_player.as_mut() {
-            player.set_voice_volume(f64::from(value));
-        }
+        AudioVolumeOperations::apply_voice_output(self.state, value);
     }
 
     fn primary_dropped(&mut self) {

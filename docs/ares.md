@@ -43,6 +43,8 @@ Supported extensions:
 
 - [Ordinary ground and tower EMP](ares-emp.md) (bounded human Drive/Walk, unteamed AI Drive and independent powered defensive buildings)
 - [Custom armor](ares-custom-armor.md)
+- [Supplemental string tables](../tools/rules_oracle/ares_csf.md), shared by
+  game loading and default `asset csf-get` / `csf-grep` queries.
 - [Per-type SHP building palettes](ares-building-palettes.md)
 - [EVA voice tags and Side selection](ares-eva.md)
 - [Generic production prerequisites](ares-prerequisites.md)

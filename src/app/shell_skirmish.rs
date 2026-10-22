@@ -1353,7 +1353,7 @@ impl App {
         }
     }
 
-    fn play_skirmish_shell_ui_sound(
+    pub(super) fn play_skirmish_shell_ui_sound(
         state: &mut AppState,
         sound: crate::ui::skirmish_shell::SkirmishShellUiSound,
     ) {

@@ -374,6 +374,22 @@ impl AppAudioRuntime {
         logical_started
     }
 
+    /// Ares loading hook inputs use the existing Theme catalog/stream owner.
+    #[cfg(feature = "ares")]
+    pub(crate) fn play_ares_loading_theme<'a>(
+        &mut self,
+        names: impl IntoIterator<Item = Option<&'a str>>,
+        assets: &AssetManager,
+        wall_ms: u64,
+    ) {
+        let gates = self.theme_gates();
+        let physical = self.music_output_state();
+        let action = self
+            .theme
+            .play_ares_loading_theme(names, assets, gates, physical, wall_ms);
+        self.apply_theme_action(action);
+    }
+
     /// Start_Scenario tail after shared `bind_match_theme_context`: `Stop(1)` /
     /// `Queue_Song([Basic] Theme)`. Later AI borrows the installed Main stream.
     pub(crate) fn request_scenario_theme(

@@ -343,6 +343,39 @@ impl NativeRulesProcessOwner {
             .map(|(_, _, _, side, _, country)| (country.loading(), side))
     }
 
+    /// Ares1002FB80 reads the retained Country's Side then Country directly
+    /// from CCINI_Rules887048 before Read_Scenario684620. These names use
+    /// ReadTheme4758F0's ReadString128; ThemeRuntime owns name/default binding.
+    /// Mode/map Process projections and ParentCountry are not read here.
+    #[cfg(feature = "ares")]
+    pub(crate) fn loading_theme_names(
+        &self,
+        country: crate::rules::ruleset::CountryIdx,
+    ) -> [Option<String>; 2] {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let Some((country, _, _, side, ..)) =
+            state.country_projection().nth(usize::from(country.0))
+        else {
+            return [None, None];
+        };
+        let read = |id: &str| {
+            self.sources
+                .selected_rules_root
+                .section(id)
+                .and_then(|section| section.read_name("LoadingTheme", 128))
+                .map(str::to_owned)
+        };
+        let side = usize::try_from(side)
+            .ok()
+            .and_then(|index| state.side_projection().nth(index))
+            .and_then(|(name, _)| read(name));
+        [side, read(country)]
+    }
+
     /// Early Ares6847B7 loading color, resolved against this same retained
     /// registry before E_multi or the later mode/map Rules reset can change it.
     /// `None` when the Country sets no color, leaving the stock side color.

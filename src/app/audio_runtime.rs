@@ -110,6 +110,8 @@ pub(crate) struct AppAudioRuntime {
 /// `[0x0087E754]` (`0x00720743..0x0072075A`).
 pub(crate) struct AudioMasterGroups {
     held: bool,
+    /// `[0x0083D834]`: the effects-master target an in-game modal saved.
+    modal_saved_target: i32,
     /// Full-screen `Play_Movie` also suspended the sound events
     /// (`0x00406EA0`).
     sounds_suspended: bool,
@@ -120,6 +122,7 @@ impl Default for AudioMasterGroups {
     fn default() -> Self {
         Self {
             held: false,
+            modal_saved_target: 0x4000,
             sounds_suspended: false,
             sound_master: VolumeInterp::new(0x4000, 0),
             eva_master: VolumeInterp::new(0x4000, 0),
@@ -204,6 +207,22 @@ impl AppAudioRuntime {
             self.set_movie_sounds_suspended(false, wall_ms);
         }
         self.set_movie_audio_held(false, wall_ms);
+    }
+    /// `StateMachine__EnterPause @ 0x00683EB0`: an in-game modal saves the
+    /// effects master's target (`0x00683EBC` -> `0x004072B0`) and snaps it
+    /// to full (`0x00683ED1` -> `0x00407150`), so its sounds play at full
+    /// volume even under a radar transmission's half-volume hold.
+    pub(crate) fn enter_state_machine_pause(&mut self) {
+        let groups = &mut self.master_groups;
+        groups.modal_saved_target = groups.sound_master.target_value();
+        groups.sound_master.set_target_immediate(0x4000);
+    }
+    /// `StateMachine__ExitPause @ 0x00683FB0` snaps the master back to the
+    /// saved target and resets the save (`0x0068402B..0x00684037`).
+    pub(crate) fn exit_state_machine_pause(&mut self) {
+        let groups = &mut self.master_groups;
+        let saved = std::mem::replace(&mut groups.modal_saved_target, 0x4000);
+        groups.sound_master.set_target_immediate(saved);
     }
     fn service_master_groups(&mut self, wall_ms: u64) {
         if let Some(music) = self.music_player.as_mut() {
@@ -476,6 +495,9 @@ impl AppAudioRuntime {
     /// their cleanup (`0x006857A9`), `Clear_Scene` (`0x0068521F`) and the
     /// ordinary load cleanup (`0x0069BB40`).
     pub(crate) fn restore_sound_master(&mut self) {
+        // Clear_Scene also resets the modal save first (`0x00685219`), so a
+        // load from the in-game menu leaves the master full when it closes.
+        self.master_groups.modal_saved_target = 0x4000;
         self.master_groups.sound_master.set_target_immediate(0x4000);
         self.master_groups.sound_master.tick(0);
         self.apply_output_scales();
@@ -804,6 +826,40 @@ mod tests {
         assert_eq!(groups.sound_master.target_value(), 0x4000);
         assert_eq!(groups.eva_master.target_value(), 0x4000);
         assert!(stream_target(&runtime).is_none_or(|target| target == 0x4000));
+    }
+
+    /// An in-game modal opened during a radar hold snaps the effects master to
+    /// full and closing it snaps it back to half (`0x00683EB0`, `0x00683FB0`).
+    #[test]
+    fn in_game_modal_restores_full_effects_volume_until_it_closes() {
+        let mut runtime = AppAudioRuntime {
+            theme: ThemeRuntime::default(),
+            service_clock: AudioServiceClock::default(),
+            music_player: None,
+            sfx_player: None,
+            launcher_audio_available: false,
+            theme_startup_suppressed: false,
+            master_groups: Default::default(),
+        };
+        runtime.set_movie_audio_held(true, 0);
+        runtime.service_master_groups(100);
+        assert!(runtime.sound_master_moving());
+        runtime.enter_state_machine_pause();
+        runtime.service_master_groups(110);
+        assert_eq!(runtime.master_groups.sound_master.value(), 0x4000);
+        runtime.exit_state_machine_pause();
+        runtime.service_master_groups(120);
+        assert_eq!(runtime.master_groups.sound_master.value(), 0x2000);
+        assert_eq!(runtime.master_groups.modal_saved_target, 0x4000);
+
+        // A load from the menu runs Clear_Scene (`0x00685219`) before the
+        // menu closes; the master must come back full, not to the old save.
+        runtime.enter_state_machine_pause();
+        runtime.retire_movie_audio(130);
+        runtime.restore_sound_master();
+        runtime.exit_state_machine_pause();
+        runtime.service_master_groups(140);
+        assert_eq!(runtime.master_groups.sound_master.value(), 0x4000);
     }
 
     #[test]

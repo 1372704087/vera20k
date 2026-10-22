@@ -664,25 +664,23 @@ pub(crate) struct DecodedAudio {
     pub(crate) sample_rate: u32,
     /// Always 2 (stereo) — we upmix mono sources for consistency.
     pub(crate) channels: u16,
-    /// Native decoded PCM frame width before mono is upmixed for rodio.
-    pub(crate) native_frame_bytes: u16,
+    /// The native format's channel count and bytes per sample before mono is
+    /// upmixed for rodio: descriptor `+0xC` and `+0x10`, filled by
+    /// `WAV__ParseHeader @ 0x00408610` (`0x0040876A..0x00408792`) and
+    /// `AudioIndex__GetFormat @ 0x00401640`. IMA ADPCM decodes to 2 bytes.
+    pub(crate) native_channels: u16,
+    pub(crate) native_sample_bytes: u16,
 }
 
 impl DecodedAudio {
-    /// Append another clip; the native playlist chains buffers back to back.
-    /// A rate mismatch keeps the first clip (RESIDUAL: native streams each
-    /// buffer at its own rate; no stock attack/decay set mixes rates).
+    /// Append another clip; the native playlist chains buffers back to back,
+    /// each in the first clip's format (see [`playback::chained_samples`]).
     #[cfg(test)]
-    fn append(&mut self, mut other: DecodedAudio) {
-        if other.sample_rate != self.sample_rate || other.channels != self.channels {
-            log::warn!(
-                "SFX: dropped chained sample with mismatched format ({} Hz vs {} Hz)",
-                other.sample_rate,
-                self.sample_rate
-            );
-            return;
-        }
-        self.samples.append(&mut other.samples);
+    fn append(&mut self, other: DecodedAudio) {
+        let layout = (self.native_channels, self.native_sample_bytes);
+        let chained = playback::chained_samples(&other, layout);
+        self.samples
+            .extend_from_slice(chained.as_deref().unwrap_or(&other.samples));
     }
 }
 
@@ -1200,10 +1198,7 @@ impl PlaybackService for PendingSampleService<'_> {
         ) else {
             return false;
         };
-        let rate = pending
-            .shifts
-            .expect("admitted channel")
-            .shifted_sample_rate(loaded.clips[&initial].sample_rate);
+        let shifts = pending.shifts.expect("admitted channel");
         let observed_names = self
             .observer
             .as_ref()
@@ -1215,7 +1210,7 @@ impl PlaybackService for PendingSampleService<'_> {
             cursor,
             initial,
             self.rng.clone(),
-            rate,
+            shifts,
             pan,
             observed_names,
         );
@@ -2897,12 +2892,12 @@ fn load_sfx(
             samples: stereo,
             sample_rate: bag_audio.sample_rate,
             channels: 2,
-            native_frame_bytes: bag_audio.channels
-                * if entry.is_16bit() || entry.is_ima_adpcm() {
-                    2
-                } else {
-                    1
-                },
+            native_channels: bag_audio.channels,
+            native_sample_bytes: if entry.is_16bit() || entry.is_ima_adpcm() {
+                2
+            } else {
+                1
+            },
         });
     }
 
@@ -2929,7 +2924,8 @@ fn load_sfx(
         samples: stereo,
         sample_rate: header.sample_rate as u32,
         channels: 2,
-        native_frame_bytes: 2,
+        native_channels: 1,
+        native_sample_bytes: 2,
     })
 }
 
@@ -2982,12 +2978,12 @@ pub(crate) fn decode_wav(data: &[u8], filename: &str) -> Option<DecodedAudio> {
         samples: stereo,
         sample_rate: wav.sample_rate,
         channels: 2,
-        native_frame_bytes: wav.channels
-            * if wav.format_tag == 0x11 {
-                2
-            } else {
-                wav.bits_per_sample / 8
-            },
+        native_channels: wav.channels,
+        native_sample_bytes: if wav.format_tag == 0x11 {
+            2
+        } else {
+            wav.bits_per_sample / 8
+        },
     })
 }
 
@@ -3521,7 +3517,8 @@ mod tests {
             samples: vec![value; frames * 2],
             sample_rate,
             channels: 2,
-            native_frame_bytes: 2,
+            native_channels: 1,
+            native_sample_bytes: 2,
         }
     }
 
@@ -3540,14 +3537,16 @@ mod tests {
         assert_eq!(resolved.decoded.sample_rate, 22050 * 110 / 100);
         assert_eq!(rng.requests, vec![(0, 50)]);
 
-        // A rate mismatch keeps the first clip only.
+        // A rate mismatch chains at the first clip's rate (Fill409880 sets no
+        // new frequency).
         let mut rng = ScriptedRng::new(&[0]);
         let resolved = resolve_entry_playback(&e, &mut rng, |name| match name {
             "a" => Some(clip(0.1, 1, 22050)),
             _ => Some(clip(0.2, 1, 11025)),
         })
         .expect("resolved");
-        assert_eq!(resolved.decoded.samples, vec![0.1, 0.1]);
+        assert_eq!(resolved.decoded.samples, vec![0.1, 0.1, 0.2, 0.2, 0.2, 0.2]);
+        assert_eq!(resolved.decoded.sample_rate, 22050 * 110 / 100);
 
         // Nothing loadable resolves to nothing.
         assert!(resolve_entry_playback(&e, &mut rng, |_| None).is_none());
@@ -3575,7 +3574,8 @@ mod tests {
             samples: vec![0.0, 0.0],
             sample_rate: 22_050,
             channels: 2,
-            native_frame_bytes: 2,
+            native_channels: 1,
+            native_sample_bytes: 2,
         }
     }
 
@@ -4573,7 +4573,12 @@ mod tests {
         assert!(player.arbiter.live_event_count() == 0);
     }
 
-    fn build_test_wav(sample_rate: u32, bits: u16, channels: u16, samples: &[u8]) -> Vec<u8> {
+    pub(super) fn build_test_wav(
+        sample_rate: u32,
+        bits: u16,
+        channels: u16,
+        samples: &[u8],
+    ) -> Vec<u8> {
         let data_size: u32 = samples.len() as u32;
         let fmt_size: u32 = 16;
         let byte_rate: u32 = sample_rate * channels as u32 * bits as u32 / 8;

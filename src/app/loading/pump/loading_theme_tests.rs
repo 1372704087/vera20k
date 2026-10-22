@@ -23,7 +23,7 @@ fn fixture(extra: &str) -> (TestDirectory, ProcessAssets) {
         }
         let section = extra.section_or_empty(name);
         for key in section.keys() {
-            root += &format!("{key}={}\n", section.get(key).unwrap());
+            root += &format!("{key}={}\n", section.read_name(key, 128).unwrap());
         }
     }
     directory.write("rulesmd.ini", root.as_bytes());

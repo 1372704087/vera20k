@@ -3195,12 +3195,12 @@ mod tests {
     fn snapshot_capability_rejects_foreign_mode_before_body_decode() {
         let bytes = GameSnapshot::save_validated(&Simulation::new(), 0, 0, "synthetic", 0);
         let mut header = GameSnapshot::read_header(&bytes).unwrap();
-        header.compatibility = match RulesCompatibility::default() {
-            RulesCompatibility::Retail => RulesCompatibility::Ares,
-            RulesCompatibility::Ares => RulesCompatibility::Retail,
-            RulesCompatibility::Phobos => RulesCompatibility::AresPhobos,
-            RulesCompatibility::AresPhobos => RulesCompatibility::Phobos,
-        };
+        // Flip every capability bit: the result is a foreign mode for any build.
+        header.compatibility = RulesCompatibility::from_capabilities(
+            !crate::rules::ARES_ENABLED,
+            !crate::rules::PHOBOS_ENABLED,
+            !crate::rules::NPATCH_ENABLED,
+        );
         // A complete header with no body proves capability admission runs before
         // Simulation deserialization, even without bound scenario resources.
         let bytes = save_codec::serialize(&header).unwrap();

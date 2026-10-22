@@ -348,7 +348,7 @@ impl NativeRulesProcessOwner {
     /// ReadTheme4758F0's ReadString128; ThemeRuntime owns name/default binding.
     /// Mode/map Process projections and ParentCountry are not read here.
     #[cfg(feature = "ares")]
-    pub(crate) fn loading_theme_names(
+    pub fn loading_theme_names(
         &self,
         country: crate::rules::ruleset::CountryIdx,
     ) -> [Option<String>; 2] {

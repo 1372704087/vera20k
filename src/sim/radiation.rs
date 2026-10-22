@@ -161,12 +161,14 @@ impl RadSite {
                 .clamp(i64::from(i32::MIN), i64::from(LIGHT_CLAMP_MAX)) as i32
         };
         let intensity = scaled(self.level, effective.light_factor);
-        // RadSite65B5EA..65B684: Scenario+1258 == SNOW1 substitutes signed
-        // -128 for red/blue before the signed channel normalization. Theater
-        // comes from ScenarioSession; Rules still owns the configured bytes.
-        // Original activation/refresh/decay and Snow Cell/TMP controls:
-        // tools/spatial_oracle/radiation_snow_light_lifecycle.json.
-        let channels = if theater.eq_ignore_ascii_case("SNOW") {
+        // Retail `RadSite65B5EA..65B684` substitutes signed -128 for red and
+        // blue when `Scenario+1258 == SNOW1`, so the theater decides which
+        // channels a retail field uses. Phobos never reaches that code: it
+        // replaces the whole activation with `RadSiteExt::CreateLight`, which
+        // tints from the bound type's `RadColor` alone (all three channels,
+        // clamped at 2000) with no theater test anywhere in `Ext/RadSite`.
+        // The compiled capability decides which owner runs.
+        let channels = if !crate::rules::PHOBOS_ENABLED && theater.eq_ignore_ascii_case("SNOW") {
             [-128, i32::from(effective.color.1), -128]
         } else {
             [effective.color.0, effective.color.1, effective.color.2].map(i32::from)

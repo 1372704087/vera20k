@@ -11457,17 +11457,44 @@ fn phobos_demo_purple_values_reach_the_light() {
     assert_eq!(light.tint[1], 0);
 }
 
-/// Native `RadSite65B5EA..65B684`: on a SNOW scenario the light substitutes
-/// signed -128 for the red and blue channels and keeps only `RadColor`'s
-/// green, so a purple type has no green to add and the field stays green.
+/// The compiled capability decides which owner colors the light. Phobos
+/// replaces the retail activation with `RadSiteExt::CreateLight`, which tints
+/// from the bound type's `RadColor` with no theater test, so a purple field
+/// stays purple on a SNOW scenario.
 #[cfg(feature = "phobos")]
 #[test]
-fn phobos_snow_theater_keeps_only_the_green_channel() {
+fn phobos_radiation_color_ignores_the_theater() {
     let rules = phobos_radiation_rules();
+    for theater in ["SNOW", "TEMPERATE"] {
+        let mut sim = radiation_scene(&rules);
+        sim.session_mut_for_test()
+            .set_theater_for_test(theater.to_owned());
+        irradiate_bound(&mut sim, &rules, (8, 8), 500, 2, Some("DemoPurple"));
+        let light = sim
+            .radiation
+            .site_at((8, 8))
+            .expect("site")
+            .light_source()
+            .expect("published light");
+        assert_eq!(
+            light.tint,
+            [2000, 0, 2000],
+            "{theater} keeps the type's three channels"
+        );
+    }
+}
+
+/// The retail owner keeps native `RadSite65B5EA..65B684`: on SNOW the light
+/// substitutes signed -128 for red and blue and keeps only `RadColor`'s
+/// green, so the theater decides which channels the field uses.
+#[cfg(not(feature = "phobos"))]
+#[test]
+fn retail_snow_theater_substitutes_red_and_blue() {
+    let rules = radiation_rules();
     let mut sim = radiation_scene(&rules);
     sim.session_mut_for_test()
         .set_theater_for_test("SNOW".to_owned());
-    irradiate_bound(&mut sim, &rules, (8, 8), 500, 2, Some("DemoPurple"));
+    irradiate(&mut sim, &rules, (8, 8), 500, 2);
     let light = sim
         .radiation
         .site_at((8, 8))
@@ -11476,20 +11503,7 @@ fn phobos_snow_theater_keeps_only_the_green_channel() {
         .expect("published light");
     assert_eq!(
         light.tint,
-        [-1002, 0, -1002],
-        "red and blue take the snow -128 channel, green stays RadColor's"
+        [-501, 0, -501],
+        "red and blue take the snow -128 channel, green keeps [Radiation] RadColor"
     );
-
-    let mut temper = radiation_scene(&rules);
-    temper
-        .session_mut_for_test()
-        .set_theater_for_test("TEMPERATE".to_owned());
-    irradiate_bound(&mut temper, &rules, (8, 8), 500, 2, Some("DemoPurple"));
-    let light = temper
-        .radiation
-        .site_at((8, 8))
-        .expect("site")
-        .light_source()
-        .expect("published light");
-    assert_eq!(light.tint, [2000, 0, 2000], "temperate keeps RadColor");
 }

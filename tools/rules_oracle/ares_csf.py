@@ -1,4 +1,4 @@
-"""Three bounded Ares supplemental CSF histories on synthetic file bytes.
+"""Bounded Ares supplemental CSF histories and ordered-label controls.
 
 The installed enumeration/header/override hooks and original ReadFile execute.
 File/heap/formatting services and initialized base-table storage are fixtures;
@@ -35,7 +35,8 @@ def csf(entries, language=0, version=3, counts=None):
 
 
 class CsfProbe:
-    def __init__(self, ares, files, language=0):
+    def __init__(self, ares, files, language=0, base=None):
+        base = [('A', 'base'), ('KEEP', 'keep')] if base is None else base
         u = self.u = Uc(UC_ARCH_X86, UC_MODE_32)
         native.map_pe32_image(u, ares, image_base=0x10000000,
                              image_size=0xe0000, header_size=0x400)
@@ -57,10 +58,10 @@ class CsfProbe:
         self.values = self.alloc(20000*4)
         self.extra = self.alloc(20000*4)
         for at, value in [(0xb1cf74, self.labels), (0xb1cf78, self.values),
-                          (0xb1cf7c, self.extra), (0xb1cf6c, 2),
-                          (0xb1cf70, 2), (0x845728, language), (0xb1cf80, 1)]:
+                          (0xb1cf7c, self.extra), (0xb1cf6c, len(base)),
+                          (0xb1cf70, len(base)), (0x845728, language), (0xb1cf80, 1)]:
             self.write(at, value)
-        for index, (key, value) in enumerate([('A', 'base'), ('KEEP', 'keep')]):
+        for index, (key, value) in enumerate(base):
             u.mem_write(self.labels + index*40, key.encode() + b'\0')
             self.write(self.labels + index*40 + 0x20, 1)
             self.write(self.labels + index*40 + 0x24, index)
@@ -168,7 +169,27 @@ class CsfProbe:
         u.reg_write(UC_X86_REG_ESP, sp+4+cleanup)
         u.reg_write(UC_X86_REG_EIP, self.read(sp))
 
-    def run(self):
+    def value(self, ptr):
+        if not ptr:
+            return None
+        raw = bytearray()
+        while bytes(self.u.mem_read(ptr+len(raw), 2)) != b'\0\0':
+            raw += self.u.mem_read(ptr+len(raw), 2)
+        return raw.decode('utf-16le')
+
+    def lookup(self, key):
+        # Actual StringTable::LoadString734E60 and CRT bsearch execute.
+        self.write(0x2000f000, 0x30000000)
+        self.write(0x2000f004, 0)
+        self.write(0x2000f008, 0)
+        self.u.reg_write(UC_X86_REG_ESP, 0x2000f000)
+        self.u.reg_write(UC_X86_REG_ECX, self.text(key))
+        self.u.reg_write(UC_X86_REG_EDX, 0)
+        native.run_checked(self.u, 0x734e60, 0x30000000, count=100000,
+                           context={'scope': 'Ares final native CSF lookup'})
+        return self.value(self.u.reg_read(UC_X86_REG_EAX))
+
+    def run(self, lookup_keys=None):
         frame = self.alloc(0x28)
         self.write(0x2000f000, 0x30000000)
         self.write(0x2000f004, frame)
@@ -177,23 +198,28 @@ class CsfProbe:
                            context={'scope': 'Ares supplemental CSF'})
         assert all(bytes(self.u.mem_read(at, len(raw))) == raw for at, raw in self.original)
         values = {}
+        ordered = []
         for index in range(self.read(0xb1cf6c)):
             label = self.labels + index*40
             ptr = self.read(self.values + 4*self.read(label+0x24))
-            if ptr:
-                raw = bytearray()
-                while bytes(self.u.mem_read(ptr+len(raw), 2)) != b'\0\0':
-                    raw += self.u.mem_read(ptr+len(raw), 2)
-                text = raw.decode('utf-16le')
-            else:
-                text = None
-            values[self.string(label)] = text
+            text = self.value(ptr)
+            key = self.string(label)
+            values[key] = text
+            ordered.append([key, text])
         # Exists is called again when ReadFile opens an admitted file.
         attempts = self.attempts.copy()
         for name in self.accepted:
             attempts.remove(name)
-        return dict(attempts=attempts, accepted=self.accepted,
-                    base_language=self.read(0x845728), entries=values)
+        if lookup_keys is not None:
+            result = dict(label_count=len(ordered), labels=ordered,
+                          lookups={key: self.lookup(key) for key in lookup_keys})
+        else:
+            result = dict(entries=values)
+        if lookup_keys is None:
+            result.update(attempts=attempts, accepted=self.accepted,
+                          base_language=self.read(0x845728))
+        assert all(bytes(self.u.mem_read(at, len(raw))) == raw for at, raw in self.original)
+        return result
 
 
 def generate(ares):
@@ -218,6 +244,26 @@ def generate(ares):
     return dict(schema_version=1, controls=rows)
 
 
+def generate_ordered(ares):
+    small = [('A', 'base'), ('KEEP', 'keep')]
+    large = [('A', 'base')] + [(f'A{i:02}', f'base{i}') for i in range(40)] + [('KEEP', 'keep')]
+    rows = []
+    for name, base, extra in [
+        ('unique_records_append_before_existing_override', small,
+         [('B', 'b'), ('C', 'c'), ('D', 'd'), ('KEEP', 'replacement')]),
+        ('large_base_unique_records_sort_duplicate', large,
+         [('B', 'b'), ('C', 'c'), ('D', 'd'), ('KEEP', 'replacement')]),
+        ('large_file_partition_and_duplicate_ties',
+         [(f'A{i:02}', f'low{i}') for i in range(20)] + [('KEEP', 'keep')] +
+         [(f'Z{i:02}', f'high{i}') for i in range(20)],
+         [(f'B{i:02}', f'new{i}') for i in range(44)] + [('KEEP', 'replacement')]),
+    ]:
+        keys = sorted({key for key, _ in base+extra})
+        result = CsfProbe(ares, {'stringtable00.csf': csf(extra)}, base=base).run(keys)
+        rows.append(dict(name=name, base=base, supplemental=extra, result=result))
+    return dict(schema_version=1, controls=rows)
+
+
 def metadata():
     result = native.provenance(
         scope='Three native Ares3.0 supplemental CSF histories, synthetic files only.',
@@ -232,10 +278,28 @@ def metadata():
     return result
 
 
+def ordered_metadata():
+    result = native.provenance(
+        scope='Three ordered-label Ares supplemental CSF controls with actual native final lookups.',
+        assumptions=[
+            'Synthetic initialized sorted base tables and synthetic single-value supplemental bytes are explicit inputs.',
+            'Original enumeration, parser, override/index hooks, lower-middle CRT bsearch and Ares MSVC introsort execute.',
+            'Final values execute LoadString734E60 and CRT bsearch; ordered labels are read directly without dictionary projection.',
+            'Two controls start above33 labels and exercise the ninther sort branch. Heap fallback, base duplicate parsing, multiple values, overflow and general malformed input are outside executable comparison coverage.',
+        ],
+        substitutions=['Same CCFile, heap, ASCII strcmpi, formatting and Syringe transport fixture services as ares_csf.py; no search/sort/lookup results injected.'],
+        entry_points=dict(extra=0x10060df0, override=0x10060c80,
+                          sort=0x10060330, search=0x7c8e25, lookup=0x734e60))
+    result['ares_sha256'] = ARES_SHA256
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--ares-dll', type=Path, default=os.environ.get('VERA20K_ARES_DLL'))
     parser.add_argument('--gamemd-exe', type=Path)
+    parser.add_argument('--ordered-controls', action='store_true',
+                        help='Run only new ordered-label/native-lookup controls')
     args, remaining = parser.parse_known_args()
     if not args.ares_dll:
         parser.error('Set VERA20K_ARES_DLL or --ares-dll')
@@ -244,8 +308,10 @@ def main():
     ares = args.ares_dll.read_bytes()
     if hashlib.sha256(ares).hexdigest() != ARES_SHA256:
         raise native.OracleError('Unrecognized Ares image')
-    native.finish_vectors(lambda: generate(ares), Path(__file__).with_suffix('.json'),
-                          provenance=metadata, argv=remaining,
+    producer = generate_ordered if args.ordered_controls else generate
+    output = Path(__file__).with_name('ares_csf_ordered.json') if args.ordered_controls else Path(__file__).with_suffix('.json')
+    native.finish_vectors(lambda: producer(ares), output,
+                          provenance=ordered_metadata if args.ordered_controls else metadata, argv=remaining,
                           source_paths={'producer': Path(__file__), 'runner': Path(native.__file__)})
 
 

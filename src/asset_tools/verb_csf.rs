@@ -7,19 +7,20 @@
 //! ## Why both forms of every string are reported
 //!
 //! The parser normalises whitespace *while decoding*, inside
-//! `assets::csf_file::decode_csf_string`, and stores only the result. So
+//! `assets::csf_file::decode_csf_string`. So
 //! `CsfFile::get` and `CsfFile::text` both hand back the normalised text;
 //! `text` differs from `get` by exactly one thing — it substitutes
 //! `MISSING:'<key>'` for a label that is absent — and applies no further
-//! transformation. Neither can reach the bytes as the file stores them.
+//! transformation. `raw_entry` retains the selected record's original text.
 //!
 //! That matters because retail carries hundreds of strings whose stored form
 //! differs from the drawn form (briefings and tooltips pad their line breaks with
 //! spaces the game never shows). A verb that reported one form silently would
 //! misdescribe them: a caller diffing our text against a hex dump of the file
 //! would see a mismatch and have no way to tell a normalisation from a bug. So
-//! `value` is always what the game displays, and the stored text is re-derived
-//! here and reported whenever the two differ — or on `--raw` for every hit.
+//! `value` is always what the game displays. The active table supplies its own
+//! selected raw record; an explicit source uses the bounded diagnostic rescan.
+//! Stored text is reported when the two differ, or on `--raw` for every hit.
 //!
 //! Values legitimately contain newlines and tabs. Nothing here strips them; JSON
 //! string escaping preserves them exactly, so `\n` in the output is a real line
@@ -190,12 +191,27 @@ fn query_report(
             error: error.to_string(),
             hint: None,
         })?;
-    let mut scan = scan_raw_labels(table.bytes);
+    // CsfFile owns slot selection, including Ares duplicates created by an
+    // unsorted in-file append. Carry raw text from that SAME selected slot.
+    let scan = RawScan {
+        by_key: csf
+            .entries()
+            .filter_map(|(key, _)| {
+                csf.raw_entry(key).map(|(stored_key, value)| {
+                    (
+                        key.to_string(),
+                        RawLabel {
+                            stored_key: stored_key.to_string(),
+                            value: value.to_string(),
+                        },
+                    )
+                })
+            })
+            .collect(),
+        truncated: false,
+    };
     for name in admitted {
         if let Some(resolved) = crate::asset_tools::locate::locate(asset_manager, &name) {
-            let extra = scan_raw_labels(resolved.bytes);
-            scan.by_key.extend(extra.by_key);
-            scan.truncated |= extra.truncated;
             table.source.push_str(" + ");
             table.source.push_str(&name);
             table.source_archive.push_str(" + ");
@@ -335,11 +351,13 @@ fn build_parsed_report(
             let lowered = needle.to_lowercase();
             let mut hits: Vec<(&str, &str)> = csf
                 .entries()
+                .filter_map(|(key, _)| csf.get(key).map(|value| (key, value)))
                 .filter(|&(key, value)| matches_needle(key, value, &lowered))
                 .collect();
             // The parser's map iterates in hash order; sorting makes paging with
             // --offset mean something and keeps repeated runs comparable.
             hits.sort_by(|left, right| left.0.cmp(right.0));
+            hits.dedup_by(|left, right| left.0 == right.0);
             let matched = hits.len();
             Matches {
                 query: needle.to_string(),
@@ -566,6 +584,50 @@ fn read_u32_at(data: &[u8], offset: usize) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "ares")]
+    #[test]
+    fn default_query_and_raw_text_use_the_native_duplicate_winner() {
+        // Native witness: ares_csf_ordered.json's first control. Each source
+        // has unique labels, but appending B/C/D makes bsearch miss old KEEP.
+        let directory =
+            crate::assets::asset_manager::test_support::TestDirectory::new("csf-ordered");
+        std::fs::write(
+            directory.path().join("ra2md.csf"),
+            build_csf(&[("A", "base"), ("Keep", "  keep  ")]),
+        )
+        .unwrap();
+        std::fs::write(
+            directory.path().join("stringtable00.csf"),
+            build_csf(&[("B", "b"), ("C", "c"), ("D", "d"), ("KEEP", "replacement")]),
+        )
+        .unwrap();
+        let manager = AssetManager::from_loose_root_for_test(directory.path());
+        let active = get(&manager, "keep", &CsfOptions::default()).unwrap();
+        assert_eq!(active.entries[0].value, "keep");
+        assert_eq!(active.entries[0].key, "Keep");
+        assert_eq!(active.entries[0].raw.as_deref(), Some("  keep  "));
+        assert!(active.entries[0].changed_by_normalization);
+        let hits = grep(&manager, "keep", &CsfOptions::default()).unwrap();
+        assert_eq!(hits.matched, 1);
+        assert_eq!(hits.entries[0].value, "keep");
+        assert_eq!(
+            grep(&manager, "replacement", &CsfOptions::default())
+                .unwrap()
+                .matched,
+            0
+        );
+        let raw = get(
+            &manager,
+            "keep",
+            &CsfOptions {
+                source: Some("stringtable00.csf".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(raw.entries[0].value, "replacement");
+    }
 
     #[test]
     fn default_query_shares_active_profile_while_explicit_source_stays_raw() {

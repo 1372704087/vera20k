@@ -40,10 +40,31 @@ and Syringe register transport are declared fixture boundaries. Rust tests
 compare the loaded table and candidate order with those recorded outputs.
 
 Native allocates 20,000 label/value slots and assumes one value per label.
-Its binary search runs while new records are appended, before the file-end
-sort. Arbitrary duplicate newly introduced keys, multiple values, oversized
-labels/arrays, and truncated length or extra-data payloads are outside the
-demonstrated malformed-body coverage; ordinary unique single-value tables
-continue loading. This does not certify physical archive selection, complete
+The override hook's CRT `bsearch@7C8E25` searches the current array with a
+lower middle for even counts. `10060D4A` grows that array immediately when a
+search misses; only `100609A0` sorts after the file has finished (including a
+bad suffix). Thus unique supplemental records can duplicate an existing
+label: `[A,KEEP]` plus `[B,C,D,KEEP]` leaves two KEEP slots, and the final native
+lookup returns the original text. A map's unconditional replacement is wrong.
+
+[Ordered controls](ares_csf_ordered.json), [metadata](ares_csf_ordered.meta.json)
+and `ares_csf.py --ordered-controls` retain label count, full slot order and
+actual `StringTable::LoadString@734E60` outputs. They include a two-label base,
+a 42-label base and a 41-label base plus a 45-record file. The latter two enter
+the ninther partition path. No dictionary projection supplies lookup goldens.
+These new controls are separate from the original three histories.
+
+`CsfFile` exclusively owns either the raw/stock map or the active Ares array.
+Its private `ares_labels` module follows `sort@10060330`: insertion sort through
+32 slots, median/ninther partition beyond that, and the native heap fallback
+when its partition budget expires. Equal-key moves and lower-middle selection
+remain explicit; a host sort cannot pick a different duplicate winner. Heap
+fallback is instruction-derived, outside the executed control coverage. Raw
+text/spelling travels with each value, so default asset queries use the same
+selected slot as the game; explicit `--source` preserves raw-file map behavior.
+
+Base duplicate parsing, multiple values, oversized labels/arrays, and truncated
+length or extra-data payloads remain outside the demonstrated malformed-body
+coverage. These controls do not certify physical archive selection, complete
 startup, all malformed inputs, or whole-mod compatibility. No RNG, simulation
 timer or Detach mechanism participates in this presentation-only chain.

@@ -132,19 +132,32 @@ pub(crate) fn apply_foot_radiation(
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         let mut level_sum = 0_i32;
-        for (_, level) in sites {
+        for (site_center, level) in sites {
             let remain = effective.level_max - level_sum;
             let (level, damage) = rad_damage(level, remain, effective.level_factor);
             let Some(warhead) = rules.warhead(effective.site_warhead) else {
                 continue;
             };
             let warhead_id = world.interner.intern(&warhead.id);
+            // Phobos keeps the round's firing house and invoker on the site
+            // when the bound type asks for them (`RadHasOwner`,
+            // `RadHasInvoker`); the receiver call then carries them.
+            let (attacker, source_house) =
+                world
+                    .radiation
+                    .site_at(site_center)
+                    .map_or((RAD_NO_ATTACKER, None), |site| {
+                        (
+                            site.invoker().unwrap_or(RAD_NO_ATTACKER),
+                            site.firing_house(),
+                        )
+                    });
             let receiver = EntityDamageEvent::direct_receiver(
                 stable_id,
                 damage,
                 0,
-                RAD_NO_ATTACKER,
-                None,
+                attacker,
+                source_house,
                 warhead_id,
                 ReceiverCallFlags {
                     ignore_defenses: false,
@@ -2641,6 +2654,14 @@ fn emit_detonation_receivers<'r>(
                 spread: super::cell_spread::whole_cells(rad_warhead.cell_spread_f64),
                 // Phobos `WeaponTypeExt::RadType` binds the field's type.
                 rad_type: weapon.rad_type.clone(),
+                // Phobos `CreateInstance(owner, invoker)`: the round's house
+                // and firer, kept only when the bound type asks for them.
+                firing_house: world
+                    .substrate
+                    .entities
+                    .get(detonation.source_id)
+                    .map(|entity| entity.owner()),
+                invoker: (detonation.source_id != 0).then_some(detonation.source_id),
             });
     }
 

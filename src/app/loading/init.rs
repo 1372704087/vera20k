@@ -825,6 +825,8 @@ mod map_wall_owner_candidate_tests {
                 rad_level: 500,
                 spread: 1,
                 rad_type: None,
+                firing_house: None,
+                invoker: None,
             },
             &rules,
         );
@@ -1190,6 +1192,8 @@ mod map_wall_owner_candidate_tests {
             rad_level: 500,
             spread: 1,
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         };
         detonate_radiation(&mut sim, radiation.clone(), &rules);
         sim.session_mut_for_test()
@@ -1520,6 +1524,8 @@ mod map_wall_owner_candidate_tests {
                 rad_level: 500,
                 spread: 10,
                 rad_type: None,
+                firing_house: None,
+                invoker: None,
             },
             &rules,
         );
@@ -1565,6 +1571,8 @@ mod map_wall_owner_candidate_tests {
             rad_level: 500,
             spread: 10,
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         };
         detonate_radiation(&mut sim, detonation.clone(), &rules);
         let first = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);

@@ -8096,6 +8096,39 @@ fn irradiate_bound(
             rad_level,
             spread,
             rad_type: rad_type.map(str::to_owned),
+            firing_house: None,
+            invoker: None,
+        },
+        0,
+        sim.session.theater(),
+        rules,
+        sim.resolved_terrain.as_ref(),
+        &mut sim.lighting_sources,
+    );
+}
+
+/// [`irradiate_bound`] with Phobos `RadHasOwner`/`RadHasInvoker` attribution:
+/// the detonation names a firing house and an invoker object.
+#[cfg(feature = "phobos")]
+fn irradiate_attributed(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &RuleSet,
+    (rx, ry): (u16, u16),
+    rad_level: i32,
+    spread: i32,
+    rad_type: Option<&str>,
+    firing_house: Option<crate::sim::intern::InternedId>,
+    invoker: Option<u64>,
+) {
+    sim.radiation.apply_detonation(
+        crate::sim::radiation::RadDetonation {
+            rx,
+            ry,
+            rad_level,
+            spread,
+            rad_type: rad_type.map(str::to_owned),
+            firing_house,
+            invoker,
         },
         0,
         sim.session.theater(),
@@ -8545,6 +8578,8 @@ fn phobos_radiation_rules() -> RuleSet {
 [InfantryTypes]\n0=DESO\n1=E2\n\n\
 [DESO]\nStrength=200\nArmor=plate\nSpeed=4\nPrimary=RadBeamWeapon\nSecondary=RadEruptionWeapon\nDeployer=yes\nDeployFire=yes\nImmuneToRadiation=yes\n\n\
 [E2]\nStrength=300\nArmor=none\nSpeed=4\n\n\
+[VehicleTypes]\n0=MTNK\n\n\
+[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\n\n\
 [RadEruptionWeapon]\nDamage=1\nROF=60\nRange=4\nAreaFire=yes\nWarhead=RadEruptionWarhead\nRadLevel=500\nRadType=ToxicField\nReport=DesolatorDeploy\n\n\
 [RadEruptionWarhead]\nVerses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\nCellSpread=10\n\n\
 [BuildingTypes]\n0=GAPOWR\n1=RADBLDG\n2=IRONBLDG\n\n\
@@ -8553,11 +8588,12 @@ fn phobos_radiation_rules() -> RuleSet {
 [IRONBLDG]\nStrength=750\nArmor=none\nImmuneToRadiation=yes\n\n\
 [Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadApplicationDelay.Building=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
 [Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
-[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n\n\
+[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n4=OwnerRad\n\n\
 [ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
 [OtherField]\nRadLevelFactor=0.1\n\n\
 [VioletField]\nRadColor=255,0,255\nRadLightFactor=1.0\nRadTintFactor=1.0\n\n\
 [DemoPurple]\nRadColor=255,0,255\nRadLightFactor=0.6\nRadTintFactor=2.0\nRadDurationMultiple=6\nRadLevelMax=400\n\n\
+[OwnerRad]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadHasOwner=yes\nRadHasInvoker=yes\n\n\
 [RadSiteToxic]\nVerses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\n",
     );
     RuleSet::from_ini(&ini).expect("phobos radiation rules should parse")
@@ -11523,6 +11559,69 @@ fn retail_snow_theater_substitutes_red_and_blue() {
         [-501, 0, -501],
         "red and blue take the snow -128 channel, green keeps [Radiation] RadColor"
     );
+}
+
+/// Phobos `RadHasOwner`/`RadHasInvoker`: the site keeps the round's house and
+/// firer, and its damage call carries them.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_rad_has_owner_and_invoker_reach_the_site_and_its_damage() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    let victim = sim
+        .spawn_object("MTNK", "Americans", 5, 5, 0, &rules)
+        .expect("victim spawns");
+    let shooter = sim
+        .spawn_object("E2", "Americans", 8, 8, 0, &rules)
+        .expect("shooter spawns");
+    let owner = sim.interner.get("Americans").expect("owner interned");
+    irradiate_attributed(
+        &mut sim,
+        &rules,
+        (5, 5),
+        500,
+        2,
+        Some("OwnerRad"),
+        Some(owner),
+        Some(shooter),
+    );
+    let (kept_house, kept_invoker) = {
+        let site = sim.radiation.site_at((5, 5)).expect("site");
+        (site.firing_house(), site.invoker())
+    };
+    assert_eq!(kept_house, Some(owner), "RadHasOwner keeps the house");
+    assert_eq!(kept_invoker, Some(shooter), "RadHasInvoker keeps the firer");
+    rad_frame(&mut sim, &rules, 16);
+    let after = sim
+        .substrate
+        .entities
+        .get(victim)
+        .map_or(0, |entity| entity.health.current());
+    assert!(
+        after < 300,
+        "the attributed damage reaches the victim (health {after})"
+    );
+
+    // A type without the flags keeps neither, even though the detonation
+    // named them.
+    let mut plain = radiation_scene(&rules);
+    plain
+        .spawn_object("E2", "Americans", 10, 10, 0, &rules)
+        .expect("plain scene interns its house");
+    let plain_owner = plain.interner.get("Americans").expect("owner interned");
+    irradiate_attributed(
+        &mut plain,
+        &rules,
+        (5, 5),
+        500,
+        2,
+        Some("ToxicField"),
+        Some(plain_owner),
+        Some(shooter),
+    );
+    let site = plain.radiation.site_at((5, 5)).expect("site");
+    assert_eq!(site.firing_house(), None, "the flag decides retention");
+    assert_eq!(site.invoker(), None);
 }
 
 /// Phobos `BuildingClass_AI_Radiation @ 0x43FB23`: a building takes its

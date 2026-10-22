@@ -73,6 +73,14 @@ name and the bound weapon IDs enter the simulation configuration hash, and the
 catalog crosses the save boundary with the retained Rules records. A save
 records the build capability and cannot load in the other mode.
 
+`RadHasOwner` and `RadHasInvoker` attribute a site's damage.
+`RadSiteExt::CreateInstance` copies the detonating round's house and firer onto
+the site only when the bound type asks for them, a merge keeps the existing
+site's copies, and each Foot damage call passes them to `ReceiveDamage` — the house
+as its source house (native alliance and credit rules) and the firer as its
+source object. A type without the flags keeps neither, so its radiation keeps
+hitting every house neutrally.
+
 Buildings take radiation in a Phobos build through
 `BuildingClass_AI_Radiation @ 0x0043FB23`, the branch that follows the
 operational edge sample at `0x0043FB20`. It runs for every live building each
@@ -87,6 +95,6 @@ type's warhead verses still decide the damage. Phobos' hook tests a per-site
 observable effect there and none here.
 
 Not implemented, read and retained only: `RadSiteWarhead.Detonate` and
-`RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site), and
-`RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
+`RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site).
+Building radiation currently uses the neutral direct receiver.
 This feature does not load Phobos DLLs or establish complete mod compatibility.

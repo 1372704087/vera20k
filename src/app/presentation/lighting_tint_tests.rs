@@ -345,6 +345,8 @@ fn a_bound_radiation_type_tints_the_field_with_its_own_color() {
                 rad_level: 500,
                 spread: 2,
                 rad_type: bound.map(str::to_owned),
+                firing_house: None,
+                invoker: None,
             },
             0,
             "TEMPERATE",

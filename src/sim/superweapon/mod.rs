@@ -46,6 +46,8 @@ pub(crate) mod nuke;
 #[cfg(test)]
 mod nuke_tests;
 pub mod paradrop;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_techno_requirements_tests;
 pub mod psychic_dominator;
 #[cfg(test)]
 mod psychic_dominator_tests;
@@ -1408,23 +1410,30 @@ fn owned_building_present(sim: &Simulation, rules: &RuleSet, owner: InternedId, 
 }
 
 /// Shared grant/hold, detection, command and building-Anim availability owner.
-/// Ares100329E0 tests retained shot count, mode-aware controller, native Aux,
-/// actual Country mask, then extension Aux/Neg lists in that order. Presence
-/// is owned-and-on-map, not power. OFF preserves the stock Aux-only gate.
+/// Phobos `SWTypeExt::IsAvailable` opens with the owner's TechLevel against
+/// `SW.TechLevel`; Ares100329E0 then tests retained shot count, mode-aware
+/// controller, native Aux, actual Country mask and extension Aux/Neg lists,
+/// and Phobos closes with `SW.AuxTechnos`/`SW.NegTechnos`. Presence is owned,
+/// present or limboed, not power. A build without either capability keeps the
+/// stock Aux-only gate.
 pub fn super_weapon_available(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,
     name: &str,
 ) -> bool {
-    #[cfg(not(feature = "ares"))]
-    {
-        rules
-            .super_weapon(name)
-            .is_some_and(|sw| aux_building_present(sim, rules, owner, sw))
+    #[cfg(feature = "phobos")]
+    if !phobos_tech_level_allows(sim, rules, owner, name) {
+        return false;
     }
+
+    #[cfg(not(feature = "ares"))]
+    let allowed = rules
+        .super_weapon(name)
+        .is_some_and(|sw| aux_building_present(sim, rules, owner, sw));
+
     #[cfg(feature = "ares")]
-    {
+    let allowed = {
         let Some(metadata) = rules.super_weapon_metadata(name) else {
             return false;
         };
@@ -1459,7 +1468,67 @@ pub fn super_weapon_available(
             && metadata.building_requirements().is_none_or(|requirements| {
                 requirements.allows(|id| owned_building_present(sim, rules, owner, id))
             })
-    }
+    };
+
+    #[cfg(feature = "phobos")]
+    let allowed = allowed && phobos_technos_allow(sim, rules, owner, name);
+
+    allowed
+}
+
+/// `SW.TechLevel`: the owner's current TechLevel must reach the weapon's. The
+/// value is a plain minimum (`-1` is not special); `pHouse->TechLevel <
+/// SW_TechLevel` is the native test.
+#[cfg(feature = "phobos")]
+fn phobos_tech_level_allows(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    name: &str,
+) -> bool {
+    let Some(availability) = rules.phobos_super_weapon_metadata(name) else {
+        return true;
+    };
+    sim.houses
+        .get(&owner)
+        .is_some_and(|house| availability.allows_tech_level(house.tech_level()))
+}
+
+/// `SW.AuxTechnos`/`SW.NegTechnos`: owned technos that are present or in
+/// limbo (`HouseExt::CountOwnedPresentAndLimboed`), across every techno
+/// category.
+#[cfg(feature = "phobos")]
+fn phobos_technos_allow(sim: &Simulation, rules: &RuleSet, owner: InternedId, name: &str) -> bool {
+    let Some(availability) = rules.phobos_super_weapon_metadata(name) else {
+        return true;
+    };
+    availability.allows_technos(|id| owned_techno_present(sim, rules, owner, id))
+}
+
+/// Whether `owner` owns a `id` techno that is present on the map or in limbo.
+/// Tracking keeps owned counters through limbo, so this is the native
+/// `CountOwnedPresentAndLimboed` sum for the type's own category.
+#[cfg(feature = "phobos")]
+fn owned_techno_present(sim: &Simulation, rules: &RuleSet, owner: InternedId, id: &str) -> bool {
+    use crate::map::entities::EntityCategory;
+    use crate::rules::object_type::ObjectCategory;
+
+    [
+        (ObjectCategory::Infantry, EntityCategory::Infantry),
+        (ObjectCategory::Vehicle, EntityCategory::Unit),
+        (ObjectCategory::Aircraft, EntityCategory::Aircraft),
+        (ObjectCategory::Building, EntityCategory::Structure),
+    ]
+    .into_iter()
+    .any(|(object_category, entity_category)| {
+        rules
+            .object_in_category(object_category, id)
+            .and_then(|object| sim.interner.get(&object.id))
+            .zip(sim.houses.get(&owner))
+            .is_some_and(|(type_id, house)| {
+                house.tracking().owned_count(entity_category, type_id) > 0
+            })
+    })
 }
 
 /// The Supers `building` provides: its type's `SuperWeapon=` and

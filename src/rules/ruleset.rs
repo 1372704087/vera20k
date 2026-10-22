@@ -4141,6 +4141,11 @@ pub struct RuleSet {
     #[cfg(feature = "ares")]
     ares_super_weapon_metadata:
         BTreeMap<String, crate::rules::superweapon_type::AresSuperWeaponMetadata>,
+    /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos` for every
+    /// registered superweapon, projected from the retained registry.
+    #[cfg(feature = "phobos")]
+    phobos_super_weapon_metadata:
+        BTreeMap<String, crate::rules::superweapon_type::PhobosSuperWeaponAvailability>,
     /// Rules-driven terrain land-type semantics keyed by TMP land byte.
     pub terrain_rules: TerrainRules,
     /// Native `[Tiberiums]` definitions in GameMD type order.
@@ -4785,6 +4790,15 @@ impl RuleSet {
                 .find(|super_weapon| super_weapon.id.eq_ignore_ascii_case(name))
             {
                 super_weapon.building_requirements = requirements.cloned();
+            }
+        }
+        #[cfg(feature = "phobos")]
+        {
+            rules.phobos_super_weapon_metadata.clear();
+            for (name, availability) in processed.phobos_super_weapon_availability_states() {
+                rules
+                    .phobos_super_weapon_metadata
+                    .insert(name.to_ascii_uppercase(), availability);
             }
         }
         #[cfg(feature = "ares")]
@@ -5613,6 +5627,8 @@ impl RuleSet {
             ares_global_controls: processed.ares_global_controls().clone(),
             #[cfg(feature = "ares")]
             ares_super_weapon_metadata: BTreeMap::new(),
+            #[cfg(feature = "phobos")]
+            phobos_super_weapon_metadata: BTreeMap::new(),
             ares_prerequisite_alternates: HashSet::new(),
             terrain_rules,
             tiberium_types,
@@ -6116,6 +6132,11 @@ impl RuleSet {
             .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-super-availability-v1".hash(&mut hasher);
+            self.phobos_super_weapon_metadata.hash(&mut hasher);
+        }
         #[cfg(feature = "ares")]
         {
             b"ares-side-sidebar-v1".hash(&mut hasher);
@@ -7366,6 +7387,17 @@ impl RuleSet {
         id: &str,
     ) -> Option<&crate::rules::superweapon_type::AresSuperWeaponMetadata> {
         self.ares_super_weapon_metadata
+            .get(&id.to_ascii_uppercase())
+    }
+
+    /// The Phobos techno gates for a superweapon, if the capability is
+    /// compiled in and the type was registered.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_metadata(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::superweapon_type::PhobosSuperWeaponAvailability> {
+        self.phobos_super_weapon_metadata
             .get(&id.to_ascii_uppercase())
     }
 

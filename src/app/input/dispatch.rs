@@ -3215,44 +3215,94 @@ fn queue_team_selection(state: &mut AppState, selection: TeamSelection) {
     );
 }
 
-/// `StopCommandClass::Execute @ 0x00730EA0` issues Stop to each selected
-/// object it may control (vt+0xA0) or that is active (vt+0x9C,
-/// `0x00730ECD..0x00730EE3`), so an offline Robot Tank a click selected stays
-/// put.
-///
-/// Planning refusal at730EF5 ->6FFE00 ->639FD0 ends this walk before
-/// scheduling ordinary Stop. The closing Rules+720 sound is a residual.
+/// `Selection__IssueStopCommand @ 0x00730EA0`, reached from the Stop key
+/// (`0x00536B80`) and the command bar. Planning refusal at730EF5 ->6FFE00
+/// ->639FD0 ends the walk with ScoldSound and no StopSound; it is only
+/// reached for a qualifying object.
 fn queue_stop_for_selected(state: &mut AppState) {
     let sim = state
         .match_state
         .sim_runtime
         .as_ref()
         .map(|rt| &rt.simulation);
-    let mut selected_ids = selected_stable_ids_in_order(
+    let selected_ids = selected_stable_ids_in_order(
         sim,
         state.rules(),
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
-    if let (Some(sim), Some(rules)) = (sim, state.rules()) {
-        selected_ids.retain(|&id| {
-            sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules)
-        });
-    }
-    if selected_ids.is_empty() {
-        return;
-    }
-    if state.match_state.input.planning.active() {
+    let qualifies = match (sim, state.rules()) {
+        (Some(sim), Some(rules)) => selected_ids
+            .iter()
+            .any(|&id| stop_qualifies(sim, rules, id)),
+        _ => false,
+    };
+    if qualifies && state.match_state.input.planning.active() {
         crate::app::input::planning_mode::refuse(
             state,
             crate::app::input::planning_mode::PlanningRefusal::Stop,
         );
         return;
     }
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
-    for entity_id in selected_ids {
-        schedule_command(state, &owner, Command::Stop { entity_id });
+    let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
+        return;
+    };
+    for sound in queue_stop_orders(
+        &mut runtime.simulation,
+        &runtime.resources.rules,
+        &selected_ids,
+    ) {
+        state.match_state.match_audio.sound_events.push(sound);
     }
+}
+
+/// Whether the Stop walk issues to this object: one it may control (vt+0xA0)
+/// or that is active (vt+0x9C, `0x00730ECD..0x00730EE3`), so an offline
+/// Robot Tank a click selected stays put.
+fn stop_qualifies(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    id: u64,
+) -> bool {
+    sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules)
+}
+
+/// The Stop walk, then its cue `PlayGlobal(Rules+720, 0x2000, 1.0)`
+/// (`0x00730F00..0x00730F17`). An empty selection plays nothing
+/// (`0x00730EAB`); the walk's result starts true, so a selection where
+/// nothing qualified still plays it. Events are sent as the player's house
+/// (`ClickedEvent 0x006FFE00`), as Guard and Scatter do.
+fn queue_stop_orders(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    selected: &[u64],
+) -> Vec<crate::audio::events::GameSoundEvent> {
+    if selected.is_empty() {
+        return Vec::new();
+    }
+    let Some(owner) = sim.session().current_house() else {
+        return Vec::new();
+    };
+    let owner = sim.interner().resolve(owner).to_owned();
+    for &entity_id in selected {
+        if !stop_qualifies(sim, rules, entity_id) {
+            continue;
+        }
+        let payload = Command::Stop { entity_id };
+        if crate::app::input::commands::schedule_command_in_sim(sim, &owner, payload).is_none() {
+            // A refused Rust schedule fails closed, as Guard's does.
+            return Vec::new();
+        }
+    }
+    rules
+        .general
+        .stop_sound
+        .as_ref()
+        .map_or_else(Vec::new, |sound_id| {
+            vec![crate::audio::events::GameSoundEvent::UiSound {
+                sound_id: sound_id.clone(),
+            }]
+        })
 }
 
 /// GuardObject536D00 and command-bar slot6 both execute730D60 immediately.
@@ -6030,6 +6080,63 @@ mod control_group_tests {
         let mut groups = vec![vec![1u64, 2], Vec::new()];
         assign_control_group(&mut groups, 0, Vec::new());
         assert!(groups[0].is_empty());
+    }
+}
+
+#[cfg(test)]
+mod stop_command_tests {
+    use crate::audio::events::GameSoundEvent;
+    use crate::sim::command::Command;
+
+    /// `Selection__IssueStopCommand @ 0x00730EA0` stops an own unit and then
+    /// plays the retail StopSound (read at `0x0066ADE3`). An enemy alone
+    /// does not qualify but still gets the cue; an empty selection gets
+    /// nothing (`0x00730EAB`).
+    #[test]
+    fn stop_issues_to_qualifying_units_then_plays_its_retail_cue() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = &retail.rules;
+        let stop_sound = rules.general.stop_sound.clone();
+        assert!(
+            stop_sound
+                .as_deref()
+                .is_some_and(|name| name.eq_ignore_ascii_case("CommandBar"))
+        );
+        let mut sim = crate::sim::world::Simulation::new();
+        for (index, (name, human)) in [("Americans", true), ("Russians", false)]
+            .into_iter()
+            .enumerate()
+        {
+            let id = sim.intern(name);
+            let mut house =
+                crate::sim::house_state::HouseState::new(id, index as u8, None, human, 0, 10);
+            house.set_player_control_for_test(human);
+            sim.houses_mut_for_test().register(house);
+        }
+        let owner = sim.interner().get("Americans").unwrap();
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(owner));
+        let own = sim
+            .spawn_object("MTNK", "Americans", 10, 10, 0, rules)
+            .unwrap();
+        let enemy = sim
+            .spawn_object("HTNK", "Russians", 12, 10, 0, rules)
+            .unwrap();
+        let cue = |sounds: &[GameSoundEvent]| matches!(sounds, [GameSoundEvent::UiSound { sound_id }] if Some(sound_id) == stop_sound.as_ref());
+
+        assert!(cue(&super::queue_stop_orders(&mut sim, rules, &[own])));
+        let stops: Vec<_> = sim
+            .pending_command_snapshot()
+            .into_iter()
+            .map(|envelope| envelope.payload)
+            .collect();
+        assert!(matches!(stops.as_slice(), [Command::Stop { entity_id }] if *entity_id == own));
+
+        assert!(cue(&super::queue_stop_orders(&mut sim, rules, &[enemy])));
+        assert_eq!(sim.pending_command_snapshot().len(), 1);
+        assert!(super::queue_stop_orders(&mut sim, rules, &[]).is_empty());
     }
 }
 

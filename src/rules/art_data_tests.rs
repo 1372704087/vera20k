@@ -1268,8 +1268,11 @@ fn imageless_retail_animation_reaches_existing_gas_particle_owner() {
         Some(&rules),
         crate::sim::world::ObjectAiCtx::default(),
     );
+    // AI UnInit conceals and queues the physical receiver. The ordinary
+    // end-of-frame deletion owner, rather than AI itself, releases storage.
+    sim.process_pending_delete();
     assert!(
         sim.anim(anim).is_none(),
-        "zero-End animation retires through existing AI"
+        "zero-End animation retires through existing AI and deferred drain"
     );
 }

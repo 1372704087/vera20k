@@ -27,6 +27,7 @@
 
 use glam::IVec3;
 
+pub use crate::rules::ini_parser::ini_value::TechnoTypeCategory;
 use crate::rules::ini_parser::{IniSection, is_native_none_type_name};
 use crate::rules::jumpjet_params::JumpjetParams;
 use crate::rules::locomotor_type::{LocomotorKind, MovementZone, SpeedType};
@@ -314,8 +315,15 @@ pub struct ObjectType {
     /// Section name in rules.ini (e.g., "MTNK", "E1", "GAWEAP").
     /// This is the unique identifier used throughout the engine.
     pub id: String,
+    /// Inherited `ObjectTypeClass::ReadINI @ 0x005F92D0` AlphaImage buffer
+    /// (`+0x213`, `char[25]`); the constructor starts empty and later empty
+    /// reads keep the current name.
+    pub(crate) alpha_image: String,
     /// Which type registry this object belongs to.
     pub category: ObjectCategory,
+    /// Native `TechnoTypeClass::ReadINI @ 0x00712170` `Category=` result at
+    /// `+0x3BC`, separate from the Rust registry family above.
+    pub techno_category: TechnoTypeCategory,
     /// BuildingType+EBC, world leptons added by Building4500A0 to GetCoords.
     /// Constructor45DEBC..45DEC8 clears it; ReadINI460F87 uses ReadCoord529CA0
     /// with the current triple as default. Other type classes do not read it.
@@ -2851,7 +2859,9 @@ impl ObjectType {
 
         Self {
             id: id.to_string(),
+            alpha_image: section.read_object_alpha_image(""),
             category,
+            techno_category: section.read_techno_type_category(TechnoTypeCategory::Unknown),
             // The process-resident Building reader publishes this below the
             // projection; merged text must not perform a second coordinate read.
             target_coord_offset: [0; 3],
@@ -5506,6 +5516,91 @@ mod tests {
             (jumpjet_sections, ini_spelling),
             (8, 16),
             "8 stock sections author Jumpjet* keys and all 8 carry both mis-cased keys"
+        );
+    }
+
+    #[test]
+    fn techno_category_retains_stock_battle_values() {
+        let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+
+        assert_eq!(
+            battle.rules.object("E1").expect("stock E1").techno_category,
+            TechnoTypeCategory::Soldier
+        );
+        assert_eq!(
+            battle
+                .rules
+                .object("MTNK")
+                .expect("stock MTNK")
+                .techno_category,
+            TechnoTypeCategory::ArmoredFightingVehicle
+        );
+    }
+
+    #[test]
+    fn techno_category_uses_native_names_and_current_default_per_pass() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let mut layers = RulesLayerStack::new((*battle.authored_rules).clone());
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[E1]\nCategory=Armored Fighting Vehicle\n[MTNK]\nCategory=AFV\n"),
+        );
+        let named = RuleSet::from_rules_layers(&layers).expect("production Category pass");
+        assert_eq!(
+            named.object("E1").expect("registered E1").techno_category,
+            TechnoTypeCategory::ArmoredFightingVehicle
+        );
+        assert_eq!(
+            named
+                .object("MTNK")
+                .expect("registered MTNK")
+                .techno_category,
+            TechnoTypeCategory::ArmoredFightingVehicle
+        );
+
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[E1]\nCost=1\n[MTNK]\nCategory=not-a-native-category\n"),
+        );
+        let missing_and_unknown =
+            RuleSet::from_rules_layers(&layers).expect("production Category boundaries");
+        assert_eq!(
+            missing_and_unknown
+                .object("E1")
+                .expect("registered E1")
+                .techno_category,
+            TechnoTypeCategory::ArmoredFightingVehicle
+        );
+        assert_eq!(
+            missing_and_unknown
+                .object("MTNK")
+                .expect("registered MTNK")
+                .techno_category,
+            TechnoTypeCategory::Unknown
+        );
+
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[E1]\nCategory=not-a-native-category\n[MTNK]\nCost=1\n"),
+        );
+        let unknown = RuleSet::from_rules_layers(&layers).expect("production layered Category");
+        assert_eq!(
+            unknown.object("E1").expect("registered E1").techno_category,
+            TechnoTypeCategory::Unknown
+        );
+        assert_eq!(
+            unknown
+                .object("MTNK")
+                .expect("registered MTNK")
+                .techno_category,
+            TechnoTypeCategory::Unknown
         );
     }
 }

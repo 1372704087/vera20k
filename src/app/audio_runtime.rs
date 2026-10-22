@@ -836,11 +836,11 @@ mod tests {
         let Some(mut music) = MusicPlayer::new() else {
             return;
         };
-        assert!(music.submit(PreparedTrack {
-            stem: "Silence".into(),
-            samples: vec![0.0; 22_050 * 2 * 10],
-            sample_rate: 22_050,
-        }));
+        assert!(music.submit(PreparedTrack::decoded(
+            "Silence".into(),
+            vec![0.0; 22_050 * 2 * 10],
+            22_050,
+        )));
         let root = std::env::temp_dir().join(format!("vera20k-quit-fade-{}", std::process::id()));
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(
@@ -963,11 +963,11 @@ mod tests {
         let action = ThemeAction {
             stop_output: true,
             fade_out: true,
-            start: Some(PreparedTrack {
-                stem: "Drok".into(),
-                samples: vec![0.0, 0.0],
-                sample_rate: 22_050,
-            }),
+            start: Some(PreparedTrack::decoded(
+                "Drok".into(),
+                vec![0.0, 0.0],
+                22_050,
+            )),
         };
         let mut output = FakeOutput {
             calls: Vec::new(),

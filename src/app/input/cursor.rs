@@ -143,9 +143,11 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // only renders on the tactical map. DetermineAction answers the armed
     // superweapon only with nothing selected (`0x00692610..0x00692673`); with
     // a selection the best object's What_Action answers below.
-    if let Some(section) = state.armed_super_weapon_type()
-        && selected.is_empty()
-    {
+    let pointer_mode = state.match_state.input.tactical_pointer_mode(
+        &state.match_state.match_presentation.sidebar_gadget_state,
+        selected.is_empty(),
+    );
+    if let super::state::TacticalPointerMode::SuperWeapon(section) = pointer_mode {
         if let Some(runtime) = state.match_state.sim_runtime.as_ref()
             && let Some(owner) = preferred_local_owner_name(state)
                 .and_then(|name| runtime.simulation.interner().get(&name))
@@ -194,16 +196,15 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         .sim_runtime
         .as_ref()
         .map(|rt| &rt.simulation)?;
-    // Repair / Sell cursor modes take over the tactical map regardless of
-    // selection — the wrench/dollar shows over own buildings, no-repair/no-sell
-    // elsewhere. Placed before the empty-selection early return below because
-    // gamemd shows these cursors even with nothing selected.
-    let (repair_mode, sell_mode) =
-        crate::app::presentation::sidebar_render::current_sidebar_view(state)
-            .map(|view| (view.repair_button.active, view.sell_button.active))
-            .unwrap_or_default();
-    if repair_mode || sell_mode {
-        let repair = repair_mode;
+    // DetermineAction's no-selection path keeps Repair/Sell only when no
+    // armed Super overrides it. Use the same priority as the release owner;
+    // its target admission still supplies wrench/dollar or refusal feedback.
+    if matches!(pointer_mode, super::state::TacticalPointerMode::RepairSell) {
+        let repair = state
+            .match_state
+            .match_presentation
+            .sidebar_gadget_state
+            .repair_mode_on;
         let (wx, wy) = crate::app::match_runtime::sim_tick::screen_point_to_world(
             state,
             state.match_state.input.cursor_x,
@@ -232,6 +233,25 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     // PlanMgr63AC41 selects native action0 over a planning node.
     if crate::app::input::planning_mode::node_at_cursor(state).is_some() {
         return Some(CursorFeedbackKind::Default);
+    }
+    // DetermineAction's no-selection arm, reached once the node hover
+    // (0x00692F76) passes: beacon mode answers 0x3C over any Cell
+    // (0x006929AF), else a beacon's Cell answers 0x3D, row 0x11 like Select
+    // (0x006927BC..0x006927C5). The planning byte +0x11B3 whose arm
+    // (0x006928A9) would replace 0x3D is never set in YR: its only write of
+    // 1, SetWaypointMode 0x004AC7A7, is only ever called with 0.
+    if selected.is_empty() {
+        if crate::app::input::beacon::mode_active(state) {
+            return Some(CursorFeedbackKind::PlaceBeacon);
+        }
+        let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+            state,
+            state.match_state.input.cursor_x,
+            state.match_state.input.cursor_y,
+        );
+        if crate::app::input::beacon::beacon_at_cell(state, cell) {
+            return Some(CursorFeedbackKind::Select);
+        }
     }
     let (world_x, world_y) = crate::app::match_runtime::sim_tick::screen_point_to_world(
         state,
@@ -1563,6 +1583,8 @@ pub(crate) fn cursor_id_for_feedback(kind: CursorFeedbackKind) -> Option<CursorI
             CursorId::NoSell
         }),
         CursorFeedbackKind::SuperWeaponTarget(id) => Some(id),
+        // Row 0x4E: mouse.sha frames 435..449 at rate 4.
+        CursorFeedbackKind::PlaceBeacon => Some(CursorId::Beacon),
     }
 }
 

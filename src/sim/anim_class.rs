@@ -80,6 +80,26 @@ pub struct AnimWorldCoord {
     pub z: i32,
 }
 
+impl From<crate::sim::components::DriveCoord> for AnimWorldCoord {
+    fn from(coord: crate::sim::components::DriveCoord) -> Self {
+        Self {
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+        }
+    }
+}
+
+impl From<crate::sim::projectile::ProjectileCoord> for AnimWorldCoord {
+    fn from(coord: crate::sim::projectile::ProjectileCoord) -> Self {
+        Self {
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+        }
+    }
+}
+
 impl AnimWorldCoord {
     /// Decompose the absolute lepton coordinate into (cell, sub-cell,
     /// height level). The level is the floor of Z over the native level height
@@ -1334,11 +1354,8 @@ impl Simulation {
     /// `0x004D7FA6..0x004D8062`), which VERA does not model, so it spawns
     /// nothing there. False when nothing is constructed.
     pub(crate) fn spawn_move_flash(&mut self, rules: &RuleSet, cell: (u16, u16)) -> bool {
-        use crate::sim::scenario_session::ScenarioGameMode;
-        if !matches!(
-            self.session.game_mode(),
-            ScenarioGameMode::Campaign | ScenarioGameMode::Skirmish
-        ) || rules.general.move_flash.name.is_empty()
+        if !self.session.game_mode().is_single_player()
+            || rules.general.move_flash.name.is_empty()
         {
             return false;
         }

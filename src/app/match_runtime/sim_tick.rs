@@ -535,7 +535,7 @@ pub(crate) fn main_tick_owns_audio_pump(state: &AppState, simulation_allowed: bo
 /// [`main_tick_owns_audio_pump`]'s decision: an admitted match in
 /// `g_GameMode` 0 or 5, on a pass no loop of its own pumps.
 fn audio_pump_follows_main_tick(mode: SessionMode, match_admitted: bool, own_loop: bool) -> bool {
-    matches!(mode, SessionMode::Campaign | SessionMode::Skirmish) && match_admitted && !own_loop
+    mode.is_single_player() && match_admitted && !own_loop
 }
 
 /// Pure modal-pump decision: should the simulation advance one frame while a
@@ -1217,6 +1217,11 @@ fn advance_one_simulation_frame(
                 }
                 .expect("simulation frame failed; prior world mutations remain")
             };
+            state
+                .match_state
+                .match_presentation
+                .screen_shake
+                .apply_updates(&output.screen_shake_updates);
             if output.outcome_waiting {
                 // The simulation retains this frame's non-sound facts until
                 // the same House suffix finishes. Its sound prefix has already
@@ -1631,8 +1636,9 @@ fn advance_one_simulation_frame(
         }
 
         for message in hud_messages {
-            // MPlayer_Defeated's local branch sets the chat mask
-            // (0x004FC23E) before it posts its line (0x004FC271).
+            // MPlayer_Defeated's local branch deletes the player's beacons
+            // and leaves beacon mode (0x004FC1C6, 0x004FC1FA), then sets the
+            // chat mask (0x004FC23E) before it posts its line (0x004FC271).
             if let crate::app::input::messages::HudMessage::PlayerDefeated(house) = message
                 && state
                     .match_state
@@ -1641,6 +1647,7 @@ fn advance_one_simulation_frame(
                     .and_then(|runtime| runtime.simulation.session().current_house())
                     == Some(house)
             {
+                super::beacons::local_player_defeated(state);
                 state
                     .match_state
                     .match_presentation

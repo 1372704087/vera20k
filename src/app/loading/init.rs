@@ -825,6 +825,8 @@ mod map_wall_owner_candidate_tests {
                 rad_level: 500,
                 spread: 1,
                 rad_type: None,
+                firing_house: None,
+                invoker: None,
             },
             &rules,
         );
@@ -1190,6 +1192,8 @@ mod map_wall_owner_candidate_tests {
             rad_level: 500,
             spread: 1,
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         };
         detonate_radiation(&mut sim, radiation.clone(), &rules);
         sim.session_mut_for_test()
@@ -1520,6 +1524,8 @@ mod map_wall_owner_candidate_tests {
                 rad_level: 500,
                 spread: 10,
                 rad_type: None,
+                firing_house: None,
+                invoker: None,
             },
             &rules,
         );
@@ -1565,6 +1571,8 @@ mod map_wall_owner_candidate_tests {
             rad_level: 500,
             spread: 10,
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         };
         detonate_radiation(&mut sim, detonation.clone(), &rules);
         let first = derive_lighting_view(&LightingConfig::default(), Some(&sim), 2);
@@ -2149,6 +2157,8 @@ impl MapLoadInitial {
             free_radar: map_data.basic.free_radar.unwrap_or(false),
             ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
             timer_inherit: map_data.basic.timer_inherit.unwrap_or(false),
+            carry_over_money: map_data.basic.carry_over_money,
+            carry_over_cap: map_data.basic.carry_over_cap,
             train_crate: map_data.basic.train_crate.unwrap_or(false),
             truck_crate: map_data.basic.truck_crate.unwrap_or(false),
             ice_growth_enabled: map_data.basic.ice_growth_enabled,
@@ -2233,7 +2243,7 @@ impl MapLoadInitial {
         rules.bind_effect_assets(asset_manager, theater_ext, &map_data.header.theater);
         rules.bind_building_buildup_assets(asset_manager, &map_data.header.theater);
         rules.bind_building_rubble_assets(asset_manager, theater_ext, &map_data.header.theater);
-        rules.bind_terrain_spawner_assets(
+        rules.bind_terrain_assets(
             &rules_ini,
             asset_manager,
             theater_ext,
@@ -3016,6 +3026,8 @@ pub(crate) fn load_map_from_initial(
         free_radar: map_data.basic.free_radar.unwrap_or(false),
         ignore_global_ai_triggers: map_data.basic.ignore_global_ai_triggers.unwrap_or(false),
         timer_inherit: map_data.basic.timer_inherit.unwrap_or(false),
+        carry_over_money: map_data.basic.carry_over_money,
+        carry_over_cap: map_data.basic.carry_over_cap,
         train_crate: map_data.basic.train_crate.unwrap_or(false),
         truck_crate: map_data.basic.truck_crate.unwrap_or(false),
         ice_growth_enabled: map_data.basic.ice_growth_enabled,
@@ -3142,6 +3154,7 @@ pub(crate) fn load_map_from_initial(
         &mut rules,
         &rules_ini,
         &fixed_art_ini,
+        &overlay_registry,
         &roots,
         asset_manager,
         theater_ext,

@@ -34,6 +34,7 @@ use crate::map::lighting::{self, LIGHT_CLAMP_MAX, LIGHT_UNIT, PointLight};
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::phobos_radiation::{EffectiveRadiation, effective_radiation};
 use crate::rules::ruleset::RuleSet;
+use crate::sim::intern::InternedId;
 use crate::sim::light_sources::{LightingEvent, LightingSources};
 use crate::sim::timer::CdTimer;
 use crate::util::native_x87::sqrt_approx_length;
@@ -94,6 +95,15 @@ pub struct RadSite {
     /// `None` in builds without the capability, where every parameter is the
     /// global `[Radiation]` value.
     rad_type: Option<String>,
+    /// Phobos `RadHasOwner`: the house the detonating round belonged to,
+    /// kept only when the bound type asks for it. The site's damage then
+    /// carries that house, so the native alliance and credit rules apply.
+    #[serde(default)]
+    firing_house: Option<InternedId>,
+    /// Phobos `RadHasInvoker`: the detonating round's firer, kept under the
+    /// same rule. Native passes it as `ReceiveDamage`'s source object.
+    #[serde(default)]
+    invoker: Option<u64>,
 }
 
 impl RadSite {
@@ -127,6 +137,16 @@ impl RadSite {
 
     pub const fn level_timer(&self) -> CdTimer {
         self.level_timer
+    }
+
+    /// The kept firing house, for the site's damage call.
+    pub(crate) const fn firing_house(&self) -> Option<InternedId> {
+        self.firing_house
+    }
+
+    /// The kept invoker object, for the site's damage call.
+    pub(crate) const fn invoker(&self) -> Option<u64> {
+        self.invoker
     }
 
     /// Current source parameters, without deriving age from the lifetime.
@@ -206,6 +226,8 @@ impl RadSite {
         self.level_timer.duration().hash(hasher);
         self.light.hash(hasher);
         self.rad_type.hash(hasher);
+        self.firing_house.hash(hasher);
+        self.invoker.hash(hasher);
     }
 }
 
@@ -304,6 +326,11 @@ pub struct RadDetonation {
     /// default `Radiation` type, and is the only value a build without the
     /// capability ever carries.
     pub rad_type: Option<String>,
+    /// The firing house the detonating round belonged to: the bullet's owner.
+    /// Kept on the site only under the bound type's `RadHasOwner`.
+    pub firing_house: Option<InternedId>,
+    /// The detonating round's firer object. Kept only under `RadHasInvoker`.
+    pub invoker: Option<u64>,
 }
 
 /// The distance a radiation site measures from its centre cell to a cell
@@ -394,6 +421,8 @@ impl RadiationState {
             level_timer: CdTimer::default(),
             light: RadiationLight::default(),
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         };
         Self {
             creation_order: vec![site.center],
@@ -714,6 +743,19 @@ impl RadiationState {
                         level_timer: CdTimer::started(frame as i32, effective.level_delay),
                         light: RadiationLight::default(),
                         rad_type: bound,
+                        // Phobos `CreateInstance` copies the owner and the
+                        // invoker only when the bound type's flags ask for
+                        // them; a merge keeps the existing site's copies.
+                        firing_house: if effective.has_owner {
+                            det.firing_house
+                        } else {
+                            None
+                        },
+                        invoker: if effective.has_invoker {
+                            det.invoker
+                        } else {
+                            None
+                        },
                     },
                 );
                 self.creation_order.push(center);
@@ -920,6 +962,8 @@ mod tests {
             rad_level: 500,
             spread: 10,
             rad_type: None,
+            firing_house: None,
+            invoker: None,
         }
     }
 

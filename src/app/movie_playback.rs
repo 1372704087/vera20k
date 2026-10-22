@@ -114,7 +114,11 @@ impl MoviePlayback {
     }
 
     /// `0x00432E40` re-reads VoiceVolume `[0x00A8EB9C]` every frame and calls
-    /// BinkSetVolume when it changed (`0x00432E40..0x00432E7A`).
+    /// BinkSetVolume when it changed (`0x00432E40..0x00432E7A`). BINKW32's
+    /// DirectSound volume (`0x1002B250` → `0x1002AD40`) clamps to 32767 and
+    /// picks `trunc(vol * 127 / 32767)` from a `2000·log10(k/127)` millibel
+    /// table (`0x1003E820`), so linear gain is the right curve. RESIDUAL: native
+    /// steps in 1/127s, at most 0.5 dB quieter (at 0.1); inaudible.
     pub(crate) fn set_voice_volume(&mut self, volume: f32) {
         if volume == self.voice_volume {
             return;

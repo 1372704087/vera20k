@@ -248,6 +248,30 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 }
 
+/// The options profile's `[Video]` bytes behind HIRES and TOGGLE, which the
+/// native writer never saves. VERA's Options page has no resolution list to
+/// read AllowHiResModes (`0x0056017A..0x005601FA`), and AllowModeToggle is
+/// read only at startup, so neither code changes anything else this session.
+fn typed_code_video_flags(
+    profile: &mut crate::app::persistence::options_profile::RetailOptionsProfile,
+) -> crate::ui::main_menu_shell::VideoCodeFlags<'_> {
+    crate::ui::main_menu_shell::VideoCodeFlags {
+        allow_hi_res_modes: &mut profile.allow_hi_res_modes,
+        allow_mode_toggle: &mut profile.allow_mode_toggle,
+    }
+}
+
+/// `Main__PrepareSession` before a LAN or WOL session.
+pub(crate) fn clear_typed_codes_for_network_session(state: &mut AppState) {
+    state
+        .frontend
+        .main_menu_shell_state
+        .typed_codes
+        .clear_for_network_session(typed_code_video_flags(
+            &mut state.persistence.options_profile,
+        ));
+}
+
 /// Reduce a startup error to text the status card can draw.
 ///
 /// The card's in-repo face carries ASCII only, while `std::io::Error` is
@@ -726,6 +750,24 @@ impl App {
             .pressed_owner_draw_button = None;
         // A new 0x102 creates its kind-1 statics hidden (0x0060A5B0).
         state.frontend.skirmish_shell_state.statics.reset();
+        // Native constructs 0x102 fresh on every visit, and
+        // `SkirmishDialog__OnSetup497` hands its controls the Session values that
+        // `prepare_multiplayer_settings` just refreshed above. The retained Rust
+        // controls follow that same order, so a durable record changed since the
+        // last visit reaches the page instead of the page keeping its old face.
+        state.frontend.multiplayer_shell_runtime.hydrate_shell(
+            &mut state.frontend.skirmish_shell_state,
+            state.frontend.scenario_catalog.shell_maps(),
+            &state.frontend.skirmish_modes,
+        );
+        crate::ui::skirmish_shell::repair_teams_for_selected_mode(
+            &mut state.frontend.skirmish_shell_state,
+            &state.frontend.skirmish_modes,
+        );
+        crate::ui::skirmish_shell::initialize_rows_for_selected_map(
+            &mut state.frontend.skirmish_shell_state,
+            state.frontend.scenario_catalog.shell_maps(),
+        );
         // The skirmish dialog (0x102) slides its controls in on first paint like
         // every shell dialog; the per-frame slide trigger starts that wave once
         // the skirmish shell becomes the showing screen. Clear any stale wave
@@ -1319,6 +1361,14 @@ Details: {details}"
         }
     }
 
+    /// GUIMainButtonSound (`Rules+0x188`): the owner-draw button procedure
+    /// `0x00612B70` plays it on every admitted press (`0x0061374B..0x00613771`),
+    /// in shell and in-game dialogs alike.
+    /// RESIDUAL: a frame-type-0 (sliced PCX) text button also plays
+    /// GenericClick when it paints pressed after an unpressed type-0 paint
+    /// (`0x0061323C..0x00613289`); that paint-time cue is not ported. Every
+    /// in-game dialog button is type 2 or 3 (`0x0060A400`), so it is a shell
+    /// difference only.
     pub(super) fn play_main_menu_button_sound(state: &mut AppState) {
         let sound_id = state
             .rules()
@@ -1464,10 +1514,17 @@ Details: {details}"
         }
     }
 
-    /// Active-retail `ShellButtonSlideSound` completion hook. The stock key is
-    /// empty in both rules layers, so this named edge intentionally has no
-    /// audible output in the exact stock route.
-    pub(crate) fn play_shell_slide_completion_sound(_state: &mut AppState) {}
+    /// `ShellButtonSlideSound`, which the slide engine `0x006071E0` plays as
+    /// a slide-in ends, before the dialog's SHOW completion `0x4EC`
+    /// (`0x00607F46..0x00607F9B`); a slide-out ends with `0x4ED` and no
+    /// sound. Stock rules leave the key empty, so this is silent there.
+    pub(crate) fn play_shell_slide_completion_sound(state: &mut AppState) {
+        let sound_id = state
+            .rules()
+            .and_then(|rules| rules.general.shell_button_slide_sound.as_deref())
+            .map(str::to_string);
+        Self::play_shell_ui_sound_by_id(state, sound_id.as_deref());
+    }
 
     pub(super) fn maintain_main_menu_intro(state: &mut AppState) {
         if state.frontend.screen != GameScreen::MainMenu || state.frontend.quit_cascade.is_some() {
@@ -1519,6 +1576,58 @@ Details: {details}"
             return;
         };
         sfx.play_sound(sound_id, catalog.sounds());
+    }
+
+    /// `MainMenuDialog0xE2__Run` `0x00531CC0` reads the Keyboard queue while
+    /// the bare 0xE2 runs, and only there: every other shell page runs its
+    /// own loop. True when that loop owns the key.
+    ///
+    /// RESIDUAL: VERA drops keys typed during 0xE2's entry slide
+    /// (`blocks_shell_input`), and no mouse click reaches the buffer.
+    pub(super) fn handle_main_menu_typed_code_key(
+        state: &mut AppState,
+        event: &winit::event::KeyEvent,
+    ) -> bool {
+        if state.frontend.screen != GameScreen::MainMenu
+            || state.frontend.shell_route != crate::app::shell_route::ShellRoute::MainMenu
+            || state.frontend.main_menu_shell_error.is_some()
+        {
+            return false;
+        }
+        // InputManagerClass__HandleWindowMessage `0x0054F790` queues no
+        // key-down repeat (lParam bit 30); 0xE2 skips releases (`0x00531E13`).
+        if !event.state.is_pressed() || event.repeat {
+            return true;
+        }
+        let unmodified = event.key_without_modifiers();
+        let key = crate::app::input::hotkeys::binding_logical_key(
+            &event.logical_key,
+            &unmodified,
+            event.location,
+        );
+        // A key with no virtual key here is no letter either.
+        let virtual_key =
+            crate::app::input::hotkeys::logical_virtual_key(key, event.location).unwrap_or(0);
+        let matched = state.frontend.main_menu_shell_state.typed_codes.key_down(
+            virtual_key,
+            typed_code_video_flags(&mut state.persistence.options_profile),
+        );
+        if matched.is_none() {
+            return true;
+        }
+        // 0x00531ECB..0x00531EDB: PlayGlobal(Rules->OptionsChanged, centre, 1.0).
+        let sound = state
+            .rules()
+            .and_then(|rules| rules.general.options_changed_sound())
+            .map(str::to_owned);
+        Self::play_shell_ui_sound_by_id(state, sound.as_deref());
+        // RESIDUAL: 0x00531EE4..0x00531EFA paints the empty backdrop with
+        // every right-panel tile shuttered (`Shell__DrawEmptyBackdrop
+        // 0x0052FEC0`, DL=1) and nothing invalidates 0xE2 afterwards, so
+        // retail may briefly show shuttered buttons on a match. VERA redraws
+        // the whole menu.
+        state.platform.window.request_redraw();
+        true
     }
 
     /// `Dialog0x103__DlgProc`'s global `VocHandle` at `0x00B0BF28`: 0x4EC

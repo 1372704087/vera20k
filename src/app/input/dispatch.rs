@@ -283,8 +283,11 @@ pub(crate) fn tactical_mouse(state: &mut AppState, button: MouseButton, btn_stat
                         .match_presentation
                         .sidebar_gadget_state
                         .sell_mode_on
+                    // The held-drag 4AC380 never starts a band in beacon
+                    // mode (4AC3A3).
+                    || crate::app::input::beacon::mode_active(state)
                 {
-                    return; // suppress selection drag while a targeting / repair / sell mode is active
+                    return; // suppress selection drag while a targeting / repair / sell / beacon mode is active
                 }
                 state.match_state.input.selection_state.begin_drag(
                     state.match_state.input.cursor_x,
@@ -355,15 +358,6 @@ pub(crate) fn band_box_left_up(state: &mut AppState, click: LeftUp) {
 }
 
 fn left_up_branches(state: &mut AppState, click: LeftUp) {
-    // Repair / Sell cursor modes consume the click — toggle repair or
-    // sell the own building under the cursor. The mode stays active
-    // (sticky) so the player can act on several buildings in a row. The
-    // radar's keep table has no repair or sell action.
-    if matches!(click, LeftUp::Tactical)
-        && crate::app::input::commands::try_repair_sell_mode_click(state)
-    {
-        return;
-    }
     // A pending placement takes the clicked Cell, whatever the action
     // (`0x004ABA16..0x004ABC67`).
     if let Some(type_id) = state.armed_building_type().map(str::to_owned) {
@@ -415,23 +409,45 @@ fn tactical_left_up(state: &mut AppState) {
     // best object's What_Action, which the click below dispatches. With
     // nothing selected the dispatch has no receiver, so SPECIAL_PLACE alone
     // remains.
-    if let Some(section) = state.armed_super_weapon_type().map(str::to_owned)
-        && selected_stable_ids_in_order(
-            state
-                .match_state
-                .sim_runtime
-                .as_ref()
-                .map(|rt| &rt.simulation),
-            state.rules(),
-            &state.match_state.input.selection_order,
-            state.match_state.input.selection_order_pending,
-        )
-        .is_empty()
-    {
-        crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
-        return;
+    let selection_empty = selected_stable_ids_in_order(
+        state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation),
+        state.rules(),
+        &state.match_state.input.selection_order,
+        state.match_state.input.selection_order_pending,
+    )
+    .is_empty();
+    match state.match_state.input.tactical_pointer_mode(
+        &state.match_state.match_presentation.sidebar_gadget_state,
+        selection_empty,
+    ) {
+        super::state::TacticalPointerMode::SuperWeapon(section) => {
+            let section = section.to_owned();
+            crate::app::input::commands::launch_super_weapon_at_cursor(state, &section);
+            return;
+        }
+        super::state::TacticalPointerMode::RepairSell => {
+            crate::app::input::commands::try_repair_sell_mode_click(state);
+            return;
+        }
+        super::state::TacticalPointerMode::Ordinary => {}
     }
     if crate::app::input::planning_mode::connect_at_cursor(state) {
+        return;
+    }
+    // Past PlanMgr's release (0x00693225), DetermineAction answers 0x3C in
+    // beacon mode with nothing selected (0x006929AF); the release places
+    // the beacon (0x004AC033).
+    if selection_empty && crate::app::input::beacon::mode_active(state) {
+        let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
+            state,
+            state.match_state.input.cursor_x,
+            state.match_state.input.cursor_y,
+        );
+        crate::app::input::beacon::place_at_cell(state, cell);
         return;
     }
     // Only an active band box owns a clamped tactical endpoint.
@@ -497,6 +513,17 @@ fn tactical_left_up(state: &mut AppState) {
             band_preflight_order = Some(order);
         } else {
             action = SelectAction::Click(release_point.0, release_point.1);
+        }
+    }
+    // A click over a beacon with nothing selected answers 0x3D
+    // (0x006927C5); the release selects the beacon (0x004ABE88).
+    if let SelectAction::Click(sx, sy) = action
+        && selection_empty
+    {
+        let cell = crate::app::match_runtime::sim_tick::screen_point_to_world_cell(state, sx, sy);
+        if crate::app::input::beacon::beacon_at_cell(state, cell) {
+            crate::app::input::beacon::select_at_cell(state, cell);
+            return;
         }
     }
     // TypeSelect modifies only actions that already resolved as
@@ -696,49 +723,30 @@ fn tactical_left_up(state: &mut AppState) {
 /// The right-release cancel ladder: cancel exactly one armed cursor mode, and
 /// clear the selection only when nothing was armed.
 ///
-/// gamemd walks seven mode flags in a fixed order and returns after the first
-/// one it cancels; VERA models the two it has (a targeting/placement cursor and
-/// the repair/sell cursor). The final rung — clear the selection — is retail
-/// behaviour, not a VERA deviation.
+/// Display4AAD30's represented cursor rungs belong to MatchInputState.
+/// This existing selection owner handles its final UnselectAll48DC90 rung.
 fn right_click_cancel_ladder(state: &mut AppState) {
-    if state.match_state.input.cancel_building_placement() {
-        return;
-    }
     if state
         .match_state
         .input
-        .targeting_mode
-        .as_ref()
-        .and_then(crate::app::types::TargetingMode::as_super_weapon)
-        .is_some()
+        .cancel_pointer_mode(&mut state.match_state.match_presentation.sidebar_gadget_state)
     {
-        state.match_state.input.targeting_mode = None;
-        state.match_state.input.building_placement_preview = None;
         return;
     }
-    if state
-        .match_state
-        .match_presentation
-        .sidebar_gadget_state
-        .repair_mode_on
-        || state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .sell_mode_on
-    {
-        state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .repair_mode_on = false;
-        state
-            .match_state
-            .match_presentation
-            .sidebar_gadget_state
-            .sell_mode_on = false;
+    // RightUp4AAE47: beacon mode is the last rung before Unselect_All.
+    if crate::app::input::beacon::mode_active(state) {
+        crate::app::input::beacon::set_place_beacon_mode(
+            state,
+            crate::app::input::beacon::BeaconModeRequest::Off,
+        );
         return;
     }
+    unselect_all(state);
+}
+
+/// `Unselect_All_With_Mode_Reset 0x0048DC90`: the selection's clear, whose
+/// mutation also clears beacon selection.
+pub(crate) fn unselect_all(state: &mut AppState) {
     queue_selection_snapshot_command(state, Vec::new(), false);
 }
 
@@ -1218,7 +1226,7 @@ fn sidebar_cameo_press(
                 // no additions, so its effects do not depend on cursor mode.
                 queue_selection_snapshot_command(state, Vec::new(), false);
                 let gadgets = &mut state.match_state.match_presentation.sidebar_gadget_state;
-                gadgets.disable_selection_modes(false);
+                gadgets.disable_cursor_modes();
             }
         }
     }
@@ -1328,22 +1336,30 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
         SidebarAction::SpawnTestUnits => {
             spawn_test_units_for_local_owner(state);
         }
-        SidebarAction::ToggleRepairMode => {
-            let g = &mut state.match_state.match_presentation.sidebar_gadget_state;
-            g.repair_mode_on = !g.repair_mode_on;
-            if g.repair_mode_on {
-                g.sell_mode_on = false;
-                state.match_state.input.targeting_mode = None;
-                state.match_state.input.building_placement_preview = None;
-            }
-        }
-        SidebarAction::ToggleSellMode => {
-            let g = &mut state.match_state.match_presentation.sidebar_gadget_state;
-            g.sell_mode_on = !g.sell_mode_on;
-            if g.sell_mode_on {
-                g.repair_mode_on = false;
-                state.match_state.input.targeting_mode = None;
-                state.match_state.input.building_placement_preview = None;
+        SidebarAction::ToggleRepairMode | SidebarAction::ToggleSellMode => {
+            use crate::ui::sidebar::gadget_flash::SelectionMode;
+            let mode = if matches!(action, SidebarAction::ToggleRepairMode) {
+                SelectionMode::Repair
+            } else {
+                SelectionMode::Sell
+            };
+            let owned_buildings = state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .and_then(|runtime| {
+                    let sim = &runtime.simulation;
+                    sim.houses().get(&sim.session().current_house()?)
+                })
+                .map_or(0, |house| house.tracking().buildings());
+            let placement_armed = state.armed_building_type().is_some();
+            if state
+                .match_state
+                .match_presentation
+                .sidebar_gadget_state
+                .toggle_selection_mode(mode, placement_armed, owned_buildings)
+            {
+                queue_selection_snapshot_command(state, Vec::new(), false);
             }
         }
         SidebarAction::Deploy => {
@@ -1790,7 +1806,7 @@ fn place_ready_building_for_tab(state: &mut AppState, tab: SidebarTab) {
         // ManualPlace4FB881 calls UnselectAll48DC90 only on entry.
         queue_selection_snapshot_command(state, Vec::new(), false);
         let gadgets = &mut state.match_state.match_presentation.sidebar_gadget_state;
-        gadgets.disable_selection_modes(false);
+        gadgets.disable_cursor_modes();
     }
 }
 
@@ -1866,7 +1882,12 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         HotkeyCommand::CenterView => crate::app::input::camera::center_view_on_selection(state),
         HotkeyCommand::Follow => crate::app::input::camera::toggle_follow_target(state),
         HotkeyCommand::PlanningMode => crate::app::input::planning_mode::toggle(state),
-        HotkeyCommand::Delete => crate::app::input::planning_mode::delete_at_cursor(state),
+        // DeleteCommand731A10: a planning node, else the selected beacon.
+        HotkeyCommand::Delete => {
+            if !crate::app::input::planning_mode::delete_at_cursor(state) {
+                crate::app::input::beacon::delete_selected(state);
+            }
+        }
         HotkeyCommand::ScatterObject => queue_scatter_for_selected(state),
         HotkeyCommand::AllToCheer => queue_house_cheer(state),
         HotkeyCommand::VeterancyNav => selection_navigation::execute_category_navigation(
@@ -1884,14 +1905,7 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
             crate::app::match_runtime::frame_pacer::wall_clock_ms(),
         ),
         HotkeyCommand::PageUser => crate::app::input::page_user::execute(state),
-        // UNCHECKED residual, still a no-op. `PlaceBeacon` should place the
-        // beacon and play `[AudioVisual] PlaceBeaconSound` (`Rules+0x1CC`,
-        // stock `BeaconPlaced`). Its native command handler was not read,
-        // so no mapping is asserted and nothing is wired. Trigger: pressing
-        // the bound key. Player effect: the key does nothing. Frequency:
-        // rare — a multiplayer social command. Downstream risk: beacons are
-        // network messages.
-        HotkeyCommand::PlaceBeacon => {}
+        HotkeyCommand::PlaceBeacon => crate::app::input::beacon::execute_command(state),
     }
 }
 
@@ -1926,7 +1940,12 @@ pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: 
             return;
         }
         6 => HotkeyCommand::GuardObject,
-        7 => HotkeyCommand::PlaceBeacon,
+        // TabClass::Action6D0742 calls Enter_Beacon_Placement_Mode731A30
+        // directly, without the key's GameMode gate.
+        7 => {
+            crate::app::input::beacon::enter_placement_mode(state);
+            return;
+        }
         8 => HotkeyCommand::StopObject,
         9 => {
             crate::app::input::planning_mode::toggle(state);
@@ -2398,6 +2417,7 @@ fn apply_selection_mutation(
         first_attempt_added,
         follow_target,
         native_selection_mode_reset,
+        unselected_all,
     } = resolve_selection_mutation(
         sim,
         state.rules(),
@@ -2408,6 +2428,14 @@ fn apply_selection_mutation(
         &mutation,
     );
     state.match_state.input.follow_target = follow_target;
+    if unselected_all {
+        // Unselect_All's tail, BeaconManager ClearSelection (0x0048DCB8).
+        state
+            .match_state
+            .match_presentation
+            .beacons
+            .clear_selection();
+    }
 
     if reset_type_select_scope {
         state.match_state.input.type_select.reset_scope();
@@ -2455,6 +2483,9 @@ struct SelectionMutationEffects {
     first_attempt_added: bool,
     follow_target: Option<u64>,
     native_selection_mode_reset: bool,
+    /// Unselect_All ran: the mutation's clear, or a Select draining another
+    /// selection (0x005F45F8).
+    unselected_all: bool,
 }
 
 fn resolve_selection_mutation(
@@ -2488,6 +2519,7 @@ fn resolve_selection_mutation(
     let mut successful_adds = Vec::new();
     let mut first_select_adds = 0;
     let mut first_attempt_added = None;
+    let mut unselected_all = mutation.clear;
     // Every input Select is vt+0x14C, TechnoClass::Select (0x006FBFA0 in
     // each Techno vtable; click 0x004ABDBA/0x004ABE72, band 0x004AC2F1,
     // team 0x00731344/0x0073156C, the type, combatant, category and
@@ -2501,11 +2533,11 @@ fn resolve_selection_mutation(
     // VERA-only residual: the trainer's Reveal Map lets the picker reach an
     // enemy the current house has not discovered, and this gate refuses it
     // (gamemd has no presentation-only reveal). Debug builds only.
-    let select = |id: u64,
-                  ordered: &mut VecDeque<u64>,
-                  members: &mut HashSet<u64>,
-                  adds: &mut Vec<u64>,
-                  follow_target: &mut Option<u64>| {
+    let mut select = |id: u64,
+                      ordered: &mut VecDeque<u64>,
+                      members: &mut HashSet<u64>,
+                      adds: &mut Vec<u64>,
+                      follow_target: &mut Option<u64>| {
         if placement_armed
             || members.contains(&id)
             || !sim.techno_select_admits(id)
@@ -2517,6 +2549,7 @@ fn resolve_selection_mutation(
             .front()
             .is_some_and(|&first| sim.select_unselects_all(first, id))
         {
+            unselected_all = true;
             for removed in ordered.drain(..) {
                 members.remove(&removed);
                 if *follow_target == Some(removed) {
@@ -2572,6 +2605,7 @@ fn resolve_selection_mutation(
         first_attempt_added: first_attempt_added.unwrap_or(true),
         follow_target,
         native_selection_mode_reset,
+        unselected_all,
     }
 }
 
@@ -3929,6 +3963,19 @@ fn handle_control_group_command(
         .expect("a bare team-select binding always resolves")
     });
 
+    if action != GroupPressAction::Assign {
+        // Recall731205, CenterCamera7313DE and AddTeam7314FD leave beacon
+        // mode before their Selects.
+        crate::app::input::beacon::set_place_beacon_mode(
+            state,
+            crate::app::input::beacon::BeaconModeRequest::Off,
+        );
+    }
+    let sim = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|rt| &rt.simulation);
     match action {
         GroupPressAction::Assign => {
             let Some(sim) = sim else {

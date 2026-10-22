@@ -29,6 +29,8 @@ use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequi
 use crate::rules::projectile_type::ProjectileArtState;
 use crate::rules::rules_type_references::{DEFAULT_PARTICLE_SYSTEMS, RulesTypeReferences};
 use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules};
+#[cfg(feature = "phobos")]
+use crate::rules::superweapon_type::PhobosSuperWeaponAvailability;
 use crate::rules::superweapon_type::SuperWeaponBuildingRequirements;
 use crate::rules::superweapon_type::UnitDeliveryRules;
 #[cfg(feature = "ares")]
@@ -598,6 +600,30 @@ impl ProcessedRulesLayers {
 
     pub(crate) fn native_registry_state(&self) -> &NativeRulesRegistryState {
         self.native_type_construction_trace.registry_state()
+    }
+
+    /// Ordered Image/RadarColor inputs from the existing retained Terrain
+    /// members. Each row is emitted only when that Type section is admitted.
+    pub(crate) fn terrain_radar_color_read_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &str,
+            &[crate::rules::terrain_object_type::TerrainRadarColorReadPass],
+        ),
+    > {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Terrain)
+            .into_iter()
+            .flatten()
+            .filter_map(|member| {
+                member
+                    .terrain_radar_color_reads
+                    .as_ref()
+                    .map(|state| (member.native_stored_id.as_str(), state.reads()))
+            })
     }
 
     pub fn ini(&self) -> &IniFile {
@@ -1331,6 +1357,15 @@ impl ProcessedRulesLayers {
                 member.super_weapon_aux_building.as_deref(),
                 member.super_weapon_building_requirements.as_ref(),
             )
+        })
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_availability_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, PhobosSuperWeaponAvailability)> {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_availability.clone()
         })
     }
 
@@ -3016,6 +3051,11 @@ struct ProcessedType {
     anim_art_read: bool,
     /// One owner for Bullet's two-phase Image/ART reads across rules passes.
     projectile_art: ProjectileArtState,
+    /// Terrain constructor Image ID plus each admitted ReadINI pass's
+    /// Image/RadarColor inputs; SHP frame colors bind in TerrainAssetCatalog.
+    #[serde(default)]
+    terrain_radar_color_reads:
+        Option<crate::rules::terrain_object_type::TerrainRadarColorReadState>,
     /// BuildingType45DF13 initializes +EF0 to zero; ReadINI461225..46125D
     /// updates it from fixed ART after ObjectType5F933B reads effective Image.
     building_foundation: u8,
@@ -3095,6 +3135,11 @@ struct ProcessedType {
     super_weapon_building_requirements: Option<SuperWeaponBuildingRequirements>,
     #[cfg(feature = "ares")]
     super_weapon_availability: AresSuperWeaponAvailability,
+    /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos`, read by the same
+    /// ordered Process owner as the Ares gates and keyed the same way.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_availability: PhobosSuperWeaponAvailability,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Ares `SW.Warhead=`, read only for Type=GenericWarhead.
@@ -3458,6 +3503,7 @@ impl ProcessedType {
             #[cfg(feature = "ares")]
             ares_side: None,
             anim_art_read: false,
+            terrain_radar_color_reads: None,
             building_foundation: 0,
             building_target_coord_offset: [0; 3],
             building_has_spotlight: false,
@@ -3494,6 +3540,8 @@ impl ProcessedType {
             super_weapon_building_requirements: None,
             #[cfg(feature = "ares")]
             super_weapon_availability: AresSuperWeaponAvailability::default(),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             generic_super_weapon_warhead: None,
@@ -3894,6 +3942,11 @@ impl RulesPassProcessor {
         }
         if family == RulesTypeFamily::Terrain {
             members[index].armor_id = ArmorId::WOOD;
+            members[index].terrain_radar_color_reads = Some(
+                crate::rules::terrain_object_type::TerrainRadarColorReadState::new(
+                    &native_stored_id,
+                ),
+            );
         }
         if crate::rules::ARES_ENABLED && family == RulesTypeFamily::Warhead {
             members[index].ares_verses = Some(AresWarheadVerses::default());
@@ -3988,6 +4041,44 @@ impl RulesPassProcessor {
                     .map(|index| self.families[&family][index].native_stored_id.clone())
                     .collect()
             })
+    }
+
+    /// Phobos `SW.AuxTechnos`/`SW.NegTechnos`:
+    /// `ValueableVector<TechnoTypeClass*>` resolves each token across every
+    /// techno family (`TechnoTypeClass::Find`), skipping unknown ones; a
+    /// reached list replaces and an absent key retains.
+    #[cfg(feature = "phobos")]
+    fn resolve_existing_techno_list_from(
+        &self,
+        section: &IniSection,
+        key: &str,
+        capacity: usize,
+    ) -> Option<Vec<String>> {
+        let tokens = section.read_list(key, capacity)?;
+        let mut resolved = Vec::new();
+        for token in tokens {
+            for family in [
+                RulesTypeFamily::Infantry,
+                RulesTypeFamily::Vehicle,
+                RulesTypeFamily::Aircraft,
+                RulesTypeFamily::Building,
+            ] {
+                let Some(members) = self.families.get(&family) else {
+                    continue;
+                };
+                let index = ares_type_index_of_name(
+                    token,
+                    members
+                        .iter()
+                        .map(|member| member.native_stored_id.as_str()),
+                );
+                if let Some(index) = index {
+                    resolved.push(members[index].native_stored_id.clone());
+                    break;
+                }
+            }
+        }
+        Some(resolved)
     }
 
     /// Installed Ares Anim pointer Parser1000C9C0/Find1000D3E0: look up
@@ -4757,6 +4848,30 @@ impl RulesPassProcessor {
                 {
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_aux_building = building;
+                }
+                #[cfg(feature = "phobos")]
+                {
+                    // Phobos SWTypeExt reads its three gates in the same
+                    // ordered body as the Ares keys: level first, then the two
+                    // techno vectors. An absent key retains, a reached empty
+                    // list replaces.
+                    let mut availability = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_availability
+                        .clone();
+                    availability
+                        .set_tech_level(raw.read_int("SW.TechLevel", availability.tech_level()));
+                    if let Some(aux) =
+                        self.resolve_existing_techno_list_from(&raw, "SW.AuxTechnos", 0x800)
+                    {
+                        availability.set_aux_technos(aux);
+                    }
+                    if let Some(neg) =
+                        self.resolve_existing_techno_list_from(&raw, "SW.NegTechnos", 0x800)
+                    {
+                        availability.set_neg_technos(neg);
+                    }
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_availability = availability;
                 }
                 #[cfg(feature = "ares")]
                 {
@@ -5718,7 +5833,17 @@ impl RulesPassProcessor {
     fn process_plain_family(&mut self, family: RulesTypeFamily, pass: &IniFile) {
         let mut index = 0;
         while index < self.family_len(family) {
-            self.begin_rules_member_read(family, index, pass);
+            if let Some((_id, raw, _effective)) = self.begin_rules_member_read(family, index, pass)
+                && family == RulesTypeFamily::Terrain
+            {
+                let member = &mut self.family_mut(family)[index];
+                let state = member.terrain_radar_color_reads.get_or_insert_with(|| {
+                    crate::rules::terrain_object_type::TerrainRadarColorReadState::new(
+                        &member.native_stored_id,
+                    )
+                });
+                state.read_pass(&raw);
+            }
             index += 1;
         }
     }

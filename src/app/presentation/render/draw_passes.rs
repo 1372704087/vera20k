@@ -645,6 +645,22 @@ pub(super) fn dispatch_draw_passes(
     let mut pass = begin_main_load_pass(encoder, view, &state.renderer.depth_view);
     pass.set_scissor_rect(tac_x, tac_y, tac_w, tac_h);
 
+    // BeaconManager Draw 430AC0 (6D46B6) precedes BandBox. Its flags 600
+    // bypass A and Z; each House row has its own Convert strip.
+    if let Some(art) = state.match_state.match_presentation.beacon_art.as_ref() {
+        for house in 0..crate::app::match_runtime::beacons::BEACON_HOUSES {
+            if let (Some(strip), Some((buffer, count))) =
+                (art.tactical_strip(house), pool.get_page("beacons", house))
+            {
+                state.renderer.batch_renderer.draw_with_buffer_passthrough(
+                    &mut pass,
+                    strip.texture(),
+                    buffer,
+                    count,
+                );
+            }
+        }
+    }
     // BandBox6DA180 is between the two rally passes (native6D46BD).
     // Drag rectangle — screen-fixed, use UI camera (zoom=1.0).
     let drag_tex = state
@@ -1215,8 +1231,9 @@ mod tests {
         let timer_tail = &SOURCE[sparkle..outcome_start];
         assert_eq!(
             timer_tail.matches(".draw").count() + timer_tail.matches("draw_pooled").count(),
-            3,
-            "PixelFX and the two timer submissions precede the native result draw"
+            5,
+            "PixelFX, the two timer submissions and the two Phobos build-description \
+             submissions (empty outside Phobos builds) precede the native result draw"
         );
     }
 

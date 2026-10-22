@@ -522,6 +522,7 @@ impl App {
         let multiplayer_shell_runtime =
             crate::app::frontend::skirmish_session::MultiplayerShellRuntime::initialize(
                 frontend_seed.value,
+                &mut process_assets,
                 game_config
                     .as_ref()
                     .map(|config| config.paths.settings_dir()),
@@ -651,6 +652,7 @@ impl App {
                         0,
                     ),
                     chat: Default::default(),
+                    beacons: Default::default(),
                     in_game_menu: crate::ui::pause_menu::InGameMenuState::default(),
                     modal_latch: true,
                     pause_menu_has_saves: false,
@@ -668,6 +670,7 @@ impl App {
                     in_game_options: startup_in_game_options,
                     in_game_options_anchor: None,
                     combat_lights: Default::default(),
+                    screen_shake: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
                     talk_bubble: Default::default(),
@@ -686,6 +689,7 @@ impl App {
                     radar_content_insets: None,
                     has_radar: false,
                     selection_overlay: None,
+                    beacon_art: None,
                     shroud_buffer: None,
                     theater_name: "TEMPERATE".to_string(),
                     theater_ext: "tem".to_string(),
@@ -832,6 +836,8 @@ impl App {
                 batch_renderer,
                 fps_overlay,
                 combat_light_renderer,
+                screen_presentation:
+                    crate::render::screen_presentation::ScreenPresentationPass::new(),
                 terrain_draw_renderer,
                 instance_pool: crate::render::batch::InstanceBufferPool::new(),
                 depth_view,

@@ -96,11 +96,13 @@ pub(super) fn launch(
         force_create: false,
         flags: 0,
     });
+    // This case plays no positional cue: the target cell's centre, with no
+    // Map lookup (a lookup off the map would stamp the shared Dummy).
+    let world = crate::sim::components::DriveCoord::cell(cell.0, cell.1, 0).into();
     sim.sound_events.emit(SimSoundEvent::SuperWeaponLaunched {
         owner,
         sw_type,
-        rx: cell.0,
-        ry: cell.1,
+        world,
     });
     true
 }

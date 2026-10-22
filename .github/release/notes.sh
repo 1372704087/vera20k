@@ -84,11 +84,11 @@ if [ "$row_count" -ne "$archive_count" ]; then
 fi
 
 if [ -n "${PROMOTED_FROM:-}" ]; then
-  title="VERA20k \`$TAG\`"
+  title="VERA20K \`$TAG\`"
   kind="The same files as dev build \`$PROMOTED_FROM\`, which testers played before this release,
 under shorter names."
 else
-  title="VERA20k dev build \`$TAG\`"
+  title="VERA20K dev build \`$TAG\`"
   kind="**Development build** from \`main\`: the newest changes, tested less than a
 release. Most players want the newest release marked **Latest** on the
 [Releases page]($repo_url/releases)."
@@ -98,7 +98,7 @@ fi
   cat <<EOF
 ## $title
 
-VERA20k is a free, open-source reimplementation of Command & Conquer: Yuri's
+VERA20K is a free, open-source reimplementation of Command & Conquer: Yuri's
 Revenge. **It contains no game files**: you need your own copy of Yuri's
 Revenge 1.001.
 
@@ -130,9 +130,9 @@ EOF
 ### Downloads
 
 On Windows, the installer is easiest: it finds your Yuri's Revenge folder and
-sets everything up. VERA20k is not code-signed yet, so SmartScreen may warn
+sets everything up. VERA20K is not code-signed yet, so SmartScreen may warn
 about an unknown app: choose More info, then Run anyway. On macOS, open the
-\`.dmg\` and drag VERA20k into
+\`.dmg\` and drag VERA20K into
 Applications. The first time, macOS blocks it because Apple has not notarized
 it: click Done, then Open Anyway in System Settings > Privacy & Security
 within the hour. It then finds your Yuri's Revenge folder, or asks for it.
@@ -152,11 +152,11 @@ GitHub build provenance; verify one with:
 gh attestation verify <download> --repo $GITHUB_REPOSITORY
 \`\`\`
 
-VERA20k is licensed under the GNU General Public License version 3.
+VERA20K is licensed under the GNU General Public License version 3.
 Source: $repo_url
 
 Command & Conquer, Red Alert and Yuri's Revenge are trademarks of Electronic
-Arts Inc. VERA20k is not affiliated with or endorsed by Electronic Arts.
+Arts Inc. VERA20K is not affiliated with or endorsed by Electronic Arts.
 EOF
 } > "$out"
 

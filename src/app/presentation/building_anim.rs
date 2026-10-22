@@ -139,6 +139,20 @@ impl SoundPlaybackInputs<'_> {
         let assets = self.assets;
         let spatial = self.spatial_context(sim, local_owner);
         let gain_for = |sound_id: &str, source| spatial.gain_for(sound_id, source);
+        // RulesClass::ReadAudioVisual @ 0x006691E0 (CloakSound) and
+        // ObjectTypeClass::ReadINI @ 0x005F93B5 (CrushSound) store only the
+        // VocClass::FindByName @ 0x007514D0 result, and PlayAtPos 0x00750920
+        // indexes the same catalog. An invalid name is silent; it must not
+        // enter the generic raw audio-bag fallback.
+        let play_voc = |sfx: &mut crate::audio::sfx::SfxPlayer,
+                        sound_id: &str,
+                        source: Option<crate::audio::events::SoundSource>| {
+            if registry.get(sound_id).is_some()
+                && let Some(gain) = gain_for(sound_id, source)
+            {
+                sfx.play_registered_sound_spatial(sound_id, gain, registry);
+            }
+        };
         for event in events {
             match event {
                 GameSoundEvent::UnitVoiceVisit { owner } => sfx.visit_unit_voice(*owner, registry),
@@ -178,6 +192,11 @@ impl SoundPlaybackInputs<'_> {
                         assets,
                         audio_indices,
                     );
+                }
+                GameSoundEvent::VocIndex { index } => {
+                    if let Some(entry) = registry.entry_by_index(*index) {
+                        play_voc(sfx, &entry.id, None);
+                    }
                 }
                 GameSoundEvent::EvaRemove { event: eva_event } => {
                     sfx.remove_eva(eva_event, eva_registry);
@@ -224,16 +243,7 @@ impl SoundPlaybackInputs<'_> {
                 GameSoundEvent::CloakSound { sound_id, source }
                 | GameSoundEvent::WallCrushed { sound_id, source }
                 | GameSoundEvent::VocAt { sound_id, source } => {
-                    // RulesClass::ReadAudioVisual @ 0x006691E0 (CloakSound) and
-                    // ObjectTypeClass::ReadINI @ 0x005F93B5 (CrushSound) store only
-                    // the VocClass::FindByName @ 0x007514D0 result. An invalid name
-                    // is silent; it must not enter the generic raw audio-bag fallback.
-                    if registry.get(sound_id).is_none() {
-                        continue;
-                    }
-                    if let Some(gain) = gain_for(sound_id, *source) {
-                        sfx.play_registered_sound_spatial(sound_id, gain, registry);
-                    }
+                    play_voc(sfx, sound_id, *source);
                 }
                 GameSoundEvent::VocAtCoord {
                     sound_id,

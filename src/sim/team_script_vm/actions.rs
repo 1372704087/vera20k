@@ -127,6 +127,8 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 20
             | 21
             | 24
+            | 25
+            | 27
             | 30
             | 37
             | 39
@@ -564,6 +566,33 @@ impl Simulation {
                         log::debug!("team member {member} did not scatter: {cause}");
                     }
                 }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // `TeamClass::AI` case 25 (`0x006E9901..0x006E9912`): PlayAtPos
+            // `0x00750920` of the raw argument, centred (`0x2000`), volume
+            // 1.0, no handle, then Team+80=1. The argument is a SOUNDMD
+            // ordinal the process catalog resolves.
+            25 => {
+                self.sound_events
+                    .emit(crate::sim::world::SimSoundEvent::VocCenteredIndex {
+                        index: action.argument,
+                    });
+                frame_effects.flush_sound(self, rules);
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // Case 27 (`0x006E993E..0x006E9949`): Theme Queue_Song
+            // `0x00720B20` of the argument, then Team+80=1. Trigger action
+            // 20's ordinal form takes the same Theme request.
+            27 => {
+                self.publish_trigger_effects(vec![
+                    crate::sim::trigger_runtime::TriggerEffect::MusicTheme {
+                        request: crate::sim::trigger_runtime::ThemeRequest::Index(action.argument),
+                    },
+                ]);
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
                 }

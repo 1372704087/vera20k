@@ -23,6 +23,8 @@ builds and releases. This skill is the maintainer's order of steps and the page 
 
 ## Dev build
 
+`nightly.yml` starts one from main at 18:00 UTC each day that main has changed. By hand:
+
 1. `gh workflow run release.yml --ref main -f publish=prerelease`; `draft` to look before
    publishing, `none` to only build and test.
 2. Wait with one background `gh run watch <run> --exit-status`.

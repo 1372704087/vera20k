@@ -3,7 +3,8 @@ name: Release
 # Downloadable builds of the game for players who do not compile it: one
 # installer per platform and nothing else (a Windows setup program, a macOS disk
 # image and a Linux AppImage). This project changes too fast for every main
-# commit to be a release, so there are two kinds, both started by hand:
+# commit to be a release, so there are two kinds, both started by hand (and
+# nightly.yml starts a dev build of main each day that main has changed):
 #
 #   dev build -- dispatch with `promote` empty. Builds all platforms and runs the
 #                library tests on each at the same time; nothing is tagged or

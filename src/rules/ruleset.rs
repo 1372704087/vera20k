@@ -1346,8 +1346,11 @@ pub struct GeneralRules {
     /// `gui_build_sound`; retail's `PlaceBuilding` resolves.
     pub building_slam: Option<String>,
     /// Sidebar tab click sound from [AudioVisual] GUITabSound (retail
-    /// `MenuTab`). The key→tab-click mapping is name-inferred — flagged for a
-    /// Ghidra spot-check of the tab-ID consumer before parity sign-off.
+    /// `MenuTab`; `Rules+0x190`, read at `0x00669402..0x0066942C`).
+    /// `SidebarClass::Action 0x006A7780` plays it (`VocClass::PlayAt
+    /// 0x00750920`, volume 1.0) at `0x006A7A66` for the tab inputs
+    /// `0x80CB..0x80CE`, including a click on the tab that is already active
+    /// (`0x006A7928` jumps straight to it).
     pub gui_tab_sound: Option<String>,
     /// Rules+6AC, ctor665FB0=-1, reader66A7B3..66A7E9. Fixed SOUNDMD
     /// reference; missing/unknown later names retain the previous valid ID.

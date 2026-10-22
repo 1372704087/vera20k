@@ -108,6 +108,9 @@ pub mod phobos_radiation;
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.
 pub const PHOBOS_ENABLED: bool = cfg!(feature = "phobos");
+/// Whether this binary includes NPatch-specific behavior. A placeholder: no
+/// chain reads it yet, and builds without the feature keep every stock path.
+pub const NPATCH_ENABLED: bool = cfg!(feature = "npatch");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;

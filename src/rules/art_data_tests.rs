@@ -1237,7 +1237,7 @@ fn imageless_retail_animation_reaches_existing_gas_particle_owner() {
     let count = |sim: &crate::sim::world::Simulation| {
         sim.particle_systems()
             .iter()
-            .flat_map(|(_, system)| &system.particles)
+            .flat_map(|(_, system)| system.particles())
             .filter(|p| p.type_id == particle)
             .count()
     };

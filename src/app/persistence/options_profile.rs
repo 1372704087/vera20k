@@ -78,10 +78,11 @@ pub(crate) struct RetailOptionsProfile {
     pub(crate) screen_width: i32,
     pub(crate) screen_height: i32,
     pub(crate) stretch_movies: bool,
-    /// Read and retained, but deliberately omitted by the native writer.
+    /// Read and retained, but deliberately omitted by the native writer. The
+    /// main-menu code HIRES toggles it.
     pub(crate) allow_hi_res_modes: bool,
-    /// Native stores this outside the contiguous Options object. It remains a
-    /// read-only retained profile value here and is never serialized.
+    /// Native stores this outside the contiguous Options object. The main-menu
+    /// code TOGGLE toggles it; it is never serialized.
     pub(crate) allow_mode_toggle: bool,
     /// Read and retained, but deliberately omitted by the native writer.
     pub(crate) allow_vram_sidebar: bool,

@@ -1376,6 +1376,13 @@ pub struct GeneralRules {
     /// retaining the prior fixed-SOUNDMD ID on missing/empty/unknown text.
     /// LAN join validation5DF410 and timeout5DC506 play it centered at1.0.
     system_error_sound: Option<String>,
+    /// Rules+6B4, constructor665FBC=-1. AudioVisual66A868..66A8AE reads exact
+    /// OptionsChanged after SystemError through ReadString128/VocFind7514D0,
+    /// retaining the prior ID on missing/empty/unknown text. A main-menu typed
+    /// code (0x00531ECB..0x00531EDB) plays it centred at volume 1.0; the
+    /// serial/modem setup dialogs (0x005B5E71, 0x005B962C; game modes 1/2,
+    /// which VERA lacks) are its only other players.
+    options_changed_sound: Option<String>,
     /// Rules+6BC: constructor665FC8=-1; AudioVisual66A8ED..66A932 reads
     /// exact PlayerLeft after GameForming and before PlayerJoined. ReadString
     /// capacity128/defaultempty plus fixed SOUNDMD VocFind7514D0 retains the
@@ -2490,6 +2497,7 @@ impl Default for GeneralRules {
             incoming_message_sound: None,
             message_char_typed_sound: None,
             system_error_sound: None,
+            options_changed_sound: None,
             player_left_sound: None,
             player_joined_sound: None,
             game_forming_sound: None,
@@ -3067,6 +3075,11 @@ impl GeneralRules {
     /// Centered UI rejection cue resolved by the fixed SOUNDMD owner.
     pub fn system_error_sound(&self) -> Option<&str> {
         self.system_error_sound.as_deref()
+    }
+
+    /// Centred main-menu typed-code cue resolved by the fixed SOUNDMD owner.
+    pub fn options_changed_sound(&self) -> Option<&str> {
+        self.options_changed_sound.as_deref()
     }
 
     pub fn player_left_sound(&self) -> Option<&str> {
@@ -3686,6 +3699,7 @@ impl GeneralRules {
             incoming_message_sound: None,
             message_char_typed_sound: None,
             system_error_sound: None,
+            options_changed_sound: None,
             player_left_sound: None,
             player_joined_sound: None,
             game_forming_sound: None,
@@ -4932,6 +4946,9 @@ impl RuleSet {
         self.general.system_error_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SystemError"));
+        self.general.options_changed_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "OptionsChanged"));
         self.general.game_forming_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "GameForming"));

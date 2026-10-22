@@ -1319,6 +1319,14 @@ Details: {details}"
         }
     }
 
+    /// GUIMainButtonSound (`Rules+0x188`): the owner-draw button procedure
+    /// `0x00612B70` plays it on every admitted press (`0x0061374B..0x00613771`),
+    /// in shell and in-game dialogs alike.
+    /// RESIDUAL: a frame-type-0 (sliced PCX) text button also plays
+    /// GenericClick when it paints pressed after an unpressed type-0 paint
+    /// (`0x0061323C..0x00613289`); that paint-time cue is not ported. Every
+    /// in-game dialog button is type 2 or 3 (`0x0060A400`), so it is a shell
+    /// difference only.
     pub(super) fn play_main_menu_button_sound(state: &mut AppState) {
         let sound_id = state
             .rules()
@@ -1464,10 +1472,17 @@ Details: {details}"
         }
     }
 
-    /// Active-retail `ShellButtonSlideSound` completion hook. The stock key is
-    /// empty in both rules layers, so this named edge intentionally has no
-    /// audible output in the exact stock route.
-    pub(crate) fn play_shell_slide_completion_sound(_state: &mut AppState) {}
+    /// `ShellButtonSlideSound`, which the slide engine `0x006071E0` plays as
+    /// a slide-in ends, before the dialog's SHOW completion `0x4EC`
+    /// (`0x00607F46..0x00607F9B`); a slide-out ends with `0x4ED` and no
+    /// sound. Stock rules leave the key empty, so this is silent there.
+    pub(crate) fn play_shell_slide_completion_sound(state: &mut AppState) {
+        let sound_id = state
+            .rules()
+            .and_then(|rules| rules.general.shell_button_slide_sound.as_deref())
+            .map(str::to_string);
+        Self::play_shell_ui_sound_by_id(state, sound_id.as_deref());
+    }
 
     pub(super) fn maintain_main_menu_intro(state: &mut AppState) {
         if state.frontend.screen != GameScreen::MainMenu || state.frontend.quit_cascade.is_some() {

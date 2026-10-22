@@ -884,6 +884,9 @@ impl ApplicationHandler for App {
                     ) {
                         return;
                     }
+                    if Self::handle_main_menu_typed_code_key(state, &event) {
+                        return;
+                    }
 
                     if Self::native_skirmish_shell_active(state)
                         && event.state.is_pressed()

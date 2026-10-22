@@ -73,9 +73,17 @@ name and the bound weapon IDs enter the simulation configuration hash, and the
 catalog crosses the save boundary with the retained Rules records. A save
 records the build capability and cannot load in the other mode.
 
+`RadSiteWarhead.Detonate` turns a site's damage into a warhead detonation at
+the target instead of a direct `ReceiveDamage` call, so the warhead's own
+`CellSpread`, verses and effects apply around the victim.
+`RadSiteWarhead.Detonate.Full` selects the `WarheadTypeExt::DetonateAt` form,
+which then runs the ordinary detonation anim and flash; without it the site
+makes the bare area call that `DamageAreaWithTarget` makes. A site whose
+warhead does not resolve deals no damage in either form, as native's
+missing-warhead skip does.
+
 Not implemented, read and retained only: `RadApplicationDelay.Building` and
 `RadBuildingDamageMaxCount` (VERA20K has no building radiation receiver, so
-building damage is absent regardless of the value), `RadSiteWarhead.Detonate`
-and `RadSiteWarhead.Detonate.Full` (warhead detonation from a radiation site),
-and `RadHasOwner`/`RadHasInvoker` (radiation damage attribution and experience).
-This feature does not load Phobos DLLs or establish complete mod compatibility.
+building damage is absent regardless of the value), and
+`RadHasOwner`/`RadHasInvoker` (radiation damage attribution). This feature does
+not load Phobos DLLs or establish complete mod compatibility.

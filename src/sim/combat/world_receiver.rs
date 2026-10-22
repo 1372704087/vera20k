@@ -153,26 +153,64 @@ pub(crate) fn apply_foot_radiation(
                 continue;
             };
             let warhead_id = world.interner.intern(&warhead.id);
-            let receiver = EntityDamageEvent::direct_receiver(
-                stable_id,
-                damage,
-                0,
-                RAD_NO_ATTACKER,
-                None,
-                warhead_id,
-                ReceiverCallFlags {
-                    ignore_defenses: false,
-                    arg6: true,
-                },
-            );
-            // Native calls the concrete receiver directly: Apply_area_damage's
-            // marked/positive-health gates must not suppress this Foot call.
-            last_receipt = Some(world.commit_direct_damage_receiver(
-                rules,
-                overlay_registry,
-                receiver,
-                effects,
-            ));
+            // Phobos `RadSiteWarhead.Detonate`: the site detonates its warhead
+            // at the target instead of calling the receiver directly.
+            // `.Detonate.Full` additionally runs the ordinary detonation tail
+            // (the anim and flash `WarheadTypeExt::DetonateAt` reaches through
+            // `BulletExt::Detonate`); the plain form is the bare area call that
+            // `DamageAreaWithTarget` makes.
+            #[cfg(feature = "phobos")]
+            let detonate = effective.site_warhead_detonate;
+            #[cfg(not(feature = "phobos"))]
+            let detonate = false;
+            if detonate {
+                let Some(coord) = object_get_coords(world, stable_id) else {
+                    continue;
+                };
+                let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
+                apply_area_damage(
+                    world,
+                    rules,
+                    overlay_registry,
+                    impact,
+                    damage,
+                    warhead,
+                    (RAD_NO_ATTACKER, None, warhead_id),
+                    effects,
+                );
+                #[cfg(feature = "phobos")]
+                if effective.site_warhead_detonate_full {
+                    let land = crate::sim::combat::detonation_anim::land_at(world, impact);
+                    if let Some(effect) = crate::sim::combat::detonation_anim::effect(
+                        world, rules, warhead, damage, land, impact, impact,
+                    ) {
+                        crate::sim::world::damage_consequences::admit_explosion_effect(
+                            world, rules, effect,
+                        );
+                    }
+                }
+            } else {
+                let receiver = EntityDamageEvent::direct_receiver(
+                    stable_id,
+                    damage,
+                    0,
+                    RAD_NO_ATTACKER,
+                    None,
+                    warhead_id,
+                    ReceiverCallFlags {
+                        ignore_defenses: false,
+                        arg6: true,
+                    },
+                );
+                // Native calls the concrete receiver directly: Apply_area_damage's
+                // marked/positive-health gates must not suppress this Foot call.
+                last_receipt = Some(world.commit_direct_damage_receiver(
+                    rules,
+                    overlay_registry,
+                    receiver,
+                    effects,
+                ));
+            }
             if !world
                 .substrate
                 .entities

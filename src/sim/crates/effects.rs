@@ -53,7 +53,7 @@ pub(crate) struct CrateMultipliers {
     firepower: NativeF64Bits,
     /// Ares derived Techno+160; None retains the permanent Ext+80 baseline.
     #[cfg(feature = "ares")]
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     attached_firepower: Option<NativeF64Bits>,
 }
 

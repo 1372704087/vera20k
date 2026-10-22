@@ -522,6 +522,7 @@ impl App {
         let multiplayer_shell_runtime =
             crate::app::frontend::skirmish_session::MultiplayerShellRuntime::initialize(
                 frontend_seed.value,
+                &mut process_assets,
                 game_config
                     .as_ref()
                     .map(|config| config.paths.settings_dir()),

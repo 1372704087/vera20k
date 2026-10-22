@@ -173,6 +173,10 @@ fn gsi_04_12_random_map_ui_to_sed_launch_lifecycle_converges() {
     };
     let mut runtime = MultiplayerShellRuntime::initialize(
         0x0412_0003,
+        &mut crate::app::process_assets::ProcessAssets::new(
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+            false,
+        ),
         None,
         None,
         None,

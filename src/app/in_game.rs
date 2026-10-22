@@ -650,21 +650,17 @@ impl App {
     }
 
     /// Begin the graceful quit cascade from the main-menu Exit-confirm OK. The
-    /// caller persists settings FIRST (so the captured volume is pre-fade), then
-    /// calls this instead of exiting immediately; `render_frame` drives it to
-    /// completion and then exits the event loop.
+    /// caller persists settings FIRST, then calls this instead of exiting
+    /// immediately; `render_frame` drives it to completion and then exits the
+    /// event loop. `Main_PrepareSession` case 7 opens with Theme `Stop(1)`
+    /// (`0x0052E764..0x0052E76B`), Theme's own 1000 ms stream fade.
     pub(super) fn start_quit_cascade(state: &mut AppState) {
         let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         crate::app::radar_movie::retire(state, wall_ms);
         crate::app::chrono_screen::retire(state, wall_ms);
-        let start_volume = state
-            .audio
-            .music_player
-            .as_ref()
-            .map_or(0.0, |p| p.volume());
+        state.audio.fade_out_theme(wall_ms);
         state.frontend.quit_cascade = Some(crate::app::frontend::quit_cascade::QuitCascade::start(
             Instant::now(),
-            start_volume,
         ));
     }
 

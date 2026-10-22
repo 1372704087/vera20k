@@ -189,10 +189,6 @@ impl MusicPlayer {
             player.set_volume(self.effective_volume());
         }
     }
-
-    pub fn volume(&self) -> f64 {
-        self.volume
-    }
 }
 
 #[cfg(test)]

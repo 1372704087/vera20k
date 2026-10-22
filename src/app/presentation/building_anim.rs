@@ -449,7 +449,7 @@ pub(crate) fn drain_sound_events(state: &mut AppState) {
 }
 
 /// Admit pending input effects before the frame's derived voice-interest
-/// view. This does not redrive positional owners or service EVA a second time.
+/// view. This does not redrive positional owners.
 pub(crate) fn drain_pending_sound_events(state: &mut AppState) {
     drain_sound_events_inner(state, false);
 }
@@ -476,11 +476,13 @@ fn drain_sound_events_inner(state: &mut AppState, redrive_owners: bool) {
         return;
     };
     let registry = catalog.sounds();
-    let audio_indices = catalog.index();
-    if redrive_owners {
-        sfx.advance_voice_queue(catalog.eva(), assets, audio_indices);
-    }
 
+    // The EVA queue's dequeue is not driven here. `VoxClass::PlayNextQueued
+    // @ 0x00752760` has three callers: the gated audio service (`0x00406FC1`),
+    // admission (`0x0075257A`) and `PumpAndCheckActive` (`0x007529E0`), which
+    // the blocking waits call. RESIDUAL: its radar caller (`0x00657A0C`, on the
+    // draw where a queued sidebar clip starts or ends) is not ported; a line
+    // queued on that frame starts up to one 33 ms service pass later.
     let inputs = SoundPlaybackInputs {
         assets,
         catalog,

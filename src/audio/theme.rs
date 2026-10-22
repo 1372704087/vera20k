@@ -593,7 +593,7 @@ impl ThemeRuntime {
     /// querying playback and does not clear Theme's fading flag. Play clears
     /// it later at720C6D. Return the resulting observation with the deferred output
     /// action so callers cannot reuse a stale Playing observation after Stop.
-    fn still_playing(&self, physical: MusicOutputState) -> (bool, ThemeAction) {
+    pub(crate) fn still_playing(&self, physical: MusicOutputState) -> (bool, ThemeAction) {
         let mut action = ThemeAction::default();
         if physical.stream_exists() && self.fading && physical != MusicOutputState::Ramping {
             action.stop_output = true;

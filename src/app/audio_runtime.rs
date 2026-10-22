@@ -485,6 +485,16 @@ impl AppAudioRuntime {
         self.apply_theme_action(action, wall_ms);
     }
 
+    /// `ThemeClass::Still_Playing @ 0x00720FD0`, which the quit wait polls
+    /// (`0x0052E79C`, `0x0052E7DD`): a fade whose ramp has ended stops the
+    /// stream and reads as not playing.
+    pub(crate) fn theme_still_playing(&mut self) -> bool {
+        let (playing, action) = self.theme.still_playing(self.music_output_state());
+        // Still_Playing only ever stops the stream; no start needs a time.
+        self.apply_theme_action(action, 0);
+        playing
+    }
+
     /// Whether the effects master is still gliding; the scenario exits wait on
     /// it (`VolumeInterp__WaitUntilDone @ 0x004070B0`).
     pub(crate) fn sound_master_moving(&self) -> bool {
@@ -788,6 +798,62 @@ mod tests {
             2,
             "score explicitly selects SCORE"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The quit wait (`0x0052E764..0x0052E7E4`) follows Theme's own 1000 ms
+    /// stream fade, whatever the score volume, until the ended ramp stops it.
+    #[test]
+    fn the_quit_fade_lasts_the_theme_ramp_at_a_low_score_volume() {
+        let Some(mut music) = MusicPlayer::new() else {
+            return;
+        };
+        assert!(music.submit(PreparedTrack {
+            stem: "Silence".into(),
+            samples: vec![0.0; 22_050 * 2 * 10],
+            sample_rate: 22_050,
+        }));
+        let root = std::env::temp_dir().join(format!("vera20k-quit-fade-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("thememd.ini"),
+            "[Themes]\n0=Battle\n[Battle]\nSound=Battle\n",
+        )
+        .unwrap();
+        // One stereo PCM frame is a transport fixture, not a retail sound.
+        std::fs::write(
+            root.join("Battle.wav"),
+            b"RIFF\x28\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x22\x56\0\0\x88\x58\x01\0\x04\0\x10\0data\x04\0\0\0\0\0\0\0",
+        )
+        .unwrap();
+        let assets = AssetManager::from_loose_root_for_test(&root);
+        let mut runtime = AppAudioRuntime {
+            theme: ThemeRuntime::default(),
+            service_clock: AudioServiceClock::default(),
+            music_player: Some(music),
+            sfx_player: None,
+            launcher_audio_available: true,
+            theme_startup_suppressed: false,
+            master_groups: Default::default(),
+        };
+        runtime.initialize_theme(&assets);
+        let gates = runtime.theme_gates();
+        runtime.theme.restore_saved_slots(
+            [0, -1],
+            true,
+            &assets,
+            gates,
+            MusicOutputState::Idle,
+            |_| MusicOutputState::Playing,
+        );
+        assert_eq!(runtime.theme.slots().active, 0);
+        runtime.set_score_volume(0.4);
+        runtime.fade_out_theme(0);
+        runtime.service_master_groups(500);
+        assert!(runtime.theme_still_playing(), "the ramp is half done");
+        runtime.service_master_groups(1_001);
+        assert!(!runtime.theme_still_playing());
+        assert_eq!(runtime.music_output_state(), MusicOutputState::Idle);
         std::fs::remove_dir_all(root).unwrap();
     }
 

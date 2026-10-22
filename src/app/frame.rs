@@ -125,30 +125,32 @@ impl App {
         // sequence before either another sim frame or the destination screen.
         Self::drive_scenario_exit(state, scenario_now_ms);
 
-        // Drive the graceful quit cascade (started on Exit-confirm OK). Compute the
-        // voice poll before borrowing the cascade mutably to avoid aliasing.
+        // Drive the graceful quit wait (started on Exit-confirm OK). It
+        // (`0x0052E79C..0x0052E7E4`) holds while Theme `Still_Playing` and then
+        // `VoxClass::PumpAndCheckActive @ 0x007529E0` both answer yes.
         if state.frontend.quit_cascade.is_some() {
             let now = Instant::now();
-            let voices_active = state
-                .audio
-                .sfx_player
-                .as_ref()
-                .is_some_and(|sfx| sfx.voices_active());
-            let tick = state
+            let waiting = state.audio.theme_still_playing()
+                && match (
+                    &mut state.audio.sfx_player,
+                    state.process_assets.manager(),
+                    state.process_assets.audio_catalog(),
+                ) {
+                    (Some(sfx), Some(assets), Some(catalog)) => {
+                        sfx.pump_and_check_voices(catalog.eva(), assets, catalog.index())
+                    }
+                    _ => false,
+                };
+            let finished = state
                 .frontend
                 .quit_cascade
-                .as_mut()
+                .as_ref()
                 .expect("cascade present")
-                .tick(now, voices_active);
-            if let Some(volume) = tick.music_volume {
-                // Quit's bounded transient fade must also reach Theme. The
-                // pre-fade preference has already been persisted.
-                state.audio.set_score_volume(volume as f32);
-            }
-            if tick.stop_music {
+                .finished(now, waiting);
+            if finished {
+                // `Stop(0)` (`0x0052E7EC`) finds nothing active after the
+                // `Stop(1)` that began the wait; the exit ends any fade tail.
                 state.audio.stop_theme();
-            }
-            if tick.finished {
                 state.frontend.quit_cascade = None;
                 event_loop.exit();
                 return RuntimeServiceResult {

@@ -1250,6 +1250,13 @@ pub struct GeneralRules {
     /// `MenuSlideOut`, `RulesClass+0x19C` read at `0x006694C7`), played by
     /// `0x00608070` before a shown shell dialog's buttons slide out.
     pub gui_move_out_sound: Option<String>,
+    /// Shell slide-in end cue from [AudioVisual] ShellButtonSlideSound
+    /// (`RulesClass+0x750`, constructor -1 at `0x00666098`). `0x0066AF8D`
+    /// reads 128 bytes and keeps the prior value on an empty copy or an
+    /// unknown name (`0x007514D0` -1); like its siblings, the name resolves
+    /// only when played. The slide engine `0x006071E0` plays it as each
+    /// slide-in ends (`0x00607F59`). Stock rules leave it empty.
+    pub shell_button_slide_sound: Option<String>,
     /// Generic shell click sound from [AudioVisual] GenericClick
     /// (`Rules+0x70C`, read at `0x0066AD30` through `VocClass::FindByName`;
     /// retail `MenuClick`). A human player's sale order plays it too
@@ -2457,6 +2464,7 @@ impl Default for GeneralRules {
             gui_main_button_sound: None,
             gui_move_in_sound: None,
             gui_move_out_sound: None,
+            shell_button_slide_sound: None,
             generic_click_sound: None,
             guard_sound: None,
             stop_sound: None,
@@ -3633,6 +3641,9 @@ impl GeneralRules {
                 .map(str::to_owned),
             gui_move_out_sound: audio_visual
                 .read_name("GUIMoveOutSound", 0x80)
+                .map(str::to_owned),
+            shell_button_slide_sound: audio_visual
+                .read_name("ShellButtonSlideSound", 0x80)
                 .map(str::to_owned),
             generic_click_sound: audio_visual
                 .read_name("GenericClick", 0x80)
@@ -8555,6 +8566,12 @@ SpawnCount=3
         let general = GeneralRules::from_ini(&ini);
         assert_eq!(general.gui_move_out_sound.as_deref(), Some("MenuSlideOut"));
         assert_eq!(general.gui_move_in_sound.as_deref(), Some("MenuSlideIn"));
+        // +0x750 ShellButtonSlideSound (0x0066AF8D) is authored empty, so it
+        // keeps the constructor's -1, also after Battle's mode and map passes.
+        assert_eq!(general.shell_button_slide_sound, None);
+        if let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() {
+            assert_eq!(battle.rules.general.shell_button_slide_sound, None);
+        }
     }
 
     #[test]
@@ -10707,12 +10724,17 @@ GenericBeep=GenericBeep
 GUICheckboxSound=CheckboxTick
 GUIComboOpenSound=ComboOpen
 GUIComboCloseSound=ComboClose
+ShellButtonSlideSound=SlideDone
 ";
         let ini = IniFile::from_str(ini_str);
         let general = GeneralRules::from_ini(&ini);
         assert_eq!(
             general.gui_main_button_sound.as_deref(),
             Some("MainButtonClick")
+        );
+        assert_eq!(
+            general.shell_button_slide_sound.as_deref(),
+            Some("SlideDone")
         );
         assert_eq!(general.generic_click_sound.as_deref(), Some("GenericPress"));
         assert_eq!(general.generic_beep_sound.as_deref(), Some("GenericBeep"));

@@ -584,6 +584,10 @@ impl ScenarioGameMode {
             Self::Campaign
         }
     }
+    /// `g_GameMode` 0 or 5: campaign or skirmish.
+    pub const fn is_single_player(self) -> bool {
+        matches!(self, Self::Campaign | Self::Skirmish)
+    }
     pub const fn is_network(self) -> bool {
         matches!(self, Self::Lan | Self::Wol)
     }

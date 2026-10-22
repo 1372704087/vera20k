@@ -72,6 +72,8 @@ pub(super) struct UiInstances {
     pub tactical_line_calls: Vec<crate::app::presentation::airstrike_lines::TacticalLineCall>,
     pub factory_rally_first: Vec<SpriteInstance>,
     pub factory_rally_second: Vec<SpriteInstance>,
+    /// One stream per beacon row: each row has its own House Convert strip.
+    pub beacons: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES],
 }
 
 /// Sidebar chrome, cameos, text, minimap, and radar animation.
@@ -666,6 +668,7 @@ pub(super) fn update_minimap(state: &mut AppState, local_owner: &Option<String>)
     }
 
     let full_visibility = state.match_state.sandbox_full_visibility;
+    let beacon_draws = crate::app::match_runtime::beacons::draws(state);
     let presentation = &mut state.match_state.match_presentation;
     if let (Some(minimap), Some(runtime)) = (
         presentation.minimap.as_mut(),
@@ -701,6 +704,10 @@ pub(super) fn update_minimap(state: &mut AppState, local_owner: &Option<String>)
                     view.resolved_terrain(),
                     radar_dirty_cells,
                     radar_dirty_generation,
+                    presentation
+                        .beacon_art
+                        .as_ref()
+                        .map(|art| (art, beacon_draws.as_slice())),
                 ),
             )
         });
@@ -866,7 +873,33 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
         tactical_line_calls,
         factory_rally_first,
         factory_rally_second,
+        beacons: build_beacon_instances(state),
     }
+}
+
+/// `BeaconManagerClass` Draw `0x00430AC0`, called by TacticalClass::Draw at
+/// `0x006D46B6` just before BandBox.
+fn build_beacon_instances(
+    state: &AppState,
+) -> [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] {
+    let mut rows: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] =
+        Default::default();
+    let (Some(art), Some(runtime)) = (
+        state.match_state.match_presentation.beacon_art.as_ref(),
+        state.match_state.sim_runtime.as_ref(),
+    ) else {
+        return rows;
+    };
+    let frame = runtime.simulation.session().binary_frame();
+    for beacon in crate::app::match_runtime::beacons::draws(state) {
+        if let (Some(row), Some(instance)) = (
+            rows.get_mut(beacon.house),
+            art.tactical_instance(&beacon, frame),
+        ) {
+            row.push(instance);
+        }
+    }
+    rows
 }
 
 /// Active PLACE cells. Tactical6D5030 suppresses the building ghost outside

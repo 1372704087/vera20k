@@ -42,12 +42,8 @@ ska gå.
 
 ## Ladda ner och spela
 
-<p>
-  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Senaste version" height="23"></a>
-  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Senaste utvecklingsversion" height="23"></a>
-</p>
-
-Installationsprogrammet för Windows, macOS eller Linux hittar ditt Yuri's Revenge från
+Ladda ner installationsprogrammet för Windows, macOS eller Linux från
+[releasesidan](https://github.com/YuriPlanet/vera20k/releases). Det hittar ditt Yuri's Revenge från
 [Steam](https://store.steampowered.com/app/2229850/) eller
 [EA-appen](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
 och ställer in allt, utan att ändra spelets filer.

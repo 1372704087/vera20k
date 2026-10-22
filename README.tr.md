@@ -43,13 +43,10 @@ oyuncular söylüyor.
 
 ## İndir ve oyna
 
-<p>
-  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Son sürüm" height="23"></a>
-  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Son geliştirme derlemesi" height="23"></a>
-</p>
-
-Windows, macOS veya Linux yükleyicisi, [Steam](https://store.steampowered.com/app/2229850/)'den
-ya da [EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+Windows, macOS veya Linux yükleyicisini
+[sürümler sayfasından](https://github.com/YuriPlanet/vera20k/releases) indirin. Yükleyici,
+[Steam](https://store.steampowered.com/app/2229850/)'den ya da
+[EA uygulamasından](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
 aldığınız Yuri's Revenge'i bulur ve oyunun dosyalarını değiştirmeden her şeyi sizin için ayarlar.
 
 ## Mimari

@@ -44,13 +44,9 @@ palabra sobre su rumbo.
 
 ## Descargar y jugar
 
-<p>
-  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Última versión" height="23"></a>
-  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Última compilación de desarrollo" height="23"></a>
-</p>
-
-El instalador para Windows, macOS o Linux encuentra tu Yuri's Revenge de
-[Steam](https://store.steampowered.com/app/2229850/) o de la
+Descarga el instalador para Windows, macOS o Linux desde la
+[página de versiones](https://github.com/YuriPlanet/vera20k/releases). Encuentra tu Yuri's Revenge
+de [Steam](https://store.steampowered.com/app/2229850/) o de la
 [app de EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
 y lo prepara todo, sin modificar los archivos del juego.
 

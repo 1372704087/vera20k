@@ -49,7 +49,7 @@ existing Anim UnInit/expiry/sound/deferred-deletion owner.
 
 ## Attached speed
 
-`GameEntity::recompute_ares_attached_speed` owns the speed arm of native
+`GameEntity::recompute_ares_attached_stats` owns the speed arm of native
 `100460A0`. It reads that same ordered instance vector. `FootSpeedState` keeps
 the permanent crate baseline (Ares TechnoExt+90) separate from the derived
 Foot+580 output; only its methods write those private fields. The derived
@@ -127,7 +127,9 @@ read the same actor+160 written by the native aggregate; no expected factor is
 injected. Native coverage excludes whole FireAt, Bullet/health commit and the
 scan scheduler. The separate Rust production integration follows a real parent
 Bullet through the effect, next shot/HP, shared scan debit and recovery.
-These tests are prepared for validation, not a claim of passed checks.
+Both named firepower tests passed in the integrated R25 Ares-enabled run.
+That batch exited 101 on seven unrelated fixture checks; feature-OFF validation
+and optimized production acceptance remain pending.
 
 Ares saves retain the private optional derived firepower value and validate it
 against the permanent baseline plus canonical ordered entries before restore.

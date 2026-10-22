@@ -9,6 +9,7 @@ const MATCH_SECONDS = 2 * 60 * 60;
 const MAX_PLAYERS = 30;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
+const MAX_PREVIEW_BYTES = 512 * 1024;
 const copy = (value) => structuredClone(value);
 const pendingMatch = (value) => value?.phase === 'connecting' || value?.phase === 'probing';
 
@@ -44,6 +45,34 @@ function randomBytes(length) {
 
 async function sha256(text) {
   return base64url(new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text))));
+}
+
+async function stagingDigest(randomMap) {
+  if (randomMap == null) return { digest: '', players: null };
+  const text = randomMap.start_staging;
+  requireThat(typeof text === 'string' && text.length <= 512 && /^W-?\d+(,-?\d+){36}$/.test(text),
+    'invalid_options', 'Invalid generated map starts.');
+  const tokens = text.slice(1).split(',');
+  const values = tokens.map(Number);
+  requireThat(values.every((value, index) => Number.isInteger(value) && value >= -2147483648 && value <= 2147483647 &&
+    String(value) === tokens[index]) && values[0] > 0 && values[1] > 0 && values[4] >= 2 && values[4] <= 8 &&
+    Array.from({ length: 8 }, (_, index) => values.slice(7 + index * 4, 9 + index * 4)).every((cell, index) =>
+      cell.every((value) => value >= -32768 && value <= 32767) && (index >= values[4] || cell.some((value) => value !== 0))),
+    'invalid_options', 'Invalid generated map starts.');
+  requireThat(/^[0-9a-f]{64}$/.test(randomMap.preview?.source_sha256 ?? '') &&
+    Number.isSafeInteger(randomMap.preview?.byte_length) && randomMap.preview.byte_length > 0 && randomMap.preview.byte_length <= MAX_PREVIEW_BYTES,
+    'invalid_options', 'Invalid generated map preview.');
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(text)));
+  return { digest: Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join(''), players: values[4] };
+}
+
+function mapResource(room, value) {
+  const resource = value ?? 'map';
+  requireThat(resource === 'map' || resource === 'preview', 'invalid_map_chunk', 'Invalid map resource.');
+  const suffix = resource === 'preview' ? ':preview' : '';
+  return { resource, uploadKey: `map-upload:${room.id}${suffix}`, chunkPrefix: `map-chunk:${room.id}${suffix}:`,
+    metadata: resource === 'map' ? room.options?.map_metadata : room.options?.random_map?.preview,
+    maximum: resource === 'map' ? MAX_MAP_BYTES : MAX_PREVIEW_BYTES };
 }
 
 async function passwordHash(password, salt) {
@@ -357,6 +386,7 @@ export class LobbyService {
 
   clearMap(roomId) {
     this.store.delete(`map-upload:${roomId}`);
+    this.store.delete(`map-upload:${roomId}:preview`);
     this.store.deletePrefix(`map-chunk:${roomId}:`);
   }
 
@@ -370,14 +400,17 @@ export class LobbyService {
     const digest = url.pathname.slice('/v1/maps/'.length);
     requireThat(/^[0-9a-f]{64}$/.test(digest) && digest === room.options?.map_metadata?.source_sha256,
       'map_changed', 'The selected map changed.', 409);
-    const upload = this.store.get(`map-upload:${room.id}`);
-    requireThat(upload?.digest === digest && upload.complete, 'map_pending', 'The host is preparing the map.', 409);
+    const resource = mapResource(room, url.searchParams.get('resource'));
+    const upload = this.store.get(resource.uploadKey);
+    requireThat(resource.metadata && upload?.digest === resource.metadata.source_sha256 && upload.complete,
+      'map_pending', 'The host is preparing the map.', 409);
     const offset = Number(url.searchParams.get('offset'));
     requireThat(Number.isSafeInteger(offset) && offset >= 0 && offset < upload.byte_length && offset % MAP_CHUNK_BYTES === 0,
       'invalid_map_chunk', 'Invalid map offset.');
-    const chunk = this.store.get(`map-chunk:${room.id}:${offset}`);
+    const chunk = this.store.get(`${resource.chunkPrefix}${offset}`);
     requireThat(chunk, 'map_pending', 'The host is preparing the map.', 409);
-    return this.json({ digest, byte_length: upload.byte_length, offset, data: chunk.data,
+    return this.json({ digest: upload.digest, byte_length: upload.byte_length, offset, data: chunk.data,
+      ...(resource.resource === 'preview' ? { resource: 'preview' } : {}),
       complete: offset + chunk.length === upload.byte_length });
   }
 
@@ -457,30 +490,40 @@ export class LobbyService {
   }
 
   async prepare(session, operation, payload) {
+    if (operation === 'options') return { staging: await stagingDigest(payload.options?.random_map) };
+    if (operation === 'renew_relay') {
+      const match = this.store.get(`match:${session.match_id}`);
+      const user = match?.users.find((user) => user.player_id === session.player_id);
+      requireThat(match?.id === payload.match_id && match.phase === 'playing' && user &&
+        !match.finished.includes(session.player_id), 'unknown_match', 'No matching active game.', 409);
+      return { relay: await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
+        match.id, user.source_index, this.clock()) };
+    }
     if (operation === 'map_upload') {
       const room = this.room(session, true);
-      const metadata = room.options?.map_metadata;
+      const resource = mapResource(room, payload.resource);
+      const metadata = resource.metadata;
       requireThat(room.phase === 'lobby' && metadata && payload.digest === metadata.source_sha256 &&
         payload.byte_length === metadata.byte_length, 'map_changed', 'The selected map changed.', 409);
-      requireThat(Number.isSafeInteger(payload.byte_length) && payload.byte_length > 0 && payload.byte_length <= MAX_MAP_BYTES &&
+      requireThat(Number.isSafeInteger(payload.byte_length) && payload.byte_length > 0 && payload.byte_length <= resource.maximum &&
         Number.isSafeInteger(payload.offset) && payload.offset >= 0 && payload.offset < payload.byte_length &&
         payload.offset % MAP_CHUNK_BYTES === 0, 'invalid_map_chunk', 'Invalid map size or offset.');
       const bytes = mapChunk(payload.data);
       requireThat(bytes.length === Math.min(MAP_CHUNK_BYTES, payload.byte_length - payload.offset),
         'invalid_map_chunk', 'Map chunks must cover the complete file in order.');
-      const upload = this.store.get(`map-upload:${room.id}`);
+      const upload = this.store.get(resource.uploadKey);
       const received = upload?.digest === payload.digest ? upload.received : 0;
       if (payload.offset < received) {
-        const previous = this.store.get(`map-chunk:${room.id}:${payload.offset}`);
+        const previous = this.store.get(`${resource.chunkPrefix}${payload.offset}`);
         requireThat(previous?.data === payload.data, 'map_changed', 'This map chunk was already accepted.', 409);
-        return { duplicate: true, complete: upload.complete };
+        return { resource, duplicate: true, complete: upload.complete };
       }
       requireThat(payload.offset === received, 'map_offset', 'Map chunks must arrive in order.', 409);
       const complete = payload.offset + bytes.length === payload.byte_length;
       if (complete) {
         const all = new Uint8Array(payload.byte_length);
         for (let offset = 0; offset < payload.offset; offset += MAP_CHUNK_BYTES) {
-          const previous = this.store.get(`map-chunk:${room.id}:${offset}`);
+          const previous = this.store.get(`${resource.chunkPrefix}${offset}`);
           requireThat(previous, 'map_offset', 'A map chunk is missing.', 409);
           all.set(mapChunk(previous.data), offset);
         }
@@ -489,7 +532,7 @@ export class LobbyService {
         const hex = Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
         requireThat(hex === payload.digest, 'map_digest', 'The map bytes do not match the selected map.');
       }
-      return { complete, length: bytes.length };
+      return { resource, complete, length: bytes.length };
     }
     if (operation === 'join' || operation === 'create') {
       requireThat(typeof (payload.key ?? '') === 'string' && (payload.key ?? '').length <= 128, 'invalid_request', 'Invalid room password.');
@@ -507,11 +550,17 @@ export class LobbyService {
     requireThat(typeof payload.version === 'string' && payload.version.length > 0 && payload.version.length <= 128 &&
       typeof payload.rules_digest === 'string' && payload.rules_digest.length > 0 && payload.rules_digest.length <= 128,
       'agreement_mismatch', 'The game version and rules must agree.', 409);
+    requireThat((payload.staging_digest ?? '') === (room.staging_digest ?? ''),
+      'agreement_mismatch', 'The generated map starts must agree.', 409);
+    requireThat(payload.effective_map_digest === room.options.map_metadata.effective_digest,
+      'agreement_mismatch', 'The complete map rules must agree.', 409);
     for (const member of room.members) {
       const agreement = room.agreements[member.player_id];
       requireThat(member.player_id === room.owner || room.ready[member.player_id] === true, 'not_ready', 'Every player must accept the settings.', 409);
       requireThat(room.maps[member.player_id] === 1 && agreement && agreement.revision === room.revision &&
         agreement.version === payload.version && agreement.rules_digest === payload.rules_digest &&
+        (agreement.staging_digest ?? '') === (room.staging_digest ?? '') &&
+        agreement.effective_map_digest === room.options.map_metadata.effective_digest &&
         agreement.map_digest === room.options.map_metadata.source_sha256, 'agreement_mismatch', 'Every player must have the same map, rules and game version.', 409);
     }
     const matchId = crypto.randomUUID();
@@ -538,7 +587,10 @@ export class LobbyService {
         const channel = payload.channel;
         requireThat(channel && channel.kind === 41 && typeof channel.name === 'string' && channel.name.length > 0 && channel.name.length <= 80,
           'invalid_room', 'Invalid room settings.');
-        requireThat(!this.store.list('room:').some((room) => room.channel.name.toLowerCase() === channel.name.toLowerCase()), 'name_unavailable', 'That room name is already in use.', 409);
+        // A playing room retains the frozen match's cleanup state while other
+        // players view results; it no longer reserves a discoverable lobby name.
+        requireThat(!this.store.list('room:').some((room) => room.phase !== 'playing' &&
+          room.channel.name.toLowerCase() === channel.name.toLowerCase()), 'name_unavailable', 'That room name is already in use.', 409);
         requireThat(this.store.list('room:').length < 1024, 'service_full', 'The lobby service is full.', 503);
         room = { id: crypto.randomUUID(), kind: 41, owner: session.player_id,
           capacity: Math.max(2, Math.min(MAX_PLAYERS, Number(channel.max_users) || 6)),
@@ -547,9 +599,9 @@ export class LobbyService {
           key: prepared.key, members: [], revision: 0, options: null, ready: {}, maps: {}, agreements: {}, phase: 'lobby', created: this.clock() };
       } else {
         requireThat(typeof payload.channel === 'string', 'invalid_room', 'Invalid room.');
-        room = this.store.list('room:').find((room) => room.channel.name === payload.channel);
+        room = this.store.list('room:').find((room) => room.phase === 'lobby' && room.channel.name === payload.channel);
         requireThat(room && room.phase === 'lobby', 'room_unavailable', 'This room is no longer available.', 409);
-        requireThat(sameSecret(room.key ?? '', prepared.key), 'room_password', 'The room password is incorrect.', 403);
+        requireThat(room.kind === 0 || sameSecret(room.key ?? '', prepared.key), 'room_password', 'The room password is incorrect.', 403);
         requireThat(room.members.length < room.capacity || session.channel_id === room.id, 'room_full', 'This room is full.', 409);
       }
       if (session.channel_id === room.id) {
@@ -568,6 +620,15 @@ export class LobbyService {
     if (operation === 'finish') {
       requireThat(session.match_id === payload.match_id, 'unknown_match', 'No matching active game.', 409);
       this.finish(session); return;
+    }
+    if (operation === 'renew_relay') {
+      const match = this.store.get(`match:${session.match_id}`);
+      match.expires = this.clock() + MATCH_SECONDS;
+      session.expires_at = this.clock() + SESSION_SECONDS;
+      this.store.put(`match:${match.id}`, match);
+      this.store.put(`session:${session.id}`, session);
+      this.emit(session.id, 'relay_renewed', { match_id: match.id, relay: prepared.relay });
+      return;
     }
     if (operation === 'relay_ready') {
       requireThat(session.match_id === payload.match_id, 'unknown_match', 'No matching active game.', 409);
@@ -665,22 +726,27 @@ export class LobbyService {
         (options.launch.opponents === undefined || Array.isArray(options.launch.opponents)) &&
         typeof options.map_metadata.digest === 'string' && options.map_metadata.digest.length <= 128 &&
         /^[0-9a-f]{64}$/.test(options.map_metadata.source_sha256 ?? '') &&
+        /^[0-9a-f]{64}$/.test(options.map_metadata.effective_digest ?? '') &&
         Number.isSafeInteger(options.map_metadata.byte_length) && options.map_metadata.byte_length > 0 && options.map_metadata.byte_length <= MAX_MAP_BYTES &&
         Number.isInteger(options.map_metadata.player_capacity) && options.map_metadata.player_capacity >= playingHumans + computers &&
         options.map_metadata.player_capacity > 0 && options.map_metadata.player_capacity <= MAX_PLAYERS &&
+        (prepared.staging.players == null || options.map_metadata.player_capacity === prepared.staging.players) &&
         Array.isArray(options.vacancies) && options.vacancies.length <= MAX_PLAYERS &&
         options.vacancies.every((item) => ['open', 'closed', 'observer', 'waiting'].includes(item)), 'invalid_options', 'Invalid game settings.');
       const canonical = copy(options);
       canonical.launch.local_player_index = 0;
-      if (canonical.map_metadata.source_sha256 !== room.options?.map_metadata?.source_sha256) this.clearMap(room.id);
+      if (canonical.map_metadata.source_sha256 !== room.options?.map_metadata?.source_sha256 ||
+        JSON.stringify(canonical.random_map?.preview) !== JSON.stringify(room.options?.random_map?.preview)) this.clearMap(room.id);
+      room.staging_digest = prepared.staging.digest;
       if (JSON.stringify(canonical) !== JSON.stringify(room.options)) { room.options = canonical; this.invalidate(room); }
     } else if (operation === 'map_upload') {
       if (!prepared.duplicate) {
-        this.store.put(`map-chunk:${room.id}:${payload.offset}`, { data: payload.data, length: prepared.length });
-        this.store.put(`map-upload:${room.id}`, { digest: payload.digest, byte_length: payload.byte_length,
+        this.store.put(`${prepared.resource.chunkPrefix}${payload.offset}`, { data: payload.data, length: prepared.length });
+        this.store.put(prepared.resource.uploadKey, { digest: payload.digest, byte_length: payload.byte_length,
           received: payload.offset + prepared.length, complete: prepared.complete });
       }
-      if (prepared.complete) this.broadcast(room, 'map_available', { digest: payload.digest, byte_length: payload.byte_length });
+      if (prepared.complete) this.broadcast(room, 'map_available', { digest: payload.digest, byte_length: payload.byte_length,
+        ...(prepared.resource.resource === 'preview' ? { resource: 'preview' } : {}) });
     } else if (operation === 'advertise') {
       const channel = payload.channel;
       requireThat(channel && typeof channel.ex_info === 'string' && channel.ex_info.length <= 512, 'invalid_request', 'Invalid advertisement.');
@@ -693,9 +759,12 @@ export class LobbyService {
       this.broadcast(room, 'choices', { from: session.nickname, row: payload.row, slot: payload.slot, observer: payload.observer }, sessionId);
     } else if (operation === 'ready' || operation === 'map_status') {
       requireThat(room.kind === 41 && room.options && payload.revision === room.revision, 'stale_revision', 'The room changed. Accept the settings again.', 409);
-      const agreement = { revision: payload.revision, version: payload.version, rules_digest: payload.rules_digest, map_digest: payload.map_digest };
+      const agreement = { revision: payload.revision, version: payload.version, rules_digest: payload.rules_digest,
+        map_digest: payload.map_digest, staging_digest: payload.staging_digest ?? '', effective_map_digest: payload.effective_map_digest };
       requireThat(typeof agreement.version === 'string' && agreement.version.length <= 128 && typeof agreement.rules_digest === 'string' &&
-        agreement.rules_digest.length <= 128 && typeof agreement.map_digest === 'string' && agreement.map_digest.length <= 128,
+        agreement.rules_digest.length <= 128 && typeof agreement.map_digest === 'string' && agreement.map_digest.length <= 128 &&
+        typeof agreement.staging_digest === 'string' && agreement.staging_digest.length <= 64 &&
+        /^[0-9a-f]{64}$/.test(agreement.effective_map_digest ?? ''),
         'invalid_request', 'Version, rules and map agreement are required.');
       room.agreements[session.player_id] = agreement;
       if (operation === 'ready') {

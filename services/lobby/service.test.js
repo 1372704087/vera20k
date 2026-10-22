@@ -52,9 +52,9 @@ function fixture(bodyTimeoutMs = 5000) {
 
 const channel = { name: 'Test Room', kind: 41, max_users: 30, flags: 0, game_flags: 0, ex_info: 'test' };
 const options = { launch: { local_player_index: 0, humans: [{ name: 'Host' }, { name: 'Guest' }] },
-  map_metadata: { display_name: 'Test map', player_capacity: 30, official: false, byte_length: 120, digest: 'map-one', source_sha256: '11'.repeat(32) },
+  map_metadata: { display_name: 'Test map', player_capacity: 30, official: false, byte_length: 120, digest: 'map-one', source_sha256: '11'.repeat(32), effective_digest: 'aa'.repeat(32) },
   vacancies: ['open', 'open'], observer_row: null, cooperative_difficulty: 1, seed: null };
-const agreement = (revision) => ({ revision, version: 'test-v1', rules_digest: 'rules-one', map_digest: '11'.repeat(32) });
+const agreement = (revision) => ({ revision, version: 'test-v1', rules_digest: 'rules-one', map_digest: '11'.repeat(32), effective_map_digest: 'aa'.repeat(32) });
 
 async function room(f, host, guest) {
   assert.equal((await f.command(host, 'create', { channel, key: '' })).status, 200);
@@ -68,6 +68,46 @@ async function room(f, host, guest) {
   }
   return revision;
 }
+
+test('public chat accepts the legacy client lobby key without weakening game-room keys', async () => {
+  const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
+  const publicRoom = (await f.request('/v1/channels?kind=0', guest.token)).body.channels[0];
+  const joined = await f.command(guest, 'join', { channel: publicRoom.name, key: 'legacy-client-lobby-key' });
+  assert.equal(joined.status, 200);
+  assert.equal(joined.body.events.find((event) => event.kind === 'joined').payload.channel.id, 'public');
+  assert.equal((await f.command(host, 'create', { channel, key: 'protected-room-key' })).status, 200);
+  assert.equal((await f.command(guest, 'join', { channel: channel.name, key: 'wrong-key' })).status, 403);
+});
+
+test('host can create a same-name rematch before the former guest leaves results', async () => {
+  const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
+  const newcomer = await f.account('NextGuest');
+  const revision = await room(f, host, guest);
+  const start = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
+  const match = start.body.events.find((event) => event.kind === 'game_started').payload.match_id;
+  assert.equal((await f.command(newcomer, 'create', { channel, key: '' })).status, 409,
+    'a connecting room keeps its name because start can still abort');
+  for (const user of [host, guest]) await f.command(user, 'relay_ready', { match_id: match });
+  assert.equal((await f.command(newcomer, 'create', { channel, key: '' })).status, 409,
+    'a probing room keeps its name because start can still abort');
+  await f.command(host, 'latency_ready', { match_id: match, pings: [{ source_index: 1, round_trip_ms: 100 }] });
+  await f.command(guest, 'latency_ready', { match_id: match, pings: [{ source_index: 0, round_trip_ms: 100 }] });
+  for (const user of [host, guest]) await f.command(user, 'leave');
+  assert.equal((await f.command(host, 'finish', { match_id: match })).status, 200);
+  const rematch = await f.command(host, 'create', { channel, key: '' });
+  assert.equal(rematch.status, 200);
+  const newRoom = rematch.body.events.find((event) => event.kind === 'created').payload.channel.id;
+  assert.ok(f.store.get(`match:${match}`), 'the guest retains its original match lease');
+  const earlyJoin = await f.command(newcomer, 'join', { channel: channel.name, key: '' });
+  assert.equal(earlyJoin.status, 200);
+  assert.equal(earlyJoin.body.events.find((event) => event.kind === 'joined').payload.channel.id, newRoom);
+  assert.equal((await f.command(guest, 'finish', { match_id: match })).status, 200);
+  const joined = await f.command(guest, 'join', { channel: channel.name, key: '' });
+  assert.equal(joined.status, 200);
+  assert.equal(joined.body.events.find((event) => event.kind === 'joined').payload.channel.id, newRoom);
+  assert.ok(f.store.get(`room:${newRoom}`), 'old-match cleanup preserves the new lobby');
+  assert.equal(f.store.get(`match:${match}`), null);
+});
 
 test('real room agreement gates relay admission, survives actor restart and gives rematch fresh tickets', async () => {
   const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
@@ -88,10 +128,20 @@ test('real room agreement gates relay admission, survives actor restart and give
   await f.command(guest, 'latency_ready', { match_id: begun.match_id, pings: [{ source_index: 0, round_trip_ms: 1400 }] });
   const timing = (await f.request('/v1/events?after=0', host.token)).body.events.find((event) => event.kind === 'timing_confirmed');
   assert.deepEqual(timing.payload.pings, [1400, 900]);
+  f.advance(1);
+  const renewed = await f.command(host, 'renew_relay', { match_id: begun.match_id, source_index: 1 });
+  assert.equal(renewed.status, 200);
+  const lease = renewed.body.events.find((event) => event.kind === 'relay_renewed').payload;
+  assert.equal(lease.match_id, begun.match_id);
+  assert.equal(lease.relay.source_index, 0, 'only the authenticated participant can renew its own source');
+  assert.notEqual(lease.relay.packet_key, begun.relay.packet_key);
+  assert.equal(Buffer.from(lease.relay.ticket, 'base64url').readBigUInt64LE(18),
+    Buffer.from(begun.relay.ticket, 'base64url').readBigUInt64LE(18) + 1n);
   for (const user of [host, guest]) {
     await f.command(user, 'leave');
     assert.equal((await f.command(user, 'finish', { match_id: begun.match_id })).status, 200);
   }
+  assert.equal((await f.command(host, 'renew_relay', { match_id: begun.match_id })).status, 409);
   revision = await room(f, host, guest);
   const next = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
   const rematch = next.body.events.filter((event) => event.kind === 'game_started').at(-1).payload;
@@ -291,4 +341,39 @@ test('map capacity counts playing humans and AI while retaining the observer tra
   selected.launch.humans[0].role = 'Observer';
   selected.launch.opponents = [{}];
   assert.equal((await f.command(host, 'options', { options: selected })).status, 400);
+});
+
+test('generated maps bind independent seed and preview transfers to the agreed start staging', async () => {
+  const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
+  await room(f, host, guest);
+  const seed = Buffer.from('[General]\nNumPlayers=2\nSeed=123\n');
+  const preview = Buffer.alloc(33000, 9);
+  const hash = async (bytes) => Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex');
+  const digest = await hash(seed); const previewDigest = await hash(preview);
+  const staging = `W100,100,0,0,2,10,10,20,20,90,90,80,80${',0,0,0,0'.repeat(6)}`;
+  const selected = { ...options, map_metadata: { ...options.map_metadata, player_capacity: 2, byte_length: seed.length, source_sha256: digest },
+    random_map: { start_staging: staging, preview: { source_sha256: previewDigest, byte_length: preview.length } } };
+  assert.equal((await f.command(host, 'options', { options: { ...selected, map_metadata: { ...selected.map_metadata, player_capacity: 30 } } })).status, 400);
+  const result = await f.command(host, 'options', { options: selected });
+  assert.equal(result.status, 200);
+  const revision = result.body.events.filter((event) => event.kind === 'options').at(-1).payload.revision;
+  const upload = (bytes, sha, offset = 0, resource) => ({ digest: sha, byte_length: bytes.length, offset,
+    data: bytes.subarray(offset, offset + 32768).toString('base64url'), ...(resource ? { resource } : {}) });
+  assert.equal((await f.command(host, 'map_upload', upload(seed, digest))).status, 200);
+  assert.equal((await f.command(host, 'map_upload', upload(preview, previewDigest, 0, 'preview'))).status, 200);
+  assert.equal((await f.request(`/v1/maps/${digest}?resource=preview&offset=0`, guest.token)).status, 409);
+  assert.equal((await f.command(host, 'map_upload', upload(preview, previewDigest, 32768, 'preview'))).status, 200);
+  const received = await f.request(`/v1/maps/${digest}?resource=preview&offset=32768`, guest.token);
+  assert.equal(received.status, 200);
+  assert.equal(received.body.digest, previewDigest);
+  assert.deepEqual(Buffer.from(received.body.data, 'base64url'), preview.subarray(32768));
+  assert.equal((await f.request(`/v1/maps/${previewDigest}?resource=preview&offset=0`, guest.token)).status, 409);
+  const agreed = { ...agreement(revision), map_digest: digest, staging_digest: await hash(Buffer.from(staging)) };
+  for (const user of [host, guest]) {
+    await f.command(user, 'map_status', { status: 1, ...agreed });
+    await f.command(user, 'ready', { ready: true, ...agreed });
+  }
+  assert.equal((await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreed, staging_digest: '' })).status, 409);
+  assert.equal((await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreed, effective_map_digest: 'bb'.repeat(32) })).status, 409);
+  assert.equal((await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreed })).status, 200);
 });

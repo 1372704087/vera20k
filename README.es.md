@@ -48,7 +48,8 @@ Descarga el instalador para Windows, macOS o Linux desde la
 [página de versiones](https://github.com/YuriPlanet/vera20k/releases). Encuentra tu Yuri's Revenge
 de [Steam](https://store.steampowered.com/app/2229850/) o de la
 [app de EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
-y lo prepara todo, sin modificar los archivos del juego.
+e instala VERA20K en una carpeta nueva. Ahí irán también los mods y el contenido nuevo, así que los
+archivos del juego nunca se modifican.
 
 ## Arquitectura
 

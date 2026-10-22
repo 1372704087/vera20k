@@ -47,7 +47,8 @@ VERA20K делают игроки для игроков, и последнее �
 [странице выпусков](https://github.com/YuriPlanet/vera20k/releases). Он сам найдёт твою копию
 Yuri's Revenge из [Steam](https://store.steampowered.com/app/2229850/) или
 [приложения EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
-и всё настроит, не меняя файлы игры.
+и установит VERA20K в новую папку. Туда же будут попадать моды и новый контент, так что файлы самой
+игры никогда не меняются.
 
 ## Архитектура
 

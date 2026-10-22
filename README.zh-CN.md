@@ -40,7 +40,7 @@ VERA20K 由玩家打造、为玩家而做，项目的方向由玩家说了算。
 
 ## 下载与游玩
 
-从[发布页面](https://github.com/YuriPlanet/vera20k/releases)下载适用于 Windows、macOS 或 Linux 的安装程序。它会找到你从 [Steam](https://store.steampowered.com/app/2229850/) 或 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) 获得的《尤里的复仇》，并为你设置好一切，不会改动游戏文件。
+从[发布页面](https://github.com/YuriPlanet/vera20k/releases)下载适用于 Windows、macOS 或 Linux 的安装程序。它会找到你从 [Steam](https://store.steampowered.com/app/2229850/) 或 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) 获得的《尤里的复仇》，并把 VERA20K 安装到一个新文件夹。今后的模组和新内容也会放在那里，因此游戏本身的文件永远不会被改动。
 
 ## 架构
 

@@ -752,6 +752,9 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "build_text_text", &build_text_text);
 
     // UI overlays
+    for (house, beacons) in ui.beacons.iter().enumerate() {
+        pool.upload_page(&state.renderer.gpu, "beacons", house, beacons);
+    }
     pool.upload(&state.renderer.gpu, "drag", &ui.drag);
     pool.upload(&state.renderer.gpu, "software_cursor", &ui.software_cursor);
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);

@@ -1308,6 +1308,11 @@ pub struct GeneralRules {
     /// Rules+1D8: constructor6658F8=-1; AudioVisual669B25..669B52 reads
     /// AddPlanningModeCommandSound later in the same pass, retaining the ID.
     pub add_planning_mode_command_sound: Option<String>,
+    /// Rules+1CC: constructor6658E6=-1; AudioVisual669BA8..669BD3 reads
+    /// exact PlaceBeaconSound with ReadString128 and Voc Find7514D0,
+    /// retaining the prior ID on a missing or unknown name. PlaceBeacon
+    /// 430D7D..430D94 plays it centred at full volume for the local House.
+    pub place_beacon_sound: Option<String>,
     /// ScatterSelectedObjects730FE0's centered cue. Rules+728 starts at -1
     /// (66585F/666063); AudioVisual66AE6C..66AEA2 reads exact ScatterSound
     /// with ReadString128 and fixed Voc lookup, retaining failed selections.
@@ -2485,6 +2490,7 @@ impl Default for GeneralRules {
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
             add_planning_mode_command_sound: None,
+            place_beacon_sound: None,
             scatter_sound: None,
             scold_sound: None,
             generic_beep_sound: None,
@@ -3673,6 +3679,7 @@ impl GeneralRules {
             start_planning_mode_sound: None,
             end_planning_mode_sound: None,
             add_planning_mode_command_sound: None,
+            place_beacon_sound: None,
             scatter_sound: None,
             scold_sound: None,
             generic_beep_sound: audio_visual
@@ -5050,6 +5057,10 @@ impl RuleSet {
             ini.section("AudioVisual").and_then(|section| {
                 sounds.read_rules_reference(section, "AddPlanningModeCommandSound")
             });
+        // Original669BA8, after Add669B25 in the same AudioVisual pass.
+        self.general.place_beacon_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "PlaceBeaconSound"));
         self.general.time_warp_out_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "LetsDoTheTimeWarpOutAgain"));

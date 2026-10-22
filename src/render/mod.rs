@@ -21,6 +21,7 @@ pub(crate) mod atlas_growth;
 #[cfg(test)]
 mod atlas_refresh_retail_tests;
 pub mod batch;
+pub mod beacon_art;
 pub mod bink_movie;
 pub mod bit_font;
 pub mod bridge_atlas;

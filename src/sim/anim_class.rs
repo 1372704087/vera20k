@@ -1354,11 +1354,8 @@ impl Simulation {
     /// `0x004D7FA6..0x004D8062`), which VERA does not model, so it spawns
     /// nothing there. False when nothing is constructed.
     pub(crate) fn spawn_move_flash(&mut self, rules: &RuleSet, cell: (u16, u16)) -> bool {
-        use crate::sim::scenario_session::ScenarioGameMode;
-        if !matches!(
-            self.session.game_mode(),
-            ScenarioGameMode::Campaign | ScenarioGameMode::Skirmish
-        ) || rules.general.move_flash.name.is_empty()
+        if !self.session.game_mode().is_single_player()
+            || rules.general.move_flash.name.is_empty()
         {
             return false;
         }

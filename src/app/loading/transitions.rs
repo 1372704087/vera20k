@@ -275,6 +275,34 @@ pub(crate) fn install_world_presentation(
         &state.renderer.batch_renderer,
         state.process_assets.manager(),
     ));
+    // Full_Init 687BB2 -> Init_BeaconArt 4309D0; each row's ColorScheme is
+    // its House's (+0x16054).
+    state.match_state.match_presentation.beacon_art =
+        state.process_assets.manager().and_then(|assets| {
+            let runtime = state.match_state.sim_runtime.as_ref()?;
+            let sim = &runtime.simulation;
+            let colors = &state.match_state.match_presentation.house_color_map;
+            let ramps: Vec<_> = sim
+                .houses()
+                .order()
+                .iter()
+                .take(crate::app::match_runtime::beacons::BEACON_HOUSES)
+                .map(|house| {
+                    let index = colors
+                        .get(sim.interner().resolve(*house))
+                        .copied()
+                        .unwrap_or(crate::rules::house_colors::NO_REMAP);
+                    *runtime.resources.rules.house_color_ramps.ramp(index)
+                })
+                .collect();
+            Some(crate::render::beacon_art::BeaconArt::new(
+                &state.renderer.gpu.device,
+                &state.renderer.gpu.queue,
+                &state.renderer.batch_renderer,
+                assets,
+                &ramps,
+            ))
+        });
     let shroud_buffer = state.process_assets.manager().and_then(|assets| {
         let grid = state
             .match_state
@@ -487,6 +515,9 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         0,
     );
     state.match_state.match_presentation.chat = Default::default();
+    // Clear_Scene6851F0 -> 534450 resets BeaconManagerClass (53499B).
+    // Display Init_Clear4A88C0 clears +11B0..+11B2, not beacon mode +11B4.
+    state.match_state.match_presentation.beacons = Default::default();
     state.match_state.input.minimap_dragging = false;
     state.match_state.input.tactical_mouse.reset_for_new_view();
     state.match_state.input.keys_held.clear();

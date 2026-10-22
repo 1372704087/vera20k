@@ -19,6 +19,12 @@ VERA20K 由玩家打造、为玩家而做，项目的方向由玩家说了算。
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K 遭遇战设置界面和游戏画面" width="100%">
 
+### 下载
+
+| 最新正式版 | 最新开发版 |
+|---|---|
+| [![最新正式版](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![最新开发版](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
+
 ## 项目目标
 
 1. 保留原版《红色警戒2：尤里的复仇》的玩法、画面和氛围。
@@ -37,6 +43,12 @@ VERA20K 由玩家打造、为玩家而做，项目的方向由玩家说了算。
 - **持续完善：** 游戏行为与原版的一致性、画面和性能。
 - **多人模式：** 尚不支持联机游玩。
 - **规模：** 尚未展示过 30 名玩家、20,000 个单位的对战。
+
+## 下载与游玩
+
+VERA20K 需要《红色警戒2：尤里的复仇》1.001 的原版文件才能运行。游戏可以在 [Steam](https://store.steampowered.com/app/2229850/) 购买，也可以在 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection) 中作为 The Ultimate Collection 的一部分购买。
+
+[发布页面](https://github.com/YuriPlanet/vera20k/releases)提供适用于 Windows、macOS（Apple Silicon）和 Linux 的安装程序：最新正式版和每晚构建的开发版。VERA20K 会找到你的《尤里的复仇》文件夹或询问你它的位置，然后直接读取其中的游戏文件，不做任何修改。它的设置、存档和日志都保存在它自己的文件夹中。
 
 ## 架构
 

@@ -22,6 +22,12 @@ das Projekt entwickelt.
 
 <img src="docs/images/vera20k-screenshots.png" alt="VERA20K: Gefechtseinstellungen und eine Szene aus dem Spiel" width="100%">
 
+### Download
+
+| Neueste Version | Neueste Entwicklungsversion |
+|---|---|
+| [![Neueste Version](https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green)](https://github.com/YuriPlanet/vera20k/releases/latest) | [![Neueste Entwicklungsversion](https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&sort=date&color=green&label=dev%20build)](https://github.com/YuriPlanet/vera20k/releases) |
+
 ## Projektziele
 
 1. Spielmechanik, Grafik und Atmosphäre des ursprünglichen Red Alert 2: Yuri's Revenge bewahren.
@@ -40,6 +46,17 @@ das Projekt entwickelt.
 - **Laufende Arbeiten:** Spielverhalten, Grafik und Leistung.
 - **Mehrspielermodus:** Netzwerkspiel ist noch nicht verfügbar.
 - **Größenordnung:** Schlachten mit 30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
+
+## Herunterladen und spielen
+
+VERA20K braucht zum Spielen die Originaldateien von Red Alert 2: Yuri's Revenge 1.001. Das Spiel
+gibt es auf [Steam](https://store.steampowered.com/app/2229850/) oder, als Teil der Ultimate Collection, in der
+[EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
+
+Auf der [Release-Seite](https://github.com/YuriPlanet/vera20k/releases) gibt es Installer für
+Windows, macOS (Apple Silicon) und Linux: die neueste Version und nächtliche Entwicklungsversionen.
+VERA20K findet deinen Yuri's-Revenge-Ordner oder fragt danach und liest die Spieldateien dort,
+ohne sie zu verändern. Einstellungen, Spielstände und Logs bleiben in seinem eigenen Ordner.
 
 ## Architektur
 

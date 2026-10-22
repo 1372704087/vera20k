@@ -799,18 +799,21 @@ impl SfxOutputGain {
     }
 
     fn effective(self, scales: SfxOutputScales) -> f32 {
+        native_volume_amplitude(self.combined_linear(scales)) * scales.focus_output_scale
+    }
+
+    /// The linear product `0x0040A6D0` converts: for a Voc channel, the
+    /// value of `ch+0xD8` that `FindAvailable` ranks (`[ch+0xDC] >> 16`).
+    fn combined_linear(self, scales: SfxOutputScales) -> i32 {
         let user = match self.channel {
             SfxChannel::Sound => scales.sound_volume,
             SfxChannel::EvaStream => scales.voice_volume,
-            SfxChannel::TauntStream => {
-                let linear = combine_linear(self.buffer_linear, self.base_linear);
-                return native_volume_amplitude(linear) * scales.focus_output_scale;
-            }
+            SfxChannel::TauntStream => return combine_linear(self.buffer_linear, self.base_linear),
         };
         let user_linear = X87Chop53::ftol_f64_low_masked(
             f64::from(user.clamp(0.0, 1.0)) * f64::from(VOLUME_SCALE),
         );
-        let linear = if self.channel == SfxChannel::EvaStream {
+        if self.channel == SfxChannel::EvaStream {
             // VoxClass::Init: Voice `[0x0087E740]` at `+0x94` (`0x00752316`)
             // and `[0x0087E750]` at `+0x9C` (`0x00752327`); no many-sounds
             // scaler and no effects master, so the scenario exits' fade
@@ -826,8 +829,7 @@ impl SfxOutputGain {
             let with_user = combine_linear(event, user_linear);
             let with_limiter = combine_linear(with_user, scales.many_sounds_linear);
             combine_linear(with_limiter, scales.sound_master_linear)
-        };
-        native_volume_amplitude(linear) * scales.focus_output_scale
+        }
     }
 }
 
@@ -1111,6 +1113,8 @@ impl LoadedPlayback {
 struct PendingSampleService<'a> {
     pending: &'a mut BTreeMap<EventId, PendingPlayback>,
     live: &'a BTreeMap<EventId, LiveSfxOutput>,
+    /// The scales the live outputs last applied.
+    scales: SfxOutputScales,
     registry: &'a SoundRegistry,
     assets: &'a AssetManager,
     audio_index: Option<&'a crate::assets::audio_bag::AudioIndex>,
@@ -1119,6 +1123,14 @@ struct PendingSampleService<'a> {
 }
 
 impl PlaybackService for PendingSampleService<'_> {
+    /// An allocation runs before this pass starts anything, so every playing
+    /// channel already has its output; one without reads as silent.
+    fn channel_volume(&self, event: EventId) -> i32 {
+        self.live
+            .get(&event)
+            .map_or(0, |output| output.gain.combined_linear(self.scales))
+    }
+
     fn stop_playout(&mut self, event: EventId) {
         if let Some(output) = self.live.get(&event) {
             output.stop();
@@ -2287,11 +2299,13 @@ impl SfxPlayer {
         rng: &mut PlaybackDraws,
     ) {
         self.now_ms = now_ms;
+        let applied_scales = self.output_scales();
         let actions = self.arbiter.update_tick(
             now_ms,
             &mut PendingSampleService {
                 pending: &mut self.pending,
                 live: &self.live,
+                scales: applied_scales,
                 registry,
                 assets,
                 audio_index,

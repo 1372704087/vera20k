@@ -234,6 +234,10 @@ impl PlaybackService for CorpusService<'_> {
     }
 
     fn stop_playout(&mut self, _: EventId) {}
+
+    fn channel_volume(&self, _: EventId) -> i32 {
+        0
+    }
 }
 
 fn native_state(arbiter: &SoundArbiter, event: EventId) -> u64 {

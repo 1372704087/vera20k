@@ -674,9 +674,11 @@ fn mcv_deploy_sound_occurs_once_with_conversion_at_the_source_cell() {
                 .filter_map(|event| match event {
                     SimSoundEvent::EntityDeployed {
                         deploy_sound_id,
-                        rx,
-                        ry,
-                    } => Some((sim.interner.resolve(*deploy_sound_id), *rx, *ry)),
+                        world,
+                    } => {
+                        let (rx, ry, ..) = world.to_cell_sub_z();
+                        Some((sim.interner.resolve(*deploy_sound_id), rx, ry))
+                    }
                     _ => None,
                 })
                 .collect();

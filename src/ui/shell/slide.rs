@@ -17,8 +17,8 @@
 //! Render-agnostic: depends only on `ui::shell` + `std` (no sim/render/assets),
 //! honouring the `ui/` layering rule. The app layer (`app::frontend::shell_transition`) maps
 //! the showing screen to a `DialogId`, drives the wave each frame, and plays the
-//! start cue (`GUIMoveInSound`, stock `MenuSlideIn`); the stock-empty end cue
-//! (`ShellButtonSlideSound`) stays silent.
+//! start cue (`GUIMoveInSound`, stock `MenuSlideIn`) and the end cue
+//! (`ShellButtonSlideSound`, empty in stock rules).
 
 use std::time::{Duration, Instant};
 

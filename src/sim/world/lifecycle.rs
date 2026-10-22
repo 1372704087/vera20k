@@ -1296,6 +1296,8 @@ impl Simulation {
         // (`0x006F6D8F`), behind its alive gate (`0x006F6D04`: a dead Techno
         // returns success before it).
         if techno_alive_on_entry {
+            #[cfg(feature = "phobos")]
+            self.phobos_tracking_before_unlimbo(stable_id);
             self.house_added_to_game(stable_id, context.rules());
         }
         // Techno6F6DAA: the admitted successful Techno snaps
@@ -3744,6 +3746,8 @@ impl Simulation {
                 context.effects(),
             );
             // 6F6BD1: Removed_From_Game, also only on the first Limbo.
+            #[cfg(feature = "phobos")]
+            self.phobos_tracking_before_limbo(stable_id);
             self.house_removed_from_game(stable_id, context.rules(), context.effects());
             // BuildingClass::Limbo 0x00445946..0x00445988: an opened
             // Helipad's docks leave its house's AirportDocks.
@@ -5853,6 +5857,8 @@ impl Simulation {
             }
 
             self.run_represented_uninit_pre_hook(stable_id);
+            #[cfg(feature = "phobos")]
+            self.phobos_tracking_begin_uninit(stable_id);
             // `ObjectClass::UnInit` kills a Techno's passengers with no attacker
             // (`0x005F660D`).
             self.kill_passengers(stable_id, None, context);
@@ -5917,6 +5923,10 @@ impl Simulation {
         self.substrate.pending_delete.queue_object(stable_id);
         #[cfg(any(test, feature = "test-support"))]
         self.trace_lifecycle_for_test(LifecycleTestEvent::PendingDeleteQueued { stable_id });
+        #[cfg(feature = "phobos")]
+        if kind == ObjectKind::Entity {
+            self.phobos_tracking_end_uninit();
+        }
     }
 
     #[cfg(any(test, feature = "test-support"))]

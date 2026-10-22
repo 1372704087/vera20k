@@ -1873,9 +1873,10 @@ impl Simulation {
             };
             // RESIDUAL: this unwrap relies on the binder having bound the
             // parent's whole `TrailerAnim=` closure. The strict binder
-            // guarantees it; the tolerant one ends a chain at the first
-            // type with no sprite, so a tolerantly bound parent with an
-            // unbindable trailer would panic here. Trigger: modded art
+            // guarantees it; the tolerant one stops on a malformed image
+            // header, so a tolerantly bound parent with an unbindable
+            // trailer would panic here. Missing images now bind successfully
+            // as zero-frame types. Trigger: malformed modded art
             // only; no retail trailer chain starts from a tolerant root.
             self.spawn_anim_at_world(rules, descriptor, world_coord)
                 .expect("validated trailer closure must remain spawnable");

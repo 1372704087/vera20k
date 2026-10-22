@@ -41,13 +41,9 @@ VERA20K สร้างโดยเกมเมอร์ เพื่อเก�
 
 ## ดาวน์โหลดและเล่น
 
-<p>
-  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="รุ่นล่าสุด" height="23"></a>
-  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="รุ่นพัฒนาล่าสุด" height="23"></a>
-</p>
-
-ตัวติดตั้งสำหรับ Windows, macOS หรือ Linux จะค้นหา Yuri's Revenge ของคุณจาก
-[Steam](https://store.steampowered.com/app/2229850/)
+ดาวน์โหลดตัวติดตั้งสำหรับ Windows, macOS หรือ Linux
+ได้จาก[หน้ารุ่นที่เผยแพร่](https://github.com/YuriPlanet/vera20k/releases) ตัวติดตั้งจะค้นหา
+Yuri's Revenge ของคุณจาก [Steam](https://store.steampowered.com/app/2229850/)
 หรือ[แอป EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
 แล้วตั้งค่าทุกอย่างให้ โดยไม่แก้ไขไฟล์ของเกม
 

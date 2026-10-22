@@ -43,13 +43,9 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 
 ## Download and play
 
-<p>
-  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Latest release" height="23"></a>
-  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Latest development build" height="23"></a>
-</p>
-
-The installer for Windows, macOS or Linux finds your copy of Yuri's Revenge from
-[Steam](https://store.steampowered.com/app/2229850/) or the
+Download the installer for Windows, macOS or Linux from the
+[releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
+Yuri's Revenge from [Steam](https://store.steampowered.com/app/2229850/) or the
 [EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
 and sets everything up, without changing the game's files.
 

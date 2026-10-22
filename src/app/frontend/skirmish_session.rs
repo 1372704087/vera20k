@@ -992,6 +992,39 @@ impl MultiplayerShellRuntime {
         Ok(resolved)
     }
 
+    /// Pack the live controls into the durable record without a launch
+    /// transaction. A terminal exit has no Start/Back phase, so this is the
+    /// page the player leaves becoming the page the next visit shows. Random
+    /// markers keep the value already cached behind them rather than drawing a
+    /// replacement: no launch is happening, so no `Scenario` draw may be spent.
+    pub(crate) fn pack_durable_state(
+        &mut self,
+        state: &SkirmishShellState,
+        maps: &[MapMenuEntry],
+        modes: &[SkirmishGameMode],
+    ) {
+        pack_snapshot_selection(&mut self.snapshot, state, maps, modes);
+        pack_snapshot_slots(&mut self.snapshot, state);
+        pack_snapshot_options(&mut self.snapshot, state);
+        let mut handle_bytes = crate::util::native_string::acp_encode(&state.player_name_edit.text);
+        handle_bytes.truncate(MULTIPLAYER_HANDLE_LIMIT_BYTES);
+        self.local_preferences.handle_bytes = handle_bytes;
+        self.local_preferences.game_mode = self.snapshot.game_mode;
+        if state.player_country_random {
+            self.local_preferences.side_ex = RANDOM_ITEM_DATA;
+        } else {
+            self.local_preferences.side = menu_country_item_data(state.player_country);
+            self.local_preferences.side_ex = CONCRETE_ITEM_DATA;
+        }
+        if state.player_color_claimed {
+            self.local_preferences.color_index = i32::try_from(state.player_color_index)
+                .unwrap_or(self.local_preferences.color_index);
+            self.local_preferences.color_ex = CONCRETE_ITEM_DATA;
+        } else {
+            self.local_preferences.color_ex = RANDOM_ITEM_DATA;
+        }
+    }
+
     /// Resolve a borrowed raw session on the process-continuity Scenario RNG.
     /// The shell and durable snapshot remain unchanged.
     #[cfg(test)]
@@ -2799,5 +2832,69 @@ WOLTaunts=junk
 
         assert_eq!(shell.selected_mode_id, 1);
         assert_eq!(shell.selected_map_idx, 0);
+    }
+
+    /// A terminal exit has no Start/Back transaction, so the page's own values
+    /// have to reach the durable record. No launch is happening, so the pack may
+    /// not spend a `Scenario` draw turning a Random marker into a pick.
+    #[test]
+    fn terminal_exit_pack_keeps_page_edits_and_spends_no_random_draw() {
+        let mut runtime = runtime(
+            MultiplayerSetupSnapshot::from_global_defaults(defaults(), SetupProfile::Skirmish),
+            11,
+        );
+        let mut shell = SkirmishShellState::default();
+        shell.unit_count = 7;
+        shell.super_weapons = false;
+        shell.player_country = LaunchCountry::from_country_index(4);
+        shell.player_country_random = false;
+        shell.player_color_claimed = false;
+        let cached_colour = runtime.local_preferences.color_index;
+        let rng_before = runtime.scenario_rng_logical_state_for_test();
+
+        runtime.pack_durable_state(&shell, &[map()], &[mode()]);
+
+        assert_eq!(runtime.snapshot.unit_count, 7);
+        assert!(!runtime.snapshot.super_weapons_allowed);
+        assert_eq!(runtime.local_preferences.side, 4);
+        assert_eq!(runtime.local_preferences.side_ex, CONCRETE_ITEM_DATA);
+        assert_eq!(
+            runtime.local_preferences.color_ex, RANDOM_ITEM_DATA,
+            "an unclaimed colour stays Random behind its cached value"
+        );
+        assert_eq!(
+            runtime.local_preferences.color_index, cached_colour,
+            "the Random marker keeps the cached value instead of drawing one"
+        );
+        assert_eq!(
+            runtime.scenario_rng_logical_state_for_test(),
+            rng_before,
+            "the exit pack must not spend a Scenario draw"
+        );
+    }
+
+    /// Reopening the page re-applies the durable record. Only the fields that
+    /// record owns may move: the page's transient state is not part of it.
+    #[test]
+    fn rehydrating_reapplies_durable_values_and_leaves_page_state_alone() {
+        let mut snapshot =
+            MultiplayerSetupSnapshot::from_global_defaults(defaults(), SetupProfile::Skirmish);
+        snapshot.unit_count = 10;
+        let mut runtime = runtime(snapshot, 3);
+        let mut shell = SkirmishShellState::default();
+        runtime.hydrate_shell(&mut shell, &[map()], &[mode()]);
+        shell.zoom_enabled = false;
+
+        runtime.snapshot.unit_count = 4;
+        runtime.hydrate_shell(&mut shell, &[map()], &[mode()]);
+
+        assert_eq!(
+            shell.unit_count, 4,
+            "a reopened page shows the durable record, not its own last face"
+        );
+        assert!(
+            !shell.zoom_enabled,
+            "a field outside the record is untouched"
+        );
     }
 }

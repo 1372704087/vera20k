@@ -228,11 +228,12 @@ impl App {
             return;
         }
         state.platform.window_active = active;
+        let movie_active = crate::app::radar_movie::playback_active(state);
         state
             .match_state
             .match_presentation
             .radar_movies
-            .set_active(active);
+            .set_active(movie_active);
         state.match_state.input.keys_held.clear();
         state.match_state.input.hotkey_modifiers = ModifiersState::empty();
         state.platform.live_modifiers = ModifiersState::empty();
@@ -344,6 +345,15 @@ impl App {
                 cursor.leave_menus(locked);
             }
         }
+        if was_open != will_be_open {
+            // StateMachine__EnterPause 0x683EB0 / ExitPause 0x683FB0 bracket
+            // every in-game modal in every game mode.
+            if will_be_open {
+                state.audio.enter_state_machine_pause();
+            } else {
+                state.audio.exit_state_machine_pause();
+            }
+        }
         if was_open != will_be_open && !state.match_state.session_mode().is_network() {
             let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
             if will_be_open
@@ -360,6 +370,12 @@ impl App {
             }
         }
         state.match_state.match_presentation.in_game_menu = next;
+        let movie_active = crate::app::radar_movie::playback_active(state);
+        state
+            .match_state
+            .match_presentation
+            .radar_movies
+            .set_active(movie_active);
         state.match_state.match_presentation.pause_menu_interaction = Default::default();
         state.match_state.match_presentation.abort_buttons = Default::default();
         state.match_state.match_presentation.surrender_buttons = Default::default();

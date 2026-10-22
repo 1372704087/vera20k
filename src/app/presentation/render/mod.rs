@@ -173,8 +173,14 @@ pub(crate) fn render_game(
     let render_started = state.diag.telemetry_observer.active().then(Instant::now);
     // RadarClass::Draw 653100 consumes timeGetTime buckets. The frame owner
     // supplies wall time normally, or the map diagnostic's recorded OS input.
-    if let Some(radar) = state.match_state.match_presentation.radar_anim.as_mut() {
-        radar.tick(&state.renderer.gpu, times.radar_ms);
+    let housing_settled = state
+        .match_state
+        .match_presentation
+        .radar_anim
+        .as_mut()
+        .is_some_and(|radar| radar.tick(&state.renderer.gpu, times.radar_ms));
+    if housing_settled {
+        crate::app::radar_movie::end_radar_sound_loop(state);
     }
     let (sw, sh) = (state.render_width() as f32, state.render_height() as f32);
 

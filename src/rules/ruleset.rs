@@ -1272,6 +1272,12 @@ pub struct GeneralRules {
     /// Source: tools/input_oracle/radar_availability_audio.md and its consumed corpus.
     pub radar_on: Option<String>,
     pub radar_off: Option<String>,
+    /// Rules+6F8/+6FC: the radar transmission's static, read next as exact
+    /// MovieOn then MovieOff by the same reader (`0x0066AB5F..0x0066ABC7`).
+    /// `RadarClass::PlayRadarMovie @ 0x006578F0` and `PerFrameMovieUpdate @
+    /// 0x006579E0` play them centred at full volume on the radar's handle.
+    pub movie_on: Option<String>,
+    pub movie_off: Option<String>,
     /// Rules+220/+224: constructor66595E/665964 starts at -1;
     /// AudioVisual66A4EF..66A582 reads SpySatActivationSound then
     /// SpySatDeactivationSound with ReadString128/Voc7514D0 and retains the
@@ -2453,6 +2459,8 @@ impl Default for GeneralRules {
             stop_sound: None,
             radar_on: None,
             radar_off: None,
+            movie_on: None,
+            movie_off: None,
             spy_sat_activation_sound: None,
             spy_sat_deactivation_sound: None,
             voice_ifv_repair: None,
@@ -3559,6 +3567,8 @@ impl GeneralRules {
             stop_sound: None,
             radar_on: None,
             radar_off: None,
+            movie_on: None,
+            movie_off: None,
             spy_sat_activation_sound: None,
             spy_sat_deactivation_sound: None,
             start_planning_mode_sound: None,
@@ -4872,6 +4882,12 @@ impl RuleSet {
         self.general.radar_off = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "RadarOff"));
+        self.general.movie_on = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "MovieOn"));
+        self.general.movie_off = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "MovieOff"));
         // Original66A4EF..66A582 shares the retained fixed-catalog reader.
         self.general.spy_sat_activation_sound = ini
             .section("AudioVisual")

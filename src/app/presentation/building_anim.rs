@@ -394,6 +394,8 @@ pub(crate) fn update_radar_state(state: &mut AppState) {
         .and_then(|radar| radar.set_has_radar(new_has_radar));
     if let Some(cue) = cue {
         use crate::render::radar::anim::RadarAvailabilityCue;
+        //656BE0 ends the radar's movie loop before either cue.
+        crate::app::radar_movie::end_radar_sound_loop(state);
         let sound = state.rules().and_then(|rules| match cue {
             RadarAvailabilityCue::On => rules.general.radar_on.as_ref(),
             RadarAvailabilityCue::Off => rules.general.radar_off.as_ref(),

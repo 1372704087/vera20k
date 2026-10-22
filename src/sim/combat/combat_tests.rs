@@ -8536,10 +8536,11 @@ fn phobos_radiation_rules() -> RuleSet {
 [RadEruptionWarhead]\nVerses=100%,100%,100%,20%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\nCellSpread=10\n\n\
 [Radiation]\nRadDurationMultiple=1\nRadApplicationDelay=16\nRadLevelMax=500\nRadLevelDelay=90\nRadLevelFactor=.2\nRadSiteWarhead=RadSite\n\n\
 [Warheads]\n0=RadSite\n1=RadSiteToxic\n\n\
-[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n\n\
+[RadiationTypes]\n0=ToxicField\n1=OtherField\n2=VioletField\n3=DemoPurple\n\n\
 [ToxicField]\nRadLevelFactor=1.0\nRadLevelMax=250\nRadSiteWarhead=RadSiteToxic\n\n\
 [OtherField]\nRadLevelFactor=0.1\n\n\
 [VioletField]\nRadColor=255,0,255\nRadLightFactor=1.0\nRadTintFactor=1.0\n\n\
+[DemoPurple]\nRadColor=255,0,255\nRadLightFactor=0.6\nRadTintFactor=2.0\nRadDurationMultiple=6\nRadLevelMax=400\n\n\
 [RadSiteToxic]\nVerses=100%,100%,100%,50%,10%,10%,0%,0%,0%,100%,100%\nInfDeath=7\nRadiation=yes\n",
     );
     RuleSet::from_ini(&ini).expect("phobos radiation rules should parse")
@@ -11430,4 +11431,65 @@ fn a_drive_crusher_without_crusherall_leaves_a_plain_wall_standing() {
         !wall_present(&fortress),
         "the Battle Fortress is CrusherAll, so the same wall falls to it"
     );
+}
+
+/// The demo mod's own values: `RadColor=255,0,255`, `RadLightFactor=0.6`,
+/// `RadTintFactor=2.0`, duration x6 and a 400 level cap.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_demo_purple_values_reach_the_light() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    irradiate_bound(&mut sim, &rules, (7, 7), 500, 2, Some("DemoPurple"));
+    let site = sim.radiation.site_at((7, 7)).expect("site");
+    let light = site.light_source().expect("published light");
+    println!(
+        "DEMO light tint={:?} intensity={} level={} duration={}",
+        light.tint,
+        light.intensity,
+        site.level(),
+        site.duration()
+    );
+    assert_eq!(site.level(), 400, "RadLevelMax clamps 500");
+    assert_eq!(site.duration(), 2400, "six frames per level");
+    assert!(light.tint[0] > 0, "red must add: {:?}", light.tint);
+    assert_eq!(light.tint[0], light.tint[2]);
+    assert_eq!(light.tint[1], 0);
+}
+
+/// Native `RadSite65B5EA..65B684`: on a SNOW scenario the light substitutes
+/// signed -128 for the red and blue channels and keeps only `RadColor`'s
+/// green, so a purple type has no green to add and the field stays green.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_snow_theater_keeps_only_the_green_channel() {
+    let rules = phobos_radiation_rules();
+    let mut sim = radiation_scene(&rules);
+    sim.session_mut_for_test()
+        .set_theater_for_test("SNOW".to_owned());
+    irradiate_bound(&mut sim, &rules, (8, 8), 500, 2, Some("DemoPurple"));
+    let light = sim
+        .radiation
+        .site_at((8, 8))
+        .expect("site")
+        .light_source()
+        .expect("published light");
+    assert_eq!(
+        light.tint,
+        [-1002, 0, -1002],
+        "red and blue take the snow -128 channel, green stays RadColor's"
+    );
+
+    let mut temper = radiation_scene(&rules);
+    temper
+        .session_mut_for_test()
+        .set_theater_for_test("TEMPERATE".to_owned());
+    irradiate_bound(&mut temper, &rules, (8, 8), 500, 2, Some("DemoPurple"));
+    let light = temper
+        .radiation
+        .site_at((8, 8))
+        .expect("site")
+        .light_source()
+        .expect("published light");
+    assert_eq!(light.tint, [2000, 0, 2000], "temperate keeps RadColor");
 }

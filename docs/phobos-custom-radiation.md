@@ -57,6 +57,14 @@ false, each type's own `RadApplicationDelay` gates its sites instead of the
 shared global gate. A type whose warhead does not resolve deals no damage, as
 native's missing-warhead skip does.
 
+`RadColor` reaches the field through the site's light. On a `SNOW` scenario the
+native light substitutes signed -128 for the red and blue channels and keeps
+only `RadColor`'s green (`RadSite65B5EA..65B684`), so a type whose red and blue
+carry its identity looks like its green channel there — a `RadColor=255,0,255`
+type lights a temperate field purple and a snow field not at all. The
+substitution is native behavior, not a VERA limitation, and the site's damage
+parameters are unaffected by it.
+
 The retained Rules registry owns the ordered catalog; the type's canonical
 name and the bound weapon IDs enter the simulation configuration hash, and the
 catalog crosses the save boundary with the retained Rules records. A save

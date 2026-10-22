@@ -9,8 +9,9 @@ name: Release
 #                library tests on each at the same time; nothing is tagged or
 #                published unless every build and every test run passes (publish
 #                mode `none` runs them too). Names every installer after its
-#                build time and the commit it was built from, and tags it
-#                v<Cargo.toml version>-<build time>. Publishes a draft
+#                build time and the commit it was built from, tags it
+#                v<Cargo.toml version>-<build time>, and lists the changes since
+#                the previous release of either kind. Publishes a draft
 #                pre-release by default, so a bad build is discarded instead of
 #                shipped. Only the newest published dev builds are kept.
 #   release   -- dispatch with `promote` set to the tag of a published dev build
@@ -18,10 +19,11 @@ name: Release
 #                v<version>, checked against their build provenance and never
 #                rebuilt: the stable toolchain can change between runs. Only
 #                their names change, to plain vera20k-<version>-<platform> ones.
-#                It is a draft, for notes written for players; once published,
-#                it is the repository's Latest release. Then raise the
-#                Cargo.toml version, so later dev builds carry the next one; a
-#                dev build refuses to start until it is above every release.
+#                Its notes list the changes since the previous release. It is a
+#                draft, for notes written for players; once published, it is the
+#                repository's Latest release. Then raise the Cargo.toml version,
+#                so later dev builds carry the next one; a dev build refuses to
+#                start until it is above every release.
 #
 # The job that creates a tag also publishes its release: GitHub suppresses
 # `on: push` for refs written with GITHUB_TOKEN, so a tag created by a job can
@@ -502,8 +504,11 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      # For the release scripts (notes.sh, tag.sh).
+      # The notes list the changes since the previous release, which needs
+      # history.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -529,6 +534,7 @@ jobs:
       - name: Write release notes
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
           COMMIT: ${{ github.sha }}
         run: bash .github/release/notes.sh notes.md
       - name: Create the tag and the release
@@ -591,8 +597,11 @@ jobs:
       # `gh attestation verify` reads the dev build's provenance.
       attestations: read
     steps:
-      # For the release scripts (notes.sh, tag.sh).
+      # The notes list the changes since the previous release, which needs
+      # history.
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - name: Check the dev build and download its installers
         id: source
         shell: bash
@@ -615,8 +624,7 @@ jobs:
             echo "$FROM must be a published dev build (pre-release, not a draft)." >&2
             exit 1
           fi
-          # The checkout is shallow; the tag's own commit is all it needs.
-          git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$FROM:refs/tags/$FROM"
+          git fetch --quiet --no-tags origin "+refs/tags/$FROM:refs/tags/$FROM"
           commit="$(git rev-parse --verify "refs/tags/$FROM^{commit}")"
 
           mkdir dist
@@ -651,6 +659,8 @@ jobs:
       - name: Write release notes
         shell: bash
         env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ steps.source.outputs.commit }}
           PROMOTED_FROM: ${{ inputs.promote }}
         run: bash .github/release/notes.sh notes.md
       - name: Create the tag and the draft release

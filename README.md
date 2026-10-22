@@ -45,8 +45,7 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 
 Download the installer for Windows, macOS or Linux from the
 [releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
-Yuri's Revenge and sets up VERA20K in a new folder. Mods and new content will go there too, so the
-game's own files are never changed.
+Yuri's Revenge and sets up VERA20K in a new folder.
 
 ## Architecture
 

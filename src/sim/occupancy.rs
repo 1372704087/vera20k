@@ -894,6 +894,15 @@ impl OccupancyGrid {
     }
 }
 
+impl GameEntity {
+    /// Derived membership in this object's retained Mark footprint. Lifecycle
+    /// admission and actual per-cell lists remain with their existing owners.
+    /// This exposes a read decision across the app/core boundary, not the list.
+    pub fn footprint_contains_cell(&self, cell: (u16, u16)) -> bool {
+        entity_occupancy_cells(self).contains(&cell)
+    }
+}
+
 /// The cells an object's Mark lists it in: its own cell, or a building's
 /// occupy list (`vt+0x108`, Type `+0xDFC`), which Place_Down's AddContent
 /// (`0x0047E8A0`) walks. The lists are row-major rectangles except

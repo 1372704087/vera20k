@@ -1055,7 +1055,7 @@ fn building_covers_cell(entities: &EntityStore, rx: u16, ry: u16) -> bool {
         {
             return false;
         }
-        crate::sim::occupancy::entity_occupancy_cells(candidate).contains(&(rx, ry))
+        candidate.footprint_contains_cell((rx, ry))
     })
 }
 

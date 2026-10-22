@@ -380,7 +380,12 @@ fn paid_refinery_centering_and_free_unit(
     let refinery = scene.sim().interner().get(name).unwrap();
     let rules = &scene.runtime.resources.rules;
     let foundation = rules.object(name).unwrap().foundation.clone();
-    assert_eq!(foundation.selector(), 12);
+    let selector = match &foundation {
+        crate::rules::foundation::Foundation::Stock(index) => *index,
+        #[cfg(feature = "ares")]
+        _ => panic!("retail fixture must retain a stock foundation"),
+    };
+    assert_eq!(selector, 12);
     assert_eq!(rules.building_free_unit(name), Some("CMIN"));
     assert_eq!(
         serde_json::json!(foundation.cell_offsets()),

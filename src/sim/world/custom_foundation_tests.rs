@@ -41,6 +41,14 @@ fn custom_foundation_mark_navigation_outline_restore_and_uninit() {
                     "{} cell{x},{y}",
                     row["name"]
                 );
+                assert_eq!(
+                    sim.entities()
+                        .get(id)
+                        .unwrap()
+                        .footprint_contains_cell((x, y)),
+                    occupied.contains(&(x, y)),
+                    "presentation membership reads the same native occupied cells"
+                );
                 let present = sim
                     .cell_objects((x, y), MovementLayer::Ground)
                     .any(|member| {

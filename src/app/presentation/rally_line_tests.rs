@@ -228,10 +228,10 @@ fn simulation_fixture(row: &Value) -> (Simulation, RuleSet) {
         input["cloning"].as_bool().unwrap_or(false)
     )))
     .unwrap();
-    let foundation = format!(
+    let foundation = crate::rules::foundation::Foundation::from(format!(
         "{}x{}",
         row["foundation_size"][0], row["foundation_size"][1]
-    );
+    ));
     (
         simulation_fixture_for_type(row, "FACTORY", &foundation, "Americans", 10),
         rules,
@@ -241,7 +241,7 @@ fn simulation_fixture(row: &Value) -> (Simulation, RuleSet) {
 fn simulation_fixture_for_type(
     row: &Value,
     type_name: &str,
-    foundation: &str,
+    foundation: &crate::rules::foundation::Foundation,
     owner: &str,
     first_id: u64,
 ) -> Simulation {
@@ -267,7 +267,7 @@ fn simulation_fixture_for_type(
         .set_object_alive_for_test(input["alive"].as_bool().unwrap_or(true));
     entity
         .type_facts
-        .set_foundation_for_test(foundation.to_owned().into());
+        .set_foundation_for_test(foundation.clone());
     let [tx, ty] = input.get("target_cell").map(point).unwrap_or([14, 20]);
     if !input["no_target"].as_bool().unwrap_or(false) {
         if let Some(target) = input.get("target_object") {
@@ -372,10 +372,12 @@ fn retail_gapile_house_color_and_production_crop_match_original_rally_and_no_tar
         serde_json::json!(object.factory_rtti()),
         stock["result"]["factory"]
     );
-    assert_eq!(
-        serde_json::json!(object.foundation.selector()),
-        stock["result"]["foundation"]
-    );
+    let selector = match &object.foundation {
+        crate::rules::foundation::Foundation::Stock(index) => *index,
+        #[cfg(feature = "ares")]
+        _ => panic!("retail fixture must retain a stock foundation"),
+    };
+    assert_eq!(serde_json::json!(selector), stock["result"]["foundation"]);
     assert_eq!(
         serde_json::json!(u8::from(object.unit_repair)),
         stock["result"]["unit_repair"]

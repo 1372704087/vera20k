@@ -43,21 +43,15 @@ VERA20K делают игроки для игроков, и последнее �
 
 ## Скачать и играть
 
-Для VERA20K нужны оригинальные файлы Red Alert 2: Yuri's Revenge 1.001. Игру можно купить в
-[Steam](https://store.steampowered.com/app/2229850/) или, в составе The Ultimate Collection, в
-[приложении EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection).
+<p>
+  <a href="https://github.com/YuriPlanet/vera20k/releases/latest"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?color=green" alt="Последний выпуск" height="23"></a>
+  <a href="https://github.com/YuriPlanet/vera20k/releases"><img src="https://img.shields.io/github/v/release/YuriPlanet/vera20k?include_prereleases&amp;sort=date&amp;color=green&amp;label=dev%20build" alt="Последняя тестовая сборка" height="23"></a>
+</p>
 
-Проще всего играть через установщик для Windows, macOS (Apple Silicon) или Linux из
-[последнего выпуска](https://github.com/YuriPlanet/vera20k/releases/latest). Он всё настроит за
-тебя:
-
-- **Сам находит игру:** ищет Yuri's Revenge там, куда её ставят Steam и приложение EA, и предлагает
-  найденную папку или даёт выбрать свою.
-- **Игра остаётся нетронутой:** VERA20K читает файлы игры из этой папки, ничего не копируя и не
-  меняя, а свои настройки, сохранения и журналы хранит в отдельной папке.
-
-Ночные тестовые сборки с самыми свежими изменениями тоже есть на
-[странице выпусков](https://github.com/YuriPlanet/vera20k/releases).
+Установщик для Windows, macOS или Linux сам найдёт твою копию Yuri's Revenge из
+[Steam](https://store.steampowered.com/app/2229850/) или
+[приложения EA](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+и всё настроит, не меняя файлы игры.
 
 ## Архитектура
 

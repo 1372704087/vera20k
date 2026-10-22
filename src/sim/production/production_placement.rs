@@ -470,10 +470,7 @@ pub(crate) fn place_production_with_overlays(
         // for an UnInit'ed object; only local selection tests its alive byte.
         held.entity_id()
     } else {
-        let foundation_str: String = rules
-            .object(type_id)
-            .map(|o| o.foundation.clone())
-            .unwrap_or_else(|| "?".to_string());
+        let foundation = &obj.foundation;
         let z: u8 = sim.terrain_cell_level(rx, ry).unwrap_or(0);
         log::info!(
             "Placing building {} at ({},{}) z={} foundation={}",
@@ -481,7 +478,7 @@ pub(crate) fn place_production_with_overlays(
             rx,
             ry,
             z,
-            foundation_str,
+            foundation,
         );
         // Event::Execute4C70E1..4C710B passes an admitted PLACE straight to
         // House4FB0E0. Its placement refusal occurs after HELLO4FB1F1, and
@@ -510,7 +507,7 @@ pub(crate) fn place_production_with_overlays(
         };
         // Log screen position for debugging placement alignment.
         if let Some(ge) = sim.substrate.entities.get(new_sid) {
-            let (fw, fh) = foundation_str.dimensions();
+            let (fw, fh) = foundation.dimensions();
             // The entity anchor — the projection of the building's own coordinate,
             // which is its north-west cell's diamond centre. The drawn art sits half
             // a tile above this (render's building render-coordinate lift); this is

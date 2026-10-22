@@ -1,8 +1,6 @@
 //! Building placement tests — verifies foundation overlap detection, placement validity,
 //! and per-owner placement pool management for the production system.
 
-use crate::rules::foundation::foundation_dimensions;
-
 use super::{
     BuildingPlacementError, ProductionCategory, ProductionPlacement, credits_for_owner,
     cycle_active_producer_for_owner_category, place_production_with_overlays,
@@ -193,7 +191,7 @@ fn block_building_foundation(
         .object(type_id)
         .expect("building rules should exist")
         .foundation;
-    let (width, height) = foundation_dimensions(foundation);
+    let (width, height) = foundation.dimensions();
     for y in ry..ry + height {
         for x in rx..rx + width {
             path_grid.set_blocked(x, y, true);

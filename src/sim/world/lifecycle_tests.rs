@@ -350,7 +350,7 @@ fn insert_reservation_building(
     owner_name: &str,
     rx: u16,
     ry: u16,
-    foundation: &str,
+    foundation: &crate::rules::foundation::Foundation,
     spacing: i32,
 ) -> crate::sim::intern::InternedId {
     let owner = sim.interner.intern(owner_name);
@@ -381,7 +381,7 @@ fn insert_reservation_building(
     );
     entity
         .type_facts
-        .set_foundation_for_test(foundation.to_string().into());
+        .set_foundation_for_test(foundation.clone());
     entity
         .type_facts
         .set_base_reservation_spacing_for_test(Some(spacing));
@@ -503,7 +503,7 @@ fn receiver_fatal_limbo_clears_sparse_map_dummy_reservation() {
         .as_mut()
         .unwrap()
         .test_set_native_allocated_cells(&allocated);
-    insert_reservation_building(&mut sim, 41, "Americans", 10, 10, "1x1", 1);
+    insert_reservation_building(&mut sim, 41, "Americans", 10, 10, &"1x1".into(), 1);
     assert!(matches!(
         sim.try_reveal_entity(41, common_raw_request(10, 10, 0, 128, 128)),
         RevealOutcome::Revealed { .. }
@@ -661,7 +661,15 @@ fn uninit_clears_aircraft_bridge_occupation() {
 fn gsi_04_11_structure_mark_clears_full_smudge_footprints_and_refinery_hole() {
     let mut sim = Simulation::with_seed(1);
     let stable_id = 41;
-    insert_reservation_building(&mut sim, stable_id, "Americans", 5, 5, "3x3Refinery", 0);
+    insert_reservation_building(
+        &mut sim,
+        stable_id,
+        "Americans",
+        5,
+        5,
+        &"3x3Refinery".into(),
+        0,
+    );
 
     let mut grid = crate::sim::smudge_grid::SmudgeGrid::new(16, 16);
     for (rx, ry, frame_offset) in [(4, 5, 0), (5, 5, 1), (4, 6, 2), (5, 6, 3)] {
@@ -4716,7 +4724,7 @@ fn lifecycle_authority_uninit_records_once_and_the_drain_removes_the_tracking() 
 #[test]
 fn gsi_04_05_reservation_successful_reveal_marks_expanded_rect_after_lists() {
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 101, "Americans", 10, 20, "2x3", 1);
+    let owner = insert_reservation_building(&mut sim, 101, "Americans", 10, 20, &"2x3".into(), 1);
 
     assert!(matches!(
         sim.try_reveal_entity(101, request(10, 20, PlacementEvidence::MarkSucceeded)),
@@ -4839,7 +4847,7 @@ fn gsi_04_16_caoild_reveal_and_owner_change_preserve_waypoint_edges() {
 #[test]
 fn gsi_04_05_reservation_failed_reveal_never_writes() {
     let mut sim = Simulation::new();
-    insert_reservation_building(&mut sim, 102, "Americans", 10, 20, "2x2", 1);
+    insert_reservation_building(&mut sim, 102, "Americans", 10, 20, &"2x2".into(), 1);
 
     assert_eq!(
         sim.try_reveal_entity(102, request(10, 20, PlacementEvidence::MarkFailed)),
@@ -4856,7 +4864,7 @@ fn gsi_04_05_reservation_failed_reveal_never_writes() {
 #[test]
 fn gsi_04_05_reservation_clear_removes_perimeter_but_retains_bounds() {
     let mut sim = Simulation::new();
-    let owner = insert_reservation_building(&mut sim, 111, "Americans", 10, 10, "1x1", 1);
+    let owner = insert_reservation_building(&mut sim, 111, "Americans", 10, 10, &"1x1".into(), 1);
     let _ = sim.try_reveal_entity(111, request(10, 10, PlacementEvidence::MarkSucceeded));
     assert_eq!(
         sim.houses
@@ -4878,12 +4886,12 @@ fn gsi_04_05_reservation_clear_removes_perimeter_but_retains_bounds() {
 #[test]
 fn gsi_04_05_reservation_limbo_clears_before_unlink_repairs_overlap_and_preserves_other_house() {
     let mut sim = Simulation::new();
-    insert_reservation_building(&mut sim, 103, "Americans", 10, 10, "1x1", 1);
+    insert_reservation_building(&mut sim, 103, "Americans", 10, 10, &"1x1".into(), 1);
     let other = sim.interner.intern("Russians");
     sim.houses.get_or_register_for_test(other, || {
         crate::sim::house_state::HouseState::new(other, 1, None, false, 0, 10)
     });
-    insert_reservation_building(&mut sim, 104, "Americans", 12, 10, "1x1", 1);
+    insert_reservation_building(&mut sim, 104, "Americans", 12, 10, &"1x1".into(), 1);
     let _ = sim.try_reveal_entity(103, request(10, 10, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(104, request(12, 10, PlacementEvidence::MarkSucceeded));
     sim.substrate.base_reservations.reserve(None, 9, 10, 1);
@@ -4928,8 +4936,8 @@ fn gsi_04_05_reservation_repair_scan_reaches_asymmetric_high_edge() {
     );
 
     let mut sim = Simulation::new();
-    insert_reservation_building(&mut sim, 107, "Americans", 10, 20, "4x4", 1);
-    insert_reservation_building(&mut sim, 108, "Americans", 16, 20, "1x1", 2);
+    insert_reservation_building(&mut sim, 107, "Americans", 10, 20, &"4x4".into(), 1);
+    insert_reservation_building(&mut sim, 108, "Americans", 16, 20, &"1x1".into(), 2);
     let _ = sim.try_reveal_entity(107, request(10, 20, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(108, request(16, 20, PlacementEvidence::MarkSucceeded));
     assert_eq!(sim.substrate.base_reservations.raw_mask(None, 14, 20), 1);
@@ -4958,8 +4966,8 @@ fn gsi_04_05_reservation_origins_truncate_after_first_spacing_subtraction() {
 #[test]
 fn gsi_04_05_reservation_repair_replays_multicell_neighbor_for_every_hit() {
     let mut sim = Simulation::new();
-    insert_reservation_building(&mut sim, 109, "Americans", 10, 10, "1x1", 1);
-    insert_reservation_building(&mut sim, 110, "Americans", 12, 10, "2x2", 1);
+    insert_reservation_building(&mut sim, 109, "Americans", 10, 10, &"1x1".into(), 1);
+    insert_reservation_building(&mut sim, 110, "Americans", 12, 10, &"2x2".into(), 1);
     let _ = sim.try_reveal_entity(109, request(10, 10, PlacementEvidence::MarkSucceeded));
     let _ = sim.try_reveal_entity(110, request(12, 10, PlacementEvidence::MarkSucceeded));
 

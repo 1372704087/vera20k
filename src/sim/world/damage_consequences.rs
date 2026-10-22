@@ -174,7 +174,7 @@ impl DamageConsequences {
                 detonation,
                 world.session.binary_frame(),
                 &world.session.theater(),
-                &rules.radiation,
+                rules,
                 world.resolved_terrain.as_ref(),
                 &mut world.lighting_sources,
             );

@@ -3198,6 +3198,8 @@ mod tests {
         header.compatibility = match RulesCompatibility::default() {
             RulesCompatibility::Retail => RulesCompatibility::Ares,
             RulesCompatibility::Ares => RulesCompatibility::Retail,
+            RulesCompatibility::Phobos => RulesCompatibility::AresPhobos,
+            RulesCompatibility::AresPhobos => RulesCompatibility::Phobos,
         };
         // A complete header with no body proves capability admission runs before
         // Simulation deserialization, even without bound scenario resources.

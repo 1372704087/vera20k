@@ -2876,6 +2876,44 @@ pub struct RadiationRules {
     /// null (`0x00667801`) or the factory's null for `none`. An empty read
     /// keeps it (`0x0066D0EA` reloads the field, `0x0066D127` stores it back).
     pub site_warhead: String,
+    /// Phobos `[Radiation] UseGlobalRadApplicationDelay` (default true): when
+    /// true every radiation type shares the global `RadApplicationDelay`
+    /// gate, and the per-type delay is not consulted.
+    #[cfg(feature = "phobos")]
+    pub use_global_rad_application_delay: bool,
+    /// Phobos `[Radiation] RadApplicationDelay.Building` (default 0). Above 0
+    /// it enables radiation damage to buildings; the building damage chain is
+    /// not implemented, so the value is retained only.
+    #[cfg(feature = "phobos")]
+    pub application_delay_building: i32,
+    /// Phobos `[Radiation] RadBuildingDamageMaxCount` (default -1: no limit).
+    /// Retained only, like the building delay above.
+    #[cfg(feature = "phobos")]
+    pub building_damage_max_count: i32,
+    /// Phobos `[Radiation] RadSiteWarhead.Detonate` (default false): makes
+    /// `RadSiteWarhead` detonate on affected objects. Retained only.
+    #[cfg(feature = "phobos")]
+    pub site_warhead_detonate: bool,
+    /// Phobos `[Radiation] RadSiteWarhead.Detonate.Full` (default true): full
+    /// warhead detonation instead of area damage when detonating. Retained
+    /// only.
+    #[cfg(feature = "phobos")]
+    pub site_warhead_detonate_full: bool,
+    /// Phobos `[Radiation] RadHasOwner` (default false): radiation damage
+    /// counts as dealt by the house that fired the projectile. Retained only.
+    #[cfg(feature = "phobos")]
+    pub has_owner: bool,
+    /// Phobos `[Radiation] RadHasInvoker` (default false): radiation damage
+    /// counts as dealt by the firing TechnoType and grants it experience.
+    /// Retained only.
+    #[cfg(feature = "phobos")]
+    pub has_invoker: bool,
+    /// Phobos `[RadiationTypes]` catalog with the default `Radiation` entry,
+    /// read per Rules pass by the ordered Process owner. Empty in builds
+    /// without the capability. Reached through
+    /// [`crate::rules::phobos_radiation::effective_radiation`], never directly.
+    #[cfg(feature = "phobos")]
+    pub(crate) radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog,
 }
 
 impl Default for RadiationRules {
@@ -2893,6 +2931,23 @@ impl Default for RadiationRules {
             //66CF70 retains these bytes when RadColor is absent.
             color: (0, 0, 0),
             site_warhead: String::new(),
+            // Phobos [Radiation] globals (RulesExt::Global() defaults).
+            #[cfg(feature = "phobos")]
+            use_global_rad_application_delay: true,
+            #[cfg(feature = "phobos")]
+            application_delay_building: 0,
+            #[cfg(feature = "phobos")]
+            building_damage_max_count: -1,
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate: false,
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate_full: true,
+            #[cfg(feature = "phobos")]
+            has_owner: false,
+            #[cfg(feature = "phobos")]
+            has_invoker: false,
+            #[cfg(feature = "phobos")]
+            radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog::default(),
         }
     }
 }
@@ -2926,6 +2981,23 @@ impl RadiationRules {
             color: (red, green, blue),
             // Only the ordered Process owner reads it (`RulesTypeReferences`).
             site_warhead: d.site_warhead,
+            #[cfg(feature = "phobos")]
+            use_global_rad_application_delay: section
+                .read_bool("UseGlobalRadApplicationDelay", true),
+            #[cfg(feature = "phobos")]
+            application_delay_building: section.read_int("RadApplicationDelay.Building", 0),
+            #[cfg(feature = "phobos")]
+            building_damage_max_count: section.read_int("RadBuildingDamageMaxCount", -1),
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate: section.read_bool("RadSiteWarhead.Detonate", false),
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate_full: section.read_bool("RadSiteWarhead.Detonate.Full", true),
+            #[cfg(feature = "phobos")]
+            has_owner: section.read_bool("RadHasOwner", false),
+            #[cfg(feature = "phobos")]
+            has_invoker: section.read_bool("RadHasInvoker", false),
+            #[cfg(feature = "phobos")]
+            radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog::default(),
         }
     }
 }
@@ -5180,6 +5252,23 @@ impl RuleSet {
             .read_bool("AlliedWallTransparency", false);
         let elevation_model = ElevationModel::from_ini(ini);
         let radiation: RadiationRules = RadiationRules::from_ini(ini);
+        #[cfg(feature = "phobos")]
+        let radiation = {
+            let mut radiation = radiation;
+            radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
+            // The catalog is the only rules state a mod names by list, so
+            // report it once per load: a missing entry then shows up here
+            // instead of as an unchanged radiation field.
+            log::info!(
+                "Phobos radiation types: [{}]",
+                radiation
+                    .radiation_types
+                    .names()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            radiation
+        };
         let radar_event_config: RadarEventConfig = RadarEventConfig::from_ini(ini);
         let countries = country_side_registry.rules;
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
@@ -6040,6 +6129,17 @@ impl RuleSet {
                 .hash(&mut hasher);
             self.side_ids.hash(&mut hasher);
             self.side_extensions.hash(&mut hasher);
+        }
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-radiation-types-v1".hash(&mut hasher);
+            self.radiation.radiation_types.hash(&mut hasher);
+            // Bound weapon `RadType=` names, in registry order.
+            self.weapons
+                .iter()
+                .map(|(id, weapon)| (id, &weapon.rad_type))
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
         }
         self.object_list
             .iter()

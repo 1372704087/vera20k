@@ -656,11 +656,12 @@ impl App {
         if state.match_state.scenario_exit.is_none() {
             return;
         }
+        let master_moving = state.audio.sound_master_moving();
         let poll_voices = state
             .match_state
             .scenario_exit
             .as_ref()
-            .is_some_and(|exit| exit.needs_voice_poll(wall_ms));
+            .is_some_and(|exit| exit.needs_voice_poll(wall_ms, master_moving));
         let voices_active = poll_voices
             && match (
                 &mut state.audio.sfx_player,
@@ -677,7 +678,7 @@ impl App {
             .scenario_exit
             .as_mut()
             .expect("scenario exit remains present")
-            .tick(wall_ms, voices_active);
+            .tick(wall_ms, master_moving, voices_active);
 
         state
             .audio

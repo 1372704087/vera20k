@@ -20,14 +20,14 @@ pub(crate) const fn derive_launcher_audio_available(
 }
 
 trait ThemeMusicOutput {
-    fn set_theme_scale(&mut self, scale: f64);
+    fn fade_stream_out(&mut self, wall_ms: u64);
     fn stop(&mut self);
     fn submit(&mut self, prepared: PreparedTrack) -> bool;
 }
 
 impl ThemeMusicOutput for MusicPlayer {
-    fn set_theme_scale(&mut self, scale: f64) {
-        MusicPlayer::set_theme_scale(self, scale);
+    fn fade_stream_out(&mut self, wall_ms: u64) {
+        MusicPlayer::fade_stream_out(self, wall_ms);
     }
 
     fn stop(&mut self) {
@@ -39,26 +39,29 @@ impl ThemeMusicOutput for MusicPlayer {
     }
 }
 
+/// Native order: a completed fade's Stop, PlayFile, then the new fade's
+/// SetTarget, which acts on the stream just started.
 fn apply_theme_action_to_output(
     mut output: Option<&mut impl ThemeMusicOutput>,
     action: ThemeAction,
+    wall_ms: u64,
 ) {
-    if let Some(scale) = action.theme_scale
-        && let Some(output) = output.as_deref_mut()
-    {
-        output.set_theme_scale(scale);
-    }
     if action.stop_output
         && let Some(output) = output.as_deref_mut()
     {
         output.stop();
     }
     if let Some(prepared) = action.start
-        && let Some(output) = output
+        && let Some(output) = output.as_deref_mut()
         && !output.submit(prepared)
     {
         // gamemd ignores PlayFile's return and still writes logical active.
         log::warn!("Physical music submission failed after Theme admission");
+    }
+    if action.fade_out
+        && let Some(output) = output
+    {
+        output.fade_stream_out(wall_ms);
     }
 }
 
@@ -97,10 +100,11 @@ pub(crate) struct AppAudioRuntime {
 /// - `eva_master` is `[0x0087E750]`, `ch+0x9C` of the EVA stream only
 ///   (`VoxClass::Init 0x00752327`); only the movie hold and its release
 ///   write it (`0x005BF5A8`, `0x005BF558`, full-screen `0x005BEE27`).
-/// - `stream_gain` is the stream channels' own `+0x10` interp as
-///   `0x00408390` (radar-movie pre-fade, called only at `0x0065799B`) and
-///   `StreamPlayers__RestoreVolumeTargets 0x004083D0` (every hold release)
-///   drive it. The hold itself leaves it alone.
+///
+/// Each stream player keeps its own `+0x10` interp (`MusicPlayer`, and the
+/// EVA and taunt streams in `SfxPlayer`); the radar-movie pre-fade
+/// `0x00408390` (called only at `0x0065799B`) and every hold release
+/// (`StreamPlayers__RestoreVolumeTargets 0x004083D0`) walk them all.
 ///
 /// Neither master reaches the Theme stream, whose groups are Score and
 /// `[0x0087E754]` (`0x00720743..0x0072075A`).
@@ -109,7 +113,6 @@ pub(crate) struct AudioMasterGroups {
     /// Full-screen `Play_Movie` also suspended the sound events
     /// (`0x00406EA0`).
     sounds_suspended: bool,
-    stream_gain: VolumeInterp,
     sound_master: VolumeInterp,
     eva_master: VolumeInterp,
 }
@@ -118,7 +121,6 @@ impl Default for AudioMasterGroups {
         Self {
             held: false,
             sounds_suspended: false,
-            stream_gain: VolumeInterp::new(0x4000, 0),
             sound_master: VolumeInterp::new(0x4000, 0),
             eva_master: VolumeInterp::new(0x4000, 0),
         }
@@ -137,23 +139,31 @@ impl AppAudioRuntime {
             .map(MusicPlayer::mixer)
             .or_else(|| self.sfx_player.as_ref().map(SfxPlayer::mixer))
     }
-    ///408390 asks existing stream interps to reach silence before admission.
-    ///Rust's physical stream gain is a substitute for the DirectSound list
-    ///cursor predicate408410, not a claim about hardware completion timing.
+    /// `0x00408390`: glide every stream player's own interp to silence
+    /// before the radar movie is admitted.
     pub(crate) fn prepare_movie_streams(&mut self, wall_ms: u64) {
-        if self.music_player.is_some() {
-            self.master_groups.stream_gain.set_target(0, wall_ms);
-        } else {
-            self.master_groups.stream_gain.set_target_immediate(0);
-            self.master_groups.stream_gain.tick(wall_ms);
+        if let Some(music) = self.music_player.as_mut() {
+            music.fade_stream_out(wall_ms);
+        }
+        if let Some(sfx) = self.sfx_player.as_mut() {
+            sfx.fade_streams_out(wall_ms);
         }
     }
+    /// `0x00408410`: every playing stream's own interp has reached its
+    /// target.
     pub(crate) fn movie_streams_ready(&self) -> bool {
-        self.master_groups.stream_gain.value() == 0
+        self.music_player
+            .as_ref()
+            .is_none_or(|music| music.state() != MusicOutputState::Ramping)
+            && self
+                .sfx_player
+                .as_ref()
+                .is_none_or(SfxPlayer::streams_settled)
     }
     /// `Audio__PauseForMovie @ 0x005BF580` / `Audio__ResumeAfterMovie @
     /// 0x005BF530`: pause EVA and every stream player and glide both masters
-    /// to half (`0x2000`) and back. Voc sounds keep playing.
+    /// to half (`0x2000`) and back. Voc sounds keep playing. Only a release
+    /// of a taken hold restores the stream interps (`0x004083D0`).
     pub(crate) fn set_movie_audio_held(&mut self, held: bool, wall_ms: u64) {
         if held == self.master_groups.held {
             return;
@@ -170,7 +180,11 @@ impl AppAudioRuntime {
                 music.pause_output();
             } else {
                 music.resume_output();
+                music.restore_stream_volume(wall_ms);
             }
+        }
+        if !held && let Some(sfx) = self.sfx_player.as_mut() {
+            sfx.restore_stream_volumes(wall_ms);
         }
     }
     /// Full-screen `Play_Movie` alone also suspends the sound events
@@ -182,25 +196,25 @@ impl AppAudioRuntime {
             sfx.set_movie_sounds_suspended(suspended, wall_ms);
         }
     }
-    ///Clear5BF450 releases even a prelude that has not acquired the hold yet.
+    /// `Audio__ResumeAfterMovieAndCleanup @ 0x005BF450` restores only inside
+    /// its hold-flag branch, so a pre-fade that never took the hold leaves
+    /// the streams silent until their next `PlayFile`.
     pub(crate) fn retire_movie_audio(&mut self, wall_ms: u64) {
         if self.master_groups.sounds_suspended {
             self.set_movie_sounds_suspended(false, wall_ms);
         }
         self.set_movie_audio_held(false, wall_ms);
-        self.master_groups.stream_gain.set_target(0x4000, wall_ms);
     }
     fn service_master_groups(&mut self, wall_ms: u64) {
-        self.master_groups.stream_gain.tick(wall_ms);
+        if let Some(music) = self.music_player.as_mut() {
+            music.tick_stream_volume(wall_ms);
+        }
         self.master_groups.sound_master.tick(wall_ms);
         self.master_groups.eva_master.tick(wall_ms);
         self.apply_output_scales();
     }
     fn apply_output_scales(&mut self) {
         let groups = &self.master_groups;
-        if let Some(player) = self.music_player.as_mut() {
-            player.set_stream_gain(groups.stream_gain.value());
-        }
         if let Some(player) = self.sfx_player.as_mut() {
             player.set_master_groups(groups.sound_master.value(), groups.eva_master.value());
         }
@@ -229,8 +243,8 @@ impl AppAudioRuntime {
             .map_or(MusicOutputState::Unavailable, MusicPlayer::state)
     }
 
-    fn apply_theme_action(&mut self, action: ThemeAction) {
-        apply_theme_action_to_output(self.music_player.as_mut(), action);
+    fn apply_theme_action(&mut self, action: ThemeAction, wall_ms: u64) {
+        apply_theme_action_to_output(self.music_player.as_mut(), action, wall_ms);
     }
 
     pub(crate) fn initialize_theme(&mut self, assets: &AssetManager) {
@@ -243,8 +257,8 @@ impl AppAudioRuntime {
         // restarted the repeating menu theme on that service pass.
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.play_menu_theme(assets, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.play_menu_theme(assets, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 
     /// `AudioSystem406F70`: service Sound4041D0, Vox752760, then Theme7209D0
@@ -300,21 +314,17 @@ impl AppAudioRuntime {
         {
             output.discard_finished();
         }
-        let action = self
-            .theme
-            .update(assets, gates, physical, wall_ms, draw_main);
-        self.apply_theme_action(action);
+        let action = self.theme.update(assets, gates, physical, draw_main);
+        self.apply_theme_action(action, wall_ms);
     }
 
     /// `Play_Song(From_Name(track))`.
     pub(crate) fn play_theme(&mut self, track: &str, assets: &AssetManager, wall_ms: u64) -> bool {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self
-            .theme
-            .play_track(track, assets, gates, physical, wall_ms);
+        let action = self.theme.play_track(track, assets, gates, physical);
         let logical_started = action.start.is_some();
-        self.apply_theme_action(action);
+        self.apply_theme_action(action, wall_ms);
         logical_started
     }
 
@@ -329,10 +339,10 @@ impl AppAudioRuntime {
         self.theme.initialize_catalog(assets);
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action =
-            self.theme
-                .request_scenario_theme(requested_section, assets, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self
+            .theme
+            .request_scenario_theme(requested_section, assets, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 
     pub(crate) fn restore_saved_theme(
@@ -345,35 +355,25 @@ impl AppAudioRuntime {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
         let output = &mut self.music_player;
-        self.theme.restore_saved_slots(
-            saved,
-            in_game_music,
-            assets,
-            gates,
-            physical,
-            wall_ms,
-            |action| {
-                apply_theme_action_to_output(output.as_mut(), action);
+        self.theme
+            .restore_saved_slots(saved, in_game_music, assets, gates, physical, |action| {
+                apply_theme_action_to_output(output.as_mut(), action, wall_ms);
                 output
                     .as_ref()
                     .map_or(MusicOutputState::Unavailable, MusicPlayer::state)
-            },
-        );
+            });
     }
 
     /// `Main_Tick @ 0x0055D360` head rule while a scenario runs.
     pub(crate) fn main_tick_theme(&mut self, in_game_music: bool, wall_ms: u64) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self
-            .theme
-            .main_tick(in_game_music, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.main_tick(in_game_music, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 
     pub(crate) fn cancel_scenario_theme_request(&mut self) {
-        let action = self.theme.cancel_scenario_theme_request();
-        self.apply_theme_action(action);
+        self.theme.cancel_scenario_theme_request();
     }
 
     /// `Queue_Song @ 0x00720B20`; Theme AI starts it. Named callers use
@@ -386,8 +386,8 @@ impl AppAudioRuntime {
         };
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.queue_song(index, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.queue_song(index, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 
     /// `WOL_Main` entry: INTRO gives way to the shuffled lobby music
@@ -395,10 +395,8 @@ impl AppAudioRuntime {
     pub(crate) fn enter_wol_lobby_music(&mut self, lobby_music: bool, wall_ms: u64) -> bool {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let (action, saved_shuffle) =
-            self.theme
-                .enter_wol_lobby(lobby_music, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let (action, saved_shuffle) = self.theme.enter_wol_lobby(lobby_music, gates, physical);
+        self.apply_theme_action(action, wall_ms);
         saved_shuffle
     }
 
@@ -408,8 +406,8 @@ impl AppAudioRuntime {
         let physical = self.music_output_state();
         let action = self
             .theme
-            .wol_lobby_music_rule(lobby_music, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+            .wol_lobby_music_rule(lobby_music, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 
     /// `WOL_Main` exit: the saved shuffle flag returns.
@@ -421,8 +419,10 @@ impl AppAudioRuntime {
     pub(crate) fn stop_theme(&mut self) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.stop(gates, false, physical, 0);
-        self.apply_theme_action(action);
+        let action = self.theme.stop(gates, false, physical);
+        // Stop(0) only ever stops the stream; no fade needs a time.
+        debug_assert!(!action.fade_out && action.start.is_none());
+        self.apply_theme_action(action, 0);
     }
 
     /// GameExit Victory685670/Defeat685DC0/Abort686570 clear speech and
@@ -462,8 +462,14 @@ impl AppAudioRuntime {
     pub(crate) fn fade_out_theme(&mut self, wall_ms: u64) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.stop(gates, true, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.stop(gates, true, physical);
+        self.apply_theme_action(action, wall_ms);
+    }
+
+    /// Whether the effects master is still gliding; the scenario exits wait on
+    /// it (`VolumeInterp__WaitUntilDone @ 0x004070B0`).
+    pub(crate) fn sound_master_moving(&self) -> bool {
+        self.master_groups.sound_master.moving()
     }
 
     /// `SetTargetImmediate([0x0087E758], 0x4000)`: the scenario exits after
@@ -479,23 +485,21 @@ impl AppAudioRuntime {
     pub(crate) fn play_sound_selection(&mut self, index: i32, wall_ms: u64) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.play_selection(index, gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.play_selection(index, gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
     pub(crate) fn stop_sound_selection(&mut self, wall_ms: u64) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self.theme.stop_selection(gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.stop_selection(gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
     /// Launcher ScoreVolume zero (`0x0055FAA0`): `Queue(cur)` then `Stop(0)`.
     pub(crate) fn queue_then_stop_score_zero(&mut self, wall_ms: u64) {
         let gates = self.theme_gates();
         let physical = self.music_output_state();
-        let action = self
-            .theme
-            .queue_then_stop_score_zero(gates, physical, wall_ms);
-        self.apply_theme_action(action);
+        let action = self.theme.queue_then_stop_score_zero(gates, physical);
+        self.apply_theme_action(action, wall_ms);
     }
 }
 
@@ -554,7 +558,7 @@ mod tests {
 
     #[derive(Debug, PartialEq)]
     enum OutputCall {
-        Scale(f64),
+        FadeOut(u64),
         Stop,
         Submit(String),
     }
@@ -565,8 +569,8 @@ mod tests {
     }
 
     impl ThemeMusicOutput for FakeOutput {
-        fn set_theme_scale(&mut self, scale: f64) {
-            self.calls.push(OutputCall::Scale(scale));
+        fn fade_stream_out(&mut self, wall_ms: u64) {
+            self.calls.push(OutputCall::FadeOut(wall_ms));
         }
 
         fn stop(&mut self) {
@@ -720,21 +724,21 @@ mod tests {
             &assets,
             gates,
             MusicOutputState::Idle,
-            0,
             |_| MusicOutputState::Playing,
         );
         assert_eq!(runtime.theme.slots().active, 0);
         let before = runtime.theme.saved_slots();
         assert_eq!(before, [0, -1]);
         let mut exit = ScenarioExitCascade::start(0, ScenarioExitDestination::CampaignDefeat);
-        runtime.apply_scenario_exit_tick(exit.tick(0, false), Some(&assets), 0);
-        runtime.apply_scenario_exit_tick(exit.tick(500, false), Some(&assets), 500);
-        // GameExit__Defeat glides only the effects master (0x00685715): the
-        // Theme stream's own interp, and so the music, stays at full.
+        runtime.apply_scenario_exit_tick(exit.tick(0, false, false), Some(&assets), 0);
+        let moving = runtime.sound_master_moving();
+        runtime.apply_scenario_exit_tick(exit.tick(500, moving, false), Some(&assets), 500);
+        // GameExit__Defeat glides only the effects master (0x00685715); the
+        // Theme stream keeps playing at full.
         assert_eq!(runtime.master_groups.sound_master.value(), 0x2000);
-        assert_eq!(runtime.master_groups.stream_gain.value(), 0x4000);
         assert_eq!(runtime.theme.saved_slots(), before);
-        runtime.apply_scenario_exit_tick(exit.tick(1_000, false), Some(&assets), 1_000);
+        let moving = runtime.sound_master_moving();
+        runtime.apply_scenario_exit_tick(exit.tick(1_000, moving, false), Some(&assets), 1_000);
         assert_eq!(runtime.master_groups.sound_master.value(), 0x4000);
         assert_eq!(
             runtime.theme.saved_slots(),
@@ -755,7 +759,8 @@ mod tests {
                 model: crate::ui::score_shell::ScoreScreenModel::default(),
             },
         );
-        runtime.apply_scenario_exit_tick(score.tick(3_000, false), Some(&assets), 3_000);
+        runtime.apply_scenario_exit_tick(score.tick(3_000, false, false), Some(&assets), 3_000);
+        runtime.apply_scenario_exit_tick(score.tick(3_000, false, false), Some(&assets), 3_000);
         assert_eq!(
             runtime.theme.current_song(),
             2,
@@ -765,31 +770,40 @@ mod tests {
     }
 
     /// `0x005BF580` halves `[0x0087E758]` and `[0x0087E750]` and leaves the
-    /// stream interps where the radar pre-fade (`0x00408390`) put them; every
-    /// release glides all three back to full (`0x005BF530`, `0x004083D0`).
+    /// stream interps where the radar pre-fade (`0x00408390`) put them. Only a
+    /// release of a taken hold glides them back (`0x005BF450` and `0x005BF530`
+    /// call `0x004083D0` inside their hold-flag branch).
     #[test]
-    fn movie_hold_halves_both_masters_and_leaves_the_stream_interp() {
+    fn movie_hold_halves_both_masters_and_only_a_taken_hold_restores_streams() {
         let mut runtime = AppAudioRuntime {
             theme: ThemeRuntime::default(),
             service_clock: AudioServiceClock::default(),
-            music_player: None,
+            music_player: MusicPlayer::new(),
             sfx_player: None,
             launcher_audio_available: false,
             theme_startup_suppressed: false,
             master_groups: Default::default(),
         };
+        let stream_target = |runtime: &AppAudioRuntime| {
+            runtime
+                .music_player
+                .as_ref()
+                .map(MusicPlayer::stream_volume_target)
+        };
         runtime.prepare_movie_streams(0);
-        assert!(runtime.movie_streams_ready());
+        assert!(runtime.movie_streams_ready(), "no stream is playing");
+        runtime.retire_movie_audio(50);
+        assert!(stream_target(&runtime).is_none_or(|target| target == 0));
         runtime.set_movie_audio_held(true, 100);
         let groups = &runtime.master_groups;
         assert_eq!(groups.sound_master.target_value(), 0x2000);
         assert_eq!(groups.eva_master.target_value(), 0x2000);
-        assert_eq!(groups.stream_gain.target_value(), 0);
+        assert!(stream_target(&runtime).is_none_or(|target| target == 0));
         runtime.retire_movie_audio(300);
         let groups = &runtime.master_groups;
         assert_eq!(groups.sound_master.target_value(), 0x4000);
         assert_eq!(groups.eva_master.target_value(), 0x4000);
-        assert_eq!(groups.stream_gain.target_value(), 0x4000);
+        assert!(stream_target(&runtime).is_none_or(|target| target == 0x4000));
     }
 
     #[test]
@@ -798,7 +812,7 @@ mod tests {
         let before = format!("{:?}", theme);
         let action = ThemeAction {
             stop_output: true,
-            theme_scale: Some(0.25),
+            fade_out: true,
             start: Some(PreparedTrack {
                 stem: "Drok".into(),
                 samples: vec![0.0, 0.0],
@@ -810,14 +824,14 @@ mod tests {
             submit_succeeds: false,
         };
 
-        apply_theme_action_to_output(Some(&mut output), action);
+        apply_theme_action_to_output(Some(&mut output), action, 7);
 
         assert_eq!(
             output.calls,
             vec![
-                OutputCall::Scale(0.25),
                 OutputCall::Stop,
                 OutputCall::Submit("Drok".into()),
+                OutputCall::FadeOut(7),
             ]
         );
         assert_eq!(format!("{:?}", theme), before);

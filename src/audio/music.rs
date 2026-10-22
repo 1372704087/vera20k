@@ -8,7 +8,7 @@ use std::num::NonZero;
 use rodio::buffer::SamplesBuffer;
 use rodio::{DeviceSinkBuilder, MixerDeviceSink, Player};
 
-use crate::audio::arbiter::combine_linear;
+use crate::audio::arbiter::{VolumeInterp, combine_linear};
 use crate::audio::sfx::native_volume_amplitude;
 use crate::audio::theme::{MusicOutputState, PreparedTrack};
 use crate::rules::sound_ini::VOLUME_SCALE;
@@ -30,26 +30,13 @@ pub const DEFAULT_SCORE_VOLUME: f64 = 0.4;
 /// `AudioSystem__Init` writes (`0x00406B92`), so it is unity here. The
 /// effects master `[0x0087E758]` never reaches this stream.
 ///
-/// `own` is the stream's own `+0x10` interp. Natively one interp carries both
-/// Theme's fade (`0x004080C0`) and the radar-movie pre-fade/restore
-/// (`0x00408390` / `0x004083D0`); VERA keeps them as two linears and
-/// multiplies them. RESIDUAL: trigger, a radar movie starting during a Theme
-/// fade; effect, the shared native interp would retarget the fade instead of
-/// multiplying it; frequency, rare (a campaign transmission during a song
-/// change); downstream risk, none (presentation only).
+/// `own_linear` is the stream's own `+0x10` interp (see `MusicPlayer::own`).
 ///
 /// Score: `OptionsClass::Set_Score_Volume @ 0x005FA4A0` targets
 /// `ftol(volume * 16384.0)` (`0x005FA4C3..0x005FA4D6`).
-fn effective_music_volume(
-    score_volume: f64,
-    stream_linear: i32,
-    theme_scale: f64,
-    focus_output_scale: f64,
-) -> f32 {
-    let theme_linear = (theme_scale.clamp(0.0, 1.0) * f64::from(VOLUME_SCALE)) as i32;
-    let own = combine_linear(theme_linear, stream_linear);
+fn effective_music_volume(score_volume: f64, own_linear: i32, focus_output_scale: f64) -> f32 {
     let score = X87Chop53::ftol_f64_low_masked(score_volume * f64::from(VOLUME_SCALE));
-    native_volume_amplitude(combine_linear(own, score)) * focus_output_scale as f32
+    native_volume_amplitude(combine_linear(own_linear, score)) * focus_output_scale as f32
 }
 
 pub struct MusicPlayer {
@@ -57,9 +44,15 @@ pub struct MusicPlayer {
     _device: MixerDeviceSink,
     current_player: Option<Player>,
     volume: f64,
-    /// The radar-movie stream interp (`0x00408390` / `0x004083D0`).
-    stream_linear: i32,
-    theme_scale: f64,
+    /// The Theme stream's own `+0x10` interp (`stream+0x14 -> +0x10`), built
+    /// by the stream constructor at rate `0x10624D` (1000 ms from full to
+    /// silence, `FUN_00407100`, `FUN_004071A0`). One interp carries every
+    /// writer: `StreamPlayer__PlayFile` snaps it to full for each new file
+    /// (`0x00407E7D`), Theme's fades (`0x004080C0`) and the radar-movie
+    /// pre-fade (`0x00408390`) glide it to zero, and hold releases glide it
+    /// back (`0x004083D0`). Theme's fade ends when it stops moving
+    /// (`0x00720FE1` -> `0x004080D0`).
+    own: VolumeInterp,
     focus_output_scale: f64,
     paused: bool,
 }
@@ -75,8 +68,7 @@ impl MusicPlayer {
             _device: device,
             current_player: None,
             volume: DEFAULT_SCORE_VOLUME,
-            stream_linear: VOLUME_SCALE,
-            theme_scale: 1.0,
+            own: VolumeInterp::new(VOLUME_SCALE, 0),
             focus_output_scale: 1.0,
             paused: false,
         })
@@ -85,6 +77,7 @@ impl MusicPlayer {
     pub(crate) fn state(&self) -> MusicOutputState {
         match self.current_player.as_ref() {
             Some(player) if player.empty() => MusicOutputState::Finished,
+            Some(_) if self.own.moving() => MusicOutputState::Ramping,
             Some(_) => MusicOutputState::Playing,
             None => MusicOutputState::Idle,
         }
@@ -100,6 +93,9 @@ impl MusicPlayer {
         if let Some(player) = self.current_player.take() {
             player.stop();
         }
+        // `StreamPlayer__PlayFile`: `SetTargetImmediate(+0x10, 0x4000)`.
+        self.own.set_target_immediate(VOLUME_SCALE);
+        self.own.tick(0);
         let source = SamplesBuffer::new(channels, rate, prepared.samples);
         let player = Player::connect_new(self._device.mixer());
         player.set_volume(self.effective_volume());
@@ -152,14 +148,26 @@ impl MusicPlayer {
         self.apply_effective_volume();
     }
 
-    pub(crate) fn set_stream_gain(&mut self, linear: i32) {
-        self.stream_linear = linear;
-        self.apply_effective_volume();
+    /// Glide the stream's own interp to silence: Theme's fade
+    /// (`0x004080C0`) and the radar-movie pre-fade (`0x00408390`).
+    pub(crate) fn fade_stream_out(&mut self, now_ms: u64) {
+        self.own.set_target(0, now_ms);
     }
 
-    pub(crate) fn set_theme_scale(&mut self, scale: f64) {
-        self.theme_scale = scale.clamp(0.0, 1.0);
-        self.apply_effective_volume();
+    /// `StreamPlayers__RestoreVolumeTargets @ 0x004083D0`.
+    pub(crate) fn restore_stream_volume(&mut self, now_ms: u64) {
+        self.own.set_target(VOLUME_SCALE, now_ms);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn stream_volume_target(&self) -> i32 {
+        self.own.target_value()
+    }
+
+    pub(crate) fn tick_stream_volume(&mut self, now_ms: u64) {
+        if self.own.tick(now_ms) {
+            self.apply_effective_volume();
+        }
     }
 
     /// Gate the primary music output on the application-activation edge.
@@ -173,12 +181,7 @@ impl MusicPlayer {
     }
 
     fn effective_volume(&self) -> f32 {
-        effective_music_volume(
-            self.volume,
-            self.stream_linear,
-            self.theme_scale,
-            self.focus_output_scale,
-        )
+        effective_music_volume(self.volume, self.own.value(), self.focus_output_scale)
     }
 
     fn apply_effective_volume(&self) {
@@ -204,12 +207,37 @@ mod tests {
     /// (-13.58 dB), not the linear 0.4 (-7.96 dB) of a plain gain.
     #[test]
     fn score_volume_goes_through_the_directsound_table() {
-        let default = effective_music_volume(0.4, VOLUME_SCALE, 1.0, 1.0);
+        let default = effective_music_volume(0.4, VOLUME_SCALE, 1.0);
         assert!((db(default) - -13.58).abs() < 0.01, "{}", db(default));
-        assert_eq!(effective_music_volume(1.0, VOLUME_SCALE, 1.0, 1.0), 1.0);
-        // Theme's half-way fade joins the linear product before the table.
-        let half = effective_music_volume(1.0, VOLUME_SCALE, 0.5, 1.0);
+        assert_eq!(effective_music_volume(1.0, VOLUME_SCALE, 1.0), 1.0);
+        // The stream's half-way fade joins the linear product before the table.
+        let half = effective_music_volume(1.0, VOLUME_SCALE / 2, 1.0);
         assert!((db(half) - -10.0).abs() < 0.01, "{}", db(half));
-        assert_eq!(effective_music_volume(0.4, VOLUME_SCALE, 1.0, 0.0), 0.0);
+        assert_eq!(effective_music_volume(0.4, VOLUME_SCALE, 0.0), 0.0);
+    }
+
+    /// One `+0x10` interp: a new file starts at full after a radar pre-fade
+    /// (`0x00407E7D`), and a Theme fade on it reports `Ramping` until silent.
+    #[test]
+    fn a_new_file_resets_the_interp_every_fade_shares() {
+        let Some(mut player) = MusicPlayer::new() else {
+            return;
+        };
+        player.fade_stream_out(0);
+        player.tick_stream_volume(1_001);
+        assert_eq!(player.own.value(), 0);
+        assert!(player.submit(PreparedTrack {
+            stem: "Silence".into(),
+            samples: vec![0.0; 22_050 * 2 * 10],
+            sample_rate: 22_050,
+        }));
+        assert_eq!(player.own.value(), VOLUME_SCALE);
+        assert_eq!(player.state(), MusicOutputState::Playing);
+        player.fade_stream_out(1_001);
+        assert_eq!(player.state(), MusicOutputState::Ramping);
+        player.tick_stream_volume(1_501);
+        assert_eq!(player.own.value(), VOLUME_SCALE / 2);
+        player.tick_stream_volume(2_002);
+        assert_eq!(player.state(), MusicOutputState::Playing);
     }
 }

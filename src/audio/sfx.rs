@@ -37,7 +37,7 @@ use crate::assets::asset_manager::AssetManager;
 use crate::assets::aud_file;
 use crate::audio::arbiter::{
     self, ArbiterAction, EntryFacts, EventId, EventToken, HandleOwner, PlayRequest,
-    PlaybackService, PlayoutEnd, SoundArbiter, combine_linear,
+    PlaybackService, PlayoutEnd, SoundArbiter, VolumeInterp, combine_linear,
 };
 use crate::audio::events::SoundSource;
 use crate::audio::voice_queue::VoiceQueue;
@@ -781,8 +781,10 @@ struct SfxOutputScales {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct SfxOutputGain {
     base_linear: i32,
-    /// Channel-local VShift4054A0; it never changes the event gain used by
-    /// Limit/priority in4041D0.
+    /// The channel's own `+0x10` interp. For Voc it holds the per-play
+    /// VShift (`0x004054A0`), which never changes the event gain used by
+    /// Limit/priority in4041D0; for the EVA and taunt streams it is the
+    /// stream's own volume interp (see `SfxPlayer::eva_stream_volume`).
     buffer_linear: i32,
     channel: SfxChannel,
 }
@@ -801,7 +803,8 @@ impl SfxOutputGain {
             SfxChannel::Sound => scales.sound_volume,
             SfxChannel::EvaStream => scales.voice_volume,
             SfxChannel::TauntStream => {
-                return native_volume_amplitude(self.base_linear) * scales.focus_output_scale;
+                let linear = combine_linear(self.buffer_linear, self.base_linear);
+                return native_volume_amplitude(linear) * scales.focus_output_scale;
             }
         };
         let user_linear = X87Chop53::ftol_f64_low_masked(
@@ -813,10 +816,8 @@ impl SfxOutputGain {
             // scaler and no effects master, so the scenario exits' fade
             // (`0x00686605`) leaves an announcement they queue (`0x00686616`)
             // at full volume.
-            combine_linear(
-                combine_linear(self.base_linear, user_linear),
-                scales.eva_master_linear,
-            )
+            let own = combine_linear(self.buffer_linear, self.base_linear);
+            combine_linear(combine_linear(own, user_linear), scales.eva_master_linear)
         } else {
             // Voc: Sound `[0x0087E748]` at `+0x94` (`0x00405B91..0x00405B96`),
             // many-sounds at `+0x98` (`0x0040570E`), the effects master
@@ -1265,6 +1266,13 @@ pub struct SfxPlayer {
     /// second StreamPlayer beside EVA's. `PlayFile` stops what it plays, so
     /// a new taunt cuts the last one.
     taunt_player: Option<LiveSfxOutput>,
+    /// The EVA and taunt streams' own `+0x10` interps, as Theme's in
+    /// `MusicPlayer`: each `StreamPlayer__PlayFile` snaps one to full
+    /// (`0x00407E7D`), the radar-movie pre-fade glides both to zero
+    /// (`0x00408390`) and every hold release glides them back
+    /// (`0x004083D0`). They outlive the lines they scale.
+    eva_stream_volume: VolumeInterp,
+    taunt_stream_volume: VolumeInterp,
     /// The per-object voice latch: `TechnoClass::Queue_Voice @ 0x00708D90`
     /// writes it, `TechnoClass::AI_Update @ 0x006F9EBB` drains it.
     voice_queue: VoiceQueue,
@@ -1372,6 +1380,8 @@ impl SfxPlayer {
             vox: VoxQueue::new(),
             eva_player: None,
             taunt_player: None,
+            eva_stream_volume: VolumeInterp::new(VOLUME_SCALE, 0),
+            taunt_stream_volume: VolumeInterp::new(VOLUME_SCALE, 0),
             voice_queue: VoiceQueue::new(),
             sound_volume: 0.7,
             voice_volume: 0.7,
@@ -1995,11 +2005,15 @@ impl SfxPlayer {
             log::debug!("Taunt {name} is missing");
             return;
         };
+        self.taunt_stream_volume.set_target_immediate(VOLUME_SCALE);
+        self.taunt_stream_volume.tick(self.now_ms);
         let Some(output) = self.start_voice_output(decoded, VOLUME_SCALE, SfxChannel::TauntStream)
         else {
             return;
         };
-        if self.paused {
+        // A paused stream player stays paused across PlayFile (`0x00408270`
+        // holds every player in the stream list, `0x0087E810`).
+        if self.streams_paused() {
             output.player.pause();
         }
         self.taunt_player = Some(output);
@@ -2126,6 +2140,8 @@ impl SfxPlayer {
         // `take_next` only hands out a node once the stream is not playing,
         // and `advance_voice_queue` has already retired it by then.
         debug_assert!(self.eva_player.is_none());
+        self.eva_stream_volume.set_target_immediate(VOLUME_SCALE);
+        self.eva_stream_volume.tick(self.now_ms);
         let Some(output) = self.start_voice_output(decoded, VOLUME_SCALE, SfxChannel::EvaStream)
         else {
             return;
@@ -2212,6 +2228,51 @@ impl SfxPlayer {
     pub(crate) fn service_device_outputs(&mut self, now_ms: u64) {
         self.now_ms = now_ms;
         self.report_finished_outputs();
+        self.tick_stream_volumes(now_ms);
+    }
+
+    fn tick_stream_volumes(&mut self, now_ms: u64) {
+        let eva_moved = self.eva_stream_volume.tick(now_ms);
+        let taunt_moved = self.taunt_stream_volume.tick(now_ms);
+        if !(eva_moved || taunt_moved) {
+            return;
+        }
+        let scales = self.output_scales();
+        for (output, volume) in [
+            (self.eva_player.as_mut(), &self.eva_stream_volume),
+            (self.taunt_player.as_mut(), &self.taunt_stream_volume),
+        ] {
+            if let Some(output) = output {
+                output.gain.buffer_linear = volume.value();
+                output.apply_scales(scales);
+            }
+        }
+    }
+
+    /// The radar-movie pre-fade `0x00408390` for the EVA and taunt streams
+    /// (Theme's is `MusicPlayer::fade_stream_out`).
+    pub(crate) fn fade_streams_out(&mut self, now_ms: u64) {
+        self.eva_stream_volume.set_target(0, now_ms);
+        self.taunt_stream_volume.set_target(0, now_ms);
+    }
+
+    /// `StreamPlayers__RestoreVolumeTargets @ 0x004083D0` for the EVA and
+    /// taunt streams.
+    pub(crate) fn restore_stream_volumes(&mut self, now_ms: u64) {
+        self.eva_stream_volume.set_target(VOLUME_SCALE, now_ms);
+        self.taunt_stream_volume.set_target(VOLUME_SCALE, now_ms);
+    }
+
+    /// `0x00408410`: no playing stream's own interp is still moving.
+    pub(crate) fn streams_settled(&self) -> bool {
+        [
+            (&self.eva_player, &self.eva_stream_volume),
+            (&self.taunt_player, &self.taunt_stream_volume),
+        ]
+        .into_iter()
+        .all(|(output, volume)| {
+            !(output.as_ref().is_some_and(|output| !output.player.empty()) && volume.moving())
+        })
     }
 
     /// The app's one AudioServiceClock admits Sound4041D0, then Vox752760,
@@ -2416,8 +2477,8 @@ impl SfxPlayer {
     /// `FUN_0053bad0` gate that the SFX half does. The SFX half covers the
     /// unit voice events (Voc channels natively); the stream half is
     /// `eva_player`, and the speech stream SpeechSystem pauses is
-    /// `taunt_player` (GamePause::Enter is its only pauser, so a movie hold
-    /// leaves it playing).
+    /// `taunt_player`; movie holds pause both streams too
+    /// ([`Self::set_movie_held`]).
     ///
     /// Idempotent — call it with the current pause state every frame.
     pub fn set_paused(&mut self, paused: bool, now_ms: u64) {
@@ -2482,6 +2543,10 @@ impl SfxPlayer {
         }
     }
 
+    fn streams_paused(&self) -> bool {
+        self.movie_held || self.paused
+    }
+
     fn apply_output_pauses(&self) {
         let voc_paused = self.movie_sounds_suspended || (self.paused && !self.chrono_screen_active);
         for output in self.live.values() {
@@ -2491,7 +2556,7 @@ impl SfxPlayer {
                 output.player.play();
             }
         }
-        let streams_paused = self.movie_held || self.paused;
+        let streams_paused = self.streams_paused();
         for output in self.eva_player.iter().chain(self.taunt_player.iter()) {
             if streams_paused {
                 output.player.pause();
@@ -3903,6 +3968,47 @@ mod tests {
                 .validate_loop_handle(HandleOwner::UnitVoice(7))
                 .is_some()
         );
+        player.stop_all();
+    }
+
+    /// A radar movie's hold (`0x005BF580`) pauses the EVA stream and leaves a
+    /// playing Voc sound running; only full-screen `Play_Movie` also
+    /// suspends it (`0x00406EA0`).
+    #[test]
+    fn movie_hold_pauses_eva_but_not_a_playing_sound() {
+        let Some((_root, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let Some(mut player) = SfxPlayer::new() else {
+            return;
+        };
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions()
+            .expect("retail audio definitions");
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let index = loaded_index.map(|loaded| &loaded.index);
+        let mut service = TestAudioService::default();
+        player.set_volume(0.0);
+        player.queue_unit_voice(7, "GIMove");
+        player.visit_unit_voice(7, definitions.sounds());
+        service.pump(
+            &mut player,
+            1_000,
+            definitions.sounds(),
+            definitions.eva(),
+            &assets,
+            index,
+        );
+        let event = player
+            .arbiter
+            .validate_loop_handle(HandleOwner::UnitVoice(7))
+            .expect("reached head has an admitted handle");
+        assert!(player.play_eva("EVA_UnitReady", None, definitions.eva(), &assets, index));
+
+        player.set_movie_held(true, 1_000);
+        assert!(!player.live[&event].player.is_paused());
+        assert!(player.eva_player.as_ref().unwrap().player.is_paused());
+        player.set_movie_sounds_suspended(true, 1_000);
+        assert!(player.live[&event].player.is_paused());
         player.stop_all();
     }
 

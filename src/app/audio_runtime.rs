@@ -307,14 +307,10 @@ impl AppAudioRuntime {
         catalog: Option<&crate::app::process_assets::ProcessAudioCatalog>,
         main: &mut crate::sim::rng::MainRngDraws,
     ) {
-        self.service_master_groups(wall_ms);
+        self.service_audio_outputs(wall_ms, paused);
         let retained = main.clone();
         let mut draw_main =
             crate::audio::sfx::PlaybackDraws::new(move |low, high| retained.ranged(low, high));
-        if let Some(sfx) = self.sfx_player.as_mut() {
-            sfx.set_paused(paused, wall_ms);
-            sfx.service_device_outputs(wall_ms);
-        }
         if !self.service_clock.admit(wall_ms) {
             return;
         }
@@ -332,6 +328,16 @@ impl AppAudioRuntime {
             );
         }
         self.service_theme(assets, wall_ms, &mut |low, high| main.ranged(low, high));
+    }
+
+    /// The part of a service pass that is not the rated pump: master fades,
+    /// the pause state and the device queues.
+    pub(crate) fn service_audio_outputs(&mut self, wall_ms: u64, paused: bool) {
+        self.service_master_groups(wall_ms);
+        if let Some(sfx) = self.sfx_player.as_mut() {
+            sfx.set_paused(paused, wall_ms);
+            sfx.service_device_outputs(wall_ms);
+        }
     }
 
     /// Theme AI is the last service in the shared AudioSystem pass. Callers

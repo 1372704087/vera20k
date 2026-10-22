@@ -94,7 +94,7 @@ impl App {
             // continuing this same House. Keep that service live while later
             // House callbacks and MainTick's termination router remain held.
             crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
-            main_tick_admitted = sim_tick::advance_in_game_runtime(state, scenario_now_ms);
+            main_tick_admitted = sim_tick::advance_in_game_runtime(state, scenario_now_ms, false);
             if !Self::house_outcome_wait_pending(state)
                 && !crate::app::match_runtime::network_failure::pending(state)
             {
@@ -165,10 +165,20 @@ impl App {
         // tick, the frame throttler, the modal dialog pump, the shell dialog
         // loop and the loading screens all reach — so the sound arbiter, the
         // EVA queue and `ThemeClass::AI` keep being serviced on the main menu,
-        // behind a pause or an open menu, and while the window is not the
-        // foreground. It therefore sits here, outside every screen and
-        // simulation gate, and carries its own `> 33 ms` rate limit.
-        crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+        // behind a pause or an open menu. It therefore sits here, outside
+        // every screen and simulation gate, and carries its own `> 33 ms` rate
+        // limit. Offline, the running match pumps inside Main_Tick instead,
+        // and a parked window not at all; this pass then keeps only the
+        // outputs.
+        let main_tick_pumps_audio = crate::app::match_runtime::sim_tick::main_tick_owns_audio_pump(
+            state,
+            simulation_allowed,
+        );
+        if main_tick_pumps_audio {
+            crate::app::match_runtime::sim_tick::service_audio_outputs(state, scenario_now_ms);
+        } else {
+            crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+        }
         crate::app::radar_movie::service(state, scenario_now_ms);
 
         // Deactivated windows do not simulate when `pause_on_focus_loss` is
@@ -213,7 +223,8 @@ impl App {
                     ..Default::default()
                 };
             }
-            main_tick_admitted = sim_tick::advance_in_game_runtime(state, now_ms);
+            main_tick_admitted =
+                sim_tick::advance_in_game_runtime(state, now_ms, main_tick_pumps_audio);
             if Self::house_outcome_wait_pending(state)
                 || crate::app::match_runtime::network_failure::pending(state)
             {

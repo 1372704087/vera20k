@@ -184,7 +184,7 @@ impl App {
             // continuing this same House. Keep that service live while later
             // House callbacks and MainTick's termination router remain held.
             crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
-            main_tick_admitted = sim_tick::advance_in_game_runtime(state, scenario_now_ms);
+            main_tick_admitted = sim_tick::advance_in_game_runtime(state, scenario_now_ms, false);
             if !Self::house_outcome_wait_pending(state)
                 && !crate::app::match_runtime::network_failure::pending(state)
             {
@@ -216,30 +216,32 @@ impl App {
         // sequence before either another sim frame or the destination screen.
         Self::drive_scenario_exit(state, scenario_now_ms);
 
-        // Drive the graceful quit cascade (started on Exit-confirm OK). Compute the
-        // voice poll before borrowing the cascade mutably to avoid aliasing.
+        // Drive the graceful quit wait (started on Exit-confirm OK). It
+        // (`0x0052E79C..0x0052E7E4`) holds while Theme `Still_Playing` and then
+        // `VoxClass::PumpAndCheckActive @ 0x007529E0` both answer yes.
         if state.frontend.quit_cascade.is_some() {
             let now = Instant::now();
-            let voices_active = state
-                .audio
-                .sfx_player
-                .as_ref()
-                .is_some_and(|sfx| sfx.voices_active());
-            let tick = state
+            let waiting = state.audio.theme_still_playing()
+                && match (
+                    &mut state.audio.sfx_player,
+                    state.process_assets.manager(),
+                    state.process_assets.audio_catalog(),
+                ) {
+                    (Some(sfx), Some(assets), Some(catalog)) => {
+                        sfx.pump_and_check_voices(catalog.eva(), assets, catalog.index())
+                    }
+                    _ => false,
+                };
+            let finished = state
                 .frontend
                 .quit_cascade
-                .as_mut()
+                .as_ref()
                 .expect("cascade present")
-                .tick(now, voices_active);
-            if let Some(volume) = tick.music_volume {
-                // Quit's bounded transient fade must also reach Theme. The
-                // pre-fade preference has already been persisted.
-                state.audio.set_score_volume(volume as f32);
-            }
-            if tick.stop_music {
+                .finished(now, waiting);
+            if finished {
+                // `Stop(0)` (`0x0052E7EC`) finds nothing active after the
+                // `Stop(1)` that began the wait; the exit ends any fade tail.
                 state.audio.stop_theme();
-            }
-            if tick.finished {
                 state.frontend.quit_cascade = None;
                 event_loop.exit();
                 return RuntimeServiceResult {
@@ -252,13 +254,24 @@ impl App {
 
         // The audio service pass. gamemd drives `AudioSystem::Pump @
         // 0x00406F70` from `Network_ServiceLoop @ 0x0048D080`, which the main
-        // tick, the frame throttler, the modal dialog pump, the shell dialog
-        // loop and the loading screens all reach — so the sound arbiter, the
-        // EVA queue and `ThemeClass::AI` keep being serviced on the main menu,
-        // behind a pause or an open menu, and while the window is not the
-        // foreground. It therefore sits here, outside every screen and
-        // simulation gate, and carries its own `> 33 ms` rate limit.
-        crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+        // tick, the network modes' frame throttler (`Main::ThrottleFrame @
+        // 0x0055E160` skips it in `g_GameMode` 0 and 5), the modal dialog
+        // pump, the shell dialog loop and the loading screens all reach — so
+        // the sound arbiter, the EVA queue and `ThemeClass::AI` keep being
+        // serviced on the main menu, behind a pause or an open menu. It
+        // therefore sits here, outside every screen and simulation gate, and
+        // carries its own `> 33 ms` rate limit. Offline, the running match
+        // pumps inside Main_Tick instead, and a parked window not at all;
+        // this pass then keeps only the outputs.
+        let main_tick_pumps_audio = crate::app::match_runtime::sim_tick::main_tick_owns_audio_pump(
+            state,
+            simulation_allowed,
+        );
+        if main_tick_pumps_audio {
+            crate::app::match_runtime::sim_tick::service_audio_outputs(state, scenario_now_ms);
+        } else {
+            crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+        }
         crate::app::radar_movie::service(state, scenario_now_ms);
 
         // Deactivated windows do not simulate when `pause_on_focus_loss` is
@@ -304,7 +317,8 @@ impl App {
                     ..Default::default()
                 };
             }
-            main_tick_admitted = sim_tick::advance_in_game_runtime(state, now_ms);
+            main_tick_admitted =
+                sim_tick::advance_in_game_runtime(state, now_ms, main_tick_pumps_audio);
             if Self::house_outcome_wait_pending(state)
                 || crate::app::match_runtime::network_failure::pending(state)
             {

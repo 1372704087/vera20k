@@ -100,6 +100,11 @@ pub struct WeaponType {
     pub laser_duration: i32,
     /// Radiation level emitted on impact (+0x158).
     pub rad_level: i32,
+    /// Phobos `RadType=`: the `[RadiationTypes]` entry this weapon's
+    /// radiation field uses (`WeaponTypeExt::RadType`, default the
+    /// `Radiation` type). Only read in Phobos builds; `None` binds the
+    /// default type.
+    pub rad_type: Option<String>,
 
     // ── String/reference fields ──────────────────────────────────────
     // The Type references are the stored IDs the ordered Rules processor's
@@ -228,6 +233,12 @@ impl WeaponType {
     /// (`0x007729F0`), and `RuleSet` builds each weapon with its retained
     /// values.
     pub fn from_ini_section(id: &str, section: &IniSection) -> Self {
+        // Phobos `WeaponTypeExt::RadType` read; absent (and every build
+        // without the capability) binds the default radiation type.
+        #[cfg(feature = "phobos")]
+        let rad_type = section.read_name("RadType", 0x80).map(str::to_owned);
+        #[cfg(not(feature = "phobos"))]
+        let rad_type = None;
         Self {
             id: id.to_string(),
             damage: 0,
@@ -264,6 +275,7 @@ impl WeaponType {
             // so narrowing after the projected pass history is equivalent.
             laser_duration: i32::from(section.read_int("LaserDuration", 10) as i8),
             rad_level: section.read_int("RadLevel", 0),
+            rad_type,
 
             // The constructor's nulls and empty list (`0x00771C70`); the
             // ordered Process owner reads the Animation references.

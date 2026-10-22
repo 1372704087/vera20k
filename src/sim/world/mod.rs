@@ -593,41 +593,53 @@ pub enum SimSoundEvent {
         sound_id: InternedId,
         world: crate::sim::anim_class::AnimWorldCoord,
     },
-    /// An entity was destroyed — play its DieSound=.
+    /// An entity was destroyed — play its VoiceDie=/DieSound= at its
+    /// Location (`0x0070213F..0x0070218B`, `0x007021A9..0x007021FB` copy
+    /// `[obj+0x9C..0xA4]` for `VocClass::PlayAt 0x007509E0`).
     EntityDied {
         die_sound_id: String,
-        rx: u16,
-        ry: u16,
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// An entity was crushed by a vehicle — play its CrushSound= (the squish).
     /// Normal crush teardown does not also enter the ordinary DieSound path.
     EntityCrushed {
         crush_sound_id: InternedId,
-        rx: u16,
-        ry: u16,
+        /// The CRUSHER's Location, read before the victim dies:
+        /// `UnitClass::Crush_Or_Prescatter_Cell @ 0x007416A0`
+        /// (`0x007418AA..0x007418DC`, `[EDI+0x9C..0xA4]`) and
+        /// `JumpjetLocomotionClass::State5_Crash @ 0x0054CA90`
+        /// (`0x0054CCDE..0x0054CD14`).
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// DeploySound on infantry stance entry, successful unit-to-building
     /// conversion, or a building's undeploy start (Selling's UndeploysInto
     /// arm plays the building type's own `DeploySound=`).
     EntityDeployed {
         deploy_sound_id: InternedId,
-        rx: u16,
-        ry: u16,
+        /// The deploying object's Location: Infantry Do_Action
+        /// (`0x0051D94F..0x0051D9CA`), `UpdateSimpleDeployState @ 0x00739AC0`
+        /// (`0x00739C86..0x00739CB9`), `UnitClass::Deploy @ 0x007393C0`
+        /// (`0x00739A21..0x00739A54`, the MCV's) and `Mission_Selling @
+        /// 0x00449C30` (`0x0044A9F9..0x0044AA38`, the building's north-west
+        /// cell centre, not its foundation centre).
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// An infantry entity entered the Undeploying phase — play its UndeploySound=.
     EntityUndeployed {
         undeploy_sound_id: InternedId,
-        rx: u16,
-        ry: u16,
+        /// The object's own Location: Infantry Do_Action
+        /// (`0x0051D998..0x0051D9CA`), `UnitClass::Undeploy @ 0x00739CD0`
+        /// (`0x00739E81..0x00739EB3`).
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// A transport placed an ejected passenger — `UnitClass::Mission_Unload @
     /// 0x0073D630` plays the transport type's `LeaveTransportSound=`
-    /// (`+0x568`) through `VocClass::PlayAtCoord` at the TRANSPORT's own
-    /// coordinate (`0x0073DC28`..`0x0073DC67`), once per placed passenger.
+    /// (`+0x568`) through `VocClass::PlayAtCoord @ 0x00750E20` at the
+    /// TRANSPORT's own Location after the passenger's Unlimbo
+    /// (`0x0073DC35`..`0x0073DC67`), once per placed passenger.
     LeaveTransport {
         sound_id: InternedId,
-        rx: u16,
-        ry: u16,
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// A building finished construction — play EVA "Construction complete".
     BuildingComplete { owner: InternedId },
@@ -662,13 +674,14 @@ pub enum SimSoundEvent {
     /// the local player's (`0x004FB2CC..0x004FB314`).
     BuildingPlaced { owner: InternedId },
     /// A chrono teleport happened — play the resolved warp sound at this position.
-    /// Sim emits two of these per warp: one at the source cell with the unit's
-    /// `ChronoOutSound=`, one at the destination cell with the unit's
-    /// `ChronoInSound=`.
+    /// Sim emits two of these per warp: one at the departure Location with the
+    /// unit's `ChronoOutSound=` (`0x0071960A..0x0071962C`, Chronosphere state
+    /// 2 `0x007198CE`), one at the arrival Location, after SetHeight(0) and
+    /// Mark(DOWN), with its `ChronoInSound=` (`0x007196EE..0x00719710`, state
+    /// 5 `0x00719A70`).
     ChronoTeleport {
         sound_id: InternedId,
-        rx: u16,
-        ry: u16,
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// `TechnoClass::StartUncloaking @ 0x007036C0` accepted an arg-zero
     /// state-1/2 transition and called positional `VocClass::PlayAt @
@@ -697,6 +710,10 @@ pub enum SimSoundEvent {
     /// exhausted-retry branch 0x0075B085..0x0075B0B0 requests ScoldSound this
     /// way. Evidence: `tools/spatial_oracle/foot_scold_latch.{py,json,md}`.
     VocCentered { sound_id: String },
+    /// The same centred `0x00750920` call with a raw SOUNDMD ordinal: team
+    /// script action 25 (`0x006E9901`). The process catalog resolves it;
+    /// -1 or an unknown ordinal plays nothing (`0x0075093B`).
+    VocCenteredIndex { index: i32 },
     /// `VocClass::PlayAt @ 0x007509E0` of a rules-named sound at an object's
     /// Location: the mind-control capture, release and overload sounds.
     /// `audible_to` names the houses a `HouseClass::IsHumanPlayer
@@ -733,8 +750,9 @@ pub enum SimSoundEvent {
     UnitPromoted {
         owner: InternedId,
         sound_id: Option<InternedId>,
-        rx: u16,
-        ry: u16,
+        /// The object's Location (`0x006FA092..0x006FA0BC`,
+        /// `0x006FA0FF..0x006FA12A`).
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// A building / harvester admitted a damage or first Temporal-head warning.
     /// For the local owner the app admits `radar` (type 3 base / type 4 miner) on its client
@@ -902,8 +920,10 @@ pub enum SimSoundEvent {
     SuperWeaponLaunched {
         owner: InternedId,
         sw_type: InternedId,
-        rx: u16,
-        ry: u16,
+        /// Where the positional cue plays, always over the target cell; each
+        /// launch case names its own coordinate. Cases with no positional
+        /// cue carry the target cell's centre at Z 0, which nothing reads.
+        world: crate::sim::anim_class::AnimWorldCoord,
     },
     /// A `CreateRadarEvent` with no local-player test and no sound, on every
     /// client: each admits it on its own radar. Type 13 from
@@ -955,27 +975,44 @@ pub enum SimSoundEvent {
         radar: crate::sim::radar::RadarEventRequest,
     },
     /// First-occupant SFX from rulesmd [AudioVisual] BuildingGarrisonedSound.
-    /// Positional cue gated on owner == local human.
-    BuildingGarrisonedSfx { owner: InternedId, rx: u16, ry: u16 },
+    /// Positional cue gated on owner == local human, at the occupant's
+    /// GetCoords (vt+0x48 on the infantryman, `0x005229C6..0x005229E0`).
+    BuildingGarrisonedSfx {
+        owner: InternedId,
+        world: crate::sim::anim_class::AnimWorldCoord,
+    },
     /// Tank-bunker walls-up cue — emitted on install. App resolves to
-    /// [AudioVisual] BunkerWallsUpSound (retail "TankBunkerUp").
-    BunkerWallsUp { rx: u16, ry: u16 },
+    /// [AudioVisual] BunkerWallsUpSound (retail "TankBunkerUp"), at the
+    /// bunker's Location (`BuildingClass::UpdateBunker @ 0x00458E50` state 5,
+    /// `0x0045934A..0x0045936F`).
+    BunkerWallsUp {
+        world: crate::sim::anim_class::AnimWorldCoord,
+    },
     /// Tank-bunker walls-down cue — emitted on normal exit / clear teardown.
-    /// App resolves to [AudioVisual] BunkerWallsDownSound (retail "TankBunkerDown").
-    BunkerWallsDown { rx: u16, ry: u16 },
+    /// App resolves to [AudioVisual] BunkerWallsDownSound (retail "TankBunkerDown"),
+    /// at the bunker's Location (`ClearBunker @ 0x00459470`,
+    /// `0x004594A2..0x004594C8`; `EmptyBunker @ 0x004595C0`,
+    /// `0x004595E7..0x0045960D`).
+    BunkerWallsDown {
+        world: crate::sim::anim_class::AnimWorldCoord,
+    },
     /// A paratrooper left the paradrop plane (`AircraftClass::Drop_Payload`
     /// plays `[AudioVisual] ChuteSound=` at the plane's Location,
-    /// `0x00415E21`): the plane's cell.
-    ChuteSound { rx: u16, ry: u16 },
+    /// `0x00415E21`).
+    ChuteSound {
+        world: crate::sim::anim_class::AnimWorldCoord,
+    },
     /// An engineer entered a `BridgeRepairHut` and triggered bridge repair.
-    /// Played at the BUILDING's cell, NOT the engineer's. App layer plays the
+    /// Played at the hut BUILDING's Location, NOT the engineer's
+    /// (`InfantryClass::PerCellProcess`, `0x00519BCE..0x00519C02`, on the
+    /// building `Look_up_building_in_cell @ 0x0047C520` found at
+    /// `0x00519B20`). App layer plays the
     /// spatial `[BridgeRepaired]` sound for everyone in range, gated on
     /// `rules.bridge_rules.repair_sound.is_some()`. `radar` is present when
     /// native House50B6F0 passed; the EVA line then waits on the client's
     /// non-drawing type-14 radar event creation/dedup gate.
     BridgeRepaired {
-        rx: u16,
-        ry: u16,
+        world: crate::sim::anim_class::AnimWorldCoord,
         radar: Option<RadarEventRequest>,
     },
 }
@@ -3188,6 +3225,7 @@ impl Simulation {
     pub fn reconstruct_cellclass_dummy_for_map_resize(&mut self) {
         self.effective_shared_cell_dummy()
             .reconstruct_for_map_resize();
+        self.trigger_runtime.reconstruct_dummy_for_map_resize();
         self.substrate
             .base_reservations
             .reconstruct_dummy_for_map_resize();
@@ -6057,6 +6095,8 @@ impl Simulation {
         if let Some(house) = self.houses.get_mut(&new_owner) {
             house.economy_mut().add_score(cost);
         }
+        #[cfg(feature = "phobos")]
+        self.phobos_tracking_change_owner(stable_id, new_owner);
         Self::update_house_tracking(
             &mut self.substrate,
             &mut self.houses,
@@ -8094,7 +8134,7 @@ impl Simulation {
         profile_phase!(SUPERWEAPONS);
         self.radiation.tick_decay(
             self.session.binary_frame(),
-            &rules.radiation,
+            rules,
             self.resolved_terrain.as_ref(),
             &mut self.lighting_sources,
         );

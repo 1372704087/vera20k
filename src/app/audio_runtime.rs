@@ -208,6 +208,11 @@ impl AppAudioRuntime {
         }
         self.set_movie_audio_held(false, wall_ms);
     }
+
+    /// Whether the shared movie lifecycle has released both of its credits.
+    pub(crate) fn movie_audio_released(&self) -> bool {
+        !self.master_groups.held && !self.master_groups.sounds_suspended
+    }
     /// `StateMachine__EnterPause @ 0x00683EB0`: an in-game modal saves the
     /// effects master's target (`0x00683EBC` -> `0x004072B0`) and snaps it
     /// to full (`0x00683ED1` -> `0x00407150`), so its sounds play at full
@@ -238,6 +243,22 @@ impl AppAudioRuntime {
             player.set_master_groups(groups.sound_master.value(), groups.eva_master.value());
         }
     }
+    /// `OptionsClass::Set_Sound_Volume @ 0x005FA510`'s output: the effects
+    /// volume every SFX channel scales by. The profile write is the caller's.
+    pub(crate) fn set_sound_volume(&mut self, volume: f64) {
+        if let Some(player) = self.sfx_player.as_mut() {
+            player.set_sound_volume(volume);
+        }
+    }
+
+    /// `OptionsClass::Set_Voice_Volume @ 0x005FA590`'s output: unit voices and
+    /// EVA. The profile write is the caller's.
+    pub(crate) fn set_voice_volume(&mut self, volume: f64) {
+        if let Some(player) = self.sfx_player.as_mut() {
+            player.set_voice_volume(volume);
+        }
+    }
+
     /// `OptionsClass::Set_Score_Volume` at `0x005FA4A0` publishes the stored
     /// Options f32 to the stream first, then Theme's `+0xC` gate. Theme owns its
     /// native quantization; the player's safe 0..1 gain never feeds back into
@@ -291,14 +312,10 @@ impl AppAudioRuntime {
         catalog: Option<&crate::app::process_assets::ProcessAudioCatalog>,
         main: &mut crate::sim::rng::MainRngDraws,
     ) {
-        self.service_master_groups(wall_ms);
+        self.service_audio_outputs(wall_ms, paused);
         let retained = main.clone();
         let mut draw_main =
             crate::audio::sfx::PlaybackDraws::new(move |low, high| retained.ranged(low, high));
-        if let Some(sfx) = self.sfx_player.as_mut() {
-            sfx.set_paused(paused, wall_ms);
-            sfx.service_device_outputs(wall_ms);
-        }
         if !self.service_clock.admit(wall_ms) {
             return;
         }
@@ -316,6 +333,16 @@ impl AppAudioRuntime {
             );
         }
         self.service_theme(assets, wall_ms, &mut |low, high| main.ranged(low, high));
+    }
+
+    /// The part of a service pass that is not the rated pump: master fades,
+    /// the pause state and the device queues.
+    pub(crate) fn service_audio_outputs(&mut self, wall_ms: u64, paused: bool) {
+        self.service_master_groups(wall_ms);
+        if let Some(sfx) = self.sfx_player.as_mut() {
+            sfx.set_paused(paused, wall_ms);
+            sfx.service_device_outputs(wall_ms);
+        }
     }
 
     /// Theme AI is the last service in the shared AudioSystem pass. Callers
@@ -466,7 +493,8 @@ impl AppAudioRuntime {
             self.restore_sound_master();
         }
         // Score dialogs explicitly select SCORE after the master is restored:
-        // 5C9B10 (multiplayer) / 6C9357 (campaign), original gamemd.exe.
+        // 5C9B10 (multiplayer), original gamemd.exe. Campaign WM_INIT
+        // selects its theme after the Win movie in open_campaign_score_page.
         if let Some(crate::app::match_runtime::scenario_exit::ScenarioExitAudioAction::PlayTheme(
             theme,
         )) = tick.after_cleanup
@@ -483,6 +511,16 @@ impl AppAudioRuntime {
         let physical = self.music_output_state();
         let action = self.theme.stop(gates, true, physical);
         self.apply_theme_action(action, wall_ms);
+    }
+
+    /// `ThemeClass::Still_Playing @ 0x00720FD0`, which the quit wait polls
+    /// (`0x0052E79C`, `0x0052E7DD`): a fade whose ramp has ended stops the
+    /// stream and reads as not playing.
+    pub(crate) fn theme_still_playing(&mut self) -> bool {
+        let (playing, action) = self.theme.still_playing(self.music_output_state());
+        // Still_Playing only ever stops the stream; no start needs a time.
+        self.apply_theme_action(action, 0);
+        playing
     }
 
     /// Whether the effects master is still gliding; the scenario exits wait on
@@ -788,6 +826,62 @@ mod tests {
             2,
             "score explicitly selects SCORE"
         );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// The quit wait (`0x0052E764..0x0052E7E4`) follows Theme's own 1000 ms
+    /// stream fade, whatever the score volume, until the ended ramp stops it.
+    #[test]
+    fn the_quit_fade_lasts_the_theme_ramp_at_a_low_score_volume() {
+        let Some(mut music) = MusicPlayer::new() else {
+            return;
+        };
+        assert!(music.submit(PreparedTrack {
+            stem: "Silence".into(),
+            samples: vec![0.0; 22_050 * 2 * 10],
+            sample_rate: 22_050,
+        }));
+        let root = std::env::temp_dir().join(format!("vera20k-quit-fade-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("thememd.ini"),
+            "[Themes]\n0=Battle\n[Battle]\nSound=Battle\n",
+        )
+        .unwrap();
+        // One stereo PCM frame is a transport fixture, not a retail sound.
+        std::fs::write(
+            root.join("Battle.wav"),
+            b"RIFF\x28\0\0\0WAVEfmt \x10\0\0\0\x01\0\x02\0\x22\x56\0\0\x88\x58\x01\0\x04\0\x10\0data\x04\0\0\0\0\0\0\0",
+        )
+        .unwrap();
+        let assets = AssetManager::from_loose_root_for_test(&root);
+        let mut runtime = AppAudioRuntime {
+            theme: ThemeRuntime::default(),
+            service_clock: AudioServiceClock::default(),
+            music_player: Some(music),
+            sfx_player: None,
+            launcher_audio_available: true,
+            theme_startup_suppressed: false,
+            master_groups: Default::default(),
+        };
+        runtime.initialize_theme(&assets);
+        let gates = runtime.theme_gates();
+        runtime.theme.restore_saved_slots(
+            [0, -1],
+            true,
+            &assets,
+            gates,
+            MusicOutputState::Idle,
+            |_| MusicOutputState::Playing,
+        );
+        assert_eq!(runtime.theme.slots().active, 0);
+        runtime.set_score_volume(0.4);
+        runtime.fade_out_theme(0);
+        runtime.service_master_groups(500);
+        assert!(runtime.theme_still_playing(), "the ramp is half done");
+        runtime.service_master_groups(1_001);
+        assert!(!runtime.theme_still_playing());
+        assert_eq!(runtime.music_output_state(), MusicOutputState::Idle);
         std::fs::remove_dir_all(root).unwrap();
     }
 

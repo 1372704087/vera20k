@@ -36,16 +36,30 @@ pub enum RestartTarget {
     /// Replay SOV01's parsed timer actions, save/load, win and enter SOV02.
     /// Requires an isolated SOV02 map with TimerInherit=yes.
     InheritedTimerVictory,
+    /// Controlled victory with a MAPSELMD override excluding the current map.
+    MapSelectFailurePrompt,
+    MapSelectFailureReplayed,
+    MapSelectFailureEscape,
     /// SOV02's authored objective, held behind B5 past its wall deadline.
     ObjectiveExpiry,
 }
 
 impl RestartTarget {
+    fn map_select_failure(self) -> bool {
+        matches!(
+            self,
+            Self::MapSelectFailurePrompt
+                | Self::MapSelectFailureReplayed
+                | Self::MapSelectFailureEscape
+        )
+    }
+
     pub(super) fn next_scenario(self) -> Option<&'static str> {
         match self {
             Self::SavedVictory => Some("ALL02UMD.MAP"),
             Self::AlternateHomeVictory => Some("SOV07TMD.MAP"),
             Self::InheritedTimerVictory => Some("SOV02SMD.MAP"),
+            Self::MapSelectFailureReplayed | Self::MapSelectFailureEscape => Some("ALL01UMD.MAP"),
             _ => None,
         }
     }
@@ -77,6 +91,8 @@ enum Step {
     AwaitDefeatPrompt,
     HoldDefeatPrompt(u32),
     AwaitVictoryScore,
+    AwaitMapSelectFailure,
+    HoldMapSelectFailure(u32),
     ReplayPressed,
     AwaitShellReturn,
     AwaitObjective,
@@ -106,6 +122,18 @@ struct ObjectivePause {
     text: String,
     deadline_ms: u64,
     paused_tick: u64,
+}
+
+#[derive(serde::Serialize)]
+struct WinMovieCheck {
+    name: String,
+    skip_score: bool,
+    first_frame: Option<u32>,
+    last_movie_frame: Option<usize>,
+    returned_frame: Option<u32>,
+    theme_during: Option<i32>,
+    theme_after: Option<i32>,
+    audio_released: bool,
 }
 
 impl Mission {
@@ -166,6 +194,8 @@ pub(super) struct RestartCapture {
     objective_pause: Option<ObjectivePause>,
     objective_observations: Vec<Value>,
     opening_view: Option<Value>,
+    map_select_failure: Option<Value>,
+    win_movie: Option<WinMovieCheck>,
 }
 
 impl RestartCapture {
@@ -177,6 +207,7 @@ impl RestartCapture {
         save_directory: &Path,
     ) -> Result<Self> {
         let before = Mission::observe(state)?;
+        let saved_win = state.match_state.map_basic.win.clone();
         route.push(
             json!({"frame": frame, "action": "first live observed", "mission": before.receipt()}),
         );
@@ -230,14 +261,15 @@ impl RestartCapture {
             #[cfg(not(feature = "dev-overlays"))]
             bail!("timer carry-over capture needs dev-overlays");
         }
-        let restored = if matches!(
-            target,
-            RestartTarget::SavedAbortRestarted
-                | RestartTarget::MenuDefeatReplayed
-                | RestartTarget::SavedVictory
-                | RestartTarget::AlternateHomeVictory
-                | RestartTarget::InheritedTimerVictory
-        ) {
+        let restored = if target.map_select_failure()
+            || matches!(
+                target,
+                RestartTarget::SavedAbortRestarted
+                    | RestartTarget::MenuDefeatReplayed
+                    | RestartTarget::SavedVictory
+                    | RestartTarget::AlternateHomeVictory
+                    | RestartTarget::InheritedTimerVictory
+            ) {
             state.persistence.isolate_capture_saves(save_directory)?;
             let path =
                 crate::app::persistence::commands::save_game(state, "Campaign continuation", None)
@@ -258,12 +290,36 @@ impl RestartCapture {
                 "save load did not commit"
             );
             ensure!(
+                state.match_state.map_basic.win == saved_win,
+                "save load lost Basic.Win"
+            );
+            ensure!(
                 loaded.map_name == before.map_name
                     && loaded.campaign_index == before.campaign_index
                     && loaded.mission_counter == before.mission_counter,
                 "saved campaign identity changed"
             );
             Some(json!({"path": path, "from_menu": from_menu, "mission": loaded.receipt()}))
+        } else {
+            None
+        };
+        let win_movie = if target == RestartTarget::SavedVictory {
+            state.process_assets.native_rules().and_then(|rules| {
+                let name = state.match_state.map_basic.win.as_deref()?;
+                rules
+                    .movies()
+                    .name(rules.movies().find_index(name))
+                    .map(|name| WinMovieCheck {
+                        name: name.to_owned(),
+                        skip_score: state.match_state.map_basic.skip_score.unwrap_or(false),
+                        first_frame: None,
+                        last_movie_frame: None,
+                        returned_frame: None,
+                        theme_during: None,
+                        theme_after: None,
+                        audio_released: false,
+                    })
+            })
         } else {
             None
         };
@@ -280,6 +336,8 @@ impl RestartCapture {
             objective_pause: None,
             objective_observations: Vec::new(),
             opening_view: None,
+            map_select_failure: None,
+            win_movie,
         };
         match target {
             RestartTarget::AbortShown
@@ -303,7 +361,10 @@ impl RestartCapture {
             }
             RestartTarget::SavedVictory
             | RestartTarget::AlternateHomeVictory
-            | RestartTarget::InheritedTimerVictory => {
+            | RestartTarget::InheritedTimerVictory
+            | RestartTarget::MapSelectFailurePrompt
+            | RestartTarget::MapSelectFailureReplayed
+            | RestartTarget::MapSelectFailureEscape => {
                 Self::complete_current_house(
                     state,
                     route,
@@ -424,10 +485,44 @@ impl RestartCapture {
                 .as_ref()
                 .context("movie ended before its presented frame")?
                 .displayed_frame();
+            if self.step == Step::AwaitVictoryScore
+                && let Some(win) = self.win_movie.as_mut()
+            {
+                ensure!(
+                    !state.audio.movie_audio_released(),
+                    "Win movie has no audio hold"
+                );
+                let theme = state.audio.theme.current_song();
+                ensure!(
+                    theme != state.audio.theme.from_name("SCORE"),
+                    "SCORE started before Win returned"
+                );
+                if win.first_frame.is_none() {
+                    win.first_frame = Some(frame);
+                    win.theme_during = Some(theme);
+                    route.push(json!({"frame":frame,"action":"saved Win movie presented", "movie":win.name,"skip_score":win.skip_score}));
+                }
+                win.last_movie_frame = Some(displayed_frame);
+                if !win.skip_score {
+                    return Ok(()); // Exercise ordinary EOF, not an injected completion.
+                }
+            }
             App::fullscreen_movie_key(state, winit::keyboard::KeyCode::Escape, true);
             App::fullscreen_movie_key(state, winit::keyboard::KeyCode::Escape, false);
             route.push(json!({"frame": frame, "action": "movie Escape release",
                 "movie_frame": displayed_frame}));
+            if self.step == Step::AwaitVictoryScore
+                && let Some(win) = self.win_movie.as_mut()
+            {
+                ensure!(win.skip_score, "only the SkipScore control skips Win");
+                ensure!(
+                    state.frontend.campaign_score_page.is_none(),
+                    "SkipScore opened a score page"
+                );
+                win.returned_frame = Some(frame);
+                win.theme_after = Some(state.audio.theme.current_song());
+                self.step = Step::AwaitRestartedLive;
+            }
             return Ok(());
         }
         match self.step {
@@ -583,8 +678,122 @@ impl RestartCapture {
                         .as_ref()
                         .is_some_and(|page| page.presentation_started())
                 {
+                    if let Some(win) = self.win_movie.as_mut() {
+                        ensure!(
+                            win.first_frame.is_some() && !win.skip_score,
+                            "score bypassed the Win movie"
+                        );
+                        ensure!(
+                            state.audio.movie_audio_released(),
+                            "Win EOF retained audio holds"
+                        );
+                        let theme = state.audio.theme.current_song();
+                        ensure!(
+                            theme == state.audio.theme.from_name("SCORE"),
+                            "score page did not start SCORE"
+                        );
+                        win.returned_frame = Some(frame);
+                        win.theme_after = Some(theme);
+                        win.audio_released = true;
+                    }
+                    if self.target.map_select_failure() {
+                        self.map_select_failure =
+                            Some(json!({"score_theme":state.audio.theme.current_song()}));
+                    }
                     crate::app::diagnostics::shell_capture::score::click_campaign_continue(state)?;
                     route.push(json!({"frame": frame, "action": "saved victory score Continue", "dialog": 0x103}));
+                    self.step = if self.target.map_select_failure() {
+                        Step::AwaitMapSelectFailure
+                    } else {
+                        Step::AwaitRestartedLive
+                    };
+                }
+            }
+            Step::AwaitMapSelectFailure => {
+                if let Some(message) = state.frontend.shell_message_box.as_ref()
+                    && matches!(
+                        &message.purpose,
+                        crate::app::frontend::state::ShellMessageBoxPurpose::CampaignVictory(_)
+                    )
+                {
+                    let expected =
+                        crate::app::frontend::shell_pass::resolve_csf(state, "MSG:UnableMapSelect");
+                    ensure!(
+                        message.labels.title == expected,
+                        "MapSelect notice has wrong text"
+                    );
+                    ensure!(
+                        message.labels.kind() == crate::ui::shell::modal::ModalKind::BodyOk
+                            && message.labels.cancel.is_empty(),
+                        "MapSelect notice is not one button"
+                    );
+                    ensure!(
+                        state.frontend.shell_controller.top_id()
+                            == Some(crate::ui::shell::descriptor::DialogId(0xCE)),
+                        "MapSelect notice has wrong controller template"
+                    );
+                    ensure!(
+                        !state.persistence.initial_campaign_save_pending(true),
+                        "failed Init rearmed initial save before notice"
+                    );
+                    let receipt = self
+                        .map_select_failure
+                        .as_mut()
+                        .context("missing score observation")?;
+                    ensure!(
+                        receipt["score_theme"].as_i64()
+                            == Some(i64::from(state.audio.theme.current_song())),
+                        "MapSelect notice queued the shell INTRO"
+                    );
+                    receipt["body"] = json!(message.labels.title);
+                    receipt["confirm"] = json!(message.labels.confirm);
+                    receipt["dialog"] = json!(0xCE);
+                    receipt["initial_save_pending_before"] = json!(false);
+                    route.push(json!({"frame":frame,"action":"MapSelect failure notice shown","dialog":0xCE}));
+                    self.step = Step::HoldMapSelectFailure(SETTLE_FRAMES);
+                }
+            }
+            Step::HoldMapSelectFailure(left) if left > 0 => {
+                self.step = Step::HoldMapSelectFailure(left - 1);
+            }
+            Step::HoldMapSelectFailure(_) => {
+                if self.target != RestartTarget::MapSelectFailurePrompt {
+                    if self.target == RestartTarget::MapSelectFailureEscape {
+                        ensure!(
+                            App::handle_main_menu_dialog_key(
+                                state,
+                                winit::keyboard::KeyCode::Escape,
+                                true,
+                                false
+                            ),
+                            "Escape did not acknowledge the notice"
+                        );
+                    } else {
+                        let layout = crate::ui::shell::modal::body_ok_layout(
+                            state.render_width() as i32,
+                            state.render_height() as i32,
+                        );
+                        set_window_pointer_to_rect_center(state, layout.ok);
+                        App::handle_shell_message_box_mouse_down(state);
+                        ensure!(
+                            state.frontend.shell_controller.pressed()
+                                == Some(crate::ui::shell::modal::control::OK),
+                            "MapSelect OK press missed"
+                        );
+                        App::handle_shell_message_box_mouse_up(state);
+                    }
+                    ensure!(
+                        state.frontend.shell_message_box.is_none(),
+                        "notice did not close"
+                    );
+                    ensure!(
+                        !state.persistence.initial_campaign_save_pending(true),
+                        "failed Init rearmed initial save after notice"
+                    );
+                    self.map_select_failure.as_mut().unwrap()["initial_save_pending_after"] =
+                        json!(false);
+                    route.push(json!({"frame":frame,"action":"MapSelect failure notice acknowledged","input":if self.target == RestartTarget::MapSelectFailureEscape {"Escape"}else{"OK click"}}));
+                    Self::restore_pointer(state);
                     self.step = Step::AwaitRestartedLive;
                 }
             }
@@ -735,6 +944,17 @@ impl RestartCapture {
                 if let Some(startup) = crate::app::loading::pump::loading_campaign_startup(state)
                     && self.observed_restart_loading.is_none()
                 {
+                    if let Some(win) = self.win_movie.as_mut() {
+                        ensure!(
+                            win.first_frame.is_some() && win.returned_frame.is_some(),
+                            "continuation bypassed Win"
+                        );
+                        ensure!(
+                            state.audio.movie_audio_released(),
+                            "Win/next Intro retained movie audio holds"
+                        );
+                        win.audio_released = true;
+                    }
                     ensure!(
                         startup.plays_action_movie() == self.target.next_scenario().is_some(),
                         "the continuation passed the wrong Start_Scenario movie flag"
@@ -900,6 +1120,13 @@ impl RestartCapture {
             | RestartTarget::InheritedTimerVictory => {
                 self.step == Step::Done && state.frontend.screen == GameScreen::InGame
             }
+            RestartTarget::MapSelectFailurePrompt => {
+                self.step == Step::HoldMapSelectFailure(0)
+                    && state.frontend.shell_message_box.is_some()
+            }
+            RestartTarget::MapSelectFailureReplayed | RestartTarget::MapSelectFailureEscape => {
+                self.step == Step::Done && state.frontend.screen == GameScreen::InGame
+            }
             RestartTarget::AlternateHomeVictory => {
                 self.step == Step::Done && state.frontend.screen == GameScreen::InGame
             }
@@ -913,6 +1140,7 @@ impl RestartCapture {
         json!({"target": format!("{:?}", self.target), "before": self.before.receipt(),
             "restart_loading": self.observed_restart_loading, "restored": self.restored,
             "after": self.after.as_ref().map(Mission::receipt), "theme_observations": self.theme_observations,
-            "objective_observations": self.objective_observations, "opening_view":self.opening_view})
+            "objective_observations": self.objective_observations, "opening_view":self.opening_view,
+            "map_select_failure":self.map_select_failure,"win_movie":self.win_movie})
     }
 }

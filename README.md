@@ -41,6 +41,15 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 - **Multiplayer:** Network play is not available yet.
 - **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
 
+## Download and play
+
+Download the installer for Windows, macOS or Linux from the
+[releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
+Yuri's Revenge from [Steam](https://store.steampowered.com/app/2229850/) or the
+[EA app](https://www.ea.com/games/command-and-conquer/command-and-conquer-the-ultimate-collection)
+and sets up VERA20K in a new folder. Mods and new content will go there too, so the game's own files
+are never changed.
+
 ## Architecture
 
 The engine has three main parts:

@@ -1250,6 +1250,13 @@ pub struct GeneralRules {
     /// `MenuSlideOut`, `RulesClass+0x19C` read at `0x006694C7`), played by
     /// `0x00608070` before a shown shell dialog's buttons slide out.
     pub gui_move_out_sound: Option<String>,
+    /// Shell slide-in end cue from [AudioVisual] ShellButtonSlideSound
+    /// (`RulesClass+0x750`, constructor -1 at `0x00666098`). `0x0066AF8D`
+    /// reads 128 bytes and keeps the prior value on an empty copy or an
+    /// unknown name (`0x007514D0` -1); like its siblings, the name resolves
+    /// only when played. The slide engine `0x006071E0` plays it as each
+    /// slide-in ends (`0x00607F59`). Stock rules leave it empty.
+    pub shell_button_slide_sound: Option<String>,
     /// Generic shell click sound from [AudioVisual] GenericClick
     /// (`Rules+0x70C`, read at `0x0066AD30` through `VocClass::FindByName`;
     /// retail `MenuClick`). A human player's sale order plays it too
@@ -1346,8 +1353,11 @@ pub struct GeneralRules {
     /// `gui_build_sound`; retail's `PlaceBuilding` resolves.
     pub building_slam: Option<String>,
     /// Sidebar tab click sound from [AudioVisual] GUITabSound (retail
-    /// `MenuTab`). The key→tab-click mapping is name-inferred — flagged for a
-    /// Ghidra spot-check of the tab-ID consumer before parity sign-off.
+    /// `MenuTab`; `Rules+0x190`, read at `0x00669402..0x0066942C`).
+    /// `SidebarClass::Action 0x006A7780` plays it (`VocClass::PlayAt
+    /// 0x00750920`, volume 1.0) at `0x006A7A66` for the tab inputs
+    /// `0x80CB..0x80CE`, including a click on the tab that is already active
+    /// (`0x006A7928` jumps straight to it).
     pub gui_tab_sound: Option<String>,
     /// Rules+6AC, ctor665FB0=-1, reader66A7B3..66A7E9. Fixed SOUNDMD
     /// reference; missing/unknown later names retain the previous valid ID.
@@ -1366,6 +1376,13 @@ pub struct GeneralRules {
     /// retaining the prior fixed-SOUNDMD ID on missing/empty/unknown text.
     /// LAN join validation5DF410 and timeout5DC506 play it centered at1.0.
     system_error_sound: Option<String>,
+    /// Rules+6B4, constructor665FBC=-1. AudioVisual66A868..66A8AE reads exact
+    /// OptionsChanged after SystemError through ReadString128/VocFind7514D0,
+    /// retaining the prior ID on missing/empty/unknown text. A main-menu typed
+    /// code (0x00531ECB..0x00531EDB) plays it centred at volume 1.0; the
+    /// serial/modem setup dialogs (0x005B5E71, 0x005B962C; game modes 1/2,
+    /// which VERA lacks) are its only other players.
+    options_changed_sound: Option<String>,
     /// Rules+6BC: constructor665FC8=-1; AudioVisual66A8ED..66A932 reads
     /// exact PlayerLeft after GameForming and before PlayerJoined. ReadString
     /// capacity128/defaultempty plus fixed SOUNDMD VocFind7514D0 retains the
@@ -2454,6 +2471,7 @@ impl Default for GeneralRules {
             gui_main_button_sound: None,
             gui_move_in_sound: None,
             gui_move_out_sound: None,
+            shell_button_slide_sound: None,
             generic_click_sound: None,
             guard_sound: None,
             stop_sound: None,
@@ -2479,6 +2497,7 @@ impl Default for GeneralRules {
             incoming_message_sound: None,
             message_char_typed_sound: None,
             system_error_sound: None,
+            options_changed_sound: None,
             player_left_sound: None,
             player_joined_sound: None,
             game_forming_sound: None,
@@ -2876,6 +2895,44 @@ pub struct RadiationRules {
     /// null (`0x00667801`) or the factory's null for `none`. An empty read
     /// keeps it (`0x0066D0EA` reloads the field, `0x0066D127` stores it back).
     pub site_warhead: String,
+    /// Phobos `[Radiation] UseGlobalRadApplicationDelay` (default true): when
+    /// true every radiation type shares the global `RadApplicationDelay`
+    /// gate, and the per-type delay is not consulted.
+    #[cfg(feature = "phobos")]
+    pub use_global_rad_application_delay: bool,
+    /// Phobos `[Radiation] RadApplicationDelay.Building` (default 0). Above 0
+    /// it enables radiation damage to buildings; the building damage chain is
+    /// not implemented, so the value is retained only.
+    #[cfg(feature = "phobos")]
+    pub application_delay_building: i32,
+    /// Phobos `[Radiation] RadBuildingDamageMaxCount` (default -1: no limit).
+    /// Retained only, like the building delay above.
+    #[cfg(feature = "phobos")]
+    pub building_damage_max_count: i32,
+    /// Phobos `[Radiation] RadSiteWarhead.Detonate` (default false): makes
+    /// `RadSiteWarhead` detonate on affected objects. Retained only.
+    #[cfg(feature = "phobos")]
+    pub site_warhead_detonate: bool,
+    /// Phobos `[Radiation] RadSiteWarhead.Detonate.Full` (default true): full
+    /// warhead detonation instead of area damage when detonating. Retained
+    /// only.
+    #[cfg(feature = "phobos")]
+    pub site_warhead_detonate_full: bool,
+    /// Phobos `[Radiation] RadHasOwner` (default false): radiation damage
+    /// counts as dealt by the house that fired the projectile. Retained only.
+    #[cfg(feature = "phobos")]
+    pub has_owner: bool,
+    /// Phobos `[Radiation] RadHasInvoker` (default false): radiation damage
+    /// counts as dealt by the firing TechnoType and grants it experience.
+    /// Retained only.
+    #[cfg(feature = "phobos")]
+    pub has_invoker: bool,
+    /// Phobos `[RadiationTypes]` catalog with the default `Radiation` entry,
+    /// read per Rules pass by the ordered Process owner. Empty in builds
+    /// without the capability. Reached through
+    /// [`crate::rules::phobos_radiation::effective_radiation`], never directly.
+    #[cfg(feature = "phobos")]
+    pub(crate) radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog,
 }
 
 impl Default for RadiationRules {
@@ -2893,6 +2950,23 @@ impl Default for RadiationRules {
             //66CF70 retains these bytes when RadColor is absent.
             color: (0, 0, 0),
             site_warhead: String::new(),
+            // Phobos [Radiation] globals (RulesExt::Global() defaults).
+            #[cfg(feature = "phobos")]
+            use_global_rad_application_delay: true,
+            #[cfg(feature = "phobos")]
+            application_delay_building: 0,
+            #[cfg(feature = "phobos")]
+            building_damage_max_count: -1,
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate: false,
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate_full: true,
+            #[cfg(feature = "phobos")]
+            has_owner: false,
+            #[cfg(feature = "phobos")]
+            has_invoker: false,
+            #[cfg(feature = "phobos")]
+            radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog::default(),
         }
     }
 }
@@ -2926,6 +3000,23 @@ impl RadiationRules {
             color: (red, green, blue),
             // Only the ordered Process owner reads it (`RulesTypeReferences`).
             site_warhead: d.site_warhead,
+            #[cfg(feature = "phobos")]
+            use_global_rad_application_delay: section
+                .read_bool("UseGlobalRadApplicationDelay", true),
+            #[cfg(feature = "phobos")]
+            application_delay_building: section.read_int("RadApplicationDelay.Building", 0),
+            #[cfg(feature = "phobos")]
+            building_damage_max_count: section.read_int("RadBuildingDamageMaxCount", -1),
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate: section.read_bool("RadSiteWarhead.Detonate", false),
+            #[cfg(feature = "phobos")]
+            site_warhead_detonate_full: section.read_bool("RadSiteWarhead.Detonate.Full", true),
+            #[cfg(feature = "phobos")]
+            has_owner: section.read_bool("RadHasOwner", false),
+            #[cfg(feature = "phobos")]
+            has_invoker: section.read_bool("RadHasInvoker", false),
+            #[cfg(feature = "phobos")]
+            radiation_types: crate::rules::phobos_radiation::RadiationTypeCatalog::default(),
         }
     }
 }
@@ -2984,6 +3075,11 @@ impl GeneralRules {
     /// Centered UI rejection cue resolved by the fixed SOUNDMD owner.
     pub fn system_error_sound(&self) -> Option<&str> {
         self.system_error_sound.as_deref()
+    }
+
+    /// Centred main-menu typed-code cue resolved by the fixed SOUNDMD owner.
+    pub fn options_changed_sound(&self) -> Option<&str> {
+        self.options_changed_sound.as_deref()
     }
 
     pub fn player_left_sound(&self) -> Option<&str> {
@@ -3559,6 +3655,9 @@ impl GeneralRules {
             gui_move_out_sound: audio_visual
                 .read_name("GUIMoveOutSound", 0x80)
                 .map(str::to_owned),
+            shell_button_slide_sound: audio_visual
+                .read_name("ShellButtonSlideSound", 0x80)
+                .map(str::to_owned),
             generic_click_sound: audio_visual
                 .read_name("GenericClick", 0x80)
                 .map(str::to_owned),
@@ -3600,6 +3699,7 @@ impl GeneralRules {
             incoming_message_sound: None,
             message_char_typed_sound: None,
             system_error_sound: None,
+            options_changed_sound: None,
             player_left_sound: None,
             player_joined_sound: None,
             game_forming_sound: None,
@@ -4063,6 +4163,17 @@ pub struct RuleSet {
     /// with the RuleSet after every load/reset/pass. The catalog above is its
     /// only source of truth. This cache is not serialized or hashed separately.
     ares_prerequisite_alternates: HashSet<TypeHandle>,
+    /// All registered SW availability, independent of supported effect Types.
+    /// Immutable projection of the retained ProcessedRules registry; the typed
+    /// aux/list fields remain read-only compatibility views from that source.
+    #[cfg(feature = "ares")]
+    ares_super_weapon_metadata:
+        BTreeMap<String, crate::rules::superweapon_type::AresSuperWeaponMetadata>,
+    /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos` for every
+    /// registered superweapon, projected from the retained registry.
+    #[cfg(feature = "phobos")]
+    phobos_super_weapon_metadata:
+        BTreeMap<String, crate::rules::superweapon_type::PhobosSuperWeaponAvailability>,
     /// Rules-driven terrain land-type semantics keyed by TMP land byte.
     pub terrain_rules: TerrainRules,
     /// Native `[Tiberiums]` definitions in GameMD type order.
@@ -4709,6 +4820,32 @@ impl RuleSet {
                 super_weapon.building_requirements = requirements.cloned();
             }
         }
+        #[cfg(feature = "phobos")]
+        {
+            rules.phobos_super_weapon_metadata.clear();
+            for (name, availability) in processed.phobos_super_weapon_availability_states() {
+                rules
+                    .phobos_super_weapon_metadata
+                    .insert(name.to_ascii_uppercase(), availability);
+            }
+        }
+        #[cfg(feature = "ares")]
+        {
+            rules.ares_super_weapon_metadata.clear();
+            for (name, metadata) in processed.super_weapon_availability_states() {
+                rules
+                    .ares_super_weapon_metadata
+                    .insert(name.to_ascii_uppercase(), metadata);
+            }
+            for (name, supers) in processed.additional_super_weapon_states() {
+                if let Some(building) = rules.object_list.iter_mut().find(|object| {
+                    object.category == ObjectCategory::Building
+                        && object.id.eq_ignore_ascii_case(name)
+                }) {
+                    building.project_additional_super_weapons(supers);
+                }
+            }
+        }
         for (name, delivery) in processed.unit_delivery_states() {
             if let Some(sw) = rules
                 .super_weapons
@@ -4823,6 +4960,9 @@ impl RuleSet {
         self.general.system_error_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "SystemError"));
+        self.general.options_changed_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "OptionsChanged"));
         self.general.game_forming_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "GameForming"));
@@ -5157,6 +5297,23 @@ impl RuleSet {
             .read_bool("AlliedWallTransparency", false);
         let elevation_model = ElevationModel::from_ini(ini);
         let radiation: RadiationRules = RadiationRules::from_ini(ini);
+        #[cfg(feature = "phobos")]
+        let radiation = {
+            let mut radiation = radiation;
+            radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
+            // The catalog is the only rules state a mod names by list, so
+            // report it once per load: a missing entry then shows up here
+            // instead of as an unchanged radiation field.
+            log::info!(
+                "Phobos radiation types: [{}]",
+                radiation
+                    .radiation_types
+                    .names()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            );
+            radiation
+        };
         let radar_event_config: RadarEventConfig = RadarEventConfig::from_ini(ini);
         let countries = country_side_registry.rules;
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
@@ -5499,6 +5656,10 @@ impl RuleSet {
             emp_sparkles: None,
             #[cfg(feature = "ares")]
             ares_global_controls: processed.ares_global_controls().clone(),
+            #[cfg(feature = "ares")]
+            ares_super_weapon_metadata: BTreeMap::new(),
+            #[cfg(feature = "phobos")]
+            phobos_super_weapon_metadata: BTreeMap::new(),
             ares_prerequisite_alternates: HashSet::new(),
             terrain_rules,
             tiberium_types,
@@ -6002,11 +6163,35 @@ impl RuleSet {
             .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-super-availability-v1".hash(&mut hasher);
+            self.phobos_super_weapon_metadata.hash(&mut hasher);
+        }
         #[cfg(feature = "ares")]
         {
             b"ares-side-sidebar-v1".hash(&mut hasher);
+            b"ares-super-availability-v1".hash(&mut hasher);
+            self.ares_super_weapon_metadata.hash(&mut hasher);
+            self.object_list
+                .iter()
+                .filter(|object| !object.additional_super_weapons().is_empty())
+                .map(|object| (&object.id, object.additional_super_weapons()))
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
             self.side_ids.hash(&mut hasher);
             self.side_extensions.hash(&mut hasher);
+        }
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-radiation-types-v1".hash(&mut hasher);
+            self.radiation.radiation_types.hash(&mut hasher);
+            // Bound weapon `RadType=` names, in registry order.
+            self.weapons
+                .iter()
+                .map(|(id, weapon)| (id, &weapon.rad_type))
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
         }
         self.object_list
             .iter()
@@ -7023,14 +7208,11 @@ impl RuleSet {
     /// Native controls: tools/rules_oracle/session_country_starting_ownership.json
     /// and tools/rules_oracle/session_country_parent.json.
     pub fn house_type_mask(&self, tokens: &[String]) -> u32 {
-        tokens.iter().fold(0u32, |mask, token| {
-            let index = house_type_index_of_name(token, self.country_lookup_members());
-            if index == -1 {
-                mask
-            } else {
-                mask | 1u32.wrapping_shl(index as u32)
-            }
-        })
+        crate::rules::native_processing::house_type_mask_from_indices(
+            tokens
+                .iter()
+                .map(|token| house_type_index_of_name(token, self.country_lookup_members())),
+        )
     }
 
     /// Resolve a country name to its stable `[Countries]` registration index.
@@ -7230,13 +7412,34 @@ impl RuleSet {
         Self::lookup_ci(&self.super_weapons, id)
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn super_weapon_metadata(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::superweapon_type::AresSuperWeaponMetadata> {
+        self.ares_super_weapon_metadata
+            .get(&id.to_ascii_uppercase())
+    }
+
+    /// The Phobos techno gates for a superweapon, if the capability is
+    /// compiled in and the type was registered.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_metadata(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::superweapon_type::PhobosSuperWeaponAvailability> {
+        self.phobos_super_weapon_metadata
+            .get(&id.to_ascii_uppercase())
+    }
+
     /// A superweapon type's `SuperWeaponTypeClass` array index (its
     /// `[SuperWeaponTypes]` position, case-insensitive), the value
     /// `SuperWeapon=` stores (BuildingType `+0x16F0`).
     pub fn super_weapon_index(&self, id: &str) -> Option<usize> {
-        self.super_weapon_order
-            .iter()
-            .position(|name| name.eq_ignore_ascii_case(id))
+        crate::rules::native_processing::super_weapon_index_of_name(
+            id,
+            self.super_weapon_order.iter().map(String::as_str),
+        )
     }
 
     /// Look up a particle type by ID. Panics if `id` is out of range.
@@ -8412,6 +8615,12 @@ SpawnCount=3
         let general = GeneralRules::from_ini(&ini);
         assert_eq!(general.gui_move_out_sound.as_deref(), Some("MenuSlideOut"));
         assert_eq!(general.gui_move_in_sound.as_deref(), Some("MenuSlideIn"));
+        // +0x750 ShellButtonSlideSound (0x0066AF8D) is authored empty, so it
+        // keeps the constructor's -1, also after Battle's mode and map passes.
+        assert_eq!(general.shell_button_slide_sound, None);
+        if let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() {
+            assert_eq!(battle.rules.general.shell_button_slide_sound, None);
+        }
     }
 
     #[test]
@@ -10564,12 +10773,17 @@ GenericBeep=GenericBeep
 GUICheckboxSound=CheckboxTick
 GUIComboOpenSound=ComboOpen
 GUIComboCloseSound=ComboClose
+ShellButtonSlideSound=SlideDone
 ";
         let ini = IniFile::from_str(ini_str);
         let general = GeneralRules::from_ini(&ini);
         assert_eq!(
             general.gui_main_button_sound.as_deref(),
             Some("MainButtonClick")
+        );
+        assert_eq!(
+            general.shell_button_slide_sound.as_deref(),
+            Some("SlideDone")
         );
         assert_eq!(general.generic_click_sound.as_deref(), Some("GenericPress"));
         assert_eq!(general.generic_beep_sound.as_deref(), Some("GenericBeep"));

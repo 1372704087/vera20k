@@ -405,11 +405,154 @@ pub struct SuperWeaponBuildingRequirements {
     pub negative: Vec<String>,
 }
 
+/// SWTypeExt100329E0's non-building gates. Constructor1003173D..10031844;
+/// ordered reads1003349E..100334C5 and10033A0F..10033A8C. Building lists
+/// remain with their existing retained owner below. Native executed controls:
+/// tools/rules_oracle/ares_super_anims.json, fourth availability history.
+#[cfg(feature = "ares")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct AresSuperWeaponAvailability {
+    allow_player: bool,
+    allow_ai: bool,
+    required_houses: u32,
+    forbidden_houses: u32,
+    shots: i32,
+}
+
+/// Immutable availability metadata for every registered definition, including
+/// Types whose effect dispatch is not implemented. ProcessedRules owns reads;
+/// RuleSet projects this one catalog independently of effect-body admission.
+#[cfg(feature = "ares")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct AresSuperWeaponMetadata {
+    availability: AresSuperWeaponAvailability,
+    native_auxiliary: Option<String>,
+    buildings: Option<SuperWeaponBuildingRequirements>,
+}
+
+#[cfg(feature = "ares")]
+impl AresSuperWeaponMetadata {
+    pub(super) fn project(
+        availability: &AresSuperWeaponAvailability,
+        native_auxiliary: Option<&str>,
+        buildings: Option<&SuperWeaponBuildingRequirements>,
+    ) -> Self {
+        Self {
+            availability: availability.clone(),
+            native_auxiliary: native_auxiliary.map(str::to_owned),
+            buildings: buildings.cloned(),
+        }
+    }
+
+    pub(crate) fn availability(&self) -> &AresSuperWeaponAvailability {
+        &self.availability
+    }
+    pub(crate) fn native_auxiliary(&self) -> Option<&str> {
+        self.native_auxiliary.as_deref()
+    }
+    pub(crate) fn building_requirements(&self) -> Option<&SuperWeaponBuildingRequirements> {
+        self.buildings.as_ref()
+    }
+}
+
+#[cfg(feature = "ares")]
+impl Default for AresSuperWeaponAvailability {
+    fn default() -> Self {
+        Self {
+            allow_player: true,
+            allow_ai: true,
+            required_houses: u32::MAX,
+            forbidden_houses: 0,
+            shots: -1,
+        }
+    }
+}
+
+#[cfg(feature = "ares")]
+impl AresSuperWeaponAvailability {
+    pub(crate) fn read_allowance_pass(&mut self, section: &IniSection) {
+        self.allow_player = section.read_ares_bool("SW.AllowPlayer", self.allow_player);
+        self.allow_ai = section.read_ares_bool("SW.AllowAI", self.allow_ai);
+    }
+
+    pub(crate) fn read_house_pass(&mut self, mut read: impl FnMut(&str, u32) -> u32) {
+        self.required_houses = read("SW.RequiredHouses", self.required_houses);
+        self.forbidden_houses = read("SW.ForbiddenHouses", self.forbidden_houses);
+    }
+
+    pub(crate) fn read_shots_pass(&mut self, section: &IniSection) {
+        self.shots = section.read_ares_int("SW.Shots", self.shots);
+    }
+
+    pub(crate) fn allows_shots(&self, count: i32) -> bool {
+        self.shots < 0 || count < self.shots
+    }
+
+    pub(crate) fn allows_controller(&self, player: bool) -> bool {
+        if player {
+            self.allow_player
+        } else {
+            self.allow_ai
+        }
+    }
+
+    pub(crate) fn allows_country(&self, index: i32) -> bool {
+        let bit = 1u32.wrapping_shl(index as u32);
+        self.required_houses & bit != 0 && self.forbidden_houses & bit == 0
+    }
+}
+
 impl SuperWeaponBuildingRequirements {
     #[cfg(feature = "ares")]
     pub fn allows(&self, mut present: impl FnMut(&str) -> bool) -> bool {
         (self.auxiliary.is_empty() || self.auxiliary.iter().any(|id| present(id)))
             && !self.negative.iter().any(|id| present(id))
+    }
+}
+
+/// Phobos `SWTypeExt`'s techno gates: `SW.TechLevel`, `SW.AuxTechnos` and
+/// `SW.NegTechnos` (`src/Ext/SWType/SWHelpers.cpp::IsAvailable`). The ordered
+/// Process owner reads them and `RuleSet` projects one entry per registered
+/// definition, so a type whose effect body is unimplemented still answers
+/// availability. Constructor defaults: level 0, both lists empty.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PhobosSuperWeaponAvailability {
+    tech_level: i32,
+    aux_technos: Vec<String>,
+    neg_technos: Vec<String>,
+}
+
+#[cfg(feature = "phobos")]
+impl PhobosSuperWeaponAvailability {
+    pub(crate) fn tech_level(&self) -> i32 {
+        self.tech_level
+    }
+
+    pub(crate) fn set_tech_level(&mut self, level: i32) {
+        self.tech_level = level;
+    }
+
+    pub(crate) fn set_aux_technos(&mut self, technos: Vec<String>) {
+        self.aux_technos = technos;
+    }
+
+    pub(crate) fn set_neg_technos(&mut self, technos: Vec<String>) {
+        self.neg_technos = technos;
+    }
+
+    /// `pHouse->TechLevel < SW_TechLevel` refuses the weapon; the level is a
+    /// plain minimum and `-1` is not special.
+    pub(crate) fn allows_tech_level(&self, level: i32) -> bool {
+        level >= self.tech_level
+    }
+
+    /// `SW.AuxTechnos` needs at least one listed techno owned, `SW.NegTechnos`
+    /// refuses on any. Both look at owned technos that are present on the map
+    /// or in limbo (`HouseExt::CountOwnedPresentAndLimboed`).
+    pub(crate) fn allows_technos(&self, mut present: impl FnMut(&str) -> bool) -> bool {
+        (self.aux_technos.is_empty() || self.aux_technos.iter().any(|id| present(id)))
+            && !self.neg_technos.iter().any(|id| present(id))
     }
 }
 

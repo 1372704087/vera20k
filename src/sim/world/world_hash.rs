@@ -1343,7 +1343,7 @@ impl Simulation {
     /// products of deterministic numeric operations) and the site registry.
     /// Site order controls future rounded subtractions and belongs in the hash.
     fn hash_radiation(&self, hasher: &mut impl Hasher) {
-        for (&(rx, ry), level) in self.radiation.iter_cells() {
+        for ((rx, ry), level) in self.radiation.iter_cells() {
             rx.hash(hasher);
             ry.hash(hasher);
             level.to_bits().hash(hasher);
@@ -1370,6 +1370,7 @@ impl Simulation {
                 inst.hash_recharge_time(hasher);
                 inst.hash_grant_flags(hasher);
                 inst.hash_paid_selection(hasher);
+                inst.hash_ares_launch_history(hasher);
                 if let Some(id) = inst.native_unique_id() {
                     b"super-native-identity-v1".hash(hasher);
                     id.hash(hasher);
@@ -1603,6 +1604,11 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.building_entry.hash(hasher);
     }
     let latches = entity.house_tracking_latches();
+    #[cfg(feature = "phobos")]
+    {
+        b"phobos-techno-placement-v1".hash(hasher);
+        entity.phobos_placement.hash(hasher);
+    }
     if entity.tracking_facts.naval_combatant() {
         // Retained across reload: later Remove_Tracking must use the same
         // Naval/Passengers admission as construction, even while in limbo.

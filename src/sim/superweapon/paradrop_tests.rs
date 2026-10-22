@@ -248,7 +248,10 @@ fn chute_sounds(sim: &Simulation) -> Vec<(u16, u16)> {
     sim.sound_events
         .iter()
         .filter_map(|event| match event {
-            SimSoundEvent::ChuteSound { rx, ry } => Some((*rx, *ry)),
+            SimSoundEvent::ChuteSound { world } => {
+                let (rx, ry, ..) = world.to_cell_sub_z();
+                Some((rx, ry))
+            }
             _ => None,
         })
         .collect()

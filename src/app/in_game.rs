@@ -650,21 +650,17 @@ impl App {
     }
 
     /// Begin the graceful quit cascade from the main-menu Exit-confirm OK. The
-    /// caller persists settings FIRST (so the captured volume is pre-fade), then
-    /// calls this instead of exiting immediately; `render_frame` drives it to
-    /// completion and then exits the event loop.
+    /// caller persists settings FIRST, then calls this instead of exiting
+    /// immediately; `render_frame` drives it to completion and then exits the
+    /// event loop. `Main_PrepareSession` case 7 opens with Theme `Stop(1)`
+    /// (`0x0052E764..0x0052E76B`), Theme's own 1000 ms stream fade.
     pub(super) fn start_quit_cascade(state: &mut AppState) {
         let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         crate::app::radar_movie::retire(state, wall_ms);
         crate::app::chrono_screen::retire(state, wall_ms);
-        let start_volume = state
-            .audio
-            .music_player
-            .as_ref()
-            .map_or(0.0, |p| p.volume());
+        state.audio.fade_out_theme(wall_ms);
         state.frontend.quit_cascade = Some(crate::app::frontend::quit_cascade::QuitCascade::start(
             Instant::now(),
-            start_volume,
         ));
     }
 
@@ -707,38 +703,66 @@ impl App {
             crate::app::match_runtime::scenario_exit::ScenarioExitCascade::take_destination,
         );
         state.match_state.scenario_exit = None;
+        let Some(destination) = destination else {
+            log::error!("Scenario exit finished without a destination");
+            return;
+        };
+        let movie = state.process_assets.native_rules().and_then(|rules| {
+            crate::app::campaign_victory::win_movie(
+                &destination,
+                &state.match_state.map_basic,
+                rules.movies(),
+            )
+            .map(str::to_owned)
+        });
+        if let Some(movie) = movie {
+            // Keep the stopped world and its campaign identity until the movie
+            // returns. The shared movie presenter runs on the shell screen.
+            state.frontend.screen = GameScreen::MainMenu;
+            Self::start_fullscreen_movie(
+                state,
+                &movie,
+                crate::app::frontend::fullscreen_movie::MovieReturn::CampaignResult(Box::new(
+                    destination,
+                )),
+            );
+        } else {
+            Self::complete_scenario_exit(state, destination);
+        }
+    }
+
+    /// The outcome's sole destination dispatch, shared by the audio teardown
+    /// and Victory685928's movie return. The latter cannot replay the movie.
+    pub(super) fn complete_scenario_exit(
+        state: &mut AppState,
+        destination: crate::app::match_runtime::scenario_exit::ScenarioExitDestination,
+    ) {
+        use crate::app::match_runtime::scenario_exit::ScenarioExitDestination;
         match destination {
-            Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::Score {
+            ScenarioExitDestination::Score {
                 title,
                 detail,
                 model,
-            }) => {
+            } => {
                 Self::open_score_page(state, model, title, detail);
             }
-            Some(
-                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignScore {
-                    title,
-                    detail,
-                    model,
-                },
-            ) => {
+            ScenarioExitDestination::CampaignScore {
+                title,
+                detail,
+                model,
+            } => {
                 Self::open_campaign_score_page(state, model, title, detail);
             }
-            Some(
-                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignVictoryContinue,
-            ) => Self::leave_mission_result_screen(state),
-            Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CampaignDefeat) => {
-                Self::begin_campaign_defeat(state)
+            ScenarioExitDestination::CampaignVictoryContinue => {
+                Self::leave_mission_result_screen(state)
             }
-            Some(
-                crate::app::match_runtime::scenario_exit::ScenarioExitDestination::CooperativeResult {
-                    victory,
-                },
-            ) => crate::app::cooperative_round::open_result(state, victory),
-            Some(crate::app::match_runtime::scenario_exit::ScenarioExitDestination::MainMenu) => {
+            ScenarioExitDestination::CampaignDefeat => Self::begin_campaign_defeat(state),
+            ScenarioExitDestination::CooperativeResult { victory } => {
+                crate::app::cooperative_round::open_result(state, victory)
+            }
+            ScenarioExitDestination::MainMenu => {
                 Self::return_to_main_menu(state);
             }
-            None => log::error!("Scenario exit finished without a destination"),
         }
     }
 

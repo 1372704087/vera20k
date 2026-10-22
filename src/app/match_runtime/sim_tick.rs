@@ -427,8 +427,9 @@ pub(crate) enum ExactStepError {
     FrameDelta { actual: u32 },
 }
 
-/// One `AudioSystem::Pump @ 0x00406F70` service pass, run every frame whether
-/// or not the simulation stepped.
+/// One `AudioSystem::Pump @ 0x00406F70` service pass. It runs once per pass
+/// on the shell, menu, wait and network paths, and at Main_Tick's own points
+/// in a running offline match ([`main_tick_owns_audio_pump`]).
 ///
 /// Native reaches the pump from `Network_ServiceLoop @ 0x0048D080`, not from
 /// the game frame, so `SoundSystem::UpdateTick @ 0x004041D0` keeps reaping
@@ -493,6 +494,48 @@ pub(crate) fn pump_audio_service(state: &mut AppState, now_ms: u64) {
         state.process_assets.audio_catalog(),
         &mut main,
     );
+}
+
+/// The per-pass audio work outside the pump, for the passes whose pump belongs
+/// to Main_Tick: the pause state, the master fades and the device queues.
+/// Native applies the pause synchronously (`GamePause::Enter @ 0x00406F00` /
+/// `Exit`) and ticks the master InterpGroups on its own audio thread
+/// (`0x004095B0`), neither through the pump.
+pub(crate) fn service_audio_outputs(state: &mut AppState, now_ms: u64) {
+    let paused = state
+        .match_state
+        .presentation_paused(&state.frontend.screen);
+    state.audio.service_audio_outputs(now_ms, paused);
+}
+
+/// Whether this pass's audio pump belongs to Main_Tick. In campaign and
+/// skirmish (`g_GameMode` 0 and 5) `Main::ThrottleFrame @ 0x0055E160` only
+/// sleeps, so `Network_ServiceLoop @ 0x0048D080`, and with it
+/// `AudioSystem::Pump`, runs once per `Main_Tick @ 0x0055D360`: after Logic
+/// (`0x0055DE4A`) or on the scenario-pause path (`0x0055D835`). An offline
+/// window parked by focus loss (`0x0055D39B..0x0055D3AE`: `Sleep(500)` and
+/// the Win32 message pump `0x005D4D50`) runs neither, so it is not pumped.
+/// Network modes also pump in the throttle spin, and the in-game menu's
+/// modal pump (`0x00623120`) and the exit and outcome waits pump from their
+/// own loops, so those passes keep the per-pass pump.
+pub(crate) fn main_tick_owns_audio_pump(state: &AppState, simulation_allowed: bool) -> bool {
+    let match_state = &state.match_state;
+    audio_pump_follows_main_tick(
+        match_state.session_mode(),
+        state.frontend.screen == GameScreen::InGame
+            && simulation_allowed
+            && match_state.startup.admits_ordinary_tick(),
+        match_state.match_presentation.in_game_menu.is_open()
+            || match_state.debug_pause
+            || match_state.scenario_exit.is_some()
+            || match_state.scenario_outcome.is_some(),
+    )
+}
+
+/// [`main_tick_owns_audio_pump`]'s decision: an admitted match in
+/// `g_GameMode` 0 or 5, on a pass no loop of its own pumps.
+fn audio_pump_follows_main_tick(mode: SessionMode, match_admitted: bool, own_loop: bool) -> bool {
+    matches!(mode, SessionMode::Campaign | SessionMode::Skirmish) && match_admitted && !own_loop
 }
 
 /// Pure modal-pump decision: should the simulation advance one frame while a
@@ -643,7 +686,13 @@ pub(crate) fn decide_runtime_pass(inputs: RuntimePassInputs) -> RuntimePassDecis
     }
 }
 
-pub(crate) fn advance_in_game_runtime(state: &mut AppState, now_ms: u64) -> bool {
+/// `main_tick_pumps_audio` ([`main_tick_owns_audio_pump`]) runs the audio
+/// service at Main_Tick's own points instead of once per pass.
+pub(crate) fn advance_in_game_runtime(
+    state: &mut AppState,
+    now_ms: u64,
+    main_tick_pumps_audio: bool,
+) -> bool {
     let startup_admitted = state.match_state.startup.admits_ordinary_tick();
     if !startup_admitted {
         log::error!("Accepted match tick blocked: matching Rust L0 receipt is absent");
@@ -657,6 +706,7 @@ pub(crate) fn advance_in_game_runtime(state: &mut AppState, now_ms: u64) -> bool
         state,
         RuntimeAdvanceMode::WallClock { now_ms },
         startup_admitted,
+        main_tick_pumps_audio,
     )
 }
 
@@ -685,7 +735,7 @@ pub(crate) fn advance_in_game_runtime_exact_step(
         .map(|sim| (sim.session().tick(), sim.session().binary_frame()))
         .ok_or(ExactStepError::SimulationMissing)?;
 
-    advance_in_game_runtime_mode(state, RuntimeAdvanceMode::ExactOneStep, admitted);
+    advance_in_game_runtime_mode(state, RuntimeAdvanceMode::ExactOneStep, admitted, false);
     let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     state.platform.frame_pacer.reanchor(now_ms);
 
@@ -726,6 +776,7 @@ fn advance_in_game_runtime_mode(
     state: &mut AppState,
     mode: RuntimeAdvanceMode,
     startup_admitted: bool,
+    main_tick_pumps_audio: bool,
 ) -> bool {
     // ExecuteDoList64CD0C is a blocking message box inside this frame. Even
     // exact-step diagnostics must not admit another Logic pass while it waits.
@@ -796,7 +847,11 @@ fn advance_in_game_runtime_mode(
         && pacer_timing_admits
     {
         // Main_Tick55D830..55D859 services53B560 and returns without Logic.
-        // A Finish here admits the world only on the following pass.
+        // A Finish here admits the world only on the following pass. Its
+        // Network_ServiceLoop (`0x0055D835`) comes first.
+        if main_tick_pumps_audio {
+            pump_audio_service(state, wall_ms);
+        }
         super::scenario_pause::apply_service(state, ScenarioServiceInput::StepChronoScreen);
         state.platform.frame_pacer.record_admitted_frame(wall_ms);
     }
@@ -928,8 +983,10 @@ fn advance_in_game_runtime_mode(
     crate::app::input::gadget_input::idle_tick(state);
     // The audio service is NOT gated on the simulation. gamemd's
     // `AudioSystem::Pump @ 0x00406F70` hangs off `Network_ServiceLoop @
-    // 0x0048D080`, whose callers include `Main::ThrottleFrame @ 0x0055E160`,
-    // `ProcessModalServicePump @ 0x00623120` and `ShellDialog::RunUntilResult
+    // 0x0048D080`, whose callers include `Main_Tick` itself (offline, the
+    // running match's: `main_tick_owns_audio_pump`), the network modes'
+    // `Main::ThrottleFrame @ 0x0055E160`, `ProcessModalServicePump @
+    // 0x00623120`, the House and GameExit waits and `ShellDialog::RunUntilResult
     // @ 0x0060D380`, so the sound arbiter, the EVA queue and `ThemeClass::AI`
     // keep running behind a pause, an open menu and a loading screen alike.
     // Pause is expressed separately, by suspending the events and stopping the
@@ -942,6 +999,12 @@ fn advance_in_game_runtime_mode(
     crate::app::presentation::building_anim::drain_sound_events(state);
     let in_game_music = state.persistence.options_profile.in_game_music;
     state.audio.main_tick_theme(in_game_music, music_now_ms);
+    // Main_Tick's Network_ServiceLoop after Logic (`0x0055DE4A`). Logic's
+    // sounds reach the arbiter in the drain above, so they start in this
+    // same Main_Tick, as native's direct submissions do.
+    if decision.run_sim && main_tick_pumps_audio {
+        pump_audio_service(state, music_now_ms);
+    }
     if decision.scroll_input {
         crate::app::input::camera::queue_keyboard_scroll(state);
     }
@@ -2342,8 +2405,9 @@ mod camera_cadence_tests;
 #[cfg(test)]
 mod modal_pump_tests {
     use super::{
-        SessionMode, modal_pump_should_advance_sim, resolve_score_rows, score_title_key,
-        should_record_replay_tick, wall_clock_service_admission,
+        SessionMode, audio_pump_follows_main_tick, modal_pump_should_advance_sim,
+        resolve_score_rows, score_title_key, should_record_replay_tick,
+        wall_clock_service_admission,
     };
 
     /// 0x005C9BE7: only GameMode 5 retitles 0x108.
@@ -2452,6 +2516,33 @@ mod modal_pump_tests {
                 denied
             );
         }
+    }
+
+    #[test]
+    fn offline_matches_leave_the_audio_pump_to_main_tick() {
+        // g_GameMode 0 and 5 only: Main::ThrottleFrame 0x0055E160 only sleeps.
+        assert!(audio_pump_follows_main_tick(
+            SessionMode::Campaign,
+            true,
+            false
+        ));
+        assert!(audio_pump_follows_main_tick(
+            SessionMode::Skirmish,
+            true,
+            false
+        ));
+        assert!(!audio_pump_follows_main_tick(SessionMode::Lan, true, false));
+        assert!(!audio_pump_follows_main_tick(
+            SessionMode::Other,
+            true,
+            false
+        ));
+        // The in-game menu's modal pump 0x00623120 services its own passes.
+        assert!(!audio_pump_follows_main_tick(
+            SessionMode::Skirmish,
+            true,
+            true
+        ));
     }
 
     #[test]

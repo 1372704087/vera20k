@@ -32,6 +32,9 @@ Thumbs.db
 
 /docs/*
 !/docs/ares.md
+!/docs/phobos.md
+!/docs/phobos-custom-radiation.md
+!/docs/phobos-superweapon-technos.md
 !/docs/ares-generic-warhead.md
 !/docs/ini-roots.md
 !/docs/_config.yml

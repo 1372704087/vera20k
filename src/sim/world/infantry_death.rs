@@ -697,10 +697,11 @@ mod corpse_tests {
                 ry: 5,
                 rad_level: 500,
                 spread: 2,
+                rad_type: None,
             },
             10,
             &sim.session.theater(),
-            &rules.radiation,
+            &rules,
             sim.resolved_terrain.as_ref(),
             &mut sim.lighting_sources,
         );

@@ -442,9 +442,11 @@ fn the_launch_matches_native() {
                 SimSoundEvent::SuperWeaponLaunched {
                     owner: by,
                     sw_type: kind,
-                    rx,
-                    ry,
-                } if *by == owner && *kind == sw_type && (*rx, *ry) == cell => {
+                    world,
+                } if *by == owner
+                    && *kind == sw_type
+                    && (world.to_cell_sub_z().0, world.to_cell_sub_z().1) == cell =>
+                {
                     Some("eva EVA_IronCurtainActivated".to_string())
                 }
                 SimSoundEvent::RadarEvent { radar } => Some(format!(
@@ -810,10 +812,11 @@ fn retail_iron_curtain_through_production_frames() {
     assert!(matches!(
         launch.as_slice(),
         [
-            SimSoundEvent::SuperWeaponLaunched { owner, sw_type: kind, rx: 40, ry: 40 },
+            SimSoundEvent::SuperWeaponLaunched { owner, sw_type: kind, world },
             SimSoundEvent::RadarEvent { radar },
         ] if *owner == russians
             && *kind == sw_type
+            && (world.to_cell_sub_z().0, world.to_cell_sub_z().1) == (40, 40)
             && radar.event_type == crate::sim::radar::RadarEventType::ImpactSilent
             && (radar.rx, radar.ry) == (40, 40)
     ));

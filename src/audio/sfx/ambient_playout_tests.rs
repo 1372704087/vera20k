@@ -129,7 +129,8 @@ fn clip() -> DecodedAudio {
         samples: vec![0.25; 8],
         sample_rate: 22_050,
         channels: 2,
-        native_frame_bytes: 2,
+        native_channels: 1,
+        native_sample_bytes: 2,
     }
 }
 

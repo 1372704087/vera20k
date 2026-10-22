@@ -16,9 +16,12 @@ SW.NegTechnos=              ; List of TechnoTypes
 - `SW.TechLevel` — the house's TechLevel must reach this value. It is a plain minimum; `-1` is not
   special. Restrict a weapon to AI players with `SW.AllowPlayer`/`SW.AllowAI` instead.
 
-"Owned" is native `HouseExt::CountOwnedPresentAndLimboed`: technos on the map plus those in limbo
-(queued out of a factory, inside a transport, inside a garrisoned building). A techno being built
-does not count until the house owns it.
+"Owned" is `HouseExt::CountOwnedPresentAndLimboed`: the native active count plus Phobos's separate
+limbo count. Construction alone does not count, even though the factory product already has an
+owner. A placed techno still counts after entering a transport or garrison. Limbo tracking excludes
+`Insignificant` and `DontScore`; the active counters keep their own native admission rules, so a
+present `Insignificant=yes` techno can count. The counters retain signed event history through
+capture, UnInit and save/load.
 
 ## Native identity
 
@@ -47,5 +50,8 @@ absent key retains it. The listed building gates — retail `AuxBuilding=` and A
 - `sim/superweapon/mod.rs::super_weapon_available` is the single consumer. It applies the TechLevel
   test first and the techno lists last, around the stock (or Ares) gates, and both the grant pass and
   the AI share it.
+- `sim/house_tracking/phobos.rs` owns the limbo counters and placement history. The lifecycle's
+  Unlimbo, Limbo, capture and UnInit hooks update them; map loading seeds existing limboed Foot
+  objects after the authored readers. Both the counters and placement history are saved and hashed.
 
 A build without the capability reads none of the keys and keeps the stock `AuxBuilding` gate.

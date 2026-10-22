@@ -1506,8 +1506,9 @@ fn phobos_technos_allow(sim: &Simulation, rules: &RuleSet, owner: InternedId, na
 }
 
 /// Whether `owner` owns a `id` techno that is present on the map or in limbo.
-/// Tracking keeps owned counters through limbo, so this is the native
-/// `CountOwnedPresentAndLimboed` sum for the type's own category.
+/// Read HouseTracking's active plus Phobos limbo counters. Add_Tracking's
+/// owned count also includes unfinished factory products and omits present
+/// Insignificant types, so it cannot supply this predicate.
 #[cfg(feature = "phobos")]
 fn owned_techno_present(sim: &Simulation, rules: &RuleSet, owner: InternedId, id: &str) -> bool {
     use crate::map::entities::EntityCategory;
@@ -1521,12 +1522,20 @@ fn owned_techno_present(sim: &Simulation, rules: &RuleSet, owner: InternedId, id
     ]
     .into_iter()
     .any(|(object_category, entity_category)| {
-        rules
-            .object_in_category(object_category, id)
-            .and_then(|object| sim.interner.get(&object.id))
+        let Some(object) = rules.object_in_category(object_category, id) else {
+            return false;
+        };
+        // SWTypeExt::IsAvailable uses GetUpgradesAmount for upgrades; the
+        // temporary Building's counters cease to represent the installed type.
+        if object_category == ObjectCategory::Building
+            && let Some(count) = sim.count_owned_building_upgrades(owner, object, rules)
+        {
+            return count > 0;
+        }
+        sim.interner.get(&object.id)
             .zip(sim.houses.get(&owner))
             .is_some_and(|(type_id, house)| {
-                house.tracking().owned_count(entity_category, type_id) > 0
+                house.tracking().count_owned_present_and_limboed(entity_category, type_id) > 0
             })
     })
 }

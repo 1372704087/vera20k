@@ -3186,6 +3186,7 @@ impl Simulation {
     pub fn reconstruct_cellclass_dummy_for_map_resize(&mut self) {
         self.effective_shared_cell_dummy()
             .reconstruct_for_map_resize();
+        self.trigger_runtime.reconstruct_dummy_for_map_resize();
         self.substrate
             .base_reservations
             .reconstruct_dummy_for_map_resize();
@@ -6054,6 +6055,8 @@ impl Simulation {
         if let Some(house) = self.houses.get_mut(&new_owner) {
             house.economy_mut().add_score(cost);
         }
+        #[cfg(feature = "phobos")]
+        self.phobos_tracking_change_owner(stable_id, new_owner);
         Self::update_house_tracking(
             &mut self.substrate,
             &mut self.houses,

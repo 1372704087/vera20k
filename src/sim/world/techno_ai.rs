@@ -582,6 +582,26 @@ impl Simulation {
         // Building43FB20 samples its operational edge before delayed Health0
         // cleanup. A live dying-animation diversion must not skip that edge.
         self.visit_building_operational(id, rules, ctx.overlay_registry, ctx.effects);
+        // `BuildingClass_AI_Radiation @ 0x43FB23` follows that edge sample and
+        // runs for every live building each frame. Phobos owns the branch;
+        // retail leaves buildings untouched by radiation.
+        #[cfg(feature = "phobos")]
+        if self
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
+            && let Some(receipt) = crate::sim::combat::world_receiver::apply_building_radiation(
+                self,
+                rules,
+                id,
+                ctx.overlay_registry,
+                ctx.effects,
+            )
+        {
+            outcome.bridge_state_changed |= receipt.bridge_state_changed;
+            outcome.destroyed_structure |= receipt.structure_destroyed;
+        }
         // `UnitClass::AI` opens with an offline Unit's sparks
         // (`0x007360C9..0x007361A4`), ahead of its tube and Temporal tests.
         if self

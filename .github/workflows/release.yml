@@ -567,7 +567,7 @@ jobs:
           # A dev build is a pre-release even as a draft, so publishing the
           # draft cannot make it the repository's Latest release.
           args=(--repo "$GITHUB_REPOSITORY" --verify-tag --prerelease
-            --title "VERA20k dev build $TAG" --notes-file notes.md)
+            --title "VERA20K dev build $TAG" --notes-file notes.md)
           case "$PUBLISH" in
             draft)      args+=(--draft) ;;
             prerelease) ;;
@@ -705,5 +705,5 @@ jobs:
           bash .github/release/tag.sh "$TAG" "$COMMIT"
           # A draft, so the maintainer adds notes for players before publishing.
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-            --title "VERA20k $TAG" --notes-file notes.md dist/*
+            --title "VERA20K $TAG" --notes-file notes.md dist/*
           echo "Drafted release $TAG from dev build $FROM"

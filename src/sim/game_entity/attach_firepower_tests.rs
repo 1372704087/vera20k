@@ -1,5 +1,4 @@
 //! Two executed native histories plus one ordinary Bullet/HP/scan chain.
-use super::*;
 use crate::rules::ruleset::{CountryDifficultyBiases, RuleSet};
 use crate::sim::{
     combat::{ScanMission, TargetKind, world_fire::FireVisit},

@@ -128,6 +128,7 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 21
             | 24
             | 25
+            | 26
             | 27
             | 30
             | 37
@@ -580,6 +581,22 @@ impl Simulation {
                         index: action.argument,
                     });
                 frame_effects.flush_sound(self, rules);
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
+            // Case 26 (`0x006E9921..0x006E992F`): the full-screen movie
+            // `0x005BF260(argument, -1, 1, 1, 1)`, then Team+80=1. Trigger
+            // action 10 makes the same call inside a bracket this case skips:
+            // mouse hide/show, `0x006842F0` display mode and the `0x0072DDB0`
+            // shell surfaces. VERA's one movie owner presents both alike
+            // (presentation only).
+            26 => {
+                self.publish_trigger_effects(vec![
+                    crate::sim::trigger_runtime::TriggerEffect::FullscreenMovie {
+                        index: action.argument,
+                    },
+                ]);
                 if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
                     team.advance_pending = true;
                 }

@@ -709,11 +709,11 @@ fn retail_sov01_script17_uses_the_production_script_registry() {
     }
 }
 
-/// Script actions 25 (`0x006E9901`) and 27 (`0x006E993E`) play the
-/// argument's sound and queue its song, then move on, instead of leaving
-/// the team stalled on an unported action.
+/// Script actions 25 (`0x006E9901`), 26 (`0x006E9921`) and 27
+/// (`0x006E993E`) play the argument's sound, movie and song, then move on,
+/// instead of leaving the team stalled on an unported action.
 #[test]
-fn sound_and_music_actions_play_and_advance() {
+fn sound_movie_and_music_actions_play_and_advance() {
     let rules = rules();
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Russians");
@@ -723,7 +723,7 @@ fn sound_and_music_actions_play_and_advance() {
     sim.team_script_vm.register_script(TeamScriptDefinition {
         id: script,
         source: TeamAiDefinitionSource::FixedAimd,
-        actions: [(25, 7), (27, 3), (25, 7)]
+        actions: [(25, 7), (26, 4), (27, 3), (25, 7)]
             .map(|(action_id, argument)| TeamScriptAction {
                 action_id,
                 argument,
@@ -736,11 +736,11 @@ fn sound_and_music_actions_play_and_advance() {
         state.cursor = -1;
         state.advance_pending = true;
     }
-    for _ in 0..2 {
+    for _ in 0..3 {
         sim.team_step_script(team, &rules, None, FrameEffects::default());
     }
     let state = sim.team_script_vm.team(team).unwrap();
-    assert_eq!(state.cursor(), 1);
+    assert_eq!(state.cursor(), 2);
     assert!(state.advance_pending());
     assert!(state.refusal().is_none());
     assert!(matches!(
@@ -749,9 +749,12 @@ fn sound_and_music_actions_play_and_advance() {
     ));
     assert!(matches!(
         sim.drain_trigger_effects().as_slice(),
-        [crate::sim::trigger_runtime::TriggerEffect::MusicTheme {
-            request: crate::sim::trigger_runtime::ThemeRequest::Index(3),
-        }]
+        [
+            crate::sim::trigger_runtime::TriggerEffect::FullscreenMovie { index: 4 },
+            crate::sim::trigger_runtime::TriggerEffect::MusicTheme {
+                request: crate::sim::trigger_runtime::ThemeRequest::Index(3),
+            }
+        ]
     ));
 }
 

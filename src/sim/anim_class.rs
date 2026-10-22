@@ -80,6 +80,26 @@ pub struct AnimWorldCoord {
     pub z: i32,
 }
 
+impl From<crate::sim::components::DriveCoord> for AnimWorldCoord {
+    fn from(coord: crate::sim::components::DriveCoord) -> Self {
+        Self {
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+        }
+    }
+}
+
+impl From<crate::sim::projectile::ProjectileCoord> for AnimWorldCoord {
+    fn from(coord: crate::sim::projectile::ProjectileCoord) -> Self {
+        Self {
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+        }
+    }
+}
+
 impl AnimWorldCoord {
     /// Decompose the absolute lepton coordinate into (cell, sub-cell,
     /// height level). The level is the floor of Z over the native level height

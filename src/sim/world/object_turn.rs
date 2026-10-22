@@ -405,6 +405,7 @@ impl Simulation {
             Self::teleport_warp_sound(
                 &mut sim.interner,
                 &sim.substrate,
+                sim.resolved_terrain.as_ref(),
                 &mut sim.sound_events,
                 stable_id,
                 teleport_movement::WarpSound::Out,
@@ -428,6 +429,7 @@ impl Simulation {
             Self::teleport_warp_sound(
                 &mut sim.interner,
                 &sim.substrate,
+                sim.resolved_terrain.as_ref(),
                 &mut sim.sound_events,
                 stable_id,
                 teleport_movement::WarpSound::In,

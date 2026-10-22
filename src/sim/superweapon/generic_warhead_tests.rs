@@ -139,8 +139,9 @@ fn ares_generic_warhead_command_applies_area_damage_and_consumes_charge_once() {
     assert!(!instance.is_ready);
     assert_eq!(instance.charge_duration, 900);
     assert!(sim.sound_events.iter().any(|event| matches!(event,
-        SimSoundEvent::SuperWeaponLaunched { owner: house, sw_type: kind, rx: 15, ry: 15 }
-        if *house == owner && *kind == sw_type)));
+        SimSoundEvent::SuperWeaponLaunched { owner: house, sw_type: kind, world }
+        if *house == owner && *kind == sw_type
+            && world.to_cell_sub_z().0 == 15 && world.to_cell_sub_z().1 == 15)));
     assert!(!fire(&mut sim, &rules, owner, sw_type, (15, 15)));
     assert_eq!(sim.entities().get(target).unwrap().health.current(), 125);
 }

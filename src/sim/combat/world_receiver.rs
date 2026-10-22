@@ -1553,7 +1553,7 @@ pub(crate) fn handle_death(
         dead_entities.len() <= 1,
         "ReceiveDamage enters one concrete fatal postlude at a time"
     );
-    let mut death_sounds: Vec<(String, u16, u16)> = Vec::new();
+    let mut death_sounds: Vec<(String, crate::sim::anim_class::AnimWorldCoord)> = Vec::new();
     let mut explosion_effects: Vec<ExplosionEffect> = Vec::new();
     let mut voxel_debris: Vec<crate::sim::voxel_anim::VoxelDebrisSpawn> = Vec::new();
     let mut under_attack_events: Vec<UnderAttackEvent> = Vec::new();
@@ -1570,19 +1570,20 @@ pub(crate) fn handle_death(
             if e.category() == EntityCategory::Structure {
                 structure_destroyed = true;
             }
-            let world_z_leptons = object_world_z_leptons(e, world.resolved_terrain.as_ref());
+            let location = crate::sim::movement::ground_pose::object_location(
+                e,
+                world.resolved_terrain.as_ref(),
+            );
             (
                 e.type_ref(),
-                e.position.rx(),
-                e.position.ry(),
-                world_z_leptons,
+                location,
                 e.owner(),
                 e.category(),
                 e.veterancy.rank(),
             )
         });
 
-        if let Some((type_id, rx, ry, world_z_leptons, owner, category, veterancy)) = dead_info {
+        if let Some((type_id, location, owner, category, veterancy)) = dead_info {
             // `0x00702050..0x00702065`: the death arm first frees a master's
             // slaves to the killing hit's source (FreeSlaves, no house).
             if callbacks_enabled(world) {
@@ -1616,8 +1617,7 @@ pub(crate) fn handle_death(
                         .get(&owner)
                         .is_some_and(|house| house.is_human()),
                     &world.main_rng,
-                    rx,
-                    ry,
+                    location.into(),
                     &mut death_sounds,
                 );
                 // 0x00702206..0x00702210: RADIO OVER_OUT to every contact and
@@ -1658,7 +1658,7 @@ pub(crate) fn handle_death(
                         obj,
                         rules,
                         owner,
-                        glam::IVec3::new(center.0, center.1, world_z_leptons),
+                        glam::IVec3::new(center.0, center.1, location.z),
                         &mut voxel_debris,
                         &mut explosion_effects,
                     );

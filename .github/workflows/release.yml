@@ -251,7 +251,7 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $setup = (Resolve-Path "dist\$env:NAME-setup.exe").Path
           $root = Join-Path $env:RUNNER_TEMP 'installer-test'
-          $app = Join-Path $root 'VERA20k'
+          $app = Join-Path $root 'VERA20K'
           $log = Join-Path $root 'setup.log'
           New-Item -ItemType Directory -Force $root | Out-Null
           # Without a game folder, setup takes the one from before or finds one.
@@ -369,7 +369,7 @@ jobs:
           if ($code -ne 0) { Get-Content $log; throw "setup failed to find the EA app game: exit code $code" }
           Assert-Found $eaGame
           Write-Output 'Installer: refused, installed, upgraded, uninstalled and found the game as expected.'
-      # macOS also gets the program as VERA20k.app on a disk image: it keeps its
+      # macOS also gets the program as VERA20K.app on a disk image: it keeps its
       # files in ~/Library/Application Support/VERA20k and finds or asks for the
       # Yuri's Revenge folder on its first launch (.github/release/macos).
       - name: macOS app
@@ -392,22 +392,22 @@ jobs:
           mount="$(mktemp -d)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mount" "dist/$NAME.dmg" > /dev/null
           trap 'hdiutil detach "$mount" > /dev/null || true' EXIT
-          app="$mount/VERA20k.app"
+          app="$mount/VERA20K.app"
           plist="$app/Contents/Info.plist"
           test -L "$mount/Applications"
           # The window's arrow and layout (dmg_settings.py).
           test -f "$mount/.background.tiff"
           test -f "$mount/.DS_Store"
           test -f "$app/Contents/Resources/README.txt"
-          test -f "$app/Contents/Resources/VERA20k.icns"
+          test -f "$app/Contents/Resources/VERA20K.icns"
           test -f "$app/Contents/Resources/zh-Hans.lproj/InfoPlist.strings"
           codesign --verify --strict --verbose=2 "$app"
-          # About VERA20k tells builds apart, and the program and its
+          # About VERA20K tells builds apart, and the program and its
           # Info.plist name the same oldest macOS.
           build="$(plutil -extract CFBundleVersion raw "$plist")"
           test "$build" = "${STAMP/-/.}" || { echo "CFBundleVersion is $build" >&2; exit 1; }
           for minimum in "$(plutil -extract LSMinimumSystemVersion raw "$plist")" \
-            "$(vtool -show-build "$app/Contents/MacOS/VERA20k" | awk '$1 == "minos" { print $2 }')"; do
+            "$(vtool -show-build "$app/Contents/MacOS/VERA20K" | awk '$1 == "minos" { print $2 }')"; do
             test "$minimum" = "$MACOSX_DEPLOYMENT_TARGET" \
               || { echo "oldest macOS $minimum, not $MACOSX_DEPLOYMENT_TARGET" >&2; exit 1; }
           done
@@ -415,7 +415,7 @@ jobs:
           # switch logs there and exits before the folder chooser or a window.
           data="$HOME/Library/Application Support/VERA20k"
           rm -rf "$data"
-          (cd / && "$app/Contents/MacOS/VERA20k" -h > /dev/null)
+          (cd / && "$app/Contents/MacOS/VERA20K" -h > /dev/null)
           grep -q 'VERA20k .* starting' "$data/logs/ra2.log"
           echo 'macOS app: signed, on the disk image, and starting in its data folder.'
       # Linux also gets the program as an AppImage: it keeps its files in

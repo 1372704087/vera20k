@@ -27,7 +27,7 @@ fetch https://github.com/AppImage/type2-runtime/releases/download/20251108/runti
   "$stage/runtime" 2fca8b443c92510f1483a883f60061ad09b46b978b2631c807cd873a47ec260d
 chmod +x "$stage/appimagetool"
 
-app="$stage/VERA20k.AppDir"
+app="$stage/VERA20K.AppDir"
 mkdir -p "$app/usr/bin" "$app/usr/share/doc/vera20k"
 cp "$package/vera20k" "$app/usr/bin/"
 cp "$package/README.txt" "$package/LICENSE-GPL" "$package/THIRD_PARTY_LICENSES.html" \

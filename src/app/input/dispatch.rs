@@ -205,6 +205,11 @@ enum ClickActionRoute<T> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SelectionVoicePolicy {
     FirstAdded,
+    /// The team walks clear the latch after the first Select they *call*,
+    /// whatever it returns (Recall `0x00731344`/`0x00731369`, AddTeam
+    /// `0x0073156C`/`0x00731572`, CenterCamera `0x00731481`/`0x00731487`),
+    /// so a refused first member leaves the walk silent.
+    FirstAttempted,
     EveryAdded,
     Suppressed,
 }
@@ -217,6 +222,7 @@ enum SelectionActionLinePolicy {
 
 const ORDINARY_SELECTION_VOICE_POLICY: SelectionVoicePolicy = SelectionVoicePolicy::FirstAdded;
 const TYPE_SELECT_TAP_VOICE_POLICY: SelectionVoicePolicy = SelectionVoicePolicy::EveryAdded;
+const TEAM_SELECTION_VOICE_POLICY: SelectionVoicePolicy = SelectionVoicePolicy::FirstAttempted;
 const HELD_TYPE_SELECT_VOICE_POLICY: SelectionVoicePolicy = SelectionVoicePolicy::Suppressed;
 const ORDINARY_SELECTION_ACTION_LINE_POLICY: SelectionActionLinePolicy =
     SelectionActionLinePolicy::Start;
@@ -2389,6 +2395,7 @@ fn apply_selection_mutation(
         ordered,
         successful_adds,
         first_select_adds,
+        first_attempt_added,
         follow_target,
         native_selection_mode_reset,
     } = resolve_selection_mutation(
@@ -2416,6 +2423,7 @@ fn apply_selection_mutation(
         state.match_state.input.selection_voice_enabled,
         &successful_adds,
         first_select_adds,
+        first_attempt_added,
     ) {
         emit_selection_voice(state, *id);
     }
@@ -2442,6 +2450,9 @@ struct SelectionMutationEffects {
     /// The adds made by the first successful Select call, its planning
     /// expansion included.
     first_select_adds: usize,
+    /// Whether the first Select call made (an object not already selected)
+    /// succeeded; true when none was made.
+    first_attempt_added: bool,
     follow_target: Option<u64>,
     native_selection_mode_reset: bool,
 }
@@ -2476,6 +2487,7 @@ fn resolve_selection_mutation(
     let mut members: HashSet<_> = ordered.iter().copied().collect();
     let mut successful_adds = Vec::new();
     let mut first_select_adds = 0;
+    let mut first_attempt_added = None;
     // Every input Select is vt+0x14C, TechnoClass::Select (0x006FBFA0 in
     // each Techno vtable; click 0x004ABDBA/0x004ABE72, band 0x004AC2F1,
     // team 0x00731344/0x0073156C, the type, combatant, category and
@@ -2518,13 +2530,18 @@ fn resolve_selection_mutation(
         true
     };
     for &id in &mutation.select {
-        if !select(
+        let attempted = !members.contains(&id);
+        let added = select(
             id,
             &mut ordered,
             &mut members,
             &mut successful_adds,
             &mut follow_target,
-        ) {
+        );
+        if attempted && first_attempt_added.is_none() {
+            first_attempt_added = Some(added);
+        }
+        if !added {
             continue;
         }
         native_selection_mode_reset = true;
@@ -2552,6 +2569,7 @@ fn resolve_selection_mutation(
         ordered: ordered.into(),
         successful_adds,
         first_select_adds,
+        first_attempt_added: first_attempt_added.unwrap_or(true),
         follow_target,
         native_selection_mode_reset,
     }
@@ -2591,12 +2609,14 @@ fn selection_voice_recipients(
     voice_enabled: bool,
     successful_adds: &[u64],
     first_select_adds: usize,
+    first_attempt_added: bool,
 ) -> &[u64] {
     if !voice_enabled || policy == SelectionVoicePolicy::Suppressed {
         return &[];
     }
     match policy {
-        SelectionVoicePolicy::FirstAdded => {
+        SelectionVoicePolicy::FirstAttempted if !first_attempt_added => &[],
+        SelectionVoicePolicy::FirstAdded | SelectionVoicePolicy::FirstAttempted => {
             &successful_adds[..successful_adds.len().min(first_select_adds)]
         }
         SelectionVoicePolicy::EveryAdded => successful_adds,
@@ -2762,7 +2782,7 @@ mod item83_selection_order_tests {
         }
         let candidate_order = [2, 1];
         let mut emitted = |policy| {
-            selection_voice_recipients(policy, true, &candidate_order, 1)
+            selection_voice_recipients(policy, true, &candidate_order, 1, true)
                 .iter()
                 .filter_map(|id| {
                     crate::app::match_runtime::sound_dispatch::selection_voice_event(
@@ -2904,6 +2924,7 @@ mod item83_selection_order_tests {
                 true,
                 &effects.successful_adds,
                 effects.first_select_adds,
+                effects.first_attempt_added,
             ),
             [42, 43]
         );
@@ -3176,6 +3197,21 @@ fn queue_selection_snapshot_command(state: &mut AppState, selected_ids: Vec<u64>
         },
         true,
         ORDINARY_SELECTION_VOICE_POLICY,
+    );
+}
+
+/// One team walk's Selects (Recall, AddTeam, CenterCamera), with their
+/// latch rule.
+fn queue_team_selection(state: &mut AppState, members: Vec<u64>, clear: bool) {
+    apply_selection_mutation(
+        state,
+        SelectionMutation {
+            clear,
+            select: members,
+            ..Default::default()
+        },
+        true,
+        TEAM_SELECTION_VOICE_POLICY,
     );
 }
 
@@ -3708,12 +3744,33 @@ fn reassign_control_group(
     assign_control_group(groups, slot, target_members);
 }
 
-/// Shift+digit (AddTeam `0x007314C0`) clears nothing and Selects each group
-/// member after the current selection; each Select runs the ledger's gate and
-/// Unselect_All, so a lone selected enemy is drained by the first member.
-fn append_group_members_to_selection(mut selected: Vec<u64>, group: &[u64]) -> Vec<u64> {
-    selected.extend_from_slice(group);
-    selected
+/// CenterCamera's Unselect_All gate (`0x007313E3..0x00731419`): a non-empty
+/// selection whose first object is not in this team.
+fn center_team_deselects(selected: &[u64], group: &[u64]) -> bool {
+    selected.first().is_some_and(|first| !group.contains(first))
+}
+
+/// The members a team walk Selects, in its order. Recall `0x007311C0`,
+/// AddTeam `0x007314C0` and CenterCamera `0x007313A0` walk the Techno array
+/// from index 0 (construction order, which ascending stable ids keep; see
+/// `Simulation`'s threat rebuild) and skip limbo (`+0x81`) before calling
+/// Select; members already selected (`+0x83`) are skipped by the ledger.
+/// Each Select runs the ledger's gate and Unselect_All, so a lone selected
+/// enemy is drained by the first member.
+fn team_walk_members(sim: Option<&crate::sim::world::Simulation>, group: &[u64]) -> Vec<u64> {
+    let Some(sim) = sim else {
+        return Vec::new();
+    };
+    let mut members: Vec<u64> = live_group_members(Some(sim), group)
+        .into_iter()
+        .filter(|id| {
+            sim.entities()
+                .get(*id)
+                .is_some_and(|entity| !entity.in_limbo())
+        })
+        .collect();
+    members.sort_unstable();
+    members
 }
 
 /// Centre of a set of world points in leptons, with the single worst outlier
@@ -3858,27 +3915,31 @@ fn handle_control_group_command(
             );
         }
         GroupPressAction::Center => {
-            // Alt+digit selects the group as well as centring; a bare
-            // double-tap centres on a selection that already is the group, so
-            // the same centring call covers both.
-            if action_override == Some(GroupPressAction::Center) && !live_group.is_empty() {
-                queue_selection_snapshot_command(state, live_group.clone(), false);
+            // Alt+digit and Recall's double tap both run CenterCamera: it
+            // deselects only when the first selected object is not in this
+            // team (0x007313E3..0x00731419), then Selects the members not yet
+            // selected, so an already-selected team stays silent.
+            let clear = center_team_deselects(&selected, &group);
+            let members = team_walk_members(sim, &group);
+            if clear || !members.is_empty() {
+                queue_team_selection(state, members, clear);
             }
             center_camera_on_group(state, &live_group);
         }
         GroupPressAction::AddToSelection => {
-            if live_group.is_empty() {
+            let members = team_walk_members(sim, &group);
+            if members.is_empty() {
                 return;
             }
-            let final_ids = append_group_members_to_selection(selected, &live_group);
-            queue_selection_snapshot_command(state, final_ids, true);
+            queue_team_selection(state, members, false);
         }
         GroupPressAction::Recall => {
             // A recall on an empty group still clears the selection: the
             // deselect-all runs before the select loop, unconditionally.
             state.match_state.input.last_control_group_press =
                 Some((group_idx, std::time::Instant::now()));
-            queue_selection_snapshot_command(state, live_group, false);
+            let members = team_walk_members(sim, &group);
+            queue_team_selection(state, members, true);
             apply_selection_action_line_policy(state, ORDINARY_SELECTION_ACTION_LINE_POLICY);
         }
     }
@@ -4357,9 +4418,10 @@ mod deploy_key_tests {
 #[cfg(test)]
 mod control_group_tests {
     use super::{
-        GroupPressAction, KeyModifiers, append_group_members_to_selection, assign_control_group,
-        clear_control_group, control_group_action_for_input, control_group_press_action,
-        live_group_members, reassign_control_group, trimmed_centroid_leptons,
+        GroupPressAction, KeyModifiers, TEAM_SELECTION_VOICE_POLICY, assign_control_group,
+        center_team_deselects, clear_control_group, control_group_action_for_input,
+        control_group_press_action, live_group_members, reassign_control_group,
+        selection_voice_recipients, team_walk_members, trimmed_centroid_leptons,
     };
     use std::time::Duration;
 
@@ -4552,7 +4614,16 @@ mod control_group_tests {
         stable_id: u64,
         owner: crate::sim::intern::InternedId,
     ) {
-        let type_ref = sim.intern("MTNK");
+        typed_group_entity(sim, stable_id, owner, "MTNK");
+    }
+
+    fn typed_group_entity(
+        sim: &mut crate::sim::world::Simulation,
+        stable_id: u64,
+        owner: crate::sim::intern::InternedId,
+        type_name: &str,
+    ) {
+        let type_ref = sim.intern(type_name);
         let entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
             stable_id,
             10,
@@ -4800,8 +4871,8 @@ mod control_group_tests {
         // member (vt+0x14C at 0x0073156C); the click-selected enemy is
         // current-objects [0], so that Select's Unselect_All
         // (0x005F45AF..0x005F45F8) drains it.
-        let calls = append_group_members_to_selection(vec![11], &live_group);
-        assert_eq!(calls, [11, 10]);
+        let calls = team_walk_members(Some(&sim), &[10, 11]);
+        assert_eq!(calls, [10]);
         let effects = super::resolve_selection_mutation(
             &sim,
             Some(&rules),
@@ -4816,6 +4887,68 @@ mod control_group_tests {
         );
         assert_eq!(effects.ordered, [10]);
         assert_eq!(effects.successful_adds, [10]);
+    }
+
+    /// Recall `0x007311C0` walks the Techno array, so the oldest member
+    /// speaks (latch clear at `0x00731369`) whatever order the team was
+    /// assigned in, and Select still prepends the armed one (`0x005F468C`).
+    #[test]
+    fn team_recall_speaks_the_oldest_member_in_techno_array_order() {
+        use crate::sim::world::Simulation;
+
+        let rules = crate::rules::ruleset::RuleSet::from_ini(
+            &crate::rules::ini_parser::IniFile::from_str(
+                "[VehicleTypes]\n0=MTNK\n1=TRUK\n2=HIDE\n[MTNK]\nPrimary=Gun\n[Gun]\nDamage=10\n[TRUK]\n[HIDE]\nSelectable=no\n",
+            ),
+        )
+        .expect("team fixture rules");
+        let mut sim = Simulation::new();
+        let local = house(&mut sim, "Local", false, true);
+        typed_group_entity(&mut sim, 10, local, "TRUK");
+        typed_group_entity(&mut sim, 11, local, "MTNK");
+        typed_group_entity(&mut sim, 9, local, "HIDE");
+        for id in [9, 10, 11] {
+            let entity = sim.entities_mut_for_test().get_mut(id).unwrap();
+            entity.lifecycle.set_in_limbo_for_test(false);
+        }
+        let recall = |group: &[u64]| {
+            let effects = super::resolve_selection_mutation(
+                &sim,
+                Some(&rules),
+                vec![],
+                None,
+                false,
+                false,
+                &super::SelectionMutation {
+                    clear: true,
+                    select: team_walk_members(Some(&sim), group),
+                    ..Default::default()
+                },
+            );
+            let voices = selection_voice_recipients(
+                TEAM_SELECTION_VOICE_POLICY,
+                true,
+                &effects.successful_adds,
+                effects.first_select_adds,
+                effects.first_attempt_added,
+            )
+            .to_vec();
+            (effects.ordered, voices)
+        };
+        // Assigned newest-armed first, as a prepended selection stores it.
+        assert_eq!(recall(&[11, 10]), (vec![11, 10], vec![10]));
+        // A refused first Select (Selectable=no) still clears the latch.
+        assert_eq!(recall(&[11, 10, 9]), (vec![11, 10], vec![]));
+    }
+
+    /// CenterCamera deselects only when the first selected object is outside
+    /// the team (`0x007313E3..0x00731419`); an already-selected team gets no
+    /// Select, so Alt+digit is silent and keeps extra selected units.
+    #[test]
+    fn center_on_a_selected_team_keeps_the_selection() {
+        assert!(!center_team_deselects(&[10, 77], &[10, 11]));
+        assert!(center_team_deselects(&[77, 10], &[10, 11]));
+        assert!(!center_team_deselects(&[], &[10, 11]));
     }
 
     #[test]

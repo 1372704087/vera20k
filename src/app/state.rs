@@ -35,8 +35,9 @@ pub(crate) struct AppState {
 }
 
 /// Drop app-owned scenario-exit runtime and failure modal after a successful world replacement.
-/// Serialized HouseState remains the sole authority for any loaded SavourDelay;
-/// wall waits are reconstructed from its expiry latch without replaying EVA.
+/// Serialized HouseState owns SavourDelay and pending flags; ScenarioSession
+/// retains admitted requests. A saved frame cursor resumes its House wait
+/// with a fresh process clock, without replaying the result announcement.
 /// ClearScene685213..68521F and ordinary load cleanup69BB40 reset the shared
 /// 87E758 output scalar, not Theme's slots/fading. ThemeLoad721040 must see
 /// that process state unchanged; fresh-start request cancellation stays there.
@@ -45,7 +46,7 @@ pub(crate) fn reset_scenario_exit_runtime(state: &mut AppState) {
     state.match_state.scenario_exit = None;
     state.match_state.network_failure = None;
     crate::app::lan_service::return_transport(state);
-    state.audio.set_master_output_scale(1.0);
+    state.audio.restore_sound_master();
 }
 
 impl AppState {

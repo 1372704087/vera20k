@@ -314,6 +314,45 @@ fn building_on_off_line_opcodes_decode_direction_and_target() {
     assert!(!sim.substrate.entities.get(7).unwrap().building_online());
 }
 
+/// Native's last 0x01/0x02 gate (`0x004C6D2D`/`0x004C6D8A`) reads
+/// `[target+0x520]+0x16C0`, and `+0x520` is `BuildingClass::pType`
+/// (docs/ghidra-workflow.md): the target TYPE's `FirestormWall=` byte
+/// (`ObjectType.firestorm_wall`). A Firestorm Wall building is driven by the
+/// firestorm logic, so the record is dropped before GoOnline/GoOffline; stock
+/// rules leave the key unset and the gate is open.
+#[test]
+fn building_on_off_line_dropped_for_a_firestorm_wall_type() {
+    let (mut sim, owner) = game_speed_command_sim();
+    let mut building = GameEntity::test_default(7, "GAPOWR", "Local", 30, 40);
+    building.set_owner_for_test(owner);
+    building.set_type_ref_for_test(sim.interner.intern("GAPOWR"));
+    building.set_category_for_test(EntityCategory::Structure);
+    building.lifecycle.set_object_alive_for_test(true);
+    building.lifecycle.set_in_limbo_for_test(false);
+    sim.substrate.entities.insert(building);
+
+    let off = Command::SetBuildingOnLine {
+        entity_id: 7,
+        on: false,
+    };
+
+    // A `FirestormWall=yes` type is dropped; the online latch stays set.
+    let firestorm = RuleSet::from_ini(&IniFile::from_str(
+        "[BuildingTypes]\n1=GAPOWR\n[GAPOWR]\nPower=-20\nFirestormWall=yes\n",
+    ))
+    .unwrap();
+    assert!(!sim.apply_command("Local", &off, Some(&firestorm)));
+    assert!(sim.substrate.entities.get(7).unwrap().building_online());
+
+    // The stock (keyless) type passes the gate and the latch clears.
+    let stock = RuleSet::from_ini(&IniFile::from_str(
+        "[BuildingTypes]\n1=GAPOWR\n[GAPOWR]\nPower=-20\n",
+    ))
+    .unwrap();
+    assert!(sim.apply_command("Local", &off, Some(&stock)));
+    assert!(!sim.substrate.entities.get(7).unwrap().building_online());
+}
+
 /// A launch hashes every frame and a test world none until the caller asks.
 /// Then only a frame whose tick is a multiple of the interval hashes, and its
 /// hash is the state's.
@@ -4112,7 +4151,9 @@ fn flag_to_die_destroys_owned_objects_at_frame_zero_before_defeat_gate() {
         "Flag_To_Die has no RNG call"
     );
     assert!(sim.houses[&owner].is_to_die());
-    let generated = sim.house_rung(&rules, None, false, FrameEffects::default());
+    let generated = sim
+        .house_rung(&rules, None, false, FrameEffects::default(), None)
+        .expect("headless outcome waits complete synchronously");
     assert!(generated.is_empty());
     assert!(!sim.houses[&owner].is_to_die());
     assert!(
@@ -4198,7 +4239,7 @@ fn gsi_01_04_house_rung_owns_savour_deadline_and_emits_one_transition_edge() {
         sim.houses[&winner].outcome_timer(),
         crate::sim::timer::CdTimer::started(10, 26)
     );
-    assert!(!winner_outcome.exit_ready);
+    assert!(sim.session.outcome_request().is_none());
     assert_eq!(
         sim.sound_events
             .iter()
@@ -4212,14 +4253,18 @@ fn gsi_01_04_house_rung_owns_savour_deadline_and_emits_one_transition_edge() {
     sim.session.set_tick_for_test(35);
     sim.session.set_binary_frame_for_test(35);
     check_defeat_now(&mut sim, Some(&rules));
-    assert!(!sim.houses[&winner].outcome().unwrap().exit_ready);
+    assert!(sim.ready_outcome_for_owner(winner).is_none());
     assert!(!sim.termination_frame_requested());
     assert!(sim.sound_events.is_empty(), "accepted edges never replay");
 
     sim.session.set_tick_for_test(36);
     sim.session.set_binary_frame_for_test(36);
     check_defeat_now(&mut sim, Some(&rules));
-    assert!(sim.houses[&winner].outcome().unwrap().exit_ready);
+    assert_eq!(
+        sim.ready_outcome_for_owner(winner).unwrap().kind,
+        HouseOutcomeKind::Victory
+    );
+    assert!(!sim.houses[&winner].has_won());
     assert!(sim.houses[&loser].is_defeated());
     assert!(
         sim.houses[&loser].outcome().is_none(),

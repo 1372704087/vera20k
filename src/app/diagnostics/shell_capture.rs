@@ -606,6 +606,9 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_CAMPAIGN_ALL1_SAVED_VICTORY => {
                 Ok(Self::CampaignRestart(movies::RestartTarget::SavedVictory))
             }
+            "campaign-sov6-alternate-home-victory" => Ok(Self::CampaignRestart(
+                movies::RestartTarget::AlternateHomeVictory,
+            )),
             CHECKPOINT_CAMPAIGN_ALL1_SAVED_RESTART => Ok(Self::CampaignRestart(
                 movies::RestartTarget::SavedAbortRestarted,
             )),
@@ -638,6 +641,12 @@ impl ShellCaptureCheckpoint {
             }
             "campaign-sov1-opening-timer-expired" => {
                 Ok(Self::CampaignOpening(movies::OpeningTarget::TimerExpired))
+            }
+            "campaign-sov2-radar-alert" => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::RadarAlert))
+            }
+            "campaign-sov2-radar-restored" => {
+                Ok(Self::CampaignOpening(movies::OpeningTarget::RadarRestored))
             }
             CHECKPOINT_CAMPAIGN_SOV1_OPENING_RESTORE_UNLOCKED => Ok(Self::CampaignOpening(
                 movies::OpeningTarget::RestoreUnlocked,
@@ -761,6 +770,9 @@ impl ShellCaptureCheckpoint {
             Self::CampaignRestart(movies::RestartTarget::SavedVictory) => {
                 CHECKPOINT_CAMPAIGN_ALL1_SAVED_VICTORY
             }
+            Self::CampaignRestart(movies::RestartTarget::AlternateHomeVictory) => {
+                "campaign-sov6-alternate-home-victory"
+            }
             Self::CampaignRestart(movies::RestartTarget::SavedAbortRestarted) => {
                 CHECKPOINT_CAMPAIGN_ALL1_SAVED_RESTART
             }
@@ -802,6 +814,10 @@ impl ShellCaptureCheckpoint {
             }
             Self::CampaignOpening(movies::OpeningTarget::TimerExpired) => {
                 "campaign-sov1-opening-timer-expired"
+            }
+            Self::CampaignOpening(movies::OpeningTarget::RadarAlert) => "campaign-sov2-radar-alert",
+            Self::CampaignOpening(movies::OpeningTarget::RadarRestored) => {
+                "campaign-sov2-radar-restored"
             }
             Self::CampaignBackReturn => CHECKPOINT_CAMPAIGN_BACK_RETURN,
             Self::LoadSavedGame0xB7Steady => CHECKPOINT_LOAD_SAVED_GAME_0XB7_STEADY,
@@ -939,14 +955,13 @@ impl ShellCaptureCheckpoint {
                 side,
                 target: movies::CampaignStartTarget::AbortReturn,
             },
-            Self::CampaignRestart(movies::RestartTarget::ObjectiveExpiry) => {
-                movies::MoviesTarget::CampaignStart {
-                    side: crate::ui::campaign_shell::CampaignSide::Soviet,
-                    target: movies::CampaignStartTarget::Restart(
-                        movies::RestartTarget::ObjectiveExpiry,
-                    ),
-                }
-            }
+            Self::CampaignRestart(
+                target @ (movies::RestartTarget::ObjectiveExpiry
+                | movies::RestartTarget::AlternateHomeVictory),
+            ) => movies::MoviesTarget::CampaignStart {
+                side: crate::ui::campaign_shell::CampaignSide::Soviet,
+                target: movies::CampaignStartTarget::Restart(target),
+            },
             Self::CampaignRestart(target) => movies::MoviesTarget::CampaignStart {
                 side: crate::ui::campaign_shell::CampaignSide::Allied,
                 target: movies::CampaignStartTarget::Restart(target),
@@ -2648,6 +2663,15 @@ mod tests {
                 },
             ),
             (
+                "campaign-sov6-alternate-home-victory",
+                movies::MoviesTarget::CampaignStart {
+                    side: Soviet,
+                    target: movies::CampaignStartTarget::Restart(
+                        movies::RestartTarget::AlternateHomeVictory,
+                    ),
+                },
+            ),
+            (
                 CHECKPOINT_CAMPAIGN_ALL1_ABORT_RETURN,
                 movies::MoviesTarget::CampaignStart {
                     side: Allied,
@@ -2790,6 +2814,16 @@ mod tests {
             (
                 "campaign-sov1-opening-timer-expired",
                 movies::OpeningTarget::TimerExpired,
+                Soviet,
+            ),
+            (
+                "campaign-sov2-radar-alert",
+                movies::OpeningTarget::RadarAlert,
+                Soviet,
+            ),
+            (
+                "campaign-sov2-radar-restored",
+                movies::OpeningTarget::RadarRestored,
                 Soviet,
             ),
             (

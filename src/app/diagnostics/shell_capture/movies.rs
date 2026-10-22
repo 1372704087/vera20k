@@ -127,7 +127,11 @@ impl CampaignStartTarget {
     fn explicit_scenario(self) -> Option<&'static str> {
         match self {
             Self::ExplicitFirstLive(scenario) => Some(scenario),
+            Self::Opening(OpeningTarget::RadarAlert | OpeningTarget::RadarRestored) => {
+                Some("SOV02SMD.MAP")
+            }
             Self::Restart(RestartTarget::ObjectiveExpiry) => Some("SOV02SMD.MAP"),
+            Self::Restart(RestartTarget::AlternateHomeVictory) => Some("SOV06LMD.MAP"),
             _ => None,
         }
     }
@@ -1598,6 +1602,8 @@ impl MoviesCapture {
                     "objective-expired-after-menu",
                 CampaignStartTarget::Restart(RestartTarget::SavedVictory) =>
                     "saved-victory-next-mission",
+                CampaignStartTarget::Restart(RestartTarget::AlternateHomeVictory) =>
+                    "alternate-home-victory-next-mission",
                 CampaignStartTarget::Restart(RestartTarget::SavedAbortRestarted) =>
                     "saved-abort-restarted",
                 CampaignStartTarget::Restart(RestartTarget::MenuDefeatReplayed) =>
@@ -1615,7 +1621,12 @@ impl MoviesCapture {
                     .context("campaign route has no first-live runtime observation")?,
                 CampaignStartTarget::Opening(_) => installed_campaign_runtime_receipt(state)?,
             };
-            if target == CampaignStartTarget::Restart(RestartTarget::SavedVictory) {
+            if matches!(
+                target,
+                CampaignStartTarget::Restart(
+                    RestartTarget::SavedVictory | RestartTarget::AlternateHomeVictory
+                )
+            ) {
                 // This readback presents the next mission. The restart receipt
                 // separately retains the initial and loaded mission identities.
                 manifest["startup"] = campaign_startup_receipt(

@@ -26,10 +26,6 @@ pub(crate) struct FrontendState {
     /// Cooperative progress authority.
     pub(crate) multiplayer_shell_runtime:
         crate::app::frontend::skirmish_session::MultiplayerShellRuntime,
-    /// Last owner-draw Skirmish button state observed by the native render path.
-    /// Used for the retail GenericClick paint-transition sound.
-    pub(crate) skirmish_shell_last_painted_pressed_button:
-        Option<crate::ui::skirmish_shell::OwnerDrawButton>,
     pub(crate) skirmish_shell_chrome:
         Option<crate::render::skirmish_shell_chrome::SkirmishShellChromeAtlas>,
     pub(crate) main_menu_shell_state: crate::ui::main_menu_shell::MainMenuShellState,

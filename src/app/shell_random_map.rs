@@ -96,64 +96,73 @@ fn build_random_map_preview_grid(
 
 /// Immutable projection of reset-selected Rules/ART for one generation. Its
 /// source remains NativeRulesProcessOwner; dropping the job retires this cache.
-struct RandomMapPreviewOverlayRules {
-    registry: crate::rules::overlay_types::OverlayTypeRegistry,
-    art: crate::rules::art_data::ArtRegistry,
+struct RandomMapPreviewRules {
+    rules: crate::rules::ruleset::RuleSet,
 }
 
-impl RandomMapPreviewOverlayRules {
+impl RandomMapPreviewRules {
     fn from_process(
         owner: &crate::rules::process_owner::NativeRulesProcessOwner,
         mode: Option<&crate::rules::ini_parser::IniFile>,
         theater: &str,
+        assets: &crate::assets::asset_manager::AssetManager,
+        theater_ext: &str,
     ) -> Option<Self> {
         let processed = owner.random_map_preview_projection(mode, theater).ok()?;
-        Some(Self {
-            registry: crate::rules::overlay_types::OverlayTypeRegistry::from_processed_rules(
-                &processed,
-            ),
-            art: crate::rules::art_data::ArtRegistry::from_ini(owner.fixed_art()),
-        })
+        let mut rules = crate::rules::ruleset::RuleSet::from_processed_rules(&processed).ok()?;
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
+            owner.fixed_art(),
+        ));
+        // TerrainRead71DFD0..71E02A retains historical SHP/header defaults,
+        // then Rules RadarColor. Preview641602 consumes that final type RGB,
+        // independently of the image InitTheater later makes resident.
+        rules.bind_terrain_assets(
+            assets,
+            theater_ext,
+            crate::rules::terrain_asset_catalog::TerrainAssetLoadPhase::Fresh,
+        );
+        Some(Self { rules })
     }
 }
 
-/// GenerateTerrainPreview6413C9..6416EF: select OverlayTypeGetRadarColor5FED00
-/// or the type's Rules RadarColor, then apply the exact packed density suffix.
+/// GenerateTerrainPreview6413C9..6416EF: select the Overlay color/density
+/// suffix, or the ground head's retained TerrainType color when no overlay exists.
 /// Device words stay in the app/render layer; core supplies the TMP color pair.
 fn random_map_preview_cells(
     map_file: &crate::map::map_file::MapFile,
     resolved_terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
-    overlay_rules: Option<&RandomMapPreviewOverlayRules>,
+    preview_rules: Option<&RandomMapPreviewRules>,
     assets: Option<&crate::assets::asset_manager::AssetManager>,
     theater_ext: &str,
 ) -> Vec<crate::map::rmg::preview::PreviewCell> {
-    let headers = match (overlay_rules, assets) {
+    let headers = match (preview_rules, assets) {
         (Some(rules), Some(assets)) => {
+            let registry = rules.rules.overlay_registry();
             let names = map_file
                 .overlays
                 .iter()
                 .filter_map(|overlay| {
                     Some((
                         overlay.overlay_id,
-                        rules.registry.name(overlay.overlay_id)?.to_owned(),
+                        registry.name(overlay.overlay_id)?.to_owned(),
                     ))
                 })
                 .collect();
             crate::render::overlay_atlas::compute_overlay_radar_colors(
                 assets,
-                &rules.registry,
+                registry,
                 crate::render::overlay_atlas::OverlayRadarColorSource::OverlayType,
                 &names,
                 theater_ext,
                 &map_file.header.theater,
-                &rules.art,
+                rules.rules.art(),
             )
         }
         _ => Default::default(),
     };
     let format = crate::render::native_surface_format::RGB565;
     let overlay_radar = |id: u8, stage: u8, ground: ([u8; 3], [u8; 3])| {
-        let flags = overlay_rules?.registry.flags(id)?;
+        let flags = preview_rules?.rules.overlay_registry().flags(id)?;
         let declared = format.pack_rgb8(flags.radar_color.unwrap_or([0; 3]));
         let header = format.pack_rgb8(headers.get(&(id, stage)).copied().unwrap_or([0; 3]));
         let (source, amount) = if flags.tiberium {
@@ -186,10 +195,45 @@ fn random_map_preview_cells(
         let right = format.mix_packed_rgb16(source, first, amount);
         Some((format.unpack_rgb8(left), format.unpack_rgb8(right)))
     };
+    // This is a fresh derived projection of the generator's chronological
+    // placements and fixed type foundations, discarded after each preview.
+    // MapPlaceDown5684BB / CellAddContent47E91C prepend Terrain. The only
+    // other RMG objects are Buildings, whose RTTI6 arm47E8D2 appends instead;
+    // therefore the latest Terrain occupying a cell is its ground head.
+    let mut terrain_heads = std::collections::HashMap::new();
+    if let Some(rules) = preview_rules {
+        for object in &map_file.terrain_objects {
+            let Some(kind) = rules
+                .rules
+                .terrain_object_type_case_insensitive(&object.name)
+            else {
+                continue;
+            };
+            for (dx, dy) in crate::rules::foundation::foundation_cell_offsets(&kind.foundation) {
+                terrain_heads.insert(
+                    (
+                        object.rx.wrapping_add_signed(dx),
+                        object.ry.wrapping_add_signed(dy),
+                    ),
+                    kind.radar_color,
+                );
+            }
+        }
+    }
+    let terrain_radar = |x, y, ground: ([u8; 3], [u8; 3])| {
+        // TerrainClass::WhatAmI71D300 / GenerateTerrainPreview6415E1..641689:
+        // use the head's type RGB, without the Overlay density arm's first mix.
+        // FUN4BF650's75 mode has its own packed-word semantics, not RGB lerp.
+        let source = format.pack_rgb8(*terrain_heads.get(&(x, y))?);
+        let left = format.mix_packed_rgb16(source, format.pack_rgb8(ground.0), 75);
+        let right = format.mix_packed_rgb16(source, format.pack_rgb8(ground.1), 75);
+        Some((format.unpack_rgb8(left), format.unpack_rgb8(right)))
+    };
     let mut cells = crate::map::rmg::preview::preview_cells_from_map(
         map_file,
         resolved_terrain,
         &overlay_radar,
+        &terrain_radar,
     );
     for cell in &mut cells {
         cell.left = format.unpack_rgb8(format.pack_rgb8(cell.left));
@@ -210,7 +254,7 @@ pub(crate) struct RandomMapGenerationJob {
     /// reads theater data to decide each cell's final tile.
     theater: Box<crate::map::theater::TheaterData>,
     terrain_rules: Box<crate::rules::terrain_rules::TerrainRules>,
-    preview_overlay_rules: Option<RandomMapPreviewOverlayRules>,
+    preview_rules: Option<RandomMapPreviewRules>,
     /// Set when OK started this generation. Accept cannot run until the map
     /// exists, so it is deferred to whoever collects the result.
     accept_on_finish: bool,
@@ -469,7 +513,7 @@ pub(super) enum RandomMapUpdate {
 pub(super) struct PreparedRandomMapGeneration {
     pub(super) theater: crate::map::theater::TheaterData,
     pub(super) terrain_rules: crate::rules::terrain_rules::TerrainRules,
-    preview_overlay_rules: Option<RandomMapPreviewOverlayRules>,
+    preview_rules: Option<RandomMapPreviewRules>,
     pub(super) settings: crate::map::rmg::RmgSettings,
     pub(super) resolved_inputs: crate::map::rmg::build::ResolvedTheaterInputs,
     pub(super) blocks: crate::map::rmg::theater_blocks::TheaterTileBlocks,
@@ -500,13 +544,19 @@ pub(super) fn prepare_random_map_generation(
             asset_manager.get(name)
         });
     let tech_types = crate::app::loading::init_helpers::load_neutral_tech_types(native_rules);
-    let preview_overlay_rules = native_rules.and_then(|owner| {
-        RandomMapPreviewOverlayRules::from_process(owner, mode_rules_override, theater_name)
+    let preview_rules = native_rules.and_then(|owner| {
+        RandomMapPreviewRules::from_process(
+            owner,
+            mode_rules_override,
+            theater_name,
+            asset_manager,
+            theater.extension,
+        )
     });
     Some(PreparedRandomMapGeneration {
         theater,
         terrain_rules,
-        preview_overlay_rules,
+        preview_rules,
         settings,
         resolved_inputs,
         blocks,
@@ -807,7 +857,7 @@ impl App {
         let Some(PreparedRandomMapGeneration {
             theater,
             terrain_rules,
-            preview_overlay_rules,
+            preview_rules,
             settings,
             resolved_inputs,
             blocks,
@@ -853,7 +903,7 @@ impl App {
                     receiver,
                     theater: Box::new(theater),
                     terrain_rules: Box::new(terrain_rules),
-                    preview_overlay_rules,
+                    preview_rules,
                     accept_on_finish,
                 });
                 true
@@ -1116,7 +1166,7 @@ impl App {
         let cells = random_map_preview_cells(
             map_file,
             &resolved_terrain,
-            job.preview_overlay_rules.as_ref(),
+            job.preview_rules.as_ref(),
             state.process_assets.manager(),
             job.theater.extension,
         );
@@ -1432,6 +1482,10 @@ impl App {
 }
 
 #[cfg(test)]
+#[path = "shell_random_map_terrain_preview_tests.rs"]
+mod terrain_preview_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -1519,6 +1573,7 @@ mod tests {
             &generated.map_file,
             &resolved,
             &|_, _, _| None,
+            &|_, _, _| None,
         );
         let occupied: std::collections::HashSet<_> = generated
             .map_file
@@ -1601,10 +1656,10 @@ mod tests {
         );
 
         let preview_rules = prepared
-            .preview_overlay_rules
+            .preview_rules
             .as_ref()
             .expect("cold RMG rules projection");
-        let registry = &preview_rules.registry;
+        let registry = preview_rules.rules.overlay_registry();
         let generated_colored = random_map_preview_cells(
             &generated.map_file,
             &resolved,
@@ -1677,8 +1732,12 @@ mod tests {
             &mut main,
             &mut selector,
         );
-        let ground =
-            crate::map::rmg::preview::preview_cells_from_map(&control, &resolved, &|_, _, _| None);
+        let ground = crate::map::rmg::preview::preview_cells_from_map(
+            &control,
+            &resolved,
+            &|_, _, _| None,
+            &|_, _, _| None,
+        );
         assert_eq!(format.pack_rgb8(ground[0].right), 42282);
         control.overlays = vec![crate::map::overlay::OverlayEntry {
             rx: flat.x,
@@ -1734,8 +1793,14 @@ mod tests {
             )
             .unwrap();
         let mode = crate::rules::ini_parser::IniFile::from_str("[TIB01]\nRadarColor=140,0,140\n");
-        let mode_projection =
-            RandomMapPreviewOverlayRules::from_process(&rules, Some(&mode), "TEMPERATE").unwrap();
+        let mode_projection = RandomMapPreviewRules::from_process(
+            &rules,
+            Some(&mode),
+            "TEMPERATE",
+            &assets,
+            prepared.theater.extension,
+        )
+        .unwrap();
         control.overlays[0].frame = 1;
         let colored = random_map_preview_cells(
             &control,

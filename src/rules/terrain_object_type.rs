@@ -62,7 +62,7 @@ pub struct TerrainObjectType {
     /// TerrainTypeClass constructor `0x0071DA80` clears +0x29C..+0x29E.
     /// Each successful TerrainTypeClass::ReadINI pass `0x0071DEA0` replaces
     /// this with Image frame 0's SHP header RGB before reading `RadarColor`.
-    /// No player-visible consumer is asserted by this retained type state.
+    /// GenerateTerrainPreview641602 uses this RGB for a Terrain ground head.
     pub radar_color: [u8; 3],
     /// Ordered per-pass inputs projected from NativeRulesProcessOwner until
     /// the terrain asset binder applies the deferred SHP-derived defaults.

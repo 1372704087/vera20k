@@ -246,6 +246,7 @@ fn generated_connector_uses_native_slope_piece_tileset() {
         &generated.map_file,
         &resolved,
         &|_, _, _| None,
+        &|_, _, _| None,
     );
     assert!(
         preview

@@ -155,12 +155,14 @@ impl PreviewPalette {
     }
 }
 
-/// The presentation callback projects an overlay over the current TMP color
-/// pair. It owns device-format packing; None preserves the terrain pair.
+/// Presentation callbacks project an Overlay or ground-head Terrain color
+/// over the current TMP pair. They own device-format packing; None preserves
+/// the TMP pair. An Overlay suppresses the Terrain branch even on a color miss.
 pub fn preview_cells_from_map(
     map: &crate::map::map_file::MapFile,
     resolved: &crate::map::resolved_terrain::ResolvedTerrainGrid,
     overlay_radar: &dyn Fn(u8, u8, PreviewColorPair) -> Option<PreviewColorPair>,
+    terrain_radar: &dyn Fn(u16, u16, PreviewColorPair) -> Option<PreviewColorPair>,
 ) -> Vec<PreviewCell> {
     let playfield = PlayfieldBounds::from_map_header(&map.header);
     let overlays = overlay_densities(map);
@@ -177,10 +179,13 @@ pub fn preview_cells_from_map(
             .map_or(([0; 3], [0; 3]), |resolved| {
                 palette.tile_colors((resolved.radar_left, resolved.radar_right), resolved.level)
             });
-        let (left, right) = overlays
-            .get(&(cell.rx, cell.ry))
-            .and_then(|(id, density)| overlay_radar(*id, *density, terrain))
-            .unwrap_or(terrain);
+        // GenerateTerrainPreview6413AA..6413C3 reaches the Terrain head
+        // branch6415E1 only for Overlay==-1, not when an Overlay color misses.
+        let (left, right) = match overlays.get(&(cell.rx, cell.ry)) {
+            Some((id, density)) => overlay_radar(*id, *density, terrain),
+            None => terrain_radar(cell.rx, cell.ry, terrain),
+        }
+        .unwrap_or(terrain);
         cells.push(PreviewCell {
             x: cell.rx,
             y: cell.ry,
@@ -316,6 +321,43 @@ mod tests {
             }
         }
         cells
+    }
+
+    #[test]
+    fn overlay_color_miss_still_suppresses_terrain_callback() {
+        let mut map = super::super::emit::empty_map_file(&Default::default(), 20, 20);
+        map.cells.push(crate::map::map_file::MapCell {
+            rx: 20,
+            ry: 20,
+            tile_index: 0,
+            sub_tile: 0,
+            z: 0,
+        });
+        map.overlays.push(crate::map::overlay::OverlayEntry {
+            rx: 20,
+            ry: 20,
+            overlay_id: 3,
+            frame: 7,
+        });
+        let resolved = crate::map::resolved_terrain::test_grid(32, 32, |rx, ry| {
+            let mut terrain = crate::map::resolved_terrain::test_flat_cell(rx, ry);
+            terrain.radar_left = [10, 20, 30];
+            terrain.radar_right = [40, 50, 60];
+            terrain
+        });
+        let overlay_calls = std::cell::Cell::new(0);
+        let cells = preview_cells_from_map(
+            &map,
+            &resolved,
+            &|id, density, _| {
+                assert_eq!((id, density), (3, 7));
+                overlay_calls.set(overlay_calls.get() + 1);
+                None
+            },
+            &|_, _, _| panic!("6413AA: an existing Overlay suppresses Terrain"),
+        );
+        assert_eq!(overlay_calls.get(), 1);
+        assert_eq!(cells, [cell(20, 20, [10, 20, 30], [40, 50, 60])]);
     }
 
     #[test]

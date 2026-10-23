@@ -4,7 +4,9 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+# Wait for execve before deployment verifies the running image.
+# https://www.freedesktop.org/software/systemd/man/255/systemd.service.html#Type=
+Type=exec
 User=vera20k-relay
 Group=vera20k-relay
 ExecStart=/usr/local/bin/vera20k-relay

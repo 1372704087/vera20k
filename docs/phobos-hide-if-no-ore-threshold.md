@@ -18,7 +18,7 @@ set.
 
 `AnimClass::AI @ 0x00423AC0` rewrites the anim's hidden byte
 (`+0x19D`) on every visit from its stored `Location` (`+0x9C`): the original
-clears it as soon as `CellClass::Get_Tiberium_Value @ 0x00485020` is zero, and
+sets it as soon as `CellClass::Get_Tiberium_Value @ 0x00485020` is zero, and
 Phobos' `AnimClass_AI_Early @ 0x423B95` replaces that equality with
 `value <= abs(HideIfNoOre.Threshold)`. The absolute value is taken at the use,
 not at the read, so `-60` and `60` behave alike; the native `abs` of `INT_MIN`

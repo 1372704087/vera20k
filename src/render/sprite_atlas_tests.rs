@@ -2820,3 +2820,104 @@ fn building_palette_groups_survive_refresh_and_palette_texture_growth() {
         );
     }
 }
+
+/// Phobos UnitClass_DrawIt_OreGath73D223 draws the selected AnimType's
+/// actual Shape and a raw frame, with ANIM.PAL and no AnimType art offsets.
+/// This exercises production rules, image binding, residency and CPU rendering;
+/// it is not a GPU/native visual-parity claim.
+#[test]
+#[cfg(feature = "phobos")]
+fn custom_harvest_uses_bound_theater_shape_all_frames_and_own_placement() {
+    use crate::rules::ini_parser::IniFile;
+    let directory = StoredFrameTestDirectory::new();
+    std::fs::write(
+        directory.0.join("OREIMAGE.TEM"),
+        raw_shp(&[([2, 2], 1); 160]),
+    )
+    .unwrap();
+    std::fs::write(directory.0.join("OREIMAGE.SHP"), raw_shp(&[([4, 4], 2)])).unwrap();
+    let assets = AssetManager::from_loose_root_for_test(&directory.0);
+    let ini = IniFile::from_str(
+        "[VehicleTypes]\n0=HARV\n[HARV]\nHarvester=yes\nOreGathering.Anims=GATHER\n\
+         OreGathering.FramesPerDir=20\n[Animations]\n0=GATHER\n",
+    );
+    let art = IniFile::from_str(
+        "[GATHER]\nImage=OREIMAGE\nTheater=yes\nShadow=no\nAltPalette=yes\n\
+         XDrawOffset=30\nYDrawOffset=40\n",
+    );
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+    rules.install_art_data(ArtRegistry::from_ini(&art));
+    let mut needed = HashSet::new();
+    let mut files = HashMap::new();
+    register_custom_harvest_frames(
+        &mut needed,
+        &mut files,
+        &assets,
+        &rules,
+        Some(rules.art()),
+        "tem",
+        "TEMPERATE",
+    );
+    let file = &files[&(ShpImageKind::Animation, "GATHER".to_owned())];
+    assert_eq!(file, "OREIMAGE.TEM");
+    let key = ShpSpriteKey {
+        palette_context: ShpPaletteContext::Harvest,
+        type_id: "GATHER".into(),
+        facing: 0,
+        frame: 159,
+        house_color: HouseColorIndex(0),
+    };
+    assert!(
+        needed.contains(&key),
+        "the last facing's frame remains resident"
+    );
+    let source = load_shp_source(
+        &assets,
+        "GATHER",
+        Some(file),
+        "tem",
+        "TEMPERATE",
+        Some(&rules),
+        Some(rules.art()),
+        ShpImageKind::Animation,
+    )
+    .unwrap();
+    assert_eq!(
+        sprite_palette_for_key(
+            &key,
+            Some(rules.art()),
+            &HashSet::new(),
+            &HashSet::new(),
+            None
+        ),
+        SpritePaletteChoice::Anim,
+        "AltPalette belongs to AnimClass drawing, not the gather hook",
+    );
+    let palette = Palette::from_bytes(&[0; 768]).unwrap();
+    let sprite = render_shp_frame(
+        &source,
+        &palette,
+        false,
+        &key,
+        Some(&rules),
+        &mut ShpPalettes::default(),
+    )
+    .unwrap();
+    assert_eq!([sprite.width, sprite.height], [2, 2]);
+    assert!(sprite.indices().iter().all(|&index| index == 1));
+    assert_eq!([sprite.offset_x, sprite.offset_y], [-1.0, -1.0]);
+    let ordinary = ShpSpriteKey {
+        palette_context: ShpPaletteContext::GlobalAnim,
+        ..key
+    };
+    let ordinary = render_shp_frame(
+        &source,
+        &palette,
+        false,
+        &ordinary,
+        Some(&rules),
+        &mut ShpPalettes::default(),
+    )
+    .unwrap();
+    assert_eq!([ordinary.offset_x, ordinary.offset_y], [29.0, 39.0]);
+}

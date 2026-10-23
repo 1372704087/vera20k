@@ -21,7 +21,7 @@ use crate::render::draw_state::{DrawState, FX_SHADOW};
 use crate::render::native_z::{
     SHP_DRAW_Z_ADJUST_PX, ZGradient, pack_voxel_z_gradient, pack_z_gradient,
 };
-use crate::render::sprite_atlas::{HARVEST_OVERLAY_IMAGE, ShpSpriteKey};
+use crate::render::sprite_atlas::{HARVEST_OVERLAY_IMAGE, ShpPaletteContext, ShpSpriteKey};
 use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::unit_atlas::{
     UnitSpriteEntry, UnitSpriteKey, VxlLayer, canonical_turret_facing, canonical_unit_facing,
@@ -2039,9 +2039,10 @@ const STOCK_GATHER_FRAMES_PER_DIR: i32 = 15;
 /// which frame of that SHP. Phobos' `UnitClass_DrawIt_OreGath @ 0x73D223` hook
 /// selects both from the resource the harvester is standing on.
 struct HarvestOverlay<'a> {
-    /// The sprite atlas identity: the literal OREGATH, or the `Image=` of the
-    /// `OreGathering.Anims=` type this cell selects.
-    image: &'a str,
+    /// The stock OREGATH identity or the selected AnimType identity. The
+    /// animation source owner, rather than raw Image text, resolves its Shape.
+    type_id: &'a str,
+    palette_context: ShpPaletteContext,
     frame: u16,
 }
 
@@ -2080,14 +2081,20 @@ fn harvest_overlay<'a>(
     let facing = entity.body_facing_current(frame);
     let counter = entity.body_frame_counter.get();
     #[cfg(feature = "phobos")]
-    if let Some((image, frames_per_dir)) = gather_animation(rules, object, sim, entity) {
+    if let Some((anim, frames_per_dir)) = gather_animation(rules, object, sim, entity) {
+        let (type_id, palette_context) = anim
+            .map_or((HARVEST_OVERLAY_IMAGE, ShpPaletteContext::Legacy), |anim| {
+                (anim, ShpPaletteContext::Harvest)
+            });
         return Some(HarvestOverlay {
-            image,
+            type_id,
+            palette_context,
             frame: oregath_frame(counter, frame, facing, frames_per_dir)?,
         });
     }
     Some(HarvestOverlay {
-        image: HARVEST_OVERLAY_IMAGE,
+        type_id: HARVEST_OVERLAY_IMAGE,
+        palette_context: ShpPaletteContext::Legacy,
         frame: oregath_frame(counter, frame, facing, STOCK_GATHER_FRAMES_PER_DIR)?,
     })
 }
@@ -2101,10 +2108,10 @@ fn harvest_overlay<'a>(
 #[cfg(feature = "phobos")]
 fn gather_animation<'a>(
     rules: &'a crate::rules::ruleset::RuleSet,
-    object: &crate::rules::object_type::ObjectType,
+    object: &'a crate::rules::object_type::ObjectType,
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
-) -> Option<(&'a str, i32)> {
+) -> Option<(Option<&'a str>, i32)> {
     let gathering = object.ore_gathering();
     let resource = crate::sim::tiberium::tiberium_cell_view(
         sim.overlay_grid().as_ref()?,
@@ -2120,10 +2127,7 @@ fn gather_animation<'a>(
             .iter()
             .position(|index| *index == i32::from(resource.tiberium_type.0))?
     };
-    let image = gathering
-        .anims
-        .get(slot)
-        .and_then(|anim| rules.harvest_overlay_image(anim));
+    let anim = gathering.anims.get(slot).map(String::as_str);
     // A slot past the shorter list, or a non-positive frame count, would read
     // out of the vector or divide-fault the native `%`; both keep the stock
     // 15-frame row here.
@@ -2133,7 +2137,7 @@ fn gather_animation<'a>(
         .filter(|frames| **frames > 0)
         .copied()
         .unwrap_or(STOCK_GATHER_FRAMES_PER_DIR);
-    Some((image.unwrap_or(HARVEST_OVERLAY_IMAGE), frames))
+    Some((anim, frames))
 }
 
 /// The gather overlay's frame (`0x0073D1E2..0x0073D273`): `(Foot+0x538 + Frame)
@@ -2170,8 +2174,8 @@ fn harvest_arm_screen_position(
 }
 
 /// Emit the harvest overlay sprite [`harvest_overlay`] selected (OREGATH.SHP,
-/// or a Phobos `OreGathering.Anims=` type's own image) on the arm point `arm`
-/// ([`harvest_arm_screen_position`]), from the sprite atlas keyed by that image.
+/// or a Phobos `OreGathering.Anims=` type's loaded Shape) on the arm point `arm`
+/// ([`harvest_arm_screen_position`]), using the selected type's atlas identity.
 fn emit_harvest_overlay(
     state: &AppState,
     entity: &crate::sim::game_entity::GameEntity,
@@ -2184,8 +2188,8 @@ fn emit_harvest_overlay(
 ) -> Option<(usize, SpriteInstance)> {
     let sprite_atlas = state.match_state.match_presentation.sprite_atlas.as_ref()?;
     let key = ShpSpriteKey {
-        palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
-        type_id: overlay.image.to_string(),
+        palette_context: overlay.palette_context,
+        type_id: overlay.type_id.to_string(),
         facing: 0,
         frame: overlay.frame,
         house_color: HouseColorIndex::default(),

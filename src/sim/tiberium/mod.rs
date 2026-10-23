@@ -699,7 +699,6 @@ pub(crate) fn spread_tiberium(
         // `mov [esp+0x20],0` store, so `SpawnsTiberium.Type=` reaches only a
         // source cell that itself holds no ore.
         (Some(spawner), true) => {
-            let fallback = TiberiumTypeId(u8::try_from(spawner.tiberium_type).ok()?);
             let resolved = tiberium_cell_view(
                 ctx.overlay_grid,
                 ctx.overlay_registry,
@@ -707,7 +706,10 @@ pub(crate) fn spread_tiberium(
                 source,
             )
             .map(|view| view.tiberium_type);
-            let source_type = resolved.unwrap_or(fallback);
+            let source_type = match resolved {
+                Some(source_type) => source_type,
+                None => TiberiumTypeId(u8::try_from(spawner.tiberium_type).ok()?),
+            };
             return spawner_cell_spread(ctx, source, source_type, spawner);
         }
         (None, true) => tiberium_cell_view(
@@ -1262,10 +1264,29 @@ SpreadPercentage=.06
             2,
             "the admitted cell sits in the second CellSpread ring: {cell:?}"
         );
-        let view = tiberium_cell_view(&overlay, &overlay_registry, &tiberium_types, cell)
+        let view = tiberium_cell_view(ctx.overlay_grid, &overlay_registry, &tiberium_types, cell)
             .expect("the germinated cell resolves to a resource");
         assert_eq!(view.tiberium_type, TiberiumTypeId(1), "SpawnsTiberium.Type");
         assert_eq!(view.overlay_data, 7, "SpawnsTiberium.GrowthStage");
+        // Native48380C/48380F bypass the fallback when the source has ore.
+        // An invalid, unused SpawnsTiberium.Type must not stop that spread.
+        let source_overlay = overlay_registry
+            .flat_tiberium_variant_ids(tiberium_types.get(TiberiumTypeId(1)).unwrap())
+            .unwrap()[0];
+        ctx.overlay_grid.place_overlay(8, 8, source_overlay, 11);
+        assert!(
+            spread_tiberium(
+                &mut ctx,
+                (8, 8),
+                true,
+                Some(SpawnerSpread {
+                    tiberium_type: -1,
+                    range: 2,
+                    growth_stage: crate::rules::ini_value::PartialIntPair::single(7),
+                }),
+            )
+            .is_some()
+        );
     }
 
     /// Phobos `GeneralUtils::AdjacentCellsInRange` covers gamemd's own

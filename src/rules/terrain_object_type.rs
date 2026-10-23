@@ -282,7 +282,7 @@ impl TerrainObjectType {
 /// Constructor defaults are `Body.h`'s initializer list: type 0, range 1, one
 /// growth stage 3, one cell per animation 1 and no particle (-1).
 #[cfg(feature = "phobos")]
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosSpawnsTiberium {
     /// `SpawnsTiberium.Type=`: the `[Tiberiums]` index the spawner germinates.
     pub tiberium_type: i32,
@@ -327,7 +327,13 @@ impl PhobosSpawnsTiberium {
         self.cells_per_anim =
             section.read_ares_partial_int_pair("SpawnsTiberium.CellsPerAnim", self.cells_per_anim);
         if let Some(name) = section.read_name("SpawnsTiberium.Particle", 2048) {
-            self.particle = find_particle(name);
+            // Phobos TemplateDef.h ValueableIdx::Read updates only on a found
+            // index or an explicit blank sentinel; an unknown name retains.
+            if let Some(particle) = find_particle(name) {
+                self.particle = Some(particle);
+            } else if crate::rules::ini_parser::is_native_none_type_name(name) {
+                self.particle = None;
+            }
         }
     }
 }
@@ -566,7 +572,9 @@ mod tests {
         ));
         layers.push(
             RulesLayerKind::GameMode,
-            IniFile::from_str("[TIBTRE01]\nSpawnsTiberium.Range=5\n"),
+            IniFile::from_str(
+                "[TIBTRE01]\nSpawnsTiberium.Range=5\nSpawnsTiberium.Particle=UNKNOWN\n",
+            ),
         );
         let rules = RuleSet::from_rules_layers(&layers).expect("layered phobos terrain keys");
         let extended = &rules
@@ -585,6 +593,49 @@ mod tests {
         );
         assert_eq!(extended.cells_per_anim.low, 1);
         assert_eq!(extended.particle.as_deref(), Some("SPARKA"));
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[TIBTRE01]\nSpawnsTiberium.Particle=<none>\n"),
+        );
+        let cleared = RuleSet::from_rules_layers(&layers).expect("explicit particle clear");
+        assert!(
+            cleared
+                .terrain_object_type_case_insensitive("TIBTRE01")
+                .unwrap()
+                .spawns_tiberium_ext
+                .particle
+                .is_none()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn spawns_tiberium_retained_process_state_changes_compatibility_hash() {
+        use crate::rules::native_processing::RulesLayerStack;
+        use crate::rules::ruleset::RuleSet;
+        let current = RulesLayerStack::new(IniFile::from_str(
+            "[TerrainTypes]\n0=TIBTRE01\n[TIBTRE01]\nSpawnsTiberium=yes\n",
+        ));
+        let continued = |cells| {
+            let earlier = RulesLayerStack::new(IniFile::from_str(&format!(
+                "[TerrainTypes]\n0=TIBTRE01\n[TIBTRE01]\nSpawnsTiberium.CellsPerAnim={cells}\n",
+            )))
+            .process()
+            .unwrap();
+            let (_, trace) = earlier.into_ini_and_native_type_construction_trace();
+            let registry = trace.into_registry_state_discarding_events();
+            let next = current
+                .process_with_fixed_art_and_registry_state(&IniFile::empty(), registry)
+                .unwrap();
+            RuleSet::from_processed_rules(&next).unwrap()
+        };
+        let first = continued(1);
+        let second = continued(2);
+        assert_eq!(first.source_ini_hash(), second.source_ini_hash());
+        assert_ne!(
+            first.simulation_config_hash(),
+            second.simulation_config_hash()
+        );
     }
 
     #[test]

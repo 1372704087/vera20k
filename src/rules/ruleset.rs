@@ -6396,6 +6396,17 @@ impl RuleSet {
             .map(|(name, terrain)| (name.to_ascii_uppercase(), terrain.armor_id()))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            // TerrainTypeExt::LoadFromINI retains these across Process calls.
+            // They change spawner placement, particle births and RNG draws.
+            b"phobos-retained-ore-spawners-v1".hash(&mut hasher);
+            self.terrain_object_types
+                .iter()
+                .map(|(name, terrain)| (name.to_ascii_uppercase(), &terrain.spawns_tiberium_ext))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
+        }
         // TerrainTypeReadINI71DEA0 retains post-read writes and ReadInt
         // defaults across Process calls. Equal current text can admit
         // different Strength, Logic members, targets or occupation, so identify
@@ -7861,36 +7872,23 @@ impl RuleSet {
         &self.art_registry
     }
 
-    /// The SHP identity Phobos draws for one `OreGathering.Anims=` type: that
-    /// AnimType's `Image=`, which defaults to its own section name. A type with
-    /// no reached ART body has no image here.
+    /// Registered AnimType identities selected by Phobos' gather overlay.
+    /// Keep the type identity: its existing image owner resolves retained load
+    /// requests, Image aliases and theater filenames.
     #[cfg(feature = "phobos")]
-    pub fn harvest_overlay_image(&self, anim_name: &str) -> Option<&str> {
-        self.art_registry
-            .anim_runtime_config(anim_name)
-            .map(|config| config.image())
-    }
-
-    /// Every distinct gather-overlay image the registered VehicleTypes name, in
-    /// first-mention order. The sprite atlas preloads these beside the literal
-    /// OREGATH.SHP, which it loads from the rules alone and not from the units
-    /// currently on the map.
-    #[cfg(feature = "phobos")]
-    pub fn harvest_overlay_images(&self) -> Vec<&str> {
-        let mut images: Vec<&str> = Vec::new();
+    pub fn harvest_overlay_anim_types(&self) -> Vec<&str> {
+        let mut anims = Vec::new();
         for object in &self.object_list {
             if object.category != ObjectCategory::Vehicle {
                 continue;
             }
             for anim in &object.ore_gathering().anims {
-                if let Some(image) = self.harvest_overlay_image(anim)
-                    && !images.iter().any(|seen| seen.eq_ignore_ascii_case(image))
-                {
-                    images.push(image);
+                if !anims.contains(&anim.as_str()) {
+                    anims.push(anim.as_str());
                 }
             }
         }
-        images
+        anims
     }
 
     /// AnimTypeArray8B4154's retained constructor order, including types

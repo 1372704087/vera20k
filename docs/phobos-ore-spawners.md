@@ -64,13 +64,17 @@ after that loop, whether or not any cell accepted ore. Phobos calls
 which `ScenarioSetup @ 0x00685040` fills with the literal `GasCloudSys` instance,
 so the ore particle shares the Scenario's one shared system rather than a second
 one. `ValueableIdx<ParticleTypeClass>::Read` uses `FindIndex` and never
-allocates: an empty value clears the reference and an unknown name retains the
-previous one.
+allocates: a successful lookup replaces the reference; a failed lookup clears
+it only for case-insensitive `none` / `<none>` (`INIClass::IsBlank`). An unknown
+nonblank name retains the previous one.
+`INI_EX::ReadString` returns zero for an absent or empty value, so neither
+changes the reference.
 
 RESIDUALS (trigger, effect, frequency):
 
-- A `SpawnsTiberium.Type=` outside `[Tiberiums]` dereferences a null
-  `TiberiumClass::Array` slot natively. VERA germinates nothing, so the spawner
+- A `SpawnsTiberium.Type=` outside `[Tiberiums]`, when the source holds no
+  ore and needs that fallback, dereferences a null `TiberiumClass::Array`
+  slot natively. VERA germinates nothing, so the spawner
   emits no cell and no further spread. Only custom data reaches this.
 - A negative `SpawnsTiberium.Range` reaches `CellSpreadEnumerator`'s unsigned
   clamp as a huge ring count, and Phobos' own `reserve((2 * range + 1) ^ 2)`

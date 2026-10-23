@@ -44,23 +44,20 @@ VERA keeps the stock image and the stock 15 frames for any slot its list does
 not hold, and for a frame count that is not positive, where the native `%`
 faults.
 
-The image is the AnimType's own `Image=` (its section name when it authors
-none), so the sprite atlas preloads every image the registered VehicleTypes
-name alongside `OREGATH.SHP` — from the rules, not from the harvesters currently
-on the map, because the atlas loads the overlay set once per session. All of
-them draw with `anim.pal`: Phobos switches to the animation's palette only
-through `AnimTypeExt::Palette=`, which VERA does not implement, so the original
-`FileSystem::ANIM_PAL` drawer stays in force.
+The sprite atlas preloads the registered AnimType identities from the rules,
+not from harvesters currently on the map. The existing animation image owner
+resolves each type's loaded Shape, including `Image=`, theater filenames and
+retained load requests. The hook selects a raw SHP frame, so every physical
+frame remains available even when the image exceeds 120 frames or has shadows.
 
-RESIDUALS (trigger, effect, frequency):
+Gather drawing uses `anim.pal` and the unit's gather point without the
+AnimType's `XDrawOffset` / `YDrawOffset`; ordinary AnimClass drawing keeps its
+own placement and palette context. Phobos can select `CustomPalette=` through
+AnimTypeExt's palette; that separate custom-animation-palette mechanism is not
+implemented here, so an authored custom palette remains a residual.
 
-- A gather image that also draws as an ordinary `AnimClass` shares one atlas key
-  with it. The harvest overlay's canvas-centred frame offsets then apply to both
-  draws, so that animation is placed as if its canvas held eight facings.
-  Trigger: reusing an existing anim type as a gather animation.
-- A gather SHP whose frame count exceeds 120 is halved, the same
-  `Shadow=yes`-style reading `OREGATH.SHP` needs. A custom gather animation with
-  more than 120 real frames draws only its first half. Trigger: a gather list
-  whose `FramesPerDir=` times eight facings passes 120.
+RESIDUALS (trigger, effect, frequency): a missing parallel-list slot or a
+non-positive frame count keeps the stock fallback described above; an authored
+`CustomPalette=` keeps `anim.pal` instead. Only custom data reaches these cases.
 
 This feature does not load Phobos DLLs or establish complete mod compatibility.

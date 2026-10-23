@@ -47,9 +47,8 @@ const INFANTRY_AIR_SHADOW_SHP: &str = "INFSHDW";
 const INFANTRY_AIR_SHADOW_FRAME: u16 = 1;
 
 /// The stock gather overlay `UnitClass::DrawIt @ 0x0073CEC0` draws: the
-/// `FileSystem::OREGATH_SHP` literal, drawn with `FileSystem::ANIM_PAL`. A
-/// Phobos `OreGathering.Anims=` type replaces both the image and the frame
-/// count, and its own image joins this atlas under the same identity.
+/// `FileSystem::OREGATH_SHP` literal, drawn with `FileSystem::ANIM_PAL`.
+/// Custom gather animations use their separate AnimType draw context.
 pub(crate) const HARVEST_OVERLAY_IMAGE: &str = "OREGATH";
 
 fn register_effect_anim_frames(
@@ -309,6 +308,10 @@ pub enum ShpPaletteContext {
     #[default]
     Legacy,
     GlobalAnim,
+    /// Phobos UnitClass_DrawIt_OreGath73D223 selects the AnimType's Shape and
+    /// global ANIM Convert directly, without AnimType X/YDrawOffset. Its
+    /// caller's placement therefore cannot share an ordinary AnimClass key.
+    Harvest,
     /// ParticleRead644F6D owns a different ObjectType shape from a same-named
     /// AnimType. DrawIt62D015 selects the global ANIM Convert87F6C0.
     Particle,
@@ -344,6 +347,7 @@ impl ShpPaletteContext {
     fn image_kind(self) -> ShpImageKind {
         match self {
             Self::GlobalAnim
+            | Self::Harvest
             | Self::AnimPalette
             | Self::AnimScheme
             | Self::AnimCell
@@ -1265,7 +1269,7 @@ fn sprite_palette_for_key(
     match key.palette_context {
         ShpPaletteContext::BulletDefault => SpritePaletteChoice::Bullet,
         ShpPaletteContext::BulletAnim => SpritePaletteChoice::Anim,
-        ShpPaletteContext::AnimPalette => SpritePaletteChoice::Anim,
+        ShpPaletteContext::AnimPalette | ShpPaletteContext::Harvest => SpritePaletteChoice::Anim,
         ShpPaletteContext::BulletFirer => SpritePaletteChoice::Unit,
         ShpPaletteContext::SelectedScheme | ShpPaletteContext::AnimScheme => {
             SpritePaletteChoice::Unit
@@ -2184,6 +2188,23 @@ pub fn build_sprite_atlas(
         }
     }
 
+    // Rules and theater bindings are fixed for this atlas's lifetime; a
+    // refresh retains its registered files and resident custom gather frames.
+    #[cfg(feature = "phobos")]
+    if previous_atlas.is_none()
+        && let Some(rules) = rules
+    {
+        register_custom_harvest_frames(
+            &mut needed,
+            &mut shp_files,
+            asset_manager,
+            rules,
+            art,
+            theater_ext,
+            theater_name,
+        );
+    }
+
     let effects = previous_atlas
         .as_ref()
         .map_or(&registered_effects, |atlas| &atlas.effects);
@@ -2322,7 +2343,9 @@ pub fn build_sprite_atlas(
         && new_keys.iter().any(|key| {
             matches!(
                 key.palette_context,
-                ShpPaletteContext::BulletAnim | ShpPaletteContext::AnimPalette
+                ShpPaletteContext::BulletAnim
+                    | ShpPaletteContext::AnimPalette
+                    | ShpPaletteContext::Harvest
             )
         })
     {
@@ -2438,21 +2461,8 @@ pub fn build_sprite_atlas(
         .is_some_and(|atlas| atlas.harvest_overlay_loaded)
         && entities.values().any(|e| e.miner.is_some());
     if load_harvest_overlay {
-        let mut sprites: Vec<RenderedShpSprite> =
-            render_harvest_overlay_frames(asset_manager, &mut palettes, HARVEST_OVERLAY_IMAGE);
-        // Phobos `OreGathering.Anims=` types draw their own AnimType image, so
-        // the atlas takes every image the rules name — a harvester of that type
-        // may not exist yet, and the atlas loads the overlay set only once.
-        #[cfg(feature = "phobos")]
-        if let Some(rules) = rules {
-            for image in rules.harvest_overlay_images() {
-                sprites.extend(render_harvest_overlay_frames(
-                    asset_manager,
-                    &mut palettes,
-                    image,
-                ));
-            }
-        }
+        let sprites: Vec<RenderedShpSprite> =
+            render_harvest_overlay_frames(asset_manager, &mut palettes);
         if !sprites.is_empty() {
             log::info!("Rendered {} harvest overlay frames", sprites.len());
             rendered.extend(sprites);
@@ -2808,7 +2818,13 @@ fn render_shp_frame<'a>(
     // DrawOffset from art.ini XDrawOffset/YDrawOffset for per-type fine-tuning.
     // Uses integer division: -ShapeWidth/2 (truncated), to avoid sub-pixel drift
     // on odd-dimension SHPs.
-    let (xdo, ydo) = source.draw_offsets;
+    // Phobos73D223 calls DrawSHP on AnimType::GetImage, with the unit's
+    // gather location. It never enters AnimClass::DrawIt or its art offsets.
+    let (xdo, ydo) = if key.palette_context == ShpPaletteContext::Harvest {
+        (0, 0)
+    } else {
+        source.draw_offsets
+    };
     let offset_x: f32 = -((full_w / 2) as f32) + xdo as f32;
     let offset_y: f32 = -((full_h / 2) as f32) + ydo as f32;
 
@@ -2831,21 +2847,58 @@ pub fn canonical_infantry_facing(facing: u8) -> u8 {
     (facing / INFANTRY_FACING_STEP) * INFANTRY_FACING_STEP
 }
 
-/// Render harvest overlay frames using the effect palette (anim.pal).
+/// Phobos73D223 draws a selected AnimType's loaded Shape at a raw frame.
+/// Reuse the animation image request owner, including theater/type-load state,
+/// and register every physical frame: the hook does not halve Shadow images or
+/// impose OREGATH's 120-frame limit. The normal frame renderer owns decoding,
+/// palette rows and caller-context placement; no second image cache is needed.
+/// Source: Phobos b90ab4bc, src/Ext/TechnoType/Hooks.cpp
+/// (UnitClass_DrawIt_OreGath).
+#[cfg(feature = "phobos")]
+fn register_custom_harvest_frames(
+    needed: &mut HashSet<ShpSpriteKey>,
+    files: &mut ShpFiles,
+    assets: &AssetManager,
+    rules: &RuleSet,
+    art: Option<&ArtRegistry>,
+    theater_ext: &str,
+    theater_name: &str,
+) {
+    for anim in rules.harvest_overlay_anim_types() {
+        let candidates = effect_anim_shp_candidates(anim, art, theater_ext, theater_name);
+        let Some((file, data)) = find_shp(assets, &candidates) else {
+            log::warn!("gather animation [{anim}] has no loaded SHP asset");
+            continue;
+        };
+        let Ok(count) = ShpFile::frame_count_from_bytes(data) else {
+            log::warn!("gather animation [{anim}] has an invalid SHP asset");
+            continue;
+        };
+        files.insert(
+            (ShpImageKind::Animation, anim.to_ascii_uppercase()),
+            file.to_string(),
+        );
+        needed.extend((0..count).map(|frame| ShpSpriteKey {
+            palette_context: ShpPaletteContext::Harvest,
+            type_id: anim.to_owned(),
+            facing: 0,
+            frame,
+            house_color: HouseColorIndex(0),
+        }));
+    }
+}
+
+/// Render oregath.shp harvest overlay frames using the effect palette (anim.pal).
 ///
-/// `image` is the sprite atlas identity and the SHP to load: the literal
-/// OREGATH, or the `Image=` of a Phobos `OreGathering.Anims=` type. Each uses
-/// anim.pal (the same palette used for explosion/effect SHPs) with no house
-/// color remap, because `UnitClass::DrawIt`'s draw extras select the global
-/// ANIM Convert.
+/// OREGATH uses anim.pal (the same palette used for explosion/effect SHPs),
+/// with no house color remap.
 ///
-/// Returns one sprite per usable SHP frame, keyed by `image`, facing zero and
-/// that frame index. At render time the correct frame is
-/// `facing_index * frames_per_dir + anim_frame`.
+/// Returns all 120 SHP frames (15 animation frames x 8 facings) as rendered sprites.
+/// Each frame is keyed by OREGATH, facing zero and its SHP frame index.
+/// At render time, the correct frame is: `facing_index * 15 + anim_frame`.
 fn render_harvest_overlay_frames<'a>(
     asset_manager: &'a AssetManager,
     palettes: &mut ShpPalettes,
-    image: &str,
 ) -> Vec<RenderedShpSprite<'a>> {
     // Load effect palette (anim.pal).
     let pal_data: &[u8] = match asset_manager.get_ref("anim.pal") {
@@ -2863,15 +2916,11 @@ fn render_harvest_overlay_frames<'a>(
         }
     };
 
-    // Load the overlay's SHP.
-    let candidates = [
-        format!("{}.shp", image.to_ascii_lowercase()),
-        format!("{}.SHP", image),
-    ];
-    let shp_data: &'a [u8] = match find_shp(asset_manager, &candidates) {
-        Some((_, data)) => data,
+    // Load oregath.shp.
+    let shp_data: &'a [u8] = match asset_manager.get_ref("oregath.shp") {
+        Some(d) => d,
         None => {
-            log::warn!("{}.SHP not found — skipping harvest overlay", image);
+            log::warn!("oregath.shp not found — skipping harvest overlay");
             return Vec::new();
         }
     };
@@ -2879,8 +2928,7 @@ fn render_harvest_overlay_frames<'a>(
         Ok(s) => s,
         Err(e) => {
             log::warn!(
-                "Failed to parse {}.SHP: {} — skipping harvest overlay",
-                image,
+                "Failed to parse oregath.shp: {} — skipping harvest overlay",
                 e
             );
             return Vec::new();
@@ -2896,8 +2944,7 @@ fn render_harvest_overlay_frames<'a>(
         total_frames
     };
     log::info!(
-        "{}.SHP: {}x{}, {} total frames, {} real frames",
-        image,
+        "oregath.shp: {}x{}, {} total frames, {} real frames",
         shp.width,
         shp.height,
         total_frames,
@@ -2936,7 +2983,7 @@ fn render_harvest_overlay_frames<'a>(
         sprites.push(RenderedShpSprite {
             key: ShpSpriteKey {
                 palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
-                type_id: image.to_string(),
+                type_id: "OREGATH".to_string(),
                 facing: 0,
                 frame: frame_idx as u16,
                 house_color: hc,

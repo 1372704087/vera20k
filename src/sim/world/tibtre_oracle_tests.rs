@@ -7,10 +7,8 @@ use crate::rules::ini_parser::IniFile;
 use crate::sim::terrain_spawn::{
     TerrainAnimationState, construct_terrain_objects, seed_terrain_spawner_animation,
 };
-// Both stock-spread replays below: the timelines end in the native forced
-// spread, and the direct rows call that leaf. A Phobos build replaces the
-// scan, so `sim::tiberium`'s own hook test covers it there.
-#[cfg(not(feature = "phobos"))]
+// Direct stock-context spreads remain stock in a Phobos build; only an
+// active terrain-spawner context selects the replacement scan.
 use crate::sim::tiberium::{
     NewTiberiumAdmission, PlaceTiberiumContext, TiberiumPlacementObjectContext, spread_tiberium,
 };
@@ -221,7 +219,6 @@ fn fixture(input: &Value, stock: &Value) -> (Scene, Vec<(u16, u16)>) {
 
 /// The per-visit state the two stock-spread replays compare: stage, timer,
 /// overlay bytes and the ore queues a forced spread fed.
-#[cfg(not(feature = "phobos"))]
 fn compare(s: &Scene, coords: &[(u16, u16)], native: &Value, context: &str) {
     for (at, expected) in coords.iter().zip(native["actors"].as_array().unwrap()) {
         let state = serde_json::to_value(
@@ -330,7 +327,6 @@ fn terrain_ai_timelines_match_native_stage_timers_ore_queues_and_rng() {
 }
 
 #[test]
-#[cfg(not(feature = "phobos"))]
 fn forced_spread_matches_original_admission_placement_queues_and_rng() {
     let corpus = corpus();
     let stock = &corpus["retail_inputs"]["rows"][0];

@@ -1029,13 +1029,6 @@ const fn header_end(raw_count: i32, shadow: bool) -> i32 {
 }
 
 impl AnimTypeRuntimeConfig {
-    /// The `Image=` SHP identity `AnimTypeClass::GetImage` draws: Phobos'
-    /// `OreGathering.Anims=` overlay selects it per gather animation.
-    #[cfg(feature = "phobos")]
-    pub(crate) fn image(&self) -> &str {
-        &self.image
-    }
-
     /// AnimType `End` (`+0x2C0`), which `AnimClass::DrawIt`'s `Translucent=`
     /// ladder divides (`0x004230AC`). A bound type carries the loaded value;
     /// for one not yet bound, it is what binding would load from a SHP of

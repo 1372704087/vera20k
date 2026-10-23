@@ -757,6 +757,9 @@ fn notice(state: &mut AppState, text: &str) {
 }
 
 fn fail_start(state: &mut AppState, text: &str) {
+    if crate::app::loading::pump::cancel_network_loading(state, text) {
+        return;
+    }
     notice(state, text);
     if crate::app::shell_network_setup::verify(state).is_some() {
         let _ = crate::app::shell_network_setup::service_event(
@@ -786,13 +789,24 @@ fn cancel_pending(state: &mut AppState, service: &mut LiveService) {
 }
 
 pub(super) fn match_returned(state: &mut AppState) {
-    if let Some(service) = state
-        .frontend
-        .wol
-        .as_mut()
-        .and_then(|visit| visit.live_service.as_mut())
-    {
-        service.begin_finish(Instant::now());
+    if let Some(visit) = state.frontend.wol.as_mut() {
+        visit.match_returned(Instant::now());
+    }
+}
+
+impl super::WolVisit {
+    fn match_returned(&mut self, now: Instant) {
+        if self.provider != WolProvider::Online {
+            return;
+        }
+        if let Some(service) = self.live_service.as_mut() {
+            service.begin_finish(now);
+        } else if !self.requests.contains(&WolServiceRequest::MatchReturned) {
+            //poll holds the SAME service across HTTP callbacks. Loading abort
+            //can reenter the lobby there; retain its semantic intent before
+            //new join/create requests, without copying the match or retry ID.
+            self.requests.insert(0, WolServiceRequest::MatchReturned);
+        }
     }
 }
 
@@ -877,6 +891,7 @@ fn request_service(state: &mut AppState, service: &mut LiveService, request: Wol
             cancel_pending(state, service);
             service.begin_leave(Instant::now());
         }
+        WolServiceRequest::MatchReturned => service.begin_finish(Instant::now()),
         WolServiceRequest::Logout => {
             maps::cancel(state, service);
             cancel_pending(state, service);
@@ -1456,6 +1471,10 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         },
         http::Response::Failure(message) => notice(state, message),
         http::Response::Offline => {
+            crate::app::loading::pump::cancel_network_loading(
+                state,
+                "The online session ended while the map was loading.",
+            );
             maps::cancel(state, service);
             cancel_pending(state, service);
             // The bearer session is definitively gone; a new login has no
@@ -1576,6 +1595,10 @@ fn apply_event(
             service_event(state, event);
         }
         "channel_left" => {
+            crate::app::loading::pump::cancel_network_loading(
+                state,
+                "The online room closed while the map was loading.",
+            );
             service.accepted_options = None;
             service.last_ready_request = None;
             service.pending_choices = None;
@@ -1604,6 +1627,26 @@ fn apply_event(
                 .ok_or_else(|| anyhow!("missing member"))?
                 .to_owned();
             service.member_ids.remove(&name.to_ascii_lowercase());
+            let required = state
+                .match_state
+                .session
+                .network_setup()
+                .is_some_and(|launch| {
+                    launch.humans.iter().enumerate().any(|(source, human)| {
+                        human.name.eq_ignore_ascii_case(&name)
+                            && state
+                                .match_state
+                                .session
+                                .network_connected_source_indices()
+                                .contains(&source)
+                    })
+                });
+            if required {
+                crate::app::loading::pump::cancel_network_loading(
+                    state,
+                    "A player left the online room while the map was loading.",
+                );
+            }
             service_event(state, WolServiceEvent::UserLeft(name));
         }
         "options" => {
@@ -2168,6 +2211,58 @@ mod completion_tests {
         let echoed = json!({"launch":session.network_setup()});
         assert!(local_choices_match(&session, &echoed));
         assert!(accepted_human_matches(&echoed, &expected));
+    }
+
+    #[test]
+    fn loading_return_while_service_is_taken_keeps_finish_before_lobby_admission() {
+        let (service, input, _output) = control_service(Some("loading-match"));
+        let mut visit = super::super::WolVisit::open(false);
+        visit.provider = WolProvider::Online;
+        visit.live_service = Some(service);
+        let borrowed = visit.live_service.take().unwrap(); //The actual poll boundary.
+        let now = Instant::now();
+        visit.requests.push(WolServiceRequest::JoinChannel {
+            channel: crate::ui::wol_lobby::WolChannel::default(),
+            key: String::new(),
+        });
+        visit.match_returned(now);
+        visit.match_returned(now); //Repeated abort callbacks keep one intent.
+        assert!(matches!(
+            visit.take_service_requests().as_slice(),
+            [
+                WolServiceRequest::MatchReturned,
+                WolServiceRequest::JoinChannel { .. }
+            ]
+        ));
+        assert!(
+            input.try_recv().is_err(),
+            "no second service was manufactured"
+        );
+        assert_eq!(borrowed.match_id.as_deref(), Some("loading-match"));
+        visit.live_service = Some(borrowed);
+        visit.match_returned(now);
+        let http::Request::Command {
+            id,
+            operation,
+            payload,
+        } = input.try_recv().unwrap()
+        else {
+            panic!("same retained service must finish the same match");
+        };
+        assert_eq!(
+            (id, operation, payload),
+            (5, "finish", json!({"match_id":"loading-match"}))
+        );
+        let service = visit.live_service.as_mut().unwrap();
+        assert!(service.admission_blocked());
+        service.finish_completed(id);
+        assert!(!service.admission_blocked());
+        service.clear_cleanup(); //Definitive Offline has retired the authority.
+        visit.match_returned(now);
+        assert!(
+            input.try_recv().is_err(),
+            "expired authority cannot issue finish"
+        );
     }
 
     #[test]

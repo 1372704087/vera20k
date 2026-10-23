@@ -16,6 +16,12 @@ pub use vera20k_relay_protocol::{
     MAX_PEERS as RELAY_MAX_PEERS, Ticket as RelayTicket, peer_endpoint as relay_peer_endpoint,
 };
 
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_support {
+    //Client regressions exercise the same authenticated server/codec owner.
+    pub use vera20k_relay_protocol::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key};
+}
+
 use super::global::{
     GLOBAL_HEADER_LEN, GlobalChannel, GlobalConfig, GlobalDestination, GlobalMessage,
     GlobalReceiveError,

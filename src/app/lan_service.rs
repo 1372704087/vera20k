@@ -394,11 +394,23 @@ impl LanService {
     }
 
     fn flush_setup(&mut self) {
-        while let Some((bytes, destination)) = self.pending_setup.pop_front() {
-            if !self.send(&bytes, destination, true) {
-                self.pending_setup.push_front((bytes, destination));
+        if let Some(transport) = self.transport.as_mut() {
+            Self::flush_setup_queue(&mut self.pending_setup, transport.global_mut());
+        }
+    }
+
+    /// The same FIFO remains here when gameplay takes the physical transport.
+    /// A bounded LoadingCallback drain may still leave terminal100 outside
+    /// global160; both service phases admit it through this one loop.
+    fn flush_setup_queue(
+        pending: &mut std::collections::VecDeque<(Vec<u8>, GlobalDestination)>,
+        global: &mut crate::net::global::GlobalChannel,
+    ) {
+        while let Some((bytes, destination)) = pending.front() {
+            if !global.send(bytes, *destination, Delivery::Reliable, 0) {
                 break;
             }
+            pending.pop_front();
         }
     }
 
@@ -1299,7 +1311,11 @@ pub(crate) fn poll(state: &mut AppState, now_ms: u64) {
             let Some(incoming) = incoming else {
                 break;
             };
-            if incoming.payload.first() == Some(&0x0f) || state.match_state.live_network.is_some() {
+            if accepts_online_application_packet(
+                &incoming.payload,
+                state.match_state.live_network.is_some(),
+                super::loading::pump::network_loading_active(state),
+            ) {
                 if let Err(error) = receive(state, incoming, now) {
                     log::debug!("Ignored online match packet: {error:#}");
                 }
@@ -1363,7 +1379,15 @@ pub(crate) fn poll(state: &mut AppState, now_ms: u64) {
     advance_go(state, now, true);
 }
 
-fn receive(state: &mut AppState, mut incoming: GlobalMessage, now: u32) -> anyhow::Result<()> {
+fn accepts_online_application_packet(payload: &[u8], live: bool, loading: bool) -> bool {
+    live || loading::is_progress(payload)
+        || (loading
+            && payload
+                .get(..4)
+                .is_some_and(|kind| kind == LanMessageKind::Departure.raw().to_le_bytes()))
+}
+
+fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::Result<()> {
     anyhow::ensure!(incoming.product_id == 0xaa04, "different LAN product");
     if state
         .match_state
@@ -1387,61 +1411,29 @@ fn receive(state: &mut AppState, mut incoming: GlobalMessage, now: u32) -> anyho
         );
         return maps::receive(state, incoming.source, &incoming.payload);
     }
-    if state.match_state.session_mode() == SessionMode::Lan {
-        use crate::net::lan_messages::ingame::{LoadingProgressMessage, SCOPED_LOADING_MAGIC};
-        if incoming.payload.starts_with(SCOPED_LOADING_MAGIC) {
-            let scope = state
-                .match_state
-                .lan_service
-                .as_ref()
-                .and_then(|service| service.setup_scope())
-                .ok_or_else(|| anyhow::anyhow!("loading has no accepted LAN scope"))?;
-            incoming.payload = LoadingProgressMessage::decode_scoped(&incoming.payload, scope)?
-                .as_bytes()
-                .to_vec();
-        } else {
-            anyhow::ensure!(
-                incoming.payload.first() != Some(&0x0f),
-                "loading progress has no LAN scope"
-            );
-        }
-    }
     if incoming
         .payload
         .starts_with(crate::net::lan_messages::extended_setup::MAGIC)
     {
         return options::receive_extended(state, incoming.source, &incoming.payload, now);
     }
-    if incoming.payload.first() == Some(&0x0f) {
-        let progress =
-            crate::net::lan_messages::ingame::LoadingProgressMessage::decode(&incoming.payload)?;
-        //48DA6E/53EF30 compare only the source host; the payload name
-        //disambiguates native nodes. The UDP port is not part of this test.
-        let source = state
+    if loading::is_progress(&incoming.payload) {
+        let scope = state
             .match_state
-            .session
-            .network_setup()
-            .and_then(|launch| {
-                launch
-                    .humans
-                    .iter()
-                    .enumerate()
-                    .find_map(|(source, human)| {
-                        (human.name.eq_ignore_ascii_case(&progress.name())
-                            && state
-                                .match_state
-                                .session
-                                .network_endpoint(source)
-                                .is_some_and(|endpoint| endpoint.ip() == incoming.source.ip()))
-                        .then_some(source)
-                    })
-            });
-        if let Some(source) = source {
-            super::loading::pump::accept_network_loading_progress(
-                state,
-                source,
-                progress.percent(),
-            );
+            .lan_service
+            .as_ref()
+            .and_then(LanService::setup_scope);
+        if let Some((source, percent)) = loading::decode_progress(
+            &state.match_state.session,
+            scope,
+            crate::net::global::GlobalMessageRef {
+                source: incoming.source,
+                product_id: incoming.product_id,
+                sequence: incoming.sequence,
+                payload: &incoming.payload,
+            },
+        )? {
+            super::loading::pump::accept_network_loading_progress(state, source, percent);
         }
         return Ok(());
     }
@@ -1456,6 +1448,27 @@ fn receive(state: &mut AppState, mut incoming: GlobalMessage, now: u32) -> anyho
         return Ok(());
     }
     let message = LanMessage::decode(&incoming.payload)?;
+    if super::loading::pump::network_loading_active(state)
+        && state
+            .match_state
+            .lan_service
+            .as_ref()
+            .is_some_and(|service| {
+                service
+                    .loading_departure_source(&state.match_state.session, incoming.source, &message)
+                    .is_ok_and(|source| source.is_some())
+            })
+    {
+        //Native48D81A->5DA750 has already-bound private Houses. VERA builds
+        //those after synchronous loading: cancel this attempt at its safe
+        //boundary through the existing loading-failure owner, never install
+        //a stale result or invent a partial House/roster mutation.
+        super::loading::pump::cancel_network_loading(
+            state,
+            "A player left while the map was loading.",
+        );
+        return Ok(());
+    }
     if state.match_state.live_network.is_some() {
         if message.kind() == LanMessageKind::Departure {
             //ProcessGlobalPackets48D81A uses the active private endpoint;
@@ -3009,8 +3022,10 @@ pub(crate) fn return_transport(state: &mut AppState) {
     }
 }
 
+mod loading;
 mod maps;
 mod options;
+pub(crate) use loading::LoadingNetworkService;
 
 fn send_bytes(
     state: &mut AppState,
@@ -3043,46 +3058,42 @@ fn drain_match_requests(state: &mut AppState) {
     for request in requests {
         match request {
             NetworkLoadingRequest::ReportProgress(percent) => {
-                if let Ok(message) = crate::net::lan_messages::ingame::LoadingProgressMessage::new(
-                    &local_name(state),
-                    percent,
-                ) {
-                    let scoped;
-                    let bytes = if state.match_state.session_mode() == SessionMode::Lan {
-                        let Some(scope) = state
-                            .match_state
-                            .lan_service
-                            .as_ref()
-                            .and_then(|service| service.setup_scope())
-                        else {
-                            log::error!("LAN loading cannot report without accepted scope");
-                            continue;
-                        };
-                        scoped = message.scoped_bytes(scope);
-                        scoped.as_slice()
-                    } else {
-                        message.as_bytes()
-                    };
-                    if percent < 100 {
-                        send_bytes(
-                            state,
-                            bytes,
-                            GlobalDestination::Broadcast { port_override: 0 },
-                            false,
-                        );
-                    } else {
-                        let local = super::match_runtime::network_match::local_source(
-                            &state.match_state.session,
-                        );
-                        let sources: Vec<_> = state
-                            .match_state
-                            .session
-                            .network_connected_source_indices()
-                            .iter()
-                            .copied()
-                            .filter(|source| Some(*source) != local)
-                            .collect();
-                        send_sources(state, bytes, sources);
+                if state.match_state.live_network.is_none() || percent >= 100 {
+                    if let Some(service) = state.match_state.lan_service.as_mut() {
+                        match service.queue_loading_progress(&state.match_state.session, percent) {
+                            Ok(true) => service.flush_setup(),
+                            Ok(false) => state
+                                .match_state
+                                .session
+                                .report_network_loading_progress(percent),
+                            Err(error) => {
+                                state
+                                    .match_state
+                                    .session
+                                    .report_network_loading_progress(percent);
+                                log::warn!("Loading report failed: {error:#}");
+                            }
+                        }
+                    }
+                } else {
+                    let scope = state
+                        .match_state
+                        .lan_service
+                        .as_ref()
+                        .and_then(LanService::setup_scope);
+                    match loading::progress_packets(&state.match_state.session, scope, percent) {
+                        Ok(packets) => {
+                            for (bytes, destination) in packets {
+                                send_bytes(state, &bytes, destination, false);
+                            }
+                        }
+                        Err(error) => {
+                            state
+                                .match_state
+                                .session
+                                .report_network_loading_progress(percent);
+                            log::warn!("Loading report failed: {error:#}");
+                        }
                     }
                 }
             }
@@ -3819,12 +3830,55 @@ fn gameplay_connections(
 }
 
 #[cfg(test)]
+pub(crate) fn loading_test_pair() -> (
+    LanService,
+    super::match_runtime::session::MatchSession,
+    super::match_bootstrap::LoadingStartup,
+    LanService,
+    super::match_runtime::session::MatchSession,
+    super::match_bootstrap::LoadingStartup,
+) {
+    let mut host = tests::service();
+    let mut guest = tests::service();
+    let host_address = host.transport.as_ref().unwrap().primary_addr().unwrap();
+    let guest_address = guest.transport.as_ref().unwrap().primary_addr().unwrap();
+    let mut host_session = tests::session(true, guest_address);
+    let mut guest_session = tests::session(false, host_address);
+    for (service, peer) in [(&mut host, guest_address), (&mut guest, host_address)] {
+        service
+            .transport
+            .as_mut()
+            .unwrap()
+            .set_broadcast_targets(&[peer])
+            .unwrap();
+        service
+            .transport
+            .as_mut()
+            .unwrap()
+            .prepare_lan_scope(service.setup_scope.unwrap())
+            .unwrap();
+    }
+    host_session.prepare_network_timing(2, || 0).unwrap();
+    guest_session.prepare_network_timing(2, || 0).unwrap();
+    let host_startup = host_session.freeze_network_start(77).unwrap();
+    let guest_startup = guest_session.freeze_network_start(77).unwrap();
+    (
+        host,
+        host_session,
+        host_startup,
+        guest,
+        guest_session,
+        guest_startup,
+    )
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
     use crate::sim::{house_state::HouseState, world::Simulation};
 
-    fn service() -> LanService {
+    pub(super) fn service() -> LanService {
         let mut service = LanService::open_on(
             UdpBindConfig {
                 primary: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
@@ -3859,7 +3913,7 @@ mod tests {
         launch
     }
 
-    fn session(host: bool, remote: SocketAddrV4) -> MatchSession {
+    pub(super) fn session(host: bool, remote: SocketAddrV4) -> MatchSession {
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::LanLobby);
         let mut launch = launch();
@@ -4962,6 +5016,9 @@ mod tests {
 
 fn service_transport(state: &mut AppState, now: u32) -> bool {
     if let Some(live) = state.match_state.live_network.as_mut() {
+        if let Some(service) = state.match_state.lan_service.as_mut() {
+            LanService::flush_setup_queue(&mut service.pending_setup, live.global_mut());
+        }
         live.service_transport(now);
         true
     } else if let Some(transport) = state

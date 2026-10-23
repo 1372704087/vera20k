@@ -90,7 +90,17 @@ impl LoadingProgressRowSnapshot {
         self.participants
             .get_mut(source_index)
             .and_then(|row| row.remote_progress.as_mut())
-            .is_some_and(|progress| progress.set_percent(f64::from(percent)))
+            .is_some_and(|progress| {
+                //SetPercent643C94..643CC9 overwrites, including45->30. VERA's
+                //lossy sub100 packets can arrive after the reliable terminal
+                //report, so100 absorbs older reports in this attempt's row.
+                //A fresh launch snapshot resets it; LAN scope/WOL match
+                //admission rejects packets from a different attempt.
+                if progress.current_percent() >= 100.0 && percent < 100 {
+                    return false;
+                }
+                progress.set_percent(f64::from(percent))
+            })
     }
     /// Original6433D0 averages every source row, including observers.
     pub(super) fn total_fraction(&self, local: &super::pump::LoadingProgressState) -> f64 {

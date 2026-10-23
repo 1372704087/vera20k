@@ -3,7 +3,9 @@ use super::*;
 
 struct SilentProgress;
 impl LoadingProgressSink for SilentProgress {
-    fn milestone(&mut self, _percent: u32) {}
+    fn milestone(&mut self, _percent: u32) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 /// Preserve the retail terrain, ore packs, rules and roster. Select its two

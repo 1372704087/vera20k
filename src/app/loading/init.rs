@@ -1813,6 +1813,9 @@ mod fresh_transport_tests {
         for index in 0..30 {
             source.push_str(&format!("{index}={}\n", 30030 + index));
         }
+        // The production map reader requires a terrain pack before metadata
+        // reaches this consumer. Use the existing one-cell map fixture bytes.
+        source.push_str("[IsoMapPack5]\n1=DwALABwBAAIA/////wAAABEAAA==\n");
         let map = MapFile::from_bytes(source.as_bytes()).unwrap();
         let starts = scenario_start_waypoints_for_load(&map, None);
         assert_eq!(starts.len(), 30);
@@ -1997,8 +2000,14 @@ pub(crate) struct RandomMapStartupCrateProjection {
     pub(crate) body_frame: u8,
 }
 
+//The last field is the actual CellClass slope used by Mark5FC5CD..5FC5E3.
 #[cfg(test)]
-type StartupCrateSlot = (usize, crate::sim::crates::CrateSlot, Option<(u8, u8)>);
+type StartupCrateSlot = (
+    usize,
+    crate::sim::crates::CrateSlot,
+    Option<(u8, u8)>,
+    Option<u8>,
+);
 
 #[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
@@ -2449,14 +2458,17 @@ impl MapLoadInitial {
             .enumerate()
             .filter(|(_, slot)| !slot.is_empty())
             .map(|(index, slot)| {
-                let live_overlay = u16::try_from(slot.cell_x)
+                let cell = u16::try_from(slot.cell_x)
                     .ok()
-                    .zip(u16::try_from(slot.cell_y).ok())
-                    .and_then(|(rx, ry)| {
-                        let cell = simulation.overlay_grid()?.cell(rx, ry);
-                        Some((cell.overlay_id?, cell.overlay_data))
-                    });
-                (index, slot, live_overlay)
+                    .zip(u16::try_from(slot.cell_y).ok());
+                let live_overlay = cell.and_then(|(rx, ry)| {
+                    let cell = simulation.overlay_grid()?.cell(rx, ry);
+                    Some((cell.overlay_id?, cell.overlay_data))
+                });
+                let slope = cell.and_then(|(rx, ry)| {
+                    Some(simulation.resolved_terrain()?.cell(rx, ry)?.slope_type)
+                });
+                (index, slot, live_overlay, slope)
             })
             .collect();
         let final_rng = simulation.rng_state();
@@ -2594,7 +2606,7 @@ pub(crate) fn load_map_initial_with_assets(
             );
         }
 
-        progress.milestone(8);
+        progress.milestone(8)?;
         let mapgen_rng_continuation = generated.take_mapgen_continuation();
         let generated_construction_trace = generated.construction_trace;
         return Ok(MapLoadInitial {
@@ -2661,7 +2673,7 @@ pub(crate) fn load_map_initial_with_assets(
     // First post-render-handoff milestone: the selected map has been opened and
     // parsed. (gamemd emits 8 at theater-init entry; in our pipeline the map is
     // parsed first, so 8 marks the end of this initial phase.)
-    progress.milestone(8);
+    progress.milestone(8)?;
 
     Ok(MapLoadInitial {
         map_data,
@@ -2716,6 +2728,31 @@ fn generated_overlay_grid(
 mod generated_overlay_grid_tests {
     use super::*;
     use crate::map::rmg::{RmgGrid, RmgOptions, emit};
+
+    #[test]
+    fn startup_presentation_projects_live_dirty_overlays_without_empty_cells_or_duplicates() {
+        let registry = OverlayTypeRegistry::from_ini(
+            &IniFile::from_str("[OverlayTypes]\n0=CRATE\n[CRATE]\nCrate=yes\n"),
+            None,
+        );
+        let id = registry.id_for_name("CRATE").unwrap();
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(4, 4);
+        grid.place_overlay(1, 1, id, u8::MAX);
+        grid.place_overlay(1, 1, id, u8::MAX);
+        grid.place_overlay(2, 2, id, u8::MAX);
+        grid.clear_overlay(2, 2);
+        let mut sim = Simulation::new();
+        sim.install_overlay_grid_for_load(grid);
+        let mut presented = Vec::new();
+        assert_eq!(connect_startup_crate_overlays(&mut presented, &sim), 1);
+        assert_eq!(presented.len(), 1);
+        let visible = &presented[0];
+        assert_eq!(
+            (visible.rx, visible.ry, visible.overlay_id, visible.frame),
+            (1, 1, id, u8::MAX)
+        );
+        assert_eq!(sim.overlay_grid().unwrap().cell(2, 2).overlay_id, None);
+    }
 
     /// The random-map path from the generator's grid: its `MapFile`
     /// projection, the generated terrain build and the overlay grid both
@@ -2860,18 +2897,18 @@ pub(crate) fn load_map_from_initial(
     let theater_result: Option<theater::TheaterData> =
         theater::load_theater(asset_manager, &map_data.header.theater);
     if theater_cache_mismatch {
-        progress.milestone(12);
+        progress.milestone(12)?;
         // Native advances while rebuilding each color scheme. Rust's theater
         // loader is monolithic, so present the verified pre-load-count sequence
         // synchronously after that work instead of faking per-item callbacks.
         for value in
             crate::app::loading::pump::theater_ramp_changed_values(runtime_color_scheme_count)
         {
-            progress.milestone(value);
+            progress.milestone(value)?;
         }
-        progress.milestone(25);
+        progress.milestone(25)?;
     }
-    progress.milestone(30);
+    progress.milestone(30)?;
 
     let theater_ext: &'static str = match &theater_result {
         Some(td) => td.extension,
@@ -2968,9 +3005,9 @@ pub(crate) fn load_map_from_initial(
     );
     // Rules + art parsed, merged, and processed (gamemd command-bar/CD/rules
     // milestones).
-    progress.milestone(31);
-    progress.milestone(35);
-    progress.milestone(45);
+    progress.milestone(31)?;
+    progress.milestone(35)?;
+    progress.milestone(45)?;
     let csf = Some(load_csf(asset_manager)?);
     let overlay_registry: OverlayTypeRegistry =
         OverlayTypeRegistry::from_ini(&rules_ini, Some(&fixed_art_ini));
@@ -3386,10 +3423,10 @@ pub(crate) fn load_map_from_initial(
         .and_then(crate::map::theater::BridgeMiddleTiles::from_theater);
     let grid: TerrainGrid =
         terrain::build_terrain_grid_from_resolved(&resolved_terrain, bridge_middle_tiles);
-    progress.milestone(50);
-    progress.milestone(55);
-    progress.milestone(58);
-    progress.milestone(60);
+    progress.milestone(50)?;
+    progress.milestone(55)?;
+    progress.milestone(58)?;
+    progress.milestone(60)?;
     let tile_atlas: Option<TileAtlas> = match &theater_result {
         Some(td) => build_tile_atlas(
             asset_manager,
@@ -3404,9 +3441,9 @@ pub(crate) fn load_map_from_initial(
     };
     // Read_Map_Section emits 63, 65 and 67 (`0x004AD011`, `0x004AD0AF`,
     // `0x004AD339`) after Read_INI_Basic's 55/58/60 and before 68/69.
-    progress.milestone(63);
-    progress.milestone(65);
-    progress.milestone(67);
+    progress.milestone(63)?;
+    progress.milestone(65)?;
+    progress.milestone(67)?;
     let (unit_palette, overlay_iso_palette, overlay_tiberium_palette) = match theater_result {
         Some(td) => (
             Some(td.unit_palette),
@@ -3415,16 +3452,16 @@ pub(crate) fn load_map_from_initial(
         ),
         None => (None, None, None),
     };
-    progress.milestone(68);
-    progress.milestone(69);
-    progress.milestone(70);
+    progress.milestone(68)?;
+    progress.milestone(69)?;
+    progress.milestone(70)?;
 
     // Terrain/tiberium + units/infantry/buildings created from the map
     // (gamemd terrain/units/objects/buildings milestones).
-    progress.milestone(72);
-    progress.milestone(74);
-    progress.milestone(76);
-    progress.milestone(78);
+    progress.milestone(72)?;
+    progress.milestone(74)?;
+    progress.milestone(76)?;
+    progress.milestone(78)?;
     // Pre-intern all rule type IDs so that build_option_for_owner can resolve
     // InternedIds for types that haven't been spawned yet (e.g. GAPOWR).
     // Without this, sidebar cameo lookups fail because unspawned types get
@@ -3733,12 +3770,12 @@ pub(crate) fn load_map_from_initial(
     // Final post-map-init milestones (cell attributes, beacon art, post-map
     // init, tactical cleanup, final pre-render refresh). 100 is emitted by the
     // pump at Finished.
-    progress.milestone(82);
-    progress.milestone(86);
-    progress.milestone(90);
-    progress.milestone(93);
-    progress.milestone(96);
-    progress.milestone(98);
+    progress.milestone(82)?;
+    progress.milestone(86)?;
+    progress.milestone(90)?;
+    progress.milestone(93)?;
+    progress.milestone(96)?;
+    progress.milestone(98)?;
 
     // Move fields out of map_data (last use) instead of cloning.
     let theater_name = map_data.header.theater;
@@ -3799,7 +3836,9 @@ mod random_map_retail_tests {
 
     struct SilentProgress;
     impl crate::app::loading::pump::LoadingProgressSink for SilentProgress {
-        fn milestone(&mut self, _percent: u32) {}
+        fn milestone(&mut self, _percent: u32) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     /// The configurations the dialog itself can emit.

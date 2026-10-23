@@ -2291,23 +2291,26 @@ impl MatchSession {
         ))
     }
 
+    /// Read-only identity gate for a synchronous loader resuming after normal
+    /// network reducers ran. A retired/replaced admission cannot install its
+    /// old finished result, even when its local progress already reached100.
+    pub(crate) fn admits_network_start(
+        &self,
+        startup: &Arc<crate::app::match_bootstrap::PreparedNetworkStartup>,
+    ) -> bool {
+        matches!(&self.network,
+            Some(NetworkSession { phase: NetworkPhase::Frozen { startup: admitted, .. }, .. })
+                if Arc::ptr_eq(admitted, startup))
+    }
+
     /// The loader borrows the same frozen owner as the shell. It cannot adopt
     /// a second mutable setup or rewrite LAN/WOL/host identity during loading.
     pub(crate) fn assert_network_start(
         &self,
         startup: &Arc<crate::app::match_bootstrap::PreparedNetworkStartup>,
     ) {
-        let Some(NetworkSession {
-            phase: NetworkPhase::Frozen {
-                startup: admitted, ..
-            },
-            ..
-        }) = &self.network
-        else {
-            panic!("loading requires an admitted network start");
-        };
         assert!(
-            Arc::ptr_eq(admitted, startup),
+            self.admits_network_start(startup),
             "loading must consume the admitted immutable start"
         );
         assert_eq!(self.network_mode(), Some(startup.mode()));
@@ -2318,6 +2321,23 @@ impl MatchSession {
         self.network.as_mut().map_or_else(Vec::new, |network| {
             std::mem::take(&mut network.loading_requests)
         })
+    }
+
+    /// Borrowed synchronous loading drains only its own publications. All chat,
+    /// disconnect and other requests retain their existing FIFO/consumer.
+    pub(crate) fn take_network_loading_progress_reports(&mut self) -> Vec<i32> {
+        let mut reports = Vec::new();
+        if let Some(network) = self.network.as_mut() {
+            network.loading_requests.retain(|request| {
+                if let NetworkLoadingRequest::ReportProgress(percent) = request {
+                    reports.push(*percent);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+        reports
     }
 
     pub(crate) fn report_network_loading_progress(&mut self, percent: i32) {

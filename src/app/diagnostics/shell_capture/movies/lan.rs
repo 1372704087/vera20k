@@ -1117,7 +1117,9 @@ impl LanCapture {
     fn prepare_controlled_random_map(&mut self, state: &mut AppState) -> Result<()> {
         struct Silent;
         impl crate::app::loading::pump::LoadingProgressSink for Silent {
-            fn milestone(&mut self, _percent: u32) {}
+            fn milestone(&mut self, _percent: u32) -> anyhow::Result<()> {
+                Ok(())
+            }
         }
         let host_dir = Self::isolated_root(state)?.join(CONTROLLED_HOST_DIR);
         fs::create_dir_all(&host_dir)?;

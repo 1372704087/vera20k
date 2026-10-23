@@ -145,6 +145,9 @@ pub(crate) enum WolServiceRequest {
     },
     /// API+0x24: leave the current channel.
     LeaveChannel,
+    /// VERA HTTPS cleanup intent when the visit returns while its live service
+    /// is borrowed by a callback. The same service owns the match/finish ID.
+    MatchReturned,
     /// API+0x34 from the logout `0x00785EA0`.
     Logout,
     /// `0x00789B60`: API+0x1C with the new game channel's record and its

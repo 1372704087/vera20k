@@ -724,7 +724,7 @@ pub(super) fn begin_my_information(state: &mut AppState) {
 }
 
 /// Queue a request from the login page (credential store changes).
-pub(super) fn request(state: &mut AppState, request: WolServiceRequest) {
+pub(crate) fn request(state: &mut AppState, request: WolServiceRequest) {
     if let Some(visit) = state.frontend.wol.as_mut() {
         visit.requests.push(request);
     }

@@ -10,6 +10,9 @@ use std::net::{Ipv4Addr, SocketAddrV4};
 
 use super::reliable::{Delivery, RetryTiming, SendQueue, connection_prefix, sequence};
 
+mod loading_observation;
+pub use loading_observation::{LoadingObservation, LoadingObservationLog};
+
 pub const GLOBAL_HEADER_LEN: usize = 16;
 pub const GLOBAL_DISCRIMINATOR: u16 = 0x1236;
 
@@ -163,6 +166,7 @@ pub struct GlobalChannel {
     next_seen: usize,
     total_received: u32,
     responses: VecDeque<GlobalResponseTime>,
+    loading_observation: Option<LoadingObservationLog>,
 }
 
 impl GlobalChannel {
@@ -195,6 +199,7 @@ impl GlobalChannel {
             next_seen: 0,
             total_received: 0,
             responses: VecDeque::new(),
+            loading_observation: None,
         }
     }
 
@@ -212,6 +217,11 @@ impl GlobalChannel {
         self.config.acknowledgments = GlobalAcknowledgments::AuthenticatedSource;
     }
 
+    /// Read-only capture fact from the actual ACK matching policy.
+    pub fn authenticated_acknowledgments(&self) -> bool {
+        self.config.acknowledgments == GlobalAcknowledgments::AuthenticatedSource
+    }
+
     pub fn available_send_slots(&self) -> usize {
         self.send.available_slots()
     }
@@ -220,6 +230,30 @@ impl GlobalChannel {
     }
     pub fn pop_response_time(&mut self) -> Option<GlobalResponseTime> {
         self.responses.pop_front()
+    }
+
+    /// Explicit capture opt-in; observations never participate in admission,
+    /// retry, ACK matching, row mutation or the simulation hash.
+    pub fn observe_loading(&mut self) {
+        self.loading_observation
+            .get_or_insert_with(Default::default);
+    }
+
+    pub fn loading_observation(&self) -> Option<&LoadingObservationLog> {
+        self.loading_observation.as_ref()
+    }
+
+    pub fn observe_loading_application(
+        &mut self,
+        source: usize,
+        sequence: u32,
+        percent: i32,
+        displayed: f64,
+        applied: bool,
+    ) {
+        if let Some(log) = self.loading_observation.as_mut() {
+            log.application(source, sequence, percent, displayed, applied);
+        }
     }
 
     pub const fn discriminator(&self) -> u16 {
@@ -269,7 +303,11 @@ impl GlobalChannel {
             sequence_override
         };
         let frame = self.frame(kind, outgoing_sequence, payload);
-        self.send.enqueue(frame, destination)
+        let admitted = self.send.enqueue(frame, destination);
+        if admitted && let Some(log) = self.loading_observation.as_mut() {
+            log.admitted(payload, destination, outgoing_sequence, kind == 0);
+        }
+        admitted
     }
 
     /// Global53FCB0 accepts new sources. It compares the discriminator, not
@@ -385,11 +423,15 @@ impl GlobalChannel {
         let observe = self.config.acknowledgments == GlobalAcknowledgments::AuthenticatedSource;
         let responses = &mut self.responses;
         let capacity = self.config.send_capacity;
+        let loading = &mut self.loading_observation;
         if !self.send.service(
             now_ticks,
             self.timing,
             send,
             &mut |destination, sequence, elapsed| {
+                if let Some(log) = loading.as_mut() {
+                    log.retired(destination, sequence);
+                }
                 if observe {
                     // Derived observations are bounded by the send owner's cap.
                     // Startup consumes them every service pass; no history is

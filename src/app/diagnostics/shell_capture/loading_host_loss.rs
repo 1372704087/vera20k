@@ -29,13 +29,22 @@ pub(crate) struct HostLossObserver<'a> {
 pub(crate) enum LoadingObserver<'a> {
     HostLoss(HostLossObserver<'a>),
     Startup(super::startup_host_loss::StartupLoadingObserver<'a>),
+    Cancel(super::loading_runtime::CancelLoadingObserver<'a>),
 }
 
 impl ShellCaptureSession {
     pub(crate) fn loading_observer(&self) -> Option<LoadingObserver<'_>> {
         let config = self.request.live_online.as_ref()?;
         let uptime_ms = self.started_at?.elapsed().as_millis();
-        if config.startup_host_loss.is_some() {
+        if config.loading_cancel.is_some() {
+            Some(LoadingObserver::Cancel(
+                super::loading_runtime::CancelLoadingObserver {
+                    config,
+                    frame: self.frames_seen,
+                    uptime_ms: u128::from(crate::app::match_runtime::frame_pacer::wall_clock_ms()),
+                },
+            ))
+        } else if config.startup_host_loss.is_some() {
             Some(LoadingObserver::Startup(
                 super::startup_host_loss::StartupLoadingObserver::new(
                     config,
@@ -63,7 +72,7 @@ impl LoadingObserver<'_> {
     ) -> Result<()> {
         match self {
             Self::HostLoss(observer) => observer.observe(state, view),
-            Self::Startup(_) => Ok(()),
+            Self::Startup(_) | Self::Cancel(_) => Ok(()),
         }
     }
 
@@ -78,6 +87,7 @@ impl LoadingObserver<'_> {
         match self {
             Self::HostLoss(_) => Ok(false),
             Self::Startup(observer) => observer.defer_install(state, view),
+            Self::Cancel(observer) => observer.defer_install(state, view),
         }
     }
 
@@ -85,6 +95,7 @@ impl LoadingObserver<'_> {
         match self {
             Self::HostLoss(_) => Ok(()),
             Self::Startup(observer) => observer.before_install(),
+            Self::Cancel(observer) => observer.before_install(),
         }
     }
 
@@ -96,7 +107,7 @@ impl LoadingObserver<'_> {
     ) -> Result<()> {
         match self {
             Self::HostLoss(observer) => observer.removed(state, sim, timed_out),
-            Self::Startup(_) => {
+            Self::Startup(_) | Self::Cancel(_) => {
                 ensure!(
                     timed_out.is_empty(),
                     "startup fault reached a loading timeout before install"
@@ -110,6 +121,7 @@ impl LoadingObserver<'_> {
         match self {
             Self::HostLoss(observer) => observer.installed(state),
             Self::Startup(observer) => observer.installed(state),
+            Self::Cancel(_) => Ok(()),
         }
     }
 }
@@ -721,7 +733,7 @@ pub(super) fn loading_snapshot(
         .collect();
     Ok(json!({
         "checkpoint_id":checkpoint_id,"account":config.account,
-        "host":config.host,"players":3,"process_id":std::process::id(),
+        "host":config.host,"players":launch.humans.len(),"process_id":std::process::id(),
         "render_frame":frame,"uptime_ms":uptime_ms,
         "startup":network_startup_receipt(state, launch, view.simulation)?,
         "map_admission":{"source_sha256":metadata.source_sha256,

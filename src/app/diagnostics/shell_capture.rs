@@ -25,6 +25,7 @@ use crate::ui::shell::static_reveal::Kind1PaintWindow;
 
 pub(crate) mod fault_files;
 pub(crate) mod loading_host_loss;
+pub(crate) mod loading_runtime;
 mod movies;
 mod score;
 mod skirmish;
@@ -1104,9 +1105,33 @@ pub(crate) struct LiveOnlineConfig {
     /// External owned kill after ordinary100, before the original host installs live gameplay.
     pub startup_host_loss: Option<String>,
     pub loading_output: Option<PathBuf>,
+    pub loading_cancel: Option<LoadingCancelConfig>,
+    pub observe_loading: bool,
+    pub profile_check: bool,
     pub exit_prefix_output: Option<PathBuf>,
     /// Nonsecret real-command/checksum prefix, written before external faults.
     pub failure_prefix_output: Option<PathBuf>,
+}
+
+/// Diagnostic intent only; cancellation still runs the real service owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoadingCancelKind {
+    Https,
+    Departure,
+}
+impl LoadingCancelKind {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Https => "https",
+            Self::Departure => "departure",
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub(crate) struct LoadingCancelConfig {
+    pub checkpoint_id: String,
+    pub kind: LoadingCancelKind,
+    pub output: PathBuf,
 }
 
 /// The victim is terminated externally by the owned-process runner. This
@@ -1163,6 +1188,7 @@ pub(crate) struct LiveLanConfig {
     pub map: Option<String>,
     /// Optional real pre-GO process-loss checkpoint. It never changes a timer.
     pub setup_crash: Option<LanSetupCrash>,
+    pub profile_check: bool,
     /// Written before an external LAN proxy/process fault; contains no secrets.
     pub failure_prefix_output: Option<PathBuf>,
 }
@@ -1257,6 +1283,10 @@ where
     let mut online_exit_checkpoint = None;
     let mut online_loading_host_loss = None;
     let mut online_startup_host_loss = None;
+    let mut online_loading_cancel = None;
+    let mut online_loading_cancel_checkpoint = None;
+    let mut observe_loading = false;
+    let mut profile_check = false;
 
     while let Some(flag) = args.next() {
         let flag = flag
@@ -1388,6 +1418,28 @@ where
                 next_utf8(&mut args, "value after --online-startup-host-loss")?,
                 "--online-startup-host-loss",
             )?,
+            "--online-loading-cancel" => {
+                let kind =
+                    match next_utf8(&mut args, "value after --online-loading-cancel")?.as_str() {
+                        "https" => LoadingCancelKind::Https,
+                        "departure" => LoadingCancelKind::Departure,
+                        _ => bail!("--online-loading-cancel requires https or departure"),
+                    };
+                set_once(&mut online_loading_cancel, kind, "--online-loading-cancel")?;
+            }
+            "--online-loading-cancel-checkpoint" => set_once(
+                &mut online_loading_cancel_checkpoint,
+                next_utf8(&mut args, "value after --online-loading-cancel-checkpoint")?,
+                "--online-loading-cancel-checkpoint",
+            )?,
+            "--online-observe-loading" => {
+                ensure!(!observe_loading, "duplicate --online-observe-loading");
+                observe_loading = true;
+            }
+            "--network-profile-check" => {
+                ensure!(!profile_check, "duplicate --network-profile-check");
+                profile_check = true;
+            }
             "--online-exit-checkpoint" => set_once(
                 &mut online_exit_checkpoint,
                 next_utf8(&mut args, "value after --online-exit-checkpoint")?,
@@ -1444,6 +1496,31 @@ where
         ensure!(
             lan_bind.is_none() && lan_peer.is_none() && lan_setup_crash.is_none(),
             "--lan-production-broadcast cannot override sockets or combine with a fault checkpoint"
+        );
+    }
+    if profile_check {
+        ensure!(
+            matches!(
+                checkpoint,
+                ShellCaptureCheckpoint::Lan(
+                    movies::LanTarget::OnlineHost | movies::LanTarget::LiveHost
+                )
+            ) && lan_setup_crash.is_none()
+                && online_loading_host_loss.is_none()
+                && online_startup_host_loss.is_none()
+                && online_network_checkpoint.is_none()
+                && online_exit_checkpoint.is_none()
+                && online_loading_cancel.is_none(),
+            "profile check requires a normal host checkpoint without another fault"
+        );
+        ensure!(
+            if online {
+                online_map.as_deref()
+            } else {
+                lan_map.as_deref()
+            }
+            .is_some_and(|file| !crate::map::rmg::is_seed_selection(file)),
+            "profile check requires an authored30-capable catalog map"
         );
     }
     let live_online = if online {
@@ -1563,6 +1640,33 @@ where
                 || players <= 8,
             "random maps support two to eight players"
         );
+        ensure!(
+            online_loading_cancel.is_some() == online_loading_cancel_checkpoint.is_some(),
+            "loading cancellation requires both kind and checkpoint nonce"
+        );
+        if let Some(nonce) = online_loading_cancel_checkpoint.as_deref() {
+            ensure!(
+                public_coordinator_nonce(nonce)
+                    && players == 2
+                    && online_simple
+                    && !online_mass
+                    && !online_failure
+                    && online_loading_host_loss.is_none()
+                    && online_startup_host_loss.is_none()
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_map.is_none()
+                    && online_start.is_none()
+                    && !profile_check,
+                "loading cancellation requires a normal simple online pair and32 lowercase hex nonce without another fault/map/start"
+            );
+            for kind in ["ready", "control", "returned"] {
+                ensure!(
+                    !loading_runtime::sidecar(&output_dir, kind).try_exists()?,
+                    "loading cancellation output already exists"
+                );
+            }
+        }
         if online_loading_host_loss.is_some() {
             for kind in ["ready", "complete", "killed", "prefix", "removed"] {
                 ensure!(
@@ -1608,6 +1712,14 @@ where
             } else {
                 None
             },
+            loading_cancel: online_loading_cancel.map(|kind| LoadingCancelConfig {
+                checkpoint_id: online_loading_cancel_checkpoint
+                    .expect("validated loading cancel nonce"),
+                kind,
+                output: output_dir.clone(),
+            }),
+            observe_loading,
+            profile_check,
             exit_checkpoint: online_exit_checkpoint,
             loading_output: online_loading_host_loss
                 .as_ref()
@@ -1631,7 +1743,10 @@ where
                 && online_network_checkpoint.is_none()
                 && online_exit_checkpoint.is_none()
                 && online_loading_host_loss.is_none()
-                && online_startup_host_loss.is_none(),
+                && online_startup_host_loss.is_none()
+                && online_loading_cancel.is_none()
+                && online_loading_cancel_checkpoint.is_none()
+                && !observe_loading,
             "online options require an online live checkpoint"
         );
         None
@@ -1712,6 +1827,7 @@ where
             transport,
             map: lan_map,
             setup_crash: lan_setup_crash,
+            profile_check,
             failure_prefix_output,
         })
     } else {
@@ -2967,6 +3083,7 @@ mod tests {
                 },
                 map: None,
                 setup_crash: None,
+                profile_check: false,
                 failure_prefix_output: None,
             })
         );
@@ -3309,6 +3426,47 @@ mod tests {
         values[frames] = "600".into();
         values[1] = "online-live-timeout-host".into();
         assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn loading_cancellation_and_progress_are_explicit_normal_online_inputs() {
+        let output = new_output_path("online-loading-cancel");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "CaptureHost",
+            "--online-password-stdin",
+            "--online-simple-input",
+            "--online-loading-cancel",
+            "https",
+            "--online-loading-cancel-checkpoint",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "--online-observe-loading",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture")
+        };
+        let config = request.live_online.unwrap();
+        assert!(config.observe_loading);
+        assert_eq!(
+            config.loading_cancel.unwrap().kind,
+            LoadingCancelKind::Https
+        );
+        values.extend(args(&["--online-players", "3"]));
+        assert!(parse_launch_args(values).is_err());
+        let mut wrong = valid_args(&output);
+        wrong[1] = "online-live-host".into();
+        wrong.extend(args(&[
+            "--online-account",
+            "CaptureHost",
+            "--online-password-stdin",
+            "--online-simple-input",
+            "--online-loading-cancel",
+            "departure",
+        ]));
+        assert!(parse_launch_args(wrong).is_err());
     }
 
     #[test]

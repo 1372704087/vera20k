@@ -132,6 +132,24 @@ pub(crate) struct LanService {
 }
 
 impl LanService {
+    /// Diagnostic opt-in follows the SAME global owner through loading/live
+    /// handoff; callers never borrow the private socket or another queue.
+    pub(crate) fn observe_loading(&mut self) {
+        if let Some(transport) = self.transport.as_mut() {
+            transport.global_mut().observe_loading();
+        }
+    }
+
+    pub(crate) fn loading_observation(
+        &self,
+    ) -> Option<(&crate::net::global::LoadingObservationLog, bool)> {
+        let global = self.transport.as_ref()?.global();
+        Some((
+            global.loading_observation()?,
+            global.authenticated_acknowledgments(),
+        ))
+    }
+
     pub(crate) fn open(_now: u32) -> std::io::Result<Self> {
         // IPv4 adaptation: limited broadcast on the OS-selected interface.
         // Explicit interface/target selection remains a separate transport
@@ -1433,7 +1451,31 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
                 payload: &incoming.payload,
             },
         )? {
-            super::loading::pump::accept_network_loading_progress(state, source, percent);
+            let applied =
+                super::loading::pump::accept_network_loading_progress(state, source, percent);
+            if let Some(displayed) =
+                super::loading::pump::network_loading_displayed_percent(state, source)
+            {
+                let global = if let Some(live) = state.match_state.live_network.as_mut() {
+                    Some(live.global_mut())
+                } else {
+                    state
+                        .match_state
+                        .lan_service
+                        .as_mut()
+                        .and_then(|service| service.transport.as_mut())
+                        .map(|transport| transport.global_mut())
+                };
+                if let Some(global) = global {
+                    global.observe_loading_application(
+                        source,
+                        incoming.sequence,
+                        percent,
+                        displayed,
+                        applied,
+                    );
+                }
+            }
         }
         return Ok(());
     }
@@ -1463,6 +1505,18 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
         //those after synchronous loading: cancel this attempt at its safe
         //boundary through the existing loading-failure owner, never install
         //a stale result or invent a partial House/roster mutation.
+        let source = state
+            .match_state
+            .session
+            .network_endpoint_source(incoming.source);
+        let match_id = super::shell_wol::online_match_id(state).map(str::to_owned);
+        state.match_state.match_diagnostics.observe_loading_cancel(
+            "authenticated_departure",
+            match_id,
+            source,
+            false,
+            true,
+        );
         super::loading::pump::cancel_network_loading(
             state,
             "A player left while the map was loading.",

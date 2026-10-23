@@ -52,6 +52,9 @@ pub(super) struct LiveRoundFlow {
     network_checkpoint_started: Option<Instant>,
     exit_reentry: Option<ExitReentry>,
     loading_host_loss: Option<LoadingHostLoss>,
+    loading_cancel_trigger: Option<Value>,
+    loading_cancellation: Option<Value>,
+    profile: Option<super::profile::ProfileCheck>,
 }
 
 impl LiveRoundFlow {
@@ -73,6 +76,10 @@ impl LiveRoundFlow {
             .as_ref()
             .and_then(|config| config.loading_host_loss.as_ref())
             .map(|_| LoadingHostLoss::default());
+        let profile = config
+            .as_ref()
+            .filter(|config| config.profile_check)
+            .map(|_| Default::default());
         Self {
             config,
             random_map_input: None,
@@ -90,6 +97,9 @@ impl LiveRoundFlow {
             network_checkpoint_started: None,
             exit_reentry: None,
             loading_host_loss,
+            loading_cancel_trigger: None,
+            loading_cancellation: None,
+            profile,
         }
     }
 
@@ -172,7 +182,18 @@ impl LiveRoundFlow {
             .unwrap_or(&self.online_config().host)
     }
     pub(super) fn controls(&self, core: &LiveLanCapture) -> bool {
-        self.config.is_some() || self.phase != RoundPhase::LanEntry || core.phase == Phase::Running
+        self.config.is_some()
+            || self.phase != RoundPhase::LanEntry
+            || core.phase == Phase::Running
+            || (core
+                .config
+                .as_ref()
+                .is_some_and(|config| config.profile_check)
+                && (core.phase == Phase::HostReady
+                    || self
+                        .profile
+                        .as_ref()
+                        .is_some_and(|profile| profile.started())))
     }
 
     pub(super) fn ready(&self) -> bool {
@@ -458,6 +479,82 @@ impl LiveRoundFlow {
         frame: u32,
     ) -> Result<()> {
         self.heartbeat(state, rendered);
+        if let Some(config) = self.config.as_ref() {
+            if config.observe_loading && state.frontend.screen == GameScreen::Loading {
+                crate::app::diagnostics::shell_capture::loading_runtime::observe_progress(state);
+            }
+            let settled = online_lobby_settled(state);
+            match crate::app::diagnostics::shell_capture::loading_runtime::cancellation_step(
+                config,
+                state,
+                rendered,
+                settled,
+                frame,
+                &mut self.loading_cancel_trigger,
+            )? {
+                crate::app::diagnostics::shell_capture::loading_runtime::CancelStep::Ordinary => {}
+                crate::app::diagnostics::shell_capture::loading_runtime::CancelStep::Waiting => {
+                    return Ok(());
+                }
+                crate::app::diagnostics::shell_capture::loading_runtime::CancelStep::Recovered(
+                    proof,
+                ) => {
+                    self.loading_cancellation = Some(proof);
+                    reset_round(core);
+                    self.phase = RoundPhase::Lobby;
+                    self.record(frame,"Actual preinstall cancellation acknowledged finish/leave and returned assets; fresh normal rooms follow in this same process");
+                    return Ok(());
+                }
+            }
+        }
+        if self.profile.is_none()
+            && core
+                .config
+                .as_ref()
+                .is_some_and(|config| config.profile_check)
+        {
+            self.profile = Some(Default::default());
+        }
+        if let Some(profile) = self.profile.as_mut() {
+            let online = self.config.is_some();
+            let start = if online {
+                self.phase == RoundPhase::HostReady
+            } else {
+                core.phase == Phase::HostReady
+            };
+            if start || profile.started() {
+                match profile.step(state, rendered, online, frame)? {
+                    super::profile::ProfileStep::Ordinary => {}
+                    super::profile::ProfileStep::Waiting => return Ok(()),
+                    super::profile::ProfileStep::Recreate => {
+                        if online {
+                            self.phase = RoundPhase::Lobby;
+                        } else {
+                            lobby_button(state, crate::ui::lan_shell::CREATE)?;
+                        }
+                        self.record(frame,"Host profile Back returned to lobby; ordinary Create repeats the same profile");
+                        return Ok(());
+                    }
+                    super::profile::ProfileStep::Exit => {
+                        if online {
+                            click(
+                                state,
+                                crate::app::shell_wol::lobby::layout(state)
+                                    .page
+                                    .button_rect(wol_lobby::BACK)
+                                    .context("profile lobby Back")?,
+                            );
+                            self.phase = RoundPhase::ExitWelcome;
+                        } else {
+                            lobby_button(state, crate::ui::lan_shell::BACK)?;
+                            self.phase = RoundPhase::MainReturn;
+                        }
+                        self.record(frame,"Extended and native profile rows retained after actual Back/Create; return to Menu");
+                        return Ok(());
+                    }
+                }
+            }
+        }
         if let Some(exit) = &self.exit_reentry {
             ensure!(
                 exit.started.elapsed() < Duration::from_secs(180),
@@ -1196,7 +1293,9 @@ impl LiveRoundFlow {
         ensure!(
             self.ready()
                 && self.rounds.len()
-                    == if self.failure_prefix_written || startup_failure {
+                    == if self.profile.is_some() {
+                        0
+                    } else if self.failure_prefix_written || startup_failure {
                         1
                     } else {
                         2
@@ -1220,8 +1319,10 @@ impl LiveRoundFlow {
             "failure_prefix":self.config.as_ref().and_then(|config|config.failure_prefix_output.as_ref()),
             "network_checkpoint":self.network_checkpoint,
             "exit_reentry":self.exit_reentry.as_ref().map(ExitReentry::receipt),
+            "loading_cancellation":self.loading_cancellation,
+            "profile_check":self.profile.as_ref().map(|profile|profile.receipt()).transpose()?,
             "loading_host_loss":self.loading_host_loss.as_ref().map(|loss|loss.receipt(self.online_config())).transpose()?,
-            "scope":if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
+            "scope":if self.profile.is_some() { "host-only actual map/page/combo/Back/Create profile reconstruction followed by settled Menu; no match or30-human acceptance claim" } else if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),
         )
@@ -1267,7 +1368,7 @@ pub(super) fn online_lobby_settled(state: &AppState) -> bool {
             .is_some_and(|lobby| lobby.interactive())
 }
 
-fn online_setup_settled(state: &AppState, host: bool) -> bool {
+pub(super) fn online_setup_settled(state: &AppState, host: bool) -> bool {
     MoviesCapture::slide_settled(
         state,
         ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {

@@ -1066,6 +1066,23 @@ pub(crate) fn accept_network_loading_progress(
         })
 }
 
+/// Read-only capture projection of the row already mutated by the native owner.
+/// It has no progress/transport policy and cannot update the held loader.
+pub(crate) fn network_loading_displayed_percent(state: &AppState, source: usize) -> Option<f64> {
+    state
+        .frontend
+        .loading_session
+        .as_ref()?
+        .native
+        .as_ref()?
+        .progress_row
+        .participants
+        .get(source)?
+        .remote_progress
+        .as_ref()
+        .map(LoadingProgressState::current_percent)
+}
+
 /// One source-membership and row mutation owner used while LoadingSession is
 /// either installed in Frontend or borrowed by its synchronous phase sink.
 pub(crate) fn accept_network_loading_progress_row(

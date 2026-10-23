@@ -32,6 +32,7 @@ pub(crate) struct MatchDiagnosticsState {
     /// by the frame loop, closed by the lifecycle flush points above.
     pub(crate) replay_log: Option<ReplayLog>,
     command_executions: Option<CommandExecutionLog>,
+    loading_cancel: Option<Vec<LoadingCancelObservation>>,
 }
 
 /// One actual post-formation native command dispatch and its immediate
@@ -102,12 +103,51 @@ impl CommandExecutionLog {
     }
 }
 
+#[derive(Clone, serde::Serialize)]
+pub(crate) struct LoadingCancelObservation {
+    pub event: &'static str,
+    pub match_id: Option<String>,
+    pub source: Option<usize>,
+    pub worker_owner_taken: bool,
+    pub loading_active: bool,
+}
+
 pub(crate) struct ReplayLogFlush {
     pub(crate) path: PathBuf,
     pub(crate) tick_count: usize,
 }
 
 impl MatchDiagnosticsState {
+    pub(crate) fn begin_loading_cancel_observation(&mut self) {
+        self.loading_cancel.get_or_insert_with(Vec::new);
+    }
+    pub(crate) fn observe_loading_cancel(
+        &mut self,
+        event: &'static str,
+        match_id: Option<String>,
+        source: Option<usize>,
+        worker_owner_taken: bool,
+        loading_active: bool,
+    ) {
+        if let Some(log) = self.loading_cancel.as_mut() {
+            if log.len() < 16 {
+                log.push(LoadingCancelObservation {
+                    event,
+                    match_id,
+                    source,
+                    worker_owner_taken,
+                    loading_active,
+                });
+            }
+        }
+    }
+    pub(crate) fn loading_cancel_observations(&self) -> Option<&[LoadingCancelObservation]> {
+        self.loading_cancel.as_deref()
+    }
+    pub(crate) fn end_loading_cancel_observation(&mut self) {
+        self.loading_cancel = None;
+    }
+
     pub(crate) fn begin_command_observation(&mut self) {
         self.command_executions = Some(CommandExecutionLog::default());
     }

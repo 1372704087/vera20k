@@ -1595,6 +1595,19 @@ fn apply_event(
             service_event(state, event);
         }
         "channel_left" => {
+            let active = crate::app::loading::pump::network_loading_active(state);
+            let taken = state
+                .frontend
+                .wol
+                .as_ref()
+                .is_some_and(|visit| visit.live_service.is_none());
+            state.match_state.match_diagnostics.observe_loading_cancel(
+                "deployed_channel_left",
+                service.match_id.clone(),
+                None,
+                taken,
+                active,
+            );
             crate::app::loading::pump::cancel_network_loading(
                 state,
                 "The online room closed while the map was loading.",

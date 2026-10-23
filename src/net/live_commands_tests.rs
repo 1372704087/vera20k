@@ -2076,6 +2076,378 @@ fn three_udp_clients_keep_adaptive_timing_after_the_original_publisher_exits() {
 }
 
 #[test]
+fn three_udp_clients_recover_a_retained_frontier_across_a_timing_shrink() {
+    use crate::net::event_packet::decode_frame_info;
+    use crate::sim::command::{Command, MegaMissionRecord, StopRecord};
+    use std::collections::BTreeMap;
+
+    // Byte-preserving fault on only House0 <-> House2. Startup, probes and
+    // ACKs pass normally. The first frame325 command attempt is lost; the
+    // remaining real reliable packets wait until the sender hits its FIFO.
+    struct Link {
+        sockets: [UdpSocket; 2],
+        endpoints: [SocketAddrV4; 2],
+        hold: bool,
+        first_lost: Option<u32>,
+        retried: bool,
+        delivered_retry: bool,
+        reordered: bool,
+        held: BTreeMap<u32, Vec<u8>>,
+    }
+    impl Link {
+        fn forward(&mut self, side: usize, packet: &[u8]) {
+            let frame = &packet[4..]; // Existing UDP checksum, no outer scope.
+            if side == 0
+                && let Some(first) = self.first_lost
+            {
+                let sequence = crate::net::reliable::sequence(frame);
+                if frame[2] == 0 {
+                    self.reordered |= sequence > first && !self.delivered_retry;
+                    self.delivered_retry |= sequence == first;
+                }
+            }
+            self.sockets[1 - side]
+                .send_to(packet, self.endpoints[1 - side])
+                .unwrap();
+        }
+
+        fn pump(&mut self) {
+            for side in 0..2 {
+                loop {
+                    let mut packet = [0; crate::net::udp::UDP_DATAGRAM_CAPACITY];
+                    let (len, source) = match self.sockets[side].recv_from(&mut packet) {
+                        Ok(received) => received,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(error) => panic!("timing link receive: {error}"),
+                    };
+                    assert_eq!(source, std::net::SocketAddr::V4(self.endpoints[side]));
+                    let packet = &packet[..len];
+                    let frame = &packet[4..];
+                    let body = &frame[crate::net::reliable::CONNECTION_HEADER_LEN..];
+                    if side == 0
+                        && frame[2] == 0
+                        && decode_frame_info(body).is_some_and(|info| info.event_frame == 325)
+                    {
+                        let sequence = crate::net::reliable::sequence(frame);
+                        if self.first_lost.is_none() {
+                            self.first_lost = Some(sequence);
+                            continue;
+                        }
+                        self.retried |= self.first_lost == Some(sequence);
+                        if self.hold {
+                            self.held.entry(sequence).or_insert_with(|| packet.to_vec());
+                            assert!(
+                                self.held.len() <= 32,
+                                "the actual reliable FIFO bounds the hold"
+                            );
+                            continue;
+                        }
+                    }
+                    self.forward(side, packet);
+                }
+            }
+        }
+
+        fn release(&mut self) {
+            self.hold = false;
+            // Deliver later reliable sequences before the lost one's retry.
+            for (_, packet) in std::mem::take(&mut self.held).into_iter().rev() {
+                self.forward(0, &packet);
+            }
+        }
+    }
+
+    let mut transports: [LanUdpTransport; 3] = std::array::from_fn(|_| transport());
+    let addresses = std::array::from_fn::<_, 3, _>(|i| transports[i].primary_addr().unwrap());
+    let sockets: [UdpSocket; 2] = std::array::from_fn(|_| {
+        let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        socket.set_nonblocking(true).unwrap();
+        socket
+    });
+    let proxy_addresses: [SocketAddrV4; 2] = std::array::from_fn(|i| {
+        let std::net::SocketAddr::V4(address) = sockets[i].local_addr().unwrap() else {
+            unreachable!()
+        };
+        address
+    });
+    for (index, wire) in transports.iter_mut().enumerate() {
+        for (peer, &address) in addresses
+            .iter()
+            .enumerate()
+            .filter(|(peer, _)| *peer != index)
+        {
+            let endpoint = match (index, peer) {
+                (0, 2) => proxy_addresses[0],
+                (2, 0) => proxy_addresses[1],
+                _ => address,
+            };
+            wire.connections_mut()
+                .add_peer(peer as i32, endpoint)
+                .unwrap();
+        }
+    }
+    let mut link = Link {
+        sockets,
+        endpoints: [addresses[0], addresses[2]],
+        hold: true,
+        first_lost: None,
+        retried: false,
+        delivered_retry: false,
+        reordered: false,
+        held: BTreeMap::new(),
+    };
+    let boundaries: Vec<_> = transports
+        .into_iter()
+        .enumerate()
+        .map(|(index, wire)| {
+            let mut live = LiveCommandSession::new(
+                fixture_agreement(&wire, index as i8, 73, NonZeroU32::new(5).unwrap()),
+                wire,
+                index as i8,
+                73,
+                NonZeroU32::new(5).unwrap(),
+                LiveCommandMode::Wol,
+            )
+            .unwrap();
+            if index == 0 {
+                live.configure_precalculated_timing(40, 45);
+            }
+            let mut boundary = Boundary::new(live);
+            boundary.process_millis = Some(if index == 2 { 500 } else { 20 });
+            boundary
+        })
+        .collect();
+    let (first, rules, actor) = stop_scene();
+    let mut worlds = [first, stop_scene().0, stop_scene().0];
+    for (index, sim) in worlds.iter_mut().enumerate() {
+        let third = sim.interner.intern("Gamma");
+        sim.houses
+            .register(HouseState::new(third, 2, None, true, 0, 10));
+        sim.spawn_object("AMCV", "Gamma", 30, 30, 0, &rules)
+            .unwrap();
+        sim.session.set_game_mode(ScenarioGameMode::Wol);
+        sim.session
+            .set_current_house_for_test(Some(sim.houses.order()[index]));
+        sim.session.install_network_command_timing(
+            0,
+            std::num::NonZeroU8::new(5).unwrap(),
+            [0, 1, 2],
+        );
+    }
+    // Reach ProcessNetwork647BF4's ordinary-command gate without injecting a
+    // TIMING/PROCESS_TIME record. LiveTiming produces those from real samples.
+    for _ in 0..5 {
+        assert!(
+            worlds[0].issue_local_command(CommandEnvelope::synchronized(
+                crate::sim::command::GameSpeedRecord {
+                    house_id: 0,
+                    frame: 0,
+                    speed: 1
+                }
+                .encode()
+                .unwrap(),
+                0,
+            ))
+        );
+    }
+    let owner = worlds[0].interner.get("Alpha").unwrap();
+    let mut crcs: [BTreeMap<u32, u32>; 3] = std::array::from_fn(|_| BTreeMap::new());
+    let mut hashes: [BTreeMap<u32, u64>; 3] = std::array::from_fn(|_| BTreeMap::new());
+    let mut released_slow = false;
+    let mut queued_move = false;
+    let mut queued_stop = false;
+    let mut saw_backpressure = false;
+    let mut saw_incomplete_frontier = false;
+    let started = Instant::now();
+    let mut turn = 0;
+    while worlds.iter().any(|sim| sim.session().binary_frame() < 400) {
+        turn += 1;
+        link.pump();
+        // Keep peer2 at285 while the fast clients apply the real frame300
+        // decrease. At301 they now lack frame credit under MaxAhead15.
+        if !released_slow
+            && worlds[2].session().binary_frame() == 285
+            && worlds[0].session().binary_frame() >= 301
+        {
+            assert_eq!(worlds[2].session().binary_frame(), 285);
+            assert!(worlds[0].session().binary_frame() - worlds[2].session().binary_frame() > 15);
+            released_slow = true;
+        }
+        for index in 0..3 {
+            let boundary = &boundaries[index];
+            boundary
+                .now
+                .set(1000 + (started.elapsed().as_millis() / 16) as u32);
+            // Same Network_ServiceLoop48D080 boundary as the app: even a
+            // deliberately slow or finished simulation still services ACKs.
+            boundary
+                .live
+                .borrow_mut()
+                .service_transport(boundary.now.get());
+            let sim = &mut worlds[index];
+            let frame = sim.session().binary_frame();
+            if frame >= 400
+                || (index == 2
+                    && ((!released_slow && frame >= 285) || (released_slow && turn % 4 != 0)))
+            {
+                continue;
+            }
+            if index == 0 && frame == 310 && !queued_move {
+                let tick = sim.session().tick();
+                // Distinct targets prevent MegaMission run compression from
+                // hiding the production32-packet queue boundary.
+                let commands = (0..1024)
+                    .map(|n| {
+                        CommandEnvelope::synchronized(
+                            sim.encode_megamission_record(
+                                owner,
+                                &Command::Move {
+                                    entity_id: actor,
+                                    target_rx: 4 + n % 32,
+                                    target_ry: 4 + n / 32,
+                                },
+                            )
+                            .unwrap(),
+                            tick,
+                        )
+                    })
+                    .collect::<Vec<_>>();
+                assert!(sim.issue_local_commands(commands));
+                queued_move = true;
+            }
+            if index == 0 && frame == 350 && !queued_stop {
+                assert!(sim.issue_local_command(CommandEnvelope::synchronized(
+                    sim.encode_stop_record(owner, actor).unwrap(),
+                    sim.session().tick(),
+                )));
+                queued_stop = true;
+            }
+            let output = production_frame(sim, &rules, boundary);
+            assert!(output.network_failure.is_none());
+            if let Some(sync) = output.multiplayer_checksum {
+                crcs[index].insert(frame, sync.checksum.unwrap().value);
+            }
+            if output.tick.frame_committed {
+                hashes[index].insert(frame, sim.state_hash());
+                if frame == 10 || frame == 300 {
+                    let timing = sim.session.network_command_timing().unwrap();
+                    let expected = if frame == 10 {
+                        (40, 45, 10)
+                    } else {
+                        (15, 2, 5)
+                    };
+                    assert_eq!(
+                        (
+                            sim.session.network_max_ahead_frames().unwrap(),
+                            timing.frames_per_second(),
+                            timing.frame_send_rate().get()
+                        ),
+                        expected
+                    );
+                }
+            }
+            let live = boundary.live.borrow();
+            saw_backpressure |= index == 0
+                && live.exchange.sending()
+                && sim.pending_local_command_count() != 0
+                && live.connections().queued_send_count(2) == Some(32);
+            saw_incomplete_frontier |= index != 0
+                && live
+                    .frame_wait()
+                    .is_some_and(|wait| wait.missing_commands == Some(0));
+        }
+        link.pump();
+        if link.hold && saw_backpressure && saw_incomplete_frontier && !link.held.is_empty() {
+            link.release();
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "heterogeneous exchange stalled: frames={:?}, local={:?}, waits={:?}, sending={:?}, peers={:?}, held={}, lost={:?}, retry={}, pressure={}, frontier={}",
+            worlds.each_ref().map(|sim| sim.session().binary_frame()),
+            worlds
+                .each_ref()
+                .map(|sim| sim.pending_local_command_count()),
+            boundaries
+                .iter()
+                .map(|b| b.live.borrow().frame_wait())
+                .collect::<Vec<_>>(),
+            boundaries
+                .iter()
+                .map(|b| b.live.borrow().exchange.sending())
+                .collect::<Vec<_>>(),
+            boundaries
+                .iter()
+                .map(|b| b.live.borrow().peers().to_vec())
+                .collect::<Vec<_>>(),
+            link.held.len(),
+            link.first_lost,
+            link.retried,
+            saw_backpressure,
+            saw_incomplete_frontier
+        );
+        std::thread::yield_now();
+    }
+    assert!(
+        released_slow && queued_move && queued_stop && saw_backpressure && saw_incomplete_frontier
+    );
+    assert!(link.first_lost.is_some() && link.retried && link.delivered_retry && link.reordered);
+    let sent: Vec<_> = boundaries
+        .iter()
+        .map(|b| b.live.borrow().sent_commands())
+        .collect();
+    for index in 0..3 {
+        assert!(crcs[index].keys().copied().eq(0..400));
+        assert!(hashes[index].keys().copied().eq(0..400));
+        assert_eq!(crcs[index], crcs[0], "client{index} native CRC");
+        assert_eq!(
+            hashes[index], hashes[0],
+            "client{index} shared world hashes"
+        );
+        let live = boundaries[index].live.borrow();
+        for peer in live.peers() {
+            assert_eq!(peer.advertised_commands(), sent[peer.house_id() as usize]);
+            assert_eq!(peer.received_commands(), sent[peer.house_id() as usize]);
+        }
+        let applied = boundaries[index].applied.borrow();
+        let moves = applied
+            .iter()
+            .filter_map(|(frame, record, ok)| {
+                MegaMissionRecord::decode(record).map(|move_| (*frame, move_, *ok))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(moves.len(), 1024);
+        assert!(
+            moves
+                .iter()
+                .all(|(frame, move_, ok)| *frame == 325 && move_.source_id as u64 == actor && *ok)
+        );
+        let stops = applied
+            .iter()
+            .filter_map(|(frame, record, ok)| {
+                StopRecord::decode(record).map(|stop| (*frame, stop, *ok))
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(stops.len(), 1);
+        assert_eq!(
+            (stops[0].0, stops[0].1.entity_id as u64, stops[0].2),
+            (365, actor, true)
+        );
+        assert!(
+            worlds[index]
+                .substrate
+                .entities
+                .get(actor)
+                .unwrap()
+                .navigation
+                .nav_list()
+                .is_empty()
+        );
+        let timing = worlds[index].session.network_command_timing().unwrap();
+        assert_eq!(timing.maximum_processing_millis([0, 1, 2]), Some(500));
+    }
+}
+
+#[test]
 fn two_udp_clients_execute_the_delayed_stop_through_the_production_frame_boundary() {
     let (a_live, b_live) = pair(73);
     let a_boundary = Boundary::new(a_live);

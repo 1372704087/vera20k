@@ -159,6 +159,15 @@ impl crate::sim::world::Simulation {
     /// its owner (`AnimClass::SetOwnerObject @ 0x00424B50`), so the canopy
     /// rides the descent. `Rules+0xBBC` is `[General] Parachute=`.
     ///
+    /// The NPSE hook at the `Parachute=` read (`0x5F5ADD` -> cave
+    /// `0xC2B0E4`..`0xC2FA8A`) branches the canopy: a type whose `IsBomb=`
+    /// flag is set takes `Rules+0xBB8` (`BombParachute=`), infantry keeps
+    /// `Parachute=`, and anything else takes the new `[General]
+    /// VehicleParachute=` (Rules+0x400) when it is set and `Parachute=`
+    /// otherwise. VERA has no parachuted bullets and no `IsBomb=` type flag,
+    /// so the canopy here is the infantry/non-infantry branch; the bomb arms
+    /// stay native-only (see the module residual).
+    ///
     /// VERA keeps no `Object+0x88`: the canopy is found again as the owner's
     /// attached anim of the parachute type.
     ///
@@ -175,9 +184,9 @@ impl crate::sim::world::Simulation {
         rules: &crate::rules::ruleset::RuleSet,
         owner_id: u64,
     ) -> Option<crate::sim::anim_class::AnimId> {
-        let type_name = self
-            .interner
-            .intern(rules.general.parachute_shp.as_deref()?);
+        let owner = self.substrate.entities.get(owner_id)?;
+        let canopy = parachute_anim_name(rules, owner);
+        let type_name = self.interner.intern(canopy?);
         let owner_house = self.substrate.entities.get(owner_id)?.owner();
         let mut coord = self.anim_owner_coords(owner_id)?;
         coord.z = coord.z.wrapping_add(PARACHUTE_ANIM_Z_LIFT_LEPTONS);
@@ -236,7 +245,10 @@ impl crate::sim::world::Simulation {
         rules: &crate::rules::ruleset::RuleSet,
         owner_id: u64,
     ) {
-        let Some(type_name) = rules.general.parachute_shp.as_deref() else {
+        let Some(owner) = substrate.entities.get(owner_id) else {
+            return;
+        };
+        let Some(type_name) = parachute_anim_name(rules, owner) else {
             return;
         };
         let Some(type_id) = interner.get(type_name) else {
@@ -247,6 +259,29 @@ impl crate::sim::world::Simulation {
                 anim.end_loops();
             }
         }
+    }
+}
+
+/// The canopy a dropped object gets. Infantry always takes
+/// `[General] Parachute=`; anything else takes the NPSE
+/// `[General] VehicleParachute=` when it is set and `Parachute=` otherwise
+/// (`ObjectClass::Paradrop`'s hook `0x5F5ADD` -> cave `0xC2B0E4`:
+/// `0xC2FA75..0xC2FA8A`). The cave's first arm sends an object whose type
+/// has NPSE's `IsBomb=` flag to `BombParachute=` (`0xC2B0FC..0xC2B103`);
+/// VERA has no parachuted bombs and no `IsBomb=` type flag yet, so that arm
+/// stays native-only.
+fn parachute_anim_name<'r>(
+    rules: &'r crate::rules::ruleset::RuleSet,
+    entity: &crate::sim::game_entity::GameEntity,
+) -> Option<&'r str> {
+    if entity.category() == crate::map::entities::EntityCategory::Infantry {
+        rules.general.parachute_shp.as_deref()
+    } else {
+        rules
+            .general
+            .vehicle_parachute
+            .as_deref()
+            .or(rules.general.parachute_shp.as_deref())
     }
 }
 
@@ -338,9 +373,11 @@ mod canopy_tests {
         ))
         .expect("rules");
         let mut art = ArtRegistry::from_ini(&IniFile::from_str(
-            "[PARACH]\nRate=900\nLoopStart=2\nLoopEnd=5\nLoopCount=-1\n",
+            "[PARACH]\nRate=900\nLoopStart=2\nLoopEnd=5\nLoopCount=-1\n\
+             [VEHCHUTE]\nRate=900\nLoopStart=2\nLoopEnd=5\nLoopCount=-1\n",
         ));
         art.bind_anim_frame_count_for_test("PARACH", 6);
+        art.bind_anim_frame_count_for_test("VEHCHUTE", 8);
         // Synthetic fixture supplies ART directly, without native read-admission replay.
         rules.install_art_fixture(art);
 
@@ -452,5 +489,103 @@ mod canopy_tests {
             id,
         );
         assert_eq!(sim.substrate.anims.iter().count(), 0);
+    }
+
+    /// The NPSE branch (`0xC2B0E4`..`0xC2FA8A`): the fixture's object is a
+    /// Unit (a tank), so with `[General] VehicleParachute=` set the canopy is
+    /// that anim, and the landing wind-down finds it through the same
+    /// branch.
+    #[test]
+    fn an_airdropped_vehicle_takes_the_vehicle_parachute() {
+        let (mut sim, mut rules, id) = fixture();
+        rules.general.vehicle_parachute = Some("VEHCHUTE".to_string());
+        let anim_id = sim.attach_parachute_anim(&rules, id).expect("canopy");
+        assert_eq!(
+            sim.interner.resolve(sim.anim(anim_id).unwrap().type_id()),
+            "VEHCHUTE"
+        );
+        crate::sim::world::Simulation::wind_down_parachute_anim(
+            &sim.interner,
+            &mut sim.substrate,
+            &rules,
+            id,
+        );
+        assert_eq!(sim.anim(anim_id).unwrap().runtime().loop_remaining, 0);
+    }
+
+    /// Infantry keeps `Parachute=` even when `VehicleParachute=` is set, and
+    /// a vehicle without the key falls back to `Parachute=` (`0xC2FA75`).
+    #[test]
+    fn infantry_keeps_parachute_and_a_vehicle_falls_back_to_it() {
+        let (mut sim, rules, id) = fixture();
+        let mut rules = rules;
+        rules.general.vehicle_parachute = Some("VEHCHUTE".to_string());
+        let infantry = sim.substrate.allocate_stable_id();
+        sim.substrate.entities.insert(
+            crate::sim::game_entity::GameEntity::test_default_of_category(
+                infantry,
+                "E1",
+                "Americans",
+                12,
+                10,
+                crate::map::entities::EntityCategory::Infantry,
+            ),
+        );
+        sim.substrate
+            .entities
+            .get_mut(infantry)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(false);
+        let anim_id = sim.attach_parachute_anim(&rules, infantry).expect("canopy");
+        assert_eq!(
+            sim.interner.resolve(sim.anim(anim_id).unwrap().type_id()),
+            "PARACH"
+        );
+
+        // Without the key the vehicle falls back to `Parachute=`.
+        rules.general.vehicle_parachute = None;
+        let vehicle_id = sim.substrate.allocate_stable_id();
+        sim.substrate
+            .entities
+            .insert(crate::sim::game_entity::GameEntity::test_default(
+                vehicle_id,
+                "E1",
+                "Americans",
+                14,
+                10,
+            ));
+        sim.substrate
+            .entities
+            .get_mut(vehicle_id)
+            .unwrap()
+            .lifecycle
+            .set_in_limbo_for_test(false);
+        let fallback = sim
+            .attach_parachute_anim(&rules, vehicle_id)
+            .expect("canopy");
+        assert_eq!(
+            sim.interner.resolve(sim.anim(fallback).unwrap().type_id()),
+            "PARACH"
+        );
+    }
+
+    /// The reader: the name uppercases (the AnimType comparison is
+    /// ASCII-insensitive), an empty or absent key stays none.
+    #[test]
+    fn the_vehicle_parachute_reader_uppercases_and_defaults_to_none() {
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[General]\nVehicleParachute=vehchute\n",
+        ))
+        .unwrap();
+        assert_eq!(rules.general.vehicle_parachute.as_deref(), Some("VEHCHUTE"));
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[General]\nVehicleParachute=\n",
+        ))
+        .unwrap();
+        assert_eq!(rules.general.vehicle_parachute, None);
+        let rules =
+            crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str("[General]\n")).unwrap();
+        assert_eq!(rules.general.vehicle_parachute, None);
     }
 }

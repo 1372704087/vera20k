@@ -74,6 +74,104 @@ fn wol_catchup_pacing_uses_admitted_peer_progress_and_existing_rtt() {
     assert_eq!(live.pacing_delay_millis(40), 0);
 }
 
+// Pure native queue/probe fixtures declare their complete protocol snapshot.
+// The new certificate regressions below exercise real sockets and real hashes.
+fn fixture_agreement(
+    wire: &LanUdpTransport,
+    local: i8,
+    seed: u32,
+    rate: NonZeroU32,
+) -> StartupAgreement {
+    let mut houses: Vec<_> = wire
+        .connections()
+        .peers()
+        .filter_map(|(house, _)| i8::try_from(house).ok())
+        .filter(|house| (0..32).contains(house))
+        .collect();
+    houses.push(local);
+    houses.sort_unstable();
+    houses.dedup();
+    StartupAgreement::new(
+        houses
+            .iter()
+            .copied()
+            .enumerate()
+            .map(|(row, house)| (row as u8, house)),
+        0..houses.len() as u8,
+        seed,
+        10,
+        30,
+        rate,
+        0,
+    )
+    .unwrap()
+}
+
+/// The following four tests isolate native probe/history timing after the
+/// modern reliable certificate is a satisfied precondition. Use the same
+/// control codec, admission and reliable ACK/retirement owners; no simulation
+/// frame or native probe is synthesized by this fixture preparation.
+fn certify_native_probe_fixture(live: &mut LiveCommandSession) {
+    let rate = NonZeroU32::new(5).unwrap();
+    let agreement = fixture_agreement(&live.transport, live.local_house, live.initial_seed, rate);
+    let mut houses: Vec<_> = live.peers().iter().map(|peer| peer.house_id()).collect();
+    houses.push(live.local_house);
+    let controls: Vec<_> = houses
+        .iter()
+        .copied()
+        .filter(|&house| house != live.local_house)
+        .map(|house| {
+            let peer = startup::StartupHandshake::new(
+                agreement.clone(),
+                house,
+                houses.iter().copied().filter(|&other| other != house),
+                live.initial_seed,
+                rate,
+            )
+            .unwrap();
+            (house, peer.control(1), peer.control(2))
+        })
+        .collect();
+    live.flush_startup();
+    for (house, hello, _) in &controls {
+        assert!(
+            live.startup
+                .receive(*house, hello, Delivery::Reliable)
+                .unwrap()
+        );
+    }
+    live.flush_startup();
+    for (house, _, ready) in &controls {
+        assert!(
+            live.startup
+                .receive(*house, ready, Delivery::Reliable)
+                .unwrap()
+        );
+    }
+    let mut sent = Vec::new();
+    live.transport
+        .connections_mut()
+        .service(1, &mut |address, bytes| {
+            sent.push((address, bytes.to_vec()))
+        });
+    for (address, bytes) in sent {
+        assert!(bytes[crate::net::reliable::CONNECTION_HEADER_LEN..].starts_with(b"VSA1"));
+        let ack = crate::net::reliable::connection_prefix(
+            0xaa04,
+            2,
+            crate::net::reliable::sequence(&bytes),
+            0,
+        );
+        live.transport
+            .connections_mut()
+            .receive(address, &ack, &mut |_, _| {})
+            .unwrap();
+    }
+    live.transport.connections_mut().service(2, &mut |_, _| {});
+    live.transport.reset_response_time(true);
+    assert!(live.startup.complete());
+}
+
 fn pair(seed: u32) -> (LiveCommandSession, LiveCommandSession) {
     let mut left = transport();
     let mut right = transport();
@@ -86,6 +184,7 @@ fn pair(seed: u32) -> (LiveCommandSession, LiveCommandSession) {
         .unwrap();
     (
         LiveCommandSession::new(
+            fixture_agreement(&left, 0, seed, NonZeroU32::new(5).unwrap()),
             left,
             0,
             seed,
@@ -94,6 +193,7 @@ fn pair(seed: u32) -> (LiveCommandSession, LiveCommandSession) {
         )
         .unwrap(),
         LiveCommandSession::new(
+            fixture_agreement(&right, 1, seed, NonZeroU32::new(5).unwrap()),
             right,
             1,
             seed,
@@ -147,7 +247,503 @@ fn poll_pair(
         );
         std::thread::yield_now();
     }
+    while left
+        .connections()
+        .peers()
+        .any(|(house, _)| left.connections().queued_send_count(house) != Some(0))
+        || right
+            .connections()
+            .peers()
+            .any(|(house, _)| right.connections().queued_send_count(house) != Some(0))
+    {
+        let now = 1000 + (start.elapsed().as_millis() / 16) as u32;
+        left.service_transport(now);
+        right.service_transport(now);
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "certificate ACK did not retire"
+        );
+        std::thread::yield_now();
+    }
     (passes[0], passes[1])
+}
+
+/// A real private-UDP cohort; the agreement is the install-time snapshot,
+/// never inferred from subsequent probes or the mutable connection table.
+fn startup_cohort(active: &[u8], hashes: &[u64]) -> Vec<LiveCommandSession> {
+    assert_eq!(active.len(), hashes.len());
+    let mut wires: Vec<_> = active.iter().map(|_| transport()).collect();
+    let addresses: Vec<_> = wires
+        .iter()
+        .map(|wire| wire.primary_addr().unwrap())
+        .collect();
+    for (index, wire) in wires.iter_mut().enumerate() {
+        for (peer, &source) in active.iter().enumerate().filter(|(peer, _)| *peer != index) {
+            wire.connections_mut()
+                .add_peer(i32::from(source), addresses[peer])
+                .unwrap();
+        }
+    }
+    wires
+        .into_iter()
+        .enumerate()
+        .map(|(index, wire)| {
+            let rate = NonZeroU32::new(5).unwrap();
+            let rows = [2, 7, 11];
+            let local = active[index];
+            let original = std::iter::once(local).chain((0..3).filter(|&source| source != local));
+            let agreement = StartupAgreement::new(
+                original.map(|source| (rows[source as usize], source as i8)),
+                active.iter().map(|&source| rows[source as usize]),
+                73,
+                10,
+                30,
+                rate,
+                hashes[index],
+            )
+            .unwrap();
+            LiveCommandSession::new(
+                agreement,
+                wire,
+                active[index] as i8,
+                73,
+                rate,
+                if active.len() == 3 {
+                    LiveCommandMode::Lan
+                } else {
+                    LiveCommandMode::Wol
+                },
+            )
+            .unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn full_and_majority_loading_rosters_require_the_same_frozen_world() {
+    for active in [&[0, 1, 2][..], &[1, 2][..]] {
+        let mut worlds: Vec<_> = active.iter().map(|_| Simulation::with_seed(73)).collect();
+        let hash = worlds[0].state_hash();
+        let mut clients = startup_cohort(active, &vec![hash; active.len()]);
+        let start = Instant::now();
+        let mut passes = vec![NetworkQueuePass::Waiting; active.len()];
+        while passes.contains(&NetworkQueuePass::Waiting) {
+            for (index, client) in clients.iter_mut().enumerate() {
+                passes[index] = client
+                    .poll(
+                        &mut worlds[index].network_command_queues(),
+                        NetworkQueueContext {
+                            frame: 0,
+                            checksum: 7,
+                        },
+                        10,
+                        100 + (start.elapsed().as_millis() / 16) as u32,
+                        1600,
+                        0,
+                        0,
+                    )
+                    .unwrap();
+            }
+            assert!(start.elapsed() < Duration::from_secs(2));
+            std::thread::yield_now();
+        }
+        assert!(
+            passes
+                .iter()
+                .all(|pass| *pass == NetworkQueuePass::SkipDispatch)
+        );
+        assert!(
+            clients
+                .iter()
+                .all(|client| !client.startup_pending() && client.sent_commands() == 0)
+        );
+        assert!(worlds.iter().all(|world| {
+            world.pending_command_snapshot().iter().all(|entry| {
+                matches!(&entry.payload, crate::sim::command::Command::SynchronizedRecord { record }
+                if record.opcode()==0x1c)
+            })
+        }));
+    }
+    assert_eq!(
+        StartupAgreement::new(
+            [(0, 0), (1, 1), (2, 2)],
+            [2],
+            73,
+            10,
+            30,
+            NonZeroU32::new(5).unwrap(),
+            0
+        ),
+        Err(StartupError::NoMajority)
+    );
+    let mut worlds = [Simulation::with_seed(73), Simulation::with_seed(74)];
+    let hashes = worlds.each_ref().map(|world| world.state_hash());
+    assert_ne!(hashes[0], hashes[1]);
+    let mut clients = startup_cohort(&[1, 2], &hashes);
+    let start = Instant::now();
+    let mut rejected = [false; 2];
+    while rejected.contains(&false) {
+        for index in 0..2 {
+            if rejected[index] {
+                continue;
+            }
+            match clients[index].poll(
+                &mut worlds[index].network_command_queues(),
+                NetworkQueueContext {
+                    frame: 0,
+                    checksum: 7,
+                },
+                10,
+                100,
+                1600,
+                0,
+                0,
+            ) {
+                Err(LiveCommandError::Startup(StartupError::Mismatch)) => rejected[index] = true,
+                Ok(NetworkQueuePass::Waiting) => {}
+                other => panic!("unexpected startup result {other:?}"),
+            }
+        }
+        assert!(start.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    assert!(clients.iter().all(|client| client.sent_commands() == 0));
+    assert!(
+        worlds
+            .iter_mut()
+            .all(|world| world.network_command_queues().synchronized_len() == 0)
+    );
+}
+
+/// A byte-preserving two-socket test relay. It only loses one current READY
+/// and replays three retired datagrams; all controls, checksums and ACKs come
+/// from the production transport and reliability owners.
+#[test]
+fn startup_ready_retries_after_release_and_old_scope_cannot_certify_rematch() {
+    use crate::net::lan_messages::SessionScope;
+
+    struct Proxy {
+        sockets: [UdpSocket; 2],
+        endpoints: [SocketAddrV4; 2],
+        hold_ready: bool,
+        ready_attempts: usize,
+        held: Option<Vec<u8>>,
+        old_hello: Option<Vec<u8>>,
+        old_ready: Option<Vec<u8>>,
+        old_ack: Option<Vec<u8>>,
+    }
+    impl Proxy {
+        fn pump(&mut self) {
+            // Existing VLS1 outer scope, UDP checksum, then ConnectionClass.
+            const CONNECTION_OFFSET: usize = 4 + 16 + 8 + 4;
+            for side in 0..2 {
+                loop {
+                    let mut packet = [0; crate::net::udp::UDP_DATAGRAM_CAPACITY];
+                    let (len, source) = match self.sockets[side].recv_from(&mut packet) {
+                        Ok(received) => received,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(error) => panic!("proxy receive: {error}"),
+                    };
+                    assert_eq!(source, std::net::SocketAddr::V4(self.endpoints[side]));
+                    let packet = &packet[..len];
+                    assert!(packet.starts_with(b"VLS\x01"));
+                    let frame = &packet[CONNECTION_OFFSET..];
+                    let control = frame
+                        .get(crate::net::reliable::CONNECTION_HEADER_LEN..)
+                        .filter(|payload| payload.starts_with(b"VSA1"));
+                    if side == 0
+                        && let Some(control) = control
+                    {
+                        if control[4] == 1 {
+                            self.old_hello.get_or_insert_with(|| packet.to_vec());
+                        }
+                        if control[4] == 2 {
+                            self.old_ready.get_or_insert_with(|| packet.to_vec());
+                            if self.hold_ready {
+                                self.ready_attempts += 1;
+                                self.held = Some(packet.to_vec());
+                                continue;
+                            }
+                        }
+                    }
+                    if side == 1 && frame[2] == 2 && crate::net::reliable::sequence(frame) == 0 {
+                        self.old_ack.get_or_insert_with(|| packet.to_vec());
+                    }
+                    self.sockets[1 - side]
+                        .send_to(packet, self.endpoints[1 - side])
+                        .unwrap();
+                }
+            }
+        }
+    }
+    let mut wires = [transport(), transport()];
+    let mut proxy = Proxy {
+        sockets: std::array::from_fn(|_| {
+            let socket = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            socket.set_nonblocking(true).unwrap();
+            socket
+        }),
+        endpoints: wires.each_ref().map(|wire| wire.primary_addr().unwrap()),
+        hold_ready: true,
+        ready_attempts: 0,
+        held: None,
+        old_hello: None,
+        old_ready: None,
+        old_ack: None,
+    };
+    let proxy_addresses =
+        proxy
+            .sockets
+            .each_ref()
+            .map(|socket| match socket.local_addr().unwrap() {
+                std::net::SocketAddr::V4(address) => address,
+                _ => unreachable!(),
+            });
+    let scope = |epoch| SessionScope {
+        epoch: [epoch; 16],
+        revision: 1,
+    };
+    let rate = NonZeroU32::new(5).unwrap();
+    for (side, wire) in wires.iter_mut().enumerate() {
+        wire.set_lan_scope(scope(1)).unwrap();
+        wire.connections_mut()
+            .add_peer((1 - side) as i32, proxy_addresses[side])
+            .unwrap();
+        wire.connections_mut().set_timing(RetryTiming {
+            retry_delta: 3,
+            max_retries: u32::MAX,
+            timeout: 600,
+        });
+    }
+    let agreement = StartupAgreement::new(
+        [(0, 0), (1, 1)],
+        [0, 1],
+        73,
+        10,
+        30,
+        rate,
+        Simulation::with_seed(73).state_hash(),
+    )
+    .unwrap();
+    let mut clients = wires
+        .into_iter()
+        .enumerate()
+        .map(|(side, wire)| {
+            LiveCommandSession::new(
+                agreement.clone(),
+                wire,
+                side as i8,
+                73,
+                rate,
+                LiveCommandMode::Lan,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let mut worlds = [Simulation::with_seed(73), Simulation::with_seed(73)];
+    let context = NetworkQueueContext {
+        frame: 0,
+        checksum: 7,
+    };
+    let mut passes = [NetworkQueuePass::Waiting; 2];
+    let mut now = 100;
+    let started = Instant::now();
+    while passes[0] == NetworkQueuePass::Waiting {
+        for side in 0..2 {
+            passes[side] = clients[side]
+                .poll(
+                    &mut worlds[side].network_command_queues(),
+                    context,
+                    10,
+                    now,
+                    now * 16,
+                    0,
+                    0,
+                )
+                .unwrap();
+        }
+        proxy.pump();
+        now += 1;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        passes,
+        [NetworkQueuePass::SkipDispatch, NetworkQueuePass::Waiting]
+    );
+    assert!(!clients[0].startup_pending());
+    assert!(clients[1].startup_pending());
+    while clients[0].connections().queued_send_count(1) != Some(1) {
+        clients[0].service_transport(now);
+        passes[1] = clients[1]
+            .poll(
+                &mut worlds[1].network_command_queues(),
+                context,
+                10,
+                now,
+                now * 16,
+                0,
+                0,
+            )
+            .unwrap();
+        proxy.pump();
+        now += 1;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    // The private reliable owner reports timeout but keeps the SAME entry and
+    // retry cadence. No new startup retry owner or timer extends native waits.
+    now += 700;
+    clients[0].service_transport(now);
+    proxy.pump();
+    assert_eq!(
+        clients[0].take_service_report().unwrap().failed_peer,
+        Some(1)
+    );
+    while proxy.ready_attempts < 2 {
+        proxy.pump();
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    proxy.hold_ready = false;
+    proxy.sockets[1]
+        .send_to(proxy.held.take().unwrap().as_slice(), proxy.endpoints[1])
+        .unwrap();
+    while passes[1] == NetworkQueuePass::Waiting
+        || clients.iter().enumerate().any(|(side, client)| {
+            client.connections().queued_send_count((1 - side) as i32) != Some(0)
+        })
+    {
+        for side in 0..2 {
+            passes[side] = clients[side]
+                .poll(
+                    &mut worlds[side].network_command_queues(),
+                    context,
+                    10,
+                    now,
+                    now * 16,
+                    0,
+                    0,
+                )
+                .unwrap();
+            clients[side].service_transport(now);
+        }
+        proxy.pump();
+        now += 1;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    assert_eq!(passes, [NetworkQueuePass::SkipDispatch; 2]);
+    // Keep both physical sockets and endpoints; retire only the match scope.
+    worlds = [Simulation::with_seed(73), Simulation::with_seed(73)];
+    let mut clients = clients
+        .into_iter()
+        .enumerate()
+        .map(|(side, client)| {
+            let mut wire = client.into_transport();
+            wire.clear_lan_scope();
+            wire.set_lan_scope(scope(2)).unwrap();
+            wire.connections_mut()
+                .add_peer((1 - side) as i32, proxy_addresses[side])
+                .unwrap();
+            LiveCommandSession::new(
+                agreement.clone(),
+                wire,
+                side as i8,
+                73,
+                rate,
+                LiveCommandMode::Lan,
+            )
+            .unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        clients[0]
+            .poll(
+                &mut worlds[0].network_command_queues(),
+                context,
+                10,
+                now,
+                now * 16,
+                0,
+                0
+            )
+            .unwrap(),
+        NetworkQueuePass::Waiting
+    );
+    // Sequence zero is reused by the real reliability owner. An old ACK must
+    // not retire the fresh HELLO, even with identical seed/world/endpoints.
+    clients[0].take_service_report();
+    proxy.sockets[0]
+        .send_to(proxy.old_ack.as_ref().unwrap(), proxy.endpoints[0])
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        clients[0].service_transport(now);
+        if clients[0]
+            .take_service_report()
+            .is_some_and(|report| report.malformed_datagrams != 0)
+        {
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(clients[0].connections().queued_send_count(1), Some(1));
+    for old in [&proxy.old_hello, &proxy.old_ready] {
+        proxy.sockets[1]
+            .send_to(old.as_ref().unwrap(), proxy.endpoints[1])
+            .unwrap();
+    }
+    let mut rejected = 0;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while rejected < 2 {
+        clients[1].service_transport(now);
+        rejected += clients[1]
+            .take_service_report()
+            .unwrap()
+            .malformed_datagrams;
+        assert!(Instant::now() < deadline);
+        std::thread::yield_now();
+    }
+    assert_eq!(
+        clients[1]
+            .poll(
+                &mut worlds[1].network_command_queues(),
+                context,
+                10,
+                now,
+                now * 16,
+                0,
+                0
+            )
+            .unwrap(),
+        NetworkQueuePass::Waiting
+    );
+    assert!(clients[1].startup_pending());
+    assert_eq!(clients[1].sent_commands(), 0);
+    assert!(clients[1].peers().iter().all(|peer| peer.frame() == -1));
+    passes = [NetworkQueuePass::Waiting; 2];
+    while passes.contains(&NetworkQueuePass::Waiting) {
+        for side in 0..2 {
+            passes[side] = clients[side]
+                .poll(
+                    &mut worlds[side].network_command_queues(),
+                    context,
+                    10,
+                    now,
+                    now * 16,
+                    0,
+                    0,
+                )
+                .unwrap();
+        }
+        proxy.pump();
+        now += 1;
+        assert!(started.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    assert_eq!(passes, [NetworkQueuePass::SkipDispatch; 2]);
 }
 
 #[test]
@@ -244,7 +840,7 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
             .connections_mut()
             .receive(
                 endpoint,
-                &connection_prefix(0xaa04, 2, sequence, 0),
+                &connection_prefix(0xaa04, 2, sequence + 2, 0),
                 &mut |_, _| {},
             )
             .unwrap();
@@ -277,6 +873,7 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
     };
     wire.connections_mut().add_peer(1, peer).unwrap();
     let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 73, NonZeroU32::new(5).unwrap()),
         wire,
         0,
         73,
@@ -284,6 +881,7 @@ fn initial_response_histories_clear_only_on_successful_barrier_once() {
         LiveCommandMode::Lan,
     )
     .unwrap();
+    certify_native_probe_fixture(&mut live);
     seed_history(&mut live, peer, 0, 100);
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
@@ -369,6 +967,7 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
     };
     wire.connections_mut().add_peer(1, peer).unwrap();
     let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 73, NonZeroU32::new(5).unwrap()),
         wire,
         0,
         73,
@@ -376,6 +975,7 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
         LiveCommandMode::Lan,
     )
     .unwrap();
+    certify_native_probe_fixture(&mut live);
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
         frame: 0,
@@ -422,7 +1022,7 @@ fn ordinary_wait_uses_private_response_history_with_larger_primary_global_mean()
         .service(1100, &mut |_, _| {});
     live.transport
         .connections_mut()
-        .receive(peer, &connection_prefix(0xaa04, 2, 0, 0), &mut |_, _| {})
+        .receive(peer, &connection_prefix(0xaa04, 2, 2, 0), &mut |_, _| {})
         .unwrap();
     live.transport
         .connections_mut()
@@ -497,6 +1097,7 @@ fn online_initial_probe_waits_for_the_online_table_boundary() {
     };
     wire.connections_mut().add_peer(1, peer).unwrap();
     let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 73, NonZeroU32::new(5).unwrap()),
         wire,
         0,
         73,
@@ -504,6 +1105,7 @@ fn online_initial_probe_waits_for_the_online_table_boundary() {
         LiveCommandMode::Wol,
     )
     .unwrap();
+    certify_native_probe_fixture(&mut live);
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
         frame: 0,
@@ -558,6 +1160,7 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
     };
     wire.connections_mut().add_peer(1, address).unwrap();
     let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 91, NonZeroU32::new(5).unwrap()),
         wire,
         0,
         91,
@@ -565,6 +1168,7 @@ fn initial_probe_repeats_only_at_the_native_wall_clock_boundary() {
         LiveCommandMode::Lan,
     )
     .unwrap();
+    certify_native_probe_fixture(&mut live);
     let mut sim = Simulation::new();
     let context = NetworkQueueContext {
         frame: 0,
@@ -781,6 +1385,7 @@ fn lowest_frame_projection_uses_existing_signed_progress_and_first_tie() {
             .unwrap();
     }
     let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 73, NonZeroU32::new(5).unwrap()),
         wire,
         0,
         73,
@@ -807,16 +1412,32 @@ fn lowest_frame_projection_uses_existing_signed_progress_and_first_tie() {
 #[test]
 fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
     // Native zero-remote loops finish immediately; LAN can start with one
-    // human, and removing the last remote retains the same behavior.
-    assert!(
-        LiveCommandSession::new(
-            transport(),
+    // human. Once startup is admitted, losing the last peer also retains
+    // the normal local-only transfer path (covered below).
+    let mut one = LiveCommandSession::new(
+        StartupAgreement::new([(0, 0)], [0], 1, 10, 30, NonZeroU32::new(5).unwrap(), 0).unwrap(),
+        transport(),
+        0,
+        1,
+        NonZeroU32::new(5).unwrap(),
+        LiveCommandMode::Lan,
+    )
+    .unwrap();
+    assert_eq!(
+        one.poll(
+            &mut Simulation::new().network_command_queues(),
+            NetworkQueueContext {
+                frame: 0,
+                checksum: 0
+            },
+            10,
+            100,
+            1600,
             0,
-            1,
-            NonZeroU32::new(5).unwrap(),
-            LiveCommandMode::Lan
+            0
         )
-        .is_ok()
+        .unwrap(),
+        NetworkQueuePass::SkipDispatch
     );
     let mut wire = transport();
     wire.connections_mut()
@@ -824,6 +1445,7 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
         .unwrap();
     assert!(matches!(
         LiveCommandSession::new(
+            fixture_agreement(&wire, 0, 1, NonZeroU32::new(5).unwrap()),
             wire,
             0,
             1,
@@ -838,6 +1460,7 @@ fn invalid_roster_context_and_initial_seed_are_explicit_failures() {
         .unwrap();
     assert!(matches!(
         LiveCommandSession::new(
+            fixture_agreement(&wire, 0, 1, NonZeroU32::new(5).unwrap()),
             wire,
             0,
             1,
@@ -1328,6 +1951,7 @@ fn three_udp_clients_keep_adaptive_timing_after_the_original_publisher_exits() {
         .enumerate()
         .map(|(index, transport)| {
             let live = LiveCommandSession::new(
+                fixture_agreement(&transport, index as i8, 73, NonZeroU32::new(5).unwrap()),
                 transport,
                 index as i8,
                 73,
@@ -1590,22 +2214,29 @@ fn real_udp_mass_order_survives_backpressure_and_executes_one_shared_frame() {
     let mut saw_backpressure = false;
     // Advance peers independently: the peer that already committed frame zero
     // must still service its socket while the sender drains more than 32 packets.
-    for until in [11, 26] {
+    let mut until = 11;
+    for phase in 0..2 {
         while a.session().binary_frame() < until || b.session().binary_frame() < until {
             for (index, (sim, boundary)) in [(&mut a, &a_boundary), (&mut b, &b_boundary)]
                 .into_iter()
                 .enumerate()
             {
-                if sim.session().binary_frame() >= until {
-                    continue;
-                }
                 boundary
                     .now
                     .set(1000 + (started.elapsed().as_millis() / 16) as u32);
+                // The app's Network_ServiceLoop48D080 pump continues even
+                // when this client's simulation is ahead of its peer. Keep
+                // its admitted packets retrying while the other catches up.
+                boundary
+                    .live
+                    .borrow_mut()
+                    .service_transport(boundary.now.get());
                 let frame = sim.session().binary_frame();
                 let output = production_frame(sim, &rules, boundary);
                 assert!(output.network_failure.is_none());
-                if let Some(sync) = output.multiplayer_checksum {
+                if let Some(sync) = output.multiplayer_checksum
+                    && (phase == 0 || frame < until)
+                {
                     checksums[index].insert(frame, sync.checksum.unwrap().value);
                 }
                 if index == 0
@@ -1617,11 +2248,28 @@ fn real_udp_mass_order_survives_backpressure_and_executes_one_shared_frame() {
             }
             assert!(
                 started.elapsed() < Duration::from_secs(20),
-                "mass UDP exchange stalled"
+                "mass UDP exchange stalled: frames={:?}, local={:?}, waits={:?}, peers={:?}, queued={:?}",
+                [a.session().binary_frame(), b.session().binary_frame()],
+                [
+                    a.pending_local_command_count(),
+                    b.pending_local_command_count()
+                ],
+                [
+                    a_boundary.live.borrow().wait_info(),
+                    b_boundary.live.borrow().wait_info()
+                ],
+                [
+                    a_boundary.live.borrow().peers(),
+                    b_boundary.live.borrow().peers()
+                ],
+                [
+                    a_boundary.live.borrow().connections().queued_send_count(1),
+                    b_boundary.live.borrow().connections().queued_send_count(0)
+                ],
             );
             std::thread::yield_now();
         }
-        if until == 11 {
+        if phase == 0 {
             for boundary in [&a_boundary, &b_boundary] {
                 let applied = boundary.applied.borrow();
                 let moves = applied
@@ -1648,11 +2296,22 @@ fn real_udp_mass_order_survives_backpressure_and_executes_one_shared_frame() {
                 })
                 .collect::<Vec<_>>();
             assert!(a.issue_local_commands(stops));
+            // The current cadence may already have sent before entering a
+            // held wait. Rate5/MaxAhead10 then admits Stop five frames later
+            // and executes it ten frames after that. Include that frame in
+            // the declared prefix while both clients continue normal probes.
+            until = a.session().binary_frame().max(b.session().binary_frame()) + 16;
         }
     }
     assert!(
         saw_backpressure,
         "fixture must cross the live 32-packet send queue"
+    );
+    assert!(
+        checksums
+            .iter()
+            .all(|history| history.keys().copied().eq(0..until)),
+        "both clients must record the entire declared shared prefix"
     );
     assert_eq!(checksums[0], checksums[1]);
     for (sim, boundary) in [(&a, &a_boundary), (&b, &b_boundary)] {

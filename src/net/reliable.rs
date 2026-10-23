@@ -165,6 +165,7 @@ pub enum ReceiveOutcome {
 pub struct ReceivedMessage {
     pub peer_id: i32,
     pub payload: Vec<u8>,
+    pub delivery: Delivery,
 }
 
 /// Private queues, sequence counters and delivery cursor have one owner.
@@ -635,11 +636,8 @@ impl LanConnections {
             let index = self.next_receive_peer;
             self.next_receive_peer = (index + 1) % self.peers.len();
             let peer = &mut self.peers[index];
-            if let Some(payload) = peer.pop_received() {
-                return Some(ReceivedMessage {
-                    peer_id: peer.id,
-                    payload,
-                });
+            if let Some(message) = peer.pop_received() {
+                return Some(message);
             }
         }
         None
@@ -678,7 +676,7 @@ impl Peer {
         )
     }
 
-    fn pop_received(&mut self) -> Option<Vec<u8>> {
+    fn pop_received(&mut self) -> Option<ReceivedMessage> {
         let entry = self.receive.iter_mut().find(|entry| {
             !entry.consumed
                 && (entry.frame[2] == 1
@@ -688,7 +686,15 @@ impl Peer {
             self.delivered_reliable = sequence(&entry.frame);
         }
         entry.consumed = true;
-        Some(entry.frame[CONNECTION_HEADER_LEN..].to_vec())
+        Some(ReceivedMessage {
+            peer_id: self.id,
+            payload: entry.frame[CONNECTION_HEADER_LEN..].to_vec(),
+            delivery: if entry.frame[2] == 0 {
+                Delivery::Reliable
+            } else {
+                Delivery::Unreliable
+            },
+        })
     }
 
     fn retire_received(&mut self) {

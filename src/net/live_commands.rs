@@ -12,7 +12,9 @@ use std::io;
 use std::net::SocketAddrV4;
 use std::num::NonZeroU32;
 
+mod startup;
 mod timing;
+pub use startup::{StartupAgreement, StartupError};
 
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
 
@@ -66,6 +68,8 @@ pub enum LiveCommandError {
     ChangedFrame(u32),
     #[error("network frame exchange has already failed")]
     Failed,
+    #[error(transparent)]
+    Startup(#[from] StartupError),
     #[error(transparent)]
     Exchange(#[from] CommandExchangeError),
 }
@@ -123,6 +127,7 @@ struct CurrentFrame {
 pub struct LiveCommandSession {
     transport: LanUdpTransport,
     exchange: CommandExchange,
+    startup: startup::StartupHandshake,
     local_house: i8,
     initial_seed: u32,
     policy: NetworkSendPolicy,
@@ -134,6 +139,7 @@ pub struct LiveCommandSession {
 
 impl LiveCommandSession {
     pub fn new(
+        agreement: StartupAgreement,
         transport: LanUdpTransport,
         local_house: i8,
         initial_seed: u32,
@@ -161,9 +167,17 @@ impl LiveCommandSession {
             }
             houses.push(house);
         }
+        let startup = startup::StartupHandshake::new(
+            agreement,
+            local_house,
+            houses.iter().copied(),
+            initial_seed,
+            frame_send_rate,
+        )?;
         Ok(Self {
             transport,
             exchange: CommandExchange::new(houses)?,
+            startup,
             local_house,
             initial_seed,
             policy: NetworkSendPolicy::FrameSendRate2 { frame_send_rate },
@@ -220,6 +234,7 @@ impl LiveCommandSession {
     ///48D1E0 services the same manager while demultiplexing global traffic.
     ///Private command messages remain queued for the reached Wait phase.
     pub fn service_transport(&mut self, now_wall_bucket: u32) {
+        self.flush_startup();
         retain_service_report(
             &mut self.last_service,
             self.transport.service(now_wall_bucket),
@@ -303,6 +318,7 @@ impl LiveCommandSession {
         if !self.exchange.remove_peer(house) {
             return false;
         }
+        self.startup.abort();
         assert!(
             self.transport
                 .connections_mut()
@@ -310,6 +326,13 @@ impl LiveCommandSession {
             "the admitted connection and command progress share one roster"
         );
         true
+    }
+
+    /// A kick/cancel before release cannot elect a smaller initial set. The
+    /// snapshot remains immutable even while ordinary cleanup removes sockets.
+    /// A failed startup remains uncertified throughout that cleanup.
+    pub fn startup_pending(&self) -> bool {
+        !self.startup.released()
     }
 
     pub fn set_retry_timing(&mut self, timing: RetryTiming) {
@@ -441,6 +464,10 @@ impl LiveCommandSession {
         latency_fudge: i32,
         logic_frame_rate: u32,
     ) -> Result<NetworkQueuePass, LiveCommandError> {
+        if self.startup.failed() {
+            return Err(StartupError::Aborted.into());
+        }
+        self.flush_startup();
         if max_ahead < 0 {
             return Err(LiveCommandError::InvalidMaxAhead(max_ahead));
         }
@@ -511,9 +538,11 @@ impl LiveCommandSession {
                         self.send_probe(context.frame, max_ahead)?;
                     }
                     self.service_and_receive(now, queues, logic_frame_rate)?;
-                    if !self.exchange.initial_ready() {
+                    self.flush_startup();
+                    if !self.startup.complete() || !self.exchange.initial_ready() {
                         return Ok(NetworkQueuePass::Waiting);
                     }
+                    self.startup.release();
                     self.exchange.finish_initial_barrier();
                     //647B2E/647B32: only a successful initial wait clears
                     //manager response histories, after the peer-frame clear.
@@ -625,6 +654,16 @@ impl LiveCommandSession {
         }
     }
 
+    fn flush_startup(&mut self) {
+        let transport = &mut self.transport;
+        self.startup.flush(|bytes| {
+            transport.connections().peers().next().is_none()
+                || transport
+                    .connections_mut()
+                    .broadcast(bytes, Delivery::Reliable)
+        });
+    }
+
     fn prepare_timing(
         &mut self,
         queues: &mut NetworkCommandQueues<'_>,
@@ -729,13 +768,20 @@ impl LiveCommandSession {
             };
             let source_house = i8::try_from(message.peer_id)
                 .map_err(|_| LiveCommandError::InvalidRemoteHouse(message.peer_id))?;
-            let advanced = self.exchange.receive(
-                source_house,
-                &message.payload,
-                self.initial_seed,
-                queues,
-                elapsed,
-            )?;
+            let control = self
+                .startup
+                .receive(source_house, &message.payload, message.delivery)?;
+            let advanced = if control {
+                false
+            } else {
+                self.exchange.receive(
+                    source_house,
+                    &message.payload,
+                    self.initial_seed,
+                    queues,
+                    elapsed,
+                )?
+            };
             if advanced && self.mode == LiveCommandMode::Wol {
                 self.exchange.record_peer_lag(
                     source_house,

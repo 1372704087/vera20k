@@ -2854,6 +2854,46 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
                 .map_err(|_| anyhow::anyhow!("connected House index cannot be encoded"))
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let full_houses = state
+        .match_state
+        .session
+        .network_setup()
+        .ok_or_else(|| anyhow::anyhow!("gameplay has no frozen original admission"))?
+        .humans
+        .iter()
+        .enumerate()
+        .map(|(source, human)| {
+            let row = human
+                .raw_slot_index
+                .ok_or_else(|| anyhow::anyhow!("admitted human has no shared setup row"))?;
+            let house = super::match_runtime::network_match::source_house(
+                &state.match_state.session,
+                sim,
+                source,
+            )
+            .ok_or_else(|| anyhow::anyhow!("admitted source has no constructed House"))?;
+            Ok((
+                row,
+                i8::try_from(house)
+                    .map_err(|_| anyhow::anyhow!("original House cannot be encoded"))?,
+            ))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let active_rows = state
+        .match_state
+        .session
+        .network_connected_source_indices()
+        .iter()
+        .map(|&source| {
+            state
+                .match_state
+                .session
+                .network_setup()
+                .and_then(|launch| launch.humans.get(source))
+                .and_then(|human| human.raw_slot_index)
+                .ok_or_else(|| anyhow::anyhow!("active human has no shared setup row"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let online_timing = if state.match_state.session_mode() == SessionMode::Wol {
         Some(
             state
@@ -2866,6 +2906,38 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
     } else {
         None
     };
+    // Freeze shared setup-row/House bindings and loading-survivor set exactly
+    // once. The existing canonical world hash includes the installed shared
+    // timing rows; no first probe, vote or local clock can replace this value.
+    let frame_send_rate = online_timing.map_or(5, |timing| timing.frame_send_rate as u32);
+    let rate =
+        std::num::NonZeroU32::new(frame_send_rate).expect("native multiplayer FrameSendRate");
+    let sim = &mut state
+        .match_state
+        .sim_runtime
+        .as_mut()
+        .expect("constructed world")
+        .simulation;
+    sim.network_command_queues().install_timing(
+        host_house,
+        std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
+        source_houses,
+    );
+    let publisher = sim.network_timing_host_house();
+    let agreement = crate::net::live_commands::StartupAgreement::new(
+        full_houses,
+        active_rows,
+        seed,
+        sim.session()
+            .network_max_ahead_frames()
+            .expect("installed network MaxAhead"),
+        sim.session()
+            .network_command_timing()
+            .expect("installed timing")
+            .frames_per_second(),
+        rate,
+        sim.state_hash(),
+    )?;
     if state.match_state.session_mode() == SessionMode::Lan {
         let service = state.match_state.lan_service.as_mut().expect("visit");
         let scope = service
@@ -2895,36 +2967,20 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
         transport.global_mut().set_timing(global);
     }
     // LAN5DD2DF/5DD49F is independent of game speed. WOL794F6F uses
-    // the same timing owner as setup; its cadence follows the agreed speed.
-    let frame_send_rate = if let Some(timing) = online_timing {
-        timing.frame_send_rate as u32
-    } else {
-        5
-    };
+    // the same agreed timing owner; the manifest binds that initial cadence.
     let mut live = crate::net::live_commands::LiveCommandSession::new(
+        agreement,
         transport,
         local_house,
         seed,
-        std::num::NonZeroU32::new(frame_send_rate).expect("native multiplayer FrameSendRate"),
+        rate,
         if state.match_state.session_mode() == SessionMode::Wol {
             crate::net::live_commands::LiveCommandMode::Wol
         } else {
             crate::net::live_commands::LiveCommandMode::Lan
         },
     )?;
-    let mut queues = state
-        .match_state
-        .sim_runtime
-        .as_mut()
-        .expect("constructed world")
-        .simulation
-        .network_command_queues();
-    queues.install_timing(
-        host_house,
-        std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
-        source_houses,
-    );
-    if queues.timing_host_house() == Some(local_house)
+    if publisher == Some(local_house)
         && let Some(timing) = online_timing
     {
         live.configure_precalculated_timing(timing.precalc_max_ahead, timing.precalc_frame_rate);
@@ -3721,7 +3777,17 @@ fn gameplay_connections(
     let local = launch.local_player_index;
     let local_house = super::match_runtime::network_match::source_house(session, sim, local)
         .ok_or_else(|| anyhow::anyhow!("local LAN participant has no constructed House"))?;
-    let peers: Vec<_> = (0..launch.humans.len())
+    let connected = session.network_connected_source_indices();
+    anyhow::ensure!(
+        connected.contains(&local),
+        "gameplay requires the frozen local participant"
+    );
+    // DestroyConnection (0x005DA750) retires loading sources at 0x005DAA8A.
+    // Its historical endpoint remains part of the original admission, but
+    // must not recreate a private channel when surviving gameplay installs.
+    let peers: Vec<_> = connected
+        .iter()
+        .copied()
         .filter(|source| *source != local)
         .map(|source| {
             let house = super::match_runtime::network_match::source_house(session, sim, source)
@@ -4802,16 +4868,95 @@ mod tests {
                 10,
             ));
         }
-        // A display participant is not a network connection until its source
-        // endpoint is admitted. Failure does not take or mutate any sockets.
+        // Gameplay requires a frozen start and admitted endpoints. Rejection
+        // does not take or mutate any sockets.
         assert!(gameplay_connections(&session, &sim, LOBBY_RETRY_TIMING).is_err());
         let host = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30123);
         session.bind_network_endpoint(&host_name, host).unwrap();
+        session.prepare_network_timing(2, || 0).unwrap();
+        session.freeze_network_start(19).unwrap();
         let (local_house, seed, connections) =
             gameplay_connections(&session, &sim, LOBBY_RETRY_TIMING).unwrap();
         assert_eq!((local_house, seed), (0, 19));
         assert_eq!(connections.peers().collect::<Vec<_>>(), vec![(1, host)]);
         assert_eq!(session.network_endpoint(0), Some(host));
+    }
+
+    #[test]
+    fn loading_survivor_connections_handoff_the_original_majority_certificate() {
+        use crate::net::live_commands::{LiveCommandMode, LiveCommandSession, StartupAgreement};
+        use std::num::NonZeroU32;
+
+        let mut launch = launch();
+        launch.humans[0].raw_slot_index = Some(0);
+        let mut third = launch.humans[1].clone();
+        third.name = "Third".into();
+        third.raw_slot_index = Some(2);
+        third.slot.color_index = 3;
+        third.slot.start_position = crate::skirmish_launch::LaunchStartPosition::Position(3);
+        launch.humans.push(third);
+        launch.local_player_index = 1;
+        let mut session = MatchSession::default();
+        session.enter_network(NetworkReturnContext::Wol);
+        session.accept_network_setup(launch, false, None).unwrap();
+        let host = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30123);
+        let third = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30124);
+        session.bind_network_endpoint("Host", host).unwrap();
+        session.bind_network_endpoint("Third", third).unwrap();
+        session.prepare_wol_timing([0; 3], false).unwrap();
+        session.freeze_network_start(19).unwrap();
+        let mut sim = Simulation::with_seed(19);
+        for (house, source) in [1, 2, 0].into_iter().enumerate() {
+            let owner = sim.intern(&session.network_source_owner(source).unwrap());
+            sim.houses_mut_for_test().register(HouseState::new(
+                owner,
+                house as u8,
+                None,
+                true,
+                0,
+                10,
+            ));
+        }
+        super::super::match_runtime::network_match::destroy_connection(
+            &mut session,
+            &mut sim,
+            0,
+            super::super::match_runtime::network_match::ConnectionError::Lost,
+            None,
+        )
+        .unwrap();
+        assert_eq!(session.network_connected_source_indices(), &[1, 2]);
+        assert_eq!(session.network_endpoint(0), Some(host));
+        assert_eq!(session.network_setup().unwrap().humans.len(), 3);
+        let (local, seed, connections) =
+            gameplay_connections(&session, &sim, LOBBY_RETRY_TIMING).unwrap();
+        let rate = NonZeroU32::new(5).unwrap();
+        let agreement = StartupAgreement::new(
+            [(0, 2), (1, 0), (2, 1)],
+            [1, 2],
+            seed,
+            10,
+            30,
+            rate,
+            sim.state_hash(),
+        )
+        .unwrap();
+        let mut service = service();
+        let mut transport = service.transport.take().unwrap();
+        let address = transport.primary_addr().unwrap();
+        *transport.connections_mut() = connections;
+        let live = LiveCommandSession::new(
+            agreement,
+            transport,
+            local,
+            seed,
+            rate,
+            LiveCommandMode::Wol,
+        )
+        .expect("the production connected roster must install its two-of-three certificate");
+        assert_eq!(live.primary_addr().unwrap(), address);
+        assert_eq!(live.connections().peers().collect::<Vec<_>>(), [(1, third)]);
+        assert_eq!(live.into_transport().primary_addr().unwrap(), address);
     }
 }
 

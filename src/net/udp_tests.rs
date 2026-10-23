@@ -1307,7 +1307,7 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
     for packet in &old_packets {
         left.primary.send_to(packet, right_address).unwrap();
     }
-    assert_eq!(right.service(1).sent_datagrams, 2);
+    assert_eq!(malformed_after_receipt(&mut right, 1, 3), 0);
     let old_acks = take_wire_datagrams(&left, 2);
 
     // Same host epoch, different final configuration. The low32 revision is
@@ -1361,7 +1361,7 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
         right.pop_global_received().unwrap().payload,
         b"current match side channel"
     );
-    left.service(1);
+    assert_eq!(malformed_after_receipt(&mut left, 1, 2), 0);
     assert_eq!(left.connections().queued_send_count(1), Some(0));
     assert_eq!(left.global().queued_send_count(), 0);
 

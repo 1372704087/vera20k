@@ -254,7 +254,11 @@ impl NetworkCommandBoundary for FrameClientBoundary<'_> {
         .map_err(|error| {
             log::error!("live network command exchange: {error}");
             match error {
-                LiveCommandError::Exchange(CommandExchangeError::InitialChecksum { .. }) => {
+                LiveCommandError::Startup(crate::net::live_commands::StartupError::Aborted) => {
+                    NetworkInterruption::ConnectionFailed.into()
+                }
+                LiveCommandError::Startup(_)
+                | LiveCommandError::Exchange(CommandExchangeError::InitialChecksum { .. }) => {
                     NetworkInterruption::ScenariosDiffer.into()
                 }
                 LiveCommandError::Exchange(CommandExchangeError::Decode(error))

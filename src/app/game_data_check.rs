@@ -13,6 +13,8 @@ use crate::rules::retail_sources::select_ini;
 struct InstallReport {
     required: Vec<String>,
     optional: Vec<String>,
+    /// Language from the same successfully parsed string table used by play.
+    language: Option<u32>,
 }
 
 fn inspect(game_dir: &Path) -> InstallReport {
@@ -36,8 +38,9 @@ fn inspect(game_dir: &Path) -> InstallReport {
         destination.push(format!("{}: {}", issue.name, issue.detail));
     }
 
-    if let Err(error) = CsfFile::load_active(|name| assets.get_ref(name)) {
-        report.required.push(format!("ra2md.csf: {error}"));
+    match CsfFile::load_active(|name| assets.get_ref(name)) {
+        Ok((csf, _)) => report.language = Some(csf.language),
+        Err(error) => report.required.push(format!("ra2md.csf: {error}")),
     }
     // Read the startup roots through the production selector, including loose
     // overrides and nested archives. Optional LANGRULE is not a prerequisite.
@@ -74,7 +77,9 @@ fn inspect(game_dir: &Path) -> InstallReport {
     report
 }
 
-/// Write two UTF-8 lists consumed by Inno Setup (no JSON or MIX parser there).
+/// Write UTF-8 issue lists and the decimal CSF language ID consumed by Inno
+/// Setup (no JSON or MIX parser there). A missing or invalid string table leaves
+/// the language file empty.
 /// Exit 0 allows installation even with optional warnings; exit 1 blocks it.
 /// Failure to write a report is returned separately, so it cannot look valid.
 pub(super) fn check_and_write_report(game_dir: &Path, output_dir: &Path) -> Result<i32> {
@@ -87,6 +92,8 @@ pub(super) fn check_and_write_report(game_dir: &Path, output_dir: &Path) -> Resu
         std::fs::write(output_dir.join(name), issues.join("\r\n"))
             .with_context(|| format!("write {name}"))?;
     }
+    let language = report.language.map(|id| id.to_string()).unwrap_or_default();
+    std::fs::write(output_dir.join("language.txt"), language).context("write language.txt")?;
     Ok(i32::from(!report.required.is_empty()))
 }
 
@@ -128,12 +135,17 @@ mod tests {
         assert!(required.is_empty(), "{required}");
         assert!(optional.contains("test-song.wav"), "{optional}");
         assert!(optional.contains("audio.idx / audio.bag"), "{optional}");
+        assert_eq!(
+            std::fs::read_to_string(report_dir.path().join("language.txt")).unwrap(),
+            "0"
+        );
     }
 
     #[test]
     fn all_required_failures_are_reported_and_retry_replaces_old_results() {
         let dir = fixture();
         let output = TestDirectory::new("installer-retry");
+        std::fs::write(output.path().join("language.txt"), "9").unwrap();
         std::fs::remove_file(dir.path().join("ra2md.mix")).unwrap();
         std::fs::remove_file(dir.path().join("ra2.mix")).unwrap();
         assert_eq!(
@@ -151,7 +163,17 @@ mod tests {
         ] {
             assert!(report.contains(name), "missing {name} in {report}");
         }
+        assert!(
+            std::fs::read(output.path().join("language.txt"))
+                .unwrap()
+                .is_empty()
+        );
         let valid = fixture();
+        std::fs::write(
+            valid.path().join("RA2MD.CSF"),
+            include_bytes!("../../.github/release/windows/test-language-german.csf"),
+        )
+        .unwrap();
         assert_eq!(
             check_and_write_report(valid.path(), output.path()).unwrap(),
             0
@@ -160,6 +182,10 @@ mod tests {
             std::fs::read(output.path().join("required.txt"))
                 .unwrap()
                 .is_empty()
+        );
+        assert_eq!(
+            std::fs::read_to_string(output.path().join("language.txt")).unwrap(),
+            "2"
         );
         assert!(
             crate::app::frontend::launch::try_game_data_check([
@@ -179,6 +205,7 @@ mod tests {
         std::fs::remove_file(dir.path().join("SHELL2.PAL")).unwrap();
         std::fs::write(dir.path().join("SDBTNANM.SHP"), b"bad SHP").unwrap();
         let report = inspect(dir.path());
+        assert_eq!(report.language, None);
         assert!(
             report
                 .required

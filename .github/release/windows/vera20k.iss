@@ -6,7 +6,7 @@
 ;
 ; It installs the files of the package folder for the current user, without an
 ; administrator prompt, and asks for the Yuri's Revenge folder, offering the one
-; it finds (DetectGameDir). It writes config.toml beside the program with that
+; it finds (DetectGameDirs). It writes config.toml beside the program with that
 ; folder as ra2_dir and the install folder as settings_dir. Shortcuts start the
 ; program in its install folder, so logs, saves, replays and its RA2MD.INI stay
 ; there and never touch the game folder, which may be read-only or shared with
@@ -65,8 +65,29 @@ chinesesimplified.WelcomeLabel2=即将在您的计算机上安装 [name/ver]。%
 [CustomMessages]
 english.GameDirCaption=Yuri's Revenge folder
 english.GameDirDescription=Where is Yuri's Revenge installed?
-english.GameDirSubCaption=VERA20K plays with the files of your own copy of Yuri's Revenge 1.001. Choose the folder that has ra2md.mix and ra2.mix, usually the one with gamemd.exe.
+english.GameDirSubCaption=Choose a detected Yuri's Revenge 1.001 installation below, or browse for another folder.
 english.GameDirPrompt=Yuri's Revenge folder:
+english.GameInstallReady=Required files ready
+english.GameInstallOptional=Ready; optional content unavailable
+english.GameInstallMissing=Required files missing or unreadable
+english.GameInstallRecommended=Recommended
+english.GameInstallLanguage=Language: %1
+english.GameInstallChecking=Checking detected installations...
+english.GameInstallChoose=Select an installation above to see its missing content. You can also browse for another folder.
+english.GameInstallManual=Click Next to check the chosen folder.
+english.GameInstallNone=No installations were detected. Browse for your Yuri's Revenge folder, then click Next to check it.
+english.GameLanguage0=English (US)
+english.GameLanguage1=English (UK)
+english.GameLanguage2=German
+english.GameLanguage3=French
+english.GameLanguage4=Spanish
+english.GameLanguage5=Italian
+english.GameLanguage6=Japanese
+english.GameLanguage7=Jabberwockie (test language)
+english.GameLanguage8=Korean
+english.GameLanguage9=Chinese
+english.GameLanguageUnknown=Unknown
+english.GameLanguageOther=Unknown (CSF language %1)
 english.GameCheckCaption=Game files
 english.GameCheckDescription=Review the files in the selected game folder.
 english.GameCheckRequired=Required files are missing or unreadable. Click Back to choose another folder.
@@ -79,8 +100,29 @@ english.GameCheckNoFolder=No game folder was selected.
 english.ConfigNotWritten=Setup could not write %1.
 chinesesimplified.GameDirCaption=《尤里的复仇》文件夹
 chinesesimplified.GameDirDescription=《尤里的复仇》安装在哪里？
-chinesesimplified.GameDirSubCaption=VERA20K 使用你自己的《尤里的复仇》1.001 版游戏文件。请选择包含 ra2md.mix 和 ra2.mix 的文件夹，通常就是 gamemd.exe 所在的文件夹。
+chinesesimplified.GameDirSubCaption=请选择下方检测到的《尤里的复仇》1.001 安装，或浏览其他文件夹。
 chinesesimplified.GameDirPrompt=《尤里的复仇》文件夹：
+chinesesimplified.GameInstallReady=必需文件齐全
+chinesesimplified.GameInstallOptional=可以使用；部分可选内容不可用
+chinesesimplified.GameInstallMissing=必需文件缺失或无法读取
+chinesesimplified.GameInstallRecommended=推荐
+chinesesimplified.GameInstallLanguage=语言：%1
+chinesesimplified.GameInstallChecking=正在检查检测到的游戏安装……
+chinesesimplified.GameInstallChoose=选择上方的安装可查看缺失内容，也可以浏览其他文件夹。
+chinesesimplified.GameInstallManual=点击“下一步”检查所选文件夹。
+chinesesimplified.GameInstallNone=未检测到游戏安装。请浏览选择《尤里的复仇》文件夹，然后点击“下一步”检查。
+chinesesimplified.GameLanguage0=英语（美国）
+chinesesimplified.GameLanguage1=英语（英国）
+chinesesimplified.GameLanguage2=德语
+chinesesimplified.GameLanguage3=法语
+chinesesimplified.GameLanguage4=西班牙语
+chinesesimplified.GameLanguage5=意大利语
+chinesesimplified.GameLanguage6=日语
+chinesesimplified.GameLanguage7=Jabberwockie（测试语言）
+chinesesimplified.GameLanguage8=韩语
+chinesesimplified.GameLanguage9=中文
+chinesesimplified.GameLanguageUnknown=未知
+chinesesimplified.GameLanguageOther=未知（CSF 语言编号 %1）
 chinesesimplified.GameCheckCaption=游戏文件
 chinesesimplified.GameCheckDescription=检查所选游戏文件夹中的文件。
 chinesesimplified.GameCheckRequired=必需文件缺失或无法读取。请点击“上一步”选择其他文件夹。
@@ -110,16 +152,35 @@ Name: "{autodesktop}\VERA20K"; Filename: "{app}\vera20k.exe"; WorkingDir: "{app}
 Filename: "{app}\vera20k.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProgram,VERA20K}"; Flags: nowait postinstall skipifsilent
 
 [Code]
+type
+  TGameInstallation = record
+    Folder, Language, RequiredIssues, OptionalIssues: String;
+  end;
+
 var
   GameDirPage: TInputDirWizardPage;
   GameCheckPage: TOutputMsgMemoWizardPage;
+  GameInstallList: TNewCheckListBox;
+  GameInstallDetails: TNewMemo;
+  Installations: array of TGameInstallation;
+  RecommendedInstall: Integer;
+  InstallationsScanned, UpdatingSelection: Boolean;
   RequiredIssues, OptionalIssues: String;
 
-{ VERA20K mounts both masters; without either it cannot start (AssetManager::new). }
-function IsGameDir(Dir: String): Boolean;
+function NormalizeGameDir(Dir: String): String;
 begin
-  Result := (Dir <> '') and FileExists(AddBackslash(Dir) + 'ra2md.mix')
-    and FileExists(AddBackslash(Dir) + 'ra2.mix');
+  Result := RemoveQuotes(Trim(Dir));
+  if Result <> '' then
+  begin
+    StringChangeEx(Result, '/', '\', True);
+    { The edit box also calls this while a path is still being typed. Leave
+      incomplete paths to the reader's normal error report on Next. }
+    try
+      Result := ExpandFileName(Result);
+    except
+    end;
+    Result := RemoveBackslashUnlessRoot(Result);
+  end;
 end;
 
 { The folder a registry value names, or empty without the value. A value naming
@@ -131,7 +192,9 @@ begin
   Result := '';
   if RegQueryStringValue(RootKey, SubKey, ValueName, Value) then
   begin
-    if IsExecutable then
+    Value := RemoveQuotes(Trim(Value));
+    if IsExecutable and not DirExists(Value) and
+       (CompareText(ExtractFileExt(Value), '.exe') = 0) then
       Value := ExtractFileDir(Value);
     Result := RemoveBackslashUnlessRoot(Value);
   end;
@@ -139,9 +202,17 @@ end;
 
 procedure AddCandidate(var Candidates: TArrayOfString; Dir: String);
 var
-  Count: Integer;
+  I, Count: Integer;
 begin
+  Dir := NormalizeGameDir(Dir);
+  { A known installation may be damaged: keep it even without both masters.
+    Only known registry/library/default paths are probed, never whole drives. }
+  if (Dir = '') or not DirExists(Dir) then
+    Exit;
   Count := GetArrayLength(Candidates);
+  for I := 0 to Count - 1 do
+    if CompareText(Candidates[I], Dir) = 0 then
+      Exit;
   SetArrayLength(Candidates, Count + 1);
   Candidates[Count] := Dir;
 end;
@@ -201,15 +272,14 @@ begin
     end;
 end;
 
-{ Where Yuri's Revenge may be, first found first: the registry entries of the
-  original game, The First Decade and Origin/EA, then the Steam libraries, then
-  the default folders of The First Decade, Origin and the EA app. Empty when
-  none holds the game. }
-function DetectGameDir(): String;
+{ Collect every existing known installation, including incomplete copies.
+  Normalize and deduplicate registry views, Steam libraries and default paths. }
+function DetectGameDirs(): TArrayOfString;
 var
   Candidates: TArrayOfString;
-  I: Integer;
 begin
+  AddCandidate(Candidates, ExpandConstant('{param:GAMEDIR|}'));
+  AddCandidate(Candidates, GetPreviousData('GameDir', ''));
   AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Red Alert 2', 'InstallPath', True);
   AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Yuri''s Revenge', 'InstallPath', True);
   AddMachineEntry(Candidates, 'Software\Electronic Arts\EA Games\Command and Conquer The First Decade', 'r2_folder', False);
@@ -227,43 +297,12 @@ begin
     redalert2-recomp's README gives an EA app install. }
   AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command and Conquer Red Alert II'));
   AddCandidate(Candidates, 'C:\Westwood\RA2');
-  Result := '';
-  for I := 0 to GetArrayLength(Candidates) - 1 do
-    if Candidates[I] <> '' then
-    begin
-      Log('Looking for Yuri''s Revenge in ' + Candidates[I]);
-      if IsGameDir(Candidates[I]) then
-      begin
-        Result := Candidates[I];
-        Exit;
-      end;
-    end;
-end;
-
-{ /GAMEDIR= first, then the folder chosen last time, then a detected one. }
-function InitialGameDir(): String;
-begin
-  Result := ExpandConstant('{param:GAMEDIR|}');
-  if Result = '' then
-    Result := GetPreviousData('GameDir', '');
-  if (Result = '') or not IsGameDir(Result) then
-    if ExpandConstant('{param:GAMEDIR|}') = '' then
-      Result := DetectGameDir();
+  Result := Candidates;
 end;
 
 function GameDir(): String;
 begin
-  Result := RemoveBackslashUnlessRoot(Trim(GameDirPage.Values[0]));
-end;
-
-procedure InitializeWizard();
-begin
-  GameDirPage := CreateInputDirPage(wpSelectDir, CustomMessage('GameDirCaption'),
-    CustomMessage('GameDirDescription'), CustomMessage('GameDirSubCaption'), False, '');
-  GameDirPage.Add(CustomMessage('GameDirPrompt'));
-  GameDirPage.Values[0] := InitialGameDir();
-  GameCheckPage := CreateOutputMsgMemoPage(GameDirPage.ID,
-    CustomMessage('GameCheckCaption'), CustomMessage('GameCheckDescription'), '', '');
+  Result := NormalizeGameDir(GameDirPage.Values[0]);
 end;
 
 function ReadReport(FileName: String): String;
@@ -281,56 +320,281 @@ end;
 
 { Run our bundled reader, never a program from the selected game folder.
   Required/optional policy and nested MIX resolution belong to the game. }
-procedure CheckGameFiles();
+procedure InspectGameFolder(Dir: String; var Installation: TGameInstallation);
 var
-  ReportDir, Params, ReportText: String;
+  ReportDir, Params: String;
   ExitCode: Integer;
 begin
-  RequiredIssues := '';
-  OptionalIssues := '';
+  Installation.Folder := NormalizeGameDir(Dir);
+  Installation.RequiredIssues := '';
+  Installation.OptionalIssues := '';
+  Installation.Language := '';
+  try
+    if Installation.Folder = '' then
+      RaiseException(CustomMessage('GameCheckNoFolder'));
+    if not FileExists(ExpandConstant('{tmp}\vera20k.exe')) then
+      ExtractTemporaryFile('vera20k.exe');
+    ReportDir := ExpandConstant('{tmp}\game-data-check');
+    if not ForceDirectories(ReportDir) then
+      RaiseException('Cannot create ' + ReportDir);
+    { A retry must never read an older folder's results. }
+    if FileExists(ReportDir + '\required.txt') and
+      not DeleteFile(ReportDir + '\required.txt') then
+      RaiseException('Cannot clear required.txt');
+    if FileExists(ReportDir + '\optional.txt') and
+      not DeleteFile(ReportDir + '\optional.txt') then
+      RaiseException('Cannot clear optional.txt');
+    if FileExists(ReportDir + '\language.txt') and
+      not DeleteFile(ReportDir + '\language.txt') then
+      RaiseException('Cannot clear language.txt');
+    { The final dot also quotes drive roots safely: no trailing backslash
+      immediately before the Windows command line's closing quote. }
+    Params := '--check-game-data "' + AddBackslash(Installation.Folder) + '." "' + ReportDir + '"';
+    if not Exec(ExpandConstant('{tmp}\vera20k.exe'), Params,
+      ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+      RaiseException(SysErrorMessage(ExitCode));
+    if (ExitCode <> 0) and (ExitCode <> 1) then
+      RaiseException('Game-data checker exit code ' + IntToStr(ExitCode));
+    Installation.RequiredIssues := ReadReport(ReportDir + '\required.txt');
+    Installation.OptionalIssues := ReadReport(ReportDir + '\optional.txt');
+    Installation.Language := ReadReport(ReportDir + '\language.txt');
+    if ((ExitCode = 0) and (Installation.RequiredIssues <> '')) or
+      ((ExitCode = 1) and (Installation.RequiredIssues = '')) then
+      RaiseException('Game-data checker returned an inconsistent report');
+  except
+    Installation.RequiredIssues := FmtMessage(CustomMessage('GameCheckFailed'), [GetExceptionMessage]);
+  end;
+end;
+
+{ The CSF header, not the operating system, identifies the game text language.
+  Language enum: github.com/Ares-Developers/YRpp/blob/master/StringTable.h. }
+function GameLanguageName(Language: String): String;
+begin
+  case Language of
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9':
+      Result := CustomMessage('GameLanguage' + Language);
+    '', '10': Result := CustomMessage('GameLanguageUnknown');
+  else
+    Result := FmtMessage(CustomMessage('GameLanguageOther'), [Language]);
+  end;
+end;
+
+function InstallationStatus(Installation: TGameInstallation): String;
+begin
+  if Installation.RequiredIssues <> '' then
+    Result := CustomMessage('GameInstallMissing')
+  else if Installation.OptionalIssues <> '' then
+    Result := CustomMessage('GameInstallOptional')
+  else
+    Result := CustomMessage('GameInstallReady');
+end;
+
+function InstallationReport(Installation: TGameInstallation): String;
+begin
+  Result := Installation.Folder + #13#10 +
+    FmtMessage(CustomMessage('GameInstallLanguage'), [GameLanguageName(Installation.Language)]) + #13#10 +
+    InstallationStatus(Installation);
+  if Installation.RequiredIssues <> '' then
+    Result := Result + #13#10#13#10 + CustomMessage('GameCheckRequiredHeading') + #13#10 +
+      Installation.RequiredIssues;
+  if Installation.OptionalIssues <> '' then
+    Result := Result + #13#10#13#10 + CustomMessage('GameCheckOptionalHeading') + #13#10 +
+      Installation.OptionalIssues;
+end;
+
+function FindInstallation(Dir: String): Integer;
+var
+  I: Integer;
+begin
+  Dir := NormalizeGameDir(Dir);
+  Result := -1;
+  for I := 0 to GetArrayLength(Installations) - 1 do
+    if CompareText(Installations[I].Folder, Dir) = 0 then
+    begin
+      Result := I;
+      Exit;
+    end;
+end;
+
+procedure RecommendInstallation();
+var
+  I: Integer;
+begin
+  RecommendedInstall := -1;
+  for I := 0 to GetArrayLength(Installations) - 1 do
+    if Installations[I].RequiredIssues = '' then
+    begin
+      if RecommendedInstall < 0 then
+        RecommendedInstall := I
+      else if (Installations[RecommendedInstall].OptionalIssues <> '') and
+        (Installations[I].OptionalIssues = '') then
+        RecommendedInstall := I;
+    end;
+end;
+
+function PreferredGameDir(Requested: String): String;
+begin
+  Result := NormalizeGameDir(Requested);
+  if Result <> '' then
+    Exit;
+  if RecommendedInstall >= 0 then
+    Result := Installations[RecommendedInstall].Folder
+  else if GetArrayLength(Installations) > 0 then
+    Result := Installations[0].Folder;
+end;
+
+procedure RefreshInstallationList();
+var
+  I, Selected: Integer;
+  Summary: String;
+begin
+  UpdatingSelection := True;
+  try
+    Selected := FindInstallation(GameDir());
+    GameInstallList.Items.Clear();
+    for I := 0 to GetArrayLength(Installations) - 1 do
+    begin
+      Summary := GameLanguageName(Installations[I].Language) + ' | ' +
+        InstallationStatus(Installations[I]);
+      if I = RecommendedInstall then
+        Summary := CustomMessage('GameInstallRecommended') + ' | ' + Summary;
+      GameInstallList.AddRadioButton(
+        MinimizePathName(Installations[I].Folder, GameInstallList.Font,
+          GameInstallList.Width - ScaleX(32)), Summary, 0, I = Selected, True, nil);
+    end;
+    GameInstallList.ItemIndex := Selected;
+    if Selected >= 0 then
+      GameInstallDetails.Text := InstallationReport(Installations[Selected])
+    else if GetArrayLength(Installations) = 0 then
+      GameInstallDetails.Text := CustomMessage('GameInstallNone')
+    else
+      GameInstallDetails.Text := CustomMessage('GameInstallManual');
+  finally
+    UpdatingSelection := False;
+  end;
+end;
+
+procedure GameInstallationSelected(Sender: TObject);
+var
+  I: Integer;
+begin
+  if UpdatingSelection then
+    Exit;
+  for I := 0 to GetArrayLength(Installations) - 1 do
+    if GameInstallList.Checked[I] then
+    begin
+      UpdatingSelection := True;
+      try
+        GameDirPage.Values[0] := Installations[I].Folder;
+        GameInstallDetails.Text := InstallationReport(Installations[I]);
+      finally
+        UpdatingSelection := False;
+      end;
+      Exit;
+    end;
+end;
+
+procedure GameFolderEdited(Sender: TObject);
+begin
+  if InstallationsScanned and not UpdatingSelection then
+    RefreshInstallationList();
+end;
+
+procedure ScanGameInstallations();
+var
+  Candidates: TArrayOfString;
+  I: Integer;
+begin
+  if InstallationsScanned then
+    Exit;
+  WizardForm.NextButton.Enabled := False;
+  WizardForm.Cursor := crHourGlass;
+  GameInstallDetails.Text := CustomMessage('GameInstallChecking');
+  GameInstallDetails.Repaint();
+  try
+    Candidates := DetectGameDirs();
+    SetArrayLength(Installations, GetArrayLength(Candidates));
+    for I := 0 to GetArrayLength(Candidates) - 1 do
+    begin
+      InspectGameFolder(Candidates[I], Installations[I]);
+      Log('Detected game installation: ' + InstallationReport(Installations[I]));
+    end;
+    Log('Detected game installations: ' + IntToStr(GetArrayLength(Installations)));
+    RecommendInstallation();
+    UpdatingSelection := True;
+    try
+      GameDirPage.Values[0] := PreferredGameDir(ExpandConstant('{param:GAMEDIR|}'));
+    finally
+      UpdatingSelection := False;
+    end;
+    if RecommendedInstall >= 0 then
+      Log('Recommended game folder: ' + Installations[RecommendedInstall].Folder)
+    else
+      Log('No detected game folder passed required-file validation.');
+    InstallationsScanned := True;
+    RefreshInstallationList();
+  finally
+    WizardForm.Cursor := crDefault;
+    WizardForm.NextButton.Enabled := True;
+  end;
+end;
+
+procedure InitializeWizard();
+var
+  ListTop, Space: Integer;
+begin
+  RecommendedInstall := -1;
+  GameDirPage := CreateInputDirPage(wpSelectDir, CustomMessage('GameDirCaption'),
+    CustomMessage('GameDirDescription'), CustomMessage('GameDirSubCaption'), False, '');
+  GameDirPage.Add(CustomMessage('GameDirPrompt'));
+  GameDirPage.Values[0] := NormalizeGameDir(ExpandConstant('{param:GAMEDIR|}'));
+  GameDirPage.Edits[0].OnChange := @GameFolderEdited;
+  ListTop := GameDirPage.Edits[0].Top + GameDirPage.Edits[0].Height + ScaleY(8);
+  Space := GameDirPage.SurfaceHeight - ListTop - ScaleY(8);
+  GameInstallList := TNewCheckListBox.Create(GameDirPage);
+  GameInstallList.Parent := GameDirPage.Surface;
+  GameInstallList.SetBounds(0, ListTop, GameDirPage.SurfaceWidth, Space div 2);
+  GameInstallList.RequireRadioSelection := False;
+  GameInstallList.OnClickCheck := @GameInstallationSelected;
+  GameInstallDetails := TNewMemo.Create(GameDirPage);
+  GameInstallDetails.Parent := GameDirPage.Surface;
+  GameInstallDetails.SetBounds(0, ListTop + GameInstallList.Height + ScaleY(8),
+    GameDirPage.SurfaceWidth, Space - GameInstallList.Height);
+  GameInstallDetails.ReadOnly := True;
+  GameInstallDetails.ScrollBars := ssVertical;
+  GameInstallDetails.WordWrap := True;
+  GameInstallDetails.Text := CustomMessage('GameInstallChoose');
+  GameCheckPage := CreateOutputMsgMemoPage(GameDirPage.ID,
+    CustomMessage('GameCheckCaption'), CustomMessage('GameCheckDescription'), '', '');
+end;
+
+procedure CheckGameFiles();
+var
+  Selected: Integer;
+  Checked: TGameInstallation;
+begin
+  ScanGameInstallations();
   WizardForm.NextButton.Enabled := False;
   WizardForm.Cursor := crHourGlass;
   try
-    try
-      if GameDir() = '' then
-        RaiseException(CustomMessage('GameCheckNoFolder'));
-      if not FileExists(ExpandConstant('{tmp}\vera20k.exe')) then
-        ExtractTemporaryFile('vera20k.exe');
-      ReportDir := ExpandConstant('{tmp}\game-data-check');
-      if not ForceDirectories(ReportDir) then
-        RaiseException('Cannot create ' + ReportDir);
-      { A retry must never read an older folder's results. }
-      if FileExists(ReportDir + '\required.txt') and
-        not DeleteFile(ReportDir + '\required.txt') then
-        RaiseException('Cannot clear required.txt');
-      if FileExists(ReportDir + '\optional.txt') and
-        not DeleteFile(ReportDir + '\optional.txt') then
-        RaiseException('Cannot clear optional.txt');
-      { The final dot also quotes drive roots safely: no trailing backslash
-        immediately before the Windows command line's closing quote. }
-      Params := '--check-game-data "' + AddBackslash(GameDir()) + '." "' + ReportDir + '"';
-      if not Exec(ExpandConstant('{tmp}\vera20k.exe'), Params,
-        ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then
-        RaiseException(SysErrorMessage(ExitCode));
-      if (ExitCode <> 0) and (ExitCode <> 1) then
-        RaiseException('Game-data checker exit code ' + IntToStr(ExitCode));
-      RequiredIssues := ReadReport(ReportDir + '\required.txt');
-      OptionalIssues := ReadReport(ReportDir + '\optional.txt');
-      if ((ExitCode = 0) and (RequiredIssues <> '')) or
-        ((ExitCode = 1) and (RequiredIssues = '')) then
-        RaiseException('Game-data checker returned an inconsistent report');
-    except
-      RequiredIssues := FmtMessage(CustomMessage('GameCheckFailed'), [GetExceptionMessage]);
+    { Recheck the chosen folder, including manual paths, before installation. }
+    InspectGameFolder(GameDir(), Checked);
+    if Checked.Folder <> '' then
+    begin
+      Selected := FindInstallation(Checked.Folder);
+      if Selected < 0 then
+      begin
+        Selected := GetArrayLength(Installations);
+        SetArrayLength(Installations, Selected + 1);
+      end;
+      Installations[Selected] := Checked;
     end;
-    ReportText := GameDir();
-    if RequiredIssues <> '' then
-      ReportText := ReportText + #13#10#13#10 +
-        CustomMessage('GameCheckRequiredHeading') + #13#10 + RequiredIssues;
-    if OptionalIssues <> '' then
-      ReportText := ReportText + #13#10#13#10 +
-        CustomMessage('GameCheckOptionalHeading') + #13#10 + OptionalIssues;
-    GameCheckPage.RichEditViewer.Lines.Text := ReportText;
-    Log('Game-data check: ' + ReportText);
+    RequiredIssues := Checked.RequiredIssues;
+    OptionalIssues := Checked.OptionalIssues;
+    RecommendInstallation();
+    RefreshInstallationList();
+    GameCheckPage.RichEditViewer.Lines.Text := InstallationReport(Checked);
+    Log('Game-data check: ' + InstallationReport(Checked));
     if RequiredIssues <> '' then
       GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckRequired')
     else if OptionalIssues <> '' then
@@ -361,7 +625,9 @@ end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if CurPageID = GameCheckPage.ID then
+  if CurPageID = GameDirPage.ID then
+    ScanGameInstallations()
+  else if CurPageID = GameCheckPage.ID then
     WizardForm.NextButton.Enabled := RequiredIssues = '';
 end;
 

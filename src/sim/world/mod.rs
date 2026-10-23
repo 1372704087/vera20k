@@ -25,6 +25,7 @@ pub(crate) mod building_anim;
 mod building_scatter;
 mod building_upgrade_art;
 mod camera_home;
+mod bounce_terrain;
 mod cell_content;
 mod crash;
 mod disk_laser;
@@ -42,6 +43,8 @@ mod sinking;
 mod time_warp;
 mod trigger_chrono;
 mod type_tech_levels;
+mod voxel_anim_effects;
+pub(crate) use voxel_anim_effects::BounceContactDamage;
 mod unit_repair_seek;
 pub(crate) use frame_channel::FrameChannel;
 pub use network_commands::{NetworkCommandQueues, NetworkQueueError, NetworkQueueContext, NetworkQueuePass, NetworkInterruption};
@@ -204,6 +207,8 @@ pub use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell
 mod team_script_vm_tests;
 #[cfg(test)]
 mod voxel_water_expiry_tests;
+#[cfg(test)]
+mod overlay_explodes_tests;
 
 pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
@@ -1229,6 +1234,9 @@ pub struct Simulation {
     /// Shared by all instances of the type; the upgrade/art owner mutates it.
     #[serde(default)]
     building_upgrade_art_names: crate::sim::building_upgrades::BuildingUpgradeArtNames,
+    /// VoxelAnimAI74A8F8 supplies the live Type Damage field to receivers.
+    #[serde(default)]
+    voxel_type_damage: crate::sim::voxel_anim::VoxelTypeDamage,
     /// Pre-resolved `[CombatDamage]` warhead handles (F04). Built by
     /// `resolve_type_handles` beside the type table; rebuilt from rules on
     /// load. NOT serialized, NOT hashed. `None` until resolved.
@@ -2671,6 +2679,7 @@ impl Simulation {
                             );
                             crate::sim::combat::combat_aoe::AreaDamageReceiver::Terrain(
                                 crate::sim::combat::TerrainDamageEvent {
+                    damage_writeback: None,
                                     stable_id,
                                     rx,
                                     ry,
@@ -2947,15 +2956,16 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         event: crate::sim::combat::TerrainDamageEvent,
+        ignore_defenses: bool,
         frame_effects: FrameEffects<'_>,
-    ) {
+    ) -> damage_consequences::DamageCommitReceipt {
         let mut run =
             crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(frame_effects);
         let (effects, under_attack_events) = crate::sim::combat::world_receiver::commit_terrain(
             self,
             &mut run,
             event,
-            true,
+            ignore_defenses,
             rules,
             overlay_registry,
         );
@@ -2967,7 +2977,7 @@ impl Simulation {
             under_attack_events,
             terrain_navigation_changed_cells,
             frame_effects,
-        );
+        )
     }
 
     /// Commit one non-combat Apply_area_damage hit list through the ordinary
@@ -3026,7 +3036,7 @@ impl Simulation {
     /// consequences already happened recursively in combat; this consumes the
     /// same lifecycle/presentation/terrain outputs without leaving an alternate
     /// zero-HP object registered for the next LogicClass visit.
-    fn absorb_noncombat_damage_effects(
+    pub(crate) fn absorb_noncombat_damage_effects(
         &mut self,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -4354,6 +4364,7 @@ impl Simulation {
             dirty_cells: Default::default(),
             power_states: Default::default(),
             building_upgrade_art_names: Default::default(),
+            voxel_type_damage: Default::default(),
             super_weapons: Default::default(),
             lightning_storm: Default::default(),
             psychic_dominator: Default::default(),
@@ -6940,10 +6951,13 @@ impl Simulation {
             .copied()
             // Dummy Recalc47D2B8 has no path publication or structure scan.
             // Test allocation without performing the ordered lookup early.
-            .filter(|&(x, y)| {
-                self.resolved_terrain
-                    .as_ref()
-                    .is_none_or(|grid| grid.cell(x, y).is_some())
+            .filter_map(|(x, y)| {
+                self.resolved_terrain.as_ref().map_or(Some((x, y)), |grid| {
+                    let index = grid.native_fixed_cell_index(x as i16, y as i16)?;
+                    let (x, y) = grid
+                        .native_cell_coord(crate::map::cell_index::NativeCellIdentity::Real(index));
+                    Some((x as u16, y as u16))
+                })
             })
             .collect();
         let blocked = navigation::structure_blocked_among(
@@ -6960,17 +6974,43 @@ impl Simulation {
             // Dummy, whose Recalc47D2B0 immediately returns (47D2B8).
             // Resize565C10's allocation diamond excludes cell0, so the
             // never-Unlimbo'd zero constructor has no real-cell Recalc work.
-            let dummy = self.resolved_terrain.as_ref().is_some_and(|terrain| {
-                terrain.native_cell_identity((cell.0 as i16, cell.1 as i16))
-                    == crate::map::cell_index::NativeCellIdentity::Dummy
-            });
+            let recalc_cell = self
+                .resolved_terrain
+                .as_ref()
+                .map_or(Some(cell), |terrain| {
+                    match terrain.native_cell_identity((cell.0 as i16, cell.1 as i16)) {
+                        crate::map::cell_index::NativeCellIdentity::Real(index) => {
+                            let (x, y) = terrain.native_cell_coord(
+                                crate::map::cell_index::NativeCellIdentity::Real(index),
+                            );
+                            Some((x as u16, y as u16))
+                        }
+                        crate::map::cell_index::NativeCellIdentity::Dummy => None,
+                    }
+                });
             let initializing = self.object_placement_scope_active();
-            if !dummy {
-                if initializing {
-                    self.publish_recalculated_cells_with_presence(rules, &[cell], &blocked);
-                } else {
-                    self.publish_cell_and_assign_orphaned_zone(rules, cell, &blocked);
-                }
+            if let Some(recalc_cell) = recalc_cell {
+                // Recalc71CA23 uses the allocated Cell receiver's coordinate.
+                // Zone/hierarchy71CA42/51 instead retain the packed Location;
+                // their own index/geometry is not the Map's fixed512 alias.
+                self.publish_recalculated_cells_with_presence(rules, &[recalc_cell], &blocked);
+            }
+            // 71CA2F..71CA60 gates zone/hierarchy only on ScenarioInit.
+            // A Map-Dummy can select a real retained zone record because
+            // 56D460 uses the separate Size-derived stride and clamp.
+            if !initializing
+                && let (Some(terrain), Some(path)) =
+                    (self.resolved_terrain.as_ref(), self.path_grid.as_deref())
+            {
+                repair_zone_after_recalc(
+                    &mut self.zone_grid,
+                    path,
+                    terrain,
+                    self.bridge_state.as_ref(),
+                    self.playfield_bounds,
+                    cell,
+                    ZoneRepairKind::AssignOrphaned,
+                );
             }
             // Zero's retained zone class7 returns at56D4E8..56D51B;
             // hierarchy58456A..584571 independently rejects its playfield.

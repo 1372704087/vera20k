@@ -21,6 +21,7 @@ use crate::rules::phobos_radiation::RadiationTypeCatalog;
 use crate::rules::sound_ini::EvaRegistry;
 
 use crate::rules::missile_spawn::{MissileFamily, MissileSpawnRules};
+use crate::rules::object_image::{ImageTheater, ObjectImageKind, ObjectImageState};
 use crate::rules::object_type::{
     InfantryInfiltration, InfantryPips, ObjectCategory, WEAPON_SLOT_COUNT,
 };
@@ -144,7 +145,7 @@ pub enum RulesLayerKind {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RulesProcessContext {
     Ordinary,
-    ScenarioReset,
+    ScenarioReset(ImageTheater),
 }
 
 #[derive(Debug, Clone)]
@@ -260,14 +261,16 @@ impl RulesLayerStack {
         context: RulesProcessContext,
         fixed_eva: &EvaRegistry,
     ) -> Result<ProcessedRulesLayers, NativeRulesProcessingFailure> {
-        let (registry_state, mut root_color_add_reread) = match context {
-            RulesProcessContext::Ordinary => (registry_state, None),
-            RulesProcessContext::ScenarioReset => (
+        let (registry_state, mut root_color_add_reread, theater) = match context {
+            RulesProcessContext::Ordinary => (registry_state, None, ImageTheater::Uninitialized),
+            RulesProcessContext::ScenarioReset(theater) => (
                 registry_state.destructive_reset(),
                 Some(&self.layers[0].ini),
+                theater,
             ),
         };
         let mut processor = RulesPassProcessor::with_registry_state(registry_state);
+        processor.image_theater = theater;
         for (index, (kind, ini)) in self.iter_passes().enumerate() {
             if index > 0
                 && kind != RulesLayerKind::LangRule
@@ -602,6 +605,46 @@ impl ProcessedRulesLayers {
         self.native_type_construction_trace.registry_state()
     }
 
+    /// Restore the inherited image calls of Terrain, Bullet and TechnoTypes
+    /// from their retained fields. RulesLoad675210 never replays ReadINI.
+    /// Call once on the incoming owned payload, after its saved digest passes.
+    pub(crate) fn restore_object_image_loads(
+        &mut self,
+        theater_name: &str,
+    ) -> Result<(), RulesError> {
+        self.validate_saved_state()?;
+        let theater = ImageTheater::from_name(theater_name);
+        for (&family, members) in &mut self.native_type_construction_trace.registry_state.families {
+            if family.object_category().is_none()
+                && !matches!(
+                    family,
+                    RulesTypeFamily::Terrain | RulesTypeFamily::Projectile
+                )
+            {
+                continue;
+            }
+            for member in members {
+                let image = &mut member.object_image;
+                // ObjectLoad5F9856/985C clears shape/ownership after raw load.
+                image.clear_shp();
+                // Terrain71E211/18, Bullet46C6E1/E8, Aircraft41CE72/79,
+                // Unit74805A/61 and Infantry5249AD/B4 load VXL BEFORE SHP,
+                // regardless of the retained Voxel flag. Building4651F6
+                // reaches only generic SHP; its derived visual owner follows.
+                if family != RulesTypeFamily::Building {
+                    image.load_voxel();
+                }
+                let kind = if family == RulesTypeFamily::Terrain {
+                    ObjectImageKind::Terrain
+                } else {
+                    ObjectImageKind::Ordinary
+                };
+                image.load_unowned_shp(kind, theater);
+            }
+        }
+        Ok(())
+    }
+
     /// Retained constructor and admitted reader state of the Terrain members.
     pub(crate) fn terrain_type_read_states(
         &self,
@@ -609,6 +652,7 @@ impl ProcessedRulesLayers {
         Item = (
             &str,
             &crate::rules::terrain_object_type::TerrainTypeReadState,
+            &ObjectImageState,
         ),
     > {
         self.native_type_construction_trace
@@ -618,10 +662,13 @@ impl ProcessedRulesLayers {
             .into_iter()
             .flatten()
             .filter_map(|member| {
-                member
-                    .terrain_type_read_state
-                    .as_ref()
-                    .map(|state| (member.native_stored_id.as_str(), state))
+                member.terrain_type_read_state.as_ref().map(|state| {
+                    (
+                        member.native_stored_id.as_str(),
+                        state,
+                        &member.object_image,
+                    )
+                })
             })
     }
 
@@ -708,6 +755,7 @@ impl ProcessedRulesLayers {
         }
         for (&family, members) in &registry.families {
             for member in members {
+                member.object_image.validate_saved_state()?;
                 if let Some(terrain) = &member.terrain_type_read_state {
                     terrain.validate_saved_state()?;
                 }
@@ -839,14 +887,20 @@ impl ProcessedRulesLayers {
     /// Retained Bullet/ObjectType Image and ART fields after each native pass.
     pub(crate) fn projectile_art_states(
         &self,
-    ) -> impl Iterator<Item = (&str, &ProjectileArtState)> {
+    ) -> impl Iterator<Item = (&str, &ProjectileArtState, &ObjectImageState)> {
         self.native_type_construction_trace
             .registry_state()
             .families
             .get(&RulesTypeFamily::Projectile)
             .into_iter()
             .flatten()
-            .map(|member| (member.native_stored_id.as_str(), &member.projectile_art))
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    &member.projectile_art,
+                    &member.object_image,
+                )
+            })
     }
 
     /// BuildingType+16B0/EA4/EA8/EAC retained by its original reached body.
@@ -1262,7 +1316,14 @@ impl ProcessedRulesLayers {
     /// ReadINI pass.
     pub(crate) fn techno_reference_states(
         &self,
-    ) -> impl Iterator<Item = (ObjectCategory, &str, &TechnoTypeReferences)> {
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &TechnoTypeReferences,
+            &ObjectImageState,
+        ),
+    > {
         self.native_type_construction_trace
             .registry_state()
             .families
@@ -1276,6 +1337,7 @@ impl ProcessedRulesLayers {
                         category,
                         member.native_stored_id.as_str(),
                         &member.techno_references,
+                        &member.object_image,
                     )
                 })
             })
@@ -3063,6 +3125,9 @@ impl AresExplicitFactory {
 struct ProcessedType {
     native_stored_id: String,
     body: IniSection,
+    // Mandatory on load: a missing Arctic latch cannot be reconstructed from
+    // a flattened Image key or inferred from whether its name ends in A.
+    object_image: ObjectImageState,
     /// Constructor711351=0; fixed ART ReadInt71592A..715948 keeps the
     /// current value as default across Image changes and later Rules passes.
     #[serde(default)]
@@ -3225,10 +3290,6 @@ struct ProcessedType {
 /// leave every pointer null and every list empty.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TechnoTypeReferences {
-    /// ObjectType+1F8 (`0x005F92F8..0x005F933B`): ReadString into 25 bytes
-    /// over a copy of the retained text, which starts as the type's ID. It
-    /// names the type's fixed ART section and its asset.
-    image: String,
     /// Last nonempty fixed ART Palette request bound by717820. Constructor
     /// store711680 clears DF0;71582B reads DD0 with empty default/capacity32.
     ///717820..71783E keeps DF0 on an empty read, and otherwise replaces it
@@ -3290,9 +3351,8 @@ pub(crate) struct TechnoTypeReferences {
 }
 
 impl TechnoTypeReferences {
-    fn new(native_stored_id: &str) -> Self {
+    fn new() -> Self {
         Self {
-            image: native_stored_id.to_owned(),
             palette_binding: None,
             death_weapon: None,
             debris_types: Vec::new(),
@@ -3322,7 +3382,6 @@ impl TechnoTypeReferences {
     /// Publish every retained reference onto the type's `ObjectType`, as
     /// stored IDs.
     pub(crate) fn apply_to(&self, object: &mut crate::rules::object_type::ObjectType) {
-        object.image.clone_from(&self.image);
         object.project_custom_palette(self.palette_binding.as_deref());
         object.death_weapon.clone_from(&self.death_weapon);
         object.debris_types.clone_from(&self.debris_types);
@@ -3539,10 +3598,11 @@ impl ProcessedType {
     fn new(native_stored_id: String) -> Self {
         Self {
             body: IniSection::new(native_stored_id.clone()),
+            object_image: ObjectImageState::new(&native_stored_id),
             voxel_shadow_index: 0,
             tech_level: crate::rules::object_type::DEFAULT_TECH_LEVEL,
-            projectile_art: ProjectileArtState::new(&native_stored_id),
-            techno_references: TechnoTypeReferences::new(&native_stored_id),
+            projectile_art: ProjectileArtState::new(),
+            techno_references: TechnoTypeReferences::new(),
             native_stored_id,
             country_color_scheme: 0,
             country_side_index: -1,
@@ -3611,6 +3671,7 @@ impl ProcessedType {
 
 #[derive(Debug)]
 struct RulesPassProcessor {
+    image_theater: ImageTheater,
     compatibility: RulesCompatibility,
     ares_prerequisites: Option<GenericPrerequisites>,
     /// Ordered Ares armor registry; Process retains it, destructive reset rebuilds it.
@@ -3684,6 +3745,7 @@ impl Default for RulesPassProcessor {
 impl RulesPassProcessor {
     fn with_registry_state(registry_state: NativeRulesRegistryState) -> Self {
         Self {
+            image_theater: ImageTheater::Uninitialized,
             compatibility: registry_state.compatibility,
             ares_prerequisites: registry_state.ares_prerequisites,
             ares_armors: registry_state.ares_armors,
@@ -4003,9 +4065,8 @@ impl RulesPassProcessor {
         }
         if family == RulesTypeFamily::Terrain {
             members[index].armor_id = ArmorId::WOOD;
-            members[index].terrain_type_read_state = Some(
-                crate::rules::terrain_object_type::TerrainTypeReadState::new(&native_stored_id),
-            );
+            members[index].terrain_type_read_state =
+                Some(crate::rules::terrain_object_type::TerrainTypeReadState::new());
         }
         if crate::rules::ARES_ENABLED && family == RulesTypeFamily::Warhead {
             members[index].ares_verses = Some(AresWarheadVerses::default());
@@ -5185,9 +5246,20 @@ impl RulesPassProcessor {
                 // pass without the key keeps it. It names each fixed ART
                 // section below; the later ART Image redirect is local to
                 // visual asset loading.
-                let references = &mut self.family_mut(family)[index].techno_references;
-                let image = raw.read_string("Image", &references.image, 0x19);
-                references.image.clone_from(&image);
+                let theater = self.image_theater;
+                let member = &mut self.family_mut(family)[index];
+                member
+                    .object_image
+                    .read_ini(&raw, fixed_art, ObjectImageKind::Ordinary, theater);
+                // TechnoRead7157B5..715825 loads current Image.SHP once
+                // for every RTTI except Building7, independently of Voxel.
+                // Its unconditional store clears a prior parent shape even
+                // on a miss, before Palette71584B and LoadVoxel71609C.
+                if family != RulesTypeFamily::Building {
+                    member.object_image.load_plain_shp();
+                }
+                let image = member.object_image.image().to_string();
+                let references = &mut member.techno_references;
                 // ReadINI712170 reaches715852 on every admitted Rules layer,
                 // after ObjectType's Image read. Empty/missing Palette keeps
                 // the previous binding even when this pass changes Image.
@@ -5202,6 +5274,12 @@ impl RulesPassProcessor {
                 member.voxel_shadow_index = fixed_art
                     .section_or_empty(&image)
                     .read_int("ShadowIndex", member.voxel_shadow_index);
+                // TechnoRead716090..7160A4 reaches LoadVoxel5F8110 only
+                // with the retained Voxel byte. Later Image changes cannot
+                // rename a resource whose load was skipped.
+                if member.object_image.voxel() {
+                    member.object_image.load_voxel();
+                }
                 // Installed suffix hooks716123/716132 ->10040DF0 ->1003DEC0
                 // reach the common TechnoType extension before subclass reads.
                 #[cfg(feature = "ares")]
@@ -5783,21 +5861,30 @@ impl RulesPassProcessor {
                 // Full native body46BEE0: base Object ART reads precede the
                 // clearing Image25 read and byte-narrowed Bullet ART fields.
                 // Keep type-reference allocation here in native read order.
-                let mut art = self.families[&RulesTypeFamily::Projectile][index]
-                    .projectile_art
-                    .clone();
-                art.read_pass(&raw, fixed_art, &color_names, |incoming| {
-                    let animation = self.find_or_allocate(RulesTypeFamily::Animation, incoming)?;
-                    Some(
-                        self.families[&RulesTypeFamily::Animation][animation]
-                            .native_stored_id
-                            .clone(),
-                    )
-                });
-                self.families
-                    .get_mut(&RulesTypeFamily::Projectile)
-                    .expect("the live BulletType member exists")[index]
-                    .projectile_art = art;
+                let member = &mut self.family_mut(RulesTypeFamily::Projectile)[index];
+                let mut art =
+                    std::mem::replace(&mut member.projectile_art, ProjectileArtState::new());
+                let mut image =
+                    std::mem::replace(&mut member.object_image, ObjectImageState::new(""));
+                art.read_pass(
+                    &mut image,
+                    self.image_theater,
+                    &raw,
+                    fixed_art,
+                    &color_names,
+                    |incoming| {
+                        let animation =
+                            self.find_or_allocate(RulesTypeFamily::Animation, incoming)?;
+                        Some(
+                            self.families[&RulesTypeFamily::Animation][animation]
+                                .native_stored_id
+                                .clone(),
+                        )
+                    },
+                );
+                let member = &mut self.family_mut(RulesTypeFamily::Projectile)[index];
+                member.projectile_art = art;
+                member.object_image = image;
                 if let Some(weapon) =
                     self.resolve_scalar_from(&raw, "AirburstWeapon", RulesTypeFamily::Weapon, 0x80)
                 {
@@ -5911,13 +5998,12 @@ impl RulesPassProcessor {
             if let Some((_id, raw, _effective)) = self.begin_rules_member_read(family, index, pass)
                 && family == RulesTypeFamily::Terrain
             {
+                let theater = self.image_theater;
                 let member = &mut self.family_mut(family)[index];
-                let state = member.terrain_type_read_state.get_or_insert_with(|| {
-                    crate::rules::terrain_object_type::TerrainTypeReadState::new(
-                        &member.native_stored_id,
-                    )
-                });
-                state.read_pass(&raw, fixed_art);
+                let state = member.terrain_type_read_state.get_or_insert_with(
+                    crate::rules::terrain_object_type::TerrainTypeReadState::new,
+                );
+                state.read_pass(&raw, fixed_art, &mut member.object_image, theater);
             }
             index += 1;
         }

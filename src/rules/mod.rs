@@ -162,6 +162,7 @@ pub mod movies;
 pub mod native_ini_hash;
 pub mod native_processing;
 pub mod object_type;
+pub mod object_image;
 pub mod overlay_types;
 pub mod particle_system_type;
 pub mod particle_type;

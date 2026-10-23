@@ -763,10 +763,9 @@ fn building_body_lookup_respects_name_pattern_category_and_bound_file() {
         )
     };
     assert_eq!(load("XAFOO", None).unwrap().found_name, "XAFOO.SHP");
-    assert!(
-        load("YAMOBILE", None).is_none(),
-        "only a Building gets the final pass"
-    );
+    // TechnoRead715820/715825 replaces the parent's generic G retry with
+    // one plain YAYARD.SHP load. Its miss clears the earlier YGYARD shape.
+    assert!(load("YAMOBILE", None).is_none());
     assert_eq!(
         load("YAYARD", Some("XAFOO.SHP")).unwrap().found_name,
         "XAFOO.SHP",

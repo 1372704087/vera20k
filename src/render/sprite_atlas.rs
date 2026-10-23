@@ -1593,21 +1593,7 @@ fn projectile_shp_candidates(
     let Some(load) = &projectile.image_load else {
         return Vec::new();
     };
-    let theater = load.theater;
-    let upper = load.image.to_ascii_uppercase();
-    let [substituted, generic] = crate::rules::art_data::theater_shp_names(&upper, theater_name);
-    let first = if !theater && load.new_theater {
-        substituted
-    } else {
-        upper
-    };
-    let ext = if theater { theater_ext } else { "SHP" };
-    let mut candidates = vec![format!("{first}.{ext}")];
-    let fallback = format!("{generic}.{ext}");
-    if fallback != candidates[0] {
-        candidates.push(fallback);
-    }
-    candidates
+    load.shp_names(theater_ext, theater_name)
 }
 
 /// Every frame of every drawable BulletType; a `FirersPalette=` type in each
@@ -2442,7 +2428,8 @@ impl<'a> ShpSource<'a> {
 /// make and parachute SHPs), so frames come from the file they were counted
 /// in. Building bodies resolve through
 /// [`art_data::building_body_shp_candidates`]; other bodies keep the object
-/// naming path through rules/art `Image=`.
+/// load requests retained by the Rules/type-load owner. Explicit raw-image
+/// callers retain the legacy object naming path.
 fn load_shp_source<'a>(
     asset_manager: &'a AssetManager,
     type_id: &str,
@@ -2483,6 +2470,13 @@ fn load_shp_source<'a>(
                     theater_ext,
                     theater_name,
                 )
+            } else if let Some(object) = object {
+                // ObjectTypeLoadSHP5F9070 and TechnoRead715820 record the
+                // final attempt; current Image or a fresh ART redirect cannot
+                // replace it or manufacture a fallback after a plain miss.
+                object
+                    .shp_image_load()?
+                    .shp_names(theater_ext, theater_name)
             } else {
                 art_data::object_shp_candidates(art, &image, theater_ext, theater_name)
             }

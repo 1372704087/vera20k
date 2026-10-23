@@ -153,6 +153,88 @@ mod tests {
     use crate::rules::ruleset::RuleSet;
 
     #[test]
+    fn arctic_image_layers_keep_cached_art_latch_and_prior_shape() {
+        use crate::rules::process_owner::{NativeRulesProcessOwner, NativeScenarioRulesPrefix};
+        let directory = crate::map::source::test_support::TestDirectory::new("arctic-image-layers");
+        for (name, color) in [
+            ("FIRSTA.SHP", [10, 20, 30]),
+            ("MISSA.SHP", [40, 50, 60]),
+            ("PLAIN.SHP", [70, 80, 90]),
+        ] {
+            directory.write(name, &test_shp_with_radar_color(color));
+        }
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        let root = IniFile::from_str(
+            "[InfantryTypes]\n0=SWAP\n1=OVERWRITE\n\
+             [SWAP]\nImage=FIRST\nAlternateArcticArt=yes\n\
+             [OVERWRITE]\nImage=FIRST\nAlternateArcticArt=yes\n\
+             [TerrainTypes]\n0=CACHED\n1=UNCACHED\n2=PRESERVED\n\
+             [CACHED]\nImage=FIRST\nAlternateArcticArt=yes\n\
+             [UNCACHED]\nImage=MISS\nAlternateArcticArt=yes\n\
+             [PRESERVED]\nImage=PLAIN\n",
+        );
+        let art = IniFile::from_str(
+            "[FIRST]\nFoundation=2x2\n[FIRSTA]\nFoundation=3x3\n\
+             [MISSA]\nFoundation=2x1\n[SECOND]\nVoxel=yes\n\
+             [PLAIN]\nTheater=no\n[VOX]\nVoxel=yes\nTheater=yes\n",
+        );
+        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+            root,
+            None,
+            art,
+            Default::default(),
+            Default::default(),
+        )
+        .unwrap();
+        let (mut rules, _, _, _) = owner
+            .load_scenario(
+                NativeScenarioRulesPrefix::NonCampaign(None),
+                &IniFile::from_str(
+                    "[Map]\nTheater=SNOW\n[SWAP]\nImage=SECOND\n\
+                               [OVERWRITE]\nImage=PLAIN\n[PRESERVED]\nImage=VOX\n",
+                ),
+            )
+            .unwrap()
+            .into_parts();
+        rules.bind_terrain_assets(&assets, "SNO", TerrainAssetLoadPhase::Fresh);
+        // Terrain71DF79 reuses a successful pre-prefix ART cache, but a
+        // miss can find the new Arctic name. Voxel skips the parent's shape
+        // clear5F963C, so the third type still reads its prior SHP header.
+        let cached = rules
+            .terrain_object_type_case_insensitive("CACHED")
+            .unwrap();
+        assert_eq!(cached.foundation, "2x2");
+        assert_eq!(cached.radar_color, [10, 20, 30]);
+        assert_eq!(rules.terrain_shape_filename("CACHED"), Some("FIRSTA.SHP"));
+        assert_eq!(
+            rules
+                .terrain_object_type_case_insensitive("UNCACHED")
+                .unwrap()
+                .foundation,
+            "2x1"
+        );
+        assert_eq!(
+            rules
+                .terrain_object_type_case_insensitive("PRESERVED")
+                .unwrap()
+                .radar_color,
+            [70, 80, 90]
+        );
+        let swapped = rules.object("SWAP").unwrap();
+        assert_eq!(swapped.image, "SECOND");
+        // TechnoRead715820/715825 replaces the parent's shape with one
+        // plain Image.SHP attempt even when Voxel skipped the parent load.
+        assert_eq!(swapped.shp_image_load().unwrap().image, "SECOND");
+        assert_eq!(
+            swapped.shp_image_load().unwrap().shp_names("SNO", "SNOW"),
+            ["SECOND.SHP"]
+        );
+        // ObjectLoadSHP5F90A0's latch survives a later Image overwrite. The
+        // name need not end in A, and a missing PLAIN.SHP would not undo it.
+        assert_eq!(rules.object("OVERWRITE").unwrap().image, "PLAIN");
+    }
+
+    #[test]
     fn terrain_image_reads_retain_flags_foundation_and_color_before_saved_shape_rebuild() {
         let directory = crate::map::source::test_support::TestDirectory::new("terrain-image-reads");
         for (name, color) in [

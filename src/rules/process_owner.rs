@@ -18,6 +18,10 @@ mod selection_voice_tests;
 #[path = "planning_rules_tests.rs"]
 mod planning_rules_tests;
 
+#[cfg(test)]
+#[path = "object_image_tests.rs"]
+mod object_image_tests;
+
 use std::sync::Arc;
 
 use crate::rules::error::RulesError;
@@ -501,6 +505,7 @@ impl NativeRulesProcessOwner {
     pub fn random_map_preview_projection(
         &self,
         mode_rules_override: Option<&IniFile>,
+        theater_name: &str,
     ) -> Result<ProcessedRulesLayers, RulesError> {
         let mut layers = self.startup_layers();
         if let Some(mode) = mode_rules_override {
@@ -510,7 +515,9 @@ impl NativeRulesProcessOwner {
             .process_with_fixed_art_and_registry_state_recovering(
                 &self.sources.fixed_art,
                 NativeRulesRegistryState::default(),
-                RulesProcessContext::ScenarioReset,
+                RulesProcessContext::ScenarioReset(
+                    crate::rules::object_image::ImageTheater::from_name(theater_name),
+                ),
                 &self.sources.fixed_eva,
             )
             .map_err(|failure| failure.into_parts().0)
@@ -671,7 +678,9 @@ impl NativeRulesProcessOwner {
         let mut processed = match layers.process_with_fixed_art_and_registry_state_recovering(
             &self.sources.fixed_art,
             pre_reset_state,
-            RulesProcessContext::ScenarioReset,
+            RulesProcessContext::ScenarioReset(crate::rules::object_image::ImageTheater::from_map(
+                map_rules_overrides,
+            )),
             &self.sources.fixed_eva,
         ) {
             Ok(processed) => processed,

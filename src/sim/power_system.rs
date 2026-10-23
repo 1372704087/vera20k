@@ -490,15 +490,6 @@ pub(crate) fn is_operational_for_output(
         && facts.effective_mission != 0x13
 }
 
-/// House508CB0/508CB8 tests limbo(+81) and cell-marked(+74), not ObjectAlive
-/// (+90) or actual HP. Rust tombstones remain excluded until physical removal.
-fn participates_in_power_accounting(entity: &GameEntity) -> bool {
-    entity.category() == EntityCategory::Structure
-        && !entity.death.is_dying()
-        && !entity.lifecycle.in_limbo()
-        && entity.lifecycle.cell_marked()
-}
-
 /// Recalculate power totals for a single owner from their buildings.
 ///
 /// Building44E85F..44E86A multiplies native signed-health/live-Strength x87
@@ -516,8 +507,8 @@ fn participates_in_power_accounting(entity: &GameEntity) -> bool {
 fn recalculate_power_for_owner(
     state: &mut PowerState,
     entities: &EntityStore,
+    building_order: &[u64],
     rules: &RuleSet,
-    owner_id: InternedId,
     interner: &crate::sim::intern::StringInterner,
     binary_frame: u32,
     require_discovery: bool,
@@ -525,9 +516,17 @@ fn recalculate_power_for_owner(
     let mut produced: i32 = 0;
     let mut drained: i32 = 0;
     let mut has_drained_power_source = false;
-    for entity in entities.values() {
-        if !participates_in_power_accounting(entity)
-            || entity.owner() != owner_id
+    // House508C8B..508D3E scans the retained House+68 roster, not all stored
+    // entities. Destroy/expiry4FBC1C removes a building before an Explodes
+    // zero-fuse body necessarily leaves the map. It skips NULL, limbo(+81),
+    // unmarked(+74), and (campaign-only508CC7) undiscovered(+41B) entries;
+    // health, Alive and death do not gate it.
+    for &id in building_order {
+        let Some(entity) = entities.get(id) else {
+            continue;
+        };
+        if entity.lifecycle.in_limbo()
+            || !entity.lifecycle.cell_marked()
             || (require_discovery && !entity.discovery.discovered_by_current_house())
         {
             continue;
@@ -632,7 +631,7 @@ pub(crate) fn tick_power_states(
     owners.extend(
         entities
             .values()
-            .filter(|entity| participates_in_power_accounting(entity))
+            .filter(|entity| entity.category() == EntityCategory::Structure)
             .map(GameEntity::owner),
     );
     owners.sort_unstable();
@@ -641,16 +640,6 @@ pub(crate) fn tick_power_states(
     for &owner_id in &owners {
         let state = power_states.house_mut(owner_id);
         state.invalidate(true);
-        // This raw-store fixture has no House/session discovery policy.
-        assess_house_power(
-            state,
-            entities,
-            rules,
-            owner_id,
-            interner,
-            binary_frame,
-            false,
-        );
         let buildings: Vec<u64> = entities
             .values()
             .filter(|entity| {
@@ -658,6 +647,16 @@ pub(crate) fn tick_power_states(
             })
             .map(|entity| entity.stable_id())
             .collect();
+        // This raw-store fixture has no House/session discovery policy.
+        assess_house_power(
+            state,
+            entities,
+            &buildings,
+            rules,
+            interner,
+            binary_frame,
+            false,
+        );
         assess_house_radar_projection(
             state,
             entities,
@@ -681,8 +680,8 @@ pub(crate) fn tick_power_states(
 pub(crate) fn assess_house_power(
     state: &mut PowerState,
     entities: &EntityStore,
+    building_order: &[u64],
     rules: &RuleSet,
-    owner: InternedId,
     interner: &crate::sim::intern::StringInterner,
     binary_frame: u32,
     require_discovery: bool,
@@ -703,8 +702,8 @@ pub(crate) fn assess_house_power(
     recalculate_power_for_owner(
         state,
         entities,
+        building_order,
         rules,
-        owner,
         interner,
         binary_frame,
         require_discovery,
@@ -938,9 +937,7 @@ mod tests {
             };
             state.set_radar_outage_for_test(CdTimer::from_raw(int(&row[0]), int(&row[1])));
             let frame = int(&row[2]) as u32;
-            let _ = assess_house_power(
-                &mut state, &entities, &rules, owner, &interner, frame, false,
-            );
+            let _ = assess_house_power(&mut state, &entities, &[], &rules, &interner, frame, false);
             assert_eq!(
                 (state.radar_outage_timer, state.radar_dirty),
                 (CdTimer::from_raw(int(&row[3]), int(&row[4])), row[5] == 1),
@@ -1142,15 +1139,14 @@ BuildSpeed=0.02
                         .then(|| intern::test_intern("OTHER")),
                 ],
             );
-            let owner = host.owner();
             let mut entities = EntityStore::new();
             entities.insert(host);
             let mut state = PowerState::default();
             recalculate_power_for_owner(
                 &mut state,
                 &entities,
+                &[1],
                 &rules,
-                owner,
                 &test_interner(),
                 0,
                 false,
@@ -1188,13 +1184,12 @@ BuildSpeed=0.02
                 .lifecycle
                 .set_in_limbo_for_test(input["limbo"].as_bool().unwrap());
             store.insert(plant);
-            let owner = intern::test_intern("Allies");
             let mut state = PowerState::default();
             recalculate_power_for_owner(
                 &mut state,
                 &store,
+                &[1],
                 &rules,
-                owner,
                 &test_interner(),
                 0,
                 false,
